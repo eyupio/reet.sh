@@ -233,8 +233,8 @@ A session whose launch was refused is recorded as `lost`, and a replay of that
 request id returns the same refusal without contacting the machine.
 
 Viewers, API and MCP tokens, and legacy auth modes are blocked by the existing
-terminal access checks, exactly as for a plain create. The per-machine and
-per-account session limits and the local consent check are unchanged.
+terminal access checks, exactly as for a plain create. The session limits (24 live sessions
+on a machine, 64 across an account, enforced by the browser) and the local consent check are unchanged.
 
 ## Idempotency
 

@@ -31,6 +31,12 @@ type CommandHistory struct {
 func (CommandHistory) kind() string  { return "command_history" }
 func (h CommandHistory) valid() bool { return ValidID(h.StreamToken) }
 
+// PaneHistorySource is the source of a desk pane's own history: its entries
+// come first, and a pane whose shell keeps none is a source marked
+// unavailable with the reason. A machine sends it only on a connection that
+// negotiated desk-shell-v1, whose controller accepts it.
+const PaneHistorySource = "pane"
+
 type CommandHistoryEntry struct {
 	Command   string `json:"command"`
 	Source    string `json:"source"`
@@ -63,7 +69,7 @@ func ValidCommandText(text string) bool {
 }
 func (h CommandHistorySnapshot) Validate() error {
 	validSlices := h.Entries != nil && h.Sources != nil
-	validCounts := len(h.Entries) <= MaxCommandHistoryEntries && len(h.Sources) <= 2
+	validCounts := len(h.Entries) <= MaxCommandHistoryEntries && len(h.Sources) <= 3
 	validSkipped := h.Skipped >= 0 && h.Skipped <= 1<<20
 	valid := validSlices && validCounts && validSkipped
 	if !valid {
@@ -72,7 +78,7 @@ func (h CommandHistorySnapshot) Validate() error {
 	sources := map[string]bool{}
 	seen := map[string]bool{}
 	for _, source := range h.Sources {
-		validSource := source.Source == "bash" || source.Source == "zsh"
+		validSource := source.Source == "bash" || source.Source == "zsh" || source.Source == PaneHistorySource
 		uniqueSource := !seen[source.Source]
 		validReason := plainText(source.Reason, 200)
 		valid := validSource && uniqueSource && validReason

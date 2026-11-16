@@ -34,7 +34,7 @@ try {
   await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   const top = await tabs(page).getByRole('link').allInnerTexts()
-  expect(top.map(t=>t.trim())).toEqual(['Home','Factory','Sessions','Machines','Skills'])
+  expect(top.map(t=>t.trim())).toEqual(['Home','Factory','Sessions','Desks','Machines','Skills'])
   await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
   for (const [name,href] of [['Home','/'],['Sessions','/sessions'],['Machines','/machines'],['Skills','/skills']])
    await expect(tabs(page).getByRole('link',{name,exact:true})).toHaveAttribute('href',href)
@@ -157,7 +157,7 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Community','Support','Documentation','Teams & organisations','Instance administration'])
+   expect(links.map(t=>t.trim())).toEqual(['Desks','Skills','Library','Prompts','Setups','Lists','Write a skill','Community','Support','Documentation','Teams & organisations','Instance administration'])
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()

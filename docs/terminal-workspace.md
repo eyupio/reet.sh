@@ -5,13 +5,15 @@
 Signing in lands on **Home** (`/`). Every figure on it comes from a record that exists today; anything without one is
 left out or says so in words.
 
-**The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines and Skills in the top bar, with
+**The tabs.** A desktop (1100 px and wider) shows Home, Factory, Sessions, Desks, Machines and Skills in the top bar
+(Factory and Desks for an accounts sign-in that can start sessions), with
 **Jump to a session, project, skill or machine**, the bell and the account menu. Activity is a section of the account page at
 `/account/activity`; the old `/activity` address opens it. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
-Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
-has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Sessions, Machines and More. While
+Home, Factory, Sessions and Machines in the top bar, with **More** beside them for the rest (Desks included) and a search
+button for Jump. A phone has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Factory,
+Sessions, Machines and More, with Desks under More. While
 the phone keyboard is up for Jump, the bottom bar steps aside, and Jump's results end above the keyboard. Sessions and
 the bell are for a writer in accounts mode only. Jump lists sessions, folder projects, shelf skills and machines; a
 skill row carries its saved sync intent, and choosing it brings that card into view on the shelf.
@@ -61,6 +63,11 @@ connector and session ID in the workspace below; `/terminals` redirects to `/ses
 session never creates a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.
 
+The workspace allows 24 live sessions on one machine and 64 across your account (creating, running and
+end-requested ones count); this is applied by the browser, not counted by the controller or machines. At the limit,
+New terminal and Start a new agent session are disabled and the New terminal dialog says "Session limit reached";
+existing sessions keep running.
+
 With no session open, the Sessions screen leads with what is running: **Pick up where you left off** lists up to eight
 running sessions, each with its machine and state, anything waiting for you first and then the most recently active.
 With no machine chosen (the Sessions tab on a phone) that is every machine's sessions; with one chosen, that machine's.
@@ -70,6 +77,15 @@ The Sessions page polls every 15 seconds while visible, times out requests
 after 10 seconds, and labels observations older than 45 seconds as last known.
 Transient errors preserve the last list; 401/403 clears it. Viewers get the Machines
 page there and request no terminal data. Viewing the list does not attach to a shell.
+
+## Desks
+
+A **desk** keeps several terminals together: tabs, each split into up to nine panes, each pane a session on any of your
+machines, saved to your account and reopened as you left them, with each shell's folder and, on an updated machine, its
+own command history. **Desks** is its own tab (`/desks`). A desk's terminals are ordinary sessions: they are listed here,
+count towards the limits above and keep running when the desk is closed. A running session's menu here and on Home has
+**Add to a desk…**, and a session on a desk shows the desk's name as a chip on its row that opens the desk at that pane.
+Everything else is in [Desks](desks.md).
 
 ## The session screen
 

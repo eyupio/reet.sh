@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -75,6 +76,11 @@ type Broker struct {
 	// endRetries holds the sessions a pending end is being retried for, so a
 	// transient answer failure does not leave it waiting forever.
 	endRetries map[endKey]struct{}
+	// forgetDesk holds the sessions whose end also removes their desk pane's
+	// history on the machine (End.ForgetDesk), until the machine answers that
+	// end. It lives in memory: an end resent after a controller restart ends
+	// the shell and leaves the pane's history file on the machine.
+	forgetDesk map[endKey]struct{}
 }
 
 // endKey is one session's pending end retry.
@@ -195,7 +201,7 @@ func ID() string {
 	return hex.EncodeToString(b[:])
 }
 func New(st *store.Store) *Broker {
-	b := &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{}), endRetries: map[endKey]struct{}{}}
+	b := &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{}), endRetries: map[endKey]struct{}{}, forgetDesk: map[endKey]struct{}{}}
 	b.wg.Add(1)
 	go b.sweepEnds()
 	return b
@@ -362,6 +368,7 @@ func (p *Peer) observe() {
 				code = s.ExitStatus
 			}
 			err := p.b.observe(p, p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
+			observed := err == nil || errors.Is(err, store.ErrRemoteNotFound)
 			hasActivity := s.ActivityAt > 0 || s.BellAt > 0
 			hasOutcome := s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)
 			signal := hasActivity || hasOutcome
@@ -374,6 +381,11 @@ func (p *Peer) observe() {
 			}
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)
+			}
+			if observed {
+				// Like the chat id above: a folder is kept only for a change
+				// the controller could observe.
+				p.b.recordLiveDir(p.key.uid, p.key.agent, m.SessionID, s.Dir)
 			}
 			unexpected := err != nil && !errors.Is(err, store.ErrRemoteNotFound)
 			if unexpected && !errors.Is(err, store.ErrTerminalConflict) {
@@ -725,6 +737,9 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 			}
 			p.b.restoreChat(p.key.uid, s)
 		}
+		if exists && observed.Dir != s.LiveDir {
+			p.b.recordLiveDir(p.key.uid, p.key.agent, s.ID, observed.Dir)
+		}
 		if exists && observed.ACPSessionID != "" {
 			if err := p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, s.ID, observed.ACPSessionID); err != nil && !errors.Is(err, store.ErrTerminalConflict) {
 				return err
@@ -766,6 +781,13 @@ var (
 	// ErrShellDirUnsupported means the machine did not negotiate shell-dir-v1;
 	// a plain shell in a chosen folder was not reserved.
 	ErrShellDirUnsupported = errors.New("machine does not support a shell in that folder")
+	// ErrDeskShellUnsupported means the machine did not negotiate
+	// desk-shell-v1; a create naming a desk pane was not reserved or sent.
+	ErrDeskShellUnsupported = errors.New("machine does not support desk shells")
+	// ErrFolderGone means the machine refused a desk pane's folder: it is
+	// missing, not a directory or cannot be entered there (launch_failed with
+	// the folder_gone detail).
+	ErrFolderGone = errors.New("that folder no longer exists on the machine")
 	// ErrLaunchFailed means the connector refused to start the agent
 	// (launch_failed): the tool or the folder is unavailable there.
 	ErrLaunchFailed = errors.New("machine could not start that agent")
@@ -797,7 +819,7 @@ func (b *Broker) auditYoloLaunch(uid int64, agent string, in terminalproto.Creat
 }
 
 func launchRequested(in terminalproto.Create) bool {
-	return in.Base != "" || in.Effort != "" || in.Provider != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
+	return in.Base != "" || in.Effort != "" || in.Provider != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in) || in.Desk != (terminalproto.DeskRef{})
 }
 func worktreeRequested(in terminalproto.Create) bool { return in.Worktree != "" || in.Project != "" }
 
@@ -810,6 +832,14 @@ func (b *Broker) Create(ctx context.Context, uid int64, agent, request string, i
 // session started (false for a replay of a known outcome), so callers can
 // record a launch exactly once.
 func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, bool, error) {
+	return b.CreateSessionReserved(ctx, uid, agent, request, in, nil)
+}
+
+// CreateSessionReserved is CreateSession with a hook that runs once, after this
+// call reserved a new session and before the machine is asked to start it (a
+// replay of a request already reserved does not run it). When the hook fails,
+// the reservation is failed, nothing is sent and the hook's error is returned.
+func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, request string, in terminalproto.Create, reserved func(store.TerminalSession) error) (store.TerminalSession, bool, error) {
 	// A launch is checked in full before any peer state, so a malformed or
 	// refused launch never reserves a session or reaches the connector.
 	// An agent no connector starts (disabled or unknown) is refused as such,
@@ -933,8 +963,14 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.ResumeACP != "" && !validResume {
 			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
-		if in.Tool == "" && in.Dir != "" {
-			if !caps.Capabilities.ShellDir {
+		deskShell := in.Desk != (terminalproto.DeskRef{})
+		if in.Tool == "" && (in.Dir != "" || deskShell) {
+			// A desk reference reaches only a machine that negotiated
+			// desk-shell-v1, a folder only one with shell-dir-v1.
+			if deskShell && !caps.Capabilities.DeskShell {
+				return store.TerminalSession{}, false, ErrDeskShellUnsupported
+			}
+			if in.Dir != "" && !caps.Capabilities.ShellDir {
 				return store.TerminalSession{}, false, ErrShellDirUnsupported
 			}
 		} else {
@@ -949,6 +985,22 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	s, created, err := b.st.ReserveTerminalCreateFor(uid, agent, request, p.Generation, in)
 	if err != nil {
 		return s, false, err
+	}
+	if created && reserved != nil {
+		if hookErr := reserved(s); hookErr != nil {
+			// Nothing was sent: the reservation is refused here, so the
+			// session ends as lost and frees its place, and is removed from
+			// Sessions' history at once, since nothing ever ran in it.
+			if err := b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, terminalproto.Unavailable); err != nil {
+				log.Printf("terminal: could not fail the unsent create %s: %v", request, err)
+			} else if err := b.st.ArchiveTerminalFor(uid, s.ID); err != nil {
+				log.Printf("terminal: could not remove the unsent create %s from history: %v", request, err)
+			}
+			if failed, err := b.st.TerminalSessionFor(uid, s.ID); err == nil {
+				s = failed
+			}
+			return s, false, hookErr
+		}
 	}
 	if in.Structured {
 		// The machine may stream its first status before the create reply
@@ -975,6 +1027,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 				case terminalproto.YoloRefused:
 					return s, false, ErrYoloRefused
 				case terminalproto.LaunchFailed:
+					if op.Detail == terminalproto.FolderGone {
+						return s, false, ErrFolderGone
+					}
 					return s, false, ErrLaunchFailed
 				case terminalproto.WorktreeRefused:
 					if op.Reason != "" {
@@ -1049,6 +1104,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 			refusal = ErrYoloRefused
 		case terminalproto.LaunchFailed:
 			refusal = ErrLaunchFailed
+			if r.Detail == terminalproto.FolderGone {
+				refusal = ErrFolderGone
+			}
 		case terminalproto.WorktreeRefused:
 			refusal = &WorktreeError{Reason: r.Reason, Detail: r.Detail}
 		default:
@@ -1075,11 +1133,25 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	}
 	return s, started, nil
 }
-func (p *Peer) end(ctx context.Context, session, request string) error {
-	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: session, Body: terminalproto.End{}})
+func (p *Peer) end(ctx context.Context, session, request string, forgetDesk ...bool) error {
+	k := endKey{uid: p.key.uid, agent: p.key.agent, session: session}
+	p.b.mu.Lock()
+	_, forget := p.b.forgetDesk[k]
+	p.b.mu.Unlock()
+	forget = forget || len(forgetDesk) > 0 && forgetDesk[0]
+	// ForgetDesk reaches only a machine that negotiated desk-shell-v1; an
+	// older one's strict decoder would refuse the whole end.
+	if forget {
+		caps, err := p.b.st.RemoteCapabilitiesFor(p.key.uid, p.key.agent)
+		forget = err == nil && caps.Capabilities.DeskShell
+	}
+	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: session, Body: terminalproto.End{ForgetDesk: forget}})
 	if err != nil {
 		return err
 	}
+	// Any answer means the machine heard this end, so the mark has done its
+	// work whatever the answer says.
+	p.b.dropForgetDesk(k)
 	switch body := reply.Body.(type) {
 	case *terminalproto.SessionChanged:
 		return p.b.observe(p, p.key.uid, p.key.agent, session, p.Generation, body.State, body.ExitCode)
@@ -1092,6 +1164,14 @@ func (p *Peer) end(ctx context.Context, session, request string) error {
 		}
 	}
 	return ErrOffline
+}
+
+// dropForgetDesk forgets that an end should remove its desk pane's history:
+// the end was answered, or will not be sent again.
+func (b *Broker) dropForgetDesk(k endKey) {
+	b.mu.Lock()
+	delete(b.forgetDesk, k)
+	b.mu.Unlock()
 }
 
 // OnSessionClosed sets fn to hear that a session row reached a closed state.
@@ -1130,6 +1210,11 @@ func (b *Broker) OnSessionBase(fn func(uid int64, agent, session string, base te
 // is still synchronizing is left to the peer-ready sweep.
 func (b *Broker) observe(p *Peer, uid int64, agent, session string, generation int64, state terminalproto.SessionState, code *int) error {
 	err := b.st.ObserveTerminalStateFor(uid, agent, session, generation, state, code)
+	if err == nil && state.Closed() {
+		// A session that closed has no pending end left to resend; an end
+		// in flight already carries what its mark said.
+		b.dropForgetDesk(endKey{uid: uid, agent: agent, session: session})
+	}
 	if err == nil && state.Closed() && p.isReady() {
 		b.mu.Lock()
 		fn := b.sessionClosed
@@ -1139,6 +1224,17 @@ func (b *Broker) observe(p *Peer, uid int64, agent, session string, generation i
 		}
 	}
 	return err
+}
+
+// recordLiveDir keeps the live folder a desk-shell-v1 machine reported for a
+// session on its record and on the desk pane that holds it. Only a machine
+// that negotiated desk-shell-v1 ever sends one; empty means no news. A folder
+// that cannot be recorded is dropped: it never costs the machine its link.
+func (b *Broker) recordLiveDir(uid int64, agent, session, dir string) {
+	if dir == "" {
+		return
+	}
+	_ = b.st.RecordTerminalLiveDirFor(uid, agent, session, dir, time.Now().UnixMilli())
 }
 
 func (p *Peer) isReady() bool {
@@ -1157,6 +1253,18 @@ func (b *Broker) notifyPeerReady(uid int64, agent string) {
 }
 
 func (b *Broker) End(ctx context.Context, uid int64, session, request string, removeHistory ...bool) (store.TerminalSession, error) {
+	return b.end(ctx, uid, session, request, false, removeHistory...)
+}
+
+// EndDeskPane is End for the shell of a desk pane that is gone for good (End
+// the shell, or a desk deleted with its shells): a machine that negotiated
+// desk-shell-v1 also removes that pane's history file. Taking a pane off a
+// desk is not this; it keeps the history with the session.
+func (b *Broker) EndDeskPane(ctx context.Context, uid int64, session, request string, removeHistory bool) (store.TerminalSession, error) {
+	return b.end(ctx, uid, session, request, true, removeHistory)
+}
+
+func (b *Broker) end(ctx context.Context, uid int64, session, request string, forgetDesk bool, removeHistory ...bool) (store.TerminalSession, error) {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil {
 		return s, err
@@ -1165,15 +1273,26 @@ func (b *Broker) End(ctx context.Context, uid int64, session, request string, re
 	if err != nil {
 		return s, err
 	}
+	// A shell that already exited is still sent this end, so the mark is
+	// set whatever the session's state; it is kept for a retry or a
+	// reconnect's resend and dropped once the end is answered or will not be
+	// sent again.
+	k := endKey{uid: uid, agent: s.AgentID, session: session}
 	b.mu.Lock()
+	if forgetDesk {
+		b.forgetDesk[k] = struct{}{}
+	}
 	if v := b.bridges[session]; v != nil {
 		v.Close()
 	}
 	b.mu.Unlock()
 	if p, e := b.peer(uid, s.AgentID, false); e == nil {
-		if err := p.end(ctx, session, request); err != nil {
+		if err := p.end(ctx, session, request, forgetDesk); err != nil {
 			b.retryEnd(uid, s.AgentID, session, request, p.Generation)
 		}
+	} else if !s.State.ReservesQuota() {
+		// No pending end is left for a reconnect to resend.
+		b.dropForgetDesk(k)
 	}
 	return b.st.TerminalSessionFor(uid, session)
 }
@@ -1212,10 +1331,12 @@ func (b *Broker) retryEnd(uid int64, agent, session, request string, generation 
 			}
 			s, err := b.st.TerminalSessionFor(uid, session)
 			if err != nil || !s.State.ReservesQuota() {
+				b.dropForgetDesk(k) // settled without this end: never resent
 				return
 			}
 			op, err := b.st.TerminalOperationFor(uid, agent, "end", request)
 			if err != nil || op.State != "pending" {
+				b.dropForgetDesk(k)
 				return
 			}
 			if err := p.end(context.Background(), session, request); err == nil {

@@ -563,6 +563,7 @@ func shellSnapshots(sessions []terminalhost.ManagedSession, features string) []t
 		out = append(out, terminalproto.SessionSnapshot{
 			ID: s.ID, Title: s.Title, State: s.State, ExitCode: s.ExitCode,
 			ActivityAt: s.ActivityAt, BellAt: s.BellAt, ExitStatus: s.ExitCode,
+			Dir: s.LiveDir,
 		}.ForFeatures(features))
 	}
 	return out

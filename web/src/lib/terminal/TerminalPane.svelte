@@ -1,3 +1,23 @@
+<script lang="ts" module>
+  /** The toolbar's actions and the state its buttons show, for a screen that draws one toolbar for several panes
+   *  (chrome={false}). The fields are read live: a toolbar that reads them follows the pane. */
+  export type TerminalActions = {
+    readonly live: boolean; readonly scrollback: boolean; readonly searching: boolean
+    readonly uploadsSupported: boolean; readonly uploadsOff: boolean; readonly skills: boolean; readonly skillsOff: string
+    earlierOutput(): void; compose(): void; search(): void; copy(): void; copyScreen(): void; selectText(): void; paste(): void
+    attach(): void; interrupt(): void; commands(): void; prompts(opener: HTMLButtonElement): void; openSkills(): void
+    appearance(): void; history(): void; focus(): void
+    /** Whether the program here takes a paste as one block (bracketed paste). */
+    readonly bracketed: boolean
+    /** Bytes handed over now would be sent now: live, with its socket open (not closing). */
+    canSend(): boolean
+    /** Sends input another pane reported (`oninput`) to this shell: text as typed, or `paste` through this terminal's
+     *  own paste, without the on-screen keys' modifiers. Never reported again here. True only once the bytes were handed
+     *  to the socket. */
+    send(data: string, paste?: boolean): boolean
+  }
+</script>
+
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { Terminal, type ITheme } from '@xterm/xterm'
@@ -32,7 +52,16 @@
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { nativeView=false, visible=true, session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false,headerTheatre=false }: { nativeView?:boolean; visible?:boolean; session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean;headerTheatre?:boolean } = $props()
+  let { nativeView=false, visible=true, session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false,headerTheatre=false,onconnection,chrome=true,actions=$bindable(),oninput }: { nativeView?:boolean; visible?:boolean; session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean;headerTheatre?:boolean;
+    /** Told each time the attachment changes state (a desk pane draws its own words for open elsewhere and reconnecting). */
+    onconnection?:(state:ConnectionState)=>void
+    /** false hides the pane's own header, toolbar and footer; the screen draws one toolbar from `actions` (a desk). */
+    chrome?:boolean
+    actions?:TerminalActions
+    /** Told of typed keys, a paste and Compose's text once this pane has sent them (a desk's Type in all panes); `at` is
+     *  when the input was made (a paste held for review was made before it was confirmed). Not told of inserts (Commands,
+     *  Prompts, Skills, History, attached files), Interrupt, `type`, input that was not sent, or mouse and focus reports. */
+    oninput?:(data:string,paste:boolean,at:number)=>void } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -47,7 +76,7 @@
   let contextMenu = $state<{x:number;y:number}|null>(null), menu = $state<HTMLElement>(), hasSelection = $state(false)
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   let feedback = $state(''), terminalBackground=$state('#101820'),terminalForeground=$state('#dce5ef')
-  let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
+  let pendingPaste = $state<{text:string;generation:number;execute?:boolean;share?:boolean;at?:number}|null>(null), generation=0, alive=true
   let fileInput=$state<HTMLInputElement>(), uploads=$state<{id:number;name:string;size:number;controller:AbortController}[]>([])
   let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), staleReason=$state<'connection'|'scrollback'>('connection'), uploadSeq=0
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),promptsOpen=$state(false),promptButton=$state<HTMLButtonElement>(),palette=$state('system'),cursor=$state<CursorShape>('bar')
@@ -77,7 +106,26 @@
   let keyGroup = $state(keyGroups[0].id)
   const shownGroup = $derived(keyGroups.find(group=>group.id===keyGroup)??keyGroups[0])
   try{keysOpen=localStorage.getItem('reet-terminal-keys-open')==='1';const stored=localStorage.getItem('reet-terminal-keys-group');if(stored&&keyGroups.some(group=>group.id===stored))keyGroup=stored}catch{/* optional preference */}
+  // Every paste into xterm goes through pasteRaw, so xterm's own echo of it (onData) is never taken for typing. It says
+  // whether the bytes were handed to the socket. `relay`: input from another pane, written without this pane's modifiers.
+  let pasting=false,relaying=false,pasteSent=false,pasteFired=false
+  function pasteRaw(text:string,relay=false):boolean{
+    pasting=true;relaying=relay;pasteSent=true;pasteFired=false
+    try{terminal?.paste(text)}finally{pasting=false;relaying=false}
+    return pasteFired&&pasteSent
+  }
+  const report=(data:string,paste:boolean,at=performance.now())=>oninput?.(data,paste,at)
+  // Mouse and focus reports, and xterm's answers to a program's queries (device attributes, cursor position, status,
+  // window and mode reports, OSC and DCS replies), are xterm's, not the person's typing.
+  const REPORT=/^\x1b(?:\[(?:[IO]|<\d+;\d+;\d+[Mm]|M[\s\S]{3}|\d+;\d+;\d+M|[?>]?[\d;]*[cRnt]|\??[\d;]*\$y)|[\]P][\s\S]+)$/
   export function disconnect(){connection?.detach()}
+  /** Use it here: take the terminal over from another window. */
+  export function takeOver(){void connection?.connect(true)}
+  /** Retry now, while reconnecting. */
+  export function retryNow(){connection?.recover()}
+  /** Types text into the live shell through the same path as the keyboard; false when it is not live (nothing sent). */
+  export function type(text:string):boolean{if(!live||scrollbackOpen)return false;held=afterKey(held);return !!connection?.text(text)}
+  $effect(()=>{onconnection?.(connectionState)})
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
   function chooseCopyOnSelect(on:boolean){copyOnSelect=on;if(!on){clearTimeout(selectionTimer);selectionTimer=undefined}try{localStorage.setItem('reet-terminal-copy-on-select',on?'1':'0')}catch{/* optional preference */}}
@@ -98,8 +146,10 @@
     const clean=sanitizePaste(text)
     if(!clean)return
     if(pasteTooLarge(clean)){feedback='That is too long to send at once. Limit it to 240 KiB.';return}
-    held=afterKey(held);terminal?.paste(clean)
-    if(enter&&!connection?.text('\r')){feedback='Connection changed while sending. Check the terminal before sending again.';return}
+    // This pane first: only what it sent goes on to other panes.
+    held=afterKey(held);const sent=pasteRaw(clean)
+    if(sent)report(clean,true)
+    if(enter){if(!connection?.text('\r')){feedback='Connection changed while sending. Check the terminal before sending again.';return}if(sent)report('\r',false)}
     composeDraft='';feedback=enter?'Sent.':'Inserted. Press Enter in the terminal to send it.'
     if(!touch)terminal?.focus()
   }
@@ -230,7 +280,7 @@
     const messages:string[]=[]
     if(references.length){
       if(uploadInsertionAllowed(started,generation,live,alive)&&!scrollbackOpen){
-        terminal?.paste(joinReferences(references))
+        pasteRaw(joinReferences(references))
         messages.push(references.length===1?'Uploaded and inserted the path.':`Uploaded ${references.length} images and inserted their paths.`)
       } else {
         staleUploads=references
@@ -284,7 +334,8 @@
     const copied=await copyText(staleUploads.join(' '))
     feedback=copied?'Path copied.':'Clipboard access was denied. Use your browser’s copy command.'
   }
-  function paste(text:string,review=false) {
+  /** `share`: a paste the person made (keyboard, Paste, the menu), told to `oninput`; an insert is not. */
+  function paste(text:string,review=false,share=false) {
     feedback=''
     const clean=sanitizePaste(text)
     if(!clean){feedback='Nothing to paste.';return}
@@ -292,8 +343,8 @@
     if(!live){feedback='Reconnect before pasting. Nothing was sent.';return}
     if(pasteTooLarge(clean)){feedback='Paste is too large. Limit it to 240 KiB.';return}
     const {review:needsReview}=pasteNeedsReview(clean,{bracketed:terminal?.modes.bracketedPasteMode===true,force:review})
-    if(needsReview){pendingPaste={text:clean,generation};return}
-    held=afterKey(held);terminal?.paste(clean)
+    if(needsReview){pendingPaste={text:clean,generation,share,at:performance.now()};return}
+    held=afterKey(held);if(pasteRaw(clean)&&share)report(clean,true)
     const lines=clean.split('\n').length
     if(lines>1)feedback=`Pasted ${lines} lines as one block.`
   }
@@ -304,7 +355,7 @@
     if(!alive||!live||pending.generation!==generation){feedback=pending.execute?'Connection changed. Choose the command again after reconnecting; nothing was sent.':'Connection changed. Paste again after reconnecting; nothing was sent.';return}
     const text=sanitizePaste(pending.text)
     if(!text){feedback='Nothing to paste.';terminal?.focus();return}
-    held=afterKey(held);terminal?.paste(text)
+    held=afterKey(held);if(pasteRaw(text)&&pending.share&&!pending.execute)report(text,true,pending.at)
     if(pending.execute)feedback=connection?.text('\r')?'Command sent to the active terminal.':'Connection changed while sending. Check the terminal before retrying.'
     terminal?.focus()
   }
@@ -319,7 +370,7 @@
       if(items){
         for(const item of items){
           if(!item.types.includes('text/plain'))continue
-          paste(await (await item.getType('text/plain')).text());return
+          paste(await (await item.getType('text/plain')).text(),false,true);return
         }
         const images:File[]=[]
         for(const item of items){
@@ -337,7 +388,7 @@
       const text=await navigator.clipboard.readText()
       if(!alive)return
       if(started!==generation){feedback='Connection changed. Paste again; nothing was sent.';return}
-      paste(text)
+      paste(text,false,true)
     } catch {
       if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'
     } finally {restoreFocus()}
@@ -346,7 +397,7 @@
   // then used up. On a touch screen the focus is left where it was: the keys never take it (onpointerdown), so a
   // terminal that had it keeps it and the phone's own keyboard stays as it was, open or closed. With a mouse the
   // terminal takes the focus, as it always did.
-  function press(value:string) { if(!live||scrollbackOpen)return; const text=withModifiers(value,activeModifiers(held)); held=afterKey(held); connection?.text(text); if(!touch)terminal?.focus() }
+  function press(value:string) { if(!live||scrollbackOpen)return; const text=withModifiers(value,activeModifiers(held)); held=afterKey(held); if(connection?.text(text))report(text,false); if(!touch)terminal?.focus() }
   // The toolbar's Interrupt is Ctrl+C exactly, whatever modifiers are on.
   function interrupt() { if(!live||scrollbackOpen)return; connection?.text('\x03'); terminal?.focus() }
   function tapModifierKey(name:Modifier) { held=tapModifier(held,name); if(!touch)terminal?.focus() }
@@ -394,7 +445,7 @@
     const viewport=()=>{const usable=pageViewport.read(browserViewport());viewportHeight=usable.height;viewportTop=usable.top;fitTerminal?.()}
     const keyboard=(event:KeyboardEvent)=>{
       if(document.querySelector('dialog[open]'))return
-      if(event.altKey&&event.shiftKey&&event.key.toLowerCase()==='m'){event.preventDefault();maximised=!maximised;fitTerminal?.();return}
+      if(chrome&&event.altKey&&event.shiftKey&&event.key.toLowerCase()==='m'){event.preventDefault();maximised=!maximised;fitTerminal?.();return}
       if(!maximised||event.key!=='Tab'||event.ctrlKey||event.altKey||(event.target instanceof Element&&event.target.closest('.xterm')))return
       const buttons=Array.from(pane?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]')||[]).filter(item=>item.getClientRects().length)
       const first=buttons[0],last=buttons.at(-1)
@@ -406,6 +457,27 @@
   const live = $derived(connectionState === 'live')
   // Only agent sessions have skills; a plain shell shows no button. One reason serves the button's title and the open guard.
   const skillsOff = $derived(live?'':'Skills can be inserted once the terminal is connected.')
+  // The toolbar's actions for a screen that draws one toolbar for several panes (chrome={false}); nothing changes here.
+  onMount(()=>{
+    actions={
+      get live(){return live},get scrollback(){return scrollbackOpen},get searching(){return searching},
+      get uploadsSupported(){return uploadsSupported},get uploadsOff(){return uploadsOff},get skills(){return !!session.tool},get skillsOff(){return skillsOff},
+      earlierOutput:openScrollback,compose:openCompose,
+      search:()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching},
+      copy:()=>void copy(),copyScreen:()=>void copyBuffer('screen'),selectText:openSelect,paste:()=>void readClipboard(),attach:chooseImages,interrupt,
+      commands:()=>commandsOpen=true,prompts:opener=>{promptButton=opener;promptsOpen=true},openSkills,
+      appearance:()=>appearanceOpen=true,history:()=>historyOpen=true,focus:()=>terminal?.focus(),
+      get bracketed(){return terminal?.modes.bracketedPasteMode===true},
+      canSend:()=>live&&!!connection?.canSend(),
+      send:(data,paste=false)=>{
+        if(!live||scrollbackOpen||!data)return false
+        if(!paste)return !!connection?.text(data)
+        const clean=sanitizePaste(data)
+        if(!clean||pasteTooLarge(clean))return false
+        return pasteRaw(clean,true)
+      },
+    }
+  })
   const stateLabel = $derived(({ connecting:'Connecting',resynchronising:'Restoring screen',live:'Live',reconnecting:'Reconnecting',detached:'Disconnected',taken_over:'Open elsewhere',ending:'Ending',ended:'Ended',lost:'Shell unavailable',access_denied:'Access denied' })[connectionState])
 
   onMount(() => {
@@ -422,7 +494,7 @@
       mouseTracking:()=>term.modes.mouseTrackingMode!=='none',
       earlier:openScrollback,
     })
-    const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();const images=imageFiles(event.clipboardData?.items);if(images.length){void startUploads(images);return}paste(event.clipboardData?.getData('text/plain')||'')}
+    const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();const images=imageFiles(event.clipboardData?.items);if(images.length){void startUploads(images);return}paste(event.clipboardData?.getData('text/plain')||'',false,true)}
     element.addEventListener('paste',onPaste,true)
     term.attachCustomKeyEventHandler(event=>{
       if(event.type==='keydown')noteGesture()
@@ -487,9 +559,14 @@
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
-    connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;held=noModifiers();if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
+    connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;held=noModifiers();if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(chrome&&visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
     term.options.disableStdin=true
-    const input=term.onData((text)=>{if(scrollbackOpen)return;const value=withModifiers(text,activeModifiers(held));held=afterKey(held);connection?.text(value)})
+    const input=term.onData((text)=>{
+      if(scrollbackOpen)return
+      if(relaying){pasteFired=true;pasteSent=pasteSent&&!!connection?.text(text);return}
+      const value=withModifiers(text,activeModifiers(held));held=afterKey(held);const sent=!!connection?.text(value)
+      if(pasting){pasteFired=true;pasteSent=pasteSent&&sent}else if(sent&&!REPORT.test(value))report(value,false)
+    })
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
     const online=()=>connection?.recover(),pageVisible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',pageVisible)
@@ -500,10 +577,10 @@
 
 <svelte:window onclick={event=>{if(contextMenu&&event.target instanceof Node&&!menu?.contains(event.target))contextMenu=null}} onblur={()=>contextMenu=null} />
 <section class="pane" class:maximised class:keyboard bind:this={pane} onpointerdown={noteGesture} role={maximised?'dialog':'region'} aria-modal={maximised?true:undefined} tabindex="-1" aria-label={`${session.title} · Terminal on ${host}`} style={`--terminal-viewport:${viewportHeight}px;--terminal-top:${viewportTop}px;--terminal-font-size:${fontSize}px;--terminal-bg:${terminalBackground};--terminal-fg:${terminalForeground}`} data-connection-state={connectionState}>
-  <header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host" title={`${user ? user+'@' : ''}${host}`}>{user ? `${user}@` : ''}{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend||onarchive&&terminalArchivable(session.state)}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}{#if onarchive&&terminalArchivable(session.state)}<button disabled={archiveDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onarchive?.()}}>Remove from history</button>{/if}</div></details>{/if}</div></header>
-  {#if message}<p class="connection-message" role="status">{message}</p>{/if}
+  {#if chrome}<header><div class="identity"><span class="terminal-icon" aria-hidden="true">›_</span><strong>{session.title}</strong><span class="host" title={`${user ? user+'@' : ''}${host}`}>{user ? `${user}@` : ''}{host}</span></div><div class="controls"><span class="state" class:live><span aria-hidden="true">●</span> {stateLabel}</span>{#if live}<button type="button" onclick={()=>connection?.detach()}>Disconnect</button>{:else if connectionState==='taken_over'}<button type="button" class="continue" onclick={()=>void connection?.connect(true)}>Continue here</button>{:else if connectionState==='detached'}<button type="button" onclick={()=>void connection?.connect()}>Reconnect</button>{:else if connectionState==='reconnecting'}<button type="button" onclick={()=>connection?.recover()}>Retry now</button>{/if}{#if onrename||onend||onarchive&&terminalArchivable(session.state)}<details class="session-menu"><summary>Manage</summary><div>{#if onrename}<button disabled={actionDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onrename?.()}}>Rename</button>{/if}{#if onend}<button class="end" disabled={actionDisabled||!['creating','running','end_requested'].includes(session.state)} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onend?.()}}>{session.state==='end_requested'?'Retry end request':'End session'}</button>{/if}{#if onarchive&&terminalArchivable(session.state)}<button disabled={archiveDisabled} onclick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');onarchive?.()}}>Remove from history</button>{/if}</div></details>{/if}</div></header>{/if}
+  {#if message&&(chrome||connectionState!=='taken_over')}<p class="connection-message" role="status">{message}</p>{/if}
   {#if maximised}<p class="connection-message maximise-hint">Alt+Shift+M restores the workspace. Tab inside the terminal remains a shell key.</p>{/if}
-  {#snippet toolbar()}
+  {#snippet toolbar()}{#if chrome}
     <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
       <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Earlier output</span></button>
@@ -525,7 +602,7 @@
       {#if !headerTheatre}<button onclick={()=>theatre=!theatre} aria-pressed={theatre} aria-label={theatre?'Exit theatre view':'Theatre view'} title={theatre?'Restore session panel':'Wide terminal · theatre view'}><TerminalIcon name="theatre"/></button>{/if}
       <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
     </div>
-  {/snippet}
+  {/if}{/snippet}
   {#snippet keycap(item:VirtualKey)}
     <button class="keycap" class:key-interrupt={item.value==='\x03'} type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} use:keycapAction={item.value} aria-label={item.aria??`Send ${item.label}`} title={item.title}>{#if item.icon}<TerminalIcon name={item.icon}/>{:else}{item.label}{/if}</button>
   {/snippet}
@@ -568,7 +645,7 @@
   <input class="upload-input" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple tabindex="-1" aria-hidden="true" onchange={pickedImages} />
   <div class="screen-frame" bind:this={screenFrame} role="group" aria-label="Terminal screen drop area" ondragenter={dragFiles} ondragover={dragFiles} ondragleave={leaveFiles} ondrop={dropFiles}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}{#if draggingFiles}<div class="drop-overlay" aria-hidden="true">Drop an image to upload.</div>{/if}{#if uploads.length}<div class="upload-chips">{#each uploads as chip (chip.id)}<UploadChip name={chip.name} size={chip.size} oncancel={()=>cancelUpload(chip.id)}/>{/each}</div>{/if}</div>
   {#if !landscape}{@render keys()}{/if}
-  <footer data-floating-clearance>{#if footnote}<span class="approvals">{footnote}</span>{/if}<span class="link-state">{scrollbackOpen?'Reading earlier output · your live shell keeps running':live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>void closeScrollback()}>Focus terminal</button></footer>
+  {#if chrome}<footer data-floating-clearance>{#if footnote}<span class="approvals">{footnote}</span>{/if}<span class="link-state">{scrollbackOpen?'Reading earlier output · your live shell keeps running':live?'Connected privately · input goes directly to this shell':'Input paused · disconnected keystrokes are never replayed'}</span><button type="button" disabled={!live} onclick={()=>void closeScrollback()}>Focus terminal</button></footer>{/if}
 {#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('screen')}}>Copy screen</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('50')}}>Copy last 50 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('200')}}>Copy last 200 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('all')}}>Copy all</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;openSelect()}}>Select text…</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
 </section>
 

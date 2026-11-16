@@ -152,6 +152,8 @@ jobs:
           node web/tests/terminal-lifecycle.e2e.mjs
           node web/tests/terminal-organisation.e2e.mjs
           node web/tests/terminal-phone.e2e.mjs
+          node web/tests/desks.e2e.mjs
+          node web/tests/desks-phone.e2e.mjs
       - name: Exercise real browser, broker and persistent tmux shell
         env:
           REET_BROWSER_TESTS: '1'

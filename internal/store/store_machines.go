@@ -81,6 +81,7 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 		if running > 0 {
 			return errors.New("wait for the machine's running job before renaming its reports")
 		}
+		// Desks need nothing here: a pane holds the enrolment id, which a rename keeps.
 		// An alias belonging to another report selects that report’s preferred name.
 		to = destination
 		// Pending work is cancelled before the reports move, so an install's
@@ -239,6 +240,10 @@ func (s *Store) ForgetMachineFor(userID int64, host string) error {
 		return ErrMachineName
 	}
 	// Retain aliases so a future scan cannot resurrect duplicate names.
+	// Forgetting removes what the machine listed, not its enrolment: its
+	// terminal sessions and what it reported for desk panes stay, so desk
+	// panes keep their shells. Revoking the enrolment is what removes those
+	// (ControlSyncAgent).
 	return s.withTx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM environments WHERE user_id=? AND host=? COLLATE NOCASE`, userID, host); err != nil {
 			return fmt.Errorf("forget machine: %w", err)

@@ -247,6 +247,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			go func() {
 				defer wg.Done()
 				observed := map[string]terminalproto.SessionChanged{}
+				sentDirs := map[string]string{}
 				initial := true
 				for {
 					changed := m.Changed()
@@ -261,24 +262,12 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					seen := make(map[string]struct{}, len(sessions))
 					for _, s := range sessions {
 						seen[s.ID] = struct{}{}
-						state := terminalproto.SessionChanged{
-							State:      s.State,
-							ExitCode:   s.ExitCode,
-							ActivityAt: s.ActivityAt,
-							BellAt:     s.BellAt,
-							ExitStatus: s.ExitCode,
-						}.ForFeatures(featureHeader)
-						old, known := observed[s.ID]
-						sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
-						changed := !known || old.State != state.State || !sameCode
-						timesChanged := old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt
-						modified := changed || timesChanged
+						state, modified := observeShell(observed, sentDirs, s, featureHeader)
 						if !initial && modified {
 							if send(ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: s.ID, Generation: generation, Body: state}) != nil {
 								return
 							}
 						}
-						observed[s.ID] = state
 					}
 					// Forget sessions that left the listing, so a reused id is
 					// reported as new rather than compared with a stale state.
@@ -290,6 +279,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 							continue
 						}
 						delete(observed, id)
+						delete(sentDirs, id)
 					}
 					initial = false
 					select {
@@ -1130,6 +1120,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if err != nil {
 					return respond(err)
 				}
+				if op.ForgetDesk {
+					// The pane is gone for good: its history file goes too. A
+					// failed removal never fails the end.
+					_ = m.ForgetDeskSession(callCtx, msg.SessionID)
+				}
 				reply.Body = terminalproto.SessionChanged{
 					State:      s.State,
 					ExitCode:   s.ExitCode,
@@ -1227,7 +1222,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					case *terminalproto.History:
 						data, err = m.History(callCtx, msg.SessionID, request.Lines)
 					case *terminalproto.CommandHistory:
-						data, err = m.CommandHistory(callCtx, msg.SessionID)
+						data, err = m.CommandHistoryFor(callCtx, msg.SessionID, features.Has(terminalproto.DeskShellFeature))
 					}
 					if err != nil {
 						reply.Body = result(err)
@@ -1329,6 +1324,12 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		if b.NativeView && !has(terminalproto.NativeViewFeature) {
 			return terminalproto.ErrInvalid
 		}
+	case *terminalproto.Create:
+		// A desk pane reference (and the folder outside home it may carry) is
+		// sent only by a controller that negotiated desk-shell-v1.
+		if b.Desk != (terminalproto.DeskRef{}) && !has(terminalproto.DeskShellFeature) {
+			return terminalproto.ErrInvalid
+		}
 	case *terminalproto.SessionMode:
 		if !has(terminalproto.SessionModeFeature) {
 			return terminalproto.ErrInvalid
@@ -1338,6 +1339,12 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 			return terminalproto.ErrInvalid
 		}
 		if b.Effort != "" && !has(terminalproto.ACPLiveControlsFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.End:
+		// Only a controller that negotiated desk-shell-v1 asks for a desk
+		// pane's history to be removed with its shell.
+		if b.ForgetDesk && !has(terminalproto.DeskShellFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.CommandHistory:
@@ -1565,6 +1572,11 @@ func result(err error) terminalproto.Result {
 	if r, ok := terminalhost.WorktreeResult(err); ok {
 		return r
 	}
+	// Only a create with a desk folder, which only a desk-shell-v1 controller
+	// sends, can fail this way, so an older controller never sees the detail.
+	if errors.Is(err, terminalhost.ErrFolderGone) {
+		return terminalproto.Result{Code: terminalproto.LaunchFailed, Detail: terminalproto.FolderGone}
+	}
 	return terminalproto.Result{Code: code(err)}
 }
 
@@ -1725,6 +1737,34 @@ func newID() string {
 
 // idFallback disambiguates ids made after crypto/rand failed.
 var idFallback atomic.Uint64
+
+// observeShell compares one listed terminal with what this connection last
+// observed of it, records the new observation, and returns the change to send
+// and whether there is one. The live folder rides along only when it differs
+// from the last one sent for that session on this connection, and only when
+// desk-shell-v1 was negotiated: a folder change alone is then news too.
+func observeShell(observed map[string]terminalproto.SessionChanged, sentDirs map[string]string, s terminalhost.ManagedSession, features string) (terminalproto.SessionChanged, bool) {
+	state := terminalproto.SessionChanged{
+		State:      s.State,
+		ExitCode:   s.ExitCode,
+		ActivityAt: s.ActivityAt,
+		BellAt:     s.BellAt,
+		ExitStatus: s.ExitCode,
+		Dir:        s.LiveDir,
+	}.ForFeatures(features)
+	old, known := observed[s.ID]
+	sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
+	changed := !known || old.State != state.State || !sameCode
+	timesChanged := old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt
+	dirChanged := state.Dir != "" && state.Dir != sentDirs[s.ID]
+	if dirChanged {
+		sentDirs[s.ID] = state.Dir
+	} else {
+		state.Dir = ""
+	}
+	observed[s.ID] = state
+	return state, changed || timesChanged || dirChanged
+}
 
 // reconcileSnapshot merges terminal and chat receipts without letting history
 // push a live session out of the complete 32-entry snapshot. The controller

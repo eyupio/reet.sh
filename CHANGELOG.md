@@ -5,6 +5,30 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desks**, a new tab: a saved set of terminal tabs, each split into up to
+  nine panes on any of your machines, saved to your account as you change it
+  and opened the same in any browser. Panes can be split, resized, zoomed,
+  swapped, moved and laid out, named and coloured, with Alt+Shift keys for
+  each. A pane that lost its shell says why and offers **Reopen** in its last
+  folder (or **Reopen all**); opening a desk never starts a shell, and a
+  pane's start-up command runs only when you press Run. **Type in all panes**
+  sends what you type to every live pane of a tab. A running session can be
+  added to a desk from Sessions or Home. Templates are listed under their own
+  heading on the Desks page. Ending a pane's shell follows your Terminal
+  history default. See `docs/desks.md`.
+- Machines: updating reet on a machine adds `desk-shell-v1`. A desk pane's
+  shell there reports the folder it is in, keeps its own bash or zsh command
+  history under `~/.reet/desks/` on that machine (the History drawer shows
+  **This pane** above **This machine**), and may reopen outside the home
+  folder, but only in the folder that machine itself last reported for that
+  pane. An older machine still works on a desk without these. When reet
+  starts on such a machine it removes desk pane history files that no
+  session there names and that have not changed for 90 days. Downgrading
+  reet on a machine that has started desk pane shells can stop its terminals
+  (the older version refuses the desk field in its session registry); update
+  it again to bring them back.
+- The browser's session limits are now 24 live sessions a machine and 64 an
+  account (from 8 and 32).
 - Factory: in Add pipelines each tier's backup can be your crew's, none, or
   one of that pipeline's own. The crew in Gaffer settings takes a billing
   source for a Cline tier or backup.

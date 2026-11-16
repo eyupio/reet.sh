@@ -59,6 +59,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/gaffer/crew'&&route.request().method()==='GET')return json({crew:{light:{},standard:{},heavy:{}},saved:false,tiers:['light','standard','heavy'],defaults:{}})
   if(path==='/api/v2/folder-projects')return json({projects:[],savedWaiting:0})
   if(path==='/api/v2/project-groups')return json({groups:[]})
+  // Desks, read by the Desks pages and by Jump once it is opened. None unless a test answers the route itself.
+  if(path==='/api/v2/desks'&&route.request().method()==='GET')return json({desks:[]})
   if(path==='/api/v2/notifications/count')return json({unread})
   // Notifications on a device: off unless a test answers the route itself (device-push.e2e.mjs), so the Notifications page has no device card.
   if(path==='/api/v2/push')return json({available:false,devices:[]})

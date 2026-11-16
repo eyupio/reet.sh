@@ -5,6 +5,7 @@
   import { copyText } from '../clipboard'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorktreeDialog from '../WorktreeDialog.svelte'
+  import AddToDeskDialog from '../desks/AddToDeskDialog.svelte'
   import { offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { terminalArchivable, terminalArchiveBody, archiveTerminal, confirmDiscardWorktree, endTerminal, renameTerminal, sessionHref, terminalClosed, TerminalError, validTerminalTitle,
     type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -13,7 +14,7 @@
   // Shift+F10 / the menu key, or the row's ⋮ button. Arrow keys move, Escape closes and gives focus back to what opened it.
   // Rename, End (with remove from history) and Remove from history are confirmed; Check and remove worktree uses the
   // existing worktree sheet. A machine whose session server is turned off can't rename or end one.
-  let { machines, offline, terminals = [], removeDefault = false, factorySessionEndDefault = FACTORY_SESSION_END_DEFAULT, onsignedout, onchanged, onnotice, onopen, onclose }: {
+  let { machines, offline, terminals = [], removeDefault = false, factorySessionEndDefault = FACTORY_SESSION_END_DEFAULT, onsignedout, onchanged, ondesks, onnotice, onopen, onclose }: {
     /** The machines' names, so a menu says where the session runs. */
     machines: { agentId: string; host: string }[]
     /** The agent ids whose machine is not reporting now. */
@@ -27,6 +28,8 @@
     onsignedout: (e: unknown) => void
     /** The action went through: read the sessions again. */
     onchanged: () => void | Promise<void>
+    /** A session was put on a desk (or moved to another): a page that shows the desks reads them again. */
+    ondesks?: () => void
     onnotice: (notice: { text: string; bad?: boolean } | null) => void
     /** The menu opened for this session: the caller marks the control that opened it. */
     onopen?: (item: TerminalSession) => void
@@ -139,6 +142,14 @@
     closeMenu(false)
     removing = { item, host: hostOf(item.agentId), target }
   }
+  // Add to a desk…: the dialog reads the desks only when it opens.
+  let adding = $state<TerminalSession | null>(null)
+  function addToDesk() {
+    const item = context?.item
+    if (!item) return
+    closeMenu(false)
+    adding = item
+  }
   const member = $derived(removing ? { position: 0, host: removing.item.agentId, dir: '', tool: removing.item.tool ?? '', model: removing.item.model ?? '', state: 'started' as const, code: '', sentence: '', sessionId: removing.item.id,
     worktreePath: removing.item.worktreePath ?? '', worktreeRepo: removing.target.repo, worktreeBranch: removing.item.worktreeBranch ?? '', worktreeRun: removing.target.run, worktreeProject: removing.target.project, sharesCheckout: false, attempt: 0 } : null)
 </script>
@@ -154,6 +165,7 @@
     <button role="menuitem" disabled={busy || serverOff(item)} onclick={() => begin('rename')}>Rename…</button>
     {#if away}<a role="menuitem" aria-disabled="true" title={offlineSentence(hostOf(item.agentId))}>Open in theatre</a>
     {:else}<a role="menuitem" href={`${sessionHref(item)}&theatre=1`}>Open in theatre</a>{/if}
+    {#if live(item) && !item.structured}<button role="menuitem" aria-haspopup="dialog" onclick={addToDesk}>Add to a desk…</button>{/if}
     {#if item.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
     {#if live(item)}<button role="menuitem" class="danger" disabled={busy || serverOff(item)} onclick={() => begin('end')}>{item.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
     {/if}
@@ -181,6 +193,9 @@
 {:else if action?.kind === 'archive'}
   <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={`${warning ? `${warning} ` : ''}${terminalArchiveBody(action.item.state)}`} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel}>
   </ConfirmDialog>
+{/if}
+{#if adding}
+  <AddToDeskDialog session={adding} onclose={() => { adding = null; returnFocus?.focus() }} ondone={text => { onnotice({ text }); ondesks?.(); void onchanged() }} ondesks={() => ondesks?.()} onsignedout={() => onsignedout(new UnauthorizedError())} />
 {/if}
 {#if removing && member}
   <WorktreeDialog {member} host={removing.host} opener={returnFocus ?? null} onremoved={() => void onchanged()} onsignedout={onsignedout} onclose={() => (removing = null)} />

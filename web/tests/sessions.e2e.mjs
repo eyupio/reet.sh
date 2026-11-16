@@ -225,7 +225,7 @@ try {
   await row.locator('a.open').click({button:'right'})
   const menu = page.getByRole('menu',{name:'Actions for Refactor the store layer'})
   await expect(menu).toBeVisible()
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Open in theatre','Copy branch','End session…','Check and remove worktree…'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Open in theatre','Add to a desk…','Copy branch','End session…','Check and remove worktree…'])
   await expect(menu.getByRole('menuitem',{name:'Open in theatre'})).toHaveAttribute('href','/sessions?agent=a1&session=s1&theatre=1')
   // A live session's worktree is in use: removing it waits for the session to end.
   await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()

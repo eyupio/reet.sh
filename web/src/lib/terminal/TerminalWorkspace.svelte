@@ -32,7 +32,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, terminalArchiveBody, archiveTerminal, confirmDiscardWorktree, terminalClosed } from './api'
-  import { TerminalError, reattachChat, validTerminalTitle } from './api'
+  import { TerminalError, reattachChat, validTerminalTitle, SESSIONS_PER_MACHINE, SESSIONS_PER_ACCOUNT } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import NewSessionChoice, { type NewSessionKind } from './NewSessionChoice.svelte'
   import { gafferChatEntry } from '../gafferContext'
@@ -201,7 +201,7 @@
     .map(item=>({item,status:sessionStatus(item)}))
     .sort((a,b)=>Number(b.status==='waiting')-Number(a.status==='waiting')||b.item.updatedAt-a.item.updatedAt))
   const accountActive = $derived(sessions.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
-  const createAtQuota=$derived(createActive>=8||accountActive>=32)
+  const createAtQuota=$derived(createActive>=SESSIONS_PER_MACHINE||accountActive>=SESSIONS_PER_ACCOUNT)
   const session = $derived(ownSessions.find(item=>item.id===selectedSession))
   let presentations=$state<Record<string,'chat'|'terminal'>>({}), terminalMounted=$state<Record<string,boolean>>({})
   let nativeInfo=$state<{key:string;pending:boolean;info:NativeViewInfo}>({key:'',pending:false,info:{available:false}})
@@ -323,7 +323,7 @@
       return
     }
     if(!current||current.serverEnabled===false||!current.ready||readiness(current)){error=`Open terminal needs ${current?.host||'that machine'} to be online. ${readiness(current)||'It is reconnecting. Try again when it is ready.'}`;return}
-    if(!canCreateFor(agent)){error=accountActive>=32?'Open terminal could not start a shell: your account already has 32 active sessions. End one and try again.':'Open terminal could not start a shell on this machine. Try again in a moment.';return}
+    if(!canCreateFor(agent)){error=accountActive>=SESSIONS_PER_ACCOUNT?`Open terminal could not start a shell: your account already has ${SESSIONS_PER_ACCOUNT} active sessions. End one and try again.`:'Open terminal could not start a shell on this machine. Try again in a moment.';return}
     selectTerminalMachine(agent)
     creations={...creations,[agent]:{requestId:openTerminalRequestId(agent),title:autoName,dir:'',projectId:undefined,error:''}}
     void create()
@@ -369,7 +369,7 @@
       if(refreshAgain&&!disposed){refreshAgain=false;void refresh(signal)}
     }
   }
-  function canCreateFor(agent:string){return !busy&&!actionBusy&&!accessDenied&&!!machines.find(m=>m.agentId===agent&&m.serverEnabled!==false)?.ready&&(!!creations[agent]||accountActive<32&&sessions.filter(s=>s.agentId===agent&&['creating','running','end_requested'].includes(s.state)).length<8)}
+  function canCreateFor(agent:string){return !busy&&!actionBusy&&!accessDenied&&!!machines.find(m=>m.agentId===agent&&m.serverEnabled!==false)?.ready&&(!!creations[agent]||accountActive<SESSIONS_PER_ACCOUNT&&sessions.filter(s=>s.agentId===agent&&['creating','running','end_requested'].includes(s.state)).length<SESSIONS_PER_MACHINE)}
   function selectTerminalMachine(agent:string){
     terminalAgent=agent
     const pending=creations[agent]
@@ -744,7 +744,7 @@
 {#snippet startActions()}
   <div class="ended-actions">
     {#if $gafferChatEntry}<a class="btn primary ended-cta" href="/factory?outcome=1">✦ Give Gaffer an outcome</a>{/if}
-    <button type="button" class="btn primary ended-cta" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
+    <button type="button" class="btn primary ended-cta" disabled={!machines.length || accountActive>=SESSIONS_PER_ACCOUNT} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
     <button type="button" class="btn primary ended-cta" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>✦ Start a new Terminal session</button>
   </div>
 {/snippet}
@@ -760,7 +760,7 @@
     <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" placeholder={autoName} aria-describedby="terminal-name-help" /></label>
     <p id="terminal-name-help">Optional. Left empty, the session is called {autoName}.</p>
     {#if !createMachine?.ready || createMachine.serverEnabled===false}<p class="create-reason" role="status">{readiness(createMachine) || 'Choose a machine before creating a shell.'}</p>{/if}
-    <p>{createActive} / 8 active on this machine · {accountActive} / 32 across your account{createAtQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
+    <p>{createActive} / {SESSIONS_PER_MACHINE} active on this machine · {accountActive} / {SESSIONS_PER_ACCOUNT} across your account{createAtQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
     <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()||autoName) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
 
   </form>
@@ -829,13 +829,13 @@
             {/if}
           {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-          {#if terminalClosed(session.state) && reattach[session.id]?.phase !== 'pending'}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions">{#if !session.structured}<button type="button" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button>{/if}<button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
+          {#if terminalClosed(session.state) && reattach[session.id]?.phase !== 'pending'}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions">{#if !session.structured}<button type="button" disabled={!machines.length || accountActive>=SESSIONS_PER_ACCOUNT} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button>{/if}<button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
               {@const reattachable = reconnectable(session)}
               <div class="session-presentation" data-session-presentation="chat" hidden={presentation !== 'chat'} inert={presentation !== 'chat'}>
-              <ChatPane {session} project={projects?.find(p => p.id === session.projectId)} planLimits={machine?.capabilities?.agentAccounts===true} planHost={machine?.host??''} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              <ChatPane {session} project={projects?.find(p => p.id === session.projectId)} planLimits={machine?.capabilities?.agentAccounts===true} planHost={machine?.host??''} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=SESSIONS_PER_ACCOUNT||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=SESSIONS_PER_ACCOUNT} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
               </div>
               {#if terminalMounted[session.id]}
                 <div class="session-presentation" data-session-presentation="terminal" hidden={presentation !== 'terminal'} inert={presentation !== 'terminal'}>

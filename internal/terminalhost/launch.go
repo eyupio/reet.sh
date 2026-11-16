@@ -21,8 +21,18 @@ var ErrLaunchUnavailable = errors.New("the requested agent cannot be started her
 var ErrLaunchOptionUnsupported = errors.New("the requested launch option is not supported")
 var ErrYoloRefused = errors.New("approval bypass is not available")
 
+// ErrFolderGone means a desk pane's folder (Create.Desk.Dir) is missing, not a
+// directory or cannot be entered by this user. It always wraps
+// ErrLaunchUnavailable, so it is answered as launch_failed, with the
+// terminalproto.FolderGone detail.
+var ErrFolderGone = errors.New("the desk pane's folder is gone")
+
 func launchUnavailable(reason string) error {
 	return fmt.Errorf("%w: %s", ErrLaunchUnavailable, reason)
+}
+
+func folderGone(reason string) error {
+	return fmt.Errorf("%w: %w: %s", ErrLaunchUnavailable, ErrFolderGone, reason)
 }
 
 // LaunchResultCode maps launch refusals to their wire codes. It returns ""
@@ -163,6 +173,30 @@ func ResolveDir(home, dir string) (string, error) {
 	info, err := os.Stat(resolved)
 	if err != nil || !info.IsDir() {
 		return "", launchUnavailable("folder is not a directory")
+	}
+	return resolved, nil
+}
+
+// ResolveDeskDir returns the folder a desk pane's shell reopens in: dir with
+// symlinks followed, which must be absolute, exist, be a directory and be one
+// this user can enter. Unlike ResolveDir there is no home rule: the controller
+// sends a desk folder only when this machine itself reported that pane's shell
+// in it (Create.Desk.Dir), and every other launch keeps ResolveDir. Failures
+// wrap ErrFolderGone (and so ErrLaunchUnavailable).
+func ResolveDeskDir(dir string) (string, error) {
+	if !filepath.IsAbs(dir) {
+		return "", folderGone("folder is not absolute")
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", folderGone("folder is unavailable")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", folderGone("folder is not a directory")
+	}
+	if !canEnter(resolved) {
+		return "", folderGone("folder cannot be entered")
 	}
 	return resolved, nil
 }

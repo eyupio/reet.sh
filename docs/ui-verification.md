@@ -1,5 +1,105 @@
 # UI verification — 4 November 2026
 
+## Desks (16 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (DESKS-1) and the [changelog](../CHANGELOG.md); what a person sees is
+[Desks](desks.md). Checked on the branch head with the final fixes (docs commit 542f998 on top of 910df48).
+
+Commands run in this container:
+
+- `npm --prefix web run check`: exit 0; svelte-check 506 files, 0 errors, 0 warnings; the unit tests 1266 of 1266
+  passing (106 files, the desk tree, autosave, pane states, keys and Type in all gate among them).
+- `npm --prefix web run build`: exit 0.
+- `npm --prefix web run preview -- --host 127.0.0.1 --port 4391 --strictPort`, then each browser file with
+  `--trace off` and the container's Chromium. All thirteen exited 0; the last line of each:
+  - `desks.e2e.mjs`: "Desks passed: top bar, empty list, last desk, … templates listed, an ended pane forgotten, a
+    session cleared from its pane, delete and its shells, another browser’s change, a refused save, the controller’s
+    refusals, a server-adjusted save, the save on pagehide, one start per press and the limits, nothing carried over,
+    Try again, a retried save after leaving, one instruction elsewhere, Zoom focuses, the query answers, a held paste,
+    the source pane."
+  - `desks-phone.e2e.mjs`: "Desks on a phone passed: one pane and chips, the tree kept, 44 px targets."
+  - `sessions.e2e.mjs`: "Sessions: groups shared with Home, … and the YOLO decisions line."
+  - `sessions-phone.e2e.mjs`: "Sessions on a phone: the session screen with the keyboard open at 320 and 390 px, …"
+  - `terminal-workspace.e2e.mjs`: "Terminal workspace passed: viewport bounds, … responsive layouts and role
+    isolation."
+  - `terminal-lifecycle.e2e.mjs`: "Terminal lifecycle passed: machine search/context, … and a lost shell counted once
+    until seen."
+  - `terminal-organisation.e2e.mjs`: "Session organisation passed: immutable cross-machine context actions, … themes
+    and guarded command insertion."
+  - `terminal-phone.e2e.mjs`: "Terminal phone layout passed: 11 px default, … desktop and tablet unchanged."
+  - `home.e2e.mjs`: "Home: fleet strip with sessions running, … and the width, theme, target, focus and motion
+    matrix."
+  - `navigation.e2e.mjs`: "Navigation: four desktop tabs with Home current, … same-origin fonts."
+  - `phone-zoom.e2e.mjs`: "Phone zoom: 46 screens at 320, 360, 390, 412px keep the device width with every control
+    reachable (35.0s)."
+  - `shell-fidelity.e2e.mjs`: "PASS shell fidelity: 1440 / 1239 / 1100 / 834 / 651 / 390 / 320, dark and light"
+  - `empty-states.e2e.mjs`: "Empty states: Sync asks for a machine first, …"
+- `go vet ./...` and `go build ./...`: exit 0.
+- `go test -count=1 -race ./internal/desk/ ./internal/terminalhost/ ./internal/terminalproto/
+  ./internal/terminalagent/ ./internal/terminalbroker/`: all `ok` (terminalhost 78 s, terminalbroker 104 s). zsh 5.9 is
+  installed here, and `-v -run Zsh` showed the zsh wrapper tests run and pass, not skip:
+  `TestZshWrapperKeepsHistoryAcrossShells`, `TestZshWrapperSourcesUserRc`, `TestZshWrapperHonoursXDGZdotdir`.
+- `go test -count=1 -race -run 'Desk|Reopen|LiveDir|Revoke|Archive' ./internal/store/` and the same pattern in
+  `./internal/api/`: `ok` (48 s and 38 s). `-v -run TestDeskPaneRestoredAfterTmuxServerEnds ./internal/api/` passed:
+  a private tmux server ended and restarted, the pane's shell reported lost, and a reopen in its last folder with its
+  history.
+- The whole `internal/store` and `internal/api` suites were not run here (10 to 25 minutes each); CI runs them in the
+  `test` job.
+
+What CI showed: on commit f776e4f, before the final fix wave, all 31 checks finished: 27 passed and 4 were skipped by
+design (deploy, verify and two publish jobs). They include the full Go `test` job, `terminal-browser` running
+`desks.e2e.mjs` and `desks-phone.e2e.mjs` for the first time, `native service` on macOS and Ubuntu, and `phone-zoom`.
+On the final code head (910df48) the run had not finished when this was written: 23 passed, 3 skipped by design, and
+`test`, `terminal-browser`, `native service (macos-latest)` and `compare` still running. The two docs commits after it
+change no code.
+
+Screenshots, taken with the built app and the desk browser test's own synthetic answers (a throwaway script outside the
+repository) at 1440 × 900, 820 × 1180 (touch) and 390 × 844 (touch), light and dark, and looked at one by one: the
+Desks list with a Templates group, a 2 + 1 tab (at 390 px, the single pane with chips), a grid of four, Type in all
+panes on with three receivers, the pane states (lost, folder gone, agent ended, not started; on a phone one per chip),
+the close dialog in both wordings, the start-up command bar, and a template's own page. Three are kept:
+
+![The Desks list, desktop dark](design/desks/built-list.png)
+![A 2 + 1 tab, desktop light](design/desks/built-2plus1-light.png)
+![One pane with chips on a phone, dark](design/desks/built-phone.png)
+
+What was seen:
+
+- No page scrolled sideways at any of the three widths, and no heading or label was cut short in either theme.
+- The list shows the desks, the New desk card, then **Templates** with its cards in the same style. The template cards
+  carry no live or reopen pills.
+- Pane cards: each state's tag, heading, sentence and buttons as in `PANE_CARDS`; on a phone the buttons fill the
+  width. A template's panes show Not started with no button, under "This is a template. Make a desk from it to start
+  shells." and **New desk from this template**; its tab bar has no **+** and its toolbar no split or zoom.
+- The close dialog says "The session stays in Sessions as ended, …" with the history setting off and "The session
+  leaves Sessions, …" with it on, End the shell chosen; on a phone it is a bottom sheet.
+- Type in all panes: the stripe says "Typing in 4 panes on this tab. Turns off when you change tab." and all four pane
+  headers, the focused one included, say **Receiving**. The button is not on the page at 390 px. The stub terminal does
+  not echo, so the typed text does not show in the panes.
+- Things that look wrong or could be better, none fixed here:
+  - On touch at 820 and 390 px a tab named "db" is 43 × 44 px, one pixel under the 44 px rule in width.
+  - At 820 px the right end of the shared toolbar is cut: in the 2 + 1 tab the Theatre view button shows only its
+    left edge, and in the pane-state and start-up shots it is out of view. Whether the toolbar scrolls to it was not
+    checked.
+  - On touch every pane carries its own on-screen key bar; in a half-width pane at 820 px the bar is cut after "Ctrl".
+    The key bar's 40 px keys are the terminal's existing phone size (asserted in `terminal-phone.e2e.mjs`).
+  - The floating Gaffer button sits over pane content at every width (over the beta pane at 820 px, over a card's tab
+    strip on the phone list).
+  - The close dialog is a little narrower with the shorter "leaves Sessions" sentence than with "stays in Sessions".
+  - A desk card counts never-started panes in "N to reopen" (the split desk's nine empty panes show as "9 to reopen"),
+    and an empty desk's card draws one empty tab in its strip.
+
+Not checked:
+
+- A real machine reboot, with reet's service starting again (restore is tested by ending the test's own tmux server).
+- zsh on macOS (zsh ran on Linux 5.9 only), and a `ZDOTDIR` exported before the shell starts or set in `/etc/zshenv`.
+- A real second browser on another device (another browser's change is checked with synthetic answers only).
+- A real machine running a desk-shell reet older than this branch.
+- The whole `internal/store` and `internal/api` suites locally.
+- Any width other than 1440, 820 and 390 px; Safari and Firefox; a real phone or tablet; a screen reader.
+- Real machines and real shells in the browser tests: every browser file runs on synthetic answers and a stub
+  terminal socket.
+- Any browser file not listed above.
 ## A pull request appears in the stages while the agent works (16 November 2026)
 
 What changed is in [handoff.md](../handoff.md) and the [changelog](../CHANGELOG.md).

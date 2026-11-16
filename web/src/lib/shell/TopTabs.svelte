@@ -36,6 +36,8 @@
     .more { display: flex; }
     a, .more { padding: 0 14px; font-size: 15px; }
   }
+  /* Six tabs with Desks and More: a small desktop tightens them so none runs under Jump or the bell. */
+  @media (min-width: 1100px) and (max-width: 1279.98px) { a, .more { padding: 0 9px; } }
   /* Five tabs with Factory: a narrow tablet gets tighter padding so none runs under Jump or the bell. */
   @media (min-width: 651px) and (max-width: 799px) { .top-tabs { gap: 2px; } a, .more { padding: 0 5px; font-size: 14px; } }
   /* Phone: the bottom tab bar takes over. */

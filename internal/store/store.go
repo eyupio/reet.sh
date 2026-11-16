@@ -493,6 +493,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateDesks(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateProjectGroups(); err != nil {
 		db.Close()
 		return nil, err

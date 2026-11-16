@@ -86,7 +86,24 @@ type Manager struct {
 	// promptEvery and promptAgain replace promptReadEvery and promptReadAgain
 	// when set, so a test need not wait out the real gaps.
 	promptEvery, promptAgain time.Duration
-	changed                  chan struct{}
+	// liveDir is each session's live working folder as the last sweep read
+	// it, kept in memory only: the registry's strict reader on an older reet
+	// would refuse a new field. List reports it as ManagedSession.LiveDir.
+	liveDir map[string]string
+	// readLiveDirs replaces liveDirs when set; only tests set it.
+	readLiveDirs func(context.Context) (map[string]string, error)
+	changed      chan struct{}
+	// shell replaces the shell a plain create starts (loginShell) when set;
+	// only tests set it.
+	shell string
+	// deskStarts records, per desk pane session this manager started, the
+	// shell kind whose history it keeps or why it keeps none (desk_shell.go).
+	// It is in memory only, like liveDir.
+	deskStarts map[string]deskStart
+	// deskForget holds each pane's pending second history removal; deskMu
+	// guards it (its timers run without m.mu).
+	deskMu     sync.Mutex
+	deskForget map[string]*time.Timer
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -110,7 +127,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskStarts: map[string]deskStart{}, deskForget: map[string]*time.Timer{}}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -131,6 +148,9 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 		}
 	}
 	_ = m.sweepUploads(active, time.Now())
+	// Old desk pane history no session names goes too; the same never stops
+	// the connector.
+	_ = m.sweepDeskHistory(registry, time.Now())
 	return m, nil
 }
 
@@ -252,6 +272,12 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		if dir, err = ResolveDir(m.home, in.Dir); err != nil {
 			return ManagedSession{}, err
 		}
+	} else if in.Desk.Dir != "" {
+		// A desk pane's own folder, which the controller sends only when this
+		// machine reported that pane's shell in it: no home rule.
+		if dir, err = ResolveDeskDir(in.Desk.Dir); err != nil {
+			return ManagedSession{}, err
+		}
 	}
 	if !responsive(ctx, m.tmux, m.layout) {
 		return ManagedSession{}, ErrNotRunning
@@ -313,7 +339,17 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		return s, err
 	}
 	reportStage(ctx, terminalproto.StageStarting)
-	args := append([]string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}, argv...)
+	args := []string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}
+	if in.Tool == "" && in.Desk.Pane != "" {
+		// A desk pane's plain shell keeps a history of its own through the
+		// desk wrapper; without one it starts exactly as any plain shell.
+		var env []string
+		argv, env = m.deskShellStart(sessionID, in.Desk.Pane)
+		for _, entry := range env {
+			args = append(args, "-e", entry)
+		}
+	}
+	args = append(args, argv...)
 	for i := range args {
 		args[i] = tmuxArgument(args[i])
 	}
@@ -386,6 +422,8 @@ func (m *Manager) End(ctx context.Context, requestID, sessionID string) (Managed
 		return s, err
 	}
 	if names[m.name(sessionID)] {
+		// The folder the shell was last in is read before it goes.
+		_ = m.noteLiveDirsLocked(ctx, &r)
 		if _, err := m.command(ctx, 0, "kill-session", "-t", "="+m.name(sessionID)); err != nil {
 			return s, err
 		}
@@ -505,7 +543,8 @@ func (m *Manager) List(ctx context.Context) ([]ManagedSession, error) {
 		return nil, err
 	}
 	out := make([]ManagedSession, 0, len(r.Sessions))
-	for _, s := range r.Sessions {
+	for id, s := range r.Sessions {
+		s.LiveDir = m.liveDir[id]
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -560,6 +599,10 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	// A clipboard option that cannot be set must not end the manager; a later
 	// reconcile tries again.
 	_ = m.applyClipboard(ctx)
+	// The live folders are read before the states move, so a session whose
+	// shell is still there is read once more. A failed read never fails the
+	// sweep.
+	dirsChanged := m.noteLiveDirsLocked(ctx, r)
 	changed := false
 	var listing map[string][]paneWindow
 	for id, s := range r.Sessions {
@@ -658,6 +701,8 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 		if err := m.saveRegistry(*r); err != nil {
 			return err
 		}
+	} else if dirsChanged {
+		m.signalLocked()
 	}
 	m.cleanupClosedSessions(r)
 	// Persist the exit observation before removing dead panes. A later pass can
@@ -761,6 +806,7 @@ func (m *Manager) Close() error {
 		return nil
 	}
 	m.closed = true
+	m.stopDeskForgets()
 	close(m.changed)
 	for _, a := range m.attachments {
 		_ = a.Close()

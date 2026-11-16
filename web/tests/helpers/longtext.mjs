@@ -68,6 +68,8 @@ export const SESSION80 = pad('Refactor_the_store_layer_and_split_the_session_cac
 export const PROJECT80 = pad('Store_rewrite_with_a_long_unbroken_project_name')
 const L = 'connector-long80000000001'
 export const homeExtra = {
+  // Jump reads the desks once it is opened.
+  '/api/v2/desks': { desks: [] },
   '/api/v2/machines/health': () => ({ serverNow: Date.now(), machines: [{ agentId: L, host: HOST80, state: 'connected', capabilities: caps(), connection: { connected: true, reportFresh: true, missedProbes: 0, reconnects: 0, path: 'direct', report: { cpuPercent: { value: 42 }, scope: 'host' } } }, { agentId: C, host: 'pi', state: 'unreachable', capabilities: caps(), connection: { connected: false, reportFresh: false, missedProbes: 3, reconnects: 1, path: 'direct' } }] }),
   '/api/v2/terminal/sessions': { sessions: [{ id: 'session-long80', agentId: L, title: SESSION80, state: 'running', createdAt: now - 3600000, updatedAt: now - 600000, exitCode: null, projectId: 'fp80', worktreePath: `/home/dev/.reet/worktrees/store/${pad('tree', 40)}`, worktreeBranch: `reet/${pad('branch', 60)}` }, { id: 'session-pi', agentId: C, title: SESSION80.replace('Refactor', 'Offline'), state: 'running', createdAt: now - 3600000, updatedAt: now - 600000, exitCode: null }] },
   '/api/v2/terminal/machines': { machines: [{ agentId: L, host: HOST80, ready: true, serverEnabled: true, capabilities: caps() }] },
@@ -108,6 +110,8 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/terminal/status') return json({ configured: true, available: true, reason: '' })
     if (path === '/api/v2/terminal/machines') return json({ machines: tmachines })
     if (path === '/api/v2/terminal/sessions' && method === 'GET') return json({ sessions })
+    // The Sessions page reads the desks once, to mark a session that is on one. None here.
+    if (path === '/api/v2/desks' && method === 'GET') return json({ desks: [] })
     if (path === '/api/v2/terminal/commands') return json({ commands: [{ id: 'c1', name: 'Tail the app log', command: 'tail -f /var/log/app/production-application-server.log | grep --line-buffered -i error', createdAt: now }] })
     if (path.endsWith('/attachments')) return json({ ticket: 'fixture-ticket00000000000' })
     if (path.endsWith('/history')) return route.fulfill({ body: '' })

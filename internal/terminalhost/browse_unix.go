@@ -40,3 +40,6 @@ func openRootNoBlock(dir string) (*os.Root, error) {
 	}
 	return os.OpenRoot(dir)
 }
+
+// canEnter reports whether this user may search (enter) the directory dir.
+func canEnter(dir string) bool { return syscall.Access(dir, 0x1) == nil }

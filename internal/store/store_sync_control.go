@@ -568,6 +568,11 @@ func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 			if err := endSyncJobsTx(tx, "cancelled", "Machine enrollment revoked.", `j.agent_id=? AND j.user_id=? AND j.status IN ('queued','running','awaiting-approval')`, id, uid); err != nil {
 				return err
 			}
+			// Its terminal sessions go with it (by cascade), so no desk pane
+			// may name one, and what it reported for desk panes goes too.
+			if err := clearDeskSessionsForAgentTx(tx, uid, id); err != nil {
+				return err
+			}
 			_, err := tx.Exec(`DELETE FROM sync_agents WHERE id=? AND user_id=?`, id, uid)
 			return err
 		})

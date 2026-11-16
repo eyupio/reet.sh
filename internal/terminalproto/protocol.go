@@ -228,7 +228,10 @@ type Capabilities struct {
 	// ShellDir is sent only when shell-dir-v1 was negotiated; a plain shell
 	// may then start in a chosen folder.
 	ShellDir bool `json:"shellDir,omitempty"`
-	Inspect  bool `json:"inspect,omitempty"`
+	// DeskShell is sent only when desk-shell-v1 was negotiated; the machine
+	// then reports each running session's live folder.
+	DeskShell bool `json:"deskShell,omitempty"`
+	Inspect   bool `json:"inspect,omitempty"`
 	// Attention is sent only when attention-v1 was negotiated.
 	Attention       bool `json:"attention,omitempty"`
 	TerminalControl bool `json:"terminalControl,omitempty"`
@@ -298,6 +301,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.RepoClone {
 		features = append(features, RepoCloneFeature)
+	}
+	if c.DeskShell {
+		features = append(features, DeskShellFeature)
 	}
 	if c.RepoCloneRemove {
 		features = append(features, RepoCloneRemoveFeature)
@@ -404,6 +410,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.RepoList && !(c.Worktree && SupportsRepoList(features)) {
 		return ErrInvalid
 	}
+	if c.DeskShell && !SupportsDeskShell(features) {
+		return ErrInvalid
+	}
 	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
 		return ErrInvalid
 	}
@@ -420,7 +429,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	acpExtras := c.ACPHistory || c.ACPImages || c.ACPLongPrompt || c.ACPApproval || c.ACPQuestions ||
 		c.ACPModel || c.ACPLiveControls || c.ACPAgentMode || c.ACPAgentOptions || c.ACPAgentReattach
-	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.Attention
+	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.DeskShell || c.Attention
 	acpRule := acpExtras && !c.ACP
 	acpTerminalRule := needsTerminalForACP && !c.TerminalControl
 	if acpRule || acpTerminalRule {
@@ -519,6 +528,10 @@ type SessionSnapshot struct {
 	// ACPSessionID is set only for a structured chat, so the controller can
 	// reopen it after a connection loss.
 	ACPSessionID string `json:"acpSessionId,omitempty"`
+	// Dir is the session's live working folder, as tmux reads it. It is set
+	// only on a connection that negotiated desk-shell-v1, which ForFeatures
+	// enforces: an older controller's strict decoder would refuse the field.
+	Dir string `json:"dir,omitempty"`
 }
 
 func validExit(state SessionState, code *int) bool {
@@ -549,7 +562,7 @@ func (r Reconcile) valid() bool {
 		validSession := ValidID(s.ID) && ValidTitle(s.Title) && s.State.Valid() &&
 			validExit(s.State, s.ExitCode) && validSnapshotAttention(s)
 		validACP := s.ACPSessionID == "" || ValidACPHandle(s.ACPSessionID)
-		valid := validSession && validACP && !seen[s.ID]
+		valid := validSession && validACP && validLiveDir(s.Dir) && !seen[s.ID]
 		if !valid {
 			return false
 		}
@@ -605,6 +618,11 @@ type Create struct {
 	// ResumeACP reopens a structured OpenCode session from its own session id.
 	// It is meaningful only with Structured; the controller creates a new row.
 	ResumeACP string `json:"resumeAcp,omitempty"`
+	// Desk names the desk pane a plain shell is (re)opened for (see DeskRef).
+	// It is a value, not a pointer, so Create stays comparable; omitzero keeps
+	// it off the wire when unset. Only a connection that negotiated
+	// desk-shell-v1 carries it.
+	Desk DeskRef `json:"desk,omitzero"`
 }
 
 func (Create) kind() string  { return "create" }
@@ -631,6 +649,9 @@ func (c Create) Validate() error {
 	}
 	validResume := c.Structured && ValidACPSessionIDFor(c.Tool, c.ResumeACP)
 	if c.ResumeACP != "" && !validResume {
+		return ErrInvalid
+	}
+	if !c.validDesk() {
 		return ErrInvalid
 	}
 	return nil
@@ -672,7 +693,14 @@ type Detach struct{}
 func (Detach) kind() string { return "detach" }
 func (Detach) valid() bool  { return true }
 
-type End struct{}
+type End struct {
+	// ForgetDesk also removes the history file of the desk pane the session
+	// was created for: the pane is gone for good (End the shell, or a desk
+	// deleted with its shells). Only a connection that negotiated
+	// desk-shell-v1 carries it; omitempty keeps an older machine's strict
+	// decoder from ever seeing it.
+	ForgetDesk bool `json:"forgetDesk,omitempty"`
+}
 
 func (End) kind() string { return "end" }
 func (End) valid() bool  { return true }
@@ -772,6 +800,8 @@ func (r Result) valid() bool {
 			return validChatText(r.Detail, 200)
 		case Conflict:
 			return r.Detail == ConflictStarting
+		case LaunchFailed:
+			return r.Detail == FolderGone
 		default:
 			return false
 		}
@@ -801,13 +831,18 @@ type SessionChanged struct {
 	Base *BaseState `json:"base,omitempty"`
 	// ACPSessionID is set only for a structured chat.
 	ACPSessionID string `json:"acpSessionId,omitempty"`
+	// Dir is the session's live working folder when it changed since the last
+	// one sent on this connection; empty means no news, never "no folder". It
+	// is set only on a connection that negotiated desk-shell-v1, which
+	// ForFeatures enforces, for the same reason as SessionSnapshot.Dir.
+	Dir string `json:"dir,omitempty"`
 }
 
 func (SessionChanged) kind() string { return "session_changed" }
 func (s SessionChanged) valid() bool {
 	paired := (s.WorktreePath == "") == (s.WorktreeRepo == "")
 	validPair := s.WorktreePath == "" || (validDir(s.WorktreePath) && validRepoName(s.WorktreeRepo))
-	if !paired || !validPair {
+	if !paired || !validPair || !validLiveDir(s.Dir) {
 		return false
 	}
 	if s.Base != nil && !(s.WorktreePath != "" && s.Base.Valid()) {

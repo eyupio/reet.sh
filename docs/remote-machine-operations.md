@@ -170,8 +170,9 @@ shell before repeating the command. Reconnection obtains fresh authorization
 and redraws the current tmux screen; recent history is a separate bounded
 snapshot rather than a recording/replay service.
 
-Limits are eight active sessions per host and 32 per account. Creating and
-pending-end sessions count. An offline end stays pending until acknowledged.
+The browser workspace applies the session limits: 24 active sessions per host and 64 per account,
+counting creating, running and pending-end sessions. The controller and the machines no longer count live
+sessions, so the limits do not bind the API, MCP or other clients. An offline end stays pending until acknowledged.
 Retry uncertain creates/ends using their original request key; never manufacture
 a replacement. Registry capacity errors require inspection, not automatic
 deletion. The private host registry is capped at 16 MiB / 4,096 session records /

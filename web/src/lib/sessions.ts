@@ -48,9 +48,26 @@ export function searchSessions(sessions: TerminalSession[], projects: Pick<Folde
   return sessions.filter(s => { const text = haystack(s, projects, machines); return terms.every(t => text.includes(t)) })
 }
 
-/** A session's colour: the one chosen for it in the sessions panel (kept in this browser), else its project's, else none. */
-export function sessionColourOf(s: Pick<TerminalSession, 'id' | 'projectId'>, saved: Record<string, string>, projects: Pick<FolderProject, 'id' | 'colour'>[]): ProjectColour {
-  return projectColour(saved[s.id]) || projectColour(s.projectId ? projects.find(p => p.id === s.projectId)?.colour : '')
+/** A session's colour: the one chosen for it in the sessions panel (kept in this browser), else the colour of the desk
+ *  pane it is in, else its project's, else none. */
+export function sessionColourOf(s: Pick<TerminalSession, 'id' | 'projectId'>, saved: Record<string, string>, deskPane: string | undefined, projects: Pick<FolderProject, 'id' | 'colour'>[]): ProjectColour {
+  return projectColour(saved[s.id]) || projectColour(deskPane) || projectColour(s.projectId ? projects.find(p => p.id === s.projectId)?.colour : '')
+}
+
+/** Where a session sits on the person's desks: the desk, the pane and the pane's colour as the desk draws it (its own,
+ *  else its tab's). */
+export type DeskPlace = { desk: string; name: string; pane: string; colour: ProjectColour }
+type DeskDoc = { id: string; name: string; template: boolean; doc: { tabs: { colour: string; panes: Record<string, { id: string; session: string; colour: string }> }[] } }
+/** Each session on a desk (never a template's), by session id. */
+export function deskPlaces(desks: DeskDoc[]): Map<string, DeskPlace> {
+  const out = new Map<string, DeskPlace>()
+  for (const d of desks) {
+    if (d.template) continue
+    for (const t of d.doc.tabs) for (const p of Object.values(t.panes)) {
+      if (p.session && !out.has(p.session)) out.set(p.session, { desk: d.id, name: d.name, pane: p.id, colour: projectColour(p.colour) || projectColour(t.colour) })
+    }
+  }
+  return out
 }
 
 /** Every filter that is set must hold. `needing` is the ids the attention signal names (none today); `colourOf` gives a

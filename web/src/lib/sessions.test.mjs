@@ -16,7 +16,7 @@ const home = asURL(compile('./home.ts').replace("from './attention'", `from '${a
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
+const { sessionColourOf, deskPlaces, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -135,14 +135,38 @@ test('a session worktree is named only when its path and branch agree', () => {
   assert.equal(worktreeTargetOf({ ...sessions[0], worktreePath: '/home/u/elsewhere/reet/reet/a1b2c3d4e5f60718' }), null)
 })
 
+test('session colours: the browser\'s own choice, then the desk pane\'s, then the project\'s', () => {
+  const withColour = [{ ...projects[0], colour: 'blue' }, projects[1]]
+  // s1 is in the blue project; its desk pane is green.
+  assert.equal(sessionColourOf(sessions[0], {}, 'green', withColour), 'green')
+  assert.equal(sessionColourOf(sessions[0], { s1: 'red' }, 'green', withColour), 'red')
+  assert.equal(sessionColourOf(sessions[0], {}, undefined, withColour), 'blue')
+  assert.equal(sessionColourOf(sessions[0], {}, 'nope', withColour), 'blue')
+  assert.equal(sessionColourOf(sessions[3], {}, 'violet', withColour), 'violet')
+})
+
+test('where each session is on a desk: its desk, its pane and the pane\'s colour (else its tab\'s)', () => {
+  const pane = (id, session, colour = '') => ({ id, name: id, colour, host: 'm', session, kind: 'shell', dir: '', dirAt: 0, start: '' })
+  const desk = (id, name, tabs, template = false) => ({ id, name, colour: '', template, position: 0, version: 1, schema: 1, doc: { tabs, active: '' } })
+  const places = deskPlaces([
+    desk('d1', 'prod', [{ id: 't1', name: 'a', colour: 'amber', root: null, zoomed: '', active: '', panes: { p1: pane('p1', 's1', 'green'), p2: pane('p2', 's2'), p3: pane('p3', '') } }]),
+    desk('d2', 'tpl', [{ id: 't2', name: 'b', colour: '', root: null, zoomed: '', active: '', panes: { p4: pane('p4', 's4', 'red') } }], true),
+  ])
+  assert.deepEqual(places.get('s1'), { desk: 'd1', name: 'prod', pane: 'p1', colour: 'green' })
+  assert.deepEqual(places.get('s2'), { desk: 'd1', name: 'prod', pane: 'p2', colour: 'amber' })
+  assert.equal(places.has(''), false)
+  // A template holds no sessions to show.
+  assert.equal(places.has('s4'), false)
+})
+
 test('session colours: the panel choice, else the project colour, and a colour filter', () => {
   const colours = { s3: 'red', s4: 'nope' }
   const withColour = [{ ...projects[0], colour: 'blue' }, projects[1]]
-  assert.equal(sessionColourOf(sessions[0], colours, withColour), 'blue')
-  assert.equal(sessionColourOf(sessions[2], colours, withColour), 'red')
+  assert.equal(sessionColourOf(sessions[0], colours, '', withColour), 'blue')
+  assert.equal(sessionColourOf(sessions[2], colours, '', withColour), 'red')
   // An unknown stored value is no colour.
-  assert.equal(sessionColourOf(sessions[3], colours, withColour), '')
-  const colourOf = s => sessionColourOf(s, colours, withColour)
+  assert.equal(sessionColourOf(sessions[3], colours, '', withColour), '')
+  const colourOf = s => sessionColourOf(s, colours, '', withColour)
   assert.deepEqual(ids(filterSessions(sessions, { colour: 'blue' }, new Set(), colourOf)), ['s1', 's2'])
   assert.deepEqual(ids(filterSessions(sessions, { colour: 'red' }, new Set(), colourOf)), ['s3'])
   assert.deepEqual(ids(filterSessions(sessions, { colour: 'none' }, new Set(), colourOf)), ['s4', 's5'])

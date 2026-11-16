@@ -28,6 +28,21 @@ Bounds: read the last 256 KiB per file; return at most 500 entries, each at most
 markers and Zsh extended-history prefixes/continuations are understood. History
 is a snapshot of the shell's saved format, not a verified execution log.
 
+## A desk pane's own history
+
+A plain shell started for a desk pane on a machine that negotiated `desk-shell-v1` keeps its own history file,
+`~/.reet/desks/history/<pane>.bash` or `.zsh` ([Desks](desks.md#per-pane-command-history)). For such a session the
+snapshot has a third source, `pane`, listed first. Its entries come first, newest first, and take at most half of the
+entry and byte limits (250 entries), so the shared `.bash_history` and `.zsh_history` entries still follow. A pane whose
+shell keeps no history of its own is the source marked unavailable with its reason: "This pane's own history needs bash
+or zsh." or "This pane's own history could not be set up on this machine." The machine sends the `pane` source only on a
+connection that negotiated `desk-shell-v1`.
+
+The History drawer then shows two groups: **This pane** above **This machine**, and the Source choice gains **This
+pane**. With nothing saved yet the first group says "No commands saved in this pane yet."; a search that matches nothing
+there says "No commands in this pane match this search." A session that is not a desk pane's shell, or one on an older
+machine, shows the drawer as before. Paste, Run and its confirmation work the same in both groups.
+
 ## Compatible private extension
 
 After authenticating an agent, the HTTP websocket upgrade advertises

@@ -109,6 +109,7 @@ type AgentConfig struct {
 	acpQuestion        bool
 	inspect            bool
 	shellDir           bool
+	deskShell          bool
 	attention          bool
 	progress           bool
 	OnConnection       func(bool)
@@ -1040,6 +1041,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpQuestion = terminalproto.SupportsACPQuestion(advertised)
 	cfg.inspect = terminalproto.SupportsInspect(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
+	cfg.deskShell = terminalproto.SupportsDeskShell(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 	cfg.progress = terminalproto.SupportsProgress(advertised)
 }
@@ -1187,6 +1189,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.shellDir {
 		features = append(features, terminalproto.ShellDirFeature)
+	}
+	if cfg.deskShell {
+		features = append(features, terminalproto.DeskShellFeature)
 	}
 	if cfg.attention {
 		features = append(features, terminalproto.AttentionFeature)
@@ -1410,10 +1415,13 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPQuestions: acp && cfg.acpQuestion,
 		Inspect:      cfg.inspect && control && enabled,
 		ShellDir:     cfg.shellDir && control && enabled,
-		Attention:    cfg.attention && control,
-		Branches:     cfg.branches && worktree && enabled,
-		BranchPrune:  cfg.branchPrune && worktree && enabled,
-		BranchSync:   cfg.branchSync && worktree && enabled,
+		// The live folder is read for every running session, as attention
+		// is, so it follows terminal control alone.
+		DeskShell:   cfg.deskShell && control,
+		Attention:   cfg.attention && control,
+		Branches:    cfg.branches && worktree && enabled,
+		BranchPrune: cfg.branchPrune && worktree && enabled,
+		BranchSync:  cfg.branchSync && worktree && enabled,
 		// Fetching a worktree's base is part of making one, so it follows
 		// Worktree, not enabled: a machine that makes worktrees fetches them.
 		BaseFresh: cfg.baseFresh && worktree,

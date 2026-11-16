@@ -7,6 +7,9 @@ import type { SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
 import type { ChatUsage } from '../chatUsage'
 
+/** Live sessions the workspace allows on one machine and across one account (a desk tab can hold nine panes on a machine): the browser's own check before a shell is started. The controller and the machine keep their own limits and answer a refusal past them. */
+export const SESSIONS_PER_MACHINE = 24
+export const SESSIONS_PER_ACCOUNT = 64
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type AttentionState = 'starting' | 'working' | 'quiet' | 'waiting' | 'finished' | 'failed'
 export type AttentionSource = 'terminal' | 'chat'
@@ -25,8 +28,8 @@ export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchStat
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string;
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
-  baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
-export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; /** The machine can list the GitHub repositories its gh sign-in reaches (repo-list-v1). */ repoList?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+  baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number; /** The session's live working folder, as its machine last reported it (desk-shell-v1). */ liveDir?: string }
+export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; /** The machine reports each running session's live folder (desk-shell-v1). */ deskShell?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; /** The machine can list the GitHub repositories its gh sign-in reaches (repo-list-v1). */ repoList?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -52,9 +55,17 @@ export class TerminalError extends Error {
 export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; provider?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
   /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
   projectId?: string
+  /** The desk pane a plain shell is opened for (New tab, Split). A desk-shell-v1 machine keeps that pane's own command history; an older one ignores it. */
+  deskPane?: string
   /** Who named the session, sent only with a tool launch: `prompt` when the title comes from the task, `fallback` when it is the generic agent and folder name. */
   titleOrigin?: 'prompt' | 'fallback' }
-export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
+/** Characters that make what is shown differ from what is sent or stored: control and format characters (\p{Cf}: the
+ *  zero-width ones, the direction marks and the bidirectional overrides and isolates) and the two Unicode line separators.
+ *  Names, titles and a desk pane's start-up command never hold one. */
+export function hasHiddenChars(text: string): boolean { return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text) }
+/** The text without any of those characters (for a field as it is typed or pasted). */
+export function stripHiddenChars(text: string): string { return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '') }
+export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!hasHiddenChars(title)}
 // Interactive terminals intentionally use only the browser cookie, never the
 // generic API helper's localStorage API token or a capability in a URL.
 export async function terminalRequest(path: string, init: RequestInit = {}): Promise<Response> {
@@ -199,6 +210,7 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   if (launch?.trust) body.trust = true
   if (launch?.resumeAcp) body.resumeAcp = launch.resumeAcp
   if (launch?.tool && launch.titleOrigin) body.titleOrigin = launch.titleOrigin
+  if (launch?.deskPane) body.deskPane = launch.deskPane
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal, nativeView = false): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover, ...(nativeView ? { nativeView: true } : {}) }), signal })).json()).ticket }
@@ -209,7 +221,8 @@ export async function launchProgress(agentId: string, requestId: string, signal?
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
-export async function endTerminal(id: string, requestId: string, removeHistory=false, factoryOutcome=''): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId,removeHistory,factoryOutcome}) }) }
+/** `forgetDesk` is End the shell on a desk pane: the pane is gone for good, so a desk-shell-v1 machine also removes that pane's own command history. Take off this desk does not send it. */
+export async function endTerminal(id: string, requestId: string, removeHistory=false, factoryOutcome='', forgetDesk=false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify(forgetDesk?{requestId,removeHistory,factoryOutcome,forgetDesk}:{requestId,removeHistory,factoryOutcome}) }) }
 /** The address that opens one session (R17). Only ids go in the address. */
 export const sessionHref = (session: Pick<TerminalSession, 'agentId' | 'id'>): string => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
 export function terminalClosed(state: SessionState): boolean { return ['ended','exited','lost'].includes(state) }
@@ -274,8 +287,10 @@ export async function savedPrompts(signal?:AbortSignal):Promise<TerminalPrompt[]
 export async function savePrompt(item:TerminalPromptWrite,current?:TerminalPrompt):Promise<TerminalPrompt>{return(await terminalRequest('/api/v2/terminal/prompts'+(current?`/${encodeURIComponent(current.id)}`:''),{method:current?'PATCH':'POST',signal:AbortSignal.timeout(15000),body:JSON.stringify({...item,revision:current?.revision||0})})).json()}
 export async function removePrompt(item:Pick<TerminalPrompt,'id'|'revision'>):Promise<void>{await terminalRequest(`/api/v2/terminal/prompts/${encodeURIComponent(item.id)}`,{method:'DELETE',signal:AbortSignal.timeout(15000),body:JSON.stringify({revision:item.revision})})}
 
-export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:number}
-export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
+/** `pane` is a desk pane's own history (desk-shell-v1): listed first, or a source marked unavailable when that pane's shell keeps none. */
+export type CommandHistorySource='bash'|'zsh'|'pane'
+export type CommandHistoryEntry={command:string;source:CommandHistorySource;timestamp?:number}
+export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:CommandHistorySource;available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}
 
 export type InstallStarted = { job: string; reused: boolean; directory: string; host: string }

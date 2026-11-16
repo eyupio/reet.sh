@@ -264,7 +264,7 @@ try{
  expect(operations.length).toBe(beforeLost)
  // Quota blocks an extra creation, but existing sessions remain usable.
  await chooseMachine(agentA)
- for(let i=0;i<8;i++)sessions.push(makeSession(agentA,`Quota ${i}`))
+ for(let i=0;i<24;i++)sessions.push(makeSession(agentA,`Quota ${i}`))
  await refresh()
  await page.getByRole('button',{name:'New session',exact:true}).click()
  await page.getByRole('button',{name:'Terminal session',exact:true}).click()

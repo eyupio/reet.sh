@@ -58,6 +58,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		CardsExpanded         *bool            `json:"cardsExpanded"`
 		TerminalRemoveOnClose *bool            `json:"terminalRemoveOnClose"`
 		FactoryRemoveMode     *string          `json:"factoryRemoveMode"`
+		FactorySessionEndMode *string          `json:"factorySessionEndMode"`
 		HostedPrefix          *string          `json:"hostedPrefix"`
 		DefaultBaseBranch     *string          `json:"defaultBaseBranch"`
 		WorktreesByDefault    *bool            `json:"worktreesByDefault"`
@@ -250,6 +251,14 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		}
 		profile.FactoryRemoveMode = *in.FactoryRemoveMode
 		detail["factoryRemoveMode"] = *in.FactoryRemoveMode
+	}
+	if in.FactorySessionEndMode != nil {
+		if *in.FactorySessionEndMode != "leave" && *in.FactorySessionEndMode != "archive" && *in.FactorySessionEndMode != "delete" {
+			writeErr(w, 400, "Choose leave, archive or delete for a Factory outcome when ending its session.")
+			return
+		}
+		profile.FactorySessionEndMode = *in.FactorySessionEndMode
+		detail["factorySessionEndMode"] = *in.FactorySessionEndMode
 	}
 	if in.HostedPrefix != nil {
 		profile.HostedPrefix = hostedPrefix

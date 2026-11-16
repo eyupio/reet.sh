@@ -5,14 +5,14 @@
   import { GROUP_CHOICES, shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import SessionActions from '../sessions/SessionActions.svelte'
-  import { factoryBadge, type FactoryMember } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryBadge, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import SessionHoverCard from '../terminal/SessionHoverCard.svelte'
 
   // In flight: live sessions, and finished ones for a day, grouped by Project, Machine or State. Each row says the state word
   // and where it came from (R10): a terminal session reports no steps, so there is no progress bar. A row opens the session;
   // its actions menu (a right-click, Shift+F10 or the menu key) offers the same actions as on the Sessions page.
   let { heading = 'In flight', factory = new Map(), groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>(),
-    terminals = [], removeDefault = false, onchanged, onnotice, onsignedout }: {
+    terminals = [], removeDefault = false, factorySessionEndDefault = FACTORY_SESSION_END_DEFAULT, onchanged, onnotice, onsignedout }: {
     heading?: string
     /** Sessions that are part of a Factory pipeline, by session id. */
     factory?: Map<string, FactoryMember>
@@ -33,6 +33,8 @@
     terminals?: TerminalMachine[]
     /** The profile's choice for a session that ends: remove it from history too. */
     removeDefault?: boolean
+    /** The profile's choice for a Factory outcome when the session working in it is stopped. */
+    factorySessionEndDefault?: FactorySessionEndMode
     /** A session action went through: read the sessions again. */
     onchanged: () => void | Promise<void>
     onnotice: (notice: { text: string; bad?: boolean } | null) => void
@@ -140,7 +142,7 @@
   {@const tip = card}
   <div class="session-card-pop" style={`left:${tip.x}px;top:${tip.y}px`}><SessionHoverCard session={tip.item} host={hostOf(tip.item.agentId)} project={owners.get(tip.item.id)?.name} colour={tip.item.projectId ? projectColours.get(tip.item.projectId) : ''} health={machines.find(m => m.agentId === tip.item.agentId)} serverNow={now} href={sessionHref(tip.item)} /></div>
 {/if}
-<SessionActions bind:this={actions} {machines} offline={offlineIds} {terminals} {removeDefault} {onsignedout} {onchanged} {onnotice} />
+<SessionActions bind:this={actions} {machines} offline={offlineIds} {terminals} {removeDefault} {factorySessionEndDefault} {onsignedout} {onchanged} {onnotice} />
 
 <style>
   .flight { min-width: 0; display: flex; flex-direction: column; gap: 8px; }

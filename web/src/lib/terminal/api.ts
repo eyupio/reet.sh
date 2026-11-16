@@ -209,7 +209,7 @@ export async function launchProgress(agentId: string, requestId: string, signal?
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
-export async function endTerminal(id: string, requestId: string, removeHistory=false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId,removeHistory}) }) }
+export async function endTerminal(id: string, requestId: string, removeHistory=false, factoryOutcome=''): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId,removeHistory,factoryOutcome}) }) }
 /** The address that opens one session (R17). Only ids go in the address. */
 export const sessionHref = (session: Pick<TerminalSession, 'agentId' | 'id'>): string => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
 export function terminalClosed(state: SessionState): boolean { return ['ended','exited','lost'].includes(state) }

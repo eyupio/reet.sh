@@ -22,7 +22,7 @@ func TestShelfDefaultsMigrateAndSurviveReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, err := st.ProfileFor(user.ID)
-	if err != nil || !p.GafferAnimations || p.ShelfView != "list" || p.CardsExpanded || p.TerminalRemoveOnClose || !p.GafferCompact || p.HostedPrefix != DefaultHostedPrefix || p.Theme != "dark" || p.Timezone != "Europe/London" || p.DateFormat != "dmy" {
+	if err != nil || !p.GafferAnimations || p.ShelfView != "list" || p.CardsExpanded || p.TerminalRemoveOnClose || !p.GafferCompact || p.HostedPrefix != DefaultHostedPrefix || p.Theme != "dark" || p.Timezone != "Europe/London" || p.DateFormat != "dmy" || p.FactorySessionEndMode != "delete" {
 		t.Fatalf("migration lost preferences: %+v %v", p, err)
 	}
 	p.GafferAnimations, p.GafferCompact = false, false
@@ -78,6 +78,38 @@ func TestDefaultClineSourceMigratesAndSurvivesReopen(t *testing.T) {
 	defer st.Close()
 	if p, err = st.ProfileFor(user.ID); err != nil || p.DefaultClineSource != "cline-pass" || p.DefaultTool != "cline" {
 		t.Fatalf("the default source did not survive reopen: %+v %v", p, err)
+	}
+}
+
+func TestFactorySessionEndModeDefaultsToDeleteAndOnlyKeepsKnownValues(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	user, err := st.EnsureLocalOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.ProfileFor(user.ID)
+	if err != nil || p.FactorySessionEndMode != "delete" {
+		t.Fatalf("default: %+v %v", p, err)
+	}
+	for _, mode := range []string{"leave", "archive"} {
+		p.FactorySessionEndMode = mode
+		if err := st.SaveProfileFor(user.ID, p); err != nil {
+			t.Fatal(err)
+		}
+		if p, err = st.ProfileFor(user.ID); err != nil || p.FactorySessionEndMode != mode {
+			t.Fatalf("saved %s: %+v %v", mode, p, err)
+		}
+	}
+	p.FactorySessionEndMode = "anything else"
+	if err := st.SaveProfileFor(user.ID, p); err != nil {
+		t.Fatal(err)
+	}
+	if p, err = st.ProfileFor(user.ID); err != nil || p.FactorySessionEndMode != "delete" {
+		t.Fatalf("unknown value: %+v %v", p, err)
 	}
 }
 

@@ -421,6 +421,8 @@ The text a picker inserts is `Use the <name> skill: <its description>.`, with th
 | History → Terminal output history | Read a bounded output snapshot |
 | Manage → Remove from history | Hide a closed or still-ending record; keep the queued stop, machine files and operation identity |
 
+When the session is working in a Factory pipeline, **End session** also offers to stop following that outcome and delete or archive it. Deleting is the default; the toggles change it for this session, and Account → Profile sets the default for every session.
+
 Intentional disconnect stays disconnected through online/visibility events.
 Switching machines or sessions preserves the old shell. End requests on unavailable
 machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects creating

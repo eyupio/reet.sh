@@ -1,11 +1,13 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -63,5 +65,52 @@ func TestTerminalCloseRemovalIsExplicitAndAccountDefaultIsMetadata(t *testing.T)
 	}
 	if _, err = st.TerminalSessionFor(uid, session.ID); err != nil {
 		t.Fatal("receipt metadata deleted", err)
+	}
+}
+
+// Stopping a session that a Factory pipeline works in can put the outcome
+// away in the same action: stop following it, then archive or delete it.
+func TestTerminalEndCanReleaseTheFactoryOutcomeTheSessionWorksIn(t *testing.T) {
+	srv, st, agent, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+	srv.s.publicURL = "https://reet.example"
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://reet.example")
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		return w
+	}
+	caps, err := st.BeginRemoteConnectionFor(uid, agent.ID, terminalbroker.ID(), terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "tester", TerminalEnabled: true, Readiness: terminalproto.Ready})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := st.ReserveTerminalCreateFor(uid, agent.ID, terminalbroker.ID(), caps.Generation, terminalproto.Create{Title: "Pipeline", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := st.CreateGafferOutcomeFor(uid, store.GafferOutcome{ID: strings.Repeat("a", 32), Objective: "Ship it.", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it. Do not merge.", RequestID: strings.Repeat("8", 32)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err = st.UpdateGafferOutcomeFor(uid, outcome.ID, outcome.Revision, func(o *store.GafferOutcome) bool {
+		o.State, o.Sessions[0].State, o.Sessions[0].SessionID = "settled", "following", session.ID
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v2/terminal/sessions/" + session.ID + "/end"
+	if w := request("POST", path, `{"requestId":"`+terminalbroker.ID()+`","removeHistory":false,"factoryOutcome":"nonsense"}`); w.Code != 400 {
+		t.Fatalf("unknown action: %d %s", w.Code, w.Body.String())
+	}
+	if w := request("POST", path, `{"requestId":"`+terminalbroker.ID()+`","removeHistory":false,"factoryOutcome":"delete"}`); w.Code != 200 {
+		t.Fatalf("end: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := st.GafferOutcomeFor(uid, outcome.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the outcome was not deleted with the session: %v", err)
 	}
 }

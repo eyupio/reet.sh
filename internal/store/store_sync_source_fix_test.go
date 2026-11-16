@@ -1,6 +1,7 @@
 package store
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -335,5 +336,141 @@ func TestResolveSyncSourceConflictFindsTheCopyUnderTheInstalledFolder(t *testing
 	after, _ := s.SyncTargetsFor(uid)
 	if len(after[0].Desired) != 1 || after[0].Desired[0].ID != "o/r/ui-ux-design-review" || after[0].Desired[0].Slug != "ui-ux-design-review" {
 		t.Fatalf("the plan does not ask for the installed skill: %+v", after[0].Desired)
+	}
+}
+
+// A folder that follows a source has its saved plan compared with that source
+// on every poll. The comparison knew nothing of Auto fix, so the poll after a
+// fix wrote the source's own skill back, the machine refused it again, and the
+// two took turns for ever. The followed copy now stands for as long as that
+// copy is on the machine.
+func TestMaintainSyncKeepsAnAutoFixOnAFolderThatFollowsItsSource(t *testing.T) {
+	s := newStore(t)
+	uid, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.EnrollSyncAgent(uid, "laptop", "test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range [][2]string{{"laptop", "agents"}, {"laptop", "claude"}, {"desktop", "agents"}} {
+		if err = s.TouchEnvironmentFor(uid, env[0], env[1], "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.RecordInventoryFor(uid, EnvironmentIDFor(uid, env[0], env[1], ""), true, MachineInfo{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target, source := EnvironmentIDFor(uid, "laptop", "agents", ""), EnvironmentIDFor(uid, "desktop", "agents", "")
+	for _, held := range [][3]string{{"x/y/one", "laptop", "claude"}, {"a/b/one", "desktop", "agents"}} {
+		sk, e := s.UpsertFor(uid, mustRef(t, held[0]), Patch{})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = s.RecordEnvironmentFor(uid, sk.ID, held[1], held[2], "", "", ""); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: target, SourceID: source, Mode: "additive", FollowSource: true}); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := s.SyncAgentsFor(uid)
+	if err = s.ControlSyncAgent(uid, agents[0].ID, "keep-sync-on"); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ = s.SyncAgentsFor(uid)
+	agent := agents[0]
+	desired := func() string {
+		t.Helper()
+		targets, e := s.SyncTargetsFor(uid)
+		if e != nil || len(targets) != 1 {
+			t.Fatalf("targets: %+v %v", targets, e)
+		}
+		ids := []string{}
+		for _, sk := range targets[0].Desired {
+			ids = append(ids, sk.ID)
+		}
+		sort.Strings(ids)
+		return strings.Join(ids, ",")
+	}
+	drain := func() {
+		t.Helper()
+		for {
+			job, e := s.ClaimSyncJob(uid, agent)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if job == nil {
+				return
+			}
+			if e = s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", strings.Repeat("b", 64), "", []byte(`{"actions":[]}`)); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
+	finish := func(plan string) {
+		t.Helper()
+		job, e := s.ClaimSyncJob(uid, agent)
+		if e != nil || job == nil {
+			t.Fatalf("no job to run: %+v %v", job, e)
+		}
+		if e = s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", strings.Repeat("b", 64), "", []byte(plan)); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if desired() != "a/b/one" {
+		t.Fatalf("fixture follows %s", desired())
+	}
+	if _, err = s.QueueSyncJob(uid, agent.ID, target, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	finish(`{"problems":{"one":"Claude Code already has this skill from x/y, so reet left it alone."}}`)
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	if desired() != "x/y/one" {
+		t.Fatalf("the installed copy was not followed: %s", desired())
+	}
+	// The job the fix queued runs and finds nothing to do.
+	finish(`{"actions":[]}`)
+	jobsBefore, _ := s.SyncJobsFor(uid)
+	for range 3 {
+		if err = s.MaintainSync(uid, "owner", agent); err != nil {
+			t.Fatal(err)
+		}
+		if desired() != "x/y/one" {
+			t.Fatalf("a later poll wrote the source's skill back: %s", desired())
+		}
+	}
+	// Those polls ask the machine to install the followed copy, and no more than that.
+	jobsAfter, _ := s.SyncJobsFor(uid)
+	if len(jobsAfter) > len(jobsBefore)+1 {
+		t.Fatalf("the polls queued %d jobs", len(jobsAfter)-len(jobsBefore))
+	}
+	drain()
+	// The source gains a skill. The folder takes it and still follows the copy.
+	added, err := s.UpsertFor(uid, mustRef(t, "a/b/two"), Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, added.ID, "desktop", "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	if desired() != "a/b/two,x/y/one" {
+		t.Fatalf("a change in the source dropped the followed copy: %s", desired())
+	}
+	drain()
+	// The copy that was followed is gone, so the folder follows its source again.
+	if _, err = s.PruneEnvironmentFor(uid, EnvironmentIDFor(uid, "laptop", "claude", ""), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	if desired() != "a/b/one,a/b/two" {
+		t.Fatalf("the folder did not return to its source once the copy was gone: %s", desired())
 	}
 }

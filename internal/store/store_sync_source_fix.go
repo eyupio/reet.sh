@@ -20,6 +20,9 @@ type SyncSourceFix struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Agent    string `json:"agent"`
+	// InstalledID is the skill the plan asks for after the fix: the copy that
+	// was already on the machine.
+	InstalledID string `json:"installedId"`
 }
 
 // canonicalSyncSource compares two reported sources the way the enrolled agent
@@ -102,7 +105,7 @@ func resolveSyncSourceFixesFor(target SyncTarget, envs []SyncEnvironment, onlyOt
 			if canonicalSyncSource(copy.skill.Source) == canonicalSyncSource(sk.Source) {
 				continue
 			}
-			fixes = append(fixes, SyncSourceFix{TargetID: target.Target.ID, ID: sk.ID, Name: sk.Name, Slug: sk.Slug, From: sk.Source, To: copy.skill.Source, Agent: copy.agent})
+			fixes = append(fixes, SyncSourceFix{TargetID: target.Target.ID, ID: sk.ID, Name: sk.Name, Slug: sk.Slug, From: sk.Source, To: copy.skill.Source, Agent: copy.agent, InstalledID: copy.skill.ID})
 			changed[sk.Slug] = true
 			// The plan now asks for the installed skill itself, not the old one
 			// with another source: once it is installed the two must be the same
@@ -124,6 +127,51 @@ func resolveSyncSourceFixesFor(target SyncTarget, envs []SyncEnvironment, onlyOt
 		}
 	}
 	return fixes, kept, nil
+}
+
+// keepFollowedCopies returns a source's selection with every installed copy
+// the saved plan already follows put back in place of the source's own skill.
+// A folder that follows a source is compared with that source on every poll;
+// without this the poll after an Auto fix wrote the source's skill back, the
+// machine refused it again, and the two took turns. A copy stands only while
+// it is still on the machine and still the single source of its name, so a
+// copy that is removed lets the folder return to its source. It never follows
+// a copy the saved plan did not already follow.
+func keepFollowedCopies(target SyncTarget, selection, saved []SyncSkill, envs []SyncEnvironment) []SyncSkill {
+	inForce := map[string]bool{}
+	for _, sk := range saved {
+		inForce[sk.ID] = true
+	}
+	target.Desired = selection
+	fixes, followed, err := resolveSyncSourceFixes(target, envs)
+	if err != nil || len(fixes) == 0 {
+		return selection
+	}
+	installed := map[string]SyncSkill{}
+	for _, sk := range followed {
+		installed[sk.ID] = sk
+	}
+	replacement := map[string]SyncSkill{}
+	for _, fix := range fixes {
+		if copy, ok := installed[fix.InstalledID]; ok && inForce[fix.InstalledID] {
+			replacement[fix.ID] = copy
+		}
+	}
+	if len(replacement) == 0 {
+		return selection
+	}
+	out := make([]SyncSkill, 0, len(selection))
+	seen := map[string]bool{}
+	for _, sk := range selection {
+		if copy, ok := replacement[sk.ID]; ok {
+			sk = copy
+		}
+		if !seen[sk.ID] {
+			seen[sk.ID] = true
+			out = append(out, sk)
+		}
+	}
+	return out
 }
 
 // ResolveSyncSourceConflictsFor adopts the installed source for each desired

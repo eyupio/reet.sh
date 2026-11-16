@@ -70,8 +70,13 @@ f70eef5 had made stale plans repair themselves. The plan never changed. Read thi
   (id, name, slug and source). It used to change the source and keep the old id, so after the install the
   controller listed the old skill as missing and the installed one as an extra for ever; that was true of
   every Auto fix, not only this case. A plan that already held the installed skill keeps one entry.
-- **Not done.** A target that follows its source has its saved plan rewritten from the source on the next
-  poll, which undoes an Auto fix there. That was so before this work and is not changed.
+- **Auto fix on a folder that follows its source.** `MaintainSync` compared the saved plan with the source on
+  every poll and wrote the source's skill back, so the fix was undone, the machine refused the skill again and
+  the two took turns, a job each time. `keepFollowedCopies` puts back each installed copy the saved plan
+  already follows before the comparison, and again after a save made for another reason. It is stateless: a
+  copy stands only while it is still on the machine and the one source of its name, so removing it returns
+  the folder to its source. It never follows a copy the saved plan did not already follow. Library
+  (canonical) folders are untouched, as Auto fix never applied to them.
 - **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
   `reet_list_sync_targets` failed for five of the owner's seven targets.
 - **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the

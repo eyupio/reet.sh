@@ -33,6 +33,11 @@ this file existed releases were described on their GitHub release pages.
   install the controller still listed the old skill as missing and the
   installed one as an extra. It also finds a copy held under the folder the
   `skills` CLI installs into when that differs from the catalogue's name.
+- Skills sync: an **Auto fix** on a folder that follows a source now holds.
+  The next poll used to write the source's own skill back, the machine
+  refused it again, and the two took turns, queueing a job each time. The
+  folder keeps following the copy while it is on the machine and returns to
+  its source when that copy is removed.
 - Skills: the **Copy prompt** text (`npx skills use …`) names a skill by its
   own name when that is not its folder name, as the copied install command
   does. The folder name found nothing for such a skill.

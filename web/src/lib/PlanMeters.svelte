@@ -120,7 +120,7 @@
 
 <style>
   .plan-meters { display: inline-flex; min-width: 0; max-width: 100%; }
-  .strip { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; min-height: 28px; padding: 2px 6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--ink-soft); font: inherit; cursor: pointer; }
+  .strip { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; min-height: 28px; padding: 2px 6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--ink-soft); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .strip:hover, .strip[aria-expanded=true] { background: var(--tint); border-color: var(--line-soft); }
   .strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .caption { flex: none; color: var(--muted); font-size: 14px; }

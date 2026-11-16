@@ -575,6 +575,13 @@ its backup says so on the pipeline's card (`gaffer-factory.e2e.mjs`).
 
 ![The crew with a backup and the threshold](images/ui/gaffer-outcome-backup-1440-light.png)
 ![The crew on a phone, dark](images/ui/gaffer-outcome-backup-390-dark.png)
+
+A stage Gaffer split into parts, in the plan review (`gaffer-outcome.e2e.mjs`), and the account's crew in Gaffer
+settings (`gaffer-factory.e2e.mjs`).
+
+![A split stage's parts](images/ui/gaffer-outcome-parts-1440-light.png)
+![A split stage's parts, phone dark](images/ui/gaffer-outcome-parts-390-dark.png)
+![The crew in Gaffer settings](images/ui/gaffer-crew-settings-1280-light.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)

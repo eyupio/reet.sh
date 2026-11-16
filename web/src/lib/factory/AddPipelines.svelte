@@ -2,16 +2,17 @@
   // Approving pipelines Gaffer proposed. Each one can be given its own agent, model and effort; left alone it uses the
   // outcome's. Nothing is added or started until the person approves, and an added pipeline never merges by itself.
   import { onMount } from 'svelte'
-  import { listModelFavourites, type GafferOutcome } from '../api'
+  import { getGafferCrew, listModelFavourites, type GafferOutcome } from '../api'
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
-  import { CREW_TIERS, DEFAULT_STAGES, STAGES, stagePlan, withReportedEfforts, type Crew } from '../gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, STAGES, defaultTier, partsBlocker, stagePlan, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
+  import StageParts from './StageParts.svelte'
   import type { MachineModels, ModelFavourite } from '../models'
   import { reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
-  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }
+  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string; tier?: string; backup?: { tool: string; model?: string; effort?: string } }[] }
   let { record, proposals, busy = false, error = '', oncancel, onconfirm }: {
     record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
   } = $props()
@@ -33,6 +34,25 @@
   const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
   const choice = (title: string) => main[title] ?? own()
   const crewOf = (title: string): Crew => crews[title] ?? { heavy: choice(title), standard: choice(title), light: choice(title) }
+  // Each tier's backup comes from the person's saved crew, for the agents this machine can run: an added pipeline is
+  // balanced across plans like the outcome's own. It is changed where the crew is, in Gaffer settings.
+  let spares = $state<Partial<Record<keyof Crew, CrewSpare[]>>>({})
+  // What backs a pipeline's tier up here: the saved crew's backups ('crew', where there are any), none (''), or an
+  // agent of the person's own choosing for this pipeline, with its model and effort.
+  let picked = $state<Record<string, { tool: string; model: string; effort: string }>>({})
+  const crewSpares = (tier: keyof Crew) => (spares[tier] ?? []).filter(one => tools.includes(one.tool))
+  const spareKey = (title: string, tier: keyof Crew) => `${title}\n${tier}`
+  const spareChoice = (title: string, tier: keyof Crew) => picked[spareKey(title, tier)]?.tool ?? (crewSpares(tier).length ? 'crew' : '')
+  const spare = (title: string, tier: keyof Crew): CrewSpare[] => { const own = picked[spareKey(title, tier)]; return !own ? crewSpares(tier) : own.tool && own.tool !== 'crew' ? [own] : own.tool === 'crew' ? crewSpares(tier) : [] }
+  const pickSpare = (title: string, tier: keyof Crew, next: Partial<{ tool: string; model: string; effort: string }>) => { const key = spareKey(title, tier); picked[key] = { ...(picked[key] ?? { tool: spareChoice(title, tier), model: '', effort: '' }), ...next } }
+  const withSpares = (title: string, tier: keyof Crew, member: Crew[keyof Crew]) => { const list = spare(title, tier); return { ...member, backup: list[0], more: list.slice(1) } }
+  const crewSent = (title: string): Crew => { const crew = crewOf(title); return { heavy: withSpares(title, 'heavy', crew.heavy), standard: withSpares(title, 'standard', crew.standard), light: withSpares(title, 'light', crew.light) } }
+  // A stage of an added pipeline can be split into parts, as in a new outcome.
+  let splits = $state<Record<string, Record<string, StagePart[]>>>({})
+  const ratingsOf = (title: string) => ({ parts: splits[title] ?? {} })
+  const spareWords = (one: CrewSpare) => `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}`
+  const whoWords = (title: string, tier: keyof Crew) => { const one = crewOf(title)[tier]; return `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }
+  const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))))
   const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
@@ -66,13 +86,14 @@
     }
   })
   onMount(() => {
+    void getGafferCrew(life.signal).then(answer => { if (!answer.saved) return; for (const item of CREW_TIERS) { const member = answer.crew[item.tier]; const list = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : []); if (list.length) spares[item.tier] = list } }).catch(() => {})
     void terminalMachines(life.signal).then(found => { machine = found.find(item => item.agentId === record.agentId) ?? null }).catch(() => { /* the outcome's own agent is still offered */ }).finally(() => { capabilitiesRead = true })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     return () => life.abort()
   })
   function approve() {
     onconfirm(proposals.map(item => {
-      const plan = withReportedEfforts(stagePlan(kinds(item), crewOf(item.title)), efforts)
+      const plan = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), efforts)
       // Left as the outcome's own agent and model, the stages name no one and the controller fills them in.
       const untouched = plan.every(stage => stage.tool === record.tool && stage.model === (record.model ?? '') && !stage.effort)
       // A Cline stage keeps the outcome's billing source: a stage that names its agent is otherwise started on Cline's own.
@@ -104,9 +125,29 @@
               <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
               <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.tier, { model: next })}/>
               <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(role.tool) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
+              {#if true}{@const chosen = spareChoice(item.title, part.tier)}{@const own = picked[spareKey(item.title, part.tier)]}
+              <div class="crew-spare" role="group" aria-label={`${part.label} backup for ${item.title}`}>
+                <span class="spare-name">Backup</span>
+                <select aria-label={`${part.label} backup agent for ${item.title}`} value={chosen} disabled={busy} onchange={event => pickSpare(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>
+                  {#if crewSpares(part.tier).length}<option value="crew">From your crew: {crewSpares(part.tier).map(spareWords).join(', then ')}</option>{/if}
+                  <option value="">No backup</option>
+                  {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
+                </select>
+                {#if own && chosen && chosen !== 'crew'}
+                  <GafferModelSelect label={`${part.label} backup model for ${item.title}`} tool={chosen} value={own.model} machine={offered[chosen] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => pickSpare(item.title, part.tier, { model: next })}/>
+                  <select aria-label={`${part.label} backup effort for ${item.title}`} value={own.effort} disabled={busy || efforts(chosen).length < 2} onchange={event => pickSpare(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(chosen) as level (level)}<option value={level}>{effortLabel(chosen, level)}</option>{/each}</select>
+                {/if}
+              </div>{/if}
             </div>{/each}
           </div>
           <p class="hint">{kinds(item).length} {kinds(item).length === 1 ? 'stage' : 'stages'}, each in an agent session of its own.</p>
+          <div class="splits" role="group" aria-label={`Split stages of ${item.title}`}>
+            {#each kinds(item).filter(stageTakesParts) as kind (kind)}{@const parts = stageParts(ratingsOf(item.title), kind)}
+              {#if parts.length > 1}<StageParts {kind} where={item.title} {parts} {busy} who={tier => whoWords(item.title, tier)}
+                onchange={(at, next) => splits[item.title] = withPart(ratingsOf(item.title), kind, at, next)} onadd={() => splits[item.title] = withNewPart({ parts: splits[item.title], tiers: { [kind]: defaultTier(kind) } }, kind)} onjoin={() => splits[item.title] = withoutParts(ratingsOf(item.title), kind)}/>{/if}
+            {/each}
+            {#if kinds(item).some(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2)}<p class="split-offer">Split a stage into parts of different work:{#each kinds(item).filter(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2) as kind (kind)}<button class="inline" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} of ${item.title} into parts`} onclick={() => splits[item.title] = withNewPart({ parts: splits[item.title], tiers: { [kind]: defaultTier(kind) } }, kind)}>{stageLabel(kind)}</button>{/each}</p>{/if}
+          </div>
         </details>
       </li>{/each}
     </ul>
@@ -115,7 +156,7 @@
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
     {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
-    <div class="actions"><button class="btn primary" type="button" disabled={busy || refused} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
+    <div class="actions"><button class="btn primary" type="button" disabled={busy || refused || !!blocked} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </div>
 </WorkspaceDialog>
 
@@ -126,6 +167,8 @@
   .who{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:10px;align-items:start}label{font-weight:600;display:grid;gap:6px;min-width:0}
   select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;min-height:44px;box-sizing:border-box}
   .crew summary{min-height:44px;display:list-item;align-content:center;cursor:pointer}.crew summary span{color:var(--accent-text);margin-left:8px}
+  .crew-spare{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.spare-name{grid-column:1/-1;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-spare select{min-width:0;width:100%}.crew-spare>select:last-child{grid-column:1/-1}
+  .splits{display:grid;gap:8px;margin:8px 0 0}.split-offer{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:0.875rem;color:var(--muted)}.split-offer button{min-height:44px;border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer}.split-offer button:hover{text-decoration:underline}
   .crew-rows{display:grid;gap:10px;padding:6px 0 8px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted)}
   summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}

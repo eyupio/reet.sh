@@ -12,6 +12,7 @@ export function sweepReason(item: Pick<SweepItem, 'status' | 'changed' | 'reason
     unreferenced_commits: 'Some commits are on no branch.', hidden_changes: 'Git is not tracking some edits.',
     nested_repository: 'It holds another git repository.', check_incomplete: "It couldn't be fully checked.",
     not_registered: "Git doesn't list it as a worktree.", invalid: 'Not a valid worktree.',
+    in_pipeline: 'A Factory pipeline still works in it.',
   }
   return reasons[item.reason ?? ''] ?? 'It needs a look first.'
 }

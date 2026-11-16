@@ -112,7 +112,7 @@ test('stages keep pipeline order and take the agent and model of their tier', ()
   assert.deepEqual(o.STAGES.map(stage => [stage.kind, o.defaultTier(stage.kind)]), [['plan', 'heavy'], ['design', 'heavy'], ['code', 'standard'], ['review', 'heavy'], ['test', 'standard'], ['pr', 'light'], ['babysit', 'light'], ['merge', 'light']])
   // Gaffer's assessment puts a stage on another tier: it is done by that tier's agent, and the reason goes with it.
   const ratings = o.planRatings([{ kind: 'code', tier: 'heavy', tierWhy: ' Touches the ledger. ' }, { kind: 'review', tier: 'standard' }, { kind: 'pr', tier: 'enormous', tierWhy: 'ignored' }, { kind: 'test' }])
-  assert.deepEqual(ratings, { tiers: { code: 'heavy', review: 'standard' }, whys: { code: 'Touches the ledger.', review: '' } })
+  assert.deepEqual(ratings, { tiers: { code: 'heavy', review: 'standard' }, whys: { code: 'Touches the ledger.', review: '' }, parts: {} })
   assert.deepEqual(o.stagePlan(['code', 'review', 'pr'], crew, true, ratings), [
     { kind: 'code', tool: 'claude', model: 'opus', tier: 'heavy', tierWhy: 'Touches the ledger.' }, { kind: 'review', tool: 'codex', model: '', tier: 'standard' }, { kind: 'pr', tool: 'claude', model: 'haiku', tier: 'light' },
   ])
@@ -123,10 +123,10 @@ test('stages keep pipeline order and take the agent and model of their tier', ()
   assert.deepEqual(o.stageTier('merge', undefined), { tier: 'light', standard: 'light', changed: false, by: 'default', why: '' })
   // The person's own choice replaces Gaffer's and its reason; choosing the default puts the stage back.
   const mine = o.withTier(ratings, 'code', 'light')
-  assert.deepEqual(mine, { tiers: { code: 'light', review: 'standard' }, whys: { review: '' } })
+  assert.deepEqual(mine, { tiers: { code: 'light', review: 'standard' }, whys: { review: '' }, parts: {} })
   assert.deepEqual(o.stageTier('code', mine), { tier: 'light', standard: 'standard', changed: true, by: 'you', why: '' })
-  assert.deepEqual(o.withTier(mine, 'code', 'standard'), { tiers: { review: 'standard' }, whys: { review: '' } })
-  assert.deepEqual(o.withTier(undefined, 'pr', 'bogus'), { tiers: {}, whys: {} })
+  assert.deepEqual(o.withTier(mine, 'code', 'standard'), { tiers: { review: 'standard' }, whys: { review: '' }, parts: {} })
+  assert.deepEqual(o.withTier(undefined, 'pr', 'bogus'), { tiers: {}, whys: {}, parts: {} })
   // What is sent keeps the person's tier and drops a reason that was for another.
   assert.equal(o.tierLabel('heavy'), 'Heavy')
   assert.deepEqual(o.CREW_TIERS.map(item => item.tier), ['heavy', 'standard', 'light'])
@@ -440,4 +440,55 @@ test('a tier’s backup goes with each of its stages, and one that is the first 
   // The share is the person's to set, within bounds; anything that is not a number is the default.
   assert.deepEqual([35, '50', 2, 400, '', null, 'x', 19.6].map(o.balancePercent), [35, 50, 5, 90, 20, 20, 20, 20])
   assert.equal(o.track({ state: 'following', stage: 0, stages: [{ kind: 'code', tool: 'codex', state: 'running', balanced: 'Claude Code’s plan had 12% left.' }] })[0].balanced, 'Claude Code’s plan had 12% left.')
+})
+
+test('a split stage is sent as one entry for each part, on that part’s own tier', () => {
+  const crew = { heavy: { tool: 'claude', model: 'opus' }, standard: { tool: 'claude', model: '' }, light: { tool: 'codex', model: 'small' } }
+  const ratings = o.planRatings([
+    { kind: 'code', part: 'Ledger query', brief: 'Write the query.', tier: 'heavy', tierWhy: 'Touches the ledger.' },
+    { kind: 'code', part: 'Download button', brief: 'Add the button.', tier: 'light' },
+    { kind: 'review' }, { kind: 'pr', tier: 'standard', tierWhy: 'A long description.' },
+  ])
+  assert.deepEqual(Object.keys(ratings.parts), ['code'])
+  assert.deepEqual(ratings.tiers, { pr: 'standard' })
+  const plan = o.stagePlan(['code', 'review', 'pr'], crew, true, ratings)
+  assert.deepEqual(plan.map(s => [s.kind, s.part ?? '', s.tier, s.tool, s.tierWhy ?? '']), [
+    ['code', 'Ledger query', 'heavy', 'claude', 'Touches the ledger.'], ['code', 'Download button', 'light', 'codex', ''], ['review', '', 'heavy', 'claude', ''], ['pr', '', 'standard', 'claude', 'A long description.'],
+  ])
+  assert.equal(plan[0].brief, 'Write the query.')
+  assert.equal(o.sessionCount(plan), 4)
+  // The person can change a part, which drops Gaffer's reason for its tier, and removing down to one part ends the split.
+  const edited = o.withPart(ratings, 'code', 0, { tier: 'standard' })
+  assert.deepEqual([edited.code[0].tier, edited.code[0].why], ['standard', undefined])
+  assert.deepEqual(o.withPart(ratings, 'code', 1, null), {})
+  assert.deepEqual(o.withoutParts(ratings, 'code'), {})
+  // On the card each part is its own step, named, with a key of its own.
+  const nodes = o.track({ state: 'following', stage: 1, stages: [{ kind: 'code', part: 'Ledger query', tool: 'claude', state: 'done' }, { kind: 'code', part: 'Download button', tool: 'codex', state: 'running' }, { kind: 'review', tool: 'claude', state: 'pending' }] })
+  assert.deepEqual(nodes.map(n => [n.key, n.label, n.state]), [['code:0', 'Code: Ledger query', 'done'], ['code:1', 'Code: Download button', 'running'], ['review:2', 'Review', 'pending']])
+})
+
+test('a stage can be split by hand, and its parts need names and briefs before they are sent', () => {
+  const two = o.withNewPart({ tiers: { code: 'heavy' } }, 'code')
+  assert.deepEqual(two.code, [{ title: 'Part 1', brief: '', tier: 'heavy' }, { title: 'Part 2', brief: '', tier: 'heavy' }])
+  const three = o.withNewPart({ parts: two }, 'code')
+  assert.equal(three.code.length, 3)
+  // At most four, and never the pull request, babysitting or merge.
+  assert.equal(o.withNewPart({ parts: { code: [1, 2, 3, 4].map(n => ({ title: `P${n}`, brief: 'b', tier: 'standard' })) } }, 'code').code.length, 4)
+  assert.deepEqual(o.withNewPart(undefined, 'merge'), {})
+  assert.equal(o.stageTakesParts('review'), true)
+  const item = { title: 'Export', stages: ['code', 'pr'], parts: two }
+  assert.match(o.partsBlocker([item]), /Give every part of the code stage of “Export” a name and a brief/)
+  const filled = { ...item, parts: { code: two.code.map((part, n) => ({ ...part, brief: `Do ${n}.` })) } }
+  assert.equal(o.partsBlocker([filled]), '')
+  assert.match(o.partsBlocker([{ ...filled, parts: { code: filled.parts.code.map(part => ({ ...part, title: 'Same' })) } }]), /have the same name/)
+})
+
+test('a tier’s backups are sent in order, without repeats, and a Cline backup carries its source', () => {
+  const crew = { heavy: { tool: 'claude', model: 'opus', backup: { tool: 'codex', model: 'big' }, more: [{ tool: 'cline', model: '', source: 'openrouter' }, { tool: 'codex', model: 'big' }, { tool: 'claude', model: 'opus' }] }, standard: { tool: 'claude', model: '' }, light: { tool: 'claude', model: '', backup: { tool: '', model: '' }, more: [{ tool: 'codex', model: '' }] } }
+  const plan = o.stagePlan(['review', 'pr'], crew)
+  assert.deepEqual(plan[0].backup, { tool: 'codex', model: 'big' })
+  assert.deepEqual(plan[0].moreBackups, [{ tool: 'cline', provider: 'openrouter' }])
+  // A first backup left empty does not hide the one after it.
+  assert.deepEqual([plan[1].backup, plan[1].moreBackups], [{ tool: 'codex' }, undefined])
+  assert.equal(o.MAX_BACKUPS, 3)
 })

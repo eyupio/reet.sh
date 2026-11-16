@@ -228,6 +228,14 @@ func (s *Service) endOutcomeForSession(uid int64, id, mode string) error {
 // session that made it is removed from history. Every pipeline that is not
 // finished counts, whatever stopped it, because each can be tried again there;
 // and a record that cannot be read keeps the folder rather than losing it.
+// WorkDirsInUse lists every folder a pipeline still has work to do in. ok is
+// false when the records could not be read: a caller about to remove a
+// folder must then keep it.
+func (s *Service) WorkDirsInUse(uid int64) (dirs []string, ok bool) {
+	dirs, err := s.store.GafferWorkDirsInUseFor(uid)
+	return dirs, err == nil
+}
+
 func (s *Service) WorkDirInUse(uid int64, dir string) bool {
 	if dir == "" {
 		return false

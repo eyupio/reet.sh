@@ -56,6 +56,32 @@ func (s *Service) forProvider(ctx context.Context, uid int64, provider string) c
 // asked for yesterday is not an approval of today's work.
 var pendingToolLife = 24 * time.Hour
 
+// pendingToolExpired is what a request that waited too long is closed with.
+const pendingToolExpired = "Not run: this request waited more than a day for an answer. Ask Gaffer again."
+
+// expirePendingTools closes every tool request that has waited longer than
+// pendingToolLife, whether or not anyone comes back to answer it: what it
+// would act on may have changed, and a chat should not show a request as
+// waiting for ever. It looks at most once every ten minutes.
+func (s *Service) expirePendingTools() {
+	s.mu.Lock()
+	due := time.Since(s.toolsSwept) >= 10*time.Minute
+	if due {
+		s.toolsSwept = time.Now()
+	}
+	s.mu.Unlock()
+	if !due {
+		return
+	}
+	closed, err := s.store.ExpireGafferPendingTools(time.Now().Add(-pendingToolLife).UnixMilli(), pendingToolExpired)
+	if err != nil {
+		return
+	}
+	for _, tool := range closed {
+		s.audit(tool.UserID, "gaffer-tool-declined", map[string]any{"tool": tool.Name, "conversation": tool.Conversation, "turn": tool.Turn, "expired": true})
+	}
+}
+
 // SetToolHost installs the controller's tools. Without one Gaffer has none.
 func (s *Service) SetToolHost(host ToolHost) {
 	if host == nil {
@@ -198,7 +224,7 @@ func (s *Service) AnswerTool(ctx context.Context, uid int64, conversation, turn,
 		return store.GafferTurn{}, err
 	}
 	if since := max(asked.FinishedAt, asked.StartedAt); since > 0 && time.Since(time.UnixMilli(since)) > pendingToolLife {
-		_ = s.store.ResolveGafferTurnToolFor(uid, conversation, turn, tool, "pending", "declined", "Not run: this request waited more than a day for an answer. Ask Gaffer again.")
+		_ = s.store.ResolveGafferTurnToolFor(uid, conversation, turn, tool, "pending", "declined", pendingToolExpired)
 		s.audit(uid, "gaffer-tool-declined", map[string]any{"tool": pending.Name, "conversation": conversation, "turn": turn, "expired": true})
 		return store.GafferTurn{}, invalid("tool", "That request waited more than a day, so it was not run: what it would act on may have changed. Ask Gaffer again.")
 	}

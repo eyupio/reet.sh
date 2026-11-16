@@ -3,6 +3,7 @@ package gaffer
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -136,6 +137,49 @@ type OutcomeStageInput struct {
 	// Backup is the person's second choice for the stage, used when the
 	// first choice's plan is running low and the backup's has more left.
 	Backup *store.GafferStageAgent `json:"backup,omitempty"`
+	// More are further backups, tried in order after Backup.
+	More []store.GafferStageAgent `json:"moreBackups,omitempty"`
+	// Part and Brief make this entry one part of a split stage: its short
+	// name and what it is to do. Entries of one kind that carry a part sit
+	// together and run in order, each on its own tier's agent.
+	Part  string `json:"part,omitempty"`
+	Brief string `json:"brief,omitempty"`
+}
+
+// MaxStageParts is how many parts one stage can be split into, and
+// MaxPipelineStages how many stage entries a pipeline can have in all.
+const (
+	MaxStageParts     = 4
+	MaxPipelineStages = 16
+	maxPartBriefBytes = 1200
+)
+
+// partTitle names the session of one part of a split stage: the pipeline,
+// the stage and the part, within the protocol's limit for a session title
+// whatever the lengths of the three. The pipeline's name gives way first.
+func partTitle(pipeline, kind, part string) string {
+	clip := func(text string, max int) string {
+		runes := []rune(text)
+		if len(runes) <= max {
+			return text
+		}
+		if max < 1 {
+			return ""
+		}
+		return strings.TrimSpace(string(runes[:max-1])) + "…"
+	}
+	tail := " · " + kind + ": " + clip(part, 30)
+	return clip(pipeline, terminalproto.MaxTitleRunes-len([]rune(tail))) + tail
+}
+
+// stageTakesParts reports whether a kind of stage can be split. The pull
+// request, its babysitting and the merge are each one thing.
+func stageTakesParts(kind string) bool {
+	switch kind {
+	case "plan", "design", "code", "review", "test":
+		return true
+	}
+	return false
 }
 
 // StageTiers are how demanding a stage can be judged to be, lightest first.
@@ -217,11 +261,28 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 		later = append(later, next.Kind)
 	}
 	text := "You are doing ONE stage of a staged piece of work: the " + stage.Kind + " stage. " + stageWork[stage.Kind]
+	if stage.Part != "" {
+		// A split stage: this session does one named part of it and no other.
+		var others []string
+		for i, other := range item.Stages {
+			if i != n && other.Kind == stage.Kind && other.Part != "" {
+				others = append(others, other.Part)
+			}
+		}
+		text = "You are doing ONE PART of one stage of a staged piece of work: the “" + stage.Part + "” part of the " + stage.Kind + " stage. " + stageWork[stage.Kind] + "\n\nThis part: " + stage.Brief
+		if len(others) > 0 {
+			text += "\nThe other parts of this stage (" + strings.Join(others, ", ") + ") are done separately, in sessions of their own: do not do their work."
+		}
+	}
 	if n > 0 {
 		text += "\n\nThe work is already under way in this folder and branch."
 		for i := n - 1; i >= 0; i-- {
 			if item.Stages[i].Summary != "" {
-				text += " Handover from the " + item.Stages[i].Kind + " stage: " + item.Stages[i].Summary
+				from := "the " + item.Stages[i].Kind + " stage"
+				if item.Stages[i].Part != "" {
+					from = "the “" + item.Stages[i].Part + "” part of " + from
+				}
+				text += " Handover from " + from + ": " + item.Stages[i].Summary
 				break
 			}
 		}
@@ -230,9 +291,22 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
 	}
 	text += "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n" + item.Prompt
-	text += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
+	if stage.Part != "" {
+		text += "\n\nThis part is finished when you have left, for this part only, " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
+	} else {
+		text += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
+	}
 	if len(later) > 0 {
-		text += " The later stages (" + strings.Join(later, ", ") + ") are done separately, after this one is checked: do not start them."
+		// Named once each: the later parts of this stage are the same kind.
+		var names []string
+		for _, kind := range later {
+			if kind != stage.Kind && (len(names) == 0 || names[len(names)-1] != kind) {
+				names = append(names, kind)
+			}
+		}
+		if len(names) > 0 {
+			text += " The later stages (" + strings.Join(names, ", ") + ") are done separately, after this one is checked: do not start them."
+		}
 	}
 	if stage.Kind != "merge" {
 		text += " Do not merge."
@@ -415,15 +489,32 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 		if item.AutoMerge != nil {
 			piece.AutoMerge = *item.AutoMerge
 		}
-		last := -1
-		for _, stage := range item.Stages {
+		last, parts := -1, map[string]bool{}
+		if len(item.Stages) > MaxPipelineStages {
+			return nil, invalid("sessions", "“"+title+"” has too many stages and parts. Keep it to "+strconv.Itoa(MaxPipelineStages)+".")
+		}
+		for n, stage := range item.Stages {
 			at := stageIndex(stage.Kind)
-			if at <= last {
-				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
+			// A kind appears once, or as parts of one split stage sitting together.
+			part, brief := strings.TrimSpace(stage.Part), strings.TrimSpace(stage.Brief)
+			again := at == last && at >= 0
+			if at < 0 || at < last || again && (part == "" || strings.TrimSpace(item.Stages[n-1].Part) == "") {
+				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once unless it is split into named parts.")
+			}
+			if !again {
+				parts = map[string]bool{}
+			}
+			if part != "" {
+				if !stageTakesParts(stage.Kind) || !terminalproto.ValidTitle(part) || parts[part] || len(parts) >= MaxStageParts || brief == "" || len(brief) > maxPartBriefBytes || !store.ValidWorkerText(brief) {
+					return nil, invalid("sessions", "A split stage of “"+title+"” has up to "+strconv.Itoa(MaxStageParts)+" parts, each with its own short name and a brief saying what it does. The pull request, babysitting and merge are not split.")
+				}
+				parts[part] = true
+			} else if brief != "" {
+				return nil, invalid("sessions", "A brief belongs to a named part of a stage in “"+title+"”.")
 			}
 			last = at
 			stageTool, stageModel, stageProvider, stageEffort := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider), stage.Effort
-			second := stage.Backup
+			second, others := stage.Backup, stage.More
 			// How demanding the stage is: what Gaffer or the person said, else
 			// its kind's default. It is kept with the stage either way.
 			tier, why := stage.Tier, strings.TrimSpace(stage.TierWhy)
@@ -440,7 +531,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 				if member := crew.Tier(tier); member.Tool != "" {
 					stageTool, stageModel, stageEffort, stageProvider = member.Tool, member.Model, member.Effort, member.Provider
 					// The tier's backup comes with it.
-					second = member.Backup
+					second, others = member.Backup, member.More
 				} else {
 					stageTool, stageModel = tool, model
 					if stageProvider == "" {
@@ -460,7 +551,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
 				return nil, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
 			}
-			backup, err := stageBackup(second, stageTool, stageModel, stageEffort, stageProvider)
+			backup, more, err := stageBackups(second, others, stageTool, stageModel, stageEffort, stageProvider)
 			if err != nil {
 				return nil, err
 			}
@@ -468,7 +559,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, Tier: tier, TierWhy: why, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -485,8 +576,8 @@ func stageAgents(stage store.GafferOutcomeStage) []string {
 	if stage.First != nil {
 		tools = append(tools, stage.First.Tool)
 	}
-	if stage.Backup != nil {
-		tools = append(tools, stage.Backup.Tool)
+	for _, spare := range store.Spares(stage.Backup, stage.More) {
+		tools = append(tools, spare.Tool)
 	}
 	return tools
 }
@@ -669,8 +760,10 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 		return
 	}
 	s.releaseGoneSessions()
+	s.rebalanceStopped(ctx)
 	s.autoReports(ctx)
 	s.autoDecisions(ctx)
+	s.expirePendingTools()
 	rows, err := s.store.StartingGafferOutcomes()
 	// The controller's settings are read only when there is an outcome to
 	// start, as the goal supervisor reads them only for a due goal.
@@ -1130,6 +1223,11 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
 		goal = StageGoal(o.Objective, item.Title, stage.Kind)
+		if stage.Part != "" {
+			// One part of a split stage: Gaffer follows it against the part's own brief.
+			launch.Title = partTitle(item.Title, stage.Kind, stage.Part)
+			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 600) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
+		}
 		// The merge gate holds on every path into the merge stage, not only on
 		// a hand-over: a pipeline tried again at its merge stage, or one whose
 		// first stage is the merge, waits for the person like any other.
@@ -1147,6 +1245,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 						if row := &o.Sessions[i]; row.Key == item.Key && row.Stage == at && at < len(row.Stages) && row.Stages[at].RequestID == stage.RequestID {
 							row.Stages[at].Tool, row.Stages[at].Model, row.Stages[at].Effort, row.Stages[at].Provider = next.Tool, next.Model, next.Effort, next.Provider
 							row.Stages[at].First, row.Stages[at].Balanced = next.First, next.Balanced
+							row.Stages[at].Rebalanced = row.Stages[at].Rebalanced || next.Rebalanced
 							return true
 						}
 					}
@@ -1331,9 +1430,8 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}))
 		if err == nil && wrote {
 			s.auditPipeline(after, item.Key)
-			if staged {
-				s.checkStageChoice(ctx, o, item.Key, item.Stage, sessionID)
-			}
+			// Staged or not, the session is asked what it is running.
+			s.checkStageChoice(ctx, o, item.Key, item.Stage, sessionID)
 			if staged && item.Stage > 0 {
 				// The stage before worked in a session of its own, which the
 				// pipeline has finished with. It is ended here as well as where

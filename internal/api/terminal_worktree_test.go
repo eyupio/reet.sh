@@ -760,3 +760,40 @@ func TestPeerReadyResumesAnInterruptedRemoveOnClose(t *testing.T) {
 		t.Fatal("the resumed cleanup was not audited")
 	}
 }
+
+// A worktree a Factory pipeline still works in is kept by the manual remove:
+// the pipeline's later stages and any retry start there. Nothing is asked of
+// the machine. Once the pipeline is finished the worktree can go.
+func TestAWorktreeAFactoryPipelineWorksInIsNotRemoved(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	f.answer(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: worktreeTestPath, Branch: worktreeTestBranch}
+	})
+	outcome := store.GafferOutcome{ID: strings.Repeat("e", 32), Objective: "Ship it.", State: "settled", AgentID: f.agent.ID, Tool: "claude", MaxReviews: 4, Hours: 4,
+		Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Export API", Prompt: "p", State: "unfollowed", WorkDir: worktreeTestPath, RequestID: strings.Repeat("a", 32)}}}
+	created, err := f.st.CreateGafferOutcomeFor(f.uid, outcome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.srv.s.worktreeInPipeline(f.uid, worktreeTestProject, worktreeTestRun) || f.srv.s.worktreeInPipeline(f.uid, worktreeTestProject, strings.Repeat("f", 24)) || f.srv.s.worktreeInPipeline(f.uid+1, worktreeTestProject, worktreeTestRun) {
+		t.Fatal("in use: only this account's unfinished pipeline's own worktree")
+	}
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 0}))
+	if code != 409 || out["code"] != "worktree_in_pipeline" || !strings.Contains(raw, "A Factory pipeline still works in this worktree") || len(f.worktreeSent()) != 0 {
+		t.Fatal(code, raw, f.worktreeSent())
+	}
+	// The sweep's own removal step refuses it too, whatever the list said.
+	item := f.srv.s.removeSwept(context.Background(), f.uid, sweepItem{AgentID: f.agent.ID, Project: worktreeTestProject, Repo: "site", Run: worktreeTestRun, Path: worktreeTestPath, Status: sweepSafe}, true)
+	if item.Removed || item.Status != sweepBlocked || item.Reason != "in_pipeline" || len(f.worktreeSent()) != 0 {
+		t.Fatalf("sweep: %+v", item)
+	}
+	if _, err = f.st.UpdateGafferOutcomeFor(f.uid, created.ID, created.Revision, func(o *store.GafferOutcome) bool {
+		o.Sessions[0].State = "done"
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw = f.do(t, f.cookie, "POST", "/api/v2/terminal/worktrees/remove", worktreeRequest(f.agent.ID, map[string]any{"changed": 0, "unpushed": 0})); code != 200 {
+		t.Fatal("after the pipeline finished", code, raw)
+	}
+}

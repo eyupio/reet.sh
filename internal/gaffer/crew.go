@@ -52,12 +52,46 @@ func crewTier(in store.GafferCrewTier) (store.GafferCrewTier, error) {
 	if out.Provider != "" && (!terminalproto.ToolTakesProvider(out.Tool) || !terminalproto.ValidProvider(out.Provider)) {
 		return out, bad
 	}
-	backup, err := stageBackup(in.Backup, out.Tool, out.Model, out.Effort, out.Provider)
+	backup, more, err := stageBackups(in.Backup, in.More, out.Tool, out.Model, out.Effort, out.Provider)
 	if err != nil {
 		return out, bad
 	}
-	out.Backup = backup
+	out.Backup, out.More = backup, more
 	return out, nil
+}
+
+// stageBackups accepts the backups of a stage or tier, in the order they are
+// tried: at most store.MaxGafferBackups, each a real second choice, none the
+// first choice again and none given twice.
+func stageBackups(first *store.GafferStageAgent, more []store.GafferStageAgent, tool, model, effort, provider string) (*store.GafferStageAgent, []store.GafferStageAgent, error) {
+	var kept []store.GafferStageAgent
+	list := []*store.GafferStageAgent{first}
+	for i := range more {
+		list = append(list, &more[i])
+	}
+	for _, item := range list {
+		one, err := stageBackup(item, tool, model, effort, provider)
+		if err != nil {
+			return nil, nil, err
+		}
+		if one == nil {
+			continue
+		}
+		again := false
+		for _, have := range kept {
+			again = again || have == *one
+		}
+		if !again {
+			kept = append(kept, *one)
+		}
+	}
+	if len(kept) > store.MaxGafferBackups {
+		return nil, nil, invalid("sessions", "A tier or a stage has at most three backups.")
+	}
+	if len(kept) == 0 {
+		return nil, nil, nil
+	}
+	return &kept[0], kept[1:], nil
 }
 
 // stageBackup accepts a second choice for a stage or tier whose first choice

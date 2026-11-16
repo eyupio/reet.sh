@@ -357,7 +357,7 @@ func (s *server) hostedPublic(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-	_ = hostedPage.Execute(w, map[string]any{"Skill": sk, "Username": r.PathValue("username"), "Path": p, "Files": files, "Command": "npx skills add " + origin + p, "Origin": origin, "Updated": updated, "StructuredData": template.JS(structured)})
+	_ = hostedPage.Execute(w, map[string]any{"Skill": sk, "Username": r.PathValue("username"), "Path": p, "Files": files, "Command": "npx " + ref.SkillsCLI + " add " + origin + p, "Origin": origin, "Updated": updated, "StructuredData": template.JS(structured)})
 }
 
 func (s *server) parseSkillInput(r *http.Request, input string) (ref.Ref, error) {

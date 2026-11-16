@@ -117,6 +117,7 @@ export function eventLabel(e: Event): string {
       return `Gaffer handed over a pipeline's ${d.stage || 'current'} stage`
     case 'gaffer-decision': return d.failed ? `Gaffer could not decide for a pipeline's ${d.stage || 'current'} stage and left it to you${d.reason ? `: ${d.reason}` : ''}` : `Gaffer decided for a pipeline's ${d.stage || 'current'} stage: ${({ again: 'review it again', tell: 'tell the agent what to do', move: 'move on', budget: 'give it a new budget', restart: 'run it again in a new session', answer: 'answer the agent’s question' } as Record<string, string>)[String(d.choice)] ?? 'a choice'}${d.reason ? `. ${d.reason}` : ''}`
     case 'gaffer-outcome-decisions': return d.gaffer ? 'You gave Gaffer an outcome’s decisions' : 'You took an outcome’s decisions back from Gaffer'
+    case 'gaffer-stage-rebalanced': return `A pipeline's ${d.stage || 'current'} stage was run again on a backup agent after its agent stopped${d.reason ? `: ${d.reason}` : ''}`
     case 'gaffer-stage-balanced': return `A pipeline's ${d.stage || 'next'} stage started on its backup agent${d.reason ? `: ${d.reason}` : ''}`
     case 'gaffer-stage-started': return d.stage ? `A pipeline's ${d.stage} stage started` : 'An outcome session started and Gaffer is following it'
     case 'gaffer-pipeline-waiting-merge': return 'A pipeline is ready and waits for your merge decision'

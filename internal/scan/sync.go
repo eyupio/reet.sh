@@ -21,9 +21,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/noderuntime"
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/systeminstall"
@@ -775,7 +777,10 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			for _, found := range inventory.Found {
 				sameScope := found.Project == target.Target.Project && found.Agent != target.Target.Agent &&
 					found.Host == *host
-				sameName := found.Name == desired.Slug
+				// The skills CLI writes into a folder made from the skill's name,
+				// which is not always the slug; either is the name it would take.
+				folder := installedFolder(desired)
+				sameName := found.Name == desired.Slug || (folder != "" && found.Name == folder)
 				differentSource := canonicalSource(found.Source) != canonicalSource(desired.Source)
 				conflict := sameScope && sameName
 				if conflict && differentSource {
@@ -783,6 +788,10 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					// replacing this scope's copy. Known, different sources still do.
 					if found.Source == "" {
 						continue
+					}
+					if folder != "" {
+						// The copy this scope holds under that folder is left alone too.
+						blocked[folder] = true
 					}
 					if target.Canonical {
 						blocked[desired.Slug] = true
@@ -925,6 +934,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				}
 			}
 		}
+		// The skills CLI names a folder after the skill's own name, which is not
+		// always the catalogue's name for it. Such a folder is the desired skill.
+		actual = knownByInstalledFolder(desired, actual)
 		if target.Mode == "bidirectional" {
 			// A changed local set must be reconciled and saved in the web UI first.
 			base := map[string]string{}
@@ -1004,7 +1016,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		for _, action := range actions {
 			if action.Add {
-				for _, candidate := range []string{filepath.Join(targetPath, action.Skill.Slug), filepath.Join(canonicalBase, ".agents", "skills", action.Skill.Slug)} {
+				candidates := []string{filepath.Join(targetPath, action.Skill.Slug), filepath.Join(canonicalBase, ".agents", "skills", action.Skill.Slug)}
+				if folder := installedFolder(action.Skill); folder != "" {
+					// Where the skills CLI will really write when the skill's name
+					// makes a different folder than its slug.
+					candidates = append(candidates, filepath.Join(targetPath, folder), filepath.Join(canonicalBase, ".agents", "skills", folder))
+				}
+				for _, candidate := range candidates {
 					if _, err := os.Lstat(candidate); err == nil {
 						if skill, err := os.Stat(filepath.Join(candidate, "SKILL.md")); (err != nil || skill.IsDir()) && !(action.Replace && forceReplace[action.Skill.Slug]) {
 							return nil, fmt.Errorf("unrecognised existing entry %s; inspect or move it aside before installing", candidate)
@@ -1123,7 +1141,15 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		var operationErr error
 		if action.Add {
 			if action.Replace {
-				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
+				// The copy being replaced sits under the slug, or under the
+				// folder the skills CLI made from the skill's name.
+				entry := action.Skill.Slug
+				if folder := installedFolder(action.Skill); folder != "" {
+					if _, err := os.Lstat(filepath.Join(targetPath, entry)); os.IsNotExist(err) {
+						entry = folder
+					}
+				}
+				operationErr = backupSkillEntry(targetPath, entry, out, options.onBackup)
 			}
 			if operationErr == nil && action.Skill.SourceType == "private" {
 				operationErr = installPrivateSkill(*server, *token, action.Skill, targetPath, func(files []skillbundle.ContentFile) error {
@@ -1140,15 +1166,17 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				if err != nil {
 					return err
 				}
-				command := []string{"--yes", "skills@1.7.4", "add", source, "--skill", action.Skill.Slug, "--agent", agent, "--yes"}
-				if target.Target.Project == "" {
-					command = append(command, "--global")
-				}
-				operationErr = execute(command, cwd)
+				operationErr = execute(skillsAddCommand(source, action.Skill, agent, target.Target.Project == ""), cwd)
 				global := operationErr == nil && target.Target.Project == ""
 				supported := agent == "cursor" || agent == "opencode"
 				if global && supported {
-					operationErr = linkSharedInstall(home, targetPath, action.Skill.Slug)
+					folder := action.Skill.Slug
+					if _, err := os.Stat(filepath.Join(home, ".agents", "skills", folder, "SKILL.md")); err != nil {
+						if made := installedFolder(action.Skill); made != "" {
+							folder = made
+						}
+					}
+					operationErr = linkSharedInstall(home, targetPath, folder)
 				}
 			}
 		} else {
@@ -1168,11 +1196,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		if operationErr != nil {
 			_ = rescan()
-			hint := "rescan and preview again"
-			if networkFailure(operationErr) {
-				hint += "; check network access to registry.npmjs.org and github.com (or your proxy)"
-			}
-			return fmt.Errorf("sync stopped at %s: %w; %s", action.Skill.Slug, operationErr, hint)
+			return installFailure(action.Skill.Slug, operationErr)
 		}
 	}
 
@@ -1194,7 +1218,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		remaining = kept
 	}
 	if len(remaining) > 0 {
-		return errors.New("commands completed but the installed skills still differ from the plan; inspect the agent installation, then sync again")
+		names := make([]string, 0, len(remaining))
+		for _, action := range remaining {
+			names = append(names, action.Skill.Slug)
+		}
+		return fmt.Errorf("commands completed but the installed skills still differ from the plan (%s); inspect the agent installation, then sync again", strings.Join(names, ", "))
 	}
 	if len(failed) > 0 {
 		return itemFailuresError(failed)
@@ -1202,6 +1230,132 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
 }
+
+// installedFolder is the folder the skills CLI makes for a desired skill when
+// that is not the catalogue's slug, and "" when it is. "UI/UX Design Review" is
+// uiux-design-review in the catalogue and ui-ux-design-review once installed.
+// A private skill is written by reet into its slug, never by the CLI.
+func installedFolder(skill store.SyncSkill) string {
+	name := strings.TrimSpace(skill.Name)
+	if skill.SourceType == "private" || !plainSkillName(name) {
+		return ""
+	}
+	if folder := ref.InstalledFolder(name); folder != skill.Slug {
+		return folder
+	}
+	return ""
+}
+
+// knownByInstalledFolder reports a folder the CLI makes from a desired skill's
+// name under that skill's slug, so the plan treats it as that skill: nothing
+// to do when it came from the same source, a conflict when it came from
+// another, and a replacement with a backup when it has no source at all.
+// A folder already present under the slug is left as it is.
+func knownByInstalledFolder(desired []store.SyncSkill, actual []Found) []Found {
+	present := map[string]bool{}
+	for _, found := range actual {
+		present[found.Name] = true
+	}
+	out := slices.Clone(actual)
+	for _, want := range desired {
+		folder := installedFolder(want)
+		if folder == "" || present[want.Slug] {
+			continue
+		}
+		for i := range out {
+			if out[i].Name == folder {
+				out[i].Name = want.Slug
+				present[want.Slug] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// skillsAddCommand is the skills CLI call that installs one skill. The CLI
+// selects a skill by the name in its SKILL.md, which is not always the folder
+// name reet tracks ("SVG Logo Designer" is installed as svg-logo-designer), so
+// both are offered and the CLI takes whichever one the source uses.
+func skillsAddCommand(source string, skill store.SyncSkill, agent string, global bool) []string {
+	command := []string{"--yes", ref.SkillsCLI, "add", source, "--skill", skill.Slug}
+	if name := strings.TrimSpace(skill.Name); !strings.EqualFold(name, skill.Slug) && plainSkillName(name) {
+		command = append(command, name)
+	}
+	command = append(command, "--agent", agent, "--yes")
+	if global {
+		command = append(command, "--global")
+	}
+	return command
+}
+
+// plainSkillName reports whether a controller-supplied name is safe to hand to
+// the skills CLI as a value: it cannot read as a flag, select every skill, or
+// carry control characters.
+func plainSkillName(name string) bool {
+	if name == "" || len(name) > 200 || strings.HasPrefix(name, "-") || strings.Contains(name, "*") {
+		return false
+	}
+	return !strings.ContainsFunc(name, unicode.IsControl)
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+
+// installerReason is the last line the skills CLI, npm or git marked as an
+// error, so a failed install says why instead of only "exit status 1".
+func installerReason(err error) string {
+	var withOutput *commandOutputError
+	if !errors.As(err, &withOutput) {
+		return ""
+	}
+	reason := ""
+	for _, line := range strings.Split(ansiEscape.ReplaceAllString(withOutput.output, ""), "\n") {
+		if at := strings.LastIndexByte(line, '\r'); at >= 0 {
+			line = line[at+1:]
+		}
+		line = strings.TrimSpace(line)
+		for _, mark := range []string{"■", "✖", "✗", "x  ", "npm error", "npm ERR!", "fatal:", "Error:"} {
+			if text, ok := strings.CutPrefix(line, mark); ok && strings.TrimSpace(text) != "" {
+				reason = strings.TrimSpace(text)
+				if strings.HasPrefix(mark, "npm") || strings.HasSuffix(mark, ":") {
+					reason = line
+				}
+			}
+		}
+	}
+	if len(reason) > 300 {
+		reason = reason[:300]
+	}
+	return reason
+}
+
+// installFailure names the skill an apply stopped at and why. It does not ask
+// for another preview: the plan was right, the install is what failed.
+func installFailure(slug string, err error) error {
+	reason := failureReason(err)
+	if networkFailure(err) {
+		reason += "; check network access to registry.npmjs.org and github.com (or your proxy)"
+	}
+	return &installError{message: "sync stopped at " + slug + ": " + reason, err: err}
+}
+
+// failureReason prefers what the installer said over its exit status.
+func failureReason(err error) string {
+	if reason := installerReason(err); reason != "" {
+		return reason
+	}
+	return err.Error()
+}
+
+// installError carries the cause, so a cancelled or timed-out install is still
+// recognised as one after it has been given readable words.
+type installError struct {
+	message string
+	err     error
+}
+
+func (e *installError) Error() string { return e.message }
+func (e *installError) Unwrap() error { return e.err }
 
 // itemScopedFailure reports whether an apply failure belongs to one item.
 func itemScopedFailure(err error) bool {
@@ -1217,7 +1371,7 @@ func itemFailuresError(failed map[string]error) error {
 	sort.Strings(slugs)
 	parts := make([]string, 0, len(slugs))
 	for _, slug := range slugs {
-		parts = append(parts, slug+": "+failed[slug].Error())
+		parts = append(parts, slug+": "+failureReason(failed[slug]))
 	}
 	noun := "items need"
 	if len(slugs) == 1 {

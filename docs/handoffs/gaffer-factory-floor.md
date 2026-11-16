@@ -1238,14 +1238,110 @@ The owner asked for everything the review had found and left to be fixed.
 - A pending tool call is closed when it is answered after a day, not on a
   timer; nothing expires it while it sits unanswered.
 
+## Second review: the merge gate, and a stop that stands (16 November 2026)
+
+The owner asked for a review of Gaffer, the Factory integration and what the
+handoffs still owed, then chose to have every finding fixed in one PR. Two
+independent reads were made (the controller engine; the REST, MCP and
+Gaffer-tool surface). Each defect below was reproduced by a failing test
+before it was fixed. Nothing here was run against a real machine, agent or
+provider, and dev.reet.sh had no outcomes at the time.
+
+### Found and fixed
+
+- **The merge gate could be walked round.** Only `advancePipeline` checked it.
+  A pipeline at Ready to merge, stopped and then tried again, went through
+  `runOutcomeSession`, which started and followed the merge stage with no
+  approval. A pipeline whose first stage is `merge` did the same. This was
+  reachable from the page, over MCP (retry takes no `confirm`) and by Gaffer
+  with *Factory: control* on Allow and *Factory: merge* off, and on YOLO
+  outcomes. `runOutcomeSession` now holds the gate itself: a merge stage that
+  is neither approved nor set to merge by itself goes to `ready_to_merge`
+  (`mergeWaitNote`), whatever path led there.
+- **A launch that came back overwrote the person's stop.** The controller's
+  writes were unconditional. `setOutcomeSession` now writes only while the
+  pipeline is in a state the controller holds (`controllerHolds`: waiting,
+  starting, advancing) and reports whether it wrote. A session that came up
+  after Stop following is kept on the record as `unfollowed`, with no goal; a
+  goal set just before the stop is closed again; a session whose outcome was
+  deleted, or whose pipeline asks for another launch by now, is ended.
+- **An archived outcome could be set going again.** `RetryPipeline`,
+  `AddPipelines` and `SendPipelineBack` refuse it (`errOutcomeArchived`): the
+  person brings it back first. Archiving lets go of the pipelines' folders,
+  so this also closes a way to work in a worktree nothing protected.
+- **`WorkDirInUse` let go of folders that were still needed.** A `failed`,
+  `waiting` or `cancelled` pipeline can be tried again in its worktree, so
+  every pipeline that is not `done` now keeps it, and a store error keeps the
+  folder instead of releasing it.
+- **A restart between setting a stage's goal and recording `following`** left
+  the pipeline "unfollowed: this session already has a goal", and every retry
+  repeated it. A goal whose text is this stage's own goal is adopted.
+- **Two runners for one outcome.** The early and the deferred
+  `outcomeRuns.Delete` could release a successor's entry. The entry is now
+  released once, before the wake.
+- **A finished stage's session was left running** when the next stage could
+  not be started in a session of its own. It is ended then too.
+- **A hand-over that changed nothing was still logged** as one
+  (`stageHandedOver`), and **send back and tell** judged a pipeline by its
+  saved state where the page shows the settled one.
+- **MCP approval was not of what was read.** `reet_approve_pipeline_merge`
+  takes `seen_updated_at` (required), the pipeline's `updated_at` from the
+  read; a pipeline that changed since is not approved. A Gaffer request left
+  on Ask me carries the value it was made with, so answering it after a
+  send-back approves nothing.
+- **MCP results that said `applied: true` when nothing happened.**
+  `reet_tell_pipeline_agent` reports `applied: false` for a blocked or failed
+  receipt and says a new `request_id` is needed; `reet_stop_outcome` on a
+  finished outcome reports `applied: false` and is not logged. A missing
+  session chat in tell is named as that, not as a missing outcome.
+- **`reet_start_outcome`'s agent check failed open** when the machine's
+  capabilities could not be read or it reported no chats. It now refuses.
+- **Gaffer, in general chat, could read handover text and then change
+  something on Allow in the same turn.** `HostTool.SessionText` marks the
+  tools whose answers carry it (`gafferToolReturnsSessionText`: the
+  one-outcome read and every Factory control). Once one has run in a turn,
+  any tool that changes something asks first for the rest of it. The mark is
+  kept on the turn (`GafferTurnTool.SessionText`) and `toolHistory` leaves
+  such a result out for a provider that may not read session text.
+- A tool call may carry 64 KiB of arguments (a full `reet_start_outcome` did
+  not fit in 32), and the browser's merge approval is refused where remote
+  sessions are off, like the other controls that start work.
+
+### Validation
+
+`internal/gaffer/outcome_gate_test.go` (the gate after a retry and for a
+merge-first pipeline; a stop during a launch; an archived outcome; folders;
+the adopted goal; the last stage's session), `host_tools_test.go` (a change
+after session text; history for a provider without it; a full-size call) and
+`internal/api/gaffer_factory_mcp_seen_test.go` (the approval of what was
+read; `applied`; the start check; the marked tools). `mcp_tools.json` was
+regenerated from `mcp/src/server.ts`; still 48 definitions.
+
+### Found and not fixed
+
+- **A launch that times out is recorded as failed**, and Retry asks under a
+  new request, so a launch that did start late leaves a second session in the
+  same worktree. Keeping the request ID needs the broker's behaviour for a
+  repeated request that truly failed to be read first.
+- **`reet_start_outcome` has no idempotency key**, so a client that retries
+  an unanswered call starts a second outcome.
+- `WorkDirInUse` reads the sixty outcomes the list read returns.
+- The previous stage's session is not ended when the controller restarts in
+  the middle of starting the next stage's own session.
+- Over MCP, retry, move on and merge approval are not refused on a YOLO
+  outcome (tell, add and send back are). The gate above now covers the merge.
+
 ## Not done, for the next slice
 
-- No bulk resume (deliberate), and no per-session goal text in one review.
-- The review uses the default provider's own model; a per-session override is
-  still made in that session's chat.
-- General chat still cannot instruct workers.
-- Gaffer still reviews each session on its own: no cross-session report, and no
-  re-planning (proposing an added or replacement session for approval).
-- No per-session model or effort; one model applies to the whole outcome.
-- A failed or unfollowed session of an outcome cannot be retried from the outcome;
-  start it again or look after it from the floor.
+- **No real run.** Every validation is synthetic. Whether a real model hands
+  a stage over reliably is still the largest unknown: run one small staged
+  outcome on a real machine, auto-merge off, before building further.
+- Home's worktree sweep and branch pruning remove worktrees by paths
+  `WorkDirInUse` does not guard.
+- Model names are checked against the machine only for OpenCode, and an added
+  pipeline cannot choose a Cline source of its own.
+- A tool request left on Ask me is closed when it is answered after a day,
+  not on a timer.
+- No bulk resume (deliberate), and general chat cannot instruct workers.
+- Per-stage budgets are the outcome's one budget, renewed for each stage; no
+  token prices.

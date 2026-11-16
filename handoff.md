@@ -18,6 +18,27 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-REVIEW-2: the merge gate, and a stop that stands (16 November 2026)
+
+The owner asked for a review of Gaffer, the Factory integration and what the handoffs still owed, then chose to have
+every finding fixed in one PR. Read "Second review" in the
+[factory floor handoff](docs/handoffs/gaffer-factory-floor.md): it lists what was found, the contract changes and
+what was found and left.
+
+- **The merge gate** held only on a hand-over. A pipeline at Ready to merge that was stopped and tried again, or one
+  whose first stage is the merge, started its merge with no approval, from the page, over MCP and by Gaffer's tools.
+  `runOutcomeSession` now holds the gate on every path.
+- **A stop stands.** The controller writes its progress only while the pipeline is still its to move
+  (`controllerHolds`), so a launch that answers after Stop following no longer puts the pipeline back in Gaffer's care.
+  Archived outcomes are not set going again, and a pipeline that can be tried again keeps its worktree.
+- **MCP and Gaffer's tools.** `reet_approve_pipeline_merge` needs `seen_updated_at` and approves only the pipeline as
+  it was read; `applied` is false when nothing was queued or changed; `reet_start_outcome` refuses a machine that has
+  not said what it runs; and once Gaffer has read handover text in a turn, a change asks first even on Allow.
+
+**Still the largest gap:** no Factory outcome has run against a real machine, agent or provider. dev.reet.sh had no
+outcomes on 16 November. The roadmap's own next item is unchanged: finish and record the
+[device and login checks](docs/device-checks.md), then turn Claude Code and Codex chats on by default.
+
 ## MOBILE-3: what MOBILE-2 left undone (15 November 2026)
 
 The owner asked for MOBILE-2's "Not done" list: three things.

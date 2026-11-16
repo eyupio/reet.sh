@@ -5,6 +5,22 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a pipeline that was waiting at **Ready to merge** when you stopped
+  it waits there again when you try it again. It used to start its merge
+  stage without your approval; so did a pipeline whose first stage was the
+  merge. Stopping an outcome while a session is still starting now stands:
+  the session is listed, and nothing follows it. An archived outcome has to
+  be brought back before a pipeline in it is tried again, sent back or added.
+- MCP: `reet_approve_pipeline_merge` now needs `seen_updated_at`, the
+  pipeline's `updated_at` from the read the approval is made on, and approves
+  nothing if the pipeline has changed since. `reet_tell_pipeline_agent` and
+  `reet_stop_outcome` answer `applied: false` when nothing was queued or
+  changed, and `reet_start_outcome` is refused for a machine that has not
+  reported that it can run the agent.
+- Gaffer's tools: after Gaffer reads one outcome in full in a chat turn, a
+  tool that changes something asks you first for the rest of that turn, even
+  on Allow.
+
 - **Dictate** in a Gaffer chat's composer, beside Attach, where the browser
   has speech recognition. As in a terminal's Compose, nothing is sent by
   speaking, and the browser sends the audio to its own speech service.

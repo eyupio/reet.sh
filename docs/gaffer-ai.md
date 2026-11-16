@@ -623,6 +623,15 @@ What to know before switching things on:
   working agent's text, which you did not write, so any tool that changes
   something is treated as Ask me even if you chose Allow. Reading tools still
   run.
+- **After reading an outcome in full, changes ask too.** Reading one outcome,
+  or any Factory control's answer, brings handover notes and Gaffer's report
+  into the turn, and those are built from what working agents wrote. For the
+  rest of that turn a tool that changes something is treated as Ask me, in
+  any chat. Listing the Factory carries states only and does not do this.
+- **An approval is of what was read.** *Approve a pipeline's merge* names the
+  pipeline as it stood when Gaffer read it. If the pipeline has changed by
+  the time you approve the request (sent back and done again, say), nothing
+  is approved and Gaffer has to look again.
 - Gaffer can use up to six tools in one turn, one at a time. A tool that
   fails is reported as failed.
 - The tools that read or message a session through a per-connection grant

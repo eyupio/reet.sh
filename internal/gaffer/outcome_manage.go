@@ -20,6 +20,11 @@ import (
 // pipelines the person approves, and asking Gaffer for one report across all
 // of them. Each is the person's explicit request; none happens by itself.
 
+// errOutcomeArchived refuses a change to an outcome the person has put away.
+// Archiving lets go of its pipelines' folders, so nothing is set going in it
+// again until they bring it back.
+var errOutcomeArchived = invalid("archived", "This outcome is archived. Bring it back from the archive before changing it.")
+
 // RetryPipeline puts a pipeline that was not started, or stopped part-way,
 // back in the controller's hands. A stage that never started is asked for
 // under a new request; a session that did start is kept and followed.
@@ -44,8 +49,11 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 			}
 		}
 	}
-	found := false
+	found, archived := false, false
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		if archived = o.ArchivedAt > 0; archived {
+			return false
+		}
 		settleStoppedOutcome(o)
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
@@ -91,6 +99,9 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 	})
 	if err != nil {
 		return outcomeView(o), err
+	}
+	if archived {
+		return outcomeView(o), errOutcomeArchived
 	}
 	if !found {
 		return outcomeView(o), invalid("retry", "That pipeline is not stopped, so there is nothing to try again.")
@@ -149,6 +160,9 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	if err != nil {
 		return current, err
 	}
+	if current.ArchivedAt > 0 {
+		return current, errOutcomeArchived
+	}
 	if len(current.Sessions)+len(in.Sessions) > store.MaxGafferOutcomePipelines {
 		return current, invalid("sessions", "An outcome holds at most "+strconv.Itoa(store.MaxGafferOutcomePipelines)+" pipelines. Give Gaffer a new outcome for more.")
 	}
@@ -181,6 +195,9 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		}
 	}
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, current.Revision, func(o *store.GafferOutcome) bool {
+		if o.ArchivedAt > 0 {
+			return false
+		}
 		settleStoppedOutcome(o)
 		now := time.Now().UnixMilli()
 		for i := range pieces {
@@ -546,6 +563,12 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 	if err != nil {
 		return o, err
 	}
+	if o.ArchivedAt > 0 {
+		return outcomeView(o), errOutcomeArchived
+	}
+	// The pipeline is judged by the state the person is shown for it: one that
+	// reads as stopped on the page can be sent back from there.
+	o = outcomeView(o)
 	var piece *store.GafferOutcomeSession
 	for i := range o.Sessions {
 		if o.Sessions[i].Key == key {
@@ -591,7 +614,7 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 	o, err = s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
-			if row.Key != key || len(row.Stages) != len(fresh) {
+			if row.Key != key || len(row.Stages) != len(fresh) || o.ArchivedAt > 0 {
 				continue
 			}
 			// Sending work back is the person asking for it to be done: it sets a stopped outcome going again.
@@ -638,6 +661,8 @@ func (s *Service) TellPipelineAgent(ctx context.Context, uid int64, id, key, req
 	if err != nil {
 		return store.WorkerMessage{}, err
 	}
+	// Judged by the state the person is shown, as sending back is.
+	o = outcomeView(o)
 	for _, piece := range o.Sessions {
 		if piece.Key != key {
 			continue

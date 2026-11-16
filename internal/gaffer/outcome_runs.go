@@ -562,19 +562,22 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 		s.wg.Add(1)
 		go func(uid int64, id string) {
 			defer s.wg.Done()
-			defer s.outcomeRuns.Delete(id)
 			s.runOutcome(ctx, uid, id)
 			// What was asked for while this one was being worked on is picked up without waiting for the next tick.
+			more := false
 			if ctx.Err() == nil {
 				if now, err := s.store.GafferOutcomeFor(uid, id); err == nil && now.State == "starting" {
 					for _, piece := range now.Sessions {
-						if piece.State == "waiting" || piece.State == "starting" || piece.State == "advancing" {
-							s.outcomeRuns.Delete(id)
-							s.wakeOutcomes()
-							break
-						}
+						more = more || controllerHolds(piece.State)
 					}
 				}
+			}
+			// The outcome is let go of exactly once, and before the wake: a
+			// second release after the next run had begun would let a third
+			// start beside it.
+			s.outcomeRuns.Delete(id)
+			if more {
+				s.wakeOutcomes()
 			}
 		}(o.OwnerID, o.ID)
 	}
@@ -660,19 +663,44 @@ func (s *Service) outcomeStep(uid int64, id string, change func(*store.GafferOut
 	}
 }
 
-func setOutcomeSession(key, state, note string, more func(*store.GafferOutcomeSession)) func(*store.GafferOutcome) bool {
+// controllerHolds reports whether a pipeline is in a state the controller is
+// working on: waiting to be started, being started, or moving to its next
+// stage. Every other state is one the person, or Gaffer's hand-over, moves it
+// out of.
+func controllerHolds(state string) bool {
+	return state == "waiting" || state == "starting" || state == "advancing"
+}
+
+// setOutcomeSession records the controller's own progress with a pipeline. A
+// launch or a goal setup takes a while, and the person may stop the outcome
+// meanwhile: the controller therefore writes only while the pipeline is still
+// its to move, and wrote says whether it did. What the person decided stands.
+func setOutcomeSession(key, state, note string, wrote *bool, more func(*store.GafferOutcomeSession)) func(*store.GafferOutcome) bool {
 	return func(o *store.GafferOutcome) bool {
+		*wrote = false
 		for i := range o.Sessions {
 			if o.Sessions[i].Key == key {
+				if !controllerHolds(o.Sessions[i].State) {
+					return false
+				}
 				o.Sessions[i].State, o.Sessions[i].Note, o.Sessions[i].UpdatedAt = state, note, time.Now().UnixMilli()
 				if more != nil {
 					more(&o.Sessions[i])
 				}
+				*wrote = true
 				return true
 			}
 		}
 		return false
 	}
+}
+
+// mergeWaitNote is what a pipeline held at its merge stage says.
+func mergeWaitNote(item store.GafferOutcomeSession) string {
+	if item.AutoMerge {
+		return "Ready to merge. This pipeline’s agent runs on YOLO, so the merge waits for you unless you confirmed it may merge by itself."
+	}
+	return "Ready to merge. Nothing merges until you approve it."
 }
 
 // runOutcome does the controller's part for an outcome, one step at a
@@ -756,7 +784,9 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 			used, _ := s.store.GafferGoalFor(uid, conversation)
 			// What the stage's agent reported using is kept with the stage, like Gaffer's own figures.
 			agent, agentReported := s.stageAgentUsage(uid, piece, piece.Stage)
+			handed := false
 			_, err = s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
+				handed = false
 				for i := range o.Sessions {
 					row := &o.Sessions[i]
 					if row.Key != key || row.State != "following" || row.ConversationID != conversation || row.Stage >= len(row.Stages) {
@@ -775,11 +805,15 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						o.State = "starting"
 					}
 					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Kind+" stage is done. Starting the next.", time.Now().UnixMilli()
+					handed = true
 					return true
 				}
 				return false
 			})
-			if err != nil {
+			// A hand-over that found the pipeline already moved (stopped, or
+			// handed over by the person first) recorded nothing, and is not
+			// logged as one.
+			if err != nil || !handed {
 				return
 			}
 			// Why the stage ended is recorded: Gaffer's review found it done, or
@@ -837,9 +871,12 @@ func (s *Service) ApproveMerge(uid int64, id, key string, revision int64) (store
 // and otherwise gets a session of its own in the same working folder.
 func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
 	uid := o.OwnerID
+	// set reports whether the record could be read and written; wrote, whether
+	// the pipeline was still the controller's to move and so was changed.
+	wrote := false
 	set := func(state, note string, more func(*store.GafferOutcomeSession)) bool {
-		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, more))
-		if err == nil {
+		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, &wrote, more))
+		if err == nil && wrote {
 			s.auditPipeline(after, item.Key)
 		}
 		return err == nil
@@ -853,16 +890,14 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		if !set("done", "Every stage is done. Check the result; only you mark the work complete.", nil) {
 			return false
 		}
-		s.endFinishedSession(ctx, o, item.Key, item.SessionID, "The pipeline finished.")
+		if wrote {
+			s.endFinishedSession(ctx, o, item.Key, item.SessionID, "The pipeline finished.")
+		}
 		return true
 	}
 	stage := item.Stages[next]
 	if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
-		note := "Ready to merge. Nothing merges until you approve it."
-		if item.AutoMerge {
-			note = "Ready to merge. This pipeline’s agent runs on YOLO, so the merge waits for you unless you confirmed it may merge by itself."
-		}
-		return set("ready_to_merge", note, func(row *store.GafferOutcomeSession) { row.Stage = next })
+		return set("ready_to_merge", mergeWaitNote(item), func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)
@@ -891,10 +926,15 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 						note = "The " + stage.Kind + " stage started in the same session, but its instruction did not reach the agent: " + clipBytes(outcomeReason(sendErr), 300) + " Tell the agent what this stage needs."
 					}
 				}
-				return set("following", note, func(row *store.GafferOutcomeSession) {
+				ok := set("following", note, func(row *store.GafferOutcomeSession) {
 					row.Stage = next
 					row.Stages[next].State, row.Stages[next].SessionID, row.Stages[next].ConversationID, row.Stages[next].StartedAt = "running", row.SessionID, row.ConversationID, time.Now().UnixMilli()
 				})
+				if ok && !wrote {
+					// The person stopped the pipeline while this stage's goal was being set: nothing follows it.
+					s.stopPipelineGoal(uid, item.ConversationID, stoppedFollowingNote)
+				}
+				return ok
 			}
 			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {
 				return false
@@ -911,6 +951,10 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 	}) {
 		return false
 	}
+	if !wrote {
+		// Stopped by the person meanwhile: the next stage is not started.
+		return true
+	}
 	fresh, err := s.store.GafferOutcomeFor(uid, o.ID)
 	if err != nil {
 		return false
@@ -919,11 +963,17 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		if row.Key == item.Key {
 			ok := s.runOutcomeSession(ctx, fresh, row)
 			// The stage before worked in a session of its own, which the
-			// pipeline has now finished with.
-			if after, err := s.store.GafferOutcomeFor(uid, o.ID); err == nil {
+			// pipeline has now finished with, whether or not the next stage
+			// could be started: a stage tried again gets a session of its own.
+			// A controller that is stopping leaves it for the next start.
+			if after, err := s.store.GafferOutcomeFor(uid, o.ID); ok && err == nil {
 				for _, now := range after.Sessions {
-					if now.Key == item.Key && now.SessionID != "" && now.SessionID != item.SessionID {
-						s.endFinishedSession(ctx, o, item.Key, item.SessionID, "The "+stage.Kind+" stage started in a session of its own.")
+					if now.Key == item.Key && now.SessionID != item.SessionID {
+						reason := "The " + stage.Kind + " stage started in a session of its own."
+						if now.SessionID == "" {
+							reason = "Its stage is done, and the " + stage.Kind + " stage starts in a session of its own when it is tried again."
+						}
+						s.endFinishedSession(ctx, o, item.Key, item.SessionID, reason)
 					}
 				}
 			}
@@ -970,9 +1020,10 @@ func (s *Service) endFinishedSession(ctx context.Context, o store.GafferOutcome,
 // the controller is stopping and the session must be picked up again later.
 func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
 	uid := o.OwnerID
+	wrote := false
 	fail := func(state, note string) bool {
-		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, nil))
-		if err == nil {
+		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, &wrote, nil))
+		if err == nil && wrote {
 			s.auditPipeline(after, item.Key)
 		}
 		return err == nil
@@ -987,6 +1038,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
 		goal = StageGoal(o.Objective, item.Title, stage.Kind)
+		// The merge gate holds on every path into the merge stage, not only on
+		// a hand-over: a pipeline tried again at its merge stage, or one whose
+		// first stage is the merge, waits for the person like any other.
+		if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
+			return fail("ready_to_merge", mergeWaitNote(item))
+		}
 	}
 	if item.WorkDir != "" {
 		// A later stage, or a step started again, works where the first one
@@ -1000,8 +1057,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	}
 	sessionID := item.SessionID
 	if sessionID == "" {
-		if _, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Starting the session…", nil)); err != nil {
+		if _, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Starting the session…", &wrote, nil)); err != nil {
 			return false
+		}
+		if !wrote {
+			// Stopped by the person before anything was asked for.
+			return true
 		}
 		s.mu.Lock()
 		starter := s.starter
@@ -1024,16 +1085,56 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return fail("failed", "Not started: "+clipBytes(err.Error(), 400))
 		}
 		sessionID = started
-		if _, err = s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Started. Putting it in Gaffer’s care…", func(row *store.GafferOutcomeSession) {
-			row.SessionID = sessionID
-			if row.WorkDir == "" {
-				row.WorkDir = workDir
+		// The launch took a while. The session is put in Gaffer's care only if
+		// the pipeline is still the controller's to start and still asks for
+		// this launch. If the person stopped it meanwhile, their stop stands:
+		// the session is kept on the record, so it can be found and tried
+		// again, and nothing follows it.
+		kept, left := false, false
+		after, err := s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
+			kept, left = false, false
+			for i := range o.Sessions {
+				row := &o.Sessions[i]
+				if row.Key != item.Key {
+					continue
+				}
+				request := row.RequestID
+				if len(row.Stages) > 0 && row.Stage < len(row.Stages) {
+					request = row.Stages[row.Stage].RequestID
+				}
+				if request != launch.RequestID || row.SessionID != "" {
+					return false
+				}
+				if controllerHolds(row.State) {
+					row.State, row.Note, kept = "starting", "Started. Putting it in Gaffer’s care…", true
+				} else {
+					row.State, row.Note, left = "unfollowed", "Started, but not followed: this outcome was stopped while its session was starting. Look after it from the floor.", true
+				}
+				row.SessionID, row.UpdatedAt = sessionID, time.Now().UnixMilli()
+				if row.WorkDir == "" {
+					row.WorkDir = workDir
+				}
+				if row.Stage < len(row.Stages) {
+					row.Stages[row.Stage].SessionID, row.Stages[row.Stage].State, row.Stages[row.Stage].StartedAt = sessionID, "running", time.Now().UnixMilli()
+				}
+				return true
 			}
-			if row.Stage < len(row.Stages) {
-				row.Stages[row.Stage].SessionID, row.Stages[row.Stage].State, row.Stages[row.Stage].StartedAt = sessionID, "running", time.Now().UnixMilli()
-			}
-		})); err != nil {
 			return false
+		})
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return false
+		}
+		if left {
+			s.auditPipeline(after, item.Key)
+		}
+		if !kept {
+			if !left {
+				// The outcome was deleted, or the pipeline asks for another
+				// launch by now: nothing refers to this session, so it is ended
+				// instead of being left to run with nobody looking.
+				s.endFinishedSession(ctx, o, item.Key, sessionID, "Its pipeline was stopped while the session was starting.")
+			}
+			return true
 		}
 	}
 	unfollowed := func(reason string) bool {
@@ -1047,6 +1148,26 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		return unfollowed(outcomeReason(err))
 	}
 	cid := c.Conversation.ID
+	followed := func() bool {
+		note := "Started and followed. Gaffer waits for its first progress."
+		if staged {
+			note = "The " + item.Stages[item.Stage].Kind + " stage is under way."
+		}
+		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, &wrote, func(row *store.GafferOutcomeSession) {
+			row.ConversationID = cid
+			if row.Stage < len(row.Stages) {
+				row.Stages[row.Stage].ConversationID = cid
+			}
+		}))
+		if err == nil && wrote {
+			s.auditPipeline(after, item.Key)
+		}
+		if err == nil && !wrote {
+			// The person stopped the pipeline while its goal was being set: nothing follows it.
+			s.stopPipelineGoal(uid, cid, stoppedFollowingNote)
+		}
+		return err == nil
+	}
 	deadline := time.Now().Add(outcomeFollowWait)
 	for {
 		v, err := s.Goal(uid, cid)
@@ -1057,30 +1178,23 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		// stage was handed over) is replaced; one still in hand is the person's.
 		var replaces int64
 		if v.Goal != nil {
-			if v.Goal.State != "stopped" && v.Goal.State != "completed" {
+			switch {
+			case v.Goal.State == "stopped" || v.Goal.State == "completed":
+				replaces = v.Goal.Revision
+			case v.Goal.Text == goal:
+				// This stage's own goal: the controller set it and stopped
+				// before it could record that. It is taken up, not refused.
+				return followed()
+			default:
 				return unfollowed("This session already has a goal.")
 			}
-			replaces = v.Goal.Revision
 		}
 		if v.SetupAllowed {
 			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}
 			in.Revision = replaces
 			_, err = s.SetupGoal(uid, cid, in)
 			if err == nil {
-				note := "Started and followed. Gaffer waits for its first progress."
-				if staged {
-					note = "The " + item.Stages[item.Stage].Kind + " stage is under way."
-				}
-				after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, func(row *store.GafferOutcomeSession) {
-					row.ConversationID = cid
-					if row.Stage < len(row.Stages) {
-						row.Stages[row.Stage].ConversationID = cid
-					}
-				}))
-				if err == nil {
-					s.auditPipeline(after, item.Key)
-				}
-				return err == nil
+				return followed()
 			}
 			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {
 				return false

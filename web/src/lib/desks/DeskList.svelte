@@ -7,6 +7,7 @@
 
   // Every desk, as cards in the person's order: name and colour, tab and pane counts, the machines it spans, how many of
   // its shells are live and how many wait for the person. New desk starts an empty one; From a template copies a template.
+  // The templates follow as a second group of cards, each opening the template's own page, with Rename and Delete.
   let { desks, sessions, machines, failed = false, busy = false, onopen, onnew, onfromtemplate, ondesk, oncolour }: {
     desks: DeskSummary[]
     sessions: TerminalSession[]
@@ -36,11 +37,17 @@
     return { live, waiting, reopen: d.panes - live }
   }
 
-  let menu = $state<{ kind: 'card' | 'templates'; desk?: DeskSummary; x: number; y: number; opener: HTMLElement } | null>(null)
-  function openMenu(event: MouseEvent, kind: 'card' | 'templates', desk?: DeskSummary) {
+  let menu = $state<{ kind: 'card' | 'template' | 'templates'; desk?: DeskSummary; x: number; y: number; opener: HTMLElement } | null>(null)
+  function openMenu(event: MouseEvent, kind: 'card' | 'template' | 'templates', desk?: DeskSummary) {
     event.preventDefault()
     const opener = event.currentTarget as HTMLElement, box = opener.getBoundingClientRect()
-    menu = { kind, desk, opener, x: kind === 'card' ? box.right - 220 : box.left, y: box.bottom + 4 }
+    menu = { kind, desk, opener, x: kind === 'templates' ? box.left : box.right - 220, y: box.bottom + 4 }
+  }
+  /** A card's name opens it in this tab; a modified click is left to the browser. */
+  function follow(event: MouseEvent, id: string) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return
+    event.preventDefault()
+    onopen(id)
   }
   function closeMenu(focus: boolean) { const opener = menu?.opener; menu = null; if (focus) opener?.focus() }
   function then(action: 'rename' | 'duplicate' | 'template' | 'delete') { const d = menu?.desk; closeMenu(false); if (d) ondesk(action, d) }
@@ -72,7 +79,7 @@
         <li class="card" style={`--pc:${d.colour ? projectColourHex(d.colour) : 'var(--line-strong)'}`}>
           <div class="t">
             <span class="sw" aria-hidden="true"></span>
-            <a href={`/desks/${encodeURIComponent(d.id)}`} onclick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return; event.preventDefault(); onopen(d.id) }}>{d.name}</a>
+            <a href={`/desks/${encodeURIComponent(d.id)}`} onclick={event => follow(event, d.id)}>{d.name}</a>
             <button type="button" class="more" aria-label={`Actions for ${d.name}`} aria-haspopup="menu" aria-expanded={menu?.desk?.id === d.id} onclick={event => openMenu(event, 'card', d)}>⋮</button>
           </div>
           <div class="mini" aria-hidden="true">{#each Array.from({ length: Math.max(1, Math.min(d.tabs, 6)) }) as _, i (i)}<i></i>{/each}</div>
@@ -94,15 +101,44 @@
       </li>
     </ul>
   {/if}
+  {#if templates.length}
+    <section class="group" aria-labelledby="desk-templates-title">
+      <h2 id="desk-templates-title">Templates</h2>
+      <ul class="cards">
+        {#each templates as d (d.id)}
+          <li class="card tpl" style={`--pc:${d.colour ? projectColourHex(d.colour) : 'var(--line-strong)'}`}>
+            <div class="t">
+              <span class="sw" aria-hidden="true"></span>
+              <a href={`/desks/${encodeURIComponent(d.id)}`} onclick={event => follow(event, d.id)}>{d.name}</a>
+              <button type="button" class="more" aria-label={`Actions for ${d.name}`} aria-haspopup="menu" aria-expanded={menu?.desk?.id === d.id} onclick={event => openMenu(event, 'template', d)}>⋮</button>
+            </div>
+            <div class="mini" aria-hidden="true">{#each Array.from({ length: Math.max(1, Math.min(d.tabs, 6)) }) as _, i (i)}<i></i>{/each}</div>
+            <div class="meta">
+              <span>{plural(d.tabs, 'tab')} · {plural(d.panes, 'pane')}</span>
+              {#if d.hosts.length}<span>{d.hosts.map(h => hostName.get(h) ?? 'a removed machine').join(', ')}</span>{/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 </section>
 
 {#if menu?.kind === 'card' && menu.desk}
   {@const d = menu.desk}
-  <DeskMenu x={menu.x} y={menu.y} label={`Actions for ${d.name}`} opener={menu.opener} onclose={closeMenu} colour={d.colour} oncolour={colour => { closeMenu(true); oncolour(d, colour) }}>
-    <button type="button" role="menuitem" onclick={() => { closeMenu(false); onopen(d.id) }}>Open</button>
+  <DeskMenu x={menu.x} y={menu.y} label={`Actions for ${d.name}`} opener={menu.opener} onclose={closeMenu} colour={d.colour} oncolour={colour => { const t = d; closeMenu(true); oncolour(t, colour) }}>
+    <button type="button" role="menuitem" onclick={() => { const id = d.id; closeMenu(false); onopen(id) }}>Open</button>
     <button type="button" role="menuitem" onclick={() => then('rename')}>Rename</button>
     <button type="button" role="menuitem" onclick={() => then('duplicate')}>Duplicate</button>
     <button type="button" role="menuitem" onclick={() => then('template')}>Save as template</button>
+    <button type="button" role="menuitem" class="danger" onclick={() => then('delete')}>Delete</button>
+  </DeskMenu>
+{:else if menu?.kind === 'template' && menu.desk}
+  {@const d = menu.desk}
+  <DeskMenu x={menu.x} y={menu.y} label={`Actions for ${d.name}`} opener={menu.opener} onclose={closeMenu}>
+    <button type="button" role="menuitem" onclick={() => { const id = d.id; closeMenu(false); onopen(id) }}>Open</button>
+    <button type="button" role="menuitem" disabled={busy} onclick={() => { const t = d; closeMenu(false); onfromtemplate(t) }}>New desk from this template</button>
+    <button type="button" role="menuitem" onclick={() => then('rename')}>Rename</button>
     <button type="button" role="menuitem" class="danger" onclick={() => then('delete')}>Delete</button>
   </DeskMenu>
 {:else if menu?.kind === 'templates'}
@@ -143,6 +179,9 @@
   .card.new button { flex: 1; min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 14px; border: 0; border-radius: var(--radius); background: none; color: var(--muted); cursor: pointer; text-align: center; }
   .card.new button:hover:not(:disabled) { color: var(--ink); background: var(--card); }
   .card.new b { color: var(--ink); }
+  .group { margin-top: 32px; }
+  .group h2 { margin: 0; font: 600 1.25rem/1.2 var(--serif); letter-spacing: -0.01em; }
+  .group .cards { margin-top: 14px; }
   @media (max-width: 760px) { .desk-list { padding: 24px 16px 40px; } h1 { font-size: 1.75rem; } }
   @media (pointer: coarse) { .more { width: 44px; height: 44px; } .t a { line-height: 44px; } }
 </style>

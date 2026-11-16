@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { UnauthorizedError } from '../api'
+  import { getProfile, UnauthorizedError } from '../api'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import { shell } from '../dialogShell'
   import type { ProjectColour } from '../projectColour'
-  import { terminalClosed, terminalMachines, terminalSessions, TerminalError, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { endTerminal, terminalClosed, terminalMachines, terminalSessions, TerminalError, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { createDesk, deleteDesk, listDesks, patchDesk, StaleDesk, type Desk, type DeskSummary } from './api'
   import DeskList from './DeskList.svelte'
   import DeskScreen from './DeskScreen.svelte'
@@ -38,6 +38,8 @@
   let desks = $state<DeskSummary[]>([]), listed = $state(false), listFailed = $state(false)
   let sessions = $state<TerminalSession[]>([]), machines = $state<TerminalMachine[]>([]), ready = $state(false)
   let busy = $state(false), notice = $state<{ text: string; bad: boolean } | null>(null)
+  // The person's setting for a session that ends: it leaves Sessions, or stays there as ended (the safe default keeps it).
+  let removeOnClose = $state(false)
   let screen = $state<DeskScreen>()
   const life = new AbortController()
 
@@ -70,6 +72,7 @@
   const refreshLive = () => { void loadLive() }
 
   onMount(() => {
+    void getProfile().then(p => { removeOnClose = p.profile.terminalRemoveOnClose ?? false }).catch(() => { /* the safe default keeps history */ })
     void loadLive()
     void loadDesks().then(() => {
       if (route.kind === 'list' && deciding) {
@@ -187,15 +190,26 @@
     if (!t) return
     busy = true; notice = null
     try {
-      let version = t.version
-      try { await deleteDesk(t.id, { expect: version, endSessions }) } catch (e) {
+      let version = t.version, sessionIds = t.sessions
+      let answer: { left?: string[] }
+      try { answer = await deleteDesk(t.id, { expect: version, endSessions }) } catch (e) {
         if (!(e instanceof StaleDesk)) throw e
         version = e.desk.version
-        await deleteDesk(t.id, { expect: version, endSessions })
+        sessionIds = target(e.desk).sessions
+        answer = await deleteDesk(t.id, { expect: version, endSessions })
       }
       if (readLast() === t.id) writeLast('')
+      // A pane whose shell had already ended is gone for good: its machine forgets the pane's own command history, and
+      // the session stays in Sessions as it is. Nothing is said if that fails (the file is the person's own).
+      for (const id of sessionIds) {
+        const s = sessions.find(x => x.id === id)
+        if (s && terminalClosed(s.state)) void endTerminal(id, crypto.randomUUID(), false, '', true).catch(() => { /* see above */ })
+      }
       await loadDesks()
-      notice = { text: `Sorted. “${t.name}” is deleted.`, bad: false }
+      const left = Array.isArray(answer?.left) ? answer.left.length : 0
+      notice = left
+        ? { text: `Sorted. “${t.name}” is deleted. ${left === 1 ? 'One of its shells could not be ended. It is still in Sessions.' : `${left} of its shells could not be ended. They are still in Sessions.`}`, bad: true }
+        : { text: `Sorted. “${t.name}” is deleted.`, bad: false }
       if (route.kind === 'desk' && route.id === t.id) go({ kind: 'list' }, true)
       if (endSessions) void loadLive()
     } catch (e) { failed(e, 'That desk could not be deleted. Try again.') } finally { busy = false }
@@ -204,7 +218,7 @@
 
 {#if notice}<p class="page-notice" class:bad={notice.bad} role={notice.bad ? 'alert' : 'status'}>{notice.text}</p>{/if}
 {#if route.kind === 'desk'}
-  <DeskScreen bind:this={screen} id={route.id} {desks} {sessions} {machines} {ready}
+  <DeskScreen bind:this={screen} id={route.id} {desks} {sessions} {machines} {ready} {removeOnClose}
     onopen={open} onlist={showList} onnew={() => void newDesk()} ondesk={(a, d) => void desk(a, d)} onfromtemplate={t => void fromTemplate(t)} onrefresh={refreshLive} onsignedout={e => signedOut(e) || onsignedout(e)} />
 {:else if deciding || !listed && !listFailed}
   <div class="loading" role="status">Reading your desks…</div>
@@ -230,7 +244,9 @@
   {@const running = liveIn(deleting)}
   {#if running}
     <ConfirmDialog title={`Delete “${deleting.name}”?`} body={`${running === 1 ? 'One of its shells is' : `${running} of its shells are`} still running. End them, or leave them running in Sessions.`}
-      confirmLabel="End its shells" danger secondaryLabel="Leave them running in Sessions" onconfirm={() => void remove(true)} onsecondary={() => void remove(false)} oncancel={() => { deleting = null; opener?.focus() }} />
+      confirmLabel="End its shells" danger secondaryLabel="Leave them running in Sessions" onconfirm={() => void remove(true)} onsecondary={() => void remove(false)} oncancel={() => { deleting = null; opener?.focus() }}>
+      <p class="end-note"><b>End its shells:</b> Its shells are ended and leave Sessions, and their panes' command history is removed.</p>
+    </ConfirmDialog>
   {:else}
     <ConfirmDialog title={`Delete “${deleting.name}”?`} body="Its tabs and panes are removed. Nothing is running in it." confirmLabel="Delete" danger onconfirm={() => void remove(false)} oncancel={() => { deleting = null; opener?.focus() }} />
   {/if}
@@ -247,4 +263,6 @@
   .field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
   .bad { margin: 0; color: var(--bad); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .end-note { margin: 8px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+  .end-note b { color: var(--ink); font-weight: 600; }
 </style>

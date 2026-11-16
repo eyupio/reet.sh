@@ -220,12 +220,20 @@ report progress. Unsupported channels and providers remain visible limitations.
 ## The Factory
 
 **Factory** is its own page, in the main navigation beside Home. It is where you
-hand Gaffer an outcome and watch it run. Home has a **Factory** button, and a line
+hand Gaffer an outcome and watch it run. Home has a **Factory** button, a direct
+**Give Gaffer an outcome** action when nothing is in flight, and a line
 with Gaffer's face whenever something there is waiting; an empty Gaffer chat
 offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
 nothing and makes no model request.
 
-The top of the page shows four numbers: pipelines that **need you**, are **ready to
+Before the first outcome, the Factory offers a brief to fill in, example outcomes,
+and a job sheet explaining the path from outcome to plan, work and pull request.
+Choosing an example fills the brief without sending it. **Give Gaffer an outcome**
+carries the brief into the existing composer, where you choose the project and
+review the plan before work starts. Setup guidance stays visible if a machine,
+project or Gaffer provider is missing.
+
+Once outcomes exist, the top of the page shows four numbers: pipelines that **need you**, are **ready to
 merge**, are **running** and are **done**. Below, each outcome lists its pipelines.
 A pipeline is one piece of the work, drawn as a production line:
 

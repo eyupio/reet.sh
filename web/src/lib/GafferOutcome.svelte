@@ -27,16 +27,16 @@
   import { cloneForStart } from './cloneForStart'
   import { cloneFolder, repoProject, parseGitHubRepo } from './githubRepo'
 
-  let { room, userId = 0, projectId: wantedProject = '', onclose, onstarted }: { room: number; userId?: number;
+  let { room, userId = 0, projectId: wantedProject = '', initialObjective = '', onclose, onstarted }: { room: number; userId?: number;
     /** The project the page had chosen when the dialog opened; it starts selected and can be changed. */
-    projectId?: string; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
+    projectId?: string; initialObjective?: string; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
   const formId = $props.id()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
   let step = $state<'objective' | 'plan' | 'results'>('objective')
   let loading = $state(true), loadError = $state('')
   let provider = $state<GafferProvider | null>(null), projects = $state<FolderProject[]>([]), machines = $state<TerminalMachine[]>([])
-  let objective = $state(''), projectId = $state(''), tool = $state(''), wanted = $state(3)
+  let objective = $state(untrack(() => initialObjective)), projectId = $state(''), tool = $state(''), wanted = $state(3)
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   // The reply a person sends to a proposal, and the exchange it belongs to. A declined proposal starts nothing.
   let reply = $state(''), planThread = $state<PlanTurn[]>([]), declined = $state(false), declining = $state(false)

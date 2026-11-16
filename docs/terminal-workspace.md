@@ -5,13 +5,15 @@
 Signing in lands on **Home** (`/`). Every figure on it comes from a record that exists today; anything without one is
 left out or says so in words.
 
-**The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines and Skills in the top bar, with
+**The tabs.** A desktop (1100 px and wider) shows Home, Factory, Sessions, Desks, Machines and Skills in the top bar
+(Factory and Desks for an accounts sign-in that can start sessions), with
 **Jump to a session, project, skill or machine**, the bell and the account menu. Activity is a section of the account page at
 `/account/activity`; the old `/activity` address opens it. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
-Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
-has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Sessions, Machines and More. While
+Home, Factory, Sessions and Machines in the top bar, with **More** beside them for the rest (Desks included) and a search
+button for Jump. A phone has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Factory,
+Sessions, Machines and More, with Desks under More. While
 the phone keyboard is up for Jump, the bottom bar steps aside, and Jump's results end above the keyboard. Sessions and
 the bell are for a writer in accounts mode only. Jump lists sessions, folder projects, shelf skills and machines; a
 skill row carries its saved sync intent, and choosing it brings that card into view on the shelf.
@@ -75,6 +77,15 @@ The Sessions page polls every 15 seconds while visible, times out requests
 after 10 seconds, and labels observations older than 45 seconds as last known.
 Transient errors preserve the last list; 401/403 clears it. Viewers get the Machines
 page there and request no terminal data. Viewing the list does not attach to a shell.
+
+## Desks
+
+A **desk** keeps several terminals together: tabs, each split into up to nine panes, each pane a session on any of your
+machines, saved to your account and reopened as you left them, with each shell's folder and, on an updated machine, its
+own command history. **Desks** is its own tab (`/desks`). A desk's terminals are ordinary sessions: they are listed here,
+count towards the limits above and keep running when the desk is closed. A running session's menu here and on Home has
+**Add to a desk…**, and a session on a desk shows the desk's name as a chip on its row that opens the desk at that pane.
+Everything else is in [Desks](desks.md).
 
 ## The session screen
 

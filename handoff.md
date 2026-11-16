@@ -18,6 +18,62 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## DESKS-1: saved sets of terminal tabs with splits and restore (16 November 2026)
+
+The owner runs several terminals at once for one job and did it outside reet. They asked for that working set to be a
+thing in reet: named, saved, reopened in any browser, each tab back in its folder with its own command history, side by
+side when wanted, and restored after a machine reboot. Spec
+[2026-11-16-desks-design.md](docs/superpowers/specs/2026-11-16-desks-design.md), plan
+[2026-11-16-desks.md](docs/superpowers/plans/2026-11-16-desks.md), mock-ups in [docs/design/desks/](docs/design/desks/).
+What a person sees is in [docs/desks.md](docs/desks.md). PR [#813](https://github.com/eyupio/reet.sh/pull/813) on
+`claude/youthful-cannon-53mko0`.
+
+- **The record.** `internal/desk` (no dependencies): `Doc` (tabs, a split tree and panes), `Validate`, `Parse` and
+  `ParseStored`, tree edits and presets; `web/src/lib/desks/tree.ts` is its twin and both read
+  `web/src/lib/desks/fixtures/presets.json` (`TestPresetsMatchWeb`). `internal/store/store_desks.go`: tables `desks`,
+  `desk_sessions` (one pane per session across an account) and `desk_pane_dirs` (the folder a machine reported for a
+  pane, the only trust source for a folder outside home). Every write takes `expect`. Forgetting a machine empties its
+  panes' sessions and drops its reports (`clearDeskSessionsForHostsTx`); a merge needs nothing, since panes hold the
+  enrolment id. A desk with a newer schema is never read or written.
+- **Routes.** `internal/api/desks.go`: list, create (`from`, `template`), get, patch, delete (`endSessions`, answers
+  `left`), reorder, and `POST …/panes/{pane}/reopen` (`deskReopenCreate`, `deskReopenError`). Audit `desk-created`,
+  `desk-deleted`, `desk-pane-reopened`. `internal/api/terminal.go` gained `deskPane` on create
+  (`terminalCreateDeskPane`) and `forgetDesk` on end.
+- **The machine: `desk-shell-v1`.** `internal/terminalproto/desk_shell.go` (`DeskRef`, `FolderGone`); `SessionSnapshot.Dir`
+  and `SessionChanged.Dir` carry the live folder only on a connection that negotiated it. `internal/terminalhost/live_dir.go`
+  reads `pane_current_path` each sweep and before an end; `desk_shell.go` writes the bash and zsh wrappers under
+  `~/.reet/desks/`, the pane's history file, and `ForgetDeskSession`; `launch.go`'s `ResolveDeskDir` opens a trusted
+  folder outside home; `command_history.go` reads the pane's file first as source `pane`. The broker records the folder
+  (`recordLiveDir` → `RecordTerminalLiveDirFor`, which notes it on the pane in the same transaction), sends
+  `End.ForgetDesk` (`EndDeskPane`, a mark held in memory) and refuses a desk create to an older machine.
+- **Limits.** The browser's session limits are 24 a machine and 64 an account (`SESSIONS_PER_MACHINE`,
+  `SESSIONS_PER_ACCOUNT` in `web/src/lib/terminal/api.ts`). Task 4 found nothing on the controller or machine enforces a
+  count, so these stay browser-side; the unused Go constants were removed.
+- **The page.** `web/src/lib/desks/`: `DesksPage` (routes, the 15 s read, rename, duplicate, template, delete),
+  `DeskList`, `DeskScreen` (the desk, reopen, Reopen all, Continue, Type in all panes, keys), `DeskTabs`, `SplitArea`
+  (separators, drag to move), `DeskPane`, `DeskToolbar` (one toolbar for the focused pane), `PaneStateCard` with
+  `paneState.ts` (`PANE_CARDS`, the copy), `ClosePaneDialog`, `NewTabDialog`, `StartupBar`, `AddSessionDialog`,
+  `AddToDeskDialog`, `DeskMenu`; pure modules `autosave.ts`, `keys.ts`, `typeInAll.ts`, `addSession.ts`, `api.ts`.
+  `TerminalPane.svelte` gained `chrome={false}`, `actions`, `oninput`, `type()`, `takeOver()` and `retryNow()`;
+  `CommandHistory.svelte` the This pane group; `web/src/lib/sessions/` Add to a desk… and the desk chip; `App.svelte`
+  and `shell/` the Desks tab and Jump rows.
+- **Not done:** zsh per-pane history has not been seen to run (zsh is not installed here; the macOS CI job has zsh but
+  does not list which tests ran); no real reboot test, and no test ends the tmux server then reopens with history (the
+  real-tmux tests kill the shell, or end it and reopen outside home); the broker's ForgetDesk mark is lost on a
+  controller restart; closing a pane whose shell already ended leaves its history file; an open desk does not poll for
+  another browser's edits (the spec said 15 s); templates have no rename or delete on the list; the desk list has no
+  reorder control; `desk.Doc.ClearSession` is unused, so removing a session from history leaves its id on the pane; bash
+  in a pane is interactive, not a login shell; fish and other shells get folder restore only; no sharing, export or
+  splits on a phone. The full list with what a person would notice is the last section of [docs/desks.md](docs/desks.md).
+- **How it was checked** (as recorded in `.superpowers/sdd/2026-11-16-desks/progress.md`): each task reviewed, with
+  fix rounds; Go tests for the document, the store, the routes (`desks_integration_test.go`, `desk_history_test.go`), the
+  wrappers against real bash (`desk_shell_test.go`, including a locally built bash 3.2.57) and the real-tmux launch test
+  (`terminal_launch_integration_test.go`: a `cd` reported on a sweep and a reopen outside home); the full Go suite passed
+  in CI on 0a22ab1 and the macOS native job on 04cf6f2; web unit tests for the tree, autosave, keys, pane states and the
+  Type in all gate; Playwright with synthetic answers in `web/tests/desks.e2e.mjs` and `desks-phone.e2e.mjs`. Those two
+  scripts are not yet in any CI workflow. The whole-branch run, screenshots at three widths and both themes, and the
+  record in `docs/ui-verification.md` are still to do.
+
 ## A pull request appears in the stages as it is made (16 November 2026)
 
 The owner created a pull request in a session and the right-hand panel still showed **PR — Not yet** with the other
@@ -2682,6 +2738,9 @@ once / Deny only, and only with all seven conditions:
 | Typed private transport and broker | `internal/terminalproto`, `internal/terminalagent`, `internal/terminalbroker`, `internal/privateconn` |
 | Terminal API and records | `internal/api/terminal.go`, `internal/store/store_terminal.go` |
 | Terminal UI and connection state | `web/src/lib/terminal/TerminalWorkspace.svelte`, `TerminalPane.svelte`, `api.ts`, `connection.ts` |
+| Desks: record and rules | `internal/desk` (`Doc`, `Tab`, `Node`, `Pane`, `Validate`, tree edits, presets); `internal/store/store_desks.go` (tables `desks`, `desk_sessions`, `desk_pane_dirs`; `Desk`, `CreateDeskFor`, `UpdateDeskFor`, `ReopenDeskPaneFor`, `NoteDeskPaneDirFor`, `DeskPaneReportedDirFor`); [docs/desks.md](docs/desks.md) |
+| Desks: routes and machine side | `internal/api/desks.go` (`/api/v2/desks…`, reopen); `internal/terminalproto/desk_shell.go` (`desk-shell-v1`, `DeskRef`); `internal/terminalhost/desk_shell.go` (wrappers, pane history, `ForgetDeskSession`), `live_dir.go`, `launch.go` (`ResolveDeskDir`); `internal/terminalbroker` (`EndDeskPane`, `recordLiveDir`) |
+| Desks: page | `web/src/lib/desks/*` (DesksPage, DeskList, DeskScreen, DeskTabs, SplitArea, DeskPane, DeskToolbar, PaneStateCard, `paneState.ts`, `autosave.ts`, `tree.ts`, `keys.ts`, `typeInAll.ts`, `addSession.ts`, `api.ts`); `web/tests/desks.e2e.mjs`, `desks-phone.e2e.mjs` |
 | OpenCode in the reet TUI | `internal/acpagent` (agent spec, process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
 | Controller enablement | `cmd/reet/terminal.go`, `internal/terminalcontrol`, `docs/terminal-controller-commands.md` |
 | Machine health | `internal/agenthealth`, `internal/store/store_remote_health.go`, `internal/api/health.go` |

@@ -22,4 +22,6 @@ machines without registry access), **model defaults** (Make default in every
 model picker, live model switching and clearer provider errors), **per-session model and effort** (the same choices in both
 start dialogs, in saved backlog plans and in the live session, with agent default always available) and **agent image
 previews** (inline previews of images an agent reads, writes or references, a full-size viewer, and labelled placeholders
-for offline, expired, unsupported or oversized images) have shipped; see the merged pull requests.
+for offline, expired, unsupported or oversized images) and **desks** (saved sets of terminal tabs split into panes on any
+machine, with each shell's live folder, a command history per pane and Reopen after a restart; see [Desks](desks.md))
+have shipped; see the merged pull requests.

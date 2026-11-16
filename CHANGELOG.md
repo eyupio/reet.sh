@@ -5,6 +5,24 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desks**, a new tab: a saved set of terminal tabs, each split into up to
+  nine panes on any of your machines, saved to your account as you change it
+  and opened the same in any browser. Panes can be split, resized, zoomed,
+  swapped, moved and laid out, named and coloured, with Alt+Shift keys for
+  each. A pane that lost its shell says why and offers **Reopen** in its last
+  folder (or **Reopen all**); opening a desk never starts a shell, and a
+  pane's start-up command runs only when you press Run. **Type in all panes**
+  sends what you type to every live pane of a tab. A running session can be
+  added to a desk from Sessions or Home. See `docs/desks.md`.
+- Machines: updating reet on a machine adds `desk-shell-v1`. A desk pane's
+  shell there reports the folder it is in, keeps its own bash or zsh command
+  history under `~/.reet/desks/` on that machine (the History drawer shows
+  **This pane** above **This machine**), and may reopen outside the home
+  folder, but only in the folder that machine itself last reported for that
+  pane. An older machine still works on a desk without these.
+- The browser's session limits are now 24 live sessions a machine and 64 an
+  account (from 8 and 32).
+
 - A session's right-hand **Progress** tracker now shows a pull request created
   in the session within about 20 seconds while the agent is working, instead
   of up to two minutes later: the visible session's GitHub read runs every 20

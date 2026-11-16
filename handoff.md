@@ -34,6 +34,66 @@ at most once every two minutes, so a pull request created moments before the loo
   GitHub's limits; quiet sessions and other sessions in the navigation keep the slower clock.
 - **Validation.** `pullFacts.test.mjs` holds the two clocks and their boundary (a stored answer is due at, not before,
   the cadence). `npm run check` passes.
+- **PR.** [#812](https://github.com/eyupio/reet.sh/pull/812) on `reet/reet-da349d2dcba62110d9c98f373d5bfbc3`.
+
+## FACTORY-BALANCE-1: stages balanced across plans (16 November 2026)
+
+The owner asked for stages to use one agent or model over another when it has more of its plan left.
+
+- **A backup per tier.** `GafferCrewTier.Backup` and `GafferOutcomeStage.Backup` (`GafferStageAgent`). The outcome
+  dialog's crew has a Backup row per tier; a stage sent with no agent takes its tier's backup from the saved crew.
+- **The rule** (`outcome_balance.go`): when a stage is about to launch, `balanceStage` reads the machine's kept plan
+  figures (`MachineAccountsFor`). First choice under 20% left in its tightest window, figures no older than six
+  hours, backup signed in and with more left (or no figures at all): the stage runs on the backup. A window with a
+  label counts only for a model whose name contains it.
+- **The threshold is the person's.** `GafferCrew.BalanceBelow` and `GafferOutcome.BalanceBelow`, 5 to 90, zero for
+  the default of 20. An outcome that names none takes the saved crew's. The dialog's crew has the field.
+- **Said, not asked.** The stage's `Tool`, `Model`, `Effort` become the backup's, `First` keeps the first choice and
+  `Balanced` the sentence. Audit `gaffer-stage-balanced`. A later start of the same stage looks again and can go back.
+- **Not done:** backups in the Add pipelines dialog; a Cline source for a backup in the dialog; balancing between
+  more than two choices; a re-check while a stage is running. Checked with synthetic figures only.
+- **PR #808** (empty Home, Factory and Sessions) was test-merged against this branch with no conflict.
+
+## FACTORY-DECIDE-1: decisions as choices, and Gaffer decides (16 November 2026)
+
+The owner asked for every decision to be clickable options with the recommendation first, on the Factory card's
+head and in Factory sessions, and for an option where Gaffer takes the decisions and reports what it took and why.
+Read "Decisions as choices" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md).
+
+- **Recommendation.** A stage review's `ask_user` takes `recommend` (`again`, `tell`, `move`), `why` and
+  `instruction`. It is kept as `GafferGoal.Advice` and cleared by the next review or control. The web puts that
+  choice first; with no advice the usual first choice is marked.
+- **Where.** `factory/Decision.svelte` is the one block. The outcome card's head lists every waiting decision
+  (`waitingDecisions`), the merge included. `factory/SessionDecision.svelte` shows it under the session header for
+  the session doing the stage in hand.
+- **Gaffer decides.** `GafferOutcome.Automation`, set at approval or by `POST …/outcomes/{id}/automation`.
+  `autoDecisions` (in the outcome supervisor) puts each stop to Gaffer's model once (`decide` tool), carries the
+  choice out through the person's own paths and appends to `GafferOutcome.Decisions`. Three decisions a stage, one
+  budget renewal, never a merge, never a goal held for the agent's own question.
+- **An agent's multiple-choice question** is answered too (`outcome_answer.go`). `Broker.PendingQuestionChat` gives
+  the question and whether it waits alone; `pipelineStop` offers `answer` for a held goal only then, and only when
+  every field Gaffer must answer is a choice. The model gets `answer_question`, whose schema is the question's own
+  options, and `leave_to_user`. The answer goes through `AnswerQuestionChat`, so the machine validates it. Counts
+  toward the stage's three decisions.
+- **Not done:** the switch over MCP, an account default, and a real run (checked with fakes and a stand-in model).
+
+## FACTORY-CREW-1: a session per stage, and Gaffer advises the crew (16 November 2026)
+
+The owner's direction: Gaffer orchestrates and advises; each Factory stage is a separate session on the agent and
+model that suits how hard the stage is; several agents delivering one stage comes next. Two of three slices are done.
+Read "A session per stage, and tiers" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md).
+
+- **A session per stage.** `advancePipeline` no longer carries a stage on in the previous stage's session when agent,
+  model and effort match. Every stage launches its own session from the handover and the previous one is ended.
+- **Tiers replace roles.** The crew is `light`, `standard`, `heavy` (`store.GafferCrew`, table `gaffer_crew`, one row
+  per account, `GET/PUT /api/v2/gaffer/crew`). A stage carries `Tier` and `TierWhy`. A stage sent with no agent is
+  resolved by the controller from its tier's saved crew member, else the outcome's agent; that is how an outcome
+  started over MCP uses the crew.
+- **Gaffer advises.** The plan tool takes `ratings: [{stage, tier, why}]`. Gaffer rates, names no agent or model. The
+  dialog applies and marks a rating that differs from the kind's default, with the reason and a one-click way back.
+- **Not done:** several agents per stage (slice 3, decisions still to be asked); a crew editor in Gaffer settings
+  (the crew is saved from the outcome dialog only); tiers are not sent on the MCP start tool's input. Checked with
+  fakes and a stand-in machine, not a real agent or provider, so how well a real model rates stages is unseen.
 
 ## FACTORY-REVIEW-2: the merge gate, and a stop that stands (16 November 2026)
 

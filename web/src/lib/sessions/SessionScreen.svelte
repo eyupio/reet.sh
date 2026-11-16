@@ -1,5 +1,6 @@
 <script lang="ts">
   import { factoryBadge, type FactoryMember } from '../gafferOutcome'
+  import SessionDecision from '../factory/SessionDecision.svelte'
   import { gafferChatEntry, gafferSessionContext } from '../gafferContext'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import { gafferTooltip } from '../gafferTooltip'
@@ -471,8 +472,12 @@
       </WorkspaceDialog>
       {/if}
     </header>
+    <!-- A Factory pipeline's decision is taken where the work is: in the session doing its stage in hand. -->
+    <div class="below-head">
+    {#if factory?.key && factory.current}<SessionDecision member={factory} sessionId={session.id}/>{/if}
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
+    </div>
     {#if showSide && side}
       <div class="side-terminal" data-keeps-focus>{@render side()}</div>
     {:else}
@@ -511,7 +516,7 @@
   .session-screen { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); container: session-screen / inline-size; }
   .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); }
   .head { grid-column: 1; grid-row: 1; }
-  .live { grid-column: 1; grid-row: 2; }
+  .below-head { grid-column: 1; grid-row: 2; min-width: 0; }
   .stage { grid-column: 1; grid-row: 3; }
   /* The context panel is hidden until JS says it is docked or shown as a sheet; either way it keeps the same cell it
      always had beside the terminal's right edge. */

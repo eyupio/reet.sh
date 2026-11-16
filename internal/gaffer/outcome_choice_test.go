@@ -51,12 +51,12 @@ func TestAStageRecordsThatItsAgentModelAndEffortWereApplied(t *testing.T) {
 	if review.ChoiceCheck != "applied" || review.AppliedModel != "strong/reviewer" || review.AppliedEffort != "high" {
 		t.Fatalf("review stage: %+v", review)
 	}
-	// A stage that carries on in the same session is checked too: nothing was launched for it.
+	// A stage on the same agent and model as the one before has its own session, and is checked like any other.
 	piece = mustOutcome(t, r, created.ID).Sessions[0]
 	launches := len(r.starter.asked())
 	r.s.stageHandedOver(r.p.UserID, piece.ConversationID, "Done.", "gaffer")
 	test := r.checked(t, created.ID, 2)
-	if test.ChoiceCheck != "applied" || test.AppliedModel != "strong/reviewer" || len(r.starter.asked()) != launches {
+	if test.ChoiceCheck != "applied" || test.AppliedModel != "strong/reviewer" || len(r.starter.asked()) != launches+1 || test.SessionID == piece.SessionID {
 		t.Fatalf("test stage: %+v launches %d", test, len(r.starter.asked()))
 	}
 	for _, row := range log.all() {

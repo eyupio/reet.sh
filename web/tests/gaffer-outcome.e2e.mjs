@@ -19,7 +19,8 @@ const folder=(id,name,host,machine,isRepo=true)=>({id,host,machine,dir:`/work/${
 const projects=[folder('p-billing','billing','a1','workshop'),folder('p-attic','attic-notes','a2','attic'),folder('p-notes','notes','a1','workshop',false)]
 const objective='Ship CSV export for billing.'
 const proposed={summary:'Two independent halves: the endpoint, then the button.',model:'gaffer-model',usageReported:true,inputTokens:40,outputTokens:60,sessions:[
-  {title:'Export API',prompt:'Add the CSV export endpoint with tests. Raise a pull request. Do not merge.'},
+  // Gaffer's assessment: this code stage is harder than code usually is, and it says why. The rest take their defaults.
+  {title:'Export API',prompt:'Add the CSV export endpoint with tests. Raise a pull request. Do not merge.',stages:[{kind:'code',tier:'heavy',tierWhy:'The export reads the billing ledger while it is being written.'},{kind:'review'},{kind:'test'},{kind:'pr'},{kind:'babysit'},{kind:'merge'}]},
   {title:'Export button',prompt:'Add the export button to the billing page. Raise a pull request. Do not merge.'},
 ]}
 const revised={summary:'One session, end to end: the endpoint, its tests and the button together.',model:'gaffer-model',usageReported:true,inputTokens:25,outputTokens:35,sessions:[
@@ -30,8 +31,8 @@ const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 
 const oid='e'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
-function fixture({planFails=false,settles=true}={}){
-  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false}
+function fixture({planFails=false,settles=true,crew=null}={}){
+  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewSaves:[]}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -55,6 +56,8 @@ function fixture({planFails=false,settles=true}={}){
   }
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
+    // The account's crew: read when the dialog opens, saved only when the person asks.
+    '/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crew=request.postDataJSON();box.crewSaves.push(box.crew)}return {crew:box.crew??{light:{},standard:{},heavy:{}},saved:!!box.crew,tiers:['light','standard','heavy'],defaults:{}}},
     '/api/v2/folder-projects':{projects,savedWaiting:0},
     '/api/v2/settings/yolo':{allowed:true,changedBy:'owner@example.test'},
     '/api/v2/machines/a1/uploads':request=>{expect(request.method()).toBe('POST');box.uploads++;if(box.uploadFails)return{status:502,json:{error:'The image could not be uploaded.'}};return{status:200,headers:{'X-Reet-Upload-Path':'/home/dev/launch-uploads/outcome.png','X-Reet-Upload-Reference':'/home/dev/launch-uploads/outcome.png'},json:{uploaded:'true'}}},
@@ -97,7 +100,7 @@ async function openOutcome(w,direct=false){
   await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
   return {floor:w.page.locator('[data-floor]'),outcome:w.page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})}
 }
-const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
+const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
 try {
   for(const [width,theme] of [[1440,'light'],[390,'dark']]){
@@ -130,20 +133,42 @@ try {
       // Only an agent whose chat adapter is installed on that machine is offered.
       await expect(outcome.getByRole('combobox',{name:'Agent',exact:true}).getByRole('option')).toHaveText(['Claude Code','OpenCode'])
       await expect(outcome.getByRole('combobox',{name:'Sessions',exact:true})).toHaveValue('3')
-      // Right tool for the job: the thinking stages get a stronger model than the rest.
+      // Right tool for the job: the heavy tier gets a stronger model than the rest.
       await outcome.getByText('Choose who does what',{exact:true}).click()
-      await expect(outcome.getByRole('combobox',{name:'Building agent',exact:true})).toHaveValue('claude')
+      await expect(outcome.getByRole('combobox',{name:'Standard agent',exact:true})).toHaveValue('claude')
       // Models are chosen from what the machine really offers, the person's favourites and reet's suggestions.
-      const thinking=outcome.getByRole('combobox',{name:'Thinking model',exact:true})
+      const thinking=outcome.getByRole('combobox',{name:'Heavy model',exact:true})
       await expect(thinking.getByRole('option')).toHaveText(['Agent’s default model','starred-model (not in workshop’s list)','claude/on-the-machine','sonnet (not in workshop’s list)','opus (not in workshop’s list)','haiku (not in workshop’s list)','Other…'])
       await expect(outcome.getByRole('combobox',{name:'Model',exact:true}).getByRole('option',{name:'claude/on-the-machine',exact:true})).toBeAttached()
       // A name none of them has can still be typed.
-      await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Thinking model name',exact:true}).fill('private-model')
-      await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Thinking model name',exact:true})).toHaveCount(0)
-      // Effort is per role too: design and review can think harder than babysitting and merging.
-      await expect(outcome.getByRole('combobox',{name:'Thinking effort',exact:true}).getByRole('option')).toHaveText(['Default effort','Low effort','Medium effort','High effort','Max effort'])
-      await outcome.getByRole('combobox',{name:'Thinking effort',exact:true}).selectOption('high')
-      await outcome.getByRole('combobox',{name:'Shipping effort',exact:true}).selectOption('low')
+      await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Heavy model name',exact:true}).fill('private-model')
+      await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Heavy model name',exact:true})).toHaveCount(0)
+      // Effort is per tier too: heavy stages can think harder than light ones.
+      await expect(outcome.getByRole('combobox',{name:'Heavy effort',exact:true}).getByRole('option')).toHaveText(['Default effort','Low effort','Medium effort','High effort','Max effort'])
+      await outcome.getByRole('combobox',{name:'Heavy effort',exact:true}).selectOption('high')
+      await outcome.getByRole('combobox',{name:'Light effort',exact:true}).selectOption('low')
+      // The crew can be kept for the account: every later outcome starts from it. Nothing else is saved by it.
+      await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
+      await expect(outcome.getByText('Saved. New outcomes start from this crew.',{exact:true})).toBeVisible()
+      expect(f.box.crewSaves).toEqual([{light:{tool:'claude',model:'',effort:'low'},standard:{tool:'claude',model:'',effort:''},heavy:{tool:'claude',model:'opus',effort:'high'},balanceBelow:20}])
+      // A tier can have a backup: who does its stages when the first choice's plan is running low. None is set until chosen.
+      const spare=outcome.getByRole('group',{name:'Heavy backup',exact:true})
+      await expect(spare.getByRole('combobox',{name:'Heavy backup agent',exact:true})).toHaveValue('')
+      await expect(spare.getByRole('combobox',{name:'Heavy backup model',exact:true})).toHaveCount(0)
+      await spare.getByRole('combobox',{name:'Heavy backup agent',exact:true}).selectOption('claude')
+      await spare.getByRole('combobox',{name:'Heavy backup model',exact:true}).selectOption('sonnet')
+      await expect(outcome).toContainText('under 20% left in its tightest window and the backup’s has more')
+      // When a backup takes over is the person's to set, within bounds: a figure out of range is brought back in.
+      const below=outcome.getByRole('group',{name:'When a backup takes over',exact:true}).getByRole('spinbutton')
+      await expect(below).toHaveValue('20')
+      await below.fill('400');await below.blur();await expect(below).toHaveValue('90')
+      await below.fill('35');await below.blur();await expect(outcome).toContainText('under 35% left in its tightest window')
+      expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await outcome.locator('details.crew').screenshot({path:`${shots}/gaffer-outcome-backup-${width}-${theme}.png`})
+      // Saved with the crew, the backup comes back for the next outcome.
+      await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
+      await expect.poll(()=>f.box.crewSaves.length).toBe(2)
+      expect(f.box.crewSaves[1].heavy).toEqual({tool:'claude',model:'opus',effort:'high',backup:{tool:'claude',model:'sonnet',effort:''}});expect(f.box.crewSaves[1].balanceBelow).toBe(35)
       await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
       await expect(outcome.getByText('sent only what you type here and the project’s name',{exact:false})).toBeVisible()
       expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
@@ -159,6 +184,24 @@ try {
       await expect(outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Export API')
       await expect(outcome.getByRole('textbox',{name:'Pipeline 2 prompt',exact:true})).toHaveValue(/^Add the export button/)
       await expect(outcome.getByText('with ordinary approvals (no YOLO)',{exact:false})).toBeVisible()
+      // Gaffer advises how demanding each stage is. Where its assessment differs from the default for that kind of
+      // stage the plan arrives with it applied and marked, with the reason, and one click puts it back.
+      const tiers1=outcome.getByRole('group',{name:'Pipeline 1 stage tiers',exact:true}),code1=tiers1.locator('[data-stage=code]')
+      await expect(tiers1.getByRole('combobox')).toHaveCount(6)
+      await expect(code1.getByRole('combobox',{name:'Code tier in pipeline 1',exact:true})).toHaveValue('heavy')
+      await expect(code1).toHaveClass(/changed/)
+      await expect(code1).toContainText('Gaffer’s assessment. The export reads the billing ledger while it is being written.')
+      await expect(code1).toContainText('Claude Code · opus · high effort')
+      await expect(code1.getByRole('button',{name:'Put Code in pipeline 1 back on Standard',exact:true})).toBeVisible()
+      await tiers1.scrollIntoViewIfNeeded();await tiers1.screenshot({path:`${shots}/gaffer-outcome-tiers-${width}-${theme}.png`})
+      // A stage Gaffer did not rate is on its default and says nothing more.
+      await expect(tiers1.locator('[data-stage=review]')).not.toHaveClass(/changed/)
+      await expect(tiers1.getByRole('combobox',{name:'Review tier in pipeline 1',exact:true})).toHaveValue('heavy')
+      await expect(tiers1.getByRole('combobox',{name:'Merge tier in pipeline 1',exact:true})).toHaveValue('light')
+      // The person's own choice is marked as theirs, and replaces Gaffer's if it was Gaffer's.
+      const tiers2=outcome.getByRole('group',{name:'Pipeline 2 stage tiers',exact:true}),test2=tiers2.locator('[data-stage=test]')
+      await tiers2.getByRole('combobox',{name:'Test tier in pipeline 2',exact:true}).selectOption('light')
+      await expect(test2).toHaveClass(/changed/);await expect(test2).toContainText('Your choice. The default for test is Standard.')
       // Every part of the plan is editable, and a session the person adds is as good as one Gaffer proposed.
       await outcome.getByRole('textbox',{name:'Pipeline 2 title',exact:true}).fill('Export button, renamed')
       // Each pipeline's stages are the person's to choose: this one gets a plan first and never merges.
@@ -166,8 +209,7 @@ try {
       await expect(picks2.getByRole('button',{pressed:true})).toHaveText(['Code','Review','Test','PR','Babysit','Merge'])
       await picks2.getByRole('button',{name:'Plan',exact:true}).click();await picks2.getByRole('button',{name:'Merge',exact:true}).click()
       await expect(picks2.getByRole('button',{pressed:true})).toHaveText(['Plan','Code','Review','Test','PR','Babysit'])
-      // Thinking uses a different model from the rest, so the plan and the review each need a session of their own.
-      await expect(outcome.getByText('4 agent sessions for 6 stages.',{exact:true})).toBeVisible()
+      await expect(outcome.getByText('6 stages, each in an agent session of its own.',{exact:true}).first()).toBeVisible()
       await outcome.getByRole('button',{name:'Add a pipeline',exact:true}).click()
       const approve=outcome.getByRole('button',{name:/^Approve and start/})
       await expect(approve).toBeDisabled();await expect(outcome.getByText('Give session 3 a title.',{exact:true})).toBeVisible()
@@ -205,11 +247,12 @@ try {
       await expect(results.nth(1)).toContainText('Not started: That agent isn’t installed on that machine.')
       await expect(results.nth(1).getByRole('link')).toHaveCount(0)
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
-      const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low'})
+      // Each stage is sent with its tier and the agent, model and effort that tier means; Gaffer's reason goes with its own.
+      const cheap=kind=>({kind,tool:'claude',model:'',tier:'standard'}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high',tier:'heavy',backup:{tool:'claude',model:'sonnet'}}),ship=kind=>({kind,tool:'claude',model:'',effort:'low',tier:'light'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
-        {title:'Export API',prompt:proposed.sessions[0].prompt,stages:usual},
-        {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge')]},
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,automation:false,balanceBelow:35,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+        {title:'Export API',prompt:proposed.sessions[0].prompt,stages:[(({backup,...rest})=>({...rest,tierWhy:'The export reads the billing ledger while it is being written.',backup}))(strong('code')),...usual.slice(1)]},
+        {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge').map(stage=>stage.kind==='test'?ship('test'):stage)]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
       ]}])
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,'POST /api/v2/gaffer/outcomes'])
@@ -267,6 +310,13 @@ try {
       await expect(reports).not.toBeChecked();await reports.check()
       // YOLO is off until confirmed, and is this outcome's choice only.
       const approvals=outcome.getByRole('radiogroup',{name:'Approvals',exact:true})
+      // Who decides when a stage stops is the person's choice too, and theirs unless they say otherwise.
+      const decisions=outcome.getByRole('radiogroup',{name:'Decisions',exact:true})
+      await expect(decisions.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+      await decisions.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+      await expect(outcome).toContainText('at most three times for a stage');await expect(outcome).toContainText('It also answers an agent’s multiple-choice question.');await expect(outcome).toContainText('Merges, approvals and questions that need your own words still come to you.')
+      await decisions.getByRole('radio',{name:'Ask me',exact:true}).check()
+      await expect(outcome).toContainText('shows you the choices with a recommendation first, and waits for you.')
       await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
       await approvals.getByRole('radio',{name:'YOLO',exact:true}).click()
       const confirm=w.page.getByRole('alertdialog',{name:'Turn on YOLO for this launch?',exact:true})
@@ -295,12 +345,19 @@ try {
   }
   // A model that cannot plan says so, and the person can write the plan; the rest of the flow is the same.
   {
-    const f=fixture({planFails:true}),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    // This account saved a crew earlier: the dialog starts from it, for the tiers this machine can run.
+    const f=fixture({planFails:true,crew:{light:{tool:'codex',model:'gone'},standard:{},heavy:{tool:'claude',model:'opus',effort:'high'}}}),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
     watch(w,f.box)
     try {
       const {outcome}=await openOutcome(w)
       await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await outcome.getByText('Choose who does what',{exact:true}).click()
+      await expect(outcome.getByText('Started from your saved crew.',{exact:true})).toBeVisible()
+      await expect(outcome.getByRole('combobox',{name:'Heavy model',exact:true})).toHaveValue('opus')
+      await expect(outcome.getByRole('combobox',{name:'Heavy effort',exact:true})).toHaveValue('high')
+      // A saved tier whose agent this machine cannot run is left on the outcome's own agent.
+      await expect(outcome.getByRole('combobox',{name:'Light agent',exact:true})).toHaveValue('claude')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       await expect(outcome.getByRole('alert')).toHaveText('This model did not return a plan. Choose a model that supports tools, or write the plan yourself.')
       await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()

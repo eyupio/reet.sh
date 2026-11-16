@@ -9,6 +9,40 @@ this file existed releases were described on their GitHub release pages.
   in the session within about 20 seconds while the agent is working, instead
   of up to two minutes later: the visible session's GitHub read runs every 20
   seconds while it works and every two minutes while it is quiet.
+
+- Factory: on an outcome set to **Gaffer decides**, Gaffer now answers a
+  working agent's multiple-choice question, choosing among the options the
+  agent offered, or leaves it to you with its reason. It never answers an
+  approval or a question that needs your own words.
+
+- Factory: each crew tier can have a **Backup** agent, model and effort. A
+  stage starts on its backup when its first choice's plan has under 20% left
+  (a figure you can change, from 5 to 90) and the backup's has more, so work is spread across the plans you have.
+  The card says **Balanced** with the reason. It needs plan limits to be on.
+
+- Factory: every decision a pipeline is waiting on you for is a set of
+  buttons with the recommended choice first, at the head of the outcome's
+  card and in the pipeline's session as well as on the pipeline. When
+  Gaffer's review brought a stage back, the recommendation is Gaffer's,
+  with its reason.
+- Factory: an outcome can be set to **Gaffer decides**. When a stage stops,
+  Gaffer then chooses what happens next (review again, tell the agent, move
+  on, a new budget or a new session) and the card lists what it decided and
+  why. It is off unless you choose it, takes at most three decisions on a
+  stage, and never covers a merge or an agent's own question or approval.
+
+- Factory: every stage of a pipeline now runs in an agent session of its
+  own. Two stages with the same agent, model and effort used to share one
+  session; the later stage now starts fresh from the earlier one's handover,
+  and the earlier session is ended.
+- Factory: the crew is now three tiers, **Heavy**, **Standard** and
+  **Light**, in place of Thinking, Building and Shipping. When Gaffer plans
+  an outcome it says how demanding each stage is, with a reason where a
+  stage is harder or easier than usual; the plan arrives with that applied
+  and marked, and one click puts a stage back. Gaffer still names no agent
+  or model. **Save as my crew** keeps your tiers for the account, and later
+  outcomes, including ones started over MCP, begin from them.
+
 - Factory: a pipeline that was waiting at **Ready to merge** when you stopped
   it waits there again when you try it again. It used to start its merge
   stage without your approval; so did a pipeline whose first stage was the

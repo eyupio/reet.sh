@@ -300,3 +300,32 @@ func TestAnswerQuestionIsRefusedWhenOnlyHalfIsOffered(t *testing.T) {
 		})
 	}
 }
+
+// The controller can read the question a chat waits on, whole, and whether it
+// is the only thing waiting: an approval or a second question beside it means
+// it is not.
+func TestThePendingQuestionIsReadWithWhetherItWaitsAlone(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if _, _, _, ok := b.PendingQuestionChat(uid, s.ID); ok {
+		t.Fatal("a chat with no question has one")
+	}
+	first := brokerQuestion()
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question", QuestionID: brokerQuestionID, Question: first})
+	id, question, alone, ok := b.PendingQuestionChat(uid, s.ID)
+	if !ok || id != brokerQuestionID || question.Message != first.Message || len(question.Fields) != len(first.Fields) || !alone {
+		t.Fatalf("one question: %q %+v alone=%v ok=%v", id, question, alone, ok)
+	}
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests", ToolKind: "execute", Command: "go test ./..."})
+	if _, _, alone, ok = b.PendingQuestionChat(uid, s.ID); !ok || alone {
+		t.Fatalf("with an approval beside it: alone=%v ok=%v", alone, ok)
+	}
+	// Another account cannot read it.
+	if _, _, _, ok = b.PendingQuestionChat(uid+1, s.ID); ok {
+		t.Fatal("another account read the question")
+	}
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question_resolved", QuestionID: brokerQuestionID, Reason: "accept"})
+	if _, _, _, ok = b.PendingQuestionChat(uid, s.ID); ok {
+		t.Fatal("an answered question is still pending")
+	}
+}

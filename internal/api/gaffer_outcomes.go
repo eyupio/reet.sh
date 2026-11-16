@@ -34,6 +34,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop-following", access(s.gafferOutcomeStopFollowing))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/archive", access(s.gafferOutcomeArchive(true)))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/restore", access(s.gafferOutcomeArchive(false)))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/automation", access(s.gafferOutcomeAutomation))
 	mux.HandleFunc("DELETE /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcomeDelete))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
@@ -172,6 +173,30 @@ func (s *server) gafferOutcomeStopFollowing(w http.ResponseWriter, r *http.Reque
 }
 
 // gafferOutcomeArchive puts a finished outcome away, or brings it back.
+// gafferOutcomeAutomation is the person giving Gaffer an outcome's decisions,
+// or taking them back. It never covers a merge or an agent's approval.
+func (s *server) gafferOutcomeAutomation(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int64 `json:"revision"`
+		On       *bool `json:"on"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+		return
+	}
+	if in.Revision < 1 || in.On == nil {
+		writeErr(w, 400, "Reload this outcome before changing it.")
+		return
+	}
+	o, err := s.gafferProviders.SetOutcomeAutomation(s.uid(r), r.PathValue("id"), in.Revision, *in.On)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-decisions", "", map[string]any{"outcome": o.ID, "gaffer": o.Automation})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
 func (s *server) gafferOutcomeArchive(archive bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -456,6 +481,27 @@ func (o outcomeStarter) EndOutcomeSession(ctx context.Context, uid int64, sessio
 	}
 	_, err := s.terminals.End(ctx, uid, sessionID, hex.EncodeToString(raw))
 	return err
+}
+
+// OutcomeSessionQuestion returns the typed question a session's agent is
+// waiting on, if it is waiting on one.
+func (o outcomeStarter) OutcomeSessionQuestion(_ context.Context, uid int64, sessionID string) (gaffer.AgentQuestion, bool) {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return gaffer.AgentQuestion{}, false
+	}
+	id, question, alone, ok := s.terminals.PendingQuestionChat(uid, sessionID)
+	return gaffer.AgentQuestion{ID: id, Question: question, Alone: alone}, ok
+}
+
+// AnswerOutcomeSessionQuestion answers that question by the path the person's
+// own answer takes, so the machine validates it against the question it holds.
+func (o outcomeStarter) AnswerOutcomeSessionQuestion(ctx context.Context, uid int64, sessionID, questionID string, answers json.RawMessage) error {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return errors.New("Remote sessions are disabled on this controller.")
+	}
+	return s.terminals.AnswerQuestionChat(ctx, uid, sessionID, questionID, "accept", answers)
 }
 
 // OutcomeSessionChoice asks a session's machine what the session is running:

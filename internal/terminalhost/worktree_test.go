@@ -56,7 +56,9 @@ func testGit(t *testing.T, dir string, args ...string) string {
 }
 
 func testGitErr(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	// Finish setup's automatic maintenance before callers snapshot the fixture.
+	// Detached maintenance can remove its lock after a read-only check begins.
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "maintenance.autoDetach=false", "-c", "gc.autoDetach=false"}, args...)...)
 	env := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0"}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "GIT_") {

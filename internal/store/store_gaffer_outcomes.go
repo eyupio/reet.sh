@@ -40,6 +40,11 @@ type GafferOutcomeStage struct {
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	// Tier is how demanding the stage was judged to be (light, standard or
+	// heavy), which is what chose its agent and model from the person's crew.
+	// TierWhy is Gaffer's reason where the tier is its own assessment.
+	Tier    string `json:"tier,omitempty"`
+	TierWhy string `json:"tierWhy,omitempty"`
 	// Tool, Model and Effort above are what the person chose. The Applied
 	// fields are what the stage's session was read back to be running, and
 	// when. ChoiceCheck is "applied" (nothing chosen differs), "mismatch"
@@ -74,10 +79,25 @@ type GafferOutcomeStage struct {
 	ConversationID string `json:"conversationId,omitempty"`
 	Summary        string `json:"summary,omitempty"`
 	// ClosedBy is who ended a done stage: "gaffer" (its review handed the
-	// stage over), "person" (they moved it on) or "chat" (they told Gaffer to).
-	ClosedBy  string `json:"closedBy,omitempty"`
-	StartedAt int64  `json:"startedAt,omitempty"`
-	EndedAt   int64  `json:"endedAt,omitempty"`
+	// stage over), "person" (they moved it on), "chat" (they told Gaffer to)
+	// or "auto" (Gaffer decided to, on an outcome whose decisions it was given).
+	ClosedBy string `json:"closedBy,omitempty"`
+	// Backup is the person's second choice for this stage: used instead of
+	// Tool, Model and Effort when their plan is running low and the backup's
+	// has more left. When that happened, First is the first choice the stage
+	// would otherwise have run on and Balanced says why in a sentence; Tool,
+	// Model, Effort and Provider are then the backup's, which is what ran.
+	Backup   *GafferStageAgent `json:"backup,omitempty"`
+	First    *GafferStageAgent `json:"first,omitempty"`
+	Balanced string            `json:"balanced,omitempty"`
+	// Decided counts the decisions Gaffer took on this stage for the person,
+	// BudgetRenewed is whether one of them gave the stage a new budget, and
+	// DecidedFor names the stop last put to Gaffer, so one stop is one request.
+	Decided       int    `json:"decided,omitempty"`
+	BudgetRenewed bool   `json:"budgetRenewed,omitempty"`
+	DecidedFor    string `json:"decidedFor,omitempty"`
+	StartedAt     int64  `json:"startedAt,omitempty"`
+	EndedAt       int64  `json:"endedAt,omitempty"`
 	// What Gaffer's own model used following this stage, recorded when the
 	// stage was handed over. It is Gaffer's usage, not the working agent's.
 	Reviews       int  `json:"reviews,omitempty"`
@@ -173,11 +193,51 @@ type GafferOutcome struct {
 	AutoReport      bool   `json:"autoReport,omitempty"`
 	AutoReportedFor string `json:"autoReportedFor,omitempty"`
 	AutoReports     int    `json:"autoReports,omitempty"`
+	// BalanceBelow is the share of a plan, as a whole percentage, under which
+	// a stage of this outcome starts on its backup. Zero is reet's default.
+	BalanceBelow int `json:"balanceBelow,omitempty"`
+	// Automation is the person's choice that Gaffer takes this outcome's
+	// decisions for them: what to do when a stage stops. It never covers a
+	// merge or an agent's approval. Decisions is what Gaffer then decided and
+	// why, newest last, the most recent MaxGafferOutcomeDecisions kept.
+	Automation bool                    `json:"automation,omitempty"`
+	Decisions  []GafferOutcomeDecision `json:"decisions,omitempty"`
 	// ArchivedAt is when the person put this finished outcome away; zero means
 	// it is on the Factory floor. The record and its report are kept.
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
 	CreatedAt  int64 `json:"createdAt"`
 	UpdatedAt  int64 `json:"updatedAt"`
+}
+
+// MaxGafferOutcomeDecisions is how many of Gaffer's decisions an outcome keeps.
+const MaxGafferOutcomeDecisions = 60
+
+// GafferOutcomeDecision is one decision Gaffer took for the person on an
+// outcome whose decisions it was given: which pipeline and stage, what had
+// stopped it (About), what Gaffer chose and why. Failed marks a stop Gaffer
+// could not decide, with the reason in Why; that stop stays with the person.
+type GafferOutcomeDecision struct {
+	At            int64  `json:"at"`
+	Key           string `json:"key"`
+	Title         string `json:"title"`
+	Stage         string `json:"stage"`
+	About         string `json:"about"`
+	Choice        string `json:"choice,omitempty"`
+	Why           string `json:"why"`
+	Text          string `json:"text,omitempty"`
+	Failed        bool   `json:"failed,omitempty"`
+	Model         string `json:"model,omitempty"`
+	InputTokens   int    `json:"inputTokens,omitempty"`
+	OutputTokens  int    `json:"outputTokens,omitempty"`
+	UsageReported bool   `json:"usageReported,omitempty"`
+}
+
+// Decide records one of Gaffer's decisions, keeping the most recent.
+func (o *GafferOutcome) Decide(d GafferOutcomeDecision) {
+	o.Decisions = append(o.Decisions, d)
+	if extra := len(o.Decisions) - MaxGafferOutcomeDecisions; extra > 0 {
+		o.Decisions = append([]GafferOutcomeDecision(nil), o.Decisions[extra:]...)
+	}
 }
 
 // Retire records conversations the pipeline has left behind, newest last,
@@ -219,7 +279,10 @@ func (s *Store) migrateGafferOutcomes() error {
  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  created_at INTEGER NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)));
  CREATE INDEX IF NOT EXISTS gaffer_outcomes_owner ON gaffer_outcomes(user_id,created_at);
- CREATE INDEX IF NOT EXISTS gaffer_outcomes_state ON gaffer_outcomes(json_extract(data,'$.state'));`)
+ CREATE INDEX IF NOT EXISTS gaffer_outcomes_state ON gaffer_outcomes(json_extract(data,'$.state'));
+ CREATE TABLE IF NOT EXISTS gaffer_crew(
+ user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ updated_at INTEGER NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)));`)
 	return err
 }
 
@@ -306,6 +369,85 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 	return out, rows.Err()
 }
 
+// GafferCrewTier is the agent, model and effort that does stages of one tier.
+// An empty Tool means the tier is not set: such a stage is done by the
+// outcome's own agent.
+type GafferCrewTier struct {
+	Tool     string `json:"tool,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// Backup is who does the tier's stages when the first choice's plan is
+	// running low and the backup has more left. Nil when none was chosen.
+	Backup *GafferStageAgent `json:"backup,omitempty"`
+}
+
+// GafferStageAgent is an agent, model and effort a stage can run on.
+type GafferStageAgent struct {
+	Tool     string `json:"tool"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+// GafferCrew is a person's crew: who does light, standard and heavy stages.
+// It is the account's default; an outcome may be approved with another.
+type GafferCrew struct {
+	Light    GafferCrewTier `json:"light"`
+	Standard GafferCrewTier `json:"standard"`
+	Heavy    GafferCrewTier `json:"heavy"`
+	// BalanceBelow is the share of a plan, as a whole percentage, under which
+	// a tier's stages start on its backup. Zero is reet's own default.
+	BalanceBelow int   `json:"balanceBelow,omitempty"`
+	UpdatedAt    int64 `json:"updatedAt,omitempty"`
+}
+
+// Saved reports whether the person has ever saved a crew.
+func (c GafferCrew) Saved() bool { return c.UpdatedAt > 0 }
+
+// Tier is the crew for a tier by name; the zero tier for any other name.
+func (c GafferCrew) Tier(name string) GafferCrewTier {
+	switch name {
+	case "light":
+		return c.Light
+	case "standard":
+		return c.Standard
+	case "heavy":
+		return c.Heavy
+	}
+	return GafferCrewTier{}
+}
+
+// GafferCrewFor returns the account's saved crew, or an empty one.
+func (s *Store) GafferCrewFor(uid int64) (GafferCrew, error) {
+	var raw string
+	var at int64
+	err := s.db.QueryRow(`SELECT data,updated_at FROM gaffer_crew WHERE user_id=?`, uid).Scan(&raw, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return GafferCrew{}, nil
+	}
+	if err != nil {
+		return GafferCrew{}, err
+	}
+	var crew GafferCrew
+	if err = json.Unmarshal([]byte(raw), &crew); err != nil {
+		return GafferCrew{}, err
+	}
+	crew.UpdatedAt = at
+	return crew, nil
+}
+
+// SetGafferCrewFor replaces the account's crew.
+func (s *Store) SetGafferCrewFor(uid int64, crew GafferCrew) (GafferCrew, error) {
+	crew.UpdatedAt = now()
+	raw, err := json.Marshal(crew)
+	if err != nil {
+		return crew, err
+	}
+	_, err = s.db.Exec(`INSERT INTO gaffer_crew(user_id,updated_at,data) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET updated_at=excluded.updated_at,data=excluded.data`, uid, crew.UpdatedAt, string(raw))
+	return crew, err
+}
+
 // ValidGafferOutcomeID reports whether id has the form of an outcome's id.
 func ValidGafferOutcomeID(id string) bool { return validGafferID(id) }
 
@@ -381,6 +523,30 @@ func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
 // still exists.
 func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following' AND json_extract(value,'$.sessionId')<>'') ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// AutomatedGafferOutcomes lists the outcomes whose owner gave Gaffer the
+// decisions, and that are neither stopped nor archived.
+func (s *Store) AutomatedGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.automation') AND json_extract(data,'$.state')!='stopped' AND COALESCE(json_extract(data,'$.archivedAt'),0)=0 ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}

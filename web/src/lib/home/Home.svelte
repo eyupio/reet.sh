@@ -24,6 +24,8 @@
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
   import LaunchDialog from './LaunchDialog.svelte'
+  import StartWorkbench from './StartWorkbench.svelte'
+  import GafferOutcome from '../GafferOutcome.svelte'
 
   // Writers get the persistent session board and project rail. New agents start from the standard Start an agent modal;
   // the launch bar opens in a modal for Select and an address that hands over projects.
@@ -88,6 +90,9 @@
   let launchOpen = $state(false)
   // The standard Start an agent dialog, opened from the rail's + or a machine's New session.
   let agentStart = $state<{ opener: HTMLElement | null; project?: FolderProject; agentId?: string } | null>(null)
+  let factoryStart = $state<{ opener: HTMLElement } | null>(null)
+  let board = $state<SessionBoard>(), planningButton = $state<HTMLButtonElement>()
+  let backlogCount = $state<number | undefined>()
   let now = $state(Date.now())
   let problem = $state('')
   let followups = $state<GafferGoalOverviewView | undefined>()
@@ -215,8 +220,10 @@
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
   let homeView = $state<'board' | 'continue'>('board')
+  let homeViewChosen = $state(false)
   let continueGroup = $state<GroupBy>('project')
   function chooseHomeView(view: 'board' | 'continue') {
+    homeViewChosen = true
     homeView = view
     try { localStorage.setItem(`reet.home.view.${userId}`, view) } catch { /* The view still works for this visit. */ }
   }
@@ -224,6 +231,32 @@
   const continueGroups = $derived(inFlight(continueSessions, owners, health ?? [], continueGroup, now))
   const continueOffline = $derived((health ?? []).filter(m => m.state !== 'connected' && continueSessions.some(s => s.agentId === m.agentId)).map(m => ({agentId: m.agentId, host: m.host})))
   const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
+  const showWorkbench = $derived(sessions !== undefined && !sessionsFailed && !scope && continueGroups.length === 0)
+  // A genuinely empty account starts with useful choices. Existing work, explicit view preferences and project handoffs
+  // keep their view; a failed backlog read is not mistaken for an empty one. This automatic choice is never persisted.
+  $effect(() => {
+    if (!homeViewChosen && showWorkbench && backlogCount === 0 && !chosen && !handed) homeView = 'continue'
+  })
+  function startFromWorkbench(kind: NewSessionKind, opener: HTMLElement) {
+    notice = null
+    if (kind === 'factory') { factoryStart = { opener }; return }
+    if (kind === 'agent') { startNewSession(opener); return }
+    projectStart = { opener }
+    chooseProjectStart('terminal')
+  }
+  async function planFromWorkbench() {
+    chooseHomeView('board')
+    await tick()
+    // The board tab remains mounted after the launcher goes, so closing the composer has a visible focus destination.
+    if (planningButton) board?.planSession(planningButton)
+  }
+  async function closeFactoryStart() {
+    const opener = factoryStart?.opener
+    factoryStart = null
+    await load(true)
+    await tick()
+    if (opener?.isConnected) opener.focus()
+  }
 
   let notice = $state<{ text: string; href?: string; bad?: boolean } | null>(null)
   // The board's scope: a project shows its sessions, a group its projects' sessions.
@@ -401,7 +434,8 @@
   onMount(() => {
     try {
       railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
-      if (localStorage.getItem(`reet.home.view.${userId}`) === 'continue') homeView = 'continue'
+      const savedView = localStorage.getItem(`reet.home.view.${userId}`)
+      if (savedView === 'continue' || savedView === 'board') { homeView = savedView; homeViewChosen = true }
     } catch { /* Keep projects compact when storage is unavailable. */ }
     // The Sessions page's New session (and a project card's New session here) arrive at /#launch: the bar opens in its modal.
     const launchAtHash = () => { if (location.hash === '#launch') launchOpen = true }
@@ -473,20 +507,21 @@
       {/if}
       <div class="home-views" role="group" aria-label="Home view">
         <button type="button" aria-pressed={homeView === 'continue'} onclick={() => chooseHomeView('continue')}>Continue working</button>
-        <button type="button" aria-pressed={homeView === 'board'} onclick={() => chooseHomeView('board')}>Planning board</button>
+        <button type="button" bind:this={planningButton} aria-pressed={homeView === 'board'} onclick={() => chooseHomeView('board')}>Planning board</button>
       </div>
       {#if homeView === 'continue'}<div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
-        <InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
+        {#if showWorkbench}<StartWorkbench factory={accounts} onchoose={startFromWorkbench} onplan={() => void planFromWorkbench()} />{:else}<InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
           groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault} {factorySessionEndDefault}
-          onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+          onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />{/if}
       </div>
       {/if}
       <div hidden={homeView !== 'board'}>
-      <SessionBoard embedded {factory} {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault} {factorySessionEndDefault}
+      <SessionBoard bind:this={board} embedded {factory} {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault} {factorySessionEndDefault} onbacklog={count => (backlogCount = count)}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
+      {#if factoryStart && accounts}<GafferOutcome room={Math.max(0, 10 - (followups?.goals ?? []).filter(row => row.goal.state === 'active').length)} {userId} onstarted={() => load(true)} onclose={() => void closeFactoryStart()} />{/if}
       <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={(card, opener) => void startTerminalOn(card.agentId, opener)} />

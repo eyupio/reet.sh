@@ -6,7 +6,7 @@
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
-  import { CREW_ROLES, DEFAULT_STAGES, STAGES, sessionCount, stagePlan, withReportedEfforts, type Crew } from '../gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, STAGES, stagePlan, withReportedEfforts, type Crew } from '../gafferOutcome'
   import type { MachineModels, ModelFavourite } from '../models'
   import { reportedEfforts } from '../terminal/launchOptions'
 
@@ -32,17 +32,17 @@
   const inherited = () => record.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === record.tool && stage.effort)?.effort ?? ''
   const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
   const choice = (title: string) => main[title] ?? own()
-  const crewOf = (title: string): Crew => crews[title] ?? { think: choice(title), build: choice(title), ship: choice(title) }
-  const usedTools = (title: string) => CREW_ROLES.map(item => crewOf(title)[item.role].tool)
+  const crewOf = (title: string): Crew => crews[title] ?? { heavy: choice(title), standard: choice(title), light: choice(title) }
+  const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
   const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
   const refused = $derived(!record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
   // Setting the pipeline's own agent, model or effort gives it to every role; a role then keeps what it is given.
-  function setMain(title: string, next: Who) { main[title] = next; crews[title] = { think: { ...next }, build: { ...next }, ship: { ...next } } }
+  function setMain(title: string, next: Who) { main[title] = next; crews[title] = { heavy: { ...next }, standard: { ...next }, light: { ...next } } }
   function setRole(title: string, role: keyof Crew, next: Partial<Who>) { crews[title] = { ...crewOf(title), [role]: { ...crewOf(title)[role], ...next } } }
-  const split = (title: string) => CREW_ROLES.some(item => { const who = crewOf(title)[item.role], top = choice(title); return who.tool !== top.tool || who.model.trim() !== top.model.trim() || (who.effort ?? '') !== top.effort })
+  const split = (title: string) => CREW_TIERS.some(item => { const who = crewOf(title)[item.tier], top = choice(title); return who.tool !== top.tool || who.model.trim() !== top.model.trim() || (who.effort ?? '') !== top.effort })
 
   $effect(() => { for (const item of proposals) if (!main[item.title]) setMain(item.title, own()) })
   // Once this machine's agents are known, a level one of them does not report goes back to the agent's default, so what
@@ -52,9 +52,9 @@
     for (const item of proposals) {
       const top = main[item.title]
       if (top?.effort && !efforts(top.tool).includes(top.effort)) main[item.title] = { ...top, effort: '' }
-      for (const part of CREW_ROLES) {
-        const role = crews[item.title]?.[part.role]
-        if (role?.effort && !efforts(role.tool).includes(role.effort)) setRole(item.title, part.role, { effort: '' })
+      for (const part of CREW_TIERS) {
+        const role = crews[item.title]?.[part.tier]
+        if (role?.effort && !efforts(role.tool).includes(role.effort)) setRole(item.title, part.tier, { effort: '' })
       }
     }
   })
@@ -99,14 +99,14 @@
         </div>
         <details class="crew"><summary>{split(item.title) ? 'A crew does the stages' : 'One agent does every stage'} <span>Choose who does what</span></summary>
           <div class="crew-rows">
-            {#each CREW_ROLES as part (part.role)}{@const role = crewOf(item.title)[part.role]}<div class="crew-row" role="group" aria-label={`${part.label} crew for ${item.title}`}>
+            {#each CREW_TIERS as part (part.tier)}{@const role = crewOf(item.title)[part.tier]}<div class="crew-row" role="group" aria-label={`${part.label} crew for ${item.title}`}>
               <div class="crew-role"><strong>{part.label}</strong><span>{part.does}</span></div>
-              <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.role, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
-              <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.role, { model: next })}/>
-              <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.role, { effort: event.currentTarget.value })}>{#each efforts(role.tool) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
+              <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+              <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.tier, { model: next })}/>
+              <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(role.tool) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
             </div>{/each}
           </div>
-          <p class="hint">{sessionCount(stagePlan(kinds(item), crewOf(item.title)))} agent {sessionCount(stagePlan(kinds(item), crewOf(item.title))) === 1 ? 'session' : 'sessions'} for {kinds(item).length} {kinds(item).length === 1 ? 'stage' : 'stages'}. A new session starts whenever the agent, model or effort changes.</p>
+          <p class="hint">{kinds(item).length} {kinds(item).length === 1 ? 'stage' : 'stages'}, each in an agent session of its own.</p>
         </details>
       </li>{/each}
     </ul>

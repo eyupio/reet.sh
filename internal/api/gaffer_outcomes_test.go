@@ -173,6 +173,13 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", base+"/sessions", `{"revision":1,"confirmed":true,"yolo":true,"sessions":[]}`); code != 400 {
 		t.Fatalf("unknown field on added pipelines: %d", code)
 	}
+	// Giving Gaffer the decisions names the choice and the revision it was made on.
+	if code, _ := gafferClient(t, owner, srv, "POST", base+"/automation", `{"revision":1}`); code != 400 {
+		t.Fatalf("automation without a choice: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "POST", base+"/automation", `{"revision":1,"on":true}`); code != 404 {
+		t.Fatalf("automation on an unknown outcome: %d", code)
+	}
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{}`); code != 400 {
 		t.Fatalf("stop without a revision: %d", code)
 	}
@@ -183,6 +190,7 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 		base + "/sessions/a/automerge": `{"on":false}`,
 		base + "/sessions/a/tell":      `{"requestId":"` + strings.Repeat("c", 32) + `","text":"Carry on."}`,
 		base + "/stop-following":       `{"revision":1}`,
+		base + "/automation":           `{"revision":1,"on":true}`,
 	} {
 		if code, _ := doClient(t, owner, srv, "POST", path, body, "Origin", "https://different.example"); code != 403 {
 			t.Fatalf("foreign origin %s: %d", path, code)

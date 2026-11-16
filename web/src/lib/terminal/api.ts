@@ -7,6 +7,9 @@ import type { SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
 import type { ChatUsage } from '../chatUsage'
 
+/** Live sessions the workspace allows on one machine and across one account (a desk tab can hold nine panes on a machine). Mirrors terminalproto.MaxSessionsPerMachine and MaxSessionsPerAccount. */
+export const SESSIONS_PER_MACHINE = 24
+export const SESSIONS_PER_ACCOUNT = 64
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type AttentionState = 'starting' | 'working' | 'quiet' | 'waiting' | 'finished' | 'failed'
 export type AttentionSource = 'terminal' | 'chat'

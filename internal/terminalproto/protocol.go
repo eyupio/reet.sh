@@ -20,6 +20,14 @@ const (
 	MaxQueuedOutputBytes = 256 << 10
 	MaxTitleRunes        = 80
 	MaxHistoryLines      = 2000
+	// MaxSessionsPerMachine and MaxSessionsPerAccount are the live sessions
+	// (creating, running or end-requested) the workspace allows on one machine
+	// and across one account. Only the browser enforces them: neither the
+	// controller nor a machine counts live sessions. web/src/lib/terminal/api.ts
+	// holds the same two numbers (SESSIONS_PER_MACHINE, SESSIONS_PER_ACCOUNT).
+	// A machine's full reconcile (32 sessions) must stay at or above the first.
+	MaxSessionsPerMachine = 24
+	MaxSessionsPerAccount = 64
 	// Counters also cross JSON/JavaScript boundaries without loss of precision.
 	MaxCounter int64 = 1<<53 - 1
 )

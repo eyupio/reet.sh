@@ -102,7 +102,7 @@ in place. An unconfirmed creation preserves its original machine, folder, name a
 Only an account in accounts mode with a write role sees the entry points, just as for browser
 shells. Viewers, API and MCP tokens and legacy sign-in modes don't see them. The server refuses them
 too. The usual terminal rules still apply: the rollout flag, the canonical origin, the machine's
-local consent, and the session limits (8 per machine, 32 per account).
+local consent, and the session limits (24 per machine, 64 per account).
 
 ## Where to start it
 

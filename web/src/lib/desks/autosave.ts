@@ -32,6 +32,22 @@ const MAX_START = 2000
 const nameOk = (s: unknown) => typeof s === 'string' && [...s].length <= MAX_NAME
 const colourOk = (c: unknown) => typeof c === 'string' && projectColour(c) === c
 
+/** A desk's content as a string for comparing, leaving out what the server stamps or other windows move: version,
+ *  position, timestamps and each pane's folder. */
+function content(desk: Desk): string {
+  const tabs = desk.doc.tabs.map(t => ({
+    ...t,
+    panes: Object.fromEntries(Object.entries(t.panes).map(([id, p]) => {
+      const { dir: _dir, dirAt: _dirAt, ...rest } = p
+      return [id, rest]
+    })),
+  }))
+  const sort = (v: unknown): unknown => Array.isArray(v) ? v.map(sort)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, x]) => [k, sort(x)]))
+    : v
+  return JSON.stringify(sort({ name: desk.name, colour: desk.colour, doc: { ...desk.doc, tabs } }))
+}
+
 /** The change applied to a copy of the desk, or null when it no longer applies: the tab, pane or split it names is
  *  gone, a limit would be passed, or a value is invalid. The argument is never modified. */
 export function apply(desk: Desk, change: Change): Desk | null {
@@ -164,6 +180,9 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
   let local: Desk | null = null  // server plus every queued change
   let queue: Change[] = []       // changes not yet saved, oldest first (includes those in flight)
   let sent = 0                   // how many of the queue's first changes the save in flight carries
+  // Saves that failed without a definite answer (the response may have been lost after the server committed them):
+  // the desk each sent and how many of the queue's first changes it carried. Cleared by any definite answer.
+  let attempts: { desk: Desk; sent: number }[] = []
   let running: Promise<void> | null = null
   let timer: unknown = null
   let timerIsRetry = false
@@ -197,6 +216,7 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
 
   /** Takes a newer server copy and puts the queue back on top of it. */
   const rebase = (copy: Desk) => {
+    attempts = []
     const r = replay(copy, queue)
     server = copy
     queue = r.kept
@@ -216,6 +236,7 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
       try {
         const saved = await opts.save(local!, server!.version, keepalive)
         const rest = queue.slice(sent)
+        attempts = []
         failures = 0
         queue = rest
         sent = 0
@@ -229,11 +250,17 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
         emit(queue.length ? 'unsaved' : 'saved')
       } catch (e) {
         if (e instanceof StaleDesk) {
+          // A save that failed without an answer may have landed: if the server copy is that save's desk, its changes
+          // are already in it and must not be replayed (a swap would undo itself).
+          const key = content(e.desk)
+          const landed = attempts.filter(a => content(a.desk) === key).pop()
+          if (landed) queue = queue.slice(landed.sent)
           rebase(e.desk)
           if (queue.length) { emit('saving'); running = null; await run(keepalive); return }
           emit('saved')
           return
         }
+        attempts.push({ desk: local!, sent })
         sent = 0
         failures++
         emit('unsaved')

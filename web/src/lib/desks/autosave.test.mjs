@@ -258,3 +258,63 @@ test('a message from another window refreshes, and our own saves are announced',
   a.stop()
   assert.equal(chan.onmessage, null)
 })
+
+test('a save whose response was lost is not replayed', async () => {
+  let calls = 0
+  let applied = null
+  const h = harness(deskOf(1), async (desk, expect) => {
+    calls++
+    h.saves.push({ desk, expect })
+    if (calls === 1) {
+      applied = { ...desk, version: expect + 1 }
+      h.setServer(applied)
+      throw new Error('response lost')
+    }
+    if (expect === applied.version) {
+      applied = { ...desk, version: expect + 1 }
+      h.setServer(applied)
+      return applied
+    }
+    throw new StaleDesk(applied)
+  })
+  await h.a.ready
+  h.a.change({ kind: 'swap', tab: 't1', a: 'a', b: 'b' })
+  await h.timers.tick(400)
+  assert.equal(calls, 1)
+  assert.equal(h.states.at(-1), 'unsaved')
+  await h.timers.tick(1000)
+  assert.equal(calls, 2, 'the retry was sent once')
+  await h.timers.tick(60000)
+  assert.equal(calls, 2, 'no further save is sent')
+  assert.deepEqual(h.a.desk().doc.tabs[0].root, applied.doc.tabs[0].root)
+  assert.equal(h.a.desk().doc.tabs[0].root.a.pane, 'b', 'swapped exactly once')
+  assert.equal(h.a.desk().doc.tabs[0].root.b.pane, 'a')
+  assert.equal(h.a.desk().version, 2)
+  assert.equal(h.states.at(-1), 'saved')
+  assert.equal(h.states.includes('stale'), false)
+})
+
+test('a lost response followed by another window\'s edit still merges', async () => {
+  let calls = 0
+  let theirs = null
+  const h = harness(deskOf(1), async (desk, expect) => {
+    calls++
+    h.saves.push({ desk, expect })
+    if (calls === 1) throw new Error('offline')
+    if (calls === 2) {
+      theirs = { ...deskOf(2), name: 'Renamed elsewhere' }
+      throw new StaleDesk(theirs)
+    }
+    return { ...desk, version: expect + 1 }
+  })
+  await h.a.ready
+  h.a.change({ kind: 'swap', tab: 't1', a: 'a', b: 'b' })
+  await h.timers.tick(400)
+  await h.timers.tick(1000)
+  assert.equal(calls, 3)
+  const last = h.saves[2]
+  assert.equal(last.expect, 2)
+  assert.equal(last.desk.name, 'Renamed elsewhere')
+  assert.equal(last.desk.doc.tabs[0].root.a.pane, 'b', 'the change is replayed onto the other copy')
+  assert.equal(h.states.at(-1), 'saved')
+})

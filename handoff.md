@@ -47,10 +47,14 @@ f70eef5 had made stale plans repair themselves. The plan never changed. Read thi
   `SkillInstalledAsFor` when the shelf has no skill by the folder's name, so the scan is recorded as the
   catalogued skill and no second skill is made. An exact shelf entry under the folder's name still wins: a
   person who already has that ghost removes it. Run for real against the CLI, in mirror mode.
-- **Not done.** The copied `npx skills add` commands (`web/src/lib/install.ts`, `installCommand` in
-  `internal/api/api.go`) offer the name too; the `npx skills use` prompt still passes the slug only, and was
-  not checked against the CLI. A copy of the same name another app holds under the installed folder, from a
-  different source, is not seen by the shared-folder conflict check, which compares slugs.
+- **Copied commands.** `npx skills add` commands (`web/src/lib/install.ts`, `installCommand` in
+  `internal/api/api.go`) give the slug and then the name in quotes; `ref.parseInstallCommand` reads past one
+  quoted value after the slug so the command still pastes back into reet, and refuses anything unquoted as
+  before. The `npx skills use` prompt takes one selector, so `useSelector` gives the name when it differs.
+  Checked on skills 1.7.4 and 1.9.0: the name works on both; `svg-logo-designer` fails on 1.7.4 and
+  `uiux-design-review` on both. The prompt and the copied commands are not pinned to a CLI version.
+- **Not done.** A copy of the same name another app holds under the installed folder, from a different
+  source, is not seen by the shared-folder conflict check, which compares slugs.
 - **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
   `reet_list_sync_targets` failed for five of the owner's seven targets.
 - **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the

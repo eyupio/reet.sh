@@ -118,3 +118,31 @@ func TestParseHostedInstallCommand(t *testing.T) {
 		}
 	}
 }
+
+// The install command reet copies out offers a skill's own name after its
+// slug, because the skills CLI matches on the name. Pasting that command back
+// into reet must still find the skill by its slug.
+func TestParseAcceptsACommandThatAlsoNamesTheSkill(t *testing.T) {
+	for _, input := range []string{
+		"npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'",
+		`npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer "SVG Logo Designer" --global`,
+		"npx skills add rknall/claude-skills --skill c 'C++' -y",
+	} {
+		got, err := Parse(input)
+		if err != nil || (got.ID != "rknall/claude-skills/svg-logo-designer" && got.ID != "rknall/claude-skills/c") {
+			t.Errorf("%s: %+v %v", input, got, err)
+		}
+	}
+	for _, input := range []string{
+		"npx skills add rknall/claude-skills --skill 'SVG Logo Designer'",
+		"npx skills add rknall/claude-skills --skill svg-logo-designer SVG Logo Designer -y",
+		"npx skills add rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer",
+		"npx skills add rknall/claude-skills --skill svg-logo-designer 'SVG Logo' && echo hello",
+		"npx skills add rknall/claude-skills --skill svg-logo-designer --unknown",
+		"npx skills add rknall/claude-skills --skill",
+	} {
+		if got, err := Parse(input); err == nil {
+			t.Errorf("%s: accepted as %+v", input, got)
+		}
+	}
+}

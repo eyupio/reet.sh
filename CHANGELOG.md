@@ -22,6 +22,9 @@ this file existed releases were described on their GitHub release pages.
   worked and the skill stayed **missing**, with a second unlinked skill beside
   it. The machine and the controller both read that folder as the skill you
   selected when it came from the same source.
+- Skills: the **Copy prompt** text (`npx skills use …`) names a skill by its
+  own name when that is not its folder name, as the copied install command
+  does. The folder name found nothing for such a skill.
 - MCP: `reet_list_sync_targets` returns a target that is too large for one
   response with its largest lists replaced by counts (`desired_count`,
   `lists_counted`), instead of failing with "one record exceeds the response

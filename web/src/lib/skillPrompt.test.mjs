@@ -80,3 +80,17 @@ test('a copied install command offers the skill\'s own name when it is not its f
   assert.equal(installCommand(skill({ name: "It's --all", slug: 'its', source: 'demo/toolkit', sourceType: 'github' })), "npx skills add https://github.com/demo/toolkit --skill its 'It'\\''s --all'")
   assert.equal(installCommand(skill({ name: '--all', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
 })
+
+test('the use prompt names a skill the way the skills CLI finds it', () => {
+  // `skills use` takes one selector and matches the skill's own name; the folder name finds nothing
+  // for "SVG Logo Designer" on skills 1.7.4, and nothing for "UI/UX Design Review" on any version tried.
+  const run = over => useSkillPrompt(skill({ source: 'rknall/claude-skills', sourceType: 'github', ...over })).split('`')[1]
+  assert.equal(run({ name: 'SVG Logo Designer', slug: 'svg-logo-designer' }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "SVG Logo Designer"')
+  assert.equal(run({ name: 'UI/UX Design Review', slug: 'uiux-design-review' }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "UI/UX Design Review"')
+  assert.equal(run({}), 'npx skills use "https://github.com/rknall/claude-skills" --skill "unslop"')
+  assert.equal(run({ name: 'Unslop' }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "unslop"')
+  // A name that could end the quotes or the code span, or read as a flag, is not put in a command.
+  for (const name of ['Say "hi"', 'Tick `this`', 'Cost $HOME', 'Back\\slash', '--all', '*', '']) {
+    assert.equal(run({ name }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "unslop"', name)
+  }
+})

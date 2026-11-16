@@ -30,6 +30,47 @@ func (s *server) registerGafferRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/default", access(s.gafferAction))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/enabled", access(s.gafferAction))
 	mux.HandleFunc("DELETE /api/v2/gaffer/providers/{id}", access(s.gafferAction))
+	// The crew: which agent, model and effort does a light, a standard and a heavy stage.
+	mux.HandleFunc("GET /api/v2/gaffer/crew", access(s.gafferCrewGet))
+	mux.HandleFunc("PUT /api/v2/gaffer/crew", access(s.gafferCrewPut))
+}
+
+func (s *server) gafferCrewGet(w http.ResponseWriter, r *http.Request) {
+	crew, err := s.gafferProviders.Crew(s.uid(r))
+	if err != nil {
+		gafferError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"crew": crew, "saved": crew.Saved(), "tiers": gaffer.StageTiers, "defaults": gafferTierDefaults()})
+}
+
+// gafferTierDefaults is the tier each stage kind has until someone says otherwise.
+func gafferTierDefaults() map[string]string {
+	out := map[string]string{}
+	for _, kind := range gaffer.StageKinds {
+		out[kind] = gaffer.DefaultStageTier(kind)
+	}
+	return out
+}
+
+func (s *server) gafferCrewPut(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Light    store.GafferCrewTier `json:"light"`
+		Standard store.GafferCrewTier `json:"standard"`
+		Heavy    store.GafferCrewTier `json:"heavy"`
+	}
+	if !decodeStrictJSON(w, r, 8<<10, &in, "That crew is invalid.") {
+		return
+	}
+	crew, err := s.gafferProviders.SaveCrew(s.uid(r), store.GafferCrew{Light: in.Light, Standard: in.Standard, Heavy: in.Heavy})
+	if err != nil {
+		gafferError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-crew-changed", "", map[string]any{"light": in.Light.Tool, "standard": in.Standard.Tool, "heavy": in.Heavy.Tool})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"crew": crew, "saved": true, "tiers": gaffer.StageTiers, "defaults": gafferTierDefaults()})
 }
 
 func (s *server) gafferPrincipal(r *http.Request) gaffer.Principal {

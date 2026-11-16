@@ -18,6 +18,24 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-CREW-1: a session per stage, and Gaffer advises the crew (16 November 2026)
+
+The owner's direction: Gaffer orchestrates and advises; each Factory stage is a separate session on the agent and
+model that suits how hard the stage is; several agents delivering one stage comes next. Two of three slices are done.
+Read "A session per stage, and tiers" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md).
+
+- **A session per stage.** `advancePipeline` no longer carries a stage on in the previous stage's session when agent,
+  model and effort match. Every stage launches its own session from the handover and the previous one is ended.
+- **Tiers replace roles.** The crew is `light`, `standard`, `heavy` (`store.GafferCrew`, table `gaffer_crew`, one row
+  per account, `GET/PUT /api/v2/gaffer/crew`). A stage carries `Tier` and `TierWhy`. A stage sent with no agent is
+  resolved by the controller from its tier's saved crew member, else the outcome's agent; that is how an outcome
+  started over MCP uses the crew.
+- **Gaffer advises.** The plan tool takes `ratings: [{stage, tier, why}]`. Gaffer rates, names no agent or model. The
+  dialog applies and marks a rating that differs from the kind's default, with the reason and a one-click way back.
+- **Not done:** several agents per stage (slice 3, decisions still to be asked); a crew editor in Gaffer settings
+  (the crew is saved from the outcome dialog only); tiers are not sent on the MCP start tool's input. Checked with
+  fakes and a stand-in machine, not a real agent or provider, so how well a real model rates stages is unseen.
+
 ## FACTORY-REVIEW-2: the merge gate, and a stop that stands (16 November 2026)
 
 The owner asked for a review of Gaffer, the Factory integration and what the handoffs still owed, then chose to have

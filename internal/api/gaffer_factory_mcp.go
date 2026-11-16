@@ -77,6 +77,10 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			if stage.Effort != "" {
 				item["effort"] = stage.Effort
 			}
+			// How demanding the stage was judged to be, which chose its agent from the person's crew.
+			if stage.Tier != "" {
+				item["tier"] = stage.Tier
+			}
 			// agent, model and effort are what was chosen. choice says whether the
 			// stage's session was read back to be on them: applied, mismatch or
 			// unchecked, with what it is on and, for a mismatch, what differs.

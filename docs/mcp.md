@@ -159,6 +159,8 @@ Two tools read the Factory for any connection on a writer account:
 - `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
   state, the stage in hand, every stage's state and agent, how its merge is
   decided, and the state of the goal Gaffer follows it with.
+  A stage's `tier` (`light`, `standard` or `heavy`) is how demanding it was
+  judged to be, which chose its agent from the account's saved crew.
   Each stage's `agent`, `model` and `effort` are what was chosen; once its
   session has been asked, `choice` says whether they were applied (`applied`,
   `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for

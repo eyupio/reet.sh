@@ -262,7 +262,7 @@ When you approve a plan you choose how its agents run:
 The **Model** list beside each agent holds what that agent really offers on the
 project's machine, your favourites and reet's suggestions; **Other…** takes a
 name none of them has. The model beside the main agent applies to every stage
-until you give a crew role its own.
+until you give a crew tier its own.
 
 Tick **Have Gaffer report across this outcome by itself** (off unless you tick
 it) and Gaffer makes that report without being asked when a pipeline finishes or
@@ -270,9 +270,9 @@ stops: one request to its model each time, at most six for an outcome and never
 within ten minutes of the last. It only reports and proposes.
 
 **Effort** works the same way, for agents whose machine reports thinking levels: set it for the whole
-outcome beside the main agent, or per crew role, so the thinking stages can run
-at high effort while babysitting and merging run at low. A change of agent,
-model or effort between two stages starts a new session for the later one.
+outcome beside the main agent, or per crew tier, so heavy stages can run
+at high effort while light ones run at low. Every stage runs in a session of
+its own, so each stage's agent, model and effort are its own too.
 
 A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, and on the Sessions page,
@@ -407,9 +407,9 @@ shows it for every stage that has been checked:
 - **Not checked.** The machine could not be asked, and the line says why. This
   is never shown as confirmed.
 
-A stage that carries on in the session of the stage before it is checked the
-same way, and a model or effort you change in the session's own chat later
-shows on the stage in hand. The check reads what the agent reports about
+Every stage has a session of its own and is checked when it starts; a model
+or effort you change in that session's own chat later shows on the stage in
+hand. The check reads what the agent reports about
 itself. A pipeline without stages is not checked.
 
 ### When nothing can happen without you
@@ -443,7 +443,7 @@ reason in the controller's own words:
 | --- | --- |
 | `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
 | `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
-| `gaffer-stage-started` | The controller started the next stage, in the same session or a new one. |
+| `gaffer-stage-started` | The controller started the next stage, in a session of its own. |
 | `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
 | `gaffer-pipeline-done` | Every stage is done. |
 | `gaffer-pipeline-stopped` | A stage could not be started or followed; the reason says why. |
@@ -498,19 +498,33 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    on it is an ordinary outcome in that project, and once the outcome is done reet
    removes the project and its clone unless that would lose work
    ([Temporary projects](projects.md#temporary-projects)).
-2. Choose the **crew** under **Choose who does what**. Thinking covers plan, design
-   and review; Building covers code and test; Shipping covers the pull request,
-   babysitting and merge. Give each its agent and, if you like, a model: a stronger
-   one for thinking, a cheaper one for building or shipping. Left alone, one agent
-   does every stage.
+2. Choose the **crew** under **Choose who does what**. The crew has three tiers,
+   named for how demanding a stage is: **Heavy**, **Standard** and **Light**. Give
+   each its agent and, if you like, a model and an effort: a stronger one for
+   heavy stages, a cheaper one for light ones. Left alone, one agent does every
+   stage. **Save as my crew** keeps the three tiers for your account; every later
+   outcome, from this page or over MCP, starts from them, for the tiers the
+   project's machine can run. Nothing else is saved by it.
+
+   Each kind of stage has a usual tier: plan, design and review are heavy, code
+   and test are standard, the pull request, babysitting and merge are light.
 3. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
    typed and the project's name, nothing else, and proposes the pipelines: a title,
-   a brief and the stages each needs. It cannot choose an agent, a model or whether
-   anything merges. **Write the plan myself** skips this.
+   a brief and the stages each needs. It also says how demanding each stage of
+   this plan is, with a reason when a stage is harder or easier than that kind of
+   stage usually is. It cannot choose an agent, a model or whether
+   anything merges: its rating picks a tier, and the tier's agent is yours.
+   **Write the plan myself** skips this.
 4. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the
-   stages each one runs through. The plan says how many agent sessions a pipeline
-   will use: a new session starts whenever the agent or model changes from one
-   stage to the next, and otherwise the same session carries on.
+   stages each one runs through. Under each pipeline every stage has its tier and
+   the agent, model and effort that tier means. A stage Gaffer moved off its usual
+   tier is marked **Gaffer's assessment** with its reason and a **Use Standard**
+   (or Heavy, or Light) button that puts it back; a tier you change is marked
+   **Your choice**. On the Factory, **Who did each stage** names each stage's tier
+   and keeps Gaffer's reason. Every stage runs in an agent session of its
+   own, in the pipeline's folder and branch: it starts from that stage's
+   instruction and the handover of the stage before, and the earlier stage's
+   session is ended with its history kept.
 5. Decide the merge. **Merge by itself** lets each pipeline's agent merge once every
    check passes, no review thread is open and there are no conflicts. Left off, a
    pipeline stops at **Ready to merge** and waits for **Approve merge** on the

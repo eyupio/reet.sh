@@ -100,7 +100,7 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 	log.wait(t,
 		"gaffer-stage-started code", "gaffer-stage-handed-over code gaffer",
 		"gaffer-stage-started review", "gaffer-session-ended", "gaffer-stage-handed-over review person",
-		"gaffer-stage-started test", "gaffer-stage-handed-over test gaffer",
+		"gaffer-stage-started test", "gaffer-session-ended", "gaffer-stage-handed-over test gaffer",
 		"gaffer-pipeline-waiting-merge merge")
 	for _, row := range log.all() {
 		if row.uid != r.p.UserID || row.detail["outcome"] != created.ID || row.detail["pipeline"] != code.Key || row.detail["reason"] == "" {
@@ -115,7 +115,7 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 	if final[0].ClosedBy != "gaffer" || final[1].ClosedBy != "person" || final[2].ClosedBy != "gaffer" || final[3].ClosedBy != "" {
 		t.Fatalf("closed by: %q %q %q %q", final[0].ClosedBy, final[1].ClosedBy, final[2].ClosedBy, final[3].ClosedBy)
 	}
-	last := log.all()[7]
+	last := log.all()[8]
 	if last.detail["state"] != "ready_to_merge" || !strings.Contains(fmt.Sprint(last.detail["reason"]), "Nothing merges until you approve it") {
 		t.Fatalf("merge wait: %+v", last)
 	}
@@ -242,38 +242,6 @@ func TestAYoloPipelineStopsAtTheMergeUnlessThePersonConfirmedIt(t *testing.T) {
 	plain, err := r.s.CreateOutcome(r.p.UserID, func() OutcomeInput { in := pipelineInput(r, true); in.Objective = "Another outcome."; return in }())
 	if err != nil || !MergesByItself(plain, plain.Sessions[0]) {
 		t.Fatalf("plain auto-merge: %+v %v", plain, err)
-	}
-}
-
-// A stage that carries on in the same session is given its instruction by
-// the controller, not left for Gaffer's first review to send.
-func TestAStageInTheSameSessionIsToldItsWorkByTheController(t *testing.T) {
-	r := outcomeFixture(t)
-	r.s.StartGoalSupervisor()
-	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint committed.", "gaffer")
-	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
-	before, err := r.st.TerminalQueueFor(r.p.UserID, review.SessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Review to test keeps the session (same agent and model).
-	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Two fixes committed.", "gaffer")
-	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
-	if test.SessionID != review.SessionID || test.Note != "The test stage is under way in the same session." {
-		t.Fatalf("test stage: %+v", test)
-	}
-	after, err := r.st.TerminalQueueFor(r.p.UserID, test.SessionID)
-	if err != nil || len(after) != len(before)+1 {
-		t.Fatalf("queued for the session: %d before, %d after, %v", len(before), len(after), err)
-	}
-	sent := after[len(after)-1].Text
-	if !strings.HasPrefix(sent, "You are doing ONE stage of a staged piece of work: the test stage.") || !strings.Contains(sent, "Handover from the review stage: Two fixes committed.") {
-		t.Fatalf("instruction: %q", sent)
 	}
 }
 

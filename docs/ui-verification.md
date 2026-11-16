@@ -539,6 +539,12 @@ goals**. `gaffer-outcome.e2e.mjs` and `gaffer-floor.e2e.mjs` cover these.
 ![Outcome objective](images/ui/gaffer-outcome-objective-1440-light.png)
 ![Outcome results read from the controller](images/ui/gaffer-outcome-results-1440-light.png)
 ![Outcome plan review](images/ui/gaffer-outcome-plan-1440-light.png)
+
+Each stage of a proposed pipeline carries its tier and the agent that tier means. A stage Gaffer rated off its
+usual tier is marked with the reason and a button that puts it back (`gaffer-outcome.e2e.mjs`).
+
+![Stage tiers with Gaffer's assessment](images/ui/gaffer-outcome-tiers-1440-light.png)
+![Stage tiers, phone dark](images/ui/gaffer-outcome-tiers-390-dark.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)

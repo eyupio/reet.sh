@@ -120,6 +120,30 @@ type OutcomeStageInput struct {
 	Provider string `json:"provider,omitempty"`
 	// Effort is how hard the stage's agent thinks: empty for its own default.
 	Effort string `json:"effort,omitempty"`
+	// Tier is how demanding the stage is: light, standard or heavy. Empty
+	// takes the default for its kind. TierWhy is Gaffer's reason for a tier it
+	// assessed. A stage that names no agent is done by its tier's.
+	Tier    string `json:"tier,omitempty"`
+	TierWhy string `json:"tierWhy,omitempty"`
+}
+
+// StageTiers are how demanding a stage can be judged to be, lightest first.
+var StageTiers = []string{"light", "standard", "heavy"}
+
+func validStageTier(tier string) bool {
+	return tier == "light" || tier == "standard" || tier == "heavy"
+}
+
+// DefaultStageTier is the tier a stage has until someone says otherwise:
+// thinking stages are heavy, building ones standard and shipping ones light.
+func DefaultStageTier(kind string) string {
+	switch kind {
+	case "plan", "design", "review":
+		return "heavy"
+	case "code", "test":
+		return "standard"
+	}
+	return "light"
 }
 
 // StageKinds is the order a pipeline runs in. A pipeline may leave stages
@@ -331,7 +355,11 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 		}
 		id = in.RequestID
 	}
-	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, in.AutoMerge, map[string]bool{}, 0)
+	crew, err := s.store.GafferCrewFor(uid)
+	if err != nil {
+		return o, err
+	}
+	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, crew, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
 		return o, err
 	}
@@ -347,7 +375,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 // outcomePieces turns approved sessions into pipeline records. taken holds
 // the titles already used in the outcome and from is how many pieces it has,
 // so added pipelines get titles and keys of their own.
-func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
+func outcomePieces(items []OutcomeSession, tool, model, provider string, crew store.GafferCrew, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
 	out := make([]store.GafferOutcomeSession, 0, len(items))
 	for i, item := range items {
 		title, prompt := strings.TrimSpace(item.Title), strings.TrimSpace(item.Prompt)
@@ -373,11 +401,27 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMer
 				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
 			}
 			last = at
-			stageTool, stageModel, stageProvider := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider)
+			stageTool, stageModel, stageProvider, stageEffort := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider), stage.Effort
+			// How demanding the stage is: what Gaffer or the person said, else
+			// its kind's default. It is kept with the stage either way.
+			tier, why := stage.Tier, strings.TrimSpace(stage.TierWhy)
+			if tier != "" && !validStageTier(tier) || len(why) > 300 || why != "" && !store.ValidWorkerText(why) {
+				return nil, invalid("sessions", "Choose light, standard or heavy for each stage of “"+title+"”.")
+			}
+			if tier == "" {
+				tier = DefaultStageTier(stage.Kind)
+			}
 			if stageTool == "" {
-				stageTool, stageModel = tool, model
-				if stageProvider == "" {
-					stageProvider = provider
+				// The stage names no agent: its tier's does it, from the
+				// person's saved crew. A tier they have not set falls back to
+				// the outcome's own agent and model.
+				if member := crew.Tier(tier); member.Tool != "" {
+					stageTool, stageModel, stageEffort, stageProvider = member.Tool, member.Model, member.Effort, member.Provider
+				} else {
+					stageTool, stageModel = tool, model
+					if stageProvider == "" {
+						stageProvider = provider
+					}
 				}
 			}
 			if stageProvider != "" && (!terminalproto.ToolTakesProvider(stageTool) || !terminalproto.ValidProvider(stageProvider)) {
@@ -386,7 +430,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMer
 			// Every stage is a chat, whose effort is one of the agent's own
 			// thinking levels: a name, not one of reet's three. The agent
 			// confirms it for the chosen model before any prompt is sent.
-			if stage.Effort != "" && !terminalproto.ValidModel(stage.Effort) {
+			if stageEffort != "" && !terminalproto.ValidModel(stageEffort) {
 				return nil, invalid("sessions", "Choose an effort the agent offers, or leave it to the agent's default, in “"+title+"”.")
 			}
 			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
@@ -396,7 +440,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMer
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stage.Effort, Provider: stageProvider, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Tier: tier, TierWhy: why, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -949,54 +993,10 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)
 	}
-	goal := StageGoal(o.Objective, item.Title, stage.Kind)
-	prev := stage
-	if next > 0 {
-		prev = item.Stages[next-1]
-	}
-	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && prev.Effort == stage.Effort && prev.Provider == stage.Provider && item.ConversationID != "" {
-		// Same agent, model and effort: the session carries on, under a fresh goal and budget for the new stage.
-		v, err := s.Goal(uid, item.ConversationID)
-		if err == nil && v.SetupAllowed {
-			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}
-			if v.Goal != nil {
-				in.Revision = v.Goal.Revision
-			}
-			if _, err = s.SetupGoal(uid, item.ConversationID, in); err == nil {
-				// The session carries on, but its agent has only been told about
-				// the stage before. The controller gives it this stage's
-				// instruction itself: left to Gaffer's first review, a review
-				// that only wrote prose left the agent idle with nothing to do.
-				note := "The " + stage.Kind + " stage is under way in the same session."
-				if id, idErr := newChatID(); idErr == nil {
-					if _, sendErr := s.WorkerMessage(ctx, uid, "gaffer", item.ConversationID, item.SessionID, id, "", stagePrompt(o, item, next)); sendErr != nil {
-						note = "The " + stage.Kind + " stage started in the same session, but its instruction did not reach the agent: " + clipBytes(outcomeReason(sendErr), 300) + " Tell the agent what this stage needs."
-					}
-				}
-				ok := set("following", note, func(row *store.GafferOutcomeSession) {
-					row.Stage = next
-					row.Stages[next].State, row.Stages[next].SessionID, row.Stages[next].ConversationID, row.Stages[next].StartedAt = "running", row.SessionID, row.ConversationID, time.Now().UnixMilli()
-				})
-				if ok && !wrote {
-					// The person stopped the pipeline while this stage's goal was being set: nothing follows it.
-					s.stopPipelineGoal(uid, item.ConversationID, stoppedFollowingNote)
-				}
-				if ok && wrote {
-					// Nothing was launched for this stage, so nothing confirmed its
-					// choice: the session it carries on in is asked what it is on.
-					s.checkStageChoice(ctx, o, item.Key, next, item.SessionID)
-				}
-				return ok
-			}
-			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {
-				return false
-			}
-		}
-		if ctx.Err() != nil {
-			return false
-		}
-		// The session could not take the next stage (it ended, say): give the stage its own.
-	}
+	// Every stage is a session of its own, whatever agent and model do it: it
+	// starts with that stage's instruction and the handover and nothing else,
+	// in the pipeline's folder. The session of the stage before is finished
+	// with and is ended once this one is followed.
 	if !set("starting", "Starting the "+stage.Kind+" stage…", func(row *store.GafferOutcomeSession) {
 		row.Stage = next
 		row.SessionID, row.ConversationID = row.Stages[next].SessionID, ""

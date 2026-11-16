@@ -253,17 +253,20 @@ func TestSessionsAPipelineHasFinishedWithAreEnded(t *testing.T) {
 	if archived, err := r.st.TerminalArchivedFor(r.p.UserID, code.SessionID); err != nil || archived {
 		t.Fatalf("its history must be kept: %v %v", archived, err)
 	}
-	// Review to test is the same agent and model: the session carries on.
+	// Review to test is the same agent and model, and still a session of its own: review's is ended too.
 	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Reviewed.", "gaffer")
 	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
-	if test.SessionID != review.SessionID || len(r.starter.closed()) != 1 {
-		t.Fatalf("a session the next stage carries on in must stay open: %+v %v", test, r.starter.closed())
+	if got := wait(2); test.SessionID == review.SessionID || len(got) != 2 || got[1] != review.SessionID {
+		t.Fatalf("the review stage's session after test started in its own: %+v %v", test, got)
 	}
 	r.s.stageHandedOver(r.p.UserID, test.ConversationID, "Green.", "gaffer")
 	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 3 })
+	if got := wait(3); len(got) != 3 || got[2] != test.SessionID {
+		t.Fatalf("the test stage's session after merge started in its own: %v", got)
+	}
 	r.s.stageHandedOver(r.p.UserID, merge.ConversationID, "Merged.", "gaffer")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "done" })
-	if got := wait(2); len(got) != 2 || got[1] != merge.SessionID {
+	if got := wait(4); len(got) != 4 || got[3] != merge.SessionID {
 		t.Fatalf("the last session when the pipeline is done: %v", got)
 	}
 }

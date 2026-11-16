@@ -141,3 +141,48 @@ func gafferClient(t *testing.T, client *http.Client, server *httptest.Server, me
 	headers = append(headers, "Origin", "http://localhost:8080")
 	return doClient(t, client, server, method, path, body, headers...)
 }
+
+// The crew is the owning browser's to read and save; a tier it cannot run is
+// refused, and what is saved is what the next read returns.
+func TestGafferCrewRoutesSaveAndReadTheAccountsTiers(t *testing.T) {
+	t.Parallel()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seal, _ := sealed.NewSealer(strings.Repeat("gaffer-test-", 8), "test")
+	h := New(st, meta.Fetcher{}, "bootstrap", WithAuthMode(AuthAccounts), WithPublicURL("http://localhost:8080"), WithGafferProviders(seal))
+	srv := httptest.NewServer(h)
+	t.Cleanup(func() { srv.Close(); h.Close(); st.Close() })
+	owner := &http.Client{Jar: mustJar(t)}
+	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.test","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup %d", code)
+	}
+	code, body := gafferClient(t, owner, srv, "GET", "/api/v2/gaffer/crew", "")
+	if code != 200 || !strings.Contains(body, `"saved":false`) || !strings.Contains(body, `"review":"heavy"`) || !strings.Contains(body, `"merge":"light"`) {
+		t.Fatalf("before any save: %d %s", code, body)
+	}
+	if code, _ := gafferClient(t, &http.Client{}, srv, "GET", "/api/v2/gaffer/crew", ""); code != 401 {
+		t.Fatalf("signed out: %d", code)
+	}
+	if code, _ := doClient(t, owner, srv, "PUT", "/api/v2/gaffer/crew", `{"light":{},"standard":{},"heavy":{}}`, "Origin", "https://different.example"); code != 403 {
+		t.Fatalf("foreign origin: %d", code)
+	}
+	crew := `{"light":{"tool":"codex","model":"small","effort":"low"},"standard":{"tool":"opencode"},"heavy":{"tool":"claude","model":"opus","effort":"high"}}`
+	code, body = gafferClient(t, owner, srv, "PUT", "/api/v2/gaffer/crew", crew)
+	if code != 200 || !strings.Contains(body, `"saved":true`) || !strings.Contains(body, `"model":"opus"`) {
+		t.Fatalf("save: %d %s", code, body)
+	}
+	code, body = gafferClient(t, owner, srv, "GET", "/api/v2/gaffer/crew", "")
+	if code != 200 || !strings.Contains(body, `"tool":"codex"`) || !strings.Contains(body, `"effort":"high"`) {
+		t.Fatalf("read back: %d %s", code, body)
+	}
+	for name, bad := range map[string]string{
+		"an agent that cannot chat": `{"light":{"tool":"bash"},"standard":{},"heavy":{}}`,
+		"an unknown field":          `{"light":{},"standard":{},"heavy":{},"extra":{}}`,
+	} {
+		if code, _ := gafferClient(t, owner, srv, "PUT", "/api/v2/gaffer/crew", bad); code < 400 || code >= 500 {
+			t.Errorf("%s: %d", name, code)
+		}
+	}
+}

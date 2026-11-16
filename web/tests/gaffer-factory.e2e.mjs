@@ -17,7 +17,7 @@ const st=(kind,tool,model,state,extra={})=>({kind,tool,model,state,requestId:'r'
 const kinds=['plan','design','code','review','test','pr','babysit','merge']
 const line=(doneUpTo,cur)=>kinds.map((k,i)=>st(k,['plan','design','review'].includes(k)?'claude':['code','test'].includes(k)?'codex':'claude',['plan','design','review'].includes(k)?'opus':['code','test'].includes(k)?'':'haiku',i<doneUpTo?'done':i===doneUpTo&&cur?'running':'pending',i<doneUpTo?{summary:'Handed over.'}:{}))
 const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for billing: an endpoint, a button and tests.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'billing',dir:'/work/billing',tool:'claude',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now,sessions:[
- {key:'a',title:'Export API',prompt:'p',state:'following',note:'The review stage is under way.',sessionId:'s1',conversationId:'1'.repeat(32),updatedAt:now,stage:3,stages:line(3,true)},
+ {key:'a',title:'Export API',prompt:'p',state:'following',note:'The review stage is under way.',sessionId:'s1',conversationId:'1'.repeat(32),updatedAt:now,stage:3,stages:line(3,true).map(s=>s.kind==='code'?{...s,tier:'heavy',tierWhy:'The export reads the billing ledger while it is being written.'}:s.kind==='merge'?{...s,tier:'light'}:s)},
  {key:'b',title:'Export button',prompt:'p',state:'following',note:'The code stage is under way.',sessionId:'s2',conversationId:'2'.repeat(32),updatedAt:now,stage:2,stages:line(2,true)},
  {key:'c',title:'Export docs',prompt:'p',state:'ready_to_merge',note:'Ready to merge. Nothing merges until you approve it.',sessionId:'s3',conversationId:'3'.repeat(32),updatedAt:now,stage:7,stages:line(7,false)},
 ]},{id:'d'.repeat(32),revision:2,objective:'Fix the flaky importer test.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'importer',dir:'/work/importer',tool:'claude',providerId:pid,maxReviews:12,hours:24,createdAt:now-86400000,updatedAt:now,sessions:[
@@ -124,6 +124,12 @@ try {
       // A pipeline shows every stage: done, in hand and to come, and who is doing the one in hand.
       const api=pipes.nth(0),stages=api.getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')
       await expect(stages).toHaveCount(8)
+      // Who did each stage says how demanding the stage was judged to be, and Gaffer's reason where the judgment was its own.
+      await api.getByText('Who did each stage',{exact:true}).click()
+      const who=api.getByRole('list',{name:'Who did each stage of Export API',exact:true}).getByRole('listitem')
+      await expect(who.nth(2)).toContainText('Heavy stage');await expect(who.nth(2)).toContainText('Gaffer’s assessment: The export reads the billing ledger while it is being written.')
+      await expect(who.nth(7)).toContainText('Light stage');await expect(who.nth(7)).not.toContainText('Gaffer’s assessment');await expect(who.nth(3)).not.toContainText('stage ·')
+      await api.getByText('Who did each stage',{exact:true}).click()
       await expect(stages.nth(2)).toContainText('done');await expect(stages.nth(3)).toHaveAttribute('aria-current','step');await expect(stages.nth(3)).toContainText('running now');await expect(stages.nth(4)).toContainText('to come')
       await expect(api).toContainText('Claude Code · opus');await expect(api).toContainText('Reviews left9 of 12');await expect(api).toContainText(/Time left\d+ h \d+ min/);await expect(api).toContainText('Gaffer tokens2,252');await expect(api).toContainText('Waits for you')
       // What the agents themselves reported: tokens for the pipeline, and how much context the stage in hand has left.
@@ -194,15 +200,15 @@ try {
       // A crew can do its stages: the shipping stage goes back to the outcome's own agent, and the level this
       // machine reports for it travels with that stage.
       await add.getByText('Choose who does what',{exact:true}).click()
-      await expect(add.getByRole('combobox',{name:'Building agent for Changelog entry',exact:true})).toHaveValue('codex')
-      await add.getByRole('combobox',{name:'Shipping agent for Changelog entry',exact:true}).selectOption('claude')
-      await add.getByRole('combobox',{name:'Shipping effort for Changelog entry',exact:true}).selectOption('low')
-      await expect(add.getByText('2 agent sessions for 2 stages.',{exact:false})).toBeVisible()
+      await expect(add.getByRole('combobox',{name:'Standard agent for Changelog entry',exact:true})).toHaveValue('codex')
+      await add.getByRole('combobox',{name:'Light agent for Changelog entry',exact:true}).selectOption('claude')
+      await add.getByRole('combobox',{name:'Light effort for Changelog entry',exact:true}).selectOption('low')
+      await expect(add.getByText('2 stages, each in an agent session of its own.',{exact:false})).toBeVisible()
       expect(await add.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await add.screenshot({path:`${shots}/gaffer-factory-add-${width}-${theme}.png`})
       await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
-      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'claude',model:'',effort:'low'}]}]}])
+      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low',tier:'standard'},{kind:'pr',tool:'claude',model:'',effort:'low',tier:'light'}]}]}])
       await expect(pipes).toHaveCount(4);await expect(report.getByRole('list',{name:'Proposed pipelines',exact:true})).toHaveCount(0)
       await expect(totals).toContainText('Gaffer tokens4,884')
       expect(box.reviews).toEqual([{revision:6}])

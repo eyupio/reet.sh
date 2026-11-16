@@ -5,6 +5,18 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: every stage of a pipeline now runs in an agent session of its
+  own. Two stages with the same agent, model and effort used to share one
+  session; the later stage now starts fresh from the earlier one's handover,
+  and the earlier session is ended.
+- Factory: the crew is now three tiers, **Heavy**, **Standard** and
+  **Light**, in place of Thinking, Building and Shipping. When Gaffer plans
+  an outcome it says how demanding each stage is, with a reason where a
+  stage is harder or easier than usual; the plan arrives with that applied
+  and marked, and one click puts a stage back. Gaffer still names no agent
+  or model. **Save as my crew** keeps your tiers for the account, and later
+  outcomes, including ones started over MCP, begin from them.
+
 - Factory: a pipeline that was waiting at **Ready to merge** when you stopped
   it waits there again when you try it again. It used to start its merge
   stage without your approval; so did a pipeline whose first stage was the

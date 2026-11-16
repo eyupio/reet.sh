@@ -40,6 +40,11 @@ type GafferOutcomeStage struct {
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	// Tier is how demanding the stage was judged to be (light, standard or
+	// heavy), which is what chose its agent and model from the person's crew.
+	// TierWhy is Gaffer's reason where the tier is its own assessment.
+	Tier    string `json:"tier,omitempty"`
+	TierWhy string `json:"tierWhy,omitempty"`
 	// Tool, Model and Effort above are what the person chose. The Applied
 	// fields are what the stage's session was read back to be running, and
 	// when. ChoiceCheck is "applied" (nothing chosen differs), "mismatch"
@@ -219,7 +224,10 @@ func (s *Store) migrateGafferOutcomes() error {
  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  created_at INTEGER NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)));
  CREATE INDEX IF NOT EXISTS gaffer_outcomes_owner ON gaffer_outcomes(user_id,created_at);
- CREATE INDEX IF NOT EXISTS gaffer_outcomes_state ON gaffer_outcomes(json_extract(data,'$.state'));`)
+ CREATE INDEX IF NOT EXISTS gaffer_outcomes_state ON gaffer_outcomes(json_extract(data,'$.state'));
+ CREATE TABLE IF NOT EXISTS gaffer_crew(
+ user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ updated_at INTEGER NOT NULL,data TEXT NOT NULL CHECK(json_valid(data)));`)
 	return err
 }
 
@@ -304,6 +312,71 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// GafferCrewTier is the agent, model and effort that does stages of one tier.
+// An empty Tool means the tier is not set: such a stage is done by the
+// outcome's own agent.
+type GafferCrewTier struct {
+	Tool     string `json:"tool,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+// GafferCrew is a person's crew: who does light, standard and heavy stages.
+// It is the account's default; an outcome may be approved with another.
+type GafferCrew struct {
+	Light     GafferCrewTier `json:"light"`
+	Standard  GafferCrewTier `json:"standard"`
+	Heavy     GafferCrewTier `json:"heavy"`
+	UpdatedAt int64          `json:"updatedAt,omitempty"`
+}
+
+// Saved reports whether the person has ever saved a crew.
+func (c GafferCrew) Saved() bool { return c.UpdatedAt > 0 }
+
+// Tier is the crew for a tier by name; the zero tier for any other name.
+func (c GafferCrew) Tier(name string) GafferCrewTier {
+	switch name {
+	case "light":
+		return c.Light
+	case "standard":
+		return c.Standard
+	case "heavy":
+		return c.Heavy
+	}
+	return GafferCrewTier{}
+}
+
+// GafferCrewFor returns the account's saved crew, or an empty one.
+func (s *Store) GafferCrewFor(uid int64) (GafferCrew, error) {
+	var raw string
+	var at int64
+	err := s.db.QueryRow(`SELECT data,updated_at FROM gaffer_crew WHERE user_id=?`, uid).Scan(&raw, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return GafferCrew{}, nil
+	}
+	if err != nil {
+		return GafferCrew{}, err
+	}
+	var crew GafferCrew
+	if err = json.Unmarshal([]byte(raw), &crew); err != nil {
+		return GafferCrew{}, err
+	}
+	crew.UpdatedAt = at
+	return crew, nil
+}
+
+// SetGafferCrewFor replaces the account's crew.
+func (s *Store) SetGafferCrewFor(uid int64, crew GafferCrew) (GafferCrew, error) {
+	crew.UpdatedAt = now()
+	raw, err := json.Marshal(crew)
+	if err != nil {
+		return crew, err
+	}
+	_, err = s.db.Exec(`INSERT INTO gaffer_crew(user_id,updated_at,data) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET updated_at=excluded.updated_at,data=excluded.data`, uid, crew.UpdatedAt, string(raw))
+	return crew, err
 }
 
 // ValidGafferOutcomeID reports whether id has the form of an outcome's id.

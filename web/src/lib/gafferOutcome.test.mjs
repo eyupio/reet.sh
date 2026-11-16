@@ -102,15 +102,38 @@ test('the floor groups by the controller record first, then by goals that only n
   assert.equal(o.floorOutcomeLine(settled[0]), '2 sessions planned · 1 following · 1 not started')
 })
 
-test('stages keep pipeline order and take the agent and model of their crew role', () => {
-  const crew = { think: { tool: 'claude', model: ' opus ' }, build: { tool: 'codex', model: '' }, ship: { tool: 'claude', model: 'haiku' } }
+test('stages keep pipeline order and take the agent and model of their tier', () => {
+  const crew = { heavy: { tool: 'claude', model: ' opus ' }, standard: { tool: 'codex', model: '' }, light: { tool: 'claude', model: 'haiku' } }
   assert.deepEqual(o.orderStages(['merge', 'code', 'bogus', 'plan']), ['plan', 'code', 'merge'])
   assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [
-    { kind: 'code', tool: 'codex', model: '' }, { kind: 'review', tool: 'claude', model: 'opus' }, { kind: 'pr', tool: 'claude', model: 'haiku' },
+    { kind: 'code', tool: 'codex', model: '', tier: 'standard' }, { kind: 'review', tool: 'claude', model: 'opus', tier: 'heavy' }, { kind: 'pr', tool: 'claude', model: 'haiku', tier: 'light' },
   ])
-  assert.equal(o.sessionCount(o.stagePlan(o.DEFAULT_STAGES, crew)), 4)
+  // Each kind has a default tier: thinking stages heavy, building ones standard, shipping ones light.
+  assert.deepEqual(o.STAGES.map(stage => [stage.kind, o.defaultTier(stage.kind)]), [['plan', 'heavy'], ['design', 'heavy'], ['code', 'standard'], ['review', 'heavy'], ['test', 'standard'], ['pr', 'light'], ['babysit', 'light'], ['merge', 'light']])
+  // Gaffer's assessment puts a stage on another tier: it is done by that tier's agent, and the reason goes with it.
+  const ratings = o.planRatings([{ kind: 'code', tier: 'heavy', tierWhy: ' Touches the ledger. ' }, { kind: 'review', tier: 'standard' }, { kind: 'pr', tier: 'enormous', tierWhy: 'ignored' }, { kind: 'test' }])
+  assert.deepEqual(ratings, { tiers: { code: 'heavy', review: 'standard' }, whys: { code: 'Touches the ledger.', review: '' } })
+  assert.deepEqual(o.stagePlan(['code', 'review', 'pr'], crew, true, ratings), [
+    { kind: 'code', tool: 'claude', model: 'opus', tier: 'heavy', tierWhy: 'Touches the ledger.' }, { kind: 'review', tool: 'codex', model: '', tier: 'standard' }, { kind: 'pr', tool: 'claude', model: 'haiku', tier: 'light' },
+  ])
+  // What the dialog says about one stage: the tier in force, its default, whether they differ, and Gaffer's reason.
+  assert.deepEqual(o.stageTier('code', ratings), { tier: 'heavy', standard: 'standard', changed: true, by: 'gaffer', why: 'Touches the ledger.' })
+  assert.deepEqual(o.stageTier('review', ratings), { tier: 'standard', standard: 'heavy', changed: true, by: 'gaffer', why: '' })
+  assert.deepEqual(o.stageTier('pr', ratings), { tier: 'light', standard: 'light', changed: false, by: 'default', why: '' })
+  assert.deepEqual(o.stageTier('merge', undefined), { tier: 'light', standard: 'light', changed: false, by: 'default', why: '' })
+  // The person's own choice replaces Gaffer's and its reason; choosing the default puts the stage back.
+  const mine = o.withTier(ratings, 'code', 'light')
+  assert.deepEqual(mine, { tiers: { code: 'light', review: 'standard' }, whys: { review: '' } })
+  assert.deepEqual(o.stageTier('code', mine), { tier: 'light', standard: 'standard', changed: true, by: 'you', why: '' })
+  assert.deepEqual(o.withTier(mine, 'code', 'standard'), { tiers: { review: 'standard' }, whys: { review: '' } })
+  assert.deepEqual(o.withTier(undefined, 'pr', 'bogus'), { tiers: {}, whys: {} })
+  // What is sent keeps the person's tier and drops a reason that was for another.
+  assert.equal(o.tierLabel('heavy'), 'Heavy')
+  assert.deepEqual(o.CREW_TIERS.map(item => item.tier), ['heavy', 'standard', 'light'])
+  // Every stage is a session of its own, whether or not the crew changes between them.
+  assert.equal(o.sessionCount(o.stagePlan(o.DEFAULT_STAGES, crew)), o.DEFAULT_STAGES.length)
   const one = { tool: 'claude', model: '' }
-  assert.equal(o.sessionCount(o.stagePlan(o.DEFAULT_STAGES, { think: one, build: one, ship: one })), 1)
+  assert.equal(o.sessionCount(o.stagePlan(o.DEFAULT_STAGES, { heavy: one, standard: one, light: one })), o.DEFAULT_STAGES.length)
   assert.equal(o.sessionCount([]), 0)
   assert.equal(o.stageLabel('babysit'), 'Babysit')
 })
@@ -122,6 +145,9 @@ test('a pipeline track shows what is done, in hand, waiting on the person or fai
   assert.deepEqual(o.track({ state: 'unfollowed', stage: 1, stages }).map(n => n.state), ['done', 'failed', 'pending'])
   assert.deepEqual(o.track({ state: 'done', stage: 2, stages: stages.map(s => ({ ...s, state: 'done' })) }).map(n => n.state), ['done', 'done', 'done'])
   assert.equal(o.track({ state: 'following', stage: 1, stages })[1].model, 'opus')
+  // The tier that chose a stage's agent is on the track, with Gaffer's reason where the tier was its assessment.
+  const rated = o.track({ state: 'following', stage: 0, stages: [{ kind: 'code', tool: 'claude', state: 'running', tier: 'heavy', tierWhy: 'Touches the ledger.' }, { kind: 'pr', tool: 'claude', state: 'pending', tier: 'light' }, { kind: 'merge', tool: 'claude', state: 'pending' }] })
+  assert.deepEqual(rated.map(n => [n.tier, n.tierWhy]), [['Heavy', 'Touches the ledger.'], ['Light', ''], ['', '']])
   // Whether the choice was applied is said only for a stage that was checked, and a difference is never called confirmed.
   assert.equal(o.stageChoice(undefined), null)
   assert.equal(o.stageChoice({ tool: 'claude', model: 'opus', effort: 'high' }), null)
@@ -188,16 +214,16 @@ test('sessions of a pipeline are marked with the stage they are doing', () => {
   assert.equal(members.get('s2').pipeline, 'API')
 })
 
-test('a crew role\'s effort is sent with its stages and starts a new session when it changes', () => {
+test('a tier\'s effort is sent with its stages', () => {
   const one = { tool: 'claude', model: 'opus' }
-  const crew = { think: { ...one, effort: 'high' }, build: { ...one, effort: '' }, ship: { ...one, effort: 'low' } }
+  const crew = { heavy: { ...one, effort: 'high' }, standard: { ...one, effort: '' }, light: { ...one, effort: 'low' } }
   assert.deepEqual(o.stagePlan(['design', 'code', 'merge'], crew), [
-    { kind: 'design', tool: 'claude', model: 'opus', effort: 'high' },
-    { kind: 'code', tool: 'claude', model: 'opus' },
-    { kind: 'merge', tool: 'claude', model: 'opus', effort: 'low' },
+    { kind: 'design', tool: 'claude', model: 'opus', effort: 'high', tier: 'heavy' },
+    { kind: 'code', tool: 'claude', model: 'opus', tier: 'standard' },
+    { kind: 'merge', tool: 'claude', model: 'opus', effort: 'low', tier: 'light' },
   ])
   assert.equal(o.sessionCount(o.stagePlan(['design', 'code', 'merge'], crew)), 3)
-  assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 1)
+  assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 3)
 })
 
 test('a stage never carries an effort its machine does not report', () => {
@@ -219,15 +245,15 @@ test('a stage never carries an effort its machine does not report', () => {
   assert.equal(o.withReportedEfforts(clean, efforts)[0], clean[0])
 })
 
-test('a Cline crew role carries its billing source and a source change starts a new session', () => {
-  const crew = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: '' }, ship: { tool: 'codex', model: '' } }
+test('a Cline tier carries its billing source', () => {
+  const crew = { heavy: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, standard: { tool: 'cline', model: '' }, light: { tool: 'codex', model: '' } }
   assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [
-    { kind: 'code', tool: 'cline', model: '' }, { kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4', provider: 'cline-pass' }, { kind: 'pr', tool: 'codex', model: '' },
+    { kind: 'code', tool: 'cline', model: '', tier: 'standard' }, { kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4', provider: 'cline-pass', tier: 'heavy' }, { kind: 'pr', tool: 'codex', model: '', tier: 'light' },
   ])
-  assert.equal(o.sessionCount(o.stagePlan(['plan', 'review'], crew)), 1)
+  assert.equal(o.sessionCount(o.stagePlan(['plan', 'review'], crew)), 2)
   // A machine that did not negotiate a Cline source setting never has one sent for it.
-  assert.deepEqual(o.stagePlan(['review'], crew, false), [{ kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4' }])
-  const switched = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline' }, ship: { tool: 'codex', model: '' } }
+  assert.deepEqual(o.stagePlan(['review'], crew, false), [{ kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4', tier: 'heavy' }])
+  const switched = { heavy: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, standard: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline' }, light: { tool: 'codex', model: '' } }
   assert.equal(o.sessionCount(o.stagePlan(['review', 'test'], switched)), 2)
 })
 

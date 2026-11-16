@@ -1448,7 +1448,44 @@ controls (`working`, `waiting`) at that moment are the thing to capture.
 Whether a real machine answers a repeated request for a launch that
 timed out as the broker's code reads has not been seen on one.
 
+## A session per stage, and tiers (16 November 2026)
+
+The owner's goal for Gaffer is orchestrator and adviser: each stage a separate session, on the agent and model that
+suits the stage's difficulty, and later several agents delivering one stage.
+
+### A session per stage
+
+- `advancePipeline` had a branch that kept the next stage in the same session when its agent, model, effort and
+  source matched. It is gone. `TestEveryStageRunsInASessionOfItsOwn` covers it; the audit sequence gained a
+  `gaffer-session-ended` between stages.
+- The dialog's count is now "N stages, each in an agent session of its own".
+
+### Tiers and the crew
+
+- `store.GafferOutcomeStage` has `Tier` and `TierWhy`. `gaffer.DefaultStageTier(kind)`: plan, design, review heavy;
+  code, test standard; pr, babysit, merge light.
+- `store.GafferCrew` (`Light`, `Standard`, `Heavy`, each tool, model, effort, provider) is one JSON row per account
+  in `gaffer_crew`. `Service.Crew` / `SaveCrew` validate it; `GET/PUT /api/v2/gaffer/crew` serve it and emit
+  `gaffer-crew-changed`.
+- `outcomePieces` resolves a stage that arrives with no tool from its tier's crew member, falling back to the
+  outcome's agent. The web dialog always sends the tool, so this path serves MCP and Gaffer's own tools.
+- Gaffer's plan tool takes `ratings`. The system prompt tells it to rate each stage light, standard or heavy, give a
+  reason only where it departs from the usual, and name no agent or model. Invalid ratings are dropped, not failed.
+- Web: `gafferOutcome.ts` `CREW_TIERS`, `stageTier`, `planRatings`, `withTier`, `stagePlan(..., ratings)`. The dialog
+  loads the saved crew once the machine's agents are known, skips a tier whose agent the machine cannot run, and
+  saves only on **Save as my crew**. The Factory card's **Who did each stage** shows tier and reason.
+
+### Validation
+
+`go test ./internal/gaffer/ ./internal/api/` pass; `internal/store` passes apart from the known intermittent
+`TestFolderRemoteTriesDoNotStarveTheBatch`. Web unit tests, `svelte-check` and `gaffer-outcome.e2e.mjs`,
+`gaffer-factory.e2e.mjs` against a production build pass. Other browser suites were left to CI.
+
 ## Not done, for the next slice
+
+- **Several agents delivering one stage** (slice 3). Open decisions: how sub-work is split and by whom, whether
+  sub-agents share the stage's worktree, and how their results are joined before the hand-over.
+- A crew editor in Gaffer settings; tiers on the MCP start tool's input.
 
 - **These fixes on a real run.** The owner runs the Factory against real
   agents; this slice was checked with fakes. On the next real outcome, look

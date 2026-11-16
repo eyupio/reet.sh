@@ -28,9 +28,9 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
    if(box.answer)return box.answer(view,path)
    if(box.fail)return {status:503,json:{error:'Machine unavailable'}}
    if(view==='status')return {...snapshot(),...opts.status}
+   if(view==='github'&&box.pull)return box.pull()
    if(view==='github'&&opts.reason)return {...snapshot(),...opts.status,reason:opts.reason}
    if(view==='github'&&box.reason)return {...snapshot(),reason:box.reason}
-   if(view==='github'&&box.pull)return box.pull()
    if(view==='github'){const answer=pull();return opts.noPull?{...snapshot(),...opts.status}:{...answer,...opts.status,pull:{...answer.pull,...opts.pull}}}
    if(view==='files')return {checkedAt:Date.now(),files:path?[{path:'src/session.ts',added:0,removed:0}]:[{path:'src',directory:true,added:0,removed:0},{path:'README.md',added:0,removed:0}],ahead:0,behind:0,changed:0,conflicts:0}
    return {checkedAt:Date.now(),text:view==='diff'?'@@ -1 +1 @@\n-old value\n+new value':'export const status = "working"',ahead:0,behind:0,changed:0,conflicts:0}
@@ -499,6 +499,18 @@ try {
   await expect(panel.getByRole('tab',{name:'GitHub',exact:true})).toBeVisible()
   await expect(panel.locator('.tab-dot')).toHaveCount(0)
   expect(errors).toEqual([]);await context.close()
+ }
+ // A pull request created while the session is working shows up on the short clock, not two minutes later.
+ {
+  const late=await open(1600,'dark',true,null,{reason:'no_pr'})
+  await expect(late.panel.getByText('No pull request yet.')).toBeVisible()
+  late.box.pull=pull
+  await late.page.clock.install({time:Date.now()})
+  await late.page.clock.fastForward(25_000)
+  await late.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+  await expect(late.panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
+  await expect(late.panel.locator('li[data-step="pr"]')).toContainText('Done')
+  expect(late.errors).toEqual([]);await late.context.close()
  }
  // The Where card and the run line hold their height between the first read and the loaded view, at both widths.
  for(const width of [1600,375]){

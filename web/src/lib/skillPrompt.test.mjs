@@ -48,7 +48,7 @@ test('a missing caret falls back to the end of the prompt, and out-of-range valu
 
 const installSource = readFileSync(new URL('./install.ts', import.meta.url), 'utf8')
 const installCompiled = ts.transpileModule(installSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { useSkillPrompt, installCommand } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
+const { useSkillPrompt, installCommand, SKILLS_CLI } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
 
 const skill = over => ({ id: 'local/unslop', name: 'unslop', slug: 'unslop', source: 'local', sourceType: 'local', url: '', ...over })
 
@@ -64,8 +64,8 @@ test('a skill with a description carries it, on one line, so the agent gets its 
 })
 
 test('a skill with an install source keeps the fetch-and-run prompt', () => {
-  assert.match(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github' })), /^Run `npx skills use "https:\/\/github\.com\/demo\/toolkit" --skill "unslop"`/)
-  assert.match(useSkillPrompt(skill({ source: '', sourceType: 'hosted', url: 'https://reet.test/demo' })), /^Run `npx skills use "https:\/\/reet\.test\/demo"/)
+  assert.match(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github' })), /^Run `npx skills@1\.7\.4 use "https:\/\/github\.com\/demo\/toolkit" --skill "unslop"`/)
+  assert.match(useSkillPrompt(skill({ source: '', sourceType: 'hosted', url: 'https://reet.test/demo' })), /^Run `npx skills@1\.7\.4 use "https:\/\/reet\.test\/demo"/)
 })
 
 test('a skill with neither a source nor a name cannot be used', () => {
@@ -74,23 +74,30 @@ test('a skill with neither a source nor a name cannot be used', () => {
 
 test('a copied install command offers the skill\'s own name when it is not its folder name', () => {
   // The skills CLI matches --skill on the name in SKILL.md, so the folder name alone finds nothing.
-  assert.equal(installCommand(skill({ name: 'SVG Logo Designer', slug: 'svg-logo-designer', source: 'rknall/claude-skills', sourceType: 'github' })), "npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'")
-  assert.equal(installCommand(skill({ source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
-  assert.equal(installCommand(skill({ name: 'Unslop', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
-  assert.equal(installCommand(skill({ name: "It's --all", slug: 'its', source: 'demo/toolkit', sourceType: 'github' })), "npx skills add https://github.com/demo/toolkit --skill its 'It'\\''s --all'")
-  assert.equal(installCommand(skill({ name: '--all', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
+  assert.equal(installCommand(skill({ name: 'SVG Logo Designer', slug: 'svg-logo-designer', source: 'rknall/claude-skills', sourceType: 'github' })), "npx skills@1.7.4 add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'")
+  assert.equal(installCommand(skill({ source: 'demo/toolkit', sourceType: 'github' })), 'npx skills@1.7.4 add https://github.com/demo/toolkit --skill unslop')
+  assert.equal(installCommand(skill({ name: 'Unslop', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills@1.7.4 add https://github.com/demo/toolkit --skill unslop')
+  assert.equal(installCommand(skill({ name: "It's --all", slug: 'its', source: 'demo/toolkit', sourceType: 'github' })), "npx skills@1.7.4 add https://github.com/demo/toolkit --skill its 'It'\\''s --all'")
+  assert.equal(installCommand(skill({ name: '--all', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills@1.7.4 add https://github.com/demo/toolkit --skill unslop')
 })
 
 test('the use prompt names a skill the way the skills CLI finds it', () => {
   // `skills use` takes one selector and matches the skill's own name; the folder name finds nothing
   // for "SVG Logo Designer" on skills 1.7.4, and nothing for "UI/UX Design Review" on any version tried.
   const run = over => useSkillPrompt(skill({ source: 'rknall/claude-skills', sourceType: 'github', ...over })).split('`')[1]
-  assert.equal(run({ name: 'SVG Logo Designer', slug: 'svg-logo-designer' }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "SVG Logo Designer"')
-  assert.equal(run({ name: 'UI/UX Design Review', slug: 'uiux-design-review' }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "UI/UX Design Review"')
-  assert.equal(run({}), 'npx skills use "https://github.com/rknall/claude-skills" --skill "unslop"')
-  assert.equal(run({ name: 'Unslop' }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "unslop"')
+  assert.equal(run({ name: 'SVG Logo Designer', slug: 'svg-logo-designer' }), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "SVG Logo Designer"')
+  assert.equal(run({ name: 'UI/UX Design Review', slug: 'uiux-design-review' }), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "UI/UX Design Review"')
+  assert.equal(run({}), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "unslop"')
+  assert.equal(run({ name: 'Unslop' }), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "unslop"')
   // A name that could end the quotes or the code span, or read as a flag, is not put in a command.
   for (const name of ['Say "hi"', 'Tick `this`', 'Cost $HOME', 'Back\\slash', '--all', '*', '']) {
-    assert.equal(run({ name }), 'npx skills use "https://github.com/rknall/claude-skills" --skill "unslop"', name)
+    assert.equal(run({ name }), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "unslop"', name)
   }
+})
+
+test('copied commands run the same skills CLI version that sync does', () => {
+  // An unpinned command runs whatever is newest, and the CLI's matching rules have changed between versions.
+  const go = readFileSync(new URL('../../../internal/ref/cli.go', import.meta.url), 'utf8')
+  assert.equal(SKILLS_CLI, /const SkillsCLI = "(skills@[0-9.]+)"/.exec(go)[1])
+  assert.match(installCommand(skill({ source: 'demo/toolkit', sourceType: 'github' })), new RegExp(`^npx ${SKILLS_CLI.replaceAll('.', '\\.')} add `))
 })

@@ -156,7 +156,7 @@ try {
   const claim = page.getByRole('heading',{name:'Choose your publishing username'})
   await expect(gives).toBeVisible()
   await expect(claim).toBeVisible()
-  await expect(page.locator('main').getByText(`npx skills add ${base}/your-username/skill-name`)).toBeVisible()
+  await expect(page.locator('main').getByText(`npx skills@1.7.4 add ${base}/your-username/skill-name`)).toBeVisible()
   const [a,b] = [await gives.boundingBox(), await claim.boundingBox()]
   expect(a.y, 'the explanation sits above the username form').toBeLessThan(b.y)
   await expect(page.getByText(/This username is permanent/)).toBeVisible()

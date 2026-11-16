@@ -5,7 +5,7 @@
   import { MAX_BUNDLE_BYTES, addPrefix, parseFrontmatter, prepareImports, renameSkillContent, sanitizeSkillName, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { installPrompt } from './install'
+  import { installPrompt, SKILLS_CLI } from './install'
   import { writtenSkillWhere } from './skillSync'
   import type { InstallationReport } from './machines'
   import type { Skill, SyncState } from './api'
@@ -39,7 +39,7 @@
   let dropActive = $state(false)
   let filePicker = $state<HTMLInputElement>()
   let folderPicker = $state<HTMLInputElement>()
-  const command = $derived(`npx skills add ${location.origin}/${username}/${originalSlug}`)
+  const command = $derived(`npx ${SKILLS_CLI} add ${location.origin}/${username}/${originalSlug}`)
   // The same prompt the shelf card and the Skills you create row offer, so a published skill can be handed to an agent from here too.
   const prompt = $derived(installPrompt({ sourceType: 'hosted', url: `${location.origin}/${username}/${originalSlug}`, slug: originalSlug } as Skill) ?? '')
   const dirty = $derived(editor ? fingerprint(editor) !== baseline : false)
@@ -369,7 +369,7 @@
   <section class="panel">
     <h2>What publishing gives you</h2>
     <p>Write a skill here and reet.sh serves it at its own address, ready to install with one command. For example:</p>
-    <pre><code>npx skills add {location.origin}/your-username/skill-name</code></pre>
+    <pre><code>npx {SKILLS_CLI} add {location.origin}/your-username/skill-name</code></pre>
     <p>Your username is the first part of that address.</p>
   </section>
   <section class="panel">

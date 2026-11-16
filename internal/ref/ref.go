@@ -74,6 +74,10 @@ func ParseAt(input, host string) (Ref, error) {
 	return Ref{}, errors.New("expected owner/repo/skill or domain/skill")
 }
 
+// skillsPackage is the skills CLI named with a version or tag, as in the pinned
+// commands reet copies out and in "skills@latest".
+var skillsPackage = regexp.MustCompile(`^skills@[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
 var commandPart = regexp.MustCompile(`^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$`)
 
 // parseInstallCommand reads arguments only; pasted commands are never executed.
@@ -94,7 +98,7 @@ func parseInstallCommand(args []string, host string) (Ref, error) {
 	if yes {
 		args, wasQuoted = args[1:], wasQuoted[1:]
 	}
-	valid := len(args) >= 3 && (args[0] == "skills" || args[0] == "skills@latest") &&
+	valid := len(args) >= 3 && (args[0] == "skills" || skillsPackage.MatchString(args[0])) &&
 		args[1] == "add"
 	if !valid {
 		return Ref{}, invalid

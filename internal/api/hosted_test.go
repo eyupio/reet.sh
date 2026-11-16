@@ -66,7 +66,7 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	sk.Published = true
 	expect(alice.ID, "PUT", "/api/v2/hosting/skills/reet-demo", sk, 200)
 	page := expect(0, "GET", "/alice/reet-demo", nil, 200)
-	if strings.Contains(page, "<script>alert") || !strings.Contains(page, "npx skills add "+srv.URL+"/alice/reet-demo") {
+	if strings.Contains(page, "<script>alert") || !strings.Contains(page, "npx skills@1.7.4 add "+srv.URL+"/alice/reet-demo") {
 		t.Fatalf("unsafe page or wrong install command: %s", page)
 	}
 	for _, want := range []string{
@@ -128,13 +128,13 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	if aliceSkill.ID == "" || aliceSkill.SourceType != "hosted" || !aliceSkill.Bookmarked {
 		t.Fatalf("hosted references not deduplicated or not in To test: %s", raw)
 	}
-	if got := installCommand(aliceSkill); got != "npx skills add "+srv.URL+"/alice/reet-demo --skill reet-demo" {
+	if got := installCommand(aliceSkill); got != "npx skills@1.7.4 add "+srv.URL+"/alice/reet-demo --skill reet-demo" {
 		t.Fatal(got)
 	}
 	// The skills CLI matches on the skill's own name, so a name that is not the
 	// folder name is offered as well, quoted for a shell.
 	named := store.Skill{Name: "SVG Logo Designer", Slug: "svg-logo-designer", Source: "rknall/claude-skills", SourceType: "github"}
-	if got := installCommand(named); got != "npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'" {
+	if got := installCommand(named); got != "npx skills@1.7.4 add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'" {
 		t.Fatal(got)
 	}
 	shelfHas := func(uid int64, skillID string) bool {

@@ -25,6 +25,11 @@ this file existed releases were described on their GitHub release pages.
 - Skills: the **Copy prompt** text (`npx skills use …`) names a skill by its
   own name when that is not its folder name, as the copied install command
   does. The folder name found nothing for such a skill.
+- Skills: every command reet copies out (the install command, the **Copy
+  prompt** text, a published skill's page and the export) names the `skills`
+  CLI version that sync runs on a machine, `skills@1.7.4`, instead of
+  whatever is newest. A pasted command now behaves like the one reet ran.
+  Reet still accepts an unpinned or differently pinned command pasted in.
 - MCP: `reet_list_sync_targets` returns a target that is too large for one
   response with its largest lists replaced by counts (`desired_count`,
   `lists_counted`), instead of failing with "one record exceeds the response

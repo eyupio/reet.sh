@@ -127,6 +127,9 @@ func TestParseAcceptsACommandThatAlsoNamesTheSkill(t *testing.T) {
 		"npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'",
 		`npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer "SVG Logo Designer" --global`,
 		"npx skills add rknall/claude-skills --skill c 'C++' -y",
+		// Reet copies its commands out pinned to the CLI version it tests with.
+		"npx " + SkillsCLI + " add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'",
+		"npx -y skills@2.0.0-beta.1 add rknall/claude-skills --skill svg-logo-designer",
 	} {
 		got, err := Parse(input)
 		if err != nil || (got.ID != "rknall/claude-skills/svg-logo-designer" && got.ID != "rknall/claude-skills/c") {
@@ -140,6 +143,9 @@ func TestParseAcceptsACommandThatAlsoNamesTheSkill(t *testing.T) {
 		"npx skills add rknall/claude-skills --skill svg-logo-designer 'SVG Logo' && echo hello",
 		"npx skills add rknall/claude-skills --skill svg-logo-designer --unknown",
 		"npx skills add rknall/claude-skills --skill",
+		"npx skills@ add rknall/claude-skills --skill svg-logo-designer",
+		"npx skills@1.7.4;x add rknall/claude-skills --skill svg-logo-designer",
+		"npx skillsX@1.7.4 add rknall/claude-skills --skill svg-logo-designer",
 	} {
 		if got, err := Parse(input); err == nil {
 			t.Errorf("%s: accepted as %+v", input, got)

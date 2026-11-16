@@ -2,6 +2,13 @@ import type { Skill } from './api'
 
 export type InstallKind = 'command' | 'prompt'
 
+/**
+ * The skills CLI package and version in every command reet copies out. It is the version sync runs on a machine
+ * (SkillsCLI in internal/ref/cli.go; a test keeps the two equal), so a pasted command behaves like the one reet
+ * ran and tested. How the CLI matches a skill's name has changed between versions.
+ */
+export const SKILLS_CLI = 'skills@1.7.4'
+
 const KEY = 'reet-install-kind'
 
 export function readInstallKind(): InstallKind {
@@ -42,7 +49,7 @@ export function skillSelector(skill: Pick<Skill, 'name' | 'slug'>): string {
 export function installCommand(skill: Skill): string | null {
   const url = sourceURL(skill)
   if (!url) return null
-  return `npx skills add ${url} --skill ${skillSelector(skill)}`
+  return `npx ${SKILLS_CLI} add ${url} --skill ${skillSelector(skill)}`
 }
 
 /**
@@ -60,7 +67,7 @@ export function useSelector(skill: Pick<Skill, 'name' | 'slug'>): string {
 export function installPrompt(skill: Skill): string | null {
   const url = sourceURL(skill)
   if (!url) return null
-  return `Run \`npx skills use "${url}" --skill "${useSelector(skill)}"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`
+  return `Run \`npx ${SKILLS_CLI} use "${url}" --skill "${useSelector(skill)}"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`
 }
 
 /** The text to put in a prompt to use a skill. A skill with an install source is fetched and run; one without a source

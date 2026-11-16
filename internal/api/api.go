@@ -2985,7 +2985,7 @@ func installCommand(s store.Skill) string {
 	if plain && !strings.EqualFold(name, s.Slug) {
 		selector += " '" + strings.ReplaceAll(name, "'", `'\''`) + "'"
 	}
-	return fmt.Sprintf("npx skills add %s --skill %s", source, selector)
+	return fmt.Sprintf("npx %s add %s --skill %s", ref.SkillsCLI, source, selector)
 }
 
 func markdown(skills []store.Skill) string {

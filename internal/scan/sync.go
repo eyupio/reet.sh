@@ -1255,7 +1255,7 @@ func knownByInstalledFolder(desired []store.SyncSkill, actual []Found) []Found {
 // name reet tracks ("SVG Logo Designer" is installed as svg-logo-designer), so
 // both are offered and the CLI takes whichever one the source uses.
 func skillsAddCommand(source string, skill store.SyncSkill, agent string, global bool) []string {
-	command := []string{"--yes", "skills@1.7.4", "add", source, "--skill", skill.Slug}
+	command := []string{"--yes", ref.SkillsCLI, "add", source, "--skill", skill.Slug}
 	if name := strings.TrimSpace(skill.Name); !strings.EqualFold(name, skill.Slug) && plainSkillName(name) {
 		command = append(command, name)
 	}

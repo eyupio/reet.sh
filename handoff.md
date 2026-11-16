@@ -52,7 +52,13 @@ f70eef5 had made stale plans repair themselves. The plan never changed. Read thi
   quoted value after the slug so the command still pastes back into reet, and refuses anything unquoted as
   before. The `npx skills use` prompt takes one selector, so `useSelector` gives the name when it differs.
   Checked on skills 1.7.4 and 1.9.0: the name works on both; `svg-logo-designer` fails on 1.7.4 and
-  `uiux-design-review` on both. The prompt and the copied commands are not pinned to a CLI version.
+  `uiux-design-review` on both.
+- **One CLI version.** `ref.SkillsCLI` (`skills@1.7.4`) is what sync runs and what every copied command names:
+  the install command, the use prompt, the hosted skill page and the Markdown export. `SKILLS_CLI` in
+  `web/src/lib/install.ts` holds the same value and `skillPrompt.test.mjs` fails if the two differ, so a
+  version bump is one change in each file. `ref.parseInstallCommand` accepts `skills@<version>` pasted in.
+  The pinned command for a hosted skill was not run against a live reet; it is the version sync already uses
+  for hosted sources.
 - **Not done.** A copy of the same name another app holds under the installed folder, from a different
   source, is not seen by the shared-folder conflict check, which compares slugs.
 - **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;

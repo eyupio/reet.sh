@@ -151,12 +151,26 @@ try {
   await page.evaluate(() => {
     window.__chatStream.emit('chat', { seq: 1, kind: 'user', text: 'fix the failing build' })
     window.__chatStream.emit('chat', { seq: 2, kind: 'agent', messageId: 'm1', text: 'Looking ' })
-    window.__chatStream.emit('chat', { seq: 3, kind: 'agent', messageId: 'm1', text: 'at the build.' })
+    window.__chatStream.emit('chat', { seq: 3, kind: 'agent', messageId: 'm1', text: 'at the build.\n\n| Change | Where |\n|---|---|\n| Reuse `ScrollRail` | *App* |\n\n- [x] done ~~old~~\n  - nested\n\n#### Deep\n\n```sh\nnpm test\n```' })
     window.__chatStream.emit('chat', { seq: 4, kind: 'tool', toolCallId: 'c1', title: 'notes.txt', toolKind: 'edit', status: 'completed', text: 'Edit applied successfully.', path: '/home/dev/work/site/notes.txt', diff: '@@ -1 +1 @@\n-alpha\n+ALPHA', additions: 1, deletions: 1, durationMs: 179, locations: ['/home/dev/work/site/notes.txt'] })
     window.__chatStream.emit('chat', { seq: 5, kind: 'permission', permissionId: 'p1', toolCallId: 'c2', title: 'Run the tests', toolKind: 'execute', command: 'go test ./...', text: 'The tests write to /var/tmp, which the sandbox does not allow.' })
   })
   await expect(page.getByRole('region', { name: 'Gaffer in OpenCode · site' }).getByText('Looking at the build.')).toBeVisible()
   await expect(page.locator('.approval .command').filter({ hasText: 'go test ./...' })).toBeVisible()
+  // The agent's markdown is rendered as markdown: a table is a table, lists nest and carry task boxes, and nothing is left as raw syntax.
+  const narrative = page.locator('.bubble.agent').filter({ hasText: 'Looking at the build.' })
+  await expect(narrative.locator('table th')).toHaveText(['Change', 'Where'])
+  await expect(narrative.locator('table td code')).toHaveText('ScrollRail')
+  await expect(narrative.locator('table td em')).toHaveText('App')
+  await expect(narrative.locator('li.task input[type=checkbox]')).toBeChecked()
+  await expect(narrative.locator('li del')).toHaveText('old')
+  await expect(narrative.locator('li li')).toHaveText('nested')
+  await expect(narrative.locator('.prose-h[data-level="4"]')).toHaveText('Deep')
+  await expect(narrative).not.toContainText('|')
+  // Copying a code block says so on its button.
+  await expect(narrative.locator('.code pre code')).toHaveText('npm test')
+  await narrative.locator('.code .copy').click()
+  await expect(narrative.locator('.code .copy')).toHaveText('Copied')
   // On a touch screen every typeable field in the chat is at least 16px: a touch browser zooms the page in to a smaller field the
   // moment it takes focus (this is the touch tablet width, above the app.css phone rule), and the page is then left scaled and clipped.
   for (const field of [page.locator('.composer-input'), page.locator('.model-picker')]) {

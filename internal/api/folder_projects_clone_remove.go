@@ -186,6 +186,13 @@ func (s *server) cloneReachable(uid int64, agent string) bool {
 	return err == nil && caps.Capabilities.RepoCloneRemove
 }
 
+// cloneCanFetch reports whether the project's machine can be asked to fetch a
+// clone's default branch from GitHub as it looks at the clone.
+func (s *server) cloneCanFetch(uid int64, agent string) bool {
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	return err == nil && caps.Capabilities.RepoCloneFetch
+}
+
 // folderProjectCloneState answers GET /api/v2/folder-projects/{id}/clone:
 // whether the clone of a project reet cloned can be deleted with it, as the
 // machine sees it at this moment. A clone that stays comes with one sentence

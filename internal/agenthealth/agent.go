@@ -72,6 +72,7 @@ type AgentConfig struct {
 	baseFresh          bool
 	repoClone          bool
 	repoCloneRemove    bool
+	repoCloneFetch     bool
 	repoList           bool
 	agentAccounts      bool
 	browseAllowed      bool
@@ -572,7 +573,8 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				return send(ctx, m)
 			}
 		case *terminalproto.RepoCloneStatus:
-			if cfg.repoCloneRemove && !currentCapabilities(cfg).RepoCloneRemove {
+			caps := currentCapabilities(cfg)
+			if (cfg.repoCloneRemove && !caps.RepoCloneRemove) || (fetches(m.Body) && !caps.RepoCloneFetch) {
 				m.Body = terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneDenied}
 				return send(ctx, m)
 			}
@@ -706,7 +708,7 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 		}
 		m.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}
 	case *terminalproto.RepoCloneStatus:
-		if !terminalproto.SupportsRepoCloneRemove(features) {
+		if !terminalproto.SupportsRepoCloneRemove(features) || (fetches(m.Body) && !terminalproto.SupportsRepoCloneFetch(features)) {
 			return m, false
 		}
 		m.Body = terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneBusy}
@@ -1000,6 +1002,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.baseFresh = terminalproto.SupportsBaseFresh(advertised)
 	cfg.repoClone = terminalproto.SupportsRepoClone(advertised)
 	cfg.repoCloneRemove = terminalproto.SupportsRepoCloneRemove(advertised)
+	cfg.repoCloneFetch = terminalproto.SupportsRepoCloneFetch(advertised)
 	cfg.repoList = terminalproto.SupportsRepoList(advertised)
 	cfg.agentAccounts = terminalproto.SupportsAgentAccounts(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
@@ -1097,6 +1100,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.repoCloneRemove {
 		features = append(features, terminalproto.RepoCloneRemoveFeature)
+	}
+	if cfg.repoCloneFetch {
+		features = append(features, terminalproto.RepoCloneFetchFeature)
 	}
 	if cfg.repoList {
 		features = append(features, terminalproto.RepoListFeature)
@@ -1421,6 +1427,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// network, so they do not follow RepoClone: a machine that lost gh can
 		// still remove a clone. Terminal access must be on, as for a clone.
 		RepoCloneRemove: cfg.repoCloneRemove && worktree && enabled,
+		// A status that fetches reaches github.com with the machine's gh
+		// sign-in, as a clone does, so it is offered where a clone is.
+		RepoCloneFetch: cfg.repoCloneFetch && cfg.repoCloneRemove && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
 		// Listing repositories reads what the machine's gh sign-in reaches, to
 		// offer them for a clone, so it is offered exactly where RepoClone is.
 		RepoList: cfg.repoList && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
@@ -1518,4 +1527,11 @@ func anyReattach(agents *[]terminalproto.ACPAgent) bool {
 		}
 	}
 	return false
+}
+
+// fetches reports whether a body is a clone status that asks the machine to
+// fetch from GitHub first.
+func fetches(body terminalproto.Body) bool {
+	status, ok := body.(*terminalproto.RepoCloneStatus)
+	return ok && status.Fetch
 }

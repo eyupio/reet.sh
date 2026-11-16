@@ -483,6 +483,15 @@ pass with the fifth tab.
 
 ![Factory desktop light](images/ui/gaffer-factory-1440-light.png)
 ![Factory desktop dark](images/ui/gaffer-factory-1440-dark.png)
+
+Decisions are clickable choices with the recommended one first, at the head of an outcome's card and in the
+pipeline's session; the head also holds the You decide / Gaffer decides switch and what Gaffer decided
+(`gaffer-factory.e2e.mjs`, `factory-decision.e2e.mjs`).
+
+![Decisions at the head of an outcome](images/ui/gaffer-factory-decisions-1440-light.png)
+![Decisions at the head of an outcome, phone](images/ui/gaffer-factory-decisions-390-light.png)
+![A decision in the pipeline's session](images/ui/factory-decision-1440-light.png)
+![A decision in the pipeline's session, phone dark](images/ui/factory-decision-390-dark.png)
 ![Factory phone](images/ui/gaffer-factory-390-light.png)
 
 ## Gaffer alignment and polish (10 November 2026)
@@ -539,6 +548,18 @@ goals**. `gaffer-outcome.e2e.mjs` and `gaffer-floor.e2e.mjs` cover these.
 ![Outcome objective](images/ui/gaffer-outcome-objective-1440-light.png)
 ![Outcome results read from the controller](images/ui/gaffer-outcome-results-1440-light.png)
 ![Outcome plan review](images/ui/gaffer-outcome-plan-1440-light.png)
+
+Each stage of a proposed pipeline carries its tier and the agent that tier means. A stage Gaffer rated off its
+usual tier is marked with the reason and a button that puts it back (`gaffer-outcome.e2e.mjs`).
+
+![Stage tiers with Gaffer's assessment](images/ui/gaffer-outcome-tiers-1440-light.png)
+![Stage tiers, phone dark](images/ui/gaffer-outcome-tiers-390-dark.png)
+
+A tier's backup, used when the first choice's plan is running low (`gaffer-outcome.e2e.mjs`); a stage that ran on
+its backup says so on the pipeline's card (`gaffer-factory.e2e.mjs`).
+
+![The crew with a backup and the threshold](images/ui/gaffer-outcome-backup-1440-light.png)
+![The crew on a phone, dark](images/ui/gaffer-outcome-backup-390-dark.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)

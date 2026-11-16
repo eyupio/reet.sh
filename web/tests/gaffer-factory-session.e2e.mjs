@@ -44,7 +44,7 @@ try {
       await expect(ended).toContainText('Needs you')
       const decide=ended.getByRole('region',{name:'What Export API needs from you',exact:true})
       await expect(decide).toContainText('This stage’s session was ended, so nothing is working on it.')
-      await expect(decide.getByRole('button')).toHaveText(['Run this stage again in a new session','Move to next stage','Stop following this outcome','Read the ended session'])
+      await expect(decide.getByRole('button')).toHaveText(['Run this stage again in a new session Recommended','Move to next stage','Stop following this outcome','Read the ended session'])
       // Nothing that needs a live agent is offered, and Gaffer's last review is still there to read.
       await expect(ended.getByRole('button',{name:'Tell the agent…',exact:true})).toHaveCount(0)
       await expect(ended.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
@@ -78,7 +78,7 @@ try {
       await page.getByRole('dialog').getByRole('button',{name:'Move on',exact:true}).click()
       await expect.poll(()=>box.moved).toEqual([{confirmed:true,stage:'code'}])
       // The stage is run again on request, once.
-      await decide.getByRole('button',{name:'Run this stage again in a new session',exact:true}).click()
+      await decide.getByRole('button',{name:'Run this stage again in a new session Recommended',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Trying'})).toHaveText('Trying “Export API” again.')
       expect(box.retries).toEqual([{revision:7}])
       await expect(decide).toHaveCount(0)

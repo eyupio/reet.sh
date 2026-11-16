@@ -159,10 +159,22 @@ Two tools read the Factory for any connection on a writer account:
 - `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
   state, the stage in hand, every stage's state and agent, how its merge is
   decided, and the state of the goal Gaffer follows it with.
+  A stage's `tier` (`light`, `standard` or `heavy`) is how demanding it was
+  judged to be, which chose its agent from the account's saved crew.
+  A stage with a second choice has `backup_agent`. One that started on it,
+  because its first choice's plan was running low, has `balanced` (why) and
+  `first_choice_agent` and `first_choice_model`; `agent` and `model` are then
+  the backup's, which is what ran.
   Each stage's `agent`, `model` and `effort` are what was chosen; once its
   session has been asked, `choice` says whether they were applied (`applied`,
   `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for
   a difference, `choice_note`.
+  `balance_below` is the share of a plan, in percent, under which a stage of
+  the outcome starts on its backup.
+  `decisions_by` is `you` or `gaffer`: who chooses what happens when a stage
+  stops. `gaffer_decisions` lists what Gaffer decided (`pipeline`, `stage`,
+  `about`, `choice`, `failed`); its reason, `why`, goes only to a management
+  connection. The switch itself is not an MCP tool.
 - `reet_get_factory_outcome` reads one outcome. A management connection also
   receives each finished stage's handover note and Gaffer's latest report, which
   are derived from session text; a read-only connection receives states only.

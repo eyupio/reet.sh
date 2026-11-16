@@ -77,6 +77,24 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			if stage.Effort != "" {
 				item["effort"] = stage.Effort
 			}
+			// How demanding the stage was judged to be, which chose its agent from the person's crew.
+			if stage.Tier != "" {
+				item["tier"] = stage.Tier
+			}
+			// A stage that started on its backup because its first choice's plan
+			// was running low says so, with what it would otherwise have run on.
+			if stage.Backup != nil {
+				item["backup_agent"] = stage.Backup.Tool
+			}
+			if stage.Balanced != "" {
+				item["balanced"] = stage.Balanced
+				if stage.First != nil {
+					item["first_choice_agent"] = stage.First.Tool
+					if stage.First.Model != "" {
+						item["first_choice_model"] = stage.First.Model
+					}
+				}
+			}
 			// agent, model and effort are what was chosen. choice says whether the
 			// stage's session was read back to be on them: applied, mismatch or
 			// unchecked, with what it is on and, for a mismatch, what differs.
@@ -147,6 +165,28 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 		"id": o.ID, "revision": o.Revision, "objective": o.Objective, "state": o.State, "note": o.Note,
 		"project": o.ProjectName, "agent": o.Tool, "approvals": approvals, "reports_by_itself": o.AutoReport,
 		"created_at": o.CreatedAt, "updated_at": o.UpdatedAt, "pipelines": pipelines, "machine_id": o.AgentID,
+	}
+	// Who takes the decisions when a stage stops: the person, or Gaffer for
+	// them. What Gaffer decided is listed; its reasons are words about
+	// sessions, so they go only to a connection that may control the Factory.
+	out["balance_below"] = gaffer.DefaultBalanceBelow
+	if o.BalanceBelow > 0 {
+		out["balance_below"] = o.BalanceBelow
+	}
+	out["decisions_by"] = "you"
+	if o.Automation {
+		out["decisions_by"] = "gaffer"
+	}
+	if len(o.Decisions) > 0 {
+		taken := []map[string]any{}
+		for _, d := range o.Decisions {
+			item := map[string]any{"at": d.At, "pipeline": d.Key, "stage": d.Stage, "about": d.About, "choice": d.Choice, "failed": d.Failed}
+			if full {
+				item["why"] = d.Why
+			}
+			taken = append(taken, item)
+		}
+		out["gaffer_decisions"] = taken
 	}
 	if o.Report != nil {
 		report := map[string]any{"at": o.Report.At, "by_itself": o.Report.Auto, "proposals": len(o.Report.Proposals)}

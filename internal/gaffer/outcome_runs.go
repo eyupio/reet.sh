@@ -104,6 +104,14 @@ type OutcomeInput struct {
 	// pipeline finishes or stops. Each report is one model request, and it
 	// only ever proposes.
 	AutoReport bool `json:"autoReport"`
+	// Automation gives Gaffer this outcome's decisions: what to do when a
+	// stage stops. It is the person's choice only, and never covers a merge
+	// or an agent's approval.
+	Automation bool `json:"automation"`
+	// BalanceBelow is the share of a plan, as a whole percentage, under which
+	// a stage starts on its backup. Zero takes the saved crew's, else reet's
+	// default.
+	BalanceBelow int `json:"balanceBelow"`
 	// RequestID, when given, names this request: asking again under the same
 	// one answers the outcome it already started instead of starting another.
 	// It is for a client that may not hear back; the browser sends none.
@@ -120,6 +128,33 @@ type OutcomeStageInput struct {
 	Provider string `json:"provider,omitempty"`
 	// Effort is how hard the stage's agent thinks: empty for its own default.
 	Effort string `json:"effort,omitempty"`
+	// Tier is how demanding the stage is: light, standard or heavy. Empty
+	// takes the default for its kind. TierWhy is Gaffer's reason for a tier it
+	// assessed. A stage that names no agent is done by its tier's.
+	Tier    string `json:"tier,omitempty"`
+	TierWhy string `json:"tierWhy,omitempty"`
+	// Backup is the person's second choice for the stage, used when the
+	// first choice's plan is running low and the backup's has more left.
+	Backup *store.GafferStageAgent `json:"backup,omitempty"`
+}
+
+// StageTiers are how demanding a stage can be judged to be, lightest first.
+var StageTiers = []string{"light", "standard", "heavy"}
+
+func validStageTier(tier string) bool {
+	return tier == "light" || tier == "standard" || tier == "heavy"
+}
+
+// DefaultStageTier is the tier a stage has until someone says otherwise:
+// thinking stages are heavy, building ones standard and shipping ones light.
+func DefaultStageTier(kind string) string {
+	switch kind {
+	case "plan", "design", "review":
+		return "heavy"
+	case "code", "test":
+		return "standard"
+	}
+	return "light"
 }
 
 // StageKinds is the order a pipeline runs in. A pipeline may leave stages
@@ -285,15 +320,6 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if providerSource != "" && (!terminalproto.ToolTakesProvider(in.Tool) || !terminalproto.ValidProvider(providerSource)) {
 		return o, invalid("provider", "Choose a Cline billing source, or leave it to Cline’s own.")
 	}
-	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeWantsTrust(in) {
-		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
-	}
-	if !in.Trust && (in.Tool == "antigravity" || outcomeNames(in, "antigravity")) {
-		return o, invalid("trust", "Google Antigravity starts only in a folder whose hooks and customizations you have trusted. Approve this outcome on the Factory page with folder trust ticked, or choose another agent.")
-	}
-	if in.Yolo && !outcomeTakesYolo(in) {
-		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
-	}
 	if in.MaxReviews < 1 || in.MaxReviews > 48 || in.Hours < 1 || in.Hours > 168 {
 		return o, invalid("goal", "Choose 1 to 48 reviews over 1 to 168 hours for each session.")
 	}
@@ -331,11 +357,34 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 		}
 		id = in.RequestID
 	}
-	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, in.AutoMerge, map[string]bool{}, 0)
+	crew, err := s.store.GafferCrewFor(uid)
 	if err != nil {
 		return o, err
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, crew, in.AutoMerge, map[string]bool{}, 0)
+	if err != nil {
+		return o, err
+	}
+	if !validBalanceBelow(in.BalanceBelow) {
+		return o, invalid("balance", "Choose between 5 and 90 percent for when a backup takes over.")
+	}
+	balanceBelow := in.BalanceBelow
+	if balanceBelow == 0 {
+		balanceBelow = crew.BalanceBelow
+	}
+	// Trust and YOLO are judged on the agents that will run: a stage that
+	// names none takes its tier's from the saved crew, and a stage may start
+	// on its backup.
+	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeRunsOn(sessions, "opencode", "antigravity") {
+		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
+	}
+	if !in.Trust && (in.Tool == "antigravity" || outcomeRunsOn(sessions, "antigravity")) {
+		return o, invalid("trust", "Google Antigravity starts only in a folder whose hooks and customizations you have trusted. Approve this outcome on the Factory page with folder trust ticked, or choose another agent.")
+	}
+	if in.Yolo && !outcomeTakesYolo(in.Tool, sessions) {
+		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
+	}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -347,7 +396,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 // outcomePieces turns approved sessions into pipeline records. taken holds
 // the titles already used in the outcome and from is how many pieces it has,
 // so added pipelines get titles and keys of their own.
-func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
+func outcomePieces(items []OutcomeSession, tool, model, provider string, crew store.GafferCrew, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
 	out := make([]store.GafferOutcomeSession, 0, len(items))
 	for i, item := range items {
 		title, prompt := strings.TrimSpace(item.Title), strings.TrimSpace(item.Prompt)
@@ -373,11 +422,30 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMer
 				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
 			}
 			last = at
-			stageTool, stageModel, stageProvider := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider)
+			stageTool, stageModel, stageProvider, stageEffort := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider), stage.Effort
+			second := stage.Backup
+			// How demanding the stage is: what Gaffer or the person said, else
+			// its kind's default. It is kept with the stage either way.
+			tier, why := stage.Tier, strings.TrimSpace(stage.TierWhy)
+			if tier != "" && !validStageTier(tier) || len(why) > 300 || why != "" && !store.ValidWorkerText(why) {
+				return nil, invalid("sessions", "Choose light, standard or heavy for each stage of “"+title+"”.")
+			}
+			if tier == "" {
+				tier = DefaultStageTier(stage.Kind)
+			}
 			if stageTool == "" {
-				stageTool, stageModel = tool, model
-				if stageProvider == "" {
-					stageProvider = provider
+				// The stage names no agent: its tier's does it, from the
+				// person's saved crew. A tier they have not set falls back to
+				// the outcome's own agent and model.
+				if member := crew.Tier(tier); member.Tool != "" {
+					stageTool, stageModel, stageEffort, stageProvider = member.Tool, member.Model, member.Effort, member.Provider
+					// The tier's backup comes with it.
+					second = member.Backup
+				} else {
+					stageTool, stageModel = tool, model
+					if stageProvider == "" {
+						stageProvider = provider
+					}
 				}
 			}
 			if stageProvider != "" && (!terminalproto.ToolTakesProvider(stageTool) || !terminalproto.ValidProvider(stageProvider)) {
@@ -386,17 +454,21 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMer
 			// Every stage is a chat, whose effort is one of the agent's own
 			// thinking levels: a name, not one of reet's three. The agent
 			// confirms it for the chosen model before any prompt is sent.
-			if stage.Effort != "" && !terminalproto.ValidModel(stage.Effort) {
+			if stageEffort != "" && !terminalproto.ValidModel(stageEffort) {
 				return nil, invalid("sessions", "Choose an effort the agent offers, or leave it to the agent's default, in “"+title+"”.")
 			}
 			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
 				return nil, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
 			}
+			backup, err := stageBackup(second, stageTool, stageModel, stageEffort, stageProvider)
+			if err != nil {
+				return nil, err
+			}
 			id, err := newChatID()
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stage.Effort, Provider: stageProvider, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, Tier: tier, TierWhy: why, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -406,39 +478,48 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMer
 	return out, nil
 }
 
-// outcomeTakesYolo reports whether every agent the outcome names can be
-// started without approvals.
-func outcomeTakesYolo(in OutcomeInput) bool {
-	if !terminalproto.ToolTakesYolo(in.Tool) {
+// stageAgents lists every agent a resolved stage can start on: its own and
+// its backup's.
+func stageAgents(stage store.GafferOutcomeStage) []string {
+	tools := []string{stage.Tool}
+	if stage.First != nil {
+		tools = append(tools, stage.First.Tool)
+	}
+	if stage.Backup != nil {
+		tools = append(tools, stage.Backup.Tool)
+	}
+	return tools
+}
+
+// outcomeTakesYolo reports whether every agent the outcome can run on, the
+// main one and each stage's, can be started without approvals.
+func outcomeTakesYolo(tool string, sessions []store.GafferOutcomeSession) bool {
+	if !terminalproto.ToolTakesYolo(tool) {
 		return false
 	}
-	for _, item := range in.Sessions {
-		for _, stage := range item.Stages {
-			if stage.Tool != "" && !terminalproto.ToolTakesYolo(stage.Tool) {
-				return false
+	for _, piece := range sessions {
+		for _, stage := range piece.Stages {
+			for _, name := range stageAgents(stage) {
+				if !terminalproto.ToolTakesYolo(name) {
+					return false
+				}
 			}
 		}
 	}
 	return true
 }
 
-// outcomeNames reports whether any stage of the plan names the agent.
-func outcomeNames(in OutcomeInput, tool string) bool {
-	for _, piece := range in.Sessions {
+// outcomeRunsOn reports whether any stage of the resolved plan can start on
+// one of the named agents.
+func outcomeRunsOn(sessions []store.GafferOutcomeSession, tools ...string) bool {
+	for _, piece := range sessions {
 		for _, stage := range piece.Stages {
-			if stage.Tool == tool {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func outcomeWantsTrust(in OutcomeInput) bool {
-	for _, piece := range in.Sessions {
-		for _, stage := range piece.Stages {
-			if stage.Tool == "opencode" || stage.Tool == "antigravity" {
-				return true
+			for _, name := range stageAgents(stage) {
+				for _, tool := range tools {
+					if name == tool {
+						return true
+					}
+				}
 			}
 		}
 	}
@@ -589,6 +670,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	}
 	s.releaseGoneSessions()
 	s.autoReports(ctx)
+	s.autoDecisions(ctx)
 	rows, err := s.store.StartingGafferOutcomes()
 	// The controller's settings are read only when there is an outcome to
 	// start, as the goal supervisor reads them only for a due goal.
@@ -847,7 +929,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						row.Stages[row.Stage].AgentInputTokens, row.Stages[row.Stage].AgentOutputTokens, row.Stages[row.Stage].AgentCachedTokens, row.Stages[row.Stage].AgentUsageReported = agent.InputTokens, agent.OutputTokens, agent.CachedTokens, true
 					}
 					// A stopped outcome starts nothing on Gaffer's word, only on the person's.
-					if o.State != "stopped" || by != "gaffer" {
+					if o.State != "stopped" || by != "gaffer" && by != "auto" {
 						settleStoppedOutcome(o)
 						o.State = "starting"
 					}
@@ -871,6 +953,8 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 				reason = "The person moved the pipeline on from the " + kind + " stage."
 			case "chat":
 				reason = "The person told Gaffer in the session’s chat to move the pipeline on from the " + kind + " stage."
+			case "auto":
+				reason = "Gaffer, given this outcome’s decisions, moved the pipeline on from the " + kind + " stage."
 			}
 			s.audit(uid, "gaffer-stage-handed-over", map[string]any{"outcome": o.ID, "pipeline": key, "stage": kind, "by": by, "session": piece.SessionID, "reviews": used.UsedReviews, "reason": reason})
 			// The finished stage's goal is closed without calling it the
@@ -949,54 +1033,10 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)
 	}
-	goal := StageGoal(o.Objective, item.Title, stage.Kind)
-	prev := stage
-	if next > 0 {
-		prev = item.Stages[next-1]
-	}
-	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && prev.Effort == stage.Effort && prev.Provider == stage.Provider && item.ConversationID != "" {
-		// Same agent, model and effort: the session carries on, under a fresh goal and budget for the new stage.
-		v, err := s.Goal(uid, item.ConversationID)
-		if err == nil && v.SetupAllowed {
-			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}
-			if v.Goal != nil {
-				in.Revision = v.Goal.Revision
-			}
-			if _, err = s.SetupGoal(uid, item.ConversationID, in); err == nil {
-				// The session carries on, but its agent has only been told about
-				// the stage before. The controller gives it this stage's
-				// instruction itself: left to Gaffer's first review, a review
-				// that only wrote prose left the agent idle with nothing to do.
-				note := "The " + stage.Kind + " stage is under way in the same session."
-				if id, idErr := newChatID(); idErr == nil {
-					if _, sendErr := s.WorkerMessage(ctx, uid, "gaffer", item.ConversationID, item.SessionID, id, "", stagePrompt(o, item, next)); sendErr != nil {
-						note = "The " + stage.Kind + " stage started in the same session, but its instruction did not reach the agent: " + clipBytes(outcomeReason(sendErr), 300) + " Tell the agent what this stage needs."
-					}
-				}
-				ok := set("following", note, func(row *store.GafferOutcomeSession) {
-					row.Stage = next
-					row.Stages[next].State, row.Stages[next].SessionID, row.Stages[next].ConversationID, row.Stages[next].StartedAt = "running", row.SessionID, row.ConversationID, time.Now().UnixMilli()
-				})
-				if ok && !wrote {
-					// The person stopped the pipeline while this stage's goal was being set: nothing follows it.
-					s.stopPipelineGoal(uid, item.ConversationID, stoppedFollowingNote)
-				}
-				if ok && wrote {
-					// Nothing was launched for this stage, so nothing confirmed its
-					// choice: the session it carries on in is asked what it is on.
-					s.checkStageChoice(ctx, o, item.Key, next, item.SessionID)
-				}
-				return ok
-			}
-			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {
-				return false
-			}
-		}
-		if ctx.Err() != nil {
-			return false
-		}
-		// The session could not take the next stage (it ended, say): give the stage its own.
-	}
+	// Every stage is a session of its own, whatever agent and model do it: it
+	// starts with that stage's instruction and the handover and nothing else,
+	// in the pipeline's folder. The session of the stage before is finished
+	// with and is ended once this one is followed.
 	if !set("starting", "Starting the "+stage.Kind+" stage…", func(row *store.GafferOutcomeSession) {
 		row.Stage = next
 		row.SessionID, row.ConversationID = row.Stages[next].SessionID, ""
@@ -1095,6 +1135,32 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		// first stage is the merge, waits for the person like any other.
 		if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
 			return fail("ready_to_merge", mergeWaitNote(item))
+		}
+		// A stage about to start runs on its backup when its first choice's
+		// plan is running low and the backup's has more left. A launch that
+		// was asked for and not answered is left on what it was asked on.
+		if item.SessionID == "" && item.UnsureRequest == "" {
+			if next, changed := s.balanceStage(o, stage); changed {
+				at := item.Stage
+				if _, err := s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
+					for i := range o.Sessions {
+						if row := &o.Sessions[i]; row.Key == item.Key && row.Stage == at && at < len(row.Stages) && row.Stages[at].RequestID == stage.RequestID {
+							row.Stages[at].Tool, row.Stages[at].Model, row.Stages[at].Effort, row.Stages[at].Provider = next.Tool, next.Model, next.Effort, next.Provider
+							row.Stages[at].First, row.Stages[at].Balanced = next.First, next.Balanced
+							return true
+						}
+					}
+					return false
+				}); err != nil {
+					return false
+				}
+				stage = next
+				launch.Tool, launch.Model, launch.Provider, launch.Effort = stage.Tool, stage.Model, stage.Provider, stage.Effort
+				launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
+				if stage.Balanced != "" {
+					s.audit(uid, "gaffer-stage-balanced", map[string]any{"outcome": o.ID, "pipeline": item.Key, "stage": stage.Kind, "tool": stage.Tool, "reason": stage.Balanced})
+				}
+			}
 		}
 	}
 	if item.WorkDir != "" {

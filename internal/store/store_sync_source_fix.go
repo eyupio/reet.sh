@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/ref"
 )
 
 // SyncSourceFix is one desired skill whose source will follow the copy already
@@ -71,6 +73,14 @@ func resolveSyncSourceFixesFor(target SyncTarget, envs []SyncEnvironment, onlyOt
 			continue
 		}
 		copies := installed[sk.Slug]
+		if len(copies) == 0 && sk.Name != "" {
+			// The skills CLI installs into a folder made from the skill's name,
+			// which is not always its slug. A copy held under that folder is the
+			// one sync will not overwrite.
+			if folder := ref.InstalledFolder(sk.Name); folder != sk.Slug {
+				copies = installed[folder]
+			}
+		}
 		if len(copies) == 0 {
 			continue
 		}
@@ -93,16 +103,27 @@ func resolveSyncSourceFixesFor(target SyncTarget, envs []SyncEnvironment, onlyOt
 				continue
 			}
 			fixes = append(fixes, SyncSourceFix{TargetID: target.Target.ID, ID: sk.ID, Name: sk.Name, Slug: sk.Slug, From: sk.Source, To: copy.skill.Source, Agent: copy.agent})
-			sk.Source = copy.skill.Source
-			sk.SourceType = copy.skill.SourceType
-			sk.URL = copy.skill.URL
+			changed[sk.Slug] = true
+			// The plan now asks for the installed skill itself, not the old one
+			// with another source: once it is installed the two must be the same
+			// skill, or it stays listed as missing beside an extra.
+			*sk = copy.skill
 			changed[sk.Slug] = true
 		}
 	}
 	if len(fixes) == 0 {
 		return nil, nil, nil
 	}
-	return fixes, desired, nil
+	// A plan that already asked for the installed skill keeps one entry for it.
+	seen := map[string]bool{}
+	kept := desired[:0]
+	for _, sk := range desired {
+		if !seen[sk.ID] {
+			seen[sk.ID] = true
+			kept = append(kept, sk)
+		}
+	}
+	return fixes, kept, nil
 }
 
 // ResolveSyncSourceConflictsFor adopts the installed source for each desired

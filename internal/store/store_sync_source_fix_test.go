@@ -269,3 +269,71 @@ func TestMaintainSyncRepairsSourceConflictWhilePreviewAwaitsApproval(t *testing.
 		t.Fatalf("repair job: %+v %v", next, err)
 	}
 }
+
+// Following the installed copy means the plan now asks for that copy. The fix
+// used to change the source and keep the old skill's identity, so once the
+// skill was installed the controller still listed the old one as missing and
+// the installed one as an extra, for ever.
+func TestResolveSyncSourceConflictAdoptsTheInstalledSkill(t *testing.T) {
+	s, uid, target := sourceFixFixture(t)
+	if _, err := s.ResolveSyncSourceConflictsFor(uid, []string{target}, false); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.SyncTargetsFor(uid)
+	if len(after[0].Desired) != 1 || after[0].Desired[0].ID != "x/y/one" || after[0].Desired[0].Source != "x/y" {
+		t.Fatalf("the plan does not ask for the installed skill: %+v", after[0].Desired)
+	}
+	if err := s.RecordEnvironmentFor(uid, "x/y/one", "laptop", "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	after, _ = s.SyncTargetsFor(uid)
+	if len(after[0].Missing) != 0 || len(after[0].Extra) != 0 {
+		t.Fatalf("installed, and still not settled: missing %+v extra %+v", after[0].Missing, after[0].Extra)
+	}
+}
+
+// The skills CLI installs a skill into a folder made from its name, which is
+// not always the catalogue's slug. A copy another app holds under that folder,
+// from another source, is the one sync refuses to overwrite, so it is the one
+// Auto fix follows.
+func TestResolveSyncSourceConflictFindsTheCopyUnderTheInstalledFolder(t *testing.T) {
+	s := newStore(t)
+	uid, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"agents", "claude"} {
+		if err = s.TouchEnvironmentFor(uid, "laptop", agent, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.RecordInventoryFor(uid, EnvironmentIDFor(uid, "laptop", agent, ""), true, MachineInfo{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := EnvironmentIDFor(uid, "laptop", "agents", "")
+	held, err := s.UpsertFor(uid, mustRef(t, "o/r/ui-ux-design-review"), Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, held.ID, "laptop", "claude", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	const catalogued = "rknall/claude-skills/uiux-design-review"
+	if _, err = s.UpsertFor(uid, mustRef(t, catalogued), Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetMeta(catalogued, "UI/UX Design Review", "", 0, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{catalogued}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	fixes, err := s.ResolveSyncSourceConflictsFor(uid, []string{target}, false)
+	if err != nil || len(fixes) != 1 || fixes[0].From != "rknall/claude-skills" || fixes[0].To != "o/r" || fixes[0].Agent != "claude" {
+		t.Fatalf("the copy under the installed folder was not followed: %+v %v", fixes, err)
+	}
+	after, _ := s.SyncTargetsFor(uid)
+	if len(after[0].Desired) != 1 || after[0].Desired[0].ID != "o/r/ui-ux-design-review" || after[0].Desired[0].Slug != "ui-ux-design-review" {
+		t.Fatalf("the plan does not ask for the installed skill: %+v", after[0].Desired)
+	}
+}

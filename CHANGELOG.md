@@ -28,6 +28,11 @@ this file existed releases were described on their GitHub release pages.
   a copy is left alone and reported, or backed up before it is replaced,
   as one under the catalogue's name already was. It would have been
   overwritten.
+- Skills sync: **Auto fix** now makes the plan ask for the copy already
+  installed, as the skill it is. It changed only the source, so after the
+  install the controller still listed the old skill as missing and the
+  installed one as an extra. It also finds a copy held under the folder the
+  `skills` CLI installs into when that differs from the catalogue's name.
 - Skills: the **Copy prompt** text (`npx skills use …`) names a skill by its
   own name when that is not its folder name, as the copied install command
   does. The folder name found nothing for such a skill.

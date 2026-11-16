@@ -65,8 +65,13 @@ f70eef5 had made stale plans repair themselves. The plan never changed. Read thi
   synced, `knownByInstalledFolder` reports that folder under the slug whatever its source, so `planSync` gives
   the usual answers: another source is a source conflict, no source is a replacement, and the backup moves the
   folder that is really there.
-- **Not done.** The controller's Auto fix (`resolveSyncSourceFixesFor`) still matches an installed copy by
-  slug, so a conflict under the installed folder is reported on the skill and left for a person.
+- **Auto fix.** `resolveSyncSourceFixesFor` (`internal/store/store_sync_source_fix.go`) also looks for the
+  installed copy under `ref.InstalledFolder(name)`. It now makes the plan ask for the installed skill itself
+  (id, name, slug and source). It used to change the source and keep the old id, so after the install the
+  controller listed the old skill as missing and the installed one as an extra for ever; that was true of
+  every Auto fix, not only this case. A plan that already held the installed skill keeps one entry.
+- **Not done.** A target that follows its source has its saved plan rewritten from the source on the next
+  poll, which undoes an Auto fix there. That was so before this work and is not changed.
 - **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
   `reet_list_sync_targets` failed for five of the owner's seven targets.
 - **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the

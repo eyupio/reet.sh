@@ -52,6 +52,18 @@ func TestLiveDirSkipsNewlinePath(t *testing.T) {
 	}
 }
 
+// A row from a tmux session that is not reet's (another program's session on
+// the same server) is skipped on its own: it never costs the reet row before
+// it its folder.
+func TestLiveDirForeignSessionKeepsNeighbour(t *testing.T) {
+	out := liveA + "|/home/me/a\nother-session|/home/me/elsewhere\n" + liveB + "|/home/me/b\nnot-reet|/tmp\n"
+	got := parseLiveDirs([]byte(out))
+	want := map[string]string{liveA: "/home/me/a", liveB: "/home/me/b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'" }
 
 // typeInShell types a line into the session's shell and presses Enter.

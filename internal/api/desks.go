@@ -34,6 +34,8 @@ func (s *server) registerDeskRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/desks/{id}", s.terminalAccess(s.deskGet, true))
 	mux.HandleFunc("PATCH /api/v2/desks/{id}", s.terminalAccess(s.deskUpdate, true))
 	mux.HandleFunc("DELETE /api/v2/desks/{id}", s.terminalAccess(s.deskDelete, true))
+	// Reopen starts a shell, so it is refused while remote terminals are off.
+	mux.HandleFunc("POST /api/v2/desks/{id}/panes/{pane}/reopen", s.terminalAccess(s.deskPaneReopen, false))
 }
 
 type deskJSON struct {
@@ -389,4 +391,151 @@ func (s *server) deskReorder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// Reopen: a pane whose shell ended or was lost gets a fresh plain shell.
+const (
+	// reopenCols and reopenRows size the new shell until the pane attaches and
+	// resizes it to fit.
+	reopenCols, reopenRows = 80, 24
+)
+
+// deskReopenCreate is the create a reopen sends. A machine with desk-shell-v1
+// is told the pane (Desk.Pane). The pane's folder goes as Desk.Dir, which the
+// machine opens even outside home, only when it is the folder that machine
+// itself last reported for this pane (trusted); otherwise as Dir, which keeps
+// the home rule. The controller does not know the machine's home, so a trusted
+// folder is always sent as Desk.Dir and the machine checks it
+// (terminalhost.ResolveDeskDir); a folder a browser wrote never is.
+func deskReopenCreate(pane desk.Pane, dir string, deskShell, trusted bool) terminalproto.Create {
+	title, origin := terminalproto.ResolveTitle(pane.Name, "", "", "", dir)
+	in := terminalproto.Create{Title: title, TitleOrigin: origin, Cols: reopenCols, Rows: reopenRows}
+	switch {
+	case deskShell && terminalproto.ValidID(pane.ID):
+		in.Desk.Pane = pane.ID
+		if trusted {
+			in.Desk.Dir = dir
+		} else {
+			in.Dir = dir
+		}
+	default:
+		// An older machine never sees a desk reference: the folder goes as
+		// Dir under shell-dir-v1, which the broker requires.
+		in.Dir = dir
+	}
+	return in
+}
+
+func (s *server) deskPaneReopen(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Expect *int64 `json:"expect"`
+		Home   bool   `json:"home"`
+	}
+	if !deskBody(w, r, &in, false) {
+		return
+	}
+	uid, id, paneID := s.uid(r), r.PathValue("id"), r.PathValue("pane")
+	cur, err := s.st.DeskFor(uid, id)
+	if err != nil {
+		deskRefusal(w, err)
+		return
+	}
+	if in.Expect == nil || *in.Expect != cur.Version {
+		s.deskStale(w, uid, id)
+		return
+	}
+	var pane desk.Pane
+	found := false
+	for _, t := range cur.Doc.Tabs {
+		if p, ok := t.Panes[paneID]; ok {
+			pane, found = p, true
+		}
+	}
+	if !found {
+		writeErrCode(w, 404, "pane_missing", "", "That pane isn't on this desk.", "")
+		return
+	}
+	if cur.Template {
+		writeErrCode(w, 400, "desk_invalid", "", "A template holds no shells.", "")
+		return
+	}
+	if pane.Session != "" {
+		if sess, err := s.st.TerminalSessionFor(uid, pane.Session); err == nil && sess.State.ReservesQuota() {
+			writeErrCode(w, 409, "pane_live", "", "This pane's shell is still running.", "")
+			return
+		}
+	}
+	agent := pane.Host
+	host := s.machineHost(uid, agent)
+	if agent == "" || host == "" {
+		writeErrCode(w, 409, "machine_gone", "", "This machine was removed from reet.", "")
+		return
+	}
+	caps, capsErr := s.st.RemoteCapabilitiesFor(uid, agent)
+	if capsErr != nil || !s.terminals.Ready(uid, agent) {
+		writeErrCode(w, 409, "machine_offline", "", host+" is not reporting.", "")
+		return
+	}
+	dir := pane.Dir
+	if in.Home {
+		dir = ""
+	}
+	trusted := false
+	if dir != "" {
+		reportedBy, reported, ok, err := s.st.DeskPaneReportedDirFor(uid, id, paneID)
+		if err != nil {
+			deskRefusal(w, err)
+			return
+		}
+		trusted = ok && reportedBy == agent && reported == dir
+	}
+	create := deskReopenCreate(pane, dir, caps.Capabilities.DeskShell, trusted)
+	bound := false
+	session, _, err := s.terminals.CreateSessionReserved(r.Context(), uid, agent, terminalbroker.ID(), create, func(reserved store.TerminalSession) error {
+		_, err := s.st.ReopenDeskPaneFor(uid, id, paneID, reserved.ID, cur.Version)
+		bound = err == nil
+		return err
+	})
+	if err != nil {
+		if bound {
+			// The pane keeps a session that may still start (no answer yet);
+			// only one that is definitely not running is taken off it.
+			latest, lerr := s.st.TerminalSessionFor(uid, session.ID)
+			if lerr != nil || !latest.State.ReservesQuota() {
+				_, _ = s.st.UnbindDeskPaneSessionFor(uid, id, paneID, session.ID)
+			}
+		}
+		s.deskReopenError(w, err, uid, id, agent, host)
+		return
+	}
+	s.eventRequest(r, "desk-pane-reopened", "", map[string]any{
+		"desk": id, "pane": paneID, "machine": agent, "host": host, "session": session.ID,
+		"dir": create.Dir + create.Desk.Dir, "outsideHome": create.Desk.Dir != "", "home": in.Home,
+	})
+	saved, err := s.st.DeskFor(uid, id)
+	if err != nil {
+		deskRefusal(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"desk": deskView(saved), "session": session})
+}
+
+// deskReopenError maps a reopen's refusal; anything else keeps the terminal
+// create's mapping.
+func (s *server) deskReopenError(w http.ResponseWriter, err error, uid int64, id, agent, host string) {
+	switch {
+	case errors.Is(err, store.ErrDeskStale):
+		s.deskStale(w, uid, id)
+	case errors.Is(err, store.ErrDeskMissing):
+		deskRefusal(w, err)
+	case errors.Is(err, terminalbroker.ErrFolderGone), errors.Is(err, terminalbroker.ErrLaunchFailed):
+		// A plain shell's launch fails only on its folder.
+		writeErrCode(w, 409, "folder_gone", "", "That folder no longer exists on "+host+".", "")
+	case errors.Is(err, terminalbroker.ErrShellDirUnsupported), errors.Is(err, terminalbroker.ErrDeskShellUnsupported):
+		writeErrCode(w, 409, "shell_dir_unsupported", "", "Update reet on that machine to keep this pane's folder and history.", "")
+	case errors.Is(err, terminalbroker.ErrOffline), errors.Is(err, store.ErrTerminalNotReady):
+		writeErrCode(w, 409, "machine_offline", "", host+" is not reporting.", "")
+	default:
+		s.terminalCreateError(w, err, uid, agent, "")
+	}
 }

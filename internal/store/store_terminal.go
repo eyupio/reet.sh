@@ -998,6 +998,8 @@ func validRefusal(r terminalproto.Result) bool {
 	switch r.Code {
 	case terminalproto.ACPUnavailable, terminalproto.ACPVersion, terminalproto.ACPTrustRequired:
 		return len(r.Detail) <= 500 && plainLine(r.Detail)
+	case terminalproto.LaunchFailed:
+		return r.Detail == terminalproto.FolderGone
 	}
 	return r.Reason != "" && len(r.Detail) <= terminalproto.MaxWorktreeDetailBytes && plainLine(r.Detail)
 }
@@ -1127,14 +1129,14 @@ func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSe
 // RecordTerminalLiveDirFor records the live working folder agentID reported
 // for one of its sessions at at (Unix milliseconds), unless a newer report is
 // already stored. It then notes the folder on the desk pane that holds the
-// session, if any (NoteDeskPaneDirFor), so the last folder outlives the
-// session. The desk's version is not changed.
+// session, if any (NoteDeskPaneDirFor), in the same transaction, so the last
+// folder outlives the session and a failure keeps neither. The desk's version
+// is not changed.
 func (s *Store) RecordTerminalLiveDirFor(uid int64, agentID, sessionID, dir string, at int64) error {
 	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidDir(dir) || at <= 0 {
 		return terminalproto.ErrInvalid
 	}
-	applied := false
-	err := s.withTx(func(tx *sql.Tx) error {
+	return s.withTx(func(tx *sql.Tx) error {
 		if err := lockRemoteAgent(tx, uid, agentID, false); err != nil {
 			return err
 		}
@@ -1145,14 +1147,11 @@ func (s *Store) RecordTerminalLiveDirFor(uid int64, agentID, sessionID, dir stri
 		if err != nil {
 			return err
 		}
-		n, err := r.RowsAffected()
-		applied = n == 1
-		return err
+		if n, err := r.RowsAffected(); err != nil || n != 1 {
+			return err
+		}
+		return noteDeskPaneDirTx(tx, uid, sessionID, dir, at)
 	})
-	if err != nil || !applied {
-		return err
-	}
-	return s.NoteDeskPaneDirFor(uid, sessionID, dir, at)
 }
 
 // SetTerminalYoloFor records a live structured session's current approval

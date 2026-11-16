@@ -362,6 +362,7 @@ func (p *Peer) observe() {
 				code = s.ExitStatus
 			}
 			err := p.b.observe(p, p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
+			observed := err == nil || errors.Is(err, store.ErrRemoteNotFound)
 			hasActivity := s.ActivityAt > 0 || s.BellAt > 0
 			hasOutcome := s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)
 			signal := hasActivity || hasOutcome
@@ -375,7 +376,11 @@ func (p *Peer) observe() {
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)
 			}
-			p.b.recordLiveDir(p.key.uid, p.key.agent, m.SessionID, s.Dir)
+			if observed {
+				// Like the chat id above: a folder is kept only for a change
+				// the controller could observe.
+				p.b.recordLiveDir(p.key.uid, p.key.agent, m.SessionID, s.Dir)
+			}
 			unexpected := err != nil && !errors.Is(err, store.ErrRemoteNotFound)
 			if unexpected && !errors.Is(err, store.ErrTerminalConflict) {
 				p.Close()
@@ -770,6 +775,13 @@ var (
 	// ErrShellDirUnsupported means the machine did not negotiate shell-dir-v1;
 	// a plain shell in a chosen folder was not reserved.
 	ErrShellDirUnsupported = errors.New("machine does not support a shell in that folder")
+	// ErrDeskShellUnsupported means the machine did not negotiate
+	// desk-shell-v1; a create naming a desk pane was not reserved or sent.
+	ErrDeskShellUnsupported = errors.New("machine does not support desk shells")
+	// ErrFolderGone means the machine refused a desk pane's folder: it is
+	// missing, not a directory or cannot be entered there (launch_failed with
+	// the folder_gone detail).
+	ErrFolderGone = errors.New("that folder no longer exists on the machine")
 	// ErrLaunchFailed means the connector refused to start the agent
 	// (launch_failed): the tool or the folder is unavailable there.
 	ErrLaunchFailed = errors.New("machine could not start that agent")
@@ -801,7 +813,7 @@ func (b *Broker) auditYoloLaunch(uid int64, agent string, in terminalproto.Creat
 }
 
 func launchRequested(in terminalproto.Create) bool {
-	return in.Base != "" || in.Effort != "" || in.Provider != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
+	return in.Base != "" || in.Effort != "" || in.Provider != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in) || in.Desk != (terminalproto.DeskRef{})
 }
 func worktreeRequested(in terminalproto.Create) bool { return in.Worktree != "" || in.Project != "" }
 
@@ -814,6 +826,14 @@ func (b *Broker) Create(ctx context.Context, uid int64, agent, request string, i
 // session started (false for a replay of a known outcome), so callers can
 // record a launch exactly once.
 func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request string, in terminalproto.Create) (store.TerminalSession, bool, error) {
+	return b.CreateSessionReserved(ctx, uid, agent, request, in, nil)
+}
+
+// CreateSessionReserved is CreateSession with a hook that runs once, after this
+// call reserved a new session and before the machine is asked to start it (a
+// replay of a request already reserved does not run it). When the hook fails,
+// the reservation is failed, nothing is sent and the hook's error is returned.
+func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, request string, in terminalproto.Create, reserved func(store.TerminalSession) error) (store.TerminalSession, bool, error) {
 	// A launch is checked in full before any peer state, so a malformed or
 	// refused launch never reserves a session or reaches the connector.
 	// An agent no connector starts (disabled or unknown) is refused as such,
@@ -937,8 +957,14 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.ResumeACP != "" && !validResume {
 			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
-		if in.Tool == "" && in.Dir != "" {
-			if !caps.Capabilities.ShellDir {
+		deskShell := in.Desk != (terminalproto.DeskRef{})
+		if in.Tool == "" && (in.Dir != "" || deskShell) {
+			// A desk reference reaches only a machine that negotiated
+			// desk-shell-v1, a folder only one with shell-dir-v1.
+			if deskShell && !caps.Capabilities.DeskShell {
+				return store.TerminalSession{}, false, ErrDeskShellUnsupported
+			}
+			if in.Dir != "" && !caps.Capabilities.ShellDir {
 				return store.TerminalSession{}, false, ErrShellDirUnsupported
 			}
 		} else {
@@ -953,6 +979,17 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	s, created, err := b.st.ReserveTerminalCreateFor(uid, agent, request, p.Generation, in)
 	if err != nil {
 		return s, false, err
+	}
+	if created && reserved != nil {
+		if hookErr := reserved(s); hookErr != nil {
+			// Nothing was sent: the reservation is refused here, so the
+			// session ends as lost and frees its place.
+			_ = b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, terminalproto.Unavailable)
+			if failed, err := b.st.TerminalSessionFor(uid, s.ID); err == nil {
+				s = failed
+			}
+			return s, false, hookErr
+		}
 	}
 	if in.Structured {
 		// The machine may stream its first status before the create reply
@@ -979,6 +1016,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 				case terminalproto.YoloRefused:
 					return s, false, ErrYoloRefused
 				case terminalproto.LaunchFailed:
+					if op.Detail == terminalproto.FolderGone {
+						return s, false, ErrFolderGone
+					}
 					return s, false, ErrLaunchFailed
 				case terminalproto.WorktreeRefused:
 					if op.Reason != "" {
@@ -1053,6 +1093,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 			refusal = ErrYoloRefused
 		case terminalproto.LaunchFailed:
 			refusal = ErrLaunchFailed
+			if r.Detail == terminalproto.FolderGone {
+				refusal = ErrFolderGone
+			}
 		case terminalproto.WorktreeRefused:
 			refusal = &WorktreeError{Reason: r.Reason, Detail: r.Detail}
 		default:

@@ -15,8 +15,14 @@ var managedName = regexp.MustCompile(`^reet-[0-9a-f]{32}$`)
 // by tmux session name (Manager.name of the session id). It is its own call,
 // separate from allPanes, whose format it leaves alone. A session with several
 // panes reports its first. A row whose folder is not an absolute, plain path
-// is left out, as is one whose folder held a newline. A failure returns an
-// empty map: a caller reading folders must never fail the sweep over them.
+// is left out. A failure returns an empty map: a caller reading folders must
+// never fail the sweep over them.
+//
+// tmux 3.4 prints a newline in a folder name as '_' (other control characters
+// are escaped likewise), so such a folder is reported as a different but
+// plausible path: "/home/me/a\nb" reads as "/home/me/a_b". Nothing here can
+// tell the two apart. A reopen in that folder opens only if a folder of that
+// name exists; otherwise it is refused as folder gone, never opened elsewhere.
 func (m *Manager) liveDirs(ctx context.Context) (map[string]string, error) {
 	// The session name comes first and the folder last, split off with a
 	// limit, so a folder holding the separator keeps it.
@@ -28,9 +34,13 @@ func (m *Manager) liveDirs(ctx context.Context) (map[string]string, error) {
 	return parseLiveDirs(out), nil
 }
 
-// parseLiveDirs reads liveDirs' listing. A tmux that prints a newline in a
-// folder as it is splits that row in two: the line after it does not start
-// with a managed session name, so the row before it is dropped as broken.
+// parseLiveDirs reads liveDirs' listing. Each row is a session name, the
+// separator and a folder. A row of a tmux session that is not reet's (another
+// program's session on the same server) is skipped on its own. A line with no
+// separator at all can only be the rest of the row before it, split by a
+// newline that a tmux printing folders as they are would emit (3.4 does not,
+// see liveDirs): that row is dropped as broken. Such a continuation that holds
+// the separator itself reads as a foreign row and is not detected.
 func parseLiveDirs(out []byte) map[string]string {
 	type row struct {
 		name, dir string
@@ -39,10 +49,13 @@ func parseLiveDirs(out []byte) map[string]string {
 	var rows []row
 	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
 		name, dir, ok := strings.Cut(line, fieldSep)
-		if !ok || !managedName.MatchString(name) {
+		if !ok {
 			if len(rows) > 0 {
 				rows[len(rows)-1].broken = true
 			}
+			continue
+		}
+		if !managedName.MatchString(name) {
 			continue
 		}
 		rows = append(rows, row{name: name, dir: dir})

@@ -418,6 +418,107 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	if len(events) != 1 || !strings.Contains(events[0].Detail, `"tool":"claude"`) || strings.Contains(events[0].Detail, "fix the bug") {
 		t.Fatal("launch audit", events)
 	}
+
+	// desk-shell-v1 reopen: a desk pane whose shell the machine reported in a
+	// folder outside home reopens there once that shell has ended, and a
+	// reported folder that is gone is answered as folder_gone.
+	call := func(method, path string, in any) (int, map[string]any, string) {
+		t.Helper()
+		data, _ := json.Marshal(in)
+		r, _ := http.NewRequestWithContext(t.Context(), method, public.URL+path, strings.NewReader(string(data)))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", public.URL)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		resp, err := public.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		out := map[string]any{}
+		_ = json.Unmarshal(raw, &out)
+		return resp.StatusCode, out, string(raw)
+	}
+	realOutside, _ := filepath.EvalSymlinks(outside)
+	tmuxOut("send-keys", "-t", "="+shellSession+":", "-l", "cd '"+outside+"'")
+	tmuxOut("send-keys", "-t", "="+shellSession+":", "Enter")
+	liveDir(plainID, realOutside)
+	const pane = "a1b2c3d4e5f60718"
+	code, desk, raw := call("POST", "/api/v2/desks", map[string]any{"name": "Reopen"})
+	if code != 201 {
+		t.Fatal("desk", code, raw)
+	}
+	deskID := desk["id"].(string)
+	doc := map[string]any{"active": "t1", "tabs": []any{map[string]any{"id": "t1", "name": "Main", "colour": "", "zoomed": "", "active": pane, "root": map[string]any{"pane": pane},
+		"panes": map[string]any{pane: map[string]any{"id": pane, "name": "outside", "colour": "", "host": agent.ID, "session": plainID, "kind": "shell", "dir": "", "dirAt": 0, "start": ""}}}}}
+	code, desk, raw = call("PATCH", "/api/v2/desks/"+deskID, map[string]any{"expect": 1, "doc": doc})
+	if code != 200 {
+		t.Fatal("bind", code, raw)
+	}
+	if _, err := srv.s.terminals.End(t.Context(), uid, plainID, terminalbroker.ID()); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		s, _ := st.TerminalSessionFor(uid, plainID)
+		if !s.State.ReservesQuota() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the bound shell did not end", s.State)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	current, err := st.DeskFor(uid, deskID)
+	if err != nil || current.Doc.Tabs[0].Panes[pane].Dir != realOutside {
+		t.Fatalf("pane folder %+v %v", current.Doc.Tabs[0].Panes[pane], err)
+	}
+	code, reopened, raw := call("POST", "/api/v2/desks/"+deskID+"/panes/"+pane+"/reopen", map[string]any{"expect": current.Version})
+	if code != 200 {
+		t.Fatal("reopen", code, raw)
+	}
+	reopenedID := reopened["session"].(map[string]any)["id"].(string)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		panes = strings.Split(tmuxOut("list-panes", "-a", "-F", "#{pane_current_command} #{pane_current_path}"), "\n")
+		shellThere := false
+		for _, line := range panes {
+			command, path, _ := strings.Cut(line, " ")
+			shellThere = shellThere || (command != "sleep" && path == realOutside)
+		}
+		if shellThere && len(panes) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reopened shell outside home", panes)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	liveDir(reopenedID, realOutside)
+
+	// The machine's reported folder (here noted directly, later than any
+	// sweep) is gone by the next reopen.
+	gone := filepath.Join(outside, "gone")
+	if err := os.Mkdir(gone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordTerminalLiveDirFor(uid, agent.ID, reopenedID, gone, time.Now().Add(time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.s.terminals.End(t.Context(), uid, reopenedID, terminalbroker.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	current, _ = st.DeskFor(uid, deskID)
+	code, out, raw := call("POST", "/api/v2/desks/"+deskID+"/panes/"+pane+"/reopen", map[string]any{"expect": current.Version})
+	if code != 409 || out["code"] != "folder_gone" {
+		t.Fatal("gone folder", code, raw)
+	}
+	if after, _ := st.DeskFor(uid, deskID); after.Doc.Tabs[0].Panes[pane].Session != "" {
+		t.Fatal("a refused reopen kept its session on the pane", after.Doc.Tabs[0].Panes[pane])
+	}
 }
 
 // plainAndAgentPanes reports whether the panes are exactly one interactive

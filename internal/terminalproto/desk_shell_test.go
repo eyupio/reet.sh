@@ -107,3 +107,83 @@ func TestDeskShellCapabilityNeedsTerminalControl(t *testing.T) {
 		t.Fatalf("unset capability encoded: %s", raw)
 	}
 }
+
+const deskPane = "0123456789abcdef"
+
+// A desk reference is a plain shell's only: never with an agent, never with a
+// folder in both places, and only with a pane id fit for a path.
+func TestCreateDeskRefRefusedForAgent(t *testing.T) {
+	base := Create{Title: "Shell", Cols: 80, Rows: 24}
+	ok := []Create{
+		{Title: "Shell", Cols: 80, Rows: 24, Desk: DeskRef{Pane: deskPane}},
+		{Title: "Shell", Cols: 80, Rows: 24, Desk: DeskRef{Pane: deskPane, Dir: "/srv/app"}},
+		{Title: "Shell", Cols: 80, Rows: 24, Dir: "/home/me/app", Desk: DeskRef{Pane: deskPane}},
+	}
+	for _, c := range ok {
+		if err := c.Validate(); err != nil {
+			t.Fatalf("%+v: %v", c, err)
+		}
+	}
+	bad := map[string]Create{
+		"agent":          {Title: "A", Cols: 80, Rows: 24, Tool: "claude", Desk: DeskRef{Pane: deskPane}},
+		"chat":           {Title: "A", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Desk: DeskRef{Pane: deskPane}},
+		"two folders":    {Title: "A", Cols: 80, Rows: 24, Dir: "/home/me", Desk: DeskRef{Pane: deskPane, Dir: "/srv"}},
+		"folder no pane": {Title: "A", Cols: 80, Rows: 24, Desk: DeskRef{Dir: "/srv"}},
+		"short pane":     {Title: "A", Cols: 80, Rows: 24, Desk: DeskRef{Pane: "p1"}},
+		"path pane":      {Title: "A", Cols: 80, Rows: 24, Desk: DeskRef{Pane: "../../etc/passwd0"}},
+		"relative":       {Title: "A", Cols: 80, Rows: 24, Desk: DeskRef{Pane: deskPane, Dir: "srv"}},
+		"newline":        {Title: "A", Cols: 80, Rows: 24, Desk: DeskRef{Pane: deskPane, Dir: "/srv\n"}},
+	}
+	for name, c := range bad {
+		if c.Validate() == nil {
+			t.Fatalf("%s accepted: %+v", name, c)
+		}
+	}
+	// Create stays comparable, and a plain create encodes exactly as before.
+	if base != (Create{Title: "Shell", Cols: 80, Rows: 24}) {
+		t.Fatal("not comparable")
+	}
+	raw, _ := json.Marshal(base)
+	if strings.Contains(string(raw), "desk") {
+		t.Fatalf("plain create carried a desk: %s", raw)
+	}
+	with := Create{Title: "Shell", Cols: 80, Rows: 24, Desk: DeskRef{Pane: deskPane, Dir: "/srv/app"}}
+	encoded, err := Encode(Message{Version: Version, RequestID: "req_1234567890123456", SessionID: "session_1234567890", Generation: 1, Body: with})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"desk":{"pane":"`+deskPane+`","dir":"/srv/app"}`) {
+		t.Fatalf("wire form: %s", encoded)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil || *decoded.Body.(*Create) != with {
+		t.Fatalf("round trip: %+v %v", decoded.Body, err)
+	}
+}
+
+// A machine that cannot open a desk pane's folder says so in a way only a
+// desk-shell-v1 controller is sent: launch_failed with the folder-gone detail.
+func TestFolderGoneResult(t *testing.T) {
+	if !(Result{Code: LaunchFailed, Detail: FolderGone}).valid() {
+		t.Fatal("folder gone refused")
+	}
+	for _, r := range []Result{{Code: LaunchFailed, Detail: "other"}, {Code: Failed, Detail: FolderGone}} {
+		if r.valid() {
+			t.Fatalf("%+v accepted", r)
+		}
+	}
+}
+
+// A machine reports deskShell only on a link that negotiated desk-shell-v1.
+func TestDeskShellCapabilityNeedsFeature(t *testing.T) {
+	c := Capabilities{ProtocolVersion: Version, OS: "linux", OSUser: "me", TerminalEnabled: true, TerminalControl: true, Readiness: Ready, DeskShell: true}
+	if c.ValidateFor("shell-dir-v1") == nil {
+		t.Fatal("desk shell accepted without the feature")
+	}
+	if err := c.ValidateFor("shell-dir-v1," + DeskShellFeature); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

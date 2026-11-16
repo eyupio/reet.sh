@@ -19,3 +19,7 @@ const (
 
 // openRootNoBlock is os.OpenRoot where no FIFO can be swapped in.
 func openRootNoBlock(dir string) (*os.Root, error) { return os.OpenRoot(dir) }
+
+// canEnter is true where there is no search permission to check: opening the
+// folder for the shell fails on its own if it cannot be entered.
+func canEnter(dir string) bool { return true }

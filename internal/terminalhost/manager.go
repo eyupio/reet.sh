@@ -258,6 +258,12 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		if dir, err = ResolveDir(m.home, in.Dir); err != nil {
 			return ManagedSession{}, err
 		}
+	} else if in.Desk.Dir != "" {
+		// A desk pane's own folder, which the controller sends only when this
+		// machine reported that pane's shell in it: no home rule.
+		if dir, err = ResolveDeskDir(in.Desk.Dir); err != nil {
+			return ManagedSession{}, err
+		}
 	}
 	if !responsive(ctx, m.tmux, m.layout) {
 		return ManagedSession{}, ErrNotRunning

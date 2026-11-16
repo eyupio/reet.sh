@@ -276,3 +276,248 @@ func TestDeskDeleteEndsLiveSessions(t *testing.T) {
 		t.Fatalf("failed session should be untouched: %+v %v", sess, err)
 	}
 }
+
+const reopenPane = "0123456789abcdef"
+
+func reopenCaps(deskShell, shellDir bool) terminalproto.Capabilities {
+	caps := launchCaps()
+	caps.DeskShell, caps.ShellDir = deskShell, shellDir
+	return caps
+}
+
+// reopenDesk makes a desk with one pane on the fixture's machine, of kind,
+// holding session (may be empty), with the folder a browser wrote.
+func reopenDesk(t *testing.T, f *launchAPI, kind, session, dir string) (string, float64) {
+	t.Helper()
+	doc := `{"tabs":[{"id":"t1","name":"Main","colour":"","root":{"pane":"` + reopenPane + `"},"zoomed":"","active":"` + reopenPane + `","panes":{
+"` + reopenPane + `":{"id":"` + reopenPane + `","name":"api","colour":"","host":"` + f.agent.ID + `","session":"` + session + `","kind":"` + kind + `","dir":"` + dir + `","dirAt":4102444800000,"start":"make dev"}}}],"active":"t1"}`
+	code, d, raw := f.do(t, f.cookie, "POST", "/api/v2/desks", `{"name":"Reopen"}`)
+	if code != 201 {
+		t.Fatal(code, raw)
+	}
+	id := d["id"].(string)
+	code, d, raw = f.do(t, f.cookie, "PATCH", "/api/v2/desks/"+id, `{"expect":1,"doc":`+doc+`}`)
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	return id, d["version"].(float64)
+}
+
+func reopenPath(id string) string { return "/api/v2/desks/" + id + "/panes/" + reopenPane + "/reopen" }
+
+func reopenedPane(t *testing.T, out map[string]any) map[string]any {
+	t.Helper()
+	doc := out["desk"].(map[string]any)["doc"].(map[string]any)
+	return doc["tabs"].([]any)[0].(map[string]any)["panes"].(map[string]any)[reopenPane].(map[string]any)
+}
+
+// startShell starts a plain shell through the terminal route and returns its id.
+func startShell(t *testing.T, f *launchAPI) string {
+	t.Helper()
+	code, out, raw := f.create(t, map[string]any{"agentId": f.agent.ID, "requestId": terminalbroker.ID(), "title": "Shell", "cols": 80, "rows": 24})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	return out["id"].(string)
+}
+
+func TestReopenWritesSessionIntoDoc(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	id, version := reopenDesk(t, f, "agent", "", "")
+	code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	session := out["session"].(map[string]any)
+	pane := reopenedPane(t, out)
+	if pane["session"] != session["id"] || pane["kind"] != "shell" || out["desk"].(map[string]any)["version"] != version+1 {
+		t.Fatalf("desk after reopen: %s", raw)
+	}
+	if session["title"] != "api" || session["state"] != "running" {
+		t.Fatalf("session: %v", session)
+	}
+	sent := f.sent()
+	if len(sent) != 1 || sent[0].Desk != (terminalproto.DeskRef{Pane: reopenPane}) || sent[0].Dir != "" || sent[0].Tool != "" || sent[0].Title != "api" {
+		t.Fatalf("sent: %+v", sent)
+	}
+	found := false
+	events, _ := f.st.ListEventsFor(f.uid, 50, "")
+	for _, e := range events {
+		found = found || e.Action == "desk-pane-reopened"
+	}
+	if !found {
+		t.Fatal("no desk-pane-reopened audit")
+	}
+	// The shell is live now: a second reopen is refused.
+	if code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version + 1}); code != 409 || out["code"] != "pane_live" {
+		t.Fatal(code, raw)
+	}
+}
+
+// Only a folder the machine itself reported for the pane goes out as
+// Desk.Dir (which may lie outside home); one a browser wrote goes as Dir,
+// which keeps the home rule.
+func TestReopenOutsideHomeOnlyForRecordedDir(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	id, version := reopenDesk(t, f, "shell", "", "/srv/browser")
+	code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Dir != "/srv/browser" || sent[0].Desk != (terminalproto.DeskRef{Pane: reopenPane}) {
+		t.Fatalf("browser folder: %+v", sent)
+	}
+	// The machine reports the shell in /srv/app, then the shell ends.
+	sid := out["session"].(map[string]any)["id"].(string)
+	if err := f.st.RecordTerminalLiveDirFor(f.uid, f.agent.ID, sid, "/srv/app", 4102444900000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.srv.s.terminals.End(t.Context(), f.uid, sid, terminalbroker.ID()); err != nil {
+		t.Fatal(err)
+	}
+	version = out["desk"].(map[string]any)["version"].(float64)
+	code, out, raw = f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	if sent := f.sent(); len(sent) != 2 || sent[1].Dir != "" || sent[1].Desk != (terminalproto.DeskRef{Pane: reopenPane, Dir: "/srv/app"}) {
+		t.Fatalf("reported folder: %+v", sent)
+	}
+	// A browser that writes another folder (even with a later dirAt) gets the
+	// home rule again.
+	sid = out["session"].(map[string]any)["id"].(string)
+	if _, err := f.srv.s.terminals.End(t.Context(), f.uid, sid, terminalbroker.ID()); err != nil {
+		t.Fatal(err)
+	}
+	d, err := f.st.DeskFor(f.uid, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.Doc.Tabs[0].Panes[reopenPane]
+	p.Dir, p.DirAt = "/etc", 1<<52
+	d.Doc.Tabs[0].Panes[reopenPane] = p
+	raw2, _ := json.Marshal(d.Doc)
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/desks/"+id, `{"expect":`+jsonNumber(d.Version)+`,"doc":`+string(raw2)+`}`); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if code, _, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": d.Version + 1}); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if sent := f.sent(); len(sent) != 3 || sent[2].Dir != "/etc" || sent[2].Desk.Dir != "" {
+		t.Fatalf("browser rewrite: %+v", sent)
+	}
+}
+
+func jsonNumber(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+func TestReopenLivePaneRefused(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	sid := startShell(t, f)
+	id, version := reopenDesk(t, f, "shell", sid, "")
+	code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 409 || out["code"] != "pane_live" || out["error"] == "" {
+		t.Fatal(code, raw)
+	}
+	if len(f.sent()) != 1 {
+		t.Fatalf("a live pane was reopened: %+v", f.sent())
+	}
+}
+
+func TestReopenHome(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	id, version := reopenDesk(t, f, "shell", "", "/home/tester/gone")
+	code, _, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version, "home": true})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Dir != "" || sent[0].Desk != (terminalproto.DeskRef{Pane: reopenPane}) {
+		t.Fatalf("sent: %+v", sent)
+	}
+}
+
+func TestReopenStale(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	id, version := reopenDesk(t, f, "shell", "", "")
+	for _, body := range []any{map[string]any{"expect": version - 1}, map[string]any{}} {
+		code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), body)
+		if code != 409 || out["code"] != "desk_stale" || out["desk"].(map[string]any)["version"] != version {
+			t.Fatal(code, raw)
+		}
+	}
+	if len(f.sent()) != 0 {
+		t.Fatalf("a stale reopen started a shell: %+v", f.sent())
+	}
+}
+
+// A folder the machine says is gone is answered as folder_gone and the pane
+// is left without the session that never started.
+func TestReopenFolderGone(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.Result{Code: terminalproto.LaunchFailed, Detail: terminalproto.FolderGone}
+	}
+	id, version := reopenDesk(t, f, "shell", "", "/home/tester/old")
+	code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 409 || out["code"] != "folder_gone" {
+		t.Fatal(code, raw)
+	}
+	d, _ := f.st.DeskFor(f.uid, id)
+	if p := d.Doc.Tabs[0].Panes[reopenPane]; p.Session != "" || p.Dir != "/home/tester/old" {
+		t.Fatalf("pane after a failed reopen: %+v", p)
+	}
+}
+
+// A machine without desk-shell-v1 is sent no desk reference: the folder goes
+// as Dir under shell-dir-v1, and without that either it is refused.
+func TestReopenOnOlderMachine(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(false, true))
+	id, version := reopenDesk(t, f, "shell", "", "/home/tester/app")
+	if code, _, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version}); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Dir != "/home/tester/app" || sent[0].Desk != (terminalproto.DeskRef{}) {
+		t.Fatalf("sent: %+v", sent)
+	}
+
+	old := launchAPIFixture(t, reopenCaps(false, false))
+	id, version = reopenDesk(t, old, "shell", "", "/home/tester/app")
+	code, out, raw := old.do(t, old.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 409 || out["code"] != "shell_dir_unsupported" {
+		t.Fatal(code, raw)
+	}
+	if len(old.sent()) != 0 {
+		t.Fatalf("sent: %+v", old.sent())
+	}
+	if d, _ := old.st.DeskFor(old.uid, id); d.Version != int64(version) || d.Doc.Tabs[0].Panes[reopenPane].Session != "" {
+		t.Fatalf("a refused reopen changed the desk: %+v", d)
+	}
+	// Home needs no folder and works on it.
+	if code, _, raw := old.do(t, old.cookie, "POST", reopenPath(id), map[string]any{"expect": version, "home": true}); code != 200 {
+		t.Fatal(code, raw)
+	}
+}
+
+func TestReopenMissingAndGone(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	id, version := reopenDesk(t, f, "shell", "", "")
+	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/desks/nope/panes/"+reopenPane+"/reopen", map[string]any{"expect": 1}); code != 404 || out["code"] != "desk_missing" {
+		t.Fatal(code, raw)
+	}
+	if code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/desks/"+id+"/panes/fedcba9876543210/reopen", map[string]any{"expect": version}); code != 404 || out["code"] != "pane_missing" {
+		t.Fatal(code, raw)
+	}
+	d, _ := f.st.DeskFor(f.uid, id)
+	p := d.Doc.Tabs[0].Panes[reopenPane]
+	p.Host = "removed-machine-0000000000"
+	d.Doc.Tabs[0].Panes[reopenPane] = p
+	d, err := f.st.UpdateDeskFor(f.uid, d, d.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": d.Version}); code != 409 || out["code"] != "machine_gone" {
+		t.Fatal(code, raw)
+	}
+	if len(f.sent()) != 0 {
+		t.Fatalf("sent: %+v", f.sent())
+	}
+}

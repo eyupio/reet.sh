@@ -1311,6 +1311,12 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		if b.NativeView && !has(terminalproto.NativeViewFeature) {
 			return terminalproto.ErrInvalid
 		}
+	case *terminalproto.Create:
+		// A desk pane reference (and the folder outside home it may carry) is
+		// sent only by a controller that negotiated desk-shell-v1.
+		if b.Desk != (terminalproto.DeskRef{}) && !has(terminalproto.DeskShellFeature) {
+			return terminalproto.ErrInvalid
+		}
 	case *terminalproto.SessionMode:
 		if !has(terminalproto.SessionModeFeature) {
 			return terminalproto.ErrInvalid
@@ -1543,6 +1549,11 @@ func allowed(consent func() error) bool { return consent != nil && consent() == 
 func result(err error) terminalproto.Result {
 	if r, ok := terminalhost.WorktreeResult(err); ok {
 		return r
+	}
+	// Only a create with a desk folder, which only a desk-shell-v1 controller
+	// sends, can fail this way, so an older controller never sees the detail.
+	if errors.Is(err, terminalhost.ErrFolderGone) {
+		return terminalproto.Result{Code: terminalproto.LaunchFailed, Detail: terminalproto.FolderGone}
 	}
 	return terminalproto.Result{Code: code(err)}
 }

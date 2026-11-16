@@ -298,6 +298,9 @@ func (c Capabilities) Validate() error {
 	if c.RepoClone {
 		features = append(features, RepoCloneFeature)
 	}
+	if c.DeskShell {
+		features = append(features, DeskShellFeature)
+	}
 	if c.RepoCloneRemove {
 		features = append(features, RepoCloneRemoveFeature)
 	}
@@ -395,6 +398,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.RepoList && !(c.Worktree && SupportsRepoList(features)) {
+		return ErrInvalid
+	}
+	if c.DeskShell && !SupportsDeskShell(features) {
 		return ErrInvalid
 	}
 	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
@@ -602,6 +608,11 @@ type Create struct {
 	// ResumeACP reopens a structured OpenCode session from its own session id.
 	// It is meaningful only with Structured; the controller creates a new row.
 	ResumeACP string `json:"resumeAcp,omitempty"`
+	// Desk names the desk pane a plain shell is (re)opened for (see DeskRef).
+	// It is a value, not a pointer, so Create stays comparable; omitzero keeps
+	// it off the wire when unset. Only a connection that negotiated
+	// desk-shell-v1 carries it.
+	Desk DeskRef `json:"desk,omitzero"`
 }
 
 func (Create) kind() string  { return "create" }
@@ -628,6 +639,9 @@ func (c Create) Validate() error {
 	}
 	validResume := c.Structured && ValidACPSessionIDFor(c.Tool, c.ResumeACP)
 	if c.ResumeACP != "" && !validResume {
+		return ErrInvalid
+	}
+	if !c.validDesk() {
 		return ErrInvalid
 	}
 	return nil
@@ -769,6 +783,8 @@ func (r Result) valid() bool {
 			return validChatText(r.Detail, 200)
 		case Conflict:
 			return r.Detail == ConflictStarting
+		case LaunchFailed:
+			return r.Detail == FolderGone
 		default:
 			return false
 		}

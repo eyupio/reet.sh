@@ -58,6 +58,14 @@ func (s *Store) migrateDesks() error {
 				user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				session_id TEXT PRIMARY KEY, desk_id TEXT NOT NULL, pane_id TEXT NOT NULL)`,
 			`CREATE INDEX IF NOT EXISTS desk_sessions_desk ON desk_sessions(user_id,desk_id)`,
+			// desk_pane_dirs is the folder a machine itself last reported for a
+			// pane's shell. A browser writes the document's dir and dirAt freely,
+			// so a reopen outside home trusts only this record.
+			`CREATE TABLE IF NOT EXISTS desk_pane_dirs (
+				user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				desk_id TEXT NOT NULL, pane_id TEXT NOT NULL,
+				agent_id TEXT NOT NULL, dir TEXT NOT NULL, dir_at INTEGER NOT NULL,
+				PRIMARY KEY(user_id,desk_id,pane_id))`,
 		} {
 			if _, err := tx.Exec(stmt); err != nil {
 				return err
@@ -127,9 +135,13 @@ func deskConflict(err error) error {
 	return err
 }
 
-// writeDeskSessions rewrites the session index of one desk from its document.
+// writeDeskSessions rewrites the session index of one desk from its document,
+// and forgets the reported folder of every pane the document no longer has.
 func writeDeskSessions(tx *sql.Tx, uid int64, id string, doc desk.Doc) error {
 	if _, err := tx.Exec(`DELETE FROM desk_sessions WHERE user_id=? AND desk_id=?`, uid, id); err != nil {
+		return err
+	}
+	if err := pruneDeskPaneDirs(tx, uid, id, doc); err != nil {
 		return err
 	}
 	for _, t := range doc.Tabs {
@@ -168,11 +180,28 @@ func (s *Store) CreateDeskFor(uid int64, d Desk) (Desk, error) {
 		}
 		t := now()
 		d.Position, d.CreatedAt, d.UpdatedAt, d.Version = next, t, t, 1
+		reports, err := adoptLiveDirsTx(tx, uid, &d.Doc)
+		if err != nil {
+			return err
+		}
+		if len(reports) > 0 {
+			b, err := json.Marshal(d.Doc)
+			if err != nil {
+				return err
+			}
+			if len(b) > desk.MaxDocBytes {
+				return deskInvalid("document over %d bytes", desk.MaxDocBytes)
+			}
+			raw = string(b)
+		}
 		if _, err := tx.Exec(`INSERT INTO desks(id,user_id,name,name_key,colour,template,position,doc,schema,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?,?,?,?,?,1)`,
 			d.ID, uid, d.Name, nameKey(d.Name), d.Colour, d.Template, d.Position, raw, d.Schema, t, t); err != nil {
 			return deskConflict(err)
 		}
-		return writeDeskSessions(tx, uid, d.ID, d.Doc)
+		if err := writeDeskSessions(tx, uid, d.ID, d.Doc); err != nil {
+			return err
+		}
+		return reports.save(tx, uid, d.ID)
 	})
 	if err != nil {
 		return Desk{}, err
@@ -254,6 +283,10 @@ func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
 			return ErrDeskStale
 		}
 		keepNewerDirs(&d.Doc, cur.Doc)
+		reports, err := adoptLiveDirsTx(tx, uid, &d.Doc)
+		if err != nil {
+			return err
+		}
 		b, err := json.Marshal(d.Doc)
 		if err != nil {
 			return err
@@ -277,7 +310,10 @@ func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
 		} else if n != 1 {
 			return ErrDeskStale
 		}
-		return writeDeskSessions(tx, uid, id, d.Doc)
+		if err := writeDeskSessions(tx, uid, id, d.Doc); err != nil {
+			return err
+		}
+		return reports.save(tx, uid, id)
 	})
 	if err != nil {
 		return Desk{}, err
@@ -302,6 +338,9 @@ func (s *Store) DeleteDeskFor(uid int64, id string, expect int64) error {
 			return ErrDeskStale
 		}
 		if _, err := tx.Exec(`DELETE FROM desk_sessions WHERE user_id=? AND desk_id=?`, uid, id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM desk_pane_dirs WHERE user_id=? AND desk_id=?`, uid, id); err != nil {
 			return err
 		}
 		res, err := tx.Exec(`DELETE FROM desks WHERE id=? AND user_id=? AND version=?`, id, uid, version)
@@ -375,16 +414,69 @@ func findPane(doc *desk.Doc, pane string) (*desk.Tab, bool) {
 }
 
 // SetDeskPaneSessionFor sets (or, when empty, clears) the session of one pane
-// and bumps the desk's version.
+// and bumps the desk's version. A session the machine already reported a
+// folder for gives the pane that folder when it is newer than the pane's.
 func (s *Store) SetDeskPaneSessionFor(uid int64, deskID, pane, session string) (Desk, error) {
+	return s.setDeskPaneSession(uid, deskID, pane, session, 0, false)
+}
+
+// ReopenDeskPaneFor puts a reopened shell's session into a pane, as
+// SetDeskPaneSessionFor does, but only while the desk is still at version
+// expect (ErrDeskStale otherwise), and makes the pane a shell: an agent pane
+// reopens as a plain shell.
+func (s *Store) ReopenDeskPaneFor(uid int64, deskID, pane, session string, expect int64) (Desk, error) {
+	if expect <= 0 || session == "" {
+		return Desk{}, ErrDeskStale
+	}
+	return s.setDeskPaneSession(uid, deskID, pane, session, expect, true)
+}
+
+// UnbindDeskPaneSessionFor clears a pane's session if it is still session (a
+// reopen whose create failed), bumping the version; otherwise it changes
+// nothing and returns the desk as it is.
+func (s *Store) UnbindDeskPaneSessionFor(uid int64, deskID, pane, session string) (Desk, error) {
 	var saved Desk
 	err := s.withTx(func(tx *sql.Tx) error {
-		d, err := scanDesk(tx.QueryRow(`SELECT `+deskColumns+` FROM desks WHERE id=? AND user_id=? AND schema<=?`, deskID, uid, desk.Schema))
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrDeskMissing
-		}
+		d, err := deskForTx(tx, uid, deskID)
 		if err != nil {
 			return err
+		}
+		saved = d
+		t, ok := findPane(&d.Doc, pane)
+		if !ok || session == "" || t.Panes[pane].Session != session {
+			return nil
+		}
+		p := t.Panes[pane]
+		p.Session = ""
+		t.Panes[pane] = p
+		saved, err = saveDeskDoc(tx, uid, d, true)
+		return err
+	})
+	if err != nil {
+		return Desk{}, err
+	}
+	return saved, nil
+}
+
+func deskForTx(tx *sql.Tx, uid int64, deskID string) (Desk, error) {
+	d, err := scanDesk(tx.QueryRow(`SELECT `+deskColumns+` FROM desks WHERE id=? AND user_id=? AND schema<=?`, deskID, uid, desk.Schema))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Desk{}, ErrDeskMissing
+	}
+	return d, err
+}
+
+// setDeskPaneSession writes one pane's session. expect, when non-zero, must be
+// the desk's version; shell makes the pane a shell.
+func (s *Store) setDeskPaneSession(uid int64, deskID, pane, session string, expect int64, shell bool) (Desk, error) {
+	var saved Desk
+	err := s.withTx(func(tx *sql.Tx) error {
+		d, err := deskForTx(tx, uid, deskID)
+		if err != nil {
+			return err
+		}
+		if expect != 0 && d.Version != expect {
+			return ErrDeskStale
 		}
 		t, ok := findPane(&d.Doc, pane)
 		if !ok {
@@ -395,6 +487,9 @@ func (s *Store) SetDeskPaneSessionFor(uid int64, deskID, pane, session string) (
 		}
 		p := t.Panes[pane]
 		p.Session = session
+		if shell {
+			p.Kind = "shell"
+		}
 		t.Panes[pane] = p
 		if err := d.Doc.Validate(); err != nil {
 			if session != "" {
@@ -402,8 +497,14 @@ func (s *Store) SetDeskPaneSessionFor(uid int64, deskID, pane, session string) (
 			}
 			return fmt.Errorf("%w: %v", ErrDeskInvalid, err)
 		}
-		saved, err = saveDeskDoc(tx, uid, d, true)
-		return err
+		reports, err := adoptLiveDirsTx(tx, uid, &d.Doc)
+		if err != nil {
+			return err
+		}
+		if saved, err = saveDeskDoc(tx, uid, d, true); err != nil {
+			return err
+		}
+		return reports.save(tx, uid, deskID)
 	})
 	if err != nil {
 		return Desk{}, err
@@ -454,38 +555,155 @@ func (s *Store) DeskPaneForSession(uid int64, session string) (deskID, pane stri
 // desk's version: a folder change never makes a browser's write stale. A
 // session in no desk is ignored.
 func (s *Store) NoteDeskPaneDirFor(uid int64, session, dir string, at int64) error {
+	return s.withTx(func(tx *sql.Tx) error { return noteDeskPaneDirTx(tx, uid, session, dir, at) })
+}
+
+// noteDeskPaneDirTx is NoteDeskPaneDirFor inside the caller's transaction. The
+// folder also becomes the pane's reported folder (DeskPaneReportedDirFor), tied
+// to the machine the session runs on; a session reet has no record of updates
+// the document only.
+func noteDeskPaneDirTx(tx *sql.Tx, uid int64, session, dir string, at int64) error {
 	if len(dir) > maxDeskDirBytes || strings.ContainsRune(dir, 0) {
 		return deskInvalid("folder")
 	}
-	return s.withTx(func(tx *sql.Tx) error {
-		var deskID, paneID string
-		err := tx.QueryRow(`SELECT desk_id,pane_id FROM desk_sessions WHERE user_id=? AND session_id=?`, uid, session).Scan(&deskID, &paneID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		d, err := scanDesk(tx.QueryRow(`SELECT `+deskColumns+` FROM desks WHERE id=? AND user_id=? AND schema<=?`, deskID, uid, desk.Schema))
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		t, ok := findPane(&d.Doc, paneID)
-		if !ok {
-			return nil
-		}
-		p := t.Panes[paneID]
-		if at <= p.DirAt {
-			return nil
-		}
-		p.Dir, p.DirAt = dir, at
-		t.Panes[paneID] = p
-		_, err = saveDeskDoc(tx, uid, d, false)
+	var deskID, paneID string
+	err := tx.QueryRow(`SELECT desk_id,pane_id FROM desk_sessions WHERE user_id=? AND session_id=?`, uid, session).Scan(&deskID, &paneID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
 		return err
-	})
+	}
+	d, err := deskForTx(tx, uid, deskID)
+	if errors.Is(err, ErrDeskMissing) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	t, ok := findPane(&d.Doc, paneID)
+	if !ok {
+		return nil
+	}
+	var agent string
+	err = tx.QueryRow(`SELECT agent_id FROM terminal_sessions WHERE id=? AND user_id=?`, session, uid).Scan(&agent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if agent != "" {
+		if err := (paneReports{{paneID, agent, dir, at}}).save(tx, uid, deskID); err != nil {
+			return err
+		}
+	}
+	p := t.Panes[paneID]
+	if at <= p.DirAt {
+		return nil
+	}
+	p.Dir, p.DirAt = dir, at
+	t.Panes[paneID] = p
+	_, err = saveDeskDoc(tx, uid, d, false)
+	return err
+}
+
+// paneReport is one folder a machine reported for a pane's shell.
+type paneReport struct {
+	pane, agent, dir string
+	at               int64
+}
+
+type paneReports []paneReport
+
+// save keeps each report as its pane's reported folder unless a newer one is
+// stored.
+func (r paneReports) save(tx *sql.Tx, uid int64, deskID string) error {
+	for _, p := range r {
+		if _, err := tx.Exec(`INSERT INTO desk_pane_dirs(user_id,desk_id,pane_id,agent_id,dir,dir_at) VALUES(?,?,?,?,?,?)
+			ON CONFLICT(user_id,desk_id,pane_id) DO UPDATE SET agent_id=excluded.agent_id,dir=excluded.dir,dir_at=excluded.dir_at WHERE excluded.dir_at>desk_pane_dirs.dir_at`,
+			uid, deskID, p.pane, p.agent, p.dir, p.at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// adoptLiveDirsTx gives every pane of doc that holds a session the live folder
+// its machine last reported for that session, when that is newer than the
+// pane's own, so a session placed on a desk after its last folder change still
+// has its folder. It returns the reports to save as the panes' reported
+// folders once the desk row exists.
+func adoptLiveDirsTx(tx *sql.Tx, uid int64, doc *desk.Doc) (paneReports, error) {
+	var out paneReports
+	for i := range doc.Tabs {
+		for id, p := range doc.Tabs[i].Panes {
+			if p.Session == "" {
+				continue
+			}
+			var agent, dir string
+			var at int64
+			err := tx.QueryRow(`SELECT agent_id,live_dir,live_dir_at FROM terminal_sessions WHERE id=? AND user_id=?`, p.Session, uid).Scan(&agent, &dir, &at)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if dir == "" || at <= 0 {
+				continue
+			}
+			out = append(out, paneReport{id, agent, dir, at})
+			if at > p.DirAt {
+				p.Dir, p.DirAt = dir, at
+				doc.Tabs[i].Panes[id] = p
+			}
+		}
+	}
+	return out, nil
+}
+
+// pruneDeskPaneDirs forgets the reported folder of every pane doc lacks.
+func pruneDeskPaneDirs(tx *sql.Tx, uid int64, deskID string, doc desk.Doc) error {
+	rows, err := tx.Query(`SELECT pane_id FROM desk_pane_dirs WHERE user_id=? AND desk_id=?`, uid, deskID)
+	if err != nil {
+		return err
+	}
+	var gone []string
+	for rows.Next() {
+		var pane string
+		if err := rows.Scan(&pane); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, ok := findPane(&doc, pane); !ok {
+			gone = append(gone, pane)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, pane := range gone {
+		if _, err := tx.Exec(`DELETE FROM desk_pane_dirs WHERE user_id=? AND desk_id=? AND pane_id=?`, uid, deskID, pane); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeskPaneReportedDirFor returns the folder a machine itself last reported for
+// a pane's shell, and which machine (enrollment id) reported it. A folder a
+// browser wrote into the document is never one: only this record may open a
+// shell outside the machine's home.
+func (s *Store) DeskPaneReportedDirFor(uid int64, deskID, pane string) (agent, dir string, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT agent_id,dir FROM desk_pane_dirs WHERE user_id=? AND desk_id=? AND pane_id=?`, uid, deskID, pane).Scan(&agent, &dir)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return agent, dir, true, nil
 }
 
 // rewriteDesksTx applies edit to every listed desk of uid and saves those it

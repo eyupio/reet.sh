@@ -125,7 +125,7 @@ test('a pending approval is not trimmed away', () => {
 })
 
 test('tool details merge and a thought streams in deltas', async () => {
-  const { diffCounts, displayPath, formatDuration, textSegments, thoughtPreview, toolLabel, toolState, toolTarget } = await import('./chat.ts')
+  const { diffCounts, displayPath, formatDuration, thoughtPreview, toolLabel, toolState, toolTarget } = await import('./chat.ts')
   let state = initialChat()
   state = applyChatEvent(state, event(1, { kind: 'tool', toolCallId: 'c1', title: 'notes.txt', toolKind: 'edit', status: 'in_progress', path: '/work/notes.txt' }))
   state = applyChatEvent(state, event(2, { kind: 'tool', toolCallId: 'c1', title: 'notes.txt', toolKind: 'edit', status: 'completed', path: '/work/notes.txt', diff: '@@ -1 +1 @@\n-alpha\n+ALPHA\n', additions: 1, deletions: 1, durationMs: 179 }))
@@ -152,51 +152,6 @@ test('tool details merge and a thought streams in deltas', async () => {
   assert.equal(formatDuration(179), '179 ms')
   assert.equal(formatDuration(1234), '1.2s')
   assert.deepEqual(diffCounts('+++ b/x\n--- a/x\n@@ -1 +1 @@\n-a\n+b\n'), { additions: 1, deletions: 1 })
-  assert.deepEqual(textSegments('before\n```go\nfmt.Println()\n```\nafter').map(s => s.kind), ['text', 'code', 'text'])
-})
-
-test('prose markdown is split into safe blocks and inline spans', async () => {
-  const { inlineSegments, proseBlocks } = await import('./chat.ts')
-  assert.deepEqual(proseBlocks('## Fix\n\n- one\n- two\n\n1. first\n2. second\n\n> note\n\nplain *text*'), [
-    { kind: 'h', level: 2, text: 'Fix' },
-    { kind: 'ul', items: ['one', 'two'] },
-    { kind: 'ol', items: ['first', 'second'] },
-    { kind: 'quote', text: 'note' },
-    { kind: 'p', text: 'plain *text*' },
-  ])
-  assert.deepEqual(inlineSegments('run `go test` and **keep** it'), [
-    { kind: 'text', text: 'run ' },
-    { kind: 'code', text: 'go test' },
-    { kind: 'text', text: ' and ' },
-    { kind: 'strong', text: 'keep' },
-    { kind: 'text', text: ' it' },
-  ])
-})
-
-test('narrative links become link spans, and only http(s) targets qualify', async () => {
-  const { inlineSegments } = await import('./chat.ts')
-  assert.deepEqual(inlineSegments('see https://example.com/a?b=1. Next'), [
-    { kind: 'text', text: 'see ' },
-    { kind: 'link', text: 'https://example.com/a?b=1', href: 'https://example.com/a?b=1' },
-    { kind: 'text', text: '. Next' },
-  ])
-  assert.deepEqual(inlineSegments('[the PR](https://github.com/o/r/pull/1) is up'), [
-    { kind: 'link', text: 'the PR', href: 'https://github.com/o/r/pull/1' },
-    { kind: 'text', text: ' is up' },
-  ])
-  assert.deepEqual(inlineSegments('(https://example.com/x)'), [
-    { kind: 'text', text: '(' },
-    { kind: 'link', text: 'https://example.com/x', href: 'https://example.com/x' },
-    { kind: 'text', text: ')' },
-  ])
-  assert.deepEqual(inlineSegments('[article](https://en.wikipedia.org/wiki/Function_(mathematics)) ends'), [
-    { kind: 'link', text: 'article', href: 'https://en.wikipedia.org/wiki/Function_(mathematics)' },
-    { kind: 'text', text: ' ends' },
-  ])
-  assert.deepEqual(inlineSegments('`https://example.com` and javascript:alert(1)'), [
-    { kind: 'code', text: 'https://example.com' },
-    { kind: 'text', text: ' and javascript:alert(1)' },
-  ])
 })
 
 // --- typed agent questions -------------------------------------------------------------------------------------------

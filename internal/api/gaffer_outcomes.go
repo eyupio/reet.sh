@@ -230,6 +230,12 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "Reload this pipeline and confirm the merge.")
 		return
 	}
+	// An approval starts the merge stage, as the other controls that start
+	// work do: it is refused where remote sessions are off.
+	if !s.terminalEnabled() {
+		writeErr(w, 409, "Remote sessions are disabled on this controller, so the merge stage cannot be started.")
+		return
+	}
 	o, err := s.gafferProviders.ApproveMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
 	if err != nil {
 		gafferOutcomeError(w, err)

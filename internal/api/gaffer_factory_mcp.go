@@ -246,15 +246,30 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	}
 	if name == "reet_tell_pipeline_agent" {
 		m, err := s.gafferProviders.TellPipelineAgent(ctx, uid, id, key, str("request_id"), str("text"))
+		if errors.Is(err, store.ErrNotFound) {
+			// The outcome was read above, so what is missing is the session's chat.
+			return nil, errors.New("That pipeline’s session can no longer be told anything: its chat is not available to Gaffer. No instruction was queued.")
+		}
 		if err != nil {
 			return nil, err
 		}
 		s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key, "message": m.ID, "state": m.State})
 		m.Text = ""
-		return map[string]any{"message": m, "applied": true}, nil
+		// A receipt is not a delivery: an instruction the agent could not take
+		// (it is waiting on an approval, say) was not queued, and is not
+		// reported as applied. The same request_id reads that receipt again, so
+		// trying once more takes a new one.
+		out := map[string]any{"message": m, "applied": m.State != "blocked" && m.State != "failed"}
+		if out["applied"] == false {
+			out["note"] = "No instruction was queued. To try again, use a new request_id: this one keeps this receipt."
+		}
+		return out, nil
 	}
 	var o store.GafferOutcome
 	var err error
+	// applied says whether the call changed anything; a control that found
+	// nothing to do says so instead of reporting a change.
+	applied := true
 	switch name {
 	case "reet_start_outcome":
 		pipelines, perr := mcpPipelines(args["pipelines"])
@@ -264,11 +279,15 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		// The browser offers only the agents the project's machine can run as a
 		// chat. A client names one blind, so it is checked here: an outcome whose
 		// every pipeline would fail at launch is refused before it is saved.
+		// A machine that has not said what it can run is not taken to be able:
+		// the check refuses what it cannot confirm.
 		if project, perr := s.st.FolderProjectFor(uid, str("project_id")); perr == nil {
-			if caps, cerr := s.st.RemoteCapabilitiesFor(uid, project.Host); cerr == nil && caps.Capabilities.ACP {
-				if _, ok := caps.Capabilities.ChatAgent(str("agent")); !ok && terminalproto.ReviewedChatTool(str("agent")) {
-					return nil, errors.New("That agent cannot run a Gaffer chat on this project's machine right now: it is not installed there, is out of date, or its chat is switched off for this account. Nothing was started.")
-				}
+			caps, cerr := s.st.RemoteCapabilitiesFor(uid, project.Host)
+			if cerr != nil || !caps.Capabilities.ACP {
+				return nil, errors.New("This project’s machine has not reported that it can run agent chats: it is offline, has never connected, or is too old. Nothing was started.")
+			}
+			if _, ok := caps.Capabilities.ChatAgent(str("agent")); !ok && terminalproto.ReviewedChatTool(str("agent")) {
+				return nil, errors.New("That agent cannot run a Gaffer chat on this project's machine right now: it is not installed there, is out of date, or its chat is switched off for this account. Nothing was started.")
 			}
 		}
 		// The person's usual limits; no YOLO, no folder trust and no merge by itself can be asked for here.
@@ -296,20 +315,45 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		}
 		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, false, false)
 	case "reet_approve_pipeline_merge":
+		// An approval is of the pipeline as the caller read it. One that has
+		// changed since (sent back and done again, say) is different work, so
+		// an approval made earlier, or one Gaffer asked for and the person
+		// answered later, does not carry over to it.
+		seen, _ := args["seen_updated_at"].(float64)
+		stale := errors.New("That pipeline has changed since it was read, or seen_updated_at (the pipeline’s updated_at from that read) was not given. Nothing was approved. Read the outcome again and approve what is there now.")
+		if seen < 1 {
+			return nil, stale
+		}
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
-			return s.gafferProviders.ApproveMerge(uid, id, key, revision)
+			cur, err := s.gafferProviders.Outcome(uid, id)
+			if err != nil {
+				return cur, err
+			}
+			for _, piece := range cur.Sessions {
+				if piece.Key == key && piece.UpdatedAt != int64(seen) {
+					return cur, stale
+				}
+			}
+			return s.gafferProviders.ApproveMerge(uid, id, key, cur.Revision)
 		})
 	case "reet_stop_outcome":
 		// Stopping is everything the person means by it: nothing more starts,
 		// and nothing still moving is looked after.
+		var before int64
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
+			before = revision
 			return s.gafferProviders.StopFollowingOutcome(uid, id, revision)
 		})
+		// An outcome that had already finished is left as it is.
+		applied = err == nil && o.Revision != before
 	case "reet_report_outcome":
 		o, err = s.gafferProviders.ReviewOutcome(ctx, gaffer.Principal{UserID: uid, CanUseLocal: access.User.Role == "owner" || access.User.Role == "admin"}, id, 0)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if !applied {
+		return map[string]any{"outcome": s.mcpOutcome(uid, o, full), "applied": false, "note": "Nothing was changed: this outcome had already finished."}, nil
 	}
 	s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key})
 	return map[string]any{"outcome": s.mcpOutcome(uid, o, full), "applied": true}, nil

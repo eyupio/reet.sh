@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/elicore"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -283,5 +284,62 @@ func TestAToolCallSaysWhetherItsResultMayCarrySessionText(t *testing.T) {
 	}
 	if !SessionTextAllowed(context.Background()) {
 		t.Fatal("a call that is not Gaffer's is not restricted here")
+	}
+}
+
+// A tool whose result carries words a working agent wrote (a handover note, a
+// report) puts those words in front of the model. Whatever the model then asks
+// to change in the same turn waits for the person, even on Allow: text from a
+// working agent can propose a change but never make one.
+func TestAChangeAfterReadingSessionTextAsksEvenOnAllow(t *testing.T) {
+	reading := HostTool{Name: "reet_get_factory_outcome", Title: "Read one outcome", Description: "Read it.", Parameters: json.RawMessage(`{"type":"object","properties":{"outcome_id":{"type":"string"}}}`), ReadOnly: true, Mode: "allow", SessionText: true}
+	s, _, p, v, host, _, _ := hostFixture(t, []HostTool{readTool, reading, writeTool},
+		"reet_list_factory", `reet_get_factory_outcome {"outcome_id":"abc"}`, "reet_list_factory", `reet_stop_outcome {"outcome_id":"abc"}`, "I’ve asked to stop abc.")
+	turn := ask(t, s, p, v, "a", "Read abc and stop it.")
+	if turn.State != "completed" || len(turn.Tools) != 4 {
+		t.Fatalf("turn: %+v", turn)
+	}
+	if got := host.made(); len(got) != 3 || strings.Contains(strings.Join(got, " "), "reet_stop_outcome") {
+		t.Fatalf("a change ran after session text was read: %v", got)
+	}
+	if last := turn.Tools[3]; last.Name != "reet_stop_outcome" || last.State != "pending" || last.Mode != "ask" {
+		t.Fatalf("the change should wait for the person: %+v", last)
+	}
+	if !turn.Tools[1].SessionText || turn.Tools[0].SessionText {
+		t.Fatalf("which results carry session text: %+v", turn.Tools)
+	}
+	// Without session text in the turn, Allow still runs at once.
+	s2, _, p2, v2, host2, _, _ := hostFixture(t, []HostTool{readTool, reading, writeTool}, "reet_list_factory", `reet_stop_outcome {"outcome_id":"abc"}`, "Stopped.")
+	if again := ask(t, s2, p2, v2, "a", "Stop abc."); len(again.Tools) != 2 || again.Tools[1].State != "ran" || len(host2.made()) != 2 {
+		t.Fatalf("allow without session text: %+v", again.Tools)
+	}
+}
+
+// A later turn is told what earlier tools did. A result that carried session
+// text is not repeated to a provider that may no longer read session text.
+func TestStoredSessionTextIsNotReplayedToAProviderThatLostIt(t *testing.T) {
+	tools := []store.GafferTurnTool{
+		{Name: "reet_get_factory_outcome", Args: `{}`, State: "ran", Result: "HANDOVER_WORDS", SessionText: true},
+		{Name: "reet_list_factory", Args: `{}`, State: "ran", Result: "STATES_ONLY"},
+	}
+	if with := toolHistory(tools, true); !strings.Contains(with, "HANDOVER_WORDS") || !strings.Contains(with, "STATES_ONLY") {
+		t.Fatalf("allowed provider: %s", with)
+	}
+	without := toolHistory(tools, false)
+	if strings.Contains(without, "HANDOVER_WORDS") || !strings.Contains(without, "STATES_ONLY") || !strings.Contains(without, "reet_get_factory_outcome") {
+		t.Fatalf("provider without session text: %s", without)
+	}
+}
+
+// Starting an outcome carries up to five briefs of 8,000 bytes: a call that
+// size is a valid request, not a malformed one.
+func TestAToolCallMayCarryAFullOutcome(t *testing.T) {
+	big, _ := json.Marshal(map[string]any{"prompt": strings.Repeat("a", 48<<10)})
+	if _, err := hostToolArgs(elicore.ToolCall{ID: "c1", Arguments: big}); err != nil {
+		t.Fatalf("a full outcome was refused: %v", err)
+	}
+	huge, _ := json.Marshal(map[string]any{"prompt": strings.Repeat("a", 70<<10)})
+	if _, err := hostToolArgs(elicore.ToolCall{ID: "c1", Arguments: huge}); err == nil {
+		t.Fatal("an oversized call was accepted")
 	}
 }

@@ -109,8 +109,9 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", merge, `{"revision":1}`); code != 400 {
 		t.Fatalf("unconfirmed merge: %d", code)
 	}
-	if code, _ := gafferClient(t, owner, srv, "POST", merge, `{"revision":1,"confirmed":true}`); code != 404 {
-		t.Fatalf("merge of an unknown pipeline: %d", code)
+	// An approval starts the merge stage, so with remote sessions off it is refused like the other controls that start work.
+	if code, body := gafferClient(t, owner, srv, "POST", merge, `{"revision":1,"confirmed":true}`); code != 409 || !strings.Contains(body, "Remote sessions are disabled") {
+		t.Fatalf("merge with remote sessions off: %d %s", code, body)
 	}
 	// Trying again, adding pipelines and asking for a report are the owning browser's requests too.
 	base := "/api/v2/gaffer/outcomes/" + strings.Repeat("a", 32)

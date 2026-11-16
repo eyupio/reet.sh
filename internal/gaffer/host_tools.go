@@ -20,6 +20,9 @@ type HostTool struct {
 	Parameters  json.RawMessage
 	ReadOnly    bool
 	Mode        string
+	// SessionText says the tool's result can carry words a working agent
+	// wrote: a stage's handover note, or Gaffer's report built from them.
+	SessionText bool
 }
 
 // ToolHost runs reet's own tools for Gaffer. The controller installs it; the
@@ -110,9 +113,13 @@ func hostToolDefs(tools map[string]HostTool) []elicore.Tool {
 	return out
 }
 
+// maxHostToolArgs bounds one call's arguments. The largest valid call starts
+// an outcome: an objective and five briefs of 8,000 bytes each.
+const maxHostToolArgs = 64 << 10
+
 // hostToolArgs checks a model's call and returns its arguments as canonical JSON.
 func hostToolArgs(call elicore.ToolCall) (string, error) {
-	if strings.TrimSpace(call.ID) == "" || len(call.ID) > 128 || strings.ContainsAny(call.ID, "\x00\r\n") || len(call.Arguments) > 32<<10 {
+	if strings.TrimSpace(call.ID) == "" || len(call.ID) > 128 || strings.ContainsAny(call.ID, "\x00\r\n") || len(call.Arguments) > maxHostToolArgs {
 		return "", errors.New("Gaffer returned an invalid tool request. Nothing was run.")
 	}
 	raw := call.Arguments
@@ -138,7 +145,7 @@ func (s *Service) runHostTool(ctx context.Context, job *chatJob, c store.GafferC
 	if err != nil {
 		return "", false, err
 	}
-	record := store.GafferTurnTool{ID: id, Name: tool.Name, Args: args, Mode: tool.Mode, At: time.Now().UnixMilli()}
+	record := store.GafferTurnTool{ID: id, Name: tool.Name, Args: args, Mode: tool.Mode, At: time.Now().UnixMilli(), SessionText: tool.SessionText}
 	if tool.Mode == "ask" {
 		record.State = "pending"
 		turn.Tools = append(turn.Tools, record)
@@ -224,7 +231,10 @@ func (s *Service) AnswerTool(ctx context.Context, uid int64, conversation, turn,
 
 // toolHistory is what an earlier turn's tools did, added to that turn's
 // answer in the history so Gaffer knows what was run, declined or is waiting.
-func toolHistory(tools []store.GafferTurnTool) string {
+// sessionText is whether the provider about to read it may read session text:
+// where it may not, a result that carried such text is named but not repeated,
+// so text read under an earlier permission does not outlive it.
+func toolHistory(tools []store.GafferTurnTool, sessionText bool) string {
 	if len(tools) == 0 {
 		return ""
 	}
@@ -234,6 +244,10 @@ func toolHistory(tools []store.GafferTurnTool) string {
 		b.WriteString("\n- " + tool.Name + " " + clipBytes(tool.Args, 400) + ": ")
 		switch tool.State {
 		case "ran":
+			if tool.SessionText && !sessionText {
+				b.WriteString("ran. Its result is not repeated here: this provider may not read session text.")
+				break
+			}
 			b.WriteString("ran. Result: " + clipBytes(tool.Result, 1500))
 		case "failed":
 			b.WriteString("failed: " + clipBytes(tool.Result, 600))

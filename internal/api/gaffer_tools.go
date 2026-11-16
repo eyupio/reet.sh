@@ -43,6 +43,14 @@ func gafferToolGroup(name string, readOnly bool) string {
 
 func gafferToolOffered(name string) bool { return !mcpWorkerTool(name) && !mcpContextTool(name) }
 
+// gafferToolReturnsSessionText reports whether a tool's answer can carry
+// words a working agent wrote. The Factory's one-outcome read and every
+// Factory control answer with the outcome in full, handover notes and report
+// included; the two lists carry states and names only.
+func gafferToolReturnsSessionText(name string) bool {
+	return mcpFactoryTool(name) && name != "reet_list_factory" && name != "reet_list_factory_projects"
+}
+
 type gafferToolView struct {
 	Name        string `json:"name"`
 	Title       string `json:"title"`
@@ -107,7 +115,7 @@ func (h gafferToolHost) GafferTools(uid int64) []gaffer.HostTool {
 		if view.Mode == "off" || schemas[view.Name] == nil {
 			continue
 		}
-		out = append(out, gaffer.HostTool{Name: view.Name, Title: view.Title, Description: view.Description, Parameters: schemas[view.Name], ReadOnly: view.ReadOnly, Mode: view.Mode})
+		out = append(out, gaffer.HostTool{Name: view.Name, Title: view.Title, Description: view.Description, Parameters: schemas[view.Name], ReadOnly: view.ReadOnly, Mode: view.Mode, SessionText: gafferToolReturnsSessionText(view.Name)})
 	}
 	return out
 }

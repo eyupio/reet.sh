@@ -239,8 +239,8 @@ func (s *Service) remoteViews(ownerID int64) ([]RemoteView, error) {
 	out := make([]RemoteView, 0, len(remotes))
 	for _, r := range remotes {
 		out = append(out, RemoteView{
-			Name: r.Name, Source: r.Source, Endpoint: r.Endpoint, Region: r.Region,
-			Bucket: r.Bucket, Prefix: r.Prefix, AccessKey: r.AccessKey,
+			Name: r.Name, Source: r.Source, Endpoint: r.S3.Endpoint, Region: r.S3.Region,
+			Bucket: r.S3.Bucket, Prefix: r.S3.Prefix, AccessKey: r.S3.AccessKey,
 			PathStyle: r.S3.PathStyle, Keep: r.Keep, Disabled: r.Disabled,
 			HasSecret: r.S3.SecretKey != "", Where: r.S3.Where(), Problem: r.Problem,
 			Uploading: r.Uploading, LastUploadAt: r.LastUploadAt,
@@ -271,18 +271,38 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 		Scope: scopeOf(ownerID), Enabled: s.Usable(), Dir: s.cfg.Dir,
 		Key:      KeyView{Source: s.cfg.KeySource, Path: s.cfg.KeyPath},
 		Settings: settings, Remotes: remotes, Runs: runs, Items: items, Unreachable: unreachable,
+		Findings: []Finding{},
 		Defaults: Defaults{
 			EverySeconds: int64(s.cfg.Every / time.Second), Keep: s.cfg.Keep,
 			UserEvery: int64(s.cfg.UserEvery / time.Second), UserKeep: s.cfg.UserKeep,
 			Destination: effectiveDestination(s.cfg.Destination),
 			Compression: effectiveCompression(s.cfg.Compression),
 		},
-		Findings: append([]Finding(nil), s.cfg.Findings...),
 	}
 	if s.cfg.Sealer != nil {
 		view.Key.Fingerprint = s.cfg.Sealer.Fingerprint()
 	}
+	if ownerID == 0 {
+		// Startup findings only know environment defaults. Destination and schedule
+		// warnings must use the current saved settings and all runtime remotes.
+		for _, f := range s.cfg.Findings {
+			if f.Code != "backup.no_offsite" && f.Code != "backup.instance_off" {
+				view.Findings = append(view.Findings, f)
+			}
+		}
+		if settings.EverySeconds == 0 {
+			view.Findings = append(view.Findings, Finding{Severity: "info", Code: "backup.instance_off",
+				Message: "Scheduled backups are off. Take copies manually or set an interval under Schedule."})
+		}
+	} else {
+		// A person's page must not disclose the server's paths or key details.
+		view.Dir = ""
+		view.Key = KeyView{}
+	}
 	for _, r := range remotes {
+		if r.Disabled {
+			continue
+		}
 		if r.Problem != "" {
 			view.Findings = append(view.Findings, Finding{Severity: "error", Code: "backup.remote_unusable",
 				Message: r.Name + ": " + r.Problem})
@@ -294,33 +314,13 @@ func (s *Service) Status(ctx context.Context, ownerID int64) (StatusView, error)
 	}
 	if settings.Destination == store.DestinationRemote && !anyUsableRemote(remotes) {
 		view.Findings = append(view.Findings, Finding{Severity: "error", Code: "backup.no_offsite",
-			Message: "Copies are set to go off-site only, but no destination is enabled and usable; every copy will fail until one is added and tested."})
-	}
-	if ownerID != 0 {
-		// A person's page is not the place to disclose the server's key path or
-		// the instance's configuration findings; it only needs to know whether
-		// their own copies leave this machine.
-		view.Dir = ""
-		view.Key = KeyView{}
-		enabled := 0
-		for _, r := range remotes {
-			if !r.Disabled && r.Problem == "" {
-				enabled++
-			}
+			Message: "Copies are set to go off-site only, but no destination is enabled and usable. Add and test a destination before taking another copy."})
+	} else if settings.Destination == store.DestinationLocal || !anyUsableRemote(remotes) {
+		message := "No enabled, usable off-site destination is configured. Add and test an S3-compatible destination to protect new copies off this machine."
+		if settings.Destination == store.DestinationLocal {
+			message = "New copies are set to stay on this machine only. Select off-site or both under Schedule to protect them if this machine is lost."
 		}
-		view.Findings = view.Findings[:0]
-		for _, r := range remotes {
-			if r.Problem != "" {
-				view.Findings = append(view.Findings, Finding{Severity: "error", Code: "backup.remote_unusable", Message: r.Name + ": " + r.Problem})
-			}
-			if r.LastError != "" {
-				view.Findings = append(view.Findings, Finding{Severity: "error", Code: "backup.remote_upload_failed", Message: r.Name + ": " + r.LastError})
-			}
-		}
-		if enabled == 0 {
-			view.Findings = append(view.Findings, Finding{Severity: "warning", Code: "backup.no_offsite",
-				Message: "Your copies are on this machine only. Add an S3-compatible destination here to keep them somewhere else too."})
-		}
+		view.Findings = append(view.Findings, Finding{Severity: "warning", Code: "backup.no_offsite", Message: message})
 	}
 	return view, nil
 }

@@ -18,6 +18,28 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## A pull request appears in the stages as it is made (16 November 2026)
+
+The owner created a pull request in a session and the right-hand panel still showed **PR — Not yet** with the other
+stages to come. The machine read was fine (the same read returns the pull request now); the panel simply reads GitHub
+at most once every two minutes, so a pull request created moments before the look was invisible, and **Next** said
+"Nothing needs you right now" with unwarranted confidence.
+
+- **Cadence.** The visible session's GitHub read now runs every 20 seconds while the session is working and every two
+  minutes while it is quiet (`githubCadenceMs` in `pullFacts.ts`, used by `backgroundGitHub` in `ContextPanel.svelte`).
+  It is the existing store-backed read, so the stages, the pull request card and the navigation all take it up; the
+  navigation's own background clock for other sessions is unchanged. This covers terminal sessions and a panel opened
+  after the pull request exists, which a command-triggered read did not.
+- **Cost.** One visible session makes two `gh` requests a read, so about six a minute while working — well inside
+  GitHub's limits; quiet sessions and other sessions in the navigation keep the slower clock.
+- **Validation.** `pullFacts.test.mjs` holds the two clocks and their boundary (a stored answer is due at, not before,
+  the cadence). `npm run check` passes.
+- **CI.** Two Gaffer tests that raced after merging main are fixed: the audit test now waits for the background
+  hand-over to end the previous stage's session, and the question test gives the rig's provider a reply because its
+  supervisor may ask the model while the test only checks `pipelineStop` (b75045d4). Both pass repeatedly under
+  `go test -race ./internal/gaffer`.
+- **PR.** [#812](https://github.com/eyupio/reet.sh/pull/812) on `reet/reet-da349d2dcba62110d9c98f373d5bfbc3`.
+
 ## FACTORY-BALANCE-1: stages balanced across plans (16 November 2026)
 
 The owner asked for stages to use one agent or model over another when it has more of its plan left.

@@ -8,7 +8,11 @@ import { openWorkspace } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const only = process.env.REET_E2E_ONLY
-const run = name => !only || only === name
+const run = name => {
+  const selected = !only || only === name
+  if (selected) console.log(`Checking ${name}`)
+  return selected
+}
 
 const now = Date.now()
 const DAY = 86_400_000
@@ -124,10 +128,92 @@ const copies = page => page.getByRole('region', { name: 'Backup copies' })
 const runs = page => page.getByRole('region', { name: 'Recent runs' })
 const count = panel => panel.getByRole('status').first()
 const tab = (page, name) => page.getByRole('tablist', { name: 'Backup sections' }).getByRole('tab', { name })
-const openTab = async (page, name) => { await tab(page, name).click(); await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true') }
+const openAdmin = async (page, label) => {
+  const nav = page.getByRole('navigation', { name: 'Admin', exact: true })
+  await expect(nav).toBeVisible()
+  const menu = nav.locator('details.mobile > summary')
+  if (await menu.isVisible() && await nav.locator('details.mobile').getAttribute('open') === null) await menu.click()
+  await nav.getByRole('link', { name: label, exact: true }).click()
+}
+const openTab = async (page, name) => {
+  if (name.test('Move')) {
+    await openAdmin(page, 'Move')
+    await expect(page).toHaveURL(`${base}/admin/move`)
+    return
+  }
+  if (page.url().endsWith('/admin/move')) await openAdmin(page, 'Backups')
+  await tab(page, name).click()
+  await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true')
+}
 const scope = (page, group, name) => page.getByRole('group', { name: group }).getByRole('button', { name })
 
 try {
+  if (run('overview-locations')) {
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390, 320]) {
+        const remoteOnly = { ...backup, settings: { ...backup.settings, destination: 'remote' }, findings: [], items: Array.from({ length: 27 }, (_, i) => ({ ...backup.items[1], id: `remote-${i}` })) }
+        const { context, page, errors } = await open({ width, theme, touch: width < 500, routes: { ...routes(), '/api/v2/admin/backups': remoteOnly } })
+        await page.goto(`${base}/admin/backups`)
+        await expect(page.getByRole('heading', { name: 'Off-site copies available' })).toBeVisible()
+        await expect(page.locator('.cards article').filter({ has: page.getByRole('heading', { name: 'Off-site copies', exact: true }) }).locator('p')).toHaveText('27')
+        await expect(page.locator('.cards article').filter({ has: page.getByRole('heading', { name: 'On this machine', exact: true }) }).locator('p')).toHaveText('0')
+        await expect(page.getByRole('heading', { name: 'Needs attention' })).toHaveCount(0)
+        await expect(page.getByText('Successful off-site uploads leave no local copy.')).toBeVisible()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        if (process.env.REET_UI_SCREENSHOTS && width !== 320) await page.screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/backups-overview-${width}-${theme}.png`, fullPage: true })
+        await page.getByRole('button', { name: 'View local copies' }).click()
+        await expect(count(copies(page))).toHaveText('0 of 27 copies')
+        await openTab(page, /^Schedule/)
+        await expect(page.getByLabel('Where copies go')).toHaveValue('remote')
+        await expect(page.getByText('Removed locally after a successful upload. Kept locally only if all uploads fail.')).toBeVisible()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        if (process.env.REET_UI_SCREENSHOTS && width !== 320) await page.screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/backups-schedule-${width}-${theme}.png`, fullPage: true })
+        await openTab(page, /^Destinations/)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        expect(errors).toEqual([])
+        await context.close()
+      }
+    }
+  }
+
+  if (run('overview-mixed')) {
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/admin/backups`)
+    for (const heading of ['Off-site copies', 'On this machine']) await expect(page.locator('.cards article').filter({ has: page.getByRole('heading', { name: heading, exact: true }) }).locator('p')).toHaveText('2')
+    await expect(page.getByText('3 unique copies in total', { exact: false })).toBeVisible()
+    await page.getByRole('link', { name: 'Move', exact: true }).click()
+    await expect(page).toHaveURL(`${base}/admin/move`)
+    await expect(moveIn(page)).toBeVisible()
+    await expect(page.getByRole('tablist', { name: 'Backup sections' })).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  if (run('overview-unreachable')) {
+    const { context, page, errors } = await open({ routes: { ...routes(), '/api/v2/admin/backups': { ...backup, findings: [], unreachable: ['s3-eu'] } } })
+    await page.goto(`${base}/admin/backups`)
+    await expect(page.getByRole('heading', { name: 'Backups need attention' })).toBeVisible()
+    await expect(page.getByText('Off-site counts may be incomplete', { exact: false })).toBeVisible()
+    await openTab(page, /^Copies/)
+    await expect(page.getByRole('alert')).toContainText('Off-site counts may be incomplete')
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  if (run('manual-upload-failure')) {
+    const remoteOnly = { ...backup, settings: { ...backup.settings, destination: 'remote' } }
+    const { context, page, errors } = await open({ routes: { ...routes(),
+      '/api/v2/admin/backups': remoteOnly,
+      '/api/v2/admin/backups/run': { ...backup.items[0], id: 'recovery', remotes: [] },
+    } })
+    await page.goto(`${base}/admin/backups`)
+    await page.getByRole('button', { name: 'Back up the instance now' }).click()
+    await expect(page.getByRole('alert')).toContainText('The off-site upload failed. A recovery copy was kept on this machine.')
+    await expect(page.getByRole('status').filter({ hasText: 'Took recovery' })).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   if (run('copies')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/admin/backups`)
@@ -328,8 +414,9 @@ try {
     await expect(tab(page, /^Copies/)).toHaveAttribute('aria-selected', 'true')
     await expect(copies(page)).toBeVisible()
     await page.keyboard.press('End')
-    await expect(tab(page, /^Move/)).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByText('Move a controller in')).toBeVisible()
+    await expect(tab(page, /^Runs/)).toHaveAttribute('aria-selected', 'true')
+    await expect(tab(page, /^Move/)).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Move', exact: true })).toHaveAttribute('href', '/admin/move')
     await openTab(page, /^Schedule/)
     await expect(page.getByRole('heading', { name: 'Schedule and retention' })).toBeVisible()
     expect(errors).toEqual([])
@@ -405,6 +492,11 @@ try {
       await expect(page.getByText('Only the owner can lift the fence.', { exact: false })).toBeVisible()
       await expect(moveAway(page)).toHaveCount(0)
       await expect(moveIn(page)).toHaveCount(0)
+      await page.goto(`${base}/admin/move`)
+      await expect(page.getByRole('heading', { name: 'Move', exact: true })).toBeVisible()
+      await expect(page.getByText('Only the instance owner can move this controller.')).toBeVisible()
+      await expect(moveAway(page)).toHaveCount(0)
+      await expect(moveIn(page)).toHaveCount(0)
       expect(errors).toEqual([])
       await context.close()
     }
@@ -475,7 +567,7 @@ try {
       const strip = page.locator('.fence-strip')
       await expect(strip).toContainText('This controller is fenced.')
       await expect(strip).toContainText('It has moved to https://reet.new.example.')
-      await expect(strip.getByRole('link', { name: 'Open Backups' })).toHaveAttribute('href', '/admin/backups')
+      await expect(strip.getByRole('link', { name: 'Open Move' })).toHaveAttribute('href', '/admin/move')
       // Backups says it in full, so the line is not repeated above it.
       await page.goto(`${base}/admin/backups`)
       await expect(page.getByText('This controller is fenced.')).toHaveCount(1)

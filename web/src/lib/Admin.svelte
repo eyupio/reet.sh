@@ -14,6 +14,7 @@
   import AdminNotifications from './AdminNotifications.svelte'
   import AdminTickets from './AdminTickets.svelte'
   import Backups from './Backups.svelte'
+  import ControllerMove from './ControllerMove.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import { EVENT_CATEGORIES, eventCategory, eventLabel, eventTitle, type EventCategory } from './events'
@@ -29,12 +30,12 @@
   const sections = [
     { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
     ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
-    ...(supportDesk ? [{ key: 'support', label: 'Support' }] : []), { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
+    ...(supportDesk ? [{ key: 'support', label: 'Support' }] : []), { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, ...(role === 'owner' ? [{ key: 'move', label: 'Move' }] : []), { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
   ]
   const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
   const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'
-  const section = sections.some(s => s.key === requested) ? requested : 'overview'
-  const sectionTitle = sections.find(s => s.key === section)!.label
+  const section = requested === 'move' || sections.some(s => s.key === requested) ? requested : 'overview'
+  const sectionTitle = section === 'move' ? 'Move' : sections.find(s => s.key === section)!.label
   const descriptions: Record<string, string> = {
     overview: 'Keep the place running reet. Check health, jobs and storage.',
     environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',
@@ -44,6 +45,7 @@
     notifications: 'Set what staff and people are told by default, and for which staff roles.',
     email: 'Set the one mail server every message goes through, and watch the outbox.',
     backups: 'Protect the whole instance with encrypted backups.',
+    move: 'Move this controller to another machine or bring an existing controller here.',
     settings: 'Configure background jobs, sharing and usage privacy.',
     activity: 'Recent changes across the instance.',
   }
@@ -833,6 +835,9 @@
       <Backups {onerror} {role} admin />
     </div>
 
+    {/if}
+    {#if section === 'move'}
+      <ControllerMove {onerror} {role} />
     {/if}
     {#if section === 'settings'}
       {#if isOwner}

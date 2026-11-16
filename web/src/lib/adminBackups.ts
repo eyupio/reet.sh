@@ -77,3 +77,23 @@ export function backupRunCountLabel(shown: number, total: number): string {
   if (shown === total) return `${total} ${total === 1 ? 'run' : 'runs'}`
   return `${shown} of ${total} runs`
 }
+
+// Match the service's readiness check; a disabled or incomplete destination
+// must not make a remote-only schedule look ready.
+export function backupRemoteReady(remote: Pick<import('./api').BackupRemote, 'disabled' | 'problem' | 'hasSecret' | 'endpoint'>): boolean {
+  return !remote.disabled && !remote.problem && remote.hasSecret && !!remote.endpoint
+}
+
+export function backupRunLocation(run: BackupRun): string {
+  if (!run.offsite || run.offsite === 'skipped') return run.object ? 'This machine only' : 'No off-site copy recorded'
+  try {
+    const results: unknown = JSON.parse(run.offsite)
+    if (results && typeof results === 'object' && !Array.isArray(results)) {
+      const entries = Object.entries(results)
+      const sent = entries.filter(([, error]) => error === '').map(([name]) => name)
+      const failed = entries.filter(([, error]) => error !== '').map(([name]) => name)
+      return [sent.length ? `Off-site: ${sent.join(', ')}` : '', failed.length ? `Upload failed: ${failed.join(', ')}` : ''].filter(Boolean).join(' · ') || 'No off-site copy recorded'
+    }
+  } catch { /* Older run records stored a plain destination name. */ }
+  return run.offsite
+}

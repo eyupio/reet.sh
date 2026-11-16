@@ -79,6 +79,12 @@ export function githubReadDue({ auto, canRead, hidden, pending, busy, hasStored,
 // The GitHub tab's own threshold: past it, its footer says "Last known" too.
 export const GITHUB_STALE_MS = 180_000
 
+// The panel's GitHub cadence. A working session is read often enough that a push or a pull request
+// the agent makes appears in the stages soon after; a quiet one is read on the slower clock.
+export const GITHUB_WORKING_MS = 20_000
+export const GITHUB_QUIET_MS = 120_000
+export function githubCadenceMs(working: boolean): number { return working ? GITHUB_WORKING_MS : GITHUB_QUIET_MS }
+
 export type GitHubFreshness = { canRead: boolean; checkedAt?: number; now: number }
 
 /** Whether a GitHub read shown on the Overview must be marked "Last known": the machine cannot be read now, or the read is

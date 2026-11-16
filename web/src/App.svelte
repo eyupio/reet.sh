@@ -1094,9 +1094,9 @@
   {/if}
 </header>
 {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-  <!-- The session workspace fills the viewport to the pixel and Backups says the same thing in full, so both keep the
+  <!-- The session workspace fills the viewport to the pixel; Backups and Move say the same thing in full. They keep the
        listening and drop the line. -->
-  <FenceStrip admin={isAdminUser} quiet={terminalLayout || deskScreen || location.pathname === '/admin/backups'} {timeZone} {dateFormat} />
+  <FenceStrip admin={isAdminUser} quiet={terminalLayout || deskScreen || ['/admin/backups', '/admin/move'].includes(location.pathname)} {timeZone} {dateFormat} />
 {/if}
 <main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:desks-layout={desksLayout} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}

@@ -5,7 +5,7 @@ import ts from 'typescript'
 
 const { outputText } = ts.transpileModule(readFileSync(new URL('./adminBackups.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
 const {
-  backupCopyCountLabel, backupCopyMatchesSearch, backupCopyScopeCounts, backupRunCountLabel,
+  backupRemoteReady, backupRunLocation, backupCopyCountLabel, backupCopyMatchesSearch, backupCopyScopeCounts, backupRunCountLabel,
   backupRunMatchesSearch, backupRunScopeCounts, filterBackupCopies, filterBackupRuns,
 } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
@@ -75,4 +75,22 @@ test('the counts say N copies or N of M copies, and N runs or N of M runs', () =
   assert.equal(backupRunCountLabel(0, 0), 'No runs')
   assert.equal(backupRunCountLabel(1, 1), '1 run')
   assert.equal(backupRunCountLabel(2, 3), '2 of 3 runs')
+})
+
+
+test('only enabled destinations with a usable secret and endpoint are ready', () => {
+  const ready = { disabled: false, hasSecret: true, endpoint: 'https://r2.example', problem: '' }
+  assert.equal(backupRemoteReady(ready), true)
+  for (const change of [{ disabled: true }, { hasSecret: false }, { endpoint: '' }, { problem: 'cannot open secret' }]) {
+    assert.equal(backupRemoteReady({ ...ready, ...change }), false)
+  }
+})
+
+test('run destinations explain successful and failed uploads without exposing raw JSON', () => {
+  assert.equal(backupRunLocation(run({ offsite: '{"cloudflare":""}' })), 'Off-site: cloudflare')
+  assert.equal(backupRunLocation(run({ offsite: '{"cloudflare":"","b2":"access denied"}' })), 'Off-site: cloudflare · Upload failed: b2')
+  assert.equal(backupRunLocation(run({ offsite: '{"cloudflare":"access denied"}' })), 'Upload failed: cloudflare')
+  assert.equal(backupRunLocation(run({ offsite: 'skipped' })), 'This machine only')
+  assert.equal(backupRunLocation(run({ offsite: '', object: '' })), 'No off-site copy recorded')
+  assert.equal(backupRunLocation(run({ offsite: 'old-s3' })), 'old-s3')
 })

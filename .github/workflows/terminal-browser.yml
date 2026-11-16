@@ -89,6 +89,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
+          node web/tests/workbench.e2e.mjs
           node web/tests/public-workspace.e2e.mjs
           node web/tests/first-run.e2e.mjs
           node web/tests/session-board.e2e.mjs
@@ -103,7 +104,6 @@ jobs:
           node web/tests/first-machine.e2e.mjs
           node web/tests/first-skills.e2e.mjs
           node web/tests/empty-states.e2e.mjs
-          node web/tests/workbench.e2e.mjs
           node web/tests/lists.e2e.mjs
           node web/tests/community.e2e.mjs
           node web/tests/supporting-nav.e2e.mjs

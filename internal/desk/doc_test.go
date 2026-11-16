@@ -211,3 +211,17 @@ func TestRepointHost(t *testing.T) {
 		t.Fatal("expected no change")
 	}
 }
+
+func TestParseNormalisesEmpties(t *testing.T) {
+	d, err := Parse([]byte(`{"tabs":null,"active":""}`))
+	if err != nil || d.Tabs == nil || len(d.Tabs) != 0 {
+		t.Fatalf("%v %#v", err, d.Tabs)
+	}
+	d, err = Parse([]byte(`{"tabs":[{"id":"t1","name":"","colour":"","root":null,"zoomed":"","active":""}],"active":"t1"}`))
+	if err != nil || d.Tabs[0].Panes == nil {
+		t.Fatalf("%v %#v", err, d.Tabs)
+	}
+	if raw, _ := json.Marshal(d); !strings.Contains(string(raw), `"panes":{}`) {
+		t.Fatal(string(raw))
+	}
+}

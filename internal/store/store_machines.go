@@ -81,6 +81,21 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 		if running > 0 {
 			return errors.New("wait for the machine's running job before renaming its reports")
 		}
+		// Desk panes name a machine by enrollment id. Merging renames, so the
+		// id normally stays; if the two names each had one, panes follow it.
+		sourceAgents, err := agentIDsForHost(tx, userID, source)
+		if err != nil {
+			return err
+		}
+		destAgents, err := agentIDsForHost(tx, userID, destination)
+		if err != nil {
+			return err
+		}
+		if len(sourceAgents) == 1 && len(destAgents) == 1 {
+			if err := repointDeskHostsTx(tx, userID, sourceAgents[0], destAgents[0]); err != nil {
+				return err
+			}
+		}
 		// An alias belonging to another report selects that report’s preferred name.
 		to = destination
 		// Pending work is cancelled before the reports move, so an install's
@@ -240,6 +255,14 @@ func (s *Store) ForgetMachineFor(userID int64, host string) error {
 	}
 	// Retain aliases so a future scan cannot resurrect duplicate names.
 	return s.withTx(func(tx *sql.Tx) error {
+		// Desk panes on the machine lose their shell, as its sessions go.
+		agents, err := agentIDsForHost(tx, userID, host)
+		if err != nil {
+			return err
+		}
+		if err := clearDeskSessionsForHostsTx(tx, userID, agents); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM environments WHERE user_id=? AND host=? COLLATE NOCASE`, userID, host); err != nil {
 			return fmt.Errorf("forget machine: %w", err)
 		}

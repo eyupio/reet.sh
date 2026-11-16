@@ -99,8 +99,14 @@ func Parse(data []byte) (Doc, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return Doc{}, invalid("trailing data after document")
 	}
+	if d.Tabs == nil {
+		d.Tabs = []Tab{}
+	}
 	for i := range d.Tabs {
 		clampTree(d.Tabs[i].Root)
+		if d.Tabs[i].Panes == nil {
+			d.Tabs[i].Panes = map[string]Pane{}
+		}
 	}
 	if err := d.Validate(); err != nil {
 		return Doc{}, err

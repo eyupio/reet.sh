@@ -919,7 +919,9 @@ try {
   resetInstall()
   await page.setViewportSize({ width: 390, height: 844 })
   // A phone opens a chat in focus, where Skills waits behind Exit focus.
-  { const exit = page.getByRole('button', { name: 'Exit focus mode', exact: true }); if (await exit.count()) await exit.click() }
+  await expect(page.locator('.session-screen')).toHaveClass(/focus/)
+  await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
+  await expect(page.locator('.session-screen')).not.toHaveClass(/focus/)
   await openPanel(); await confirmInstall()
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'a-very-long-skill-name-that-has-to-wrap-inside-the-narrow-sheet-without-scrolling' } }])
   await poll()
@@ -939,7 +941,7 @@ try {
   // A phone opens Gaffer in super focus: the site chrome, the workspace toolbar, the session's secondary controls and
   // the composer's own (Skills, the model and the rest) step aside, and the narrative and the message field keep the
   // screen. Exit focus restores them. The install check above left focus to reach Skills, so it is turned back on.
-  { const on = page.getByRole('button', { name: 'Focus mode', exact: true }); if (await on.count()) await on.click() }
+  await page.getByRole('button', { name: 'Focus mode', exact: true }).click()
   const focusScreen = page.locator('.session-screen')
   await expect(focusScreen).toHaveClass(/focus/)
   await expect(page.locator('.site-header')).toBeHidden()

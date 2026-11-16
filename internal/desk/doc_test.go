@@ -93,6 +93,9 @@ func TestValidate(t *testing.T) {
 			d.Tabs[0].Panes["p1"] = p
 		}), false},
 		{"duplicate tab id", mut(func(d *Doc) { d.Tabs = append(d.Tabs, Tab{ID: "t1", Panes: map[string]Pane{}}) }), false},
+		{"pane id in two tabs", mut(func(d *Doc) {
+			d.Tabs = append(d.Tabs, Tab{ID: "t2", Root: leaf("p1"), Panes: map[string]Pane{"p1": pane("p1")}})
+		}), false},
 		{"duplicate session", mut(func(d *Doc) {
 			twoPanes(d)
 			for _, id := range []string{"p1", "p2"} {

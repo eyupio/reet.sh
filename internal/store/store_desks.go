@@ -363,7 +363,8 @@ func (s *Store) ReorderDesksFor(uid int64, ids []string) error {
 	})
 }
 
-// findPane returns the pane id in whichever tab holds it.
+// findPane returns the tab holding the pane. Pane ids are unique across a desk
+// (desk.Doc.Validate enforces it), so at most one tab matches.
 func findPane(doc *desk.Doc, pane string) (*desk.Tab, bool) {
 	for i := range doc.Tabs {
 		if _, ok := doc.Tabs[i].Panes[pane]; ok {

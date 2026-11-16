@@ -140,13 +140,14 @@ func (d Doc) Validate() error {
 	}
 	tabs := map[string]bool{}
 	sessions := map[string]bool{}
+	paneIDs := map[string]bool{} // pane ids are unique across the whole desk
 	for i := range d.Tabs {
 		t := &d.Tabs[i]
 		if t.ID == "" || tabs[t.ID] {
 			return invalid("tab id %q empty or repeated", t.ID)
 		}
 		tabs[t.ID] = true
-		if err := t.validate(sessions); err != nil {
+		if err := t.validate(sessions, paneIDs); err != nil {
 			return err
 		}
 	}
@@ -156,7 +157,7 @@ func (d Doc) Validate() error {
 	return nil
 }
 
-func (t *Tab) validate(sessions map[string]bool) error {
+func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 	if utf8.RuneCountInString(t.Name) > MaxName {
 		return invalid("tab name over %d characters", MaxName)
 	}
@@ -176,6 +177,10 @@ func (t *Tab) validate(sessions map[string]bool) error {
 		}
 	}
 	for id, p := range t.Panes {
+		if paneIDs[id] {
+			return invalid("pane id %q in more than one tab", id)
+		}
+		paneIDs[id] = true
 		if !inTree[id] {
 			return invalid("pane %q is not in the tree", id)
 		}

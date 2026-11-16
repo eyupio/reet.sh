@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,5 +129,52 @@ func TestAnOutcomeAskedForTwiceUnderOneRequestStartsOnce(t *testing.T) {
 	in.RequestID = "not-an-id"
 	if _, err = r.s.CreateOutcome(r.p.UserID, in); err == nil {
 		t.Fatal("a malformed request id was accepted")
+	}
+}
+
+// Trying again while the machine cannot be reached proves nothing about the
+// launch that answered late: its request is kept, so the retry that does
+// reach the machine still finds that session instead of starting a second.
+func TestALateLaunchIsStillTakenUpAfterARetryThatCouldNotReachTheMachine(t *testing.T) {
+	wait := outcomeStartWait
+	outcomeStartWait = 150 * time.Millisecond
+	t.Cleanup(func() { outcomeStartWait = wait })
+	r := outcomeFixture(t)
+	r.in.Sessions = r.in.Sessions[:1]
+	r.starter.late = "Export API"
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	late := failed.UnsureRequest
+	if late == "" {
+		t.Fatalf("the unanswered launch was not remembered: %+v", failed)
+	}
+	outcomeStartWait = wait
+	// The machine is offline for the first retry.
+	r.starter.mu.Lock()
+	r.starter.offline = true
+	r.starter.mu.Unlock()
+	o := r.settle(t, created.ID)
+	if _, err = r.s.RetryPipeline(r.p.UserID, created.ID, failed.Key, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" && p.Note != failed.Note })
+	if again.UnsureRequest != late || !strings.Contains(again.Note, "offline") {
+		t.Fatalf("an unreachable machine was taken as proof the launch failed: %+v", again)
+	}
+	// Back online: the session that started late is the one followed.
+	r.starter.mu.Lock()
+	r.starter.offline = false
+	r.starter.mu.Unlock()
+	o = r.settle(t, created.ID)
+	if _, err = r.s.RetryPipeline(r.p.UserID, created.ID, failed.Key, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	followed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if r.starter.sessions() != 1 || followed.UnsureRequest != "" {
+		t.Fatalf("a second session was started: %d sessions, %+v", r.starter.sessions(), followed)
 	}
 }

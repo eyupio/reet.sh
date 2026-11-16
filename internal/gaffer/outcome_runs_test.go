@@ -41,6 +41,9 @@ type outcomeStarterFake struct {
 	// late names a title whose first launch starts its session on the
 	// machine and then never answers in time.
 	late string
+	// offline answers every launch as a machine that cannot be reached: the
+	// request says nothing about whether an earlier one started anything.
+	offline bool
 }
 
 // sessions is how many sessions were really started.
@@ -69,6 +72,12 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	f.mu.Unlock()
 	if f.entered != nil {
 		f.once.Do(func() { close(f.entered) })
+	}
+	f.mu.Lock()
+	offline := f.offline
+	f.mu.Unlock()
+	if offline {
+		return "", "", LaunchUnknown("That machine is offline.")
 	}
 	if hold != nil && (f.holdOnly == "" || f.holdOnly == in.Title) {
 		select {

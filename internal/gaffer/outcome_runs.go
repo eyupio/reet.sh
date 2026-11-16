@@ -56,6 +56,21 @@ type SessionChoiceReader interface {
 	OutcomeSessionChoice(ctx context.Context, uid int64, sessionID string) (SessionChoice, error)
 }
 
+// ErrLaunchUnknown marks a launch error that says nothing about whether a
+// session was started: the machine could not be reached or did not answer.
+// A refusal by the machine is not one. The controller keeps an unanswered
+// launch's request until it gets an answer that is.
+var ErrLaunchUnknown = errors.New("the launch could not be confirmed either way")
+
+type launchUnknown struct{ message string }
+
+func (e launchUnknown) Error() string        { return e.message }
+func (e launchUnknown) Is(target error) bool { return target == ErrLaunchUnknown }
+
+// LaunchUnknown is an error a SessionStarter returns when it could not reach
+// the machine. Its text is shown to the person as it is.
+func LaunchUnknown(message string) error { return launchUnknown{message} }
+
 // SessionEnder ends a session the controller started for a pipeline, once
 // the pipeline has finished with it. The session's history is kept.
 type SessionEnder interface {
@@ -1107,36 +1122,47 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if starter == nil {
 			return false
 		}
-		// ask makes one launch request and says whether it ran out of time.
-		ask := func(request string) (string, string, error, bool) {
+		// ask makes one launch request. unknown says the answer tells nothing
+		// about whether a session started: the machine did not answer in time
+		// (late), or could not be reached at all.
+		ask := func(request string) (id, dir string, err error, unknown, late bool) {
 			in := launch
 			in.RequestID = request
 			startCtx, cancel := context.WithTimeout(ctx, outcomeStartWait)
 			defer cancel()
-			id, dir, err := starter.StartOutcomeSession(startCtx, uid, in)
-			return id, dir, err, err != nil && startCtx.Err() == context.DeadlineExceeded
+			id, dir, err = starter.StartOutcomeSession(startCtx, uid, in)
+			if err == nil {
+				return id, dir, nil, false, false
+			}
+			unreachable := errors.Is(err, ErrLaunchUnknown)
+			late = !unreachable && startCtx.Err() == context.DeadlineExceeded
+			return id, dir, err, unreachable || late, late
 		}
 		var started, workDir string
 		var err error
-		unsure, timedOut := item.UnsureRequest, false
-		if unsure != "" && unsure != launch.RequestID {
+		unsure, unknown, late := item.UnsureRequest, false, false
+		if unsure == launch.RequestID {
+			unsure = ""
+		}
+		if unsure != "" {
 			// An earlier launch was not answered in time and may have started
 			// its session all the same. Its request is asked again first: a
 			// session it started is taken up, and only a launch that is known
-			// to have failed is asked for afresh.
-			started, workDir, err, timedOut = ask(unsure)
+			// to have failed is asked for afresh. A machine that cannot be
+			// reached now is not that knowledge, so the request is kept.
+			started, workDir, err, unknown, late = ask(unsure)
 			if ctx.Err() != nil {
 				return false
 			}
-			if err != nil && !timedOut {
+			if err != nil && !unknown {
 				unsure = ""
 			}
-		} else {
-			unsure = ""
 		}
 		if unsure == "" {
-			started, workDir, err, timedOut = ask(launch.RequestID)
-			if timedOut {
+			started, workDir, err, unknown, late = ask(launch.RequestID)
+			// Only a launch that ran out of time may have started something: a
+			// machine that could not be reached was never asked.
+			if late {
 				unsure = launch.RequestID
 			}
 		}
@@ -1150,8 +1176,11 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			if staged && item.Stage > 0 {
 				state, note = "unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400)
 			}
-			if timedOut {
+			switch {
+			case late:
 				note = "The machine did not answer in time, so reet cannot tell whether the session started. Try again: a session that did start is taken up, not started twice."
+			case unsure != "":
+				note = "Not started: " + clipBytes(err.Error(), 300) + " An earlier launch was not answered, so reet still cannot tell whether its session started. Try again once the machine can be reached: that session is taken up if it is there."
 			}
 			after, stepErr := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, &wrote, func(row *store.GafferOutcomeSession) { row.UnsureRequest = unsure }))
 			if stepErr == nil && wrote {

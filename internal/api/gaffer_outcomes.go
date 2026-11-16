@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -498,10 +499,18 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 		var reply struct {
 			Error string `json:"error"`
 		}
+		message := reply.Error
 		if json.Unmarshal(capture.body.Bytes(), &reply) != nil || reply.Error == "" {
-			return "", "", errors.New("That machine could not start the session.")
+			message = "That machine could not start the session."
+		} else {
+			message = reply.Error
 		}
-		return "", "", errors.New(reply.Error)
+		// A machine that could not be reached, or did not answer, has said
+		// nothing about a session an earlier request may have started.
+		if errors.Is(err, terminalbroker.ErrOffline) || errors.Is(err, terminalbroker.ErrNotSent) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return "", "", gaffer.LaunchUnknown(message)
+		}
+		return "", "", errors.New(message)
 	}
 	// A later pipeline stage works in the folder its first stage was given and
 	// names no project: it is not a new project launch.

@@ -1389,7 +1389,12 @@ The owner asked for these to go into the same PR.
   from its reservation, so a session that did start is taken up, and a new
   request is made only when the old one is known to have failed. If the
   repeat is not answered in time either, nothing new is asked for. The note
-  says reet cannot tell whether the session started.
+  says reet cannot tell whether the session started. A machine that cannot be
+  reached proves nothing either way: the API marks such an error
+  (`gaffer.LaunchUnknown`, for an offline machine, a request that never left
+  or one that timed out) and the request is kept through it, so a retry made
+  while the machine is offline does not lead to a second agent later. This
+  last case came from the automated review of the PR.
 - **`reet_start_outcome` takes an optional `request_id`**, which becomes the
   outcome's ID (`OutcomeInput.RequestID`). Asked again under the same one, it
   answers the outcome already started with `applied: false`.

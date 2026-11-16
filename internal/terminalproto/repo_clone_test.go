@@ -414,3 +414,47 @@ func TestRepoCloneRemoveCapability(t *testing.T) {
 		t.Fatal("repoCloneRemove accepted without worktree")
 	}
 }
+
+func TestRepoCloneFetchFeatureToken(t *testing.T) {
+	for _, value := range []string{"", "repo-clone-v1", "repo-clone-remove-v1", "repo-clone-fetch-v10", "prefix-repo-clone-fetch-v1"} {
+		if SupportsRepoCloneFetch(value) {
+			t.Fatal("unadvertised extension enabled", value)
+		}
+	}
+	if !SupportsRepoCloneFetch("repo-clone-remove-v1, repo-clone-fetch-v1") || RepoCloneFetchFeature != "repo-clone-fetch-v1" {
+		t.Fatal("feature not recognized")
+	}
+	if SupportsRepoCloneRemove(RepoCloneFetchFeature) {
+		t.Fatal("the fetch token turned clone removal on")
+	}
+}
+
+func TestRepoCloneFetchCapability(t *testing.T) {
+	feats := WorktreeFeature + "," + RepoCloneRemoveFeature + "," + RepoCloneFetchFeature
+	caps := Capabilities{ProtocolVersion: Version, OS: "linux", OSUser: "u", TerminalEnabled: true, Readiness: Ready, TerminalControl: true, Launch: true, Worktree: true, RepoCloneRemove: true, RepoCloneFetch: true}
+	if err := caps.ValidateFor(feats); err != nil {
+		t.Fatal(err)
+	}
+	if err := caps.ValidateFor(WorktreeFeature + "," + RepoCloneRemoveFeature); err == nil {
+		t.Fatal("repoCloneFetch accepted without the negotiated feature")
+	}
+	caps.RepoCloneRemove = false
+	if err := caps.ValidateFor(feats); err == nil {
+		t.Fatal("repoCloneFetch accepted without repoCloneRemove")
+	}
+}
+
+func TestRepoCloneStatusFetchRoundTrips(t *testing.T) {
+	dir := "/home/u/reet/repos/a/b"
+	raw, err := Encode(testMessage(RepoCloneStatus{Dir: dir, Origin: "a/b", Fetch: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, ok := got.Body.(*RepoCloneStatus); !ok || !status.Fetch {
+		t.Fatalf("decoded %+v", got.Body)
+	}
+}

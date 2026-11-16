@@ -23,6 +23,14 @@ func cloneRemoveCaps() terminalproto.Capabilities {
 	return caps
 }
 
+// cloneFetchCaps is a machine that can also fetch a clone's default branch
+// from GitHub as it looks at the clone.
+func cloneFetchCaps() terminalproto.Capabilities {
+	caps := cloneRemoveCaps()
+	caps.RepoCloneFetch = true
+	return caps
+}
+
 const (
 	cloneFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	staleFingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

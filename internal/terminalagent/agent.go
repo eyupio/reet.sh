@@ -50,6 +50,10 @@ var (
 	// Its own deadline is 10 s, which is under this answer, and this answer
 	// is under the controller's 15 s (terminalbroker.RepoCloneStatusCallTimeout).
 	repoCloneStatusAnswerAfter = 12 * time.Second
+	// repoCloneFetchAnswerAfter is the same for a clone status that asks to
+	// fetch first: its own deadline is 10 s plus terminalhost.CloneFetchTimeout,
+	// and the controller's is terminalbroker.RepoCloneStatusFetchCallTimeout.
+	repoCloneFetchAnswerAfter = 32 * time.Second
 	// repoCloneRemoveAnswerAfter is when a clone remove that has not returned
 	// is answered timed_out, under the controller's 60 s
 	// (terminalbroker.RepoCloneRemoveCallTimeout). Its checks end at 10 s;
@@ -633,7 +637,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if git == nil {
 					git = terminalhost.ExecGit
 				}
-				return aside(callCtx, reply, cloneStatusSlot, &cloneStatusesRunning, repoCloneStatusAnswerAfter,
+				answerAfter := repoCloneStatusAnswerAfter
+				if req.Fetch {
+					answerAfter = repoCloneFetchAnswerAfter
+				}
+				return aside(callCtx, reply, cloneStatusSlot, &cloneStatusesRunning, answerAfter,
 					terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneTimedOut},
 					func(ctx context.Context) terminalproto.Body {
 						return cloneStatus(ctx, home, req, git)
@@ -1373,6 +1381,9 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.RepoCloneStatus, *terminalproto.RepoCloneRemove:
 		if !has(terminalproto.RepoCloneRemoveFeature) {
+			return terminalproto.ErrInvalid
+		}
+		if status, ok := body.(*terminalproto.RepoCloneStatus); ok && status.Fetch && !has(terminalproto.RepoCloneFetchFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.RepoList:

@@ -277,7 +277,9 @@
       const target = sessions.find(item => item.id === next.next && eligible(item)) || sessions.find(eligible)
       // A replacement must not remember the outgoing, dismissed session again.
       if (target) { selectedSession = ''; chooseSession(target) }
-      else { selectedSession = ''; remember(); location.assign('/sessions?view=list') }
+      // No session left to show: land on the bare workspace (session panel on the left, empty state in the middle), the same
+      // page as first opening Sessions, never the older list view.
+      else { selectedSession = ''; location.assign('/sessions') }
     }
   }
 

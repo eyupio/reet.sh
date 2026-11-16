@@ -158,6 +158,10 @@ type Capabilities struct {
 	// repo-clone-remove-v1: the machine can report what a clone reet made
 	// holds, and delete it.
 	RepoCloneRemove bool `json:"repoCloneRemove,omitempty"`
+	// RepoCloneFetch is sent only on a connection that negotiated
+	// repo-clone-fetch-v1: a clone status may ask the machine to fetch the
+	// clone's default branch from github.com first.
+	RepoCloneFetch bool `json:"repoCloneFetch,omitempty"`
 	// RepoList is sent only on a connection that negotiated repo-list-v1:
 	// the machine can list the GitHub repositories its gh sign-in reaches.
 	RepoList bool `json:"repoList,omitempty"`
@@ -304,6 +308,9 @@ func (c Capabilities) Validate() error {
 	if c.RepoCloneRemove {
 		features = append(features, RepoCloneRemoveFeature)
 	}
+	if c.RepoCloneFetch {
+		features = append(features, RepoCloneFetchFeature)
+	}
 	if c.RepoList {
 		features = append(features, RepoListFeature)
 	}
@@ -395,6 +402,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.RepoCloneRemove && !(c.Worktree && SupportsRepoCloneRemove(features)) {
+		return ErrInvalid
+	}
+	if c.RepoCloneFetch && !(c.RepoCloneRemove && SupportsRepoCloneFetch(features)) {
 		return ErrInvalid
 	}
 	if c.RepoList && !(c.Worktree && SupportsRepoList(features)) {

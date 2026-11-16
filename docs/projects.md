@@ -240,6 +240,14 @@ start it was made for begins. After that it removes the project and deletes its 
   project from GitHub](#removing-a-project-from-github)): no worktree from it (remove the session that made it), no
   uncommitted or untracked files, no stash, no commit that is not on GitHub, nothing reet cannot check.
 
+Before it looks, the clean-up asks the machine to fetch the repository's default branch from GitHub (with the machine's
+`gh` sign-in, as a clone does; a machine without `gh` or on an older reet looks at the clone as it is). Only that one
+branch moves, and when GitHub does not answer the look goes ahead on what the clone has, which only ever keeps it. This
+is what lets a branch whose pull request was **squash-merged** go: its commits are on no branch of `origin` under their
+own ids, but when every file the branch changed reads the same in the default branch, deleting the clone loses none of
+its work. A file GitHub has changed again since, or a branch with anything not on GitHub, still keeps the clone. **Remove
+from reet** makes the same content check on what the clone already has; it does not fetch.
+
 When the machine says something would be lost, the project stays and its card says why under its name, in the same
 sentence the Remove dialog gives ("The clone on studio is kept: it holds work that isn't on GitHub."). Push the work, or
 remove the session, and the next look removes it. Activity records each removal as `project-remove` with `temporary`,

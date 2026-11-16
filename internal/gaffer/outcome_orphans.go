@@ -128,6 +128,100 @@ func (s *Service) StopFollowingOutcome(uid int64, id string, revision int64) (st
 	return outcomeView(o), nil
 }
 
+// What stopping a session may do to a Factory outcome whose pipeline still
+// works in it. "leave" is the empty string: the outcome is not touched.
+const (
+	SessionEndLeave   = ""
+	SessionEndArchive = "archive"
+	SessionEndDelete  = "delete"
+)
+
+// EndSessionOutcome applies the person's choice when they stop a session that
+// a Factory pipeline is still working in. The outcome is stopped following
+// first, so an archive or delete is allowed, and its goal is closed. Only the
+// pipeline's session in hand counts: an earlier stage's session, already
+// finished with, leaves the outcome alone.
+func (s *Service) EndSessionOutcome(uid int64, sessionID, mode string) error {
+	if mode == SessionEndLeave {
+		return nil
+	}
+	if mode != SessionEndArchive && mode != SessionEndDelete {
+		return invalid("session-end", "Choose leave, archive or delete for a Factory outcome.")
+	}
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return err
+	}
+	rows, err := s.store.GafferOutcomesFor(uid)
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, o := range rows {
+		if !outcomeWorksIn(o, sessionID) {
+			continue
+		}
+		if err := s.endOutcomeForSession(uid, o.ID, mode); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// outcomeWorksIn reports whether sessionID is the session a pipeline is
+// working in now, rather than one an earlier stage has finished with.
+func outcomeWorksIn(o store.GafferOutcome, sessionID string) bool {
+	for _, piece := range o.Sessions {
+		if piece.SessionID != sessionID {
+			continue
+		}
+		switch piece.State {
+		case "following", "starting", "advancing", "waiting", "ready_to_merge":
+			return true
+		}
+	}
+	return false
+}
+
+// endOutcomeForSession stops following an outcome and then archives or deletes
+// it. The controller may settle the outcome between the two writes, so a busy
+// revision is read again and retried.
+func (s *Service) endOutcomeForSession(uid int64, id, mode string) error {
+	for attempt := 0; attempt < 4; attempt++ {
+		o, err := s.store.GafferOutcomeFor(uid, id)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !o.Finished() {
+			if o, err = s.StopFollowingOutcome(uid, id, o.Revision); errors.Is(err, store.ErrGafferOutcomeBusy) {
+				continue
+			} else if err != nil {
+				return err
+			}
+		}
+		switch mode {
+		case SessionEndArchive:
+			if o.ArchivedAt > 0 {
+				return nil
+			}
+			_, err = s.ArchiveOutcome(uid, id, o.Revision, true)
+		case SessionEndDelete:
+			err = s.DeleteOutcome(uid, id, o.Revision)
+		}
+		switch {
+		case err == nil, errors.Is(err, store.ErrNotFound):
+			return nil
+		case errors.Is(err, store.ErrGafferOutcomeBusy), errors.Is(err, store.ErrGafferOutcomeActive):
+			continue
+		default:
+			return err
+		}
+	}
+	return store.ErrGafferOutcomeBusy
+}
+
 // WorkDirInUse reports whether a pipeline still has work to do in a folder:
 // the worktree its first stage was given, which every later stage and any
 // retry works in. The session list uses it to keep that worktree when the

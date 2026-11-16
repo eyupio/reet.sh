@@ -51,6 +51,12 @@ this file existed releases were described on their GitHub release pages.
   tool that changes something asks you first for the rest of that turn, even
   on Allow.
 
+- **Ending a session that a Factory pipeline is working in now puts the
+  outcome away with it.** The end dialog defaults to stopping following the
+  outcome and deleting it, with toggles to archive it instead or leave it
+  alone. Account → Profile sets the default for every session; the dialog
+  still lets you choose for one. Deleting erases the outcome's report and
+  totals, not the sessions or pull requests it started.
 - **Dictate** in a Gaffer chat's composer, beside Attach, where the browser
   has speech recognition. As in a terminal's Compose, nothing is sent by
   speaking, and the browser sends the audio to its own speech service.

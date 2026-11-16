@@ -40,7 +40,7 @@ try {
   if (run('panel and save')) {
     const { context, page, errors, patches } = await open({})
     await page.goto(`${base}/account/profile`)
-    await expect(count(page)).toHaveText('11 preferences')
+    await expect(count(page)).toHaveText('12 preferences')
     for (const name of ['Identity', 'Appearance', 'Library and terminal', 'Publishing']) {
       await expect(page.getByRole('group', { name })).toBeVisible()
     }
@@ -54,6 +54,7 @@ try {
     await form.getByLabel('Time zone').fill('Europe/London')
     await form.getByLabel('Dates').selectOption('dmy')
     await form.getByLabel('Terminal history default').selectOption({ label: 'Remove from history after it ends' })
+    await form.getByLabel('Factory session-end default').selectOption({ label: 'Leave the outcome alone' })
     await form.getByLabel('Default library layout').selectOption('board')
     await form.getByLabel('Default skill cards').selectOption({ label: 'Expanded — all details' })
     await form.getByLabel('Your skill name prefix').fill('acme-')
@@ -62,7 +63,7 @@ try {
     expect(patches).toHaveLength(1)
     expect(patches[0]).toMatchObject({
       name: 'Sam Taylor', theme: 'dark', timezone: 'Europe/London', dateFormat: 'dmy',
-      shelfView: 'board', cardsExpanded: true, terminalRemoveOnClose: true, gafferAnimations: false, hostedPrefix: 'acme-',
+      shelfView: 'board', cardsExpanded: true, terminalRemoveOnClose: true, factorySessionEndMode: 'leave', gafferAnimations: false, hostedPrefix: 'acme-',
     })
     await page.reload()
     await expect(page.getByLabel('Gaffer animation', { exact: true })).toHaveValue('false')

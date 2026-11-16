@@ -1170,7 +1170,7 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix: string; updatedAt: number
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; factorySessionEndMode?: 'leave' | 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix: string; updatedAt: number
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
@@ -1232,7 +1232,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean>; planLimits?: boolean }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; factorySessionEndMode?: 'leave' | 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean>; planLimits?: boolean }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 

@@ -4,7 +4,7 @@
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
-  import { factoryMembers, factoryRows, type FactoryMember } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factoryRows, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import FactoryStatus from './FactoryStatus.svelte'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
@@ -82,6 +82,8 @@
   let profile = $state<LaunchDefaults>({}), profileRead = $state(false)
   // The account's choice for a session that ends: remove it from history too. Read with the launch defaults.
   let removeDefault = $state(false)
+  // The account's choice for a Factory outcome when the session working in it is stopped.
+  let factorySessionEndDefault = $state<FactorySessionEndMode>(FACTORY_SESSION_END_DEFAULT)
   // The launch bar's modal, for Select and an address that hands Home projects.
   let launchOpen = $state(false)
   // The standard Start an agent dialog, opened from the rail's + or a machine's New session.
@@ -413,7 +415,7 @@
     // Once Home has gone, a late answer changes nothing and the timer is cleared.
     let giveUpTimer: ReturnType<typeof setTimeout> | undefined
     if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })])
-      .then(p => { if (!life.signal.aborted) { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault, defaultTool: p.profile.defaultTool, defaultModel: p.profile.defaultModel, defaultEffort: p.profile.defaultEffort }; removeDefault = p.profile.terminalRemoveOnClose ?? false } }, () => {})
+      .then(p => { if (!life.signal.aborted) { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault, defaultTool: p.profile.defaultTool, defaultModel: p.profile.defaultModel, defaultEffort: p.profile.defaultEffort }; removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) } }, () => {})
       .finally(() => { clearTimeout(giveUpTimer); if (!life.signal.aborted) profileRead = true })
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
@@ -476,12 +478,12 @@
       {#if homeView === 'continue'}<div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
         <InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
-          groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault}
+          groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault} {factorySessionEndDefault}
           onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
       {/if}
       <div hidden={homeView !== 'board'}>
-      <SessionBoard embedded {factory} {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
+      <SessionBoard embedded {factory} {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault} {factorySessionEndDefault}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>

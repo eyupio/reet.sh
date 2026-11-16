@@ -21,9 +21,9 @@
   import DraftImagePreview from './DraftImagePreview.svelte'
   import ImageLightbox from '../terminal/ImageLightbox.svelte'
   import SessionActions from '../sessions/SessionActions.svelte'
-  import { factoryBadge, type FactoryMember } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryBadge, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
 
-  let { embedded = false, factory = new Map(), userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false,
+  let { embedded = false, factory = new Map(), userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false, factorySessionEndDefault = FACTORY_SESSION_END_DEFAULT,
     scopeIds = undefined, scopeKind = undefined, scopeName = '', onclearscope,
     onchanged, onsignedout, onstart }: {
     embedded?: boolean
@@ -31,6 +31,8 @@
     factory?: Map<string, FactoryMember>
     userId: number; sessions: TerminalSession[] | undefined; sessionsFailed?: boolean; projects: FolderProject[]; machines: TerminalMachine[]
     health: MachineHealth[]; profile: LaunchDefaults; now: number; initialProject?: string; removeDefault?: boolean
+    /** The profile's choice for a Factory outcome when the session working in it is stopped. */
+    factorySessionEndDefault?: FactorySessionEndMode
     /** The projects the board is narrowed to; undefined shows every project. */
     scopeIds?: string[]; scopeKind?: 'project' | 'group'; scopeName?: string; onclearscope?: () => void
     onchanged: () => void | Promise<void>; onsignedout: () => void; /** Opens the standard Start an agent dialog for a session that starts now. */ onstart: (opener: HTMLElement) => void
@@ -429,7 +431,7 @@
   {/key}
 {/if}
 {#if lightbox}<ImageLightbox items={lightbox.items} index={lightbox.index} onclose={() => lightbox = null} />{/if}
-<SessionActions bind:this={actions} machines={health} {offline} terminals={machines} {removeDefault} {onsignedout} {onchanged} onnotice={n => notice = n?.text ?? ''}/>
+<SessionActions bind:this={actions} machines={health} {offline} terminals={machines} {removeDefault} {factorySessionEndDefault} {onsignedout} {onchanged} onnotice={n => notice = n?.text ?? ''}/>
 
 <style>
   .heading.embedded { min-height: 0; margin: 0; padding: 0; }

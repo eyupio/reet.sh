@@ -436,11 +436,25 @@ export function factoryMembers(records: { id: string; objective: string; session
   }
   return out
 }
+/** What stopping a session does to a Factory outcome whose pipeline still works in it. */
+export type FactorySessionEndMode = 'leave' | 'archive' | 'delete'
+/** The system default: stopping a pipeline's session stops following the outcome and deletes it. */
+export const FACTORY_SESSION_END_DEFAULT: FactorySessionEndMode = 'delete'
+/** A saved preference, or the system default when it is not one of the known choices. */
+export function factorySessionEndModeOf(value: unknown): FactorySessionEndMode {
+  return value === 'leave' || value === 'archive' || value === 'delete' ? value : FACTORY_SESSION_END_DEFAULT
+}
+/** The end request's `factoryOutcome`: '' when the outcome is left alone. */
+export function factorySessionEndRequest(mode: FactorySessionEndMode): string {
+  return mode === 'leave' ? '' : mode
+}
 /** What ending, or removing, a session costs a pipeline that is still working in it. '' when it costs nothing. */
 export function factoryEndWarning(member: FactoryMember | undefined, removing = false): string {
   if (!member?.working) return ''
   const what = member.stage ? `the ${member.stage.toLowerCase()} stage of the Factory pipeline “${member.pipeline}”` : `the Factory pipeline “${member.pipeline}”`
-  return `This session is doing ${what}. ${removing ? 'Removing' : 'Ending'} it stops that pipeline until you choose, on the Factory page, to run the stage again in a new session or to move it on. ${removing ? 'The session stays in history while the pipeline still works in its worktree.' : 'Its worktree is kept for the pipeline.'}`
+  return removing
+    ? `This session is doing ${what}. Removing it leaves that pipeline with nothing working on it. The session stays in history while the pipeline still works in its worktree.`
+    : `This session is doing ${what}. Ending it leaves that pipeline with nothing working on it, so choose below what happens to the outcome.`
 }
 /** "Factory · Plan 1 of 8", or "Factory" for a session with no stages. */
 export function factoryBadge(member: FactoryMember): string {

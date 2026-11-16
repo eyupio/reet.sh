@@ -20,6 +20,7 @@
     type APIToken, type Profile, type ProfileSession, type User,
   } from './api'
   import { linkedLine, ssoLinkHref, type SsoIdentity } from './sso'
+  import { factorySessionEndModeOf } from './gafferOutcome'
 
   let {
     user, onsignout, onerror, onuserchange, writer,
@@ -67,7 +68,7 @@
   let busy = $state('')
 
   // svelte-ignore state_referenced_locally
-  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, factoryRemoveMode: 'archive' as 'archive' | 'delete', gafferAnimations: true, gafferCompact: true })
+  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, factoryRemoveMode: 'archive' as 'archive' | 'delete', factorySessionEndMode: 'delete' as 'leave' | 'archive' | 'delete', gafferAnimations: true, gafferCompact: true })
   let prefixEnabled = $state(true)
   let prefixValue = $state('reet-')
   let passwordForm = $state({ current: '', password: '', confirm: '' })
@@ -128,7 +129,7 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, factoryRemoveMode: r.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive', gafferAnimations: r.profile.gafferAnimations ?? true, gafferCompact: r.profile.gafferCompact ?? true }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, factoryRemoveMode: r.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive', factorySessionEndMode: factorySessionEndModeOf(r.profile.factorySessionEndMode), gafferAnimations: r.profile.gafferAnimations ?? true, gafferCompact: r.profile.gafferCompact ?? true }
       prefixEnabled = r.profile.hostedPrefix !== ''
       prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
@@ -385,7 +386,7 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   {#if section === 'profile'}
-    <CollectionPanel label="Your preferences" count="11 preferences">
+    <CollectionPanel label="Your preferences" count="12 preferences">
       {#snippet actions()}
         <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
       {/snippet}
@@ -451,6 +452,10 @@
             <label class="wide"><span>When removing a finished Factory outcome</span>
               <select aria-label="Factory removal default" bind:value={profileForm.factoryRemoveMode}><option value="archive">Archive it (keep the record, hide it)</option><option value="delete">Delete it for good</option></select>
               <small>Both buttons are always on a finished outcome; this picks the one that stands out. Archived outcomes can be shown and restored. Deleting asks you to confirm and cannot be undone.</small>
+            </label>
+            <label class="wide"><span>When stopping a session in a Factory pipeline</span>
+              <select aria-label="Factory session-end default" bind:value={profileForm.factorySessionEndMode}><option value="delete">Stop following it and delete the outcome</option><option value="archive">Stop following it and archive the outcome</option><option value="leave">Leave the outcome alone</option></select>
+              <small>This sets the end dialog’s default; it can be changed for each session. Deleting erases the outcome’s report and totals for good; the sessions and pull requests it started are not touched.</small>
             </label>
             <label><span>Default library layout</span>
               <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>

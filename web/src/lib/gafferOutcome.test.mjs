@@ -424,6 +424,7 @@ test('what Gaffer decided reads as a sentence, and a stage says when it has used
   assert.deepEqual(o.decisionText({ about: 'question', choice: 'move', why: 'w' }), { about: 'Gaffer’s review brought the stage back', did: 'Moved to the next stage' })
   assert.deepEqual(o.decisionText({ about: 'session_ended', choice: 'restart', why: 'w' }), { about: 'The stage’s session had ended', did: 'Ran the stage again in a new session' })
   assert.deepEqual(o.decisionText({ about: 'limit', choice: '', failed: true, why: 'w' }), { about: 'The stage had used its budget', did: 'Left to you' })
+  assert.deepEqual(o.decisionText({ about: 'agent_question', choice: 'answer', why: 'w' }), { about: 'The agent asked a multiple-choice question', did: 'Answered it' })
   assert.equal(o.MAX_STAGE_DECISIONS, 3)
   // A stage Gaffer closed itself is told apart from one it handed over after a review and one the person moved on.
   const closed = o.track({ state: 'following', stage: 2, stages: [{ kind: 'code', tool: 'claude', state: 'done', closedBy: 'auto' }, { kind: 'review', tool: 'claude', state: 'done', closedBy: 'person' }, { kind: 'pr', tool: 'claude', state: 'running' }] })

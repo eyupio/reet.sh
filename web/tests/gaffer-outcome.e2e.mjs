@@ -314,7 +314,7 @@ try {
       const decisions=outcome.getByRole('radiogroup',{name:'Decisions',exact:true})
       await expect(decisions.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
       await decisions.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
-      await expect(outcome).toContainText('at most three times for a stage');await expect(outcome).toContainText('Merges and agents’ own questions and approvals still come to you.')
+      await expect(outcome).toContainText('at most three times for a stage');await expect(outcome).toContainText('It also answers an agent’s multiple-choice question.');await expect(outcome).toContainText('Merges, approvals and questions that need your own words still come to you.')
       await decisions.getByRole('radio',{name:'Ask me',exact:true}).check()
       await expect(outcome).toContainText('shows you the choices with a recommendation first, and waits for you.')
       await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()

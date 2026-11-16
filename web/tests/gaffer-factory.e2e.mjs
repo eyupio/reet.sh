@@ -39,7 +39,9 @@ Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentSta
 Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTool:'codex',appliedModel:'gpt-coder',appliedEffort:'medium',appliedAt:now-90*60000})
 Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
 // A decision Gaffer took earlier, while it had this outcome's decisions.
-outcomes[0].decisions=[{at:now-50*60000,key:'a',title:'Export API',stage:'code',about:'question',choice:'move',why:'The endpoint and its tests are in the handover; nothing more belongs in this stage.',model:'gaffer-model'}]
+outcomes[0].decisions=[{at:now-50*60000,key:'a',title:'Export API',stage:'code',about:'question',choice:'move',why:'The endpoint and its tests are in the handover; nothing more belongs in this stage.',model:'gaffer-model'},
+ // …and an agent's multiple-choice question it answered.
+ {at:now-30*60000,key:'a',title:'Export API',stage:'review',about:'agent_question',choice:'answer',why:'The brief says the export must not load the primary.',text:'Asked: Which database should the export read from? Answered: The read replica',model:'gaffer-model'}]
 // The review stage in hand was started on its backup because its first choice's plan was running low.
 Object.assign(outcomes[0].sessions[0].stages[3],{balanced:'Claude Code (opus)’s plan had 12% left, so this stage runs on Claude Code (sonnet), which had 60% left.',first:{tool:'claude',model:'opus'},backup:{tool:'claude',model:'sonnet'}})
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
@@ -137,15 +139,18 @@ try {
       await expect(suggest.getByRole('textbox',{name:'Instruction',exact:true})).toHaveValue('Use the illustrated empty state from the design.')
       await suggest.getByRole('button',{name:'Cancel',exact:true}).click();expect(box.told).toEqual([])
       // What Gaffer decided earlier is kept with what had stopped the stage, what it did and why.
-      await head.getByText('What Gaffer decided (1)',{exact:true}).click()
+      await head.getByText('What Gaffer decided (2)',{exact:true}).click()
       const took=head.getByRole('list',{name:'What Gaffer decided, newest first',exact:true}).getByRole('listitem')
-      await expect(took).toHaveCount(1);await expect(took.first()).toContainText('Export API · Code')
-      await expect(took.first()).toContainText('Gaffer’s review brought the stage back. Moved to the next stage. The endpoint and its tests are in the handover; nothing more belongs in this stage.')
+      await expect(took).toHaveCount(2);await expect(took.nth(1)).toContainText('Export API · Code')
+      await expect(took.nth(1)).toContainText('Gaffer’s review brought the stage back. Moved to the next stage. The endpoint and its tests are in the handover; nothing more belongs in this stage.')
+      // Newest first: the agent's question Gaffer answered, with what was asked and what it answered.
+      await expect(took.first()).toContainText('The agent asked a multiple-choice question. Answered it. The brief says the export must not load the primary.')
+      await expect(took.first()).toContainText('Asked: Which database should the export read from? Answered: The read replica')
       // The person can give Gaffer the decisions, and take them back. A merge stays theirs either way.
       const decider=head.getByRole('radiogroup',{name:'Who decides when a stage stops',exact:true})
       await expect(decider.getByRole('radio',{name:'You decide',exact:true})).toBeChecked()
       await decider.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
-      await expect(page.getByRole('status').filter({hasText:'Gaffer takes'})).toContainText('Merges and agents’ approvals still come to you.')
+      await expect(page.getByRole('status').filter({hasText:'Gaffer takes'})).toContainText('Merges, approvals and questions that need your own words still come to you.')
       await expect(ask).toContainText('Gaffer is deciding this. You can still choose first.');await expect(gate).not.toContainText('Gaffer is deciding')
       await expect(head).toContainText('at most 3 times for a stage')
       expect(await head.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
@@ -154,7 +159,7 @@ try {
       await expect(page.getByRole('status').filter({hasText:'You take'})).toHaveText('You take this outcome’s decisions again.');expect(box.who).toEqual([true,false])
       // Those two switches are the only writes so far.
       expect(box.writes.splice(0)).toEqual(Array(2).fill(`POST /api/v2/gaffer/outcomes/${'e'.repeat(32)}/automation`))
-      await head.getByText('What Gaffer decided (1)',{exact:true}).click()
+      await head.getByText('What Gaffer decided (2)',{exact:true}).click()
       await expect(needy).toContainText('Which of the two do you want?')
       // With a machine, a project and a provider in place there is nothing left to set up.
       await expect(page.getByRole('region',{name:'Set up your factory',exact:true})).toHaveCount(0)

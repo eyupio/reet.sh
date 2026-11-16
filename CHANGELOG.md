@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: on an outcome set to **Gaffer decides**, Gaffer now answers a
+  working agent's multiple-choice question, choosing among the options the
+  agent offered, or leaves it to you with its reason. It never answers an
+  approval or a question that needs your own words.
+
 - Factory: each crew tier can have a **Backup** agent, model and effort. A
   stage starts on its backup when its first choice's plan has under 20% left
   (a figure you can change, from 5 to 90) and the backup's has more, so work is spread across the plans you have.

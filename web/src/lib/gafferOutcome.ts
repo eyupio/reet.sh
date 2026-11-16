@@ -614,8 +614,8 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
   }
   return out
 }
-const DECISION_ABOUT: Record<string, string> = { question: 'Gaffer’s review brought the stage back', no_step: 'Gaffer’s review chose no next step', review_failed: 'Gaffer’s review did not complete', limit: 'The stage had used its budget', session_ended: 'The stage’s session had ended' }
-const DECISION_DID: Record<string, string> = { again: 'Reviewed the stage again', tell: 'Told the agent what to do', move: 'Moved to the next stage', budget: 'Gave the stage a new budget', restart: 'Ran the stage again in a new session' }
+const DECISION_ABOUT: Record<string, string> = { question: 'Gaffer’s review brought the stage back', no_step: 'Gaffer’s review chose no next step', review_failed: 'Gaffer’s review did not complete', limit: 'The stage had used its budget', session_ended: 'The stage’s session had ended', agent_question: 'The agent asked a multiple-choice question' }
+const DECISION_DID: Record<string, string> = { again: 'Reviewed the stage again', tell: 'Told the agent what to do', move: 'Moved to the next stage', budget: 'Gave the stage a new budget', restart: 'Ran the stage again in a new session', answer: 'Answered it' }
 /** One of Gaffer's decisions in words: what had stopped the stage, and what Gaffer did about it. */
 export function decisionText(d: { about: string; choice?: string; failed?: boolean }): { about: string; did: string } {
   return { about: DECISION_ABOUT[d.about] ?? 'The stage stopped', did: d.failed || !d.choice ? 'Left to you' : DECISION_DID[d.choice] ?? d.choice }

@@ -260,7 +260,7 @@
   async function setDecisions(record: Outcome, on: boolean) {
     if (busy || !!record.automation === on) return
     busy = true; notice = ''; bad = false
-    try { await setGafferOutcomeAutomation(latest(record), on); notice = on ? 'Gaffer takes this outcome’s decisions from now on, and records each one here. Merges and agents’ approvals still come to you.' : 'You take this outcome’s decisions again.' }
+    try { await setGafferOutcomeAutomation(latest(record), on); notice = on ? 'Gaffer takes this outcome’s decisions from now on, and records each one here. Merges, approvals and questions that need your own words still come to you.' : 'You take this outcome’s decisions again.' }
     catch (e) { fail(e, 'That was not changed.') }
     busy = false
     await load()
@@ -479,16 +479,16 @@
               <label class:on={!!record.automation}><input type="radio" name={`who-${record.id}`} checked={!!record.automation} disabled={busy} onchange={() => void setDecisions(record, true)}/>Gaffer decides</label>
             </div>{/if}
           </div>
-          {#if record.automation}<p class="hint">When a stage stops, Gaffer chooses what happens next and records what it chose and why, at most {MAX_STAGE_DECISIONS} times for a stage. Each decision is one request to Gaffer’s model. Merges and agents’ own questions and approvals still come to you.</p>{/if}
+          {#if record.automation}<p class="hint">When a stage stops, Gaffer chooses what happens next and records what it chose and why, at most {MAX_STAGE_DECISIONS} times for a stage. It also answers an agent’s multiple-choice question. Each decision is one request to Gaffer’s model. Merges, approvals and questions that need your own words still come to you.</p>{/if}
           {#each waiting as item (item.piece.key)}{@const goal = item.piece.conversationId ? byConversation.get(item.piece.conversationId) : undefined}{@const used = item.piece.stages?.[item.piece.stage ?? 0]?.decided ?? 0}
             <Decision title={item.piece.title} stage={item.stage} href={`#${pipelineAnchor(record.id, item.piece.key)}`} need={item.need} choices={item.need.choices.filter(choice => usable(choice, item.piece))} {busy}
-              note={!record.automation || item.kind === 'merge' || goal?.goal.waitingOnWorker ? '' : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : taken.some(d => d.failed && d.key === item.piece.key) && used > 0 ? 'Gaffer could not take this one. See what it decided, below.' : 'Gaffer is deciding this. You can still choose first.'}
+              note={!record.automation || item.kind === 'merge' ? '' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : taken.some(d => d.failed && d.key === item.piece.key) && used > 0 ? 'Gaffer could not take this one. See what it decided, below.' : 'Gaffer is deciding this. You can still choose first.'}
               onchoose={choice => choose(choice, record, item.piece, goal)}/>{/each}
           {#if taken.length}<details class="taken"><summary>What Gaffer decided ({taken.length})</summary>
             <ol aria-label="What Gaffer decided, newest first">{#each [...taken].reverse() as d (`${d.at}-${d.key}`)}{@const words = decisionText(d)}<li class:failed={d.failed}>
               <p class="taken-head"><time datetime={new Date(d.at).toISOString()}>{when(d.at)}</time><span>{d.title} · {stageLabel(d.stage)}</span></p>
               <p><span class="about">{words.about}.</span> <strong>{words.did}.</strong> {d.why}</p>
-              {#if d.text}<p class="said">It told the agent: “{d.text}”</p>{/if}
+              {#if d.text}<p class="said">{d.choice === 'answer' ? d.text : `It told the agent: “${d.text}”`}</p>{/if}
             </li>{/each}</ol>
           </details>{/if}
         </section>{/if}{/if}

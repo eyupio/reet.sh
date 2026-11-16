@@ -1519,8 +1519,8 @@ recommended order, waiting decisions and the log's wording; `gaffer-factory`, `g
 
 ## Not done, for the next slice
 
-- **Gaffer answering an agent's multiple-choice question** on an outcome it decides for. Chosen by the owner, not
-  built: the stage is left held for the person, as before.
+- Gaffer answering an agent's multiple-choice question is built (`outcome_answer.go`, tests in
+  `outcome_answer_test.go` and `chat_question_test.go`). Not seen against a real agent's question.
 - **Several agents delivering one stage** (slice 3). Open decisions: how sub-work is split and by whom, whether
   sub-agents share the stage's worktree, and how their results are joined before the hand-over.
 - A crew editor in Gaffer settings; tiers on the MCP start tool's input.

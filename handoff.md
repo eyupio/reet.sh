@@ -52,9 +52,12 @@ Read "Decisions as choices" in the [factory floor handoff](docs/handoffs/gaffer-
   `autoDecisions` (in the outcome supervisor) puts each stop to Gaffer's model once (`decide` tool), carries the
   choice out through the person's own paths and appends to `GafferOutcome.Decisions`. Three decisions a stage, one
   budget renewal, never a merge, never a goal held for the agent's own question.
-- **Not done:** answering an agent's multiple-choice question for the person, which the owner also chose. It needs
-  the controller to read the pending question from the terminal broker and answer through `AnswerQuestionChat`.
-  Also not done: the switch over MCP, an account default, and a real run (checked with fakes and a stand-in model).
+- **An agent's multiple-choice question** is answered too (`outcome_answer.go`). `Broker.PendingQuestionChat` gives
+  the question and whether it waits alone; `pipelineStop` offers `answer` for a held goal only then, and only when
+  every field Gaffer must answer is a choice. The model gets `answer_question`, whose schema is the question's own
+  options, and `leave_to_user`. The answer goes through `AnswerQuestionChat`, so the machine validates it. Counts
+  toward the stage's three decisions.
+- **Not done:** the switch over MCP, an account default, and a real run (checked with fakes and a stand-in model).
 
 ## FACTORY-CREW-1: a session per stage, and Gaffer advises the crew (16 November 2026)
 

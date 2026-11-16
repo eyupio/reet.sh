@@ -483,6 +483,27 @@ func (o outcomeStarter) EndOutcomeSession(ctx context.Context, uid int64, sessio
 	return err
 }
 
+// OutcomeSessionQuestion returns the typed question a session's agent is
+// waiting on, if it is waiting on one.
+func (o outcomeStarter) OutcomeSessionQuestion(_ context.Context, uid int64, sessionID string) (gaffer.AgentQuestion, bool) {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return gaffer.AgentQuestion{}, false
+	}
+	id, question, alone, ok := s.terminals.PendingQuestionChat(uid, sessionID)
+	return gaffer.AgentQuestion{ID: id, Question: question, Alone: alone}, ok
+}
+
+// AnswerOutcomeSessionQuestion answers that question by the path the person's
+// own answer takes, so the machine validates it against the question it holds.
+func (o outcomeStarter) AnswerOutcomeSessionQuestion(ctx context.Context, uid int64, sessionID, questionID string, answers json.RawMessage) error {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return errors.New("Remote sessions are disabled on this controller.")
+	}
+	return s.terminals.AnswerQuestionChat(ctx, uid, sessionID, questionID, "accept", answers)
+}
+
 // OutcomeSessionChoice asks a session's machine what the session is running:
 // the model and effort its agent reports now, not what its launch asked for.
 // The answer is also kept on the session, as any read of its controls is.

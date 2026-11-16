@@ -377,9 +377,19 @@ does it exactly as your button would. Each decision is one request to Gaffer's
 model, made from the outcome's handovers and reviews, so the outcome's
 provider must still be allowed session text.
 
+Gaffer also answers an agent's **multiple-choice question**. When the working
+agent stops to ask one, and it is the only thing the agent is waiting for,
+Gaffer picks among the options the agent offered, as the outcome's objective
+and the pipeline's brief suggest, and the answer goes to the agent exactly as
+yours would. It can also leave the question to you, and does when nothing in
+the outcome gives a reason to prefer an option or the choice is one only you
+should make. It never types an answer: a question that needs your own words
+stays yours, and an optional text field is left empty.
+
 Gaffer never decides a merge (that stays with **Ready to merge** and the merge
-setting), never answers an agent's own question or approval, and never stops
-an outcome. It takes at most three decisions on one stage; after that the
+setting), never answers an approval to run a command or change a file (that
+stays with **Ask me** or YOLO), never answers a question while an approval is
+waiting beside it, and never stops an outcome. It takes at most three decisions on one stage; after that the
 stage is yours and the card says so. A decision Gaffer could not make or carry
 out is left with you, with the reason. You can always choose first: the
 buttons stay.

@@ -1088,6 +1088,27 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	return ErrACPClosed
 }
 
+// PendingQuestionChat returns the earliest typed question a chat is waiting
+// on. alone is whether that question is the only thing the chat waits for:
+// no approval card and no second question.
+func (b *Broker) PendingQuestionChat(uid int64, session string) (id string, question terminalproto.ACPQuestion, alone, ok bool) {
+	s, err := b.structuredSession(uid, session)
+	if err != nil {
+		return "", terminalproto.ACPQuestion{}, false, false
+	}
+	l := b.restoreChat(uid, s)
+	if l == nil {
+		return "", terminalproto.ACPQuestion{}, false, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.questions) == 0 || l.questions[0].Question == nil {
+		return "", terminalproto.ACPQuestion{}, false, false
+	}
+	first := l.questions[0]
+	return first.QuestionID, *first.Question, len(l.pending) == 1 && len(l.questions) == 1, true
+}
+
 // AnswerQuestionChat delivers the person's answer to a typed agent question. It
 // is scoped to the caller's own chat, requires the machine and the agent to
 // offer questions, and leaves validation to the machine, which holds the

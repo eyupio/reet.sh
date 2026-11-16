@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -321,6 +322,13 @@ func (s *server) deskUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, deskView(saved))
 }
 
+// deskEndSession asks for a session to end with its history removed. A test
+// replaces it to make an end fail.
+var deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string) error {
+	_, err := s.terminals.End(ctx, uid, session, request, true)
+	return err
+}
+
 func (s *server) deskDelete(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Expect      *int64 `json:"expect"`
@@ -339,6 +347,17 @@ func (s *server) deskDelete(w http.ResponseWriter, r *http.Request) {
 		s.deskStale(w, uid, id)
 		return
 	}
+	err = s.st.DeleteDeskFor(uid, id, cur.Version)
+	if errors.Is(err, store.ErrDeskStale) {
+		s.deskStale(w, uid, id)
+		return
+	}
+	if err != nil {
+		deskRefusal(w, err)
+		return
+	}
+	// The desk is gone first, so a stale delete never leaves a desk whose shells
+	// were already ended. A session that will not end is reported, not retried.
 	left := []string{}
 	if in.EndSessions {
 		for _, sid := range cur.Doc.Sessions() {
@@ -349,19 +368,10 @@ func (s *server) deskDelete(w http.ResponseWriter, r *http.Request) {
 			if sess.State != terminalproto.Creating && sess.State != terminalproto.Running {
 				continue // already ended or ending
 			}
-			if _, err := s.terminals.End(r.Context(), uid, sid, terminalbroker.ID(), true); err != nil {
+			if err := deskEndSession(s, r.Context(), uid, sid, terminalbroker.ID()); err != nil {
 				left = append(left, sid)
 			}
 		}
-	}
-	err = s.st.DeleteDeskFor(uid, id, cur.Version)
-	if errors.Is(err, store.ErrDeskStale) {
-		s.deskStale(w, uid, id)
-		return
-	}
-	if err != nil {
-		deskRefusal(w, err)
-		return
 	}
 	s.eventRequest(r, "desk-deleted", "", map[string]any{"desk": id, "name": cur.Name, "endedSessions": in.EndSessions, "left": len(left)})
 	writeJSON(w, 200, map[string]any{"ok": true, "left": left})

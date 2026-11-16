@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/desk"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 type deskFixture struct {
@@ -206,5 +210,69 @@ func TestDeskDeleteLeavesSessions(t *testing.T) {
 	f.do("PATCH", "/api/v2/desks/"+id, `{"expect":1,"doc":`+deskTwoPaneDoc+`}`)
 	if code, d = f.do("DELETE", "/api/v2/desks/"+id, `{"expect":2,"endSessions":true}`); code != 200 || len(d["left"].([]any)) != 0 {
 		t.Fatalf("delete ending: %d %v", code, d)
+	}
+}
+
+func TestDeskDeleteEndsLiveSessions(t *testing.T) {
+	srv, st, agent, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	f := &deskFixture{t, srv, terminalLogin(t, st, uid)}
+	gen, err := st.BeginRemoteConnectionFor(uid, agent.ID, terminalbroker.ID(), terminalproto.Capabilities{
+		ProtocolVersion: 1, OS: "linux", OSUser: "tester", TerminalEnabled: true, TerminalControl: true,
+		HealthEnabled: true, Readiness: terminalproto.Ready,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := func(title string) string {
+		sess, _, err := st.ReserveTerminalCreateFor(uid, agent.ID, terminalbroker.ID(), gen.Generation, terminalproto.Create{Title: title, Cols: 80, Rows: 24})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.ObserveTerminalStateFor(uid, agent.ID, sess.ID, gen.Generation, terminalproto.Running, nil); err != nil {
+			t.Fatal(err)
+		}
+		return sess.ID
+	}
+	good, bad := running("good"), running("bad")
+	doc := strings.NewReplacer(`"session":"s1"`, `"session":"`+good+`"`, `"session":""`, `"session":"`+bad+`"`).Replace(deskTwoPaneDoc)
+
+	old := deskEndSession
+	t.Cleanup(func() { deskEndSession = old })
+	var asked []string
+	deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string) error {
+		asked = append(asked, session)
+		if session == bad {
+			return errors.New("machine unreachable")
+		}
+		return old(s, ctx, uid, session, request)
+	}
+
+	_, d := f.do("POST", "/api/v2/desks", `{"name":"Work"}`)
+	id := d["id"].(string)
+	if code, d := f.do("PATCH", "/api/v2/desks/"+id, `{"expect":1,"doc":`+doc+`}`); code != 200 {
+		t.Fatalf("patch: %d %v", code, d)
+	}
+	// A stale delete ends nothing and leaves the desk.
+	if code, _ := f.do("DELETE", "/api/v2/desks/"+id, `{"expect":1,"endSessions":true}`); code != 409 || len(asked) != 0 {
+		t.Fatalf("stale delete: %d, asked %v", code, asked)
+	}
+	code, d := f.do("DELETE", "/api/v2/desks/"+id, `{"expect":2,"endSessions":true}`)
+	left, _ := d["left"].([]any)
+	if code != 200 || d["ok"] != true || len(left) != 1 || left[0] != bad {
+		t.Fatalf("delete: %d %v", code, d)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("asked to end %v, want both sessions", asked)
+	}
+	if code, _ := f.do("GET", "/api/v2/desks/"+id, ""); code != 404 {
+		t.Fatalf("desk still there: %d", code)
+	}
+	sess, err := st.TerminalSessionFor(uid, good)
+	if err != nil || sess.State != terminalproto.EndRequested || !sess.RemoveHistory {
+		t.Fatalf("ended session: %+v %v", sess, err)
+	}
+	if sess, err := st.TerminalSessionFor(uid, bad); err != nil || sess.State != terminalproto.Running {
+		t.Fatalf("failed session should be untouched: %+v %v", sess, err)
 	}
 }

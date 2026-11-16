@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  // Type in all panes asks once in a page's lifetime; after that the button turns it on at once. Never saved.
+  let confirmedAll = false
+</script>
+
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
   import { projectColourHex, type ProjectColour } from '../projectColour'
@@ -54,7 +59,7 @@
     // Whatever the desk being left still has waiting is sent before that copy stops; its late answers are ignored below.
     const old = auto
     void old?.flush().finally(() => old.stop())
-    desk = null; failure = ''; saveState = 'saved'
+    desk = null; failure = ''; saveState = 'saved'; typeAll = null; askAll = false
     const mine = createAutosave({
       load: () => getDesk(deskId),
       save: (d, expect, keepalive) => patchDesk(d.id, { expect, doc: d.doc }, { keepalive }),
@@ -495,6 +500,69 @@
     })
   })
 
+  // Type in all panes: what is typed, pasted or sent from Compose in the focused pane also goes to every other pane of
+  // the tab that is live, on screen and connected. Per tab and never saved: off on load and on a tab or desk change, and
+  // it stops itself whenever the panes receiving change (a pane drops or is taken over, a shell ends, the tab's panes are
+  // split, closed, moved or zoomed, here or in another window). Each input checks the receivers again before it goes on.
+  let receivable = $state<Record<string, boolean>>({})
+  function noteReceivable(pid: string, ok: boolean) { if (!!untrack(() => receivable[pid]) !== ok) receivable = { ...untrack(() => receivable), [pid]: ok } }
+  const receivers = $derived(phone || !activeTab ? [] : ids.filter(pid => {
+    const p = activeTab.panes[pid]
+    return !!p && live(p) && !!receivable[pid] && (!zoomed || zoomed === pid) && !actionsFor[pid]?.scrollback
+  }))
+  /** The tab's panes and splits without the ratios, and the zoomed pane: a separator drag changes nothing here. */
+  const treeShape = (n: Tab['root']): string => !n ? '' : 'split' in n ? `(${n.split} ${treeShape(n.a)} ${treeShape(n.b)})` : n.pane
+  const shapeNow = $derived(activeTab ? `${treeShape(activeTab.root)}|${zoomed}` : '')
+  let typeAll = $state<{ desk: string; tab: string; set: string[]; shape: string } | null>(null)
+  let askAll = $state(false), allButton = $state<HTMLButtonElement>(), askCancel = $state<HTMLButtonElement>()
+  const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every(x => b.includes(x))
+  function stopAll() {
+    const on = typeAll, t = activeTab
+    if (!on) return
+    typeAll = null
+    // A pane still on the tab, in the same place, that no longer receives is named; anything else is the tab changing.
+    const dropped = t && shapeNow === on.shape ? on.set.find(pid => t.panes[pid] && (!receivers.includes(pid) || !actionsFor[pid]?.live)) : undefined
+    notice = dropped && t ? `Stopped typing in all panes: ${paneName(t.panes[dropped])} is no longer connected.` : 'Stopped typing in all panes: the panes on this tab changed.'
+  }
+  $effect(() => {
+    const on = typeAll
+    if (!on) return
+    const deskId = desk?.id, tabId = activeTab?.id, now = receivers, shape = shapeNow, small = phone
+    untrack(() => {
+      // Changing tab or desk ends it quietly: the stripe says so.
+      if (deskId !== on.desk || tabId !== on.tab || small) typeAll = null
+      else if (shape !== on.shape || !sameSet(now, on.set)) stopAll()
+    })
+  })
+  // The question goes with the tab it was asked about, and once there are not two panes to type in.
+  let askTab = ''
+  $effect(() => { const tabId = activeTab?.id ?? '', n = receivers.length; if (untrack(() => askAll) && (tabId !== askTab || n < 2)) askAll = false })
+  function toggleAll() {
+    if (typeAll) { typeAll = null; return }
+    if (receivers.length < 2) return
+    if (confirmedAll) { startAll(); return }
+    askTab = activeTab?.id ?? ''
+    askAll = true
+    void tick().then(() => askCancel?.focus())
+  }
+  function closeAsk() { askAll = false; allButton?.focus() }
+  function startAll() {
+    askAll = false
+    if (!desk || !activeTab || receivers.length < 2) return
+    confirmedAll = true
+    typeAll = { desk: desk.id, tab: activeTab.id, set: [...receivers], shape: shapeNow }
+    void focusPane(receivers.includes(activePaneId) ? activePaneId : receivers[0])
+  }
+  /** Input in a pane, just before its own terminal sends it: from the focused pane, it goes to the other receivers too. */
+  function typeInAll(from: string, data: string, paste: boolean) {
+    const on = typeAll
+    if (!on || from !== activePaneId || !on.set.includes(from)) return
+    // Read now, not as the screen last drew: a pane that dropped a moment ago gets nothing, and nor does any other.
+    const ready = activeTab?.id === on.tab && shapeNow === on.shape && sameSet(receivers, on.set) && on.set.every(pid => actionsFor[pid]?.live && !actionsFor[pid]?.scrollback)
+    if (!ready) { stopAll(); return }
+    for (const pid of on.set) if (pid !== from && !actionsFor[pid]?.send(data, paste)) { stopAll(); return }
+  }
+
   // Presets and the layout menu.
   const PRESETS: { name: 'side' | 'stack' | 'grid' | 'main' | 'even'; label: string }[] = [
     { name: 'side', label: 'Side by side' }, { name: 'stack', label: 'Stacked' }, { name: 'grid', label: 'Grid' }, { name: 'main', label: 'Main and stack' }, { name: 'even', label: 'Even out' },
@@ -573,6 +641,20 @@
         <button type="button" class="btn lay" aria-haspopup="menu" aria-expanded={menu?.kind === 'layout'} disabled={ids.length < 2} onclick={event => openMenu('layout', event)}>
           <span class="lay-icon" aria-hidden="true">{#each icon as r, i (i)}<i style={`left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%`}></i>{/each}</span>Layout
         </button>
+        <button type="button" class="btn all" class:on={!!typeAll} bind:this={allButton} aria-pressed={!!typeAll} aria-expanded={askAll}
+          disabled={!typeAll && receivers.length < 2} title={!typeAll && receivers.length < 2 ? 'Needs two or more live panes on this tab.' : undefined}
+          onclick={toggleAll}>Type in all panes</button>
+      {/if}
+      {#if askAll}
+        <div class="ask" role="dialog" aria-labelledby={`${panelId}-all`} aria-describedby={`${panelId}-all-body`} tabindex="-1"
+          onkeydown={event => { if (event.key === 'Escape') { event.preventDefault(); closeAsk() } }}>
+          <h2 id={`${panelId}-all`}>Type in all panes?</h2>
+          <p id={`${panelId}-all-body`}>Everything you type, paste or send from Compose goes to all {receivers.length} live panes on this tab until you turn it off or change tab.</p>
+          <div class="actions">
+            <button type="button" class="btn quiet" bind:this={askCancel} onclick={closeAsk}>Cancel</button>
+            <button type="button" class="btn primary" onclick={startAll}>Type in all {receivers.length}</button>
+          </div>
+        </div>
       {/if}
       <button type="button" class="btn icon" aria-label="Desk menu" aria-haspopup="menu" aria-expanded={menu?.kind === 'desk'} onclick={event => openMenu('desk', event)}>⋮</button>
     </header>
@@ -587,6 +669,7 @@
       onclose={tabId => askClose(tabId)}
       onreorder={ids => change({ kind: 'reorderTabs', ids })}
       onnew={opener => (adding = opener)} />
+    {#if typeAll}<p class="stripe" role="status">Typing in {typeAll.set.length} panes on this tab. Turns off when you change tab.</p>{/if}
     {#if phone && activeTab && ids.length > 1}
       <div class="chips" role="group" aria-label="Panes on this tab">
         {#each ids as pid (pid)}
@@ -613,6 +696,9 @@
                 onreopen={kind => paneAct(pid, kind)}
                 startup={p.start && p.session && offered[pid] === p.session ? p.start : ''}
                 onstartup={() => offerDone(pid)}
+                receiving={!!typeAll && typeAll.set.includes(pid)}
+                onreceivable={ok => noteReceivable(pid, ok)}
+                oninput={(data, paste) => typeInAll(pid, data, paste)}
                 onstartcommand={start => change({ kind: 'start', tab: t.id, pane: pid, start })}
                 focused={pid === activePaneId} visible={view.visible} hold={view.hold} admitted={admitted.has(pid)} layout={!phone} zoomed={zoomed === pid} {tabs}
                 onfocus={() => setActive(pid)}
@@ -669,6 +755,7 @@
       <h2 id={`${panelId}-keys`}>Keys</h2>
       <p>They work anywhere on a desk, in a terminal too. None of them is a key your shell uses.</p>
       <dl>{#each DESK_KEYS as item (item.keys)}<dt><kbd>{item.keys}</kbd></dt><dd>{item.label}</dd>{/each}</dl>
+      <p>Type in all panes sends what you type, paste or send from Compose to every live pane on the tab. Run, Commands, Prompts, Attach and Interrupt stay with the focused pane.</p>
       <div class="actions" data-shell-foot><button type="button" class="btn primary" onclick={() => keysDialog?.close()}>Done</button></div>
     </div>
   </dialog>
@@ -695,7 +782,7 @@
 
 <style>
   .desk-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
-  .dhead { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); min-height: 52px; }
+  .dhead { position: relative; flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); min-height: 52px; }
   .dname { display: flex; align-items: center; gap: 8px; min-height: 40px; min-width: 0; padding: 4px 8px; margin-left: -8px; border: 0; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
   .dname:hover { background: var(--line-soft); }
   .dname h1 { margin: 0; font: 600 1.0625rem/1.2 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -705,11 +792,18 @@
   .save[data-save='unsaved'] { color: var(--warn); }
   .sp { margin-left: auto; }
   .btn.icon { min-width: 40px; padding: 6px 10px; }
-  @media (pointer: coarse) { .dname, .btn.icon, .btn.lay { min-height: 44px; } .btn.icon { min-width: 44px; } }
+  @media (pointer: coarse) { .dname, .btn.icon, .btn.lay, .btn.all { min-height: 44px; } .btn.icon { min-width: 44px; } }
   .notice { flex: none; margin: 0; padding: 6px 14px; background: color-mix(in srgb, var(--info) 14%, var(--bg)); border-bottom: 1px solid var(--line-soft); color: var(--ink); font-size: 14px; }
   .notice.done { display: flex; align-items: center; gap: 8px; }
   .notice.bad { background: color-mix(in srgb, var(--bad) 12%, var(--bg)); display: flex; align-items: center; gap: 8px; }
   .area { flex: 1; min-height: 0; display: flex; padding: 0; background: var(--line-soft); }
+  /* Type in all panes: amber while on, with a stripe under the tab bar and "Receiving" in each pane it reaches. */
+  .btn.all.on { background: color-mix(in srgb, var(--warn) 18%, var(--card)); border-color: var(--warn); color: var(--warn); font-weight: 600; }
+  .stripe { flex: none; margin: 0; padding: 4px 14px; background: color-mix(in srgb, var(--warn) 16%, var(--bg)); border-bottom: 1px solid var(--warn); color: var(--warn); font-size: 14px; font-weight: 600; }
+  .ask { position: absolute; z-index: 20; top: calc(100% - 4px); right: 14px; width: min(360px, calc(100vw - 32px)); padding: 16px; background: var(--card-raised); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow); }
+  .ask h2 { margin: 0; font: 600 1.125rem/1.2 var(--sans); }
+  .ask p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  .ask .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
   .btn.lay { display: inline-flex; align-items: center; gap: 7px; }
   .lay-icon { position: relative; width: 16px; height: 12px; flex: none; }
   .lay-icon i { position: absolute; box-sizing: border-box; border: 0.75px solid var(--card); border-radius: 1.5px; background: currentColor; opacity: 0.85; }

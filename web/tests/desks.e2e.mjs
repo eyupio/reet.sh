@@ -3,7 +3,7 @@
 // Synthetic API answers and a fake terminal socket; nothing is started or ended on a machine.
 // Run against `npm --prefix web run preview -- --host 127.0.0.1 --port 4173` after `npm --prefix web run build`.
 // REET_UI_SCREENSHOTS=<dir> also saves the list and a desk in both themes and at phone width, and a 2 + 1 tab and a grid
-// of four at 1440 px in both themes.
+// of four at 1440 px in both themes, and three panes receiving Type in all panes at 1440 px in both themes.
 import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
@@ -180,7 +180,7 @@ const socketStub = socket => {
     const data = JSON.parse(message)
     if (data.ticket) {
       const id = String(data.ticket).replace(/^ticket-/, '')
-      record = { input: [], resizes: [], closed: false }
+      record = { input: [], resizes: [], closed: false, socket }
       sockets.set(id, record)
       socket.onClose(() => { record.closed = true })
       // A session whose machine cannot be reached: the socket closes before it is ready.
@@ -1395,6 +1395,243 @@ try {
   await expect(tab('after')).toBeVisible()
   console.log('ok - a tab rename made just before Reopen survives it')
 
+  // ── Type in all panes ──
+  const allButton = () => page.getByRole('button', { name: 'Type in all panes' })
+  const stripe = () => page.locator('.stripe')
+  const ask = () => page.getByRole('dialog', { name: 'Type in all panes?' })
+  const sent = id => sockets.get(id).input.join('')
+  /** Turns it on with the question answered (it is asked once a page). */
+  async function typeInAll(n = 3) {
+    await allButton().click()
+    await ask().getByRole('button', { name: `Type in all ${n}` }).click()
+    await expect(stripe()).toHaveText(`Typing in ${n} panes on this tab. Turns off when you change tab.`)
+  }
+  /** Opens the 2 + 1 tab with its three shells attached and the input so far forgotten. */
+  async function openThree() {
+    await openSplit()
+    await attached(['sess-a', 'sess-b', 'sess-c'])
+    await expect(allButton()).toBeEnabled()
+    for (const x of ['a', 'b', 'c']) sockets.get(`sess-${x}`).input.length = 0
+  }
+
+  // ── turning it on asks once ──
+  reset()
+  await openThree()
+  await expect(allButton()).toHaveAttribute('aria-pressed', 'false')
+  await expect(stripe()).toHaveCount(0)
+  await allButton().click()
+  await expect(ask()).toBeVisible()
+  await expect(ask()).toContainText('Everything you type, paste or send from Compose goes to all 3 live panes on this tab until you turn it off or change tab.')
+  await expect(ask().getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await ask().getByRole('button', { name: 'Cancel' }).click()
+  await expect(ask()).toHaveCount(0)
+  await expect(allButton()).toHaveAttribute('aria-pressed', 'false')
+  await expect(stripe()).toHaveCount(0)
+  await typeInAll()
+  await expect(allButton()).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.desk-pane .rcv')).toHaveCount(3)
+  await expect(pane('pane-a').locator('.rcv')).toHaveText('Receiving')
+  // Off, and on again without the question: it is asked once in a page's lifetime.
+  await allButton().click()
+  await expect(stripe()).toHaveCount(0)
+  await expect(page.locator('.desk-pane .rcv')).toHaveCount(0)
+  await allButton().click()
+  await expect(ask()).toHaveCount(0)
+  await expect(stripe()).toBeVisible()
+  await expect(allButton()).toHaveAttribute('aria-pressed', 'true')
+  console.log('ok - turning it on asks once')
+
+  // ── typing reaches three panes ──
+  reset()
+  await openThree()
+  await typeInAll()
+  await expect(pane('pane-a').locator('textarea')).toBeFocused()
+  await page.keyboard.type('uptime')
+  await page.keyboard.press('Enter')
+  for (const x of ['a', 'b', 'c']) await expect.poll(() => sent(`sess-${x}`)).toBe('uptime\r')
+  // Focus is never sent: moving to another pane makes it the one typed in, and the others still get each key once.
+  await pane('pane-c').locator('.xterm').click()
+  await page.keyboard.type('w')
+  for (const x of ['a', 'b', 'c']) await expect.poll(() => sent(`sess-${x}`)).toBe('uptime\rw')
+  await quiet()
+  for (const x of ['a', 'b', 'c']) expect(sent(`sess-${x}`)).toBe('uptime\rw')
+  // Nothing of it is saved with the desk.
+  expect(JSON.stringify(patches)).not.toMatch(/typeAll|receiving/i)
+  console.log('ok - typing reaches three panes')
+
+  // ── paste reaches all panes ──
+  reset()
+  await openThree()
+  await typeInAll()
+  await pane('pane-b').locator('.xterm').click()
+  await pane('pane-b').locator('textarea').evaluate(el => {
+    const data = new DataTransfer(); data.setData('text/plain', 'echo pasted')
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  for (const x of ['a', 'b', 'c']) await expect.poll(() => sent(`sess-${x}`)).toBe('echo pasted')
+  console.log('ok - paste reaches all panes')
+
+  // ── Compose's send reaches all panes ──
+  reset()
+  await openThree()
+  await typeInAll()
+  await page.getByRole('button', { name: 'Compose' }).click()
+  {
+    const compose = page.getByRole('dialog').filter({ has: page.getByLabel(/Message for/) })
+    await compose.getByLabel(/Message for/).fill('git pull')
+    await compose.getByRole('button', { name: 'Send' }).click()
+  }
+  for (const x of ['a', 'b', 'c']) await expect.poll(() => sent(`sess-${x}`)).toBe('git pull\r')
+  // Interrupt stays with the focused pane.
+  await page.getByRole('button', { name: 'Interrupt shell' }).click()
+  await expect.poll(() => sent('sess-a')).toBe('git pull\r\x03')
+  await quiet()
+  expect(sent('sess-b')).toBe('git pull\r')
+  expect(sent('sess-c')).toBe('git pull\r')
+  console.log("ok - Compose's send reaches all panes")
+
+  // ── the start-up command's Run reaches only its own pane ──
+  reset()
+  sessions = sessions.map(x => x.id === 'sess-c' ? { ...x, state: 'exited', exitCode: 0 } : x)
+  desks.get('desk-split').doc.tabs[0].panes['pane-c'].start = 'make watch'
+  await openSplit()
+  await attached(['sess-a', 'sess-b'])
+  await pane('pane-c').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+  await attached(['sess-re-1'])
+  {
+    const bar = pane('pane-c').getByRole('group', { name: 'Start-up command' })
+    await expect(bar).toBeVisible()
+    await pane('pane-a').locator('.xterm').click()
+    await expect(allButton()).toBeEnabled()
+    for (const id of ['sess-a', 'sess-b', 'sess-re-1']) sockets.get(id).input.length = 0
+    await typeInAll()
+    await bar.getByRole('button', { name: 'Run' }).click()
+    await expect.poll(() => sent('sess-re-1')).toContain('make watch\r')
+    await quiet()
+    expect(sent('sess-a')).not.toContain('make watch')
+    expect(sent('sess-b')).not.toContain('make watch')
+  }
+  console.log("ok - the start-up command's Run reaches only its own pane")
+
+  // ── a zoomed-away pane does not receive ──
+  reset()
+  await openThree()
+  await typeInAll()
+  // Zooming changes the panes typed in: it stops at once, and the hidden panes get nothing.
+  await chord('KeyZ')
+  await expect(pane('pane-b')).toBeHidden()
+  await expect(page.getByRole('alert')).toContainText('Stopped typing in all panes: the panes on this tab changed.')
+  await expect(stripe()).toHaveCount(0)
+  await expect(allButton()).toBeDisabled()
+  await expect(allButton()).toHaveAttribute('title', 'Needs two or more live panes on this tab.')
+  await pane('pane-a').locator('textarea').focus()
+  await page.keyboard.type('ls')
+  await expect.poll(() => sent('sess-a')).toBe('ls')
+  await quiet()
+  expect(sent('sess-b')).toBe('')
+  expect(sent('sess-c')).toBe('')
+  console.log('ok - a zoomed-away pane does not receive')
+
+  // ── changing tab turns it off ──
+  reset()
+  await openThree()
+  await typeInAll()
+  await tab('four').click()
+  await expect(stripe()).toHaveCount(0)
+  await tab('deploy').click()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await expect(allButton()).toHaveAttribute('aria-pressed', 'false')
+  await expect(stripe()).toHaveCount(0)
+  await expect(page.locator('.desk-pane .rcv')).toHaveCount(0)
+  for (const x of ['a', 'b', 'c']) sockets.get(`sess-${x}`).input.length = 0
+  await pane('pane-a').locator('.xterm').click()
+  await page.keyboard.type('pwd')
+  await expect.poll(() => sent('sess-a')).toBe('pwd')
+  await quiet()
+  expect(sent('sess-b')).toBe('')
+  expect(sent('sess-c')).toBe('')
+  console.log('ok - changing tab turns it off')
+
+  // ── type in all stops when a pane drops ──
+  reset()
+  await openThree()
+  await typeInAll()
+  // beta's socket closes, and its machine does not answer the retry.
+  failing.add('sess-b')
+  {
+    const dropped = sockets.get('sess-b')
+    await dropped.socket.close({ code: 1011, reason: 'gone' })
+    await expect(pane('pane-b')).toHaveAttribute('data-state', 'reconnecting')
+    await page.keyboard.type('x')
+    await expect.poll(() => sent('sess-a')).toBe('x')
+    await expect(page.getByRole('alert')).toContainText('Stopped typing in all panes: beta is no longer connected.')
+    await expect(stripe()).toHaveCount(0)
+    await quiet()
+    expect(sent('sess-c')).toBe('')
+    expect(dropped.input.join('')).toBe('')
+  }
+  console.log('ok - type in all stops when a pane drops')
+
+  // ── a pane taken over elsewhere stops the mode before the next key is sent ──
+  reset()
+  await openThree()
+  await typeInAll()
+  {
+    // Another window takes gamma: its socket closes and every attach from here is refused as a conflict.
+    conflicted.add('sess-c')
+    const taken = sockets.get('sess-c')
+    await taken.socket.close({ code: 1000, reason: 'taken over' })
+    await expect.poll(() => taken.closed).toBe(true)
+    // Once this window has seen the socket go, and before anything else is done, the next key is typed.
+    await expect(pane('pane-c')).not.toHaveAttribute('data-state', 'live')
+    await page.keyboard.type('y')
+    await expect.poll(() => sent('sess-a')).toBe('y')
+    await expect(page.getByRole('alert')).toContainText('Stopped typing in all panes: gamma is no longer connected.')
+    await expect(pane('pane-c')).toHaveAttribute('data-state', 'elsewhere')
+    await quiet()
+    expect(sent('sess-b')).toBe('')
+    expect(taken.input.join('')).toBe('')
+  }
+  console.log('ok - a pane taken over elsewhere stops the mode before the next key is sent')
+
+  // ── a desk change from another window stops the mode ──
+  reset()
+  await openThree()
+  await typeInAll()
+  {
+    // Another window closes gamma: the newer desk arrives when this one reads it again.
+    const d = desks.get('desk-split'), t = d.doc.tabs[0]
+    const { 'pane-c': _gone, ...panes } = t.panes
+    desks.set(d.id, { ...d, version: d.version + 1, doc: { ...d.doc, tabs: [{ ...t, root: twoPlusOne.a, panes }, ...d.doc.tabs.slice(1)] } })
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(pane('pane-c')).toHaveCount(0)
+    await expect(page.getByRole('alert')).toContainText('Stopped typing in all panes: the panes on this tab changed.')
+    await expect(stripe()).toHaveCount(0)
+    await pane('pane-a').locator('textarea').focus()
+    await page.keyboard.type('z')
+    await expect.poll(() => sent('sess-a')).toBe('z')
+    await quiet()
+    expect(sent('sess-b')).toBe('')
+  }
+  console.log('ok - a desk change from another window stops the mode')
+
+  // ── the mode is off after a reload ──
+  reset()
+  await openThree()
+  await typeInAll()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'split desk', level: 1 })).toBeVisible()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await expect(allButton()).toBeEnabled()
+  await expect(allButton()).toHaveAttribute('aria-pressed', 'false')
+  await expect(stripe()).toHaveCount(0)
+  expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('reet.desks')))).toEqual(['reet.desks.last.1'])
+  // A new page asks again.
+  await allButton().click()
+  await expect(ask()).toBeVisible()
+  await ask().getByRole('button', { name: 'Cancel' }).click()
+  console.log('ok - the mode is off after a reload')
+
   // ── the look, in both themes and on a phone ──
   if (shots) {
     // Three states side by side (lost, folder gone, an ended agent) at 1440 px in both themes, and one card on a phone.
@@ -1432,6 +1669,28 @@ try {
       await pp.screenshot({ path: `${shots}/desk-pane-states-phone.png` })
       await pc.close()
     }
+    // Three panes receiving Type in all panes at 1440 px, light and dark at twice the pixels.
+    for (const theme of ['light', 'dark']) {
+      reset()
+      profileTheme = theme
+      desks.get('desk-split').doc.active = 'tab-three'
+      const wide = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: theme })
+      const wp = await wide.newPage()
+      wp.on('pageerror', error => errors.push(error.message))
+      await wp.route('**/api/**', api)
+      await wp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+      await wp.goto(`${base}/desks/desk-split`)
+      await expect(wp.locator('.desk-pane .xterm-screen')).toHaveCount(3)
+      await expect(wp.getByRole('button', { name: 'Type in all panes' })).toBeEnabled()
+      await wp.getByRole('button', { name: 'Type in all panes' }).click()
+      await wp.getByRole('button', { name: 'Type in all 3' }).click()
+      await expect(wp.locator('.stripe')).toBeVisible()
+      await wp.keyboard.type('uptime')
+      await wp.waitForTimeout(600)
+      await wp.screenshot({ path: `${shots}/desk-type-in-all-${theme}.png` })
+      await wide.close()
+    }
+    profileTheme = 'light'
     // A 2 + 1 tab and a grid of four at 1440 px, light and dark; the dark 2 + 1 again at twice the pixels.
     reset()
     const wide = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
@@ -1472,7 +1731,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload).')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

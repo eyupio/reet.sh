@@ -17,8 +17,8 @@
   // either the terminal or a card that says what happened and offers its actions (PaneStateCard). A pane never shows a
   // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
-  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '',
-    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onstartcommand, onstartup }: {
+  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '', receiving = false,
+    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onstartcommand, onstartup, onreceivable, oninput }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -66,12 +66,19 @@
     onstartcommand?: (start: string) => void
     /** The offer is done with: `ran` once Run typed it, false for Dismiss. */
     onstartup?: (ran: boolean) => void
+    /** Type in all panes is on and this pane is one of those receiving. */
+    receiving?: boolean
+    /** Whether this pane could receive now: its terminal is mounted, on screen and connected. */
+    onreceivable?: (ok: boolean) => void
+    /** Typed keys, a paste or Compose's text, just before this pane's terminal sends them (TerminalPane's `oninput`). */
+    oninput?: (data: string, paste: boolean) => void
   } = $props()
 
   let terminal = $state<TerminalPane>()
   let connection = $state<ConnectionState>('connecting')
-  // A new session starts a new attachment.
-  $effect(() => { void session?.id; connection = 'connecting' })
+  // A new session starts a new attachment. Only its id counts: a fresh read of the same session is not a new attachment.
+  const sessionId = $derived(session?.id)
+  $effect(() => { void sessionId; connection = 'connecting' })
   const attach = $derived({ conflict: connection === 'taken_over', down: connection === 'reconnecting' })
   const deskShell = $derived((machine?.capabilities as { deskShell?: boolean } | undefined)?.deskShell)
   const shown = $derived<PaneState>(paneState(pane, session, machine ? { online: machine.ready, deskShell } : undefined, attach, failure))
@@ -80,6 +87,9 @@
   let actions = $state<TerminalActions>()
   $effect(() => { onactions?.(attaching ? actions : undefined) })
   $effect(() => () => onactions?.(undefined))
+  const receivable = $derived(attaching && shown === 'live' && connection === 'live' && visible)
+  $effect(() => { onreceivable?.(receivable) })
+  $effect(() => () => onreceivable?.(false))
   // The attach slot is given back once the attachment has an answer, or at once when there is nothing to attach.
   let settled = false
   $effect(() => { if (admitted && !settled && (!mounted || connection !== 'connecting')) { settled = true; onsettled?.() } })
@@ -163,7 +173,7 @@
     {/if}
     {#if host}<span class="host">{host}</span>{/if}
     {#if folder}<span class="dir" title={folder}>{middleEllipsis(dirLabel(folder), 48)}</span>{/if}
-    <span class="st"><span class={`word ${tone}`} data-status={status}>{word}</span>
+    <span class="st">{#if receiving}<span class="rcv">Receiving</span>{/if}<span class={`word ${tone}`} data-status={status}>{word}</span>
       <button type="button" class="more" aria-label={`Actions for ${name}`} aria-haspopup="menu" aria-expanded={!!menu} onclick={openMenu}>⋮</button>
     </span>
   </header>
@@ -175,7 +185,7 @@
     {:else if mounted && session}
       <TerminalPane bind:this={terminal} bind:actions chrome={false} {session} {host} user={machine?.capabilities?.osUser ?? ''} {visible} holdSize={hold}
         historySupported={machine?.capabilities?.commandHistory ?? false} uploadsSupported={machine?.capabilities?.uploads ?? false} uploadsOff={machine?.capabilities?.uploadsOff ?? false}
-        onconnection={next => (connection = next)} />
+        onconnection={next => (connection = next)} {oninput} />
       {#if startup}<StartupBar command={startup} ready={connection === 'live'} onrun={runStartup} ondismiss={() => onstartup?.(false)} />{/if}
       {#if note}<p class="note">{note}</p>{/if}
       {#if card}<PaneStateCard {card} {dir} overlay onaction={act} />{/if}
@@ -255,6 +265,7 @@
   .st { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: none; }
   .word.good { color: var(--good); } .word.bad { color: var(--bad); } .word.warn { color: var(--warn); }
   .word[data-status='waiting'] { color: var(--status-waiting); }
+  .rcv { color: var(--warn); font-weight: 600; margin-right: 6px; }
   .more { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; }
   .more:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
   .rename { min-height: 28px; padding: 2px 8px; font-weight: 600; width: min(260px, 50%); }

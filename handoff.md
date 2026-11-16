@@ -39,6 +39,12 @@ what was found and left.
   effort it is on, keeps that with the stage and shows it on the card (**Applied**: Confirmed, Not as chosen, Not
   checked), including for a stage that carries on in the session before it. A difference is logged and stops nothing.
 
+- **A message that goes by itself.** A message the agent was too busy to take stays queued, and a failed message no
+  longer holds back what was queued after it (`nextQueued` in `terminalbroker/chat_queue.go`). That is what left
+  Gaffer's next instruction waiting for **Stop and send**.
+- **Focus mode on a phone** shows less around a busy chat: one header row, one status line, the queue as one line that
+  opens, and the composer's settings behind **Exit focus**. See [terminal workspace](docs/terminal-workspace.md).
+
 The owner runs the Factory against real agents; this slice was checked with the test fakes only, so the Applied line on
 a real stage is the first thing to look at. The roadmap's own next item is unchanged: finish and record the
 [device and login checks](docs/device-checks.md), then turn Claude Code and Codex chats on by default.

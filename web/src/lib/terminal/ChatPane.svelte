@@ -766,7 +766,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
 {/snippet}
 
 <section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
- <div class="chat-status">
+ <div class="chat-status" class:plain={!failed && !reattaching && !ended && chat.connection === 'open' && pending.length === 0}>
  <div class="chat-live" role="status" aria-live="polite">
   <span class="status-dot" class:busy={working || reattaching} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>

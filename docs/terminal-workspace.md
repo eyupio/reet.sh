@@ -108,9 +108,13 @@ beside it). Its parts:
   out of the way. A Gaffer chat's conversation and composer take the whole screen; a terminal's screen and on-screen
   keys do, and its pane header and status footer step aside too while it is connected (they come back for Retry,
   Reconnect and the reason when it is not). A terminal's header keeps **Session actions** (Rename, End session and the
-  rest), since the pane header that also held them is aside; a chat's wait behind **Exit focus**. The slim header keeps Back, the title, the state and **Exit focus**; a
-  chat's status and compact progress strip stay visible, and its composer keeps its message field,
-  **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The terminal toolbar
+  rest), since the pane header that also held them is aside; a chat's wait behind **Exit focus**. A chat's header is one
+  row: Back, the title, the state, **Ask Gaffer** and **Exit focus**; its Chat/Terminal switch and **Details** wait
+  behind **Exit focus** (a terminal keeps the switch, which is its way back to the chat). The agent's state is said
+  once, in the strip above the composer with the context left; the line under the header returns for a reconnect, a
+  failure or a waiting approval. Queued messages are one line (**Queued 2**, what goes next, and how many were not
+  sent) that opens to the full list with its Retry, Edit and Remove. The composer keeps its message field with
+  **Stop** and **Queue**; Prompts, Skills, an image, dictation, effort, model and source wait behind **Exit focus**. The terminal toolbar
   keeps **Show sessions**, so another session is one tap away. With the keyboard up, the header's second row (the view
   switch, Details and Exit focus) waits as well, and a chat's model, effort and source settings and its own status
   line wait until the keyboard goes. The choice is remembered for this browser, for chats and terminals alike;

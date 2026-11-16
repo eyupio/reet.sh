@@ -17,6 +17,12 @@ this file existed releases were described on their GitHub release pages.
   model and effort, including one you left to the agent), Not as chosen
   (naming what differs) or Not checked. A later change made in the session's
   own chat shows too. "Who did each stage" now lists effort.
+- Focus mode on a phone shows less around a chat, so the conversation has the
+  screen while an agent works and messages are queued: one header row, the
+  agent's state said once, the queue as one line that opens, and the
+  composer's Prompts, Skills, image, dictation, effort and model behind
+  **Exit focus**. Upright, the conversation goes from about a third of the
+  screen to about two thirds; sideways, from one line to most of it.
 - A message waiting for an agent to finish its turn no longer gets stuck
   behind an earlier message that failed, and an agent that turned out to be
   busy no longer turns the message into a failure you have to retry: it goes

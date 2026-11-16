@@ -80,6 +80,8 @@ try {
   await page.waitForFunction(()=>window.__calmStream)
   await page.locator('.composer-input').fill('A draft kept across native views')
   await page.evaluate(()=>{window.__beforeViewStream=window.__calmStream;window.__beforeViewField=document.querySelector('.composer-input');window.__calmStream.emit('chat',{seq:3,kind:'status',state:'working'})})
+  // A phone opens a chat in focus, where the view switch waits behind Exit focus.
+  {const exit=page.getByRole('button',{name:'Exit focus mode',exact:true});if(await exit.count())await exit.click()}
   const toggle=page.getByRole('group',{name:'Session view',exact:true})
   const terminal=toggle.getByRole('button',{name:'Terminal',exact:true}),chat=toggle.getByRole('button',{name:'Chat',exact:true})
   await expect(terminal).not.toHaveAttribute('aria-disabled','true')

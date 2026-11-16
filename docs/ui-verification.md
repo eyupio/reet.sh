@@ -4154,3 +4154,23 @@ dark and 390 px light, synthetic outcomes.
 
 **Not checked.** A real machine or agent: the read-back is covered by Go tests with a stand-in machine. The 390 px and
 dark captures were made and not looked at one by one. No screen reader.
+
+## Focus mode around a busy chat (16 November 2026)
+
+Production build served with `vite preview`, Chromium as a touch phone at 390 × 844 and 844 × 390, light. A Factory
+pipeline's chat with its agent working, Gaffer's instruction and one of the person's queued, and the context nearly
+full; synthetic data.
+
+- Before: upright, the header took two rows, the agent's state showed twice, the queue showed both messages with
+  their buttons, and the composer had its settings row. The conversation had about 250 of 844 px; sideways, one line.
+- After ([upright](images/ui/focus-chat-busy-390-light.png), [sideways](images/ui/focus-chat-busy-844x390-light.png)):
+  one header row (Back, title, state, Ask Gaffer, Exit), one status strip, **Queued 2** with what goes next on one
+  line, and the message field with Stop and Queue. The conversation has about 550 px upright and three messages
+  sideways.
+
+`terminal-focus.e2e.mjs` asserts it: one header row no taller than 52 px, the view switch, Details, Prompts, Skills and
+the model control hidden and back after Exit focus, and the queue as one line of at most 56 px that says "1 not sent",
+names Gaffer's instruction as what goes next, opens to all three messages with Retry and Stop and send, and closes.
+
+**Not checked.** A real phone. The line under the header returning for a failure or a reconnect was built and not
+looked at (a waiting approval is, in the same suite). Dark theme. A screen reader.

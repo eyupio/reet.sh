@@ -1130,11 +1130,12 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 	}
 	return s, started, nil
 }
-func (p *Peer) end(ctx context.Context, session, request string) error {
+func (p *Peer) end(ctx context.Context, session, request string, forgetDesk ...bool) error {
 	k := endKey{uid: p.key.uid, agent: p.key.agent, session: session}
 	p.b.mu.Lock()
 	_, forget := p.b.forgetDesk[k]
 	p.b.mu.Unlock()
+	forget = forget || len(forgetDesk) > 0 && forgetDesk[0]
 	// ForgetDesk reaches only a machine that negotiated desk-shell-v1; an
 	// older one's strict decoder would refuse the whole end.
 	if forget {
@@ -1145,18 +1146,14 @@ func (p *Peer) end(ctx context.Context, session, request string) error {
 	if err != nil {
 		return err
 	}
-	answered := func() {
-		p.b.mu.Lock()
-		delete(p.b.forgetDesk, k)
-		p.b.mu.Unlock()
-	}
+	// Any answer means the machine heard this end, so the mark has done its
+	// work whatever the answer says.
+	p.b.dropForgetDesk(k)
 	switch body := reply.Body.(type) {
 	case *terminalproto.SessionChanged:
-		answered()
 		return p.b.observe(p, p.key.uid, p.key.agent, session, p.Generation, body.State, body.ExitCode)
 	case *terminalproto.Result:
 		if body.Code == terminalproto.NotFound {
-			answered()
 			// The machine answers NotFound only when its registry no longer
 			// holds this session. That is a final answer, not a lost one:
 			// settle the row instead of waiting for a reconnect forever.
@@ -1164,6 +1161,14 @@ func (p *Peer) end(ctx context.Context, session, request string) error {
 		}
 	}
 	return ErrOffline
+}
+
+// dropForgetDesk forgets that an end should remove its desk pane's history:
+// the end was answered, or will not be sent again.
+func (b *Broker) dropForgetDesk(k endKey) {
+	b.mu.Lock()
+	delete(b.forgetDesk, k)
+	b.mu.Unlock()
 }
 
 // OnSessionClosed sets fn to hear that a session row reached a closed state.
@@ -1202,6 +1207,11 @@ func (b *Broker) OnSessionBase(fn func(uid int64, agent, session string, base te
 // is still synchronizing is left to the peer-ready sweep.
 func (b *Broker) observe(p *Peer, uid int64, agent, session string, generation int64, state terminalproto.SessionState, code *int) error {
 	err := b.st.ObserveTerminalStateFor(uid, agent, session, generation, state, code)
+	if err == nil && state.Closed() {
+		// A session that closed has no pending end left to resend; an end
+		// in flight already carries what its mark said.
+		b.dropForgetDesk(endKey{uid: uid, agent: agent, session: session})
+	}
 	if err == nil && state.Closed() && p.isReady() {
 		b.mu.Lock()
 		fn := b.sessionClosed
@@ -1260,18 +1270,26 @@ func (b *Broker) end(ctx context.Context, uid int64, session, request string, fo
 	if err != nil {
 		return s, err
 	}
+	// A shell that already exited is still sent this end, so the mark is
+	// set whatever the session's state; it is kept for a retry or a
+	// reconnect's resend and dropped once the end is answered or will not be
+	// sent again.
+	k := endKey{uid: uid, agent: s.AgentID, session: session}
 	b.mu.Lock()
-	if forgetDesk && s.State.ReservesQuota() {
-		b.forgetDesk[endKey{uid: uid, agent: s.AgentID, session: session}] = struct{}{}
+	if forgetDesk {
+		b.forgetDesk[k] = struct{}{}
 	}
 	if v := b.bridges[session]; v != nil {
 		v.Close()
 	}
 	b.mu.Unlock()
 	if p, e := b.peer(uid, s.AgentID, false); e == nil {
-		if err := p.end(ctx, session, request); err != nil {
+		if err := p.end(ctx, session, request, forgetDesk); err != nil {
 			b.retryEnd(uid, s.AgentID, session, request, p.Generation)
 		}
+	} else if !s.State.ReservesQuota() {
+		// No pending end is left for a reconnect to resend.
+		b.dropForgetDesk(k)
 	}
 	return b.st.TerminalSessionFor(uid, session)
 }
@@ -1310,10 +1328,12 @@ func (b *Broker) retryEnd(uid int64, agent, session, request string, generation 
 			}
 			s, err := b.st.TerminalSessionFor(uid, session)
 			if err != nil || !s.State.ReservesQuota() {
+				b.dropForgetDesk(k) // settled without this end: never resent
 				return
 			}
 			op, err := b.st.TerminalOperationFor(uid, agent, "end", request)
 			if err != nil || op.State != "pending" {
+				b.dropForgetDesk(k)
 				return
 			}
 			if err := p.end(context.Background(), session, request); err == nil {

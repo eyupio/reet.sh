@@ -1481,8 +1481,46 @@ suits the stage's difficulty, and later several agents delivering one stage.
 `TestFolderRemoteTriesDoNotStarveTheBatch`. Web unit tests, `svelte-check` and `gaffer-outcome.e2e.mjs`,
 `gaffer-factory.e2e.mjs` against a production build pass. Other browser suites were left to CI.
 
+## Decisions as choices, and Gaffer decides (16 November 2026)
+
+### What Gaffer recommends
+
+- `stageQuestionTool` is `ask_user` as a stage review is offered it, with `recommend`, `why` and `instruction`.
+  `goalQuestion` returns the advice; one that is not `again`, `tell` or `move`, or has no reason, is dropped and the
+  question still reaches the person. `AdviseGafferGoal` saves it after the review settles.
+- Web `needsYou` orders the choices recommended first and returns `recommend: {by: 'gaffer' | 'default', …}`.
+  Buttons carry a **Recommended** mark, in the accessible name too.
+
+### Where decisions are shown
+
+- Outcome card head: `<section aria-label="Decisions for this outcome">` with one `Decision` for each waiting
+  pipeline, the who-decides switch and **What Gaffer decided**.
+- Session: `SessionDecision` reads the outcomes and goals lists every eight seconds, and shows the decision only for
+  the session that is the pipeline's session in hand. Again, restart, move on and tell act there; merge, budget and
+  stop go to the pipeline's card.
+
+### Gaffer decides
+
+- `pipelineStop` says what a `following` pipeline is waiting for and which choices Gaffer may take: `session_ended`
+  (restart, move), `limit` (budget once, move), `review_failed` (again, move), `no_step` and `question` (again,
+  tell, move). `WaitingOnWorker`, `ready_to_merge` and a stage with three decisions return nothing.
+- The stop's signature is saved on the stage (`DecidedFor`) and counted (`Decided`) before the request, as an
+  automatic report's event is, so a slow or failed request is not repeated.
+- `applyDecision` re-reads the outcome first: decisions taken back, an archive, a stop or a pipeline that moved
+  leave everything as it is. A failure is recorded with `Failed` and the reason.
+- A stage Gaffer moved on from has `ClosedBy: "auto"`.
+
+### Validation
+
+Go: `outcome_decide_test.go` (five tests), route checks in `gaffer_outcomes_test.go`. Web: unit tests for the
+recommended order, waiting decisions and the log's wording; `gaffer-factory`, `gaffer-factory-session`,
+`gaffer-outcome` and the new `factory-decision` browser suites, plus `gaffer-goal`, `gaffer-floor`, `terminal-focus`,
+`calm-session`, `sessions`, `session-workspace`, `home`, `stage-follow`, `session-end-gaffer`.
+
 ## Not done, for the next slice
 
+- **Gaffer answering an agent's multiple-choice question** on an outcome it decides for. Chosen by the owner, not
+  built: the stage is left held for the person, as before.
 - **Several agents delivering one stage** (slice 3). Open decisions: how sub-work is split and by whom, whether
   sub-agents share the stage's worktree, and how their results are joined before the hand-over.
 - A crew editor in Gaffer settings; tiers on the MCP start tool's input.

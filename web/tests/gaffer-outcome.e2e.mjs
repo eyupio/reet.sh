@@ -232,7 +232,7 @@ try {
       // Each stage is sent with its tier and the agent, model and effort that tier means; Gaffer's reason goes with its own.
       const cheap=kind=>({kind,tool:'claude',model:'',tier:'standard'}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high',tier:'heavy'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low',tier:'light'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,automation:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:[{...strong('code'),tierWhy:'The export reads the billing ledger while it is being written.'},...usual.slice(1)]},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge').map(stage=>stage.kind==='test'?ship('test'):stage)]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
@@ -292,6 +292,13 @@ try {
       await expect(reports).not.toBeChecked();await reports.check()
       // YOLO is off until confirmed, and is this outcome's choice only.
       const approvals=outcome.getByRole('radiogroup',{name:'Approvals',exact:true})
+      // Who decides when a stage stops is the person's choice too, and theirs unless they say otherwise.
+      const decisions=outcome.getByRole('radiogroup',{name:'Decisions',exact:true})
+      await expect(decisions.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+      await decisions.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+      await expect(outcome).toContainText('at most three times for a stage');await expect(outcome).toContainText('Merges and agents’ own questions and approvals still come to you.')
+      await decisions.getByRole('radio',{name:'Ask me',exact:true}).check()
+      await expect(outcome).toContainText('shows you the choices with a recommendation first, and waits for you.')
       await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
       await approvals.getByRole('radio',{name:'YOLO',exact:true}).click()
       const confirm=w.page.getByRole('alertdialog',{name:'Turn on YOLO for this launch?',exact:true})

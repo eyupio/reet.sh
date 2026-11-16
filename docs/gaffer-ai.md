@@ -346,6 +346,50 @@ can do:
 - **Try the review again** appears when Gaffer's own review failed.
 - **Give it a new budget** appears when the stage ran out of reviews or time.
 
+The choice to take unless you know better comes first and is marked
+**Recommended**. When Gaffer's review brought the stage back, the
+recommendation is Gaffer's own: the card says **Gaffer recommends** with its
+reason and, if it would tell the agent something, the words it would use.
+Choosing **Tell the agent…** then starts from those words, which are yours to
+change. Otherwise the recommended choice is the usual one for that kind of stop.
+A recommendation is advice: nothing happens until you choose.
+
+The same decisions are in two more places, with the same buttons:
+
+- **At the head of the outcome's card**, under **N decisions waiting for
+  you**: every decision the outcome is waiting on, one block for each
+  pipeline, including a merge that waits for your approval.
+- **In the pipeline's session**, under its header, for the session doing the
+  stage in hand. There you can have Gaffer look again, tell the agent, move on
+  or run the stage again without leaving the session. A merge, a new budget
+  and stopping the outcome take you to the pipeline's card.
+
+#### Let Gaffer take the decisions
+
+Each outcome has **You decide** and **Gaffer decides** at the head of its
+card, and **Decisions: Ask me / Gaffer decides** when you approve its plan. It
+is **You decide** unless you choose otherwise, and you can switch at any time.
+
+With **Gaffer decides**, when a stage stops Gaffer chooses one of that stage's
+own choices: review again, tell the agent, move on, a new budget (once for a
+stage) or, for a stage whose session ended, a new session. The controller then
+does it exactly as your button would. Each decision is one request to Gaffer's
+model, made from the outcome's handovers and reviews, so the outcome's
+provider must still be allowed session text.
+
+Gaffer never decides a merge (that stays with **Ready to merge** and the merge
+setting), never answers an agent's own question or approval, and never stops
+an outcome. It takes at most three decisions on one stage; after that the
+stage is yours and the card says so. A decision Gaffer could not make or carry
+out is left with you, with the reason. You can always choose first: the
+buttons stay.
+
+**What Gaffer decided**, at the head of the card, lists every decision with
+its time, pipeline and stage, what had stopped the stage, what Gaffer did and
+why, newest first. A stage Gaffer moved on from reads **Done: Gaffer decided
+to move on** under **Who did each stage**. Each decision is also in the
+outcome's **History**.
+
 If Gaffer reviewed the stage and simply chose no next step, the card says that
 rather than asking for a decision. The **Need you** and **Ready to merge**
 numbers at the top of the page go to the first such pipeline, and Home's

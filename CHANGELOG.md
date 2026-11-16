@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: every decision a pipeline is waiting on you for is a set of
+  buttons with the recommended choice first, at the head of the outcome's
+  card and in the pipeline's session as well as on the pipeline. When
+  Gaffer's review brought a stage back, the recommendation is Gaffer's,
+  with its reason.
+- Factory: an outcome can be set to **Gaffer decides**. When a stage stops,
+  Gaffer then chooses what happens next (review again, tell the agent, move
+  on, a new budget or a new session) and the card lists what it decided and
+  why. It is off unless you choose it, takes at most three decisions on a
+  stage, and never covers a merge or an agent's own question or approval.
+
 - Factory: every stage of a pipeline now runs in an agent session of its
   own. Two stages with the same agent, model and effort used to share one
   session; the later stage now starts fresh from the earlier one's handover,

@@ -387,3 +387,45 @@ test('token counts round up into millions instead of reading 1000k', () => {
   assert.equal(o.agentTokensText({ tokens: 999_700, cached: 0, reported: true }), '1.0M')
   assert.equal(o.agentTokensText({ tokens: 998_000, cached: 0, reported: true }), '998k')
 })
+
+test('the first choice is the recommended one, and Gaffer says which and why when its review advised', () => {
+  // With no advice the fixed default leads and is the recommendation.
+  const plain = o.needsYou({ state: 'needs_user', note: 'Gaffer needs your decision.' }, undefined, false)
+  assert.deepEqual(plain.choices.map(c => [c.id, !!c.recommended, !!c.primary]), [['again', true, true], ['tell', false, false], ['move', false, false], ['open', false, false]])
+  assert.equal(plain.recommend.by, 'default')
+  // Gaffer's advice moves its choice to the front, with its reason and the instruction it would give.
+  const advised = o.needsYou({ state: 'needs_user', note: 'n', advice: { choice: 'tell', why: 'The endpoint is untested.', text: 'Add tests for the export endpoint.' } }, undefined, false)
+  assert.deepEqual(advised.choices.map(c => c.id), ['tell', 'again', 'move', 'open'])
+  assert.deepEqual(advised.choices.map(c => !!c.recommended), [true, false, false, false])
+  assert.deepEqual(advised.choices.map(c => !!c.primary), [true, false, false, false])
+  assert.deepEqual(advised.recommend, { by: 'gaffer', label: 'Tell the agent…', why: 'The endpoint is untested.', text: 'Add tests for the export endpoint.' })
+  // Advice for a choice the person does not have here is ignored.
+  assert.equal(o.needsYou({ state: 'limit', note: 'n', advice: { choice: 'tell', why: 'x', text: 'y' } }, undefined, false).recommend.by, 'default')
+  // One choice is not a recommendation.
+  assert.equal(o.needsYou({ state: 'needs_user', note: 'n', waitingOnWorker: true }, undefined, false).recommend, undefined)
+  assert.equal(o.sessionEndedChoices(false, false).choices[0].recommended, true)
+})
+
+test('an outcome lists every decision waiting for the person, the merge included', () => {
+  const stages = [{ kind: 'code', tool: 'claude', state: 'running' }, { kind: 'merge', tool: 'claude', state: 'pending' }]
+  const record = { id: 'o1', sessions: [
+    { key: 'a', title: 'API', state: 'following', conversationId: 'c1', sessionId: 's1', stage: 0, stages },
+    { key: 'b', title: 'Button', state: 'following', conversationId: 'c2', sessionId: 's2', stage: 0, stages },
+    { key: 'c', title: 'Docs', state: 'ready_to_merge', conversationId: 'c3', sessionId: 's3', stage: 1, stages },
+    { key: 'd', title: 'Notes', state: 'following', conversationId: 'c4', sessionId: 's4', sessionState: 'ended', stage: 0, stages },
+  ] }
+  const goals = new Map([['c1', { attention: true, goal: { state: 'needs_user', note: 'Gaffer needs your decision.' } }], ['c2', { attention: false, goal: { state: 'active', note: '' } }]])
+  const waiting = o.waitingDecisions(record, goals)
+  assert.deepEqual(waiting.map(w => [w.piece.key, w.stage, w.need.choices[0].id]), [['a', 'Code', 'again'], ['c', 'Merge', 'merge'], ['d', 'Code', 'restart']])
+  assert.match(waiting[1].need.why, /Nothing merges until you approve/)
+})
+
+test('what Gaffer decided reads as a sentence, and a stage says when it has used its decisions', () => {
+  assert.deepEqual(o.decisionText({ about: 'question', choice: 'move', why: 'w' }), { about: 'Gaffer’s review brought the stage back', did: 'Moved to the next stage' })
+  assert.deepEqual(o.decisionText({ about: 'session_ended', choice: 'restart', why: 'w' }), { about: 'The stage’s session had ended', did: 'Ran the stage again in a new session' })
+  assert.deepEqual(o.decisionText({ about: 'limit', choice: '', failed: true, why: 'w' }), { about: 'The stage had used its budget', did: 'Left to you' })
+  assert.equal(o.MAX_STAGE_DECISIONS, 3)
+  // A stage Gaffer closed itself is told apart from one it handed over after a review and one the person moved on.
+  const closed = o.track({ state: 'following', stage: 2, stages: [{ kind: 'code', tool: 'claude', state: 'done', closedBy: 'auto' }, { kind: 'review', tool: 'claude', state: 'done', closedBy: 'person' }, { kind: 'pr', tool: 'claude', state: 'running' }] })
+  assert.deepEqual(closed.map(n => [n.auto, n.moved]), [[true, false], [false, true], [false, false]])
+})

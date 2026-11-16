@@ -18,6 +18,26 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-DECIDE-1: decisions as choices, and Gaffer decides (16 November 2026)
+
+The owner asked for every decision to be clickable options with the recommendation first, on the Factory card's
+head and in Factory sessions, and for an option where Gaffer takes the decisions and reports what it took and why.
+Read "Decisions as choices" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md).
+
+- **Recommendation.** A stage review's `ask_user` takes `recommend` (`again`, `tell`, `move`), `why` and
+  `instruction`. It is kept as `GafferGoal.Advice` and cleared by the next review or control. The web puts that
+  choice first; with no advice the usual first choice is marked.
+- **Where.** `factory/Decision.svelte` is the one block. The outcome card's head lists every waiting decision
+  (`waitingDecisions`), the merge included. `factory/SessionDecision.svelte` shows it under the session header for
+  the session doing the stage in hand.
+- **Gaffer decides.** `GafferOutcome.Automation`, set at approval or by `POST …/outcomes/{id}/automation`.
+  `autoDecisions` (in the outcome supervisor) puts each stop to Gaffer's model once (`decide` tool), carries the
+  choice out through the person's own paths and appends to `GafferOutcome.Decisions`. Three decisions a stage, one
+  budget renewal, never a merge, never a goal held for the agent's own question.
+- **Not done:** answering an agent's multiple-choice question for the person, which the owner also chose. It needs
+  the controller to read the pending question from the terminal broker and answer through `AnswerQuestionChat`.
+  Also not done: the switch over MCP, an account default, and a real run (checked with fakes and a stand-in model).
+
 ## FACTORY-CREW-1: a session per stage, and Gaffer advises the crew (16 November 2026)
 
 The owner's direction: Gaffer orchestrates and advises; each Factory stage is a separate session on the agent and

@@ -4,6 +4,11 @@ import { baseSentence } from './baseNotice'
 
 type Detail = {
   host?: string
+  /** A decision Gaffer took for the person on a Factory outcome: what it chose, or that it could not. */
+  choice?: string
+  failed?: boolean
+  /** Whether an outcome's decisions were given to Gaffer (true) or taken back. */
+  gaffer?: boolean
   /** A project removal that also deleted the clone reet made, and the folder the machine said it deleted. */
   cloneDeleted?: boolean
   clonePath?: string
@@ -108,7 +113,10 @@ export function eventLabel(e: Event): string {
     case 'gaffer-stage-handed-over':
       if (d.by === 'person') return `You moved a pipeline on from its ${d.stage || 'current'} stage`
       if (d.by === 'chat') return `Gaffer moved a pipeline on from its ${d.stage || 'current'} stage because you said so in its chat`
+      if (d.by === 'auto') return `Gaffer decided to move a pipeline on from its ${d.stage || 'current'} stage`
       return `Gaffer handed over a pipeline's ${d.stage || 'current'} stage`
+    case 'gaffer-decision': return d.failed ? `Gaffer could not decide for a pipeline's ${d.stage || 'current'} stage and left it to you${d.reason ? `: ${d.reason}` : ''}` : `Gaffer decided for a pipeline's ${d.stage || 'current'} stage: ${({ again: 'review it again', tell: 'tell the agent what to do', move: 'move on', budget: 'give it a new budget', restart: 'run it again in a new session' } as Record<string, string>)[String(d.choice)] ?? 'a choice'}${d.reason ? `. ${d.reason}` : ''}`
+    case 'gaffer-outcome-decisions': return d.gaffer ? 'You gave Gaffer an outcome’s decisions' : 'You took an outcome’s decisions back from Gaffer'
     case 'gaffer-stage-started': return d.stage ? `A pipeline's ${d.stage} stage started` : 'An outcome session started and Gaffer is following it'
     case 'gaffer-pipeline-waiting-merge': return 'A pipeline is ready and waits for your merge decision'
     case 'gaffer-pipeline-done': return 'A pipeline finished every stage'

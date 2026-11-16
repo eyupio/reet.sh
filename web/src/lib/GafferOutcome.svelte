@@ -57,6 +57,8 @@
   let autoMerge = $state(false)
   // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
   let autoReport = $state(false)
+  // Who takes the decisions when a stage stops: the person, or Gaffer for them. The person's unless they say so.
+  let automation = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let image = $state<File | null>(null), imageUploading = $state(false), imageError = $state('')
   let counter = 0
@@ -319,7 +321,7 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
         sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crew, machine?.capabilities?.acpProvider === true, item), efforts) })),
       }, life.signal)
       step = 'results'; clearImage()
@@ -450,6 +452,13 @@
           <label class:on={yolo} class:off={!!yoloWhy}><input type="radio" name={`${formId}-approvals`} checked={yolo} disabled={busy || !!yoloWhy} onclick={event => { if (!yolo) { event.preventDefault(); yoloOpen = true } }}/>YOLO</label>
         </div>
         <p class="hint" class:warn={yolo}>{yoloWhy || (yolo ? 'Every session of this outcome starts on YOLO: no agent waits for you to approve commands or file changes. Each start is checked and audited.' : 'Agents ask before running commands. A pipeline waits whenever one is asking, and carries on once you answer. YOLO needs a confirmation.')}</p>
+      </fieldset>
+      <fieldset class="approvals"><legend>Decisions</legend>
+        <div class="choice" role="radiogroup" aria-label="Decisions">
+          <label class:on={!automation}><input type="radio" name={`${formId}-decisions`} checked={!automation} disabled={busy} onchange={() => automation = false}/>Ask me</label>
+          <label class:on={automation}><input type="radio" name={`${formId}-decisions`} checked={automation} disabled={busy} onchange={() => automation = true}/>Gaffer decides</label>
+        </div>
+        <p class="hint">{automation ? 'When a stage stops, Gaffer chooses what happens next (review again, tell the agent, move on, a new budget or a new session) and the Factory records what it chose and why, at most three times for a stage. Each decision is one request to Gaffer’s model. Merges and agents’ own questions and approvals still come to you. You can take the decisions back on the outcome’s card.' : 'When a stage stops, the Factory shows you the choices with a recommendation first, and waits for you.'}</p>
       </fieldset>
       <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
       {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.{#if yolo && !yoloWhy}{' '}<strong>On YOLO a pipeline still stops there</strong> until you confirm on the Factory page that it may merge by itself.{/if}</span></label>{/if}

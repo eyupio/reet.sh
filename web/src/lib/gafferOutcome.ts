@@ -309,7 +309,7 @@ export function sessionCount(plan: unknown[]): number {
   return plan.length
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; moved: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
 type ChosenStage = { tool: string; model?: string; effort?: string; tier?: string; tierWhy?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
 type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
 
@@ -338,7 +338,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
   })
 }
 
@@ -552,22 +552,60 @@ export function factoryRows(records: { id: string; objective: string; sessions: 
   return rows.sort((a, b) => order[a.tone] - order[b.tone])
 }
 
-export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop'; label: string; primary?: boolean }
+export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
+/** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
+export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }
+export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend }
+/** Gaffer's advice on a stage its review brought back: one of the person's choices, and why. */
+export type GoalAdvice = { choice: string; why: string; text?: string }
+/** How many decisions Gaffer may take on one stage of an outcome whose decisions it was given. */
+export const MAX_STAGE_DECISIONS = 3
+/** Puts the recommended choice first and marks it. With one choice there is nothing to recommend. */
+function recommend(why: string, choices: NeedChoice[], advice?: GoalAdvice): Need {
+  if (choices.length < 2) return { why, choices }
+  const advised = advice?.why ? choices.find(choice => choice.id === advice.choice) : undefined
+  const first = advised ?? choices[0]
+  const ordered = [first, ...choices.filter(choice => choice !== first)].map((choice, index) => ({ id: choice.id, label: choice.label, ...(index === 0 ? { primary: true, recommended: true } : {}) }))
+  return { why, choices: ordered, recommend: advised ? { by: 'gaffer', label: first.label, why: advice!.why, ...(advice!.text ? { text: advice!.text } : {}) } : { by: 'default', label: first.label, why: '' } }
+}
 /** What the person can do about a pipeline whose session was ended or removed under it. `gone` is a session that was
  *  removed from history, which cannot be opened. */
-export function sessionEndedChoices(last: boolean, gone: boolean): { why: string; choices: NeedChoice[] } {
+export function sessionEndedChoices(last: boolean, gone: boolean): Need {
   const choices: NeedChoice[] = [{ id: 'restart', label: 'Run this stage again in a new session', primary: true }, { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }, { id: 'stop', label: 'Stop following this outcome' }]
   if (!gone) choices.push({ id: 'open', label: 'Read the ended session' })
-  return { why: SESSION_ENDED_WHY, choices }
+  return recommend(SESSION_ENDED_WHY, choices)
 }
-type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean }
+type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean; advice?: GoalAdvice }
 /** What a pipeline that needs the person is waiting for, in one sentence, and the things they can do about it as
  *  buttons, the most likely first. `last` is whether the stage in hand is the pipeline's last. */
-export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): { why: string; choices: NeedChoice[] } {
+export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): Need {
   const move: NeedChoice = { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }
   if (goal.waitingOnWorker) return { why: 'The agent is waiting for your answer or approval. Gaffer carries on by itself once you have answered.', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
-  if (goal.reviewFailed) return { why: goal.note, choices: [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move] }
-  if (goal.state === 'limit') return { why: goal.note || 'This stage used its review budget or its time.', choices: [{ id: 'budget', label: 'Give it a new budget', primary: true }, move] }
-  if (goal.noStep) return { why: 'Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }] }
-  return { why: reason || goal.note || 'Gaffer brought this back to you.', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }] }
+  if (goal.reviewFailed) return recommend(goal.note, [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move])
+  if (goal.state === 'limit') return recommend(goal.note || 'This stage used its review budget or its time.', [{ id: 'budget', label: 'Give it a new budget', primary: true }, move])
+  if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }])
+  return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }], goal.advice)
+}
+type WaitingPiece = { key: string; title: string; state: string; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string }[] }
+/** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
+export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' }
+/** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used
+ *  its budget, a stage whose session ended, and a merge that waits for approval. */
+export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[] }, goals: Map<string, { attention: boolean; reason?: string; goal: NeedGoal }>): WaitingDecision<P>[] {
+  const out: WaitingDecision<P>[] = []
+  for (const piece of record.sessions) {
+    const stages = piece.stages ?? [], at = Math.min(piece.stage ?? 0, Math.max(stages.length - 1, 0))
+    const stage = stages.length ? stageLabel(stages[at].kind) : '', last = (piece.stage ?? 0) >= stages.length - 1
+    const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
+    if (sessionLost(piece)) out.push({ piece, stage, kind: 'ended', need: sessionEndedChoices(last, piece.sessionState === 'gone') })
+    else if (piece.state === 'ready_to_merge') out.push({ piece, stage, kind: 'merge', need: recommend('Ready to merge. Nothing merges until you approve it.', [{ id: 'merge', label: 'Approve the merge…' }, { id: 'open', label: 'Open the session' }]) })
+    else if (goal && pipelineStatus(piece, goal.attention).label === 'Needs you') out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })
+  }
+  return out
+}
+const DECISION_ABOUT: Record<string, string> = { question: 'Gaffer’s review brought the stage back', no_step: 'Gaffer’s review chose no next step', review_failed: 'Gaffer’s review did not complete', limit: 'The stage had used its budget', session_ended: 'The stage’s session had ended' }
+const DECISION_DID: Record<string, string> = { again: 'Reviewed the stage again', tell: 'Told the agent what to do', move: 'Moved to the next stage', budget: 'Gave the stage a new budget', restart: 'Ran the stage again in a new session' }
+/** One of Gaffer's decisions in words: what had stopped the stage, and what Gaffer did about it. */
+export function decisionText(d: { about: string; choice?: string; failed?: boolean }): { about: string; did: string } {
+  return { about: DECISION_ABOUT[d.about] ?? 'The stage stopped', did: d.failed || !d.choice ? 'Left to you' : DECISION_DID[d.choice] ?? d.choice }
 }

@@ -165,6 +165,10 @@ Two tools read the Factory for any connection on a writer account:
   session has been asked, `choice` says whether they were applied (`applied`,
   `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for
   a difference, `choice_note`.
+  `decisions_by` is `you` or `gaffer`: who chooses what happens when a stage
+  stops. `gaffer_decisions` lists what Gaffer decided (`pipeline`, `stage`,
+  `about`, `choice`, `failed`); its reason, `why`, goes only to a management
+  connection. The switch itself is not an MCP tool.
 - `reet_get_factory_outcome` reads one outcome. A management connection also
   receives each finished stage's handover note and Gaffer's latest report, which
   are derived from session text; a read-only connection receives states only.

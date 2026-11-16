@@ -24,6 +24,8 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
  {key:'a',title:'Importer retry',prompt:'p',state:'done',note:'Every stage is done. Check the result; only you mark the work complete.',sessionId:'s4',conversationId:'4'.repeat(32),updatedAt:now,stage:3,autoMerge:true,stages:['code','test','pr','merge'].map(k=>st(k,'claude','','done',{summary:'ok'}))},
 ]}]
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
+// Gaffer's review of the button stage said what it would do about its own question, and why.
+goals[1].goal.advice={choice:'tell',why:'The design already names the empty state; the agent only needs telling which.',text:'Use the illustrated empty state from the design.'}
 const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null,...(id==='s5'?{projectId:'p1'}:{})}))
 const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{agentAccounts:true,launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
 // What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
@@ -36,12 +38,15 @@ Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentSta
 // review stage in hand is on a lower effort than the one chosen for it.
 Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTool:'codex',appliedModel:'gpt-coder',appliedEffort:'medium',appliedAt:now-90*60000})
 Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
+// A decision Gaffer took earlier, while it had this outcome's decisions.
+outcomes[0].decisions=[{at:now-50*60000,key:'a',title:'Export API',stage:'code',about:'question',choice:'move',why:'The endpoint and its tests are in the handover; nothing more belongs in this stage.',model:'gaffer-model'}]
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
 // What the machine last read of its agents' plans. Claude Code is on a plan with two windows; Codex is signed in with a key, which has none.
 const plans={state:'read',sentence:'',planLimits:true,checkedAt:now,accounts:[{tool:'claude',state:'signed_in',method:'subscription',account:'sam@example.test',plan:'max',limitsState:'read',limitsAt:now,limits:[{kind:'session',usedPercent:19,resetsAt:now+130*60000},{kind:'week',usedPercent:88,resetsAt:now+3*86400000+3600000}]},{tool:'codex',state:'signed_in',method:'api_key',limitsState:'unsupported'}]}
 const routesFor=box=>({'/api/v2/machines/a1/accounts':plans,'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
+ [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/automation`]:request=>{const input=request.postDataJSON();box.who.push(input.on);outcomes[0].automation=input.on;return outcomes[0]},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/a/tell`]:request=>{box.told.push(request.postDataJSON());return {message:{id:'m1',state:'queued'}}},
@@ -54,7 +59,7 @@ const routesFor=box=>({'/api/v2/machines/a1/accounts':plans,'/api/v2/settings/yo
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 try {
   for(const [width,theme] of [[1440,'light'],[390,'light'],[1440,'dark']]){
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
     // Each run starts from the same record: the third pipeline is waiting for the merge decision.
     Object.assign(outcomes[0],{revision:5,state:'settled'});delete outcomes[0].report;outcomes[0].sessions.length=3;outcomes[1].revision=2;outcomes[1].sessions[1]={key:'b',title:'Importer docs',prompt:'p',state:'failed',note:'Not started: That agent isn’t installed on that machine.',updatedAt:now,stage:0,stages:[st('code','claude','','pending'),st('pr','claude','','pending')]};Object.assign(outcomes[0].sessions[2],{state:'ready_to_merge',mergeApproved:false,note:'Ready to merge. Nothing merges until you approve it.'});outcomes[0].sessions[2].stages[7].state='pending'
     const w=await openWorkspace(browser,{width,height:width<500?844:1100,theme,touch:width<1000,terminalMachines:machines,routes:routesFor(box)})
@@ -114,7 +119,40 @@ try {
       await page.getByRole('button',{name:'1 need you. Go to the first',exact:true}).click()
       const needy=page.getByRole('region',{name:'What Export button needs from you',exact:true})
       await expect(needy).toBeVisible();await expect(needy).toContainText('Gaffer brought a question back to you.');await expect(needy).toContainText('What do you want to do?')
-      await expect(needy.locator('.decide-choices button')).toHaveText(['Have Gaffer look again','Tell the agent…','Move to next stage','Open the session'])
+      // The choices are buttons, and the one Gaffer's review recommended comes first, marked, with its reason.
+      await expect(needy.locator('.decide-choices button')).toHaveText(['Tell the agent… Recommended','Have Gaffer look again','Move to next stage','Open the session'])
+      await expect(needy).toContainText('Gaffer recommends: Tell the agent. The design already names the empty state; the agent only needs telling which.')
+      // The head of the outcome's card gathers every decision the outcome is waiting on, each with its own choices.
+      const head=page.getByRole('article',{name:/^Outcome: Ship CSV export for billing/}).getByRole('region',{name:'Decisions for this outcome',exact:true})
+      await expect(head.getByRole('heading',{name:'2 decisions waiting for you',exact:true})).toBeVisible()
+      const ask=head.getByRole('region',{name:'Decision for Export button',exact:true}),gate=head.getByRole('region',{name:'Decision for Export docs',exact:true})
+      await expect(ask.getByRole('group',{name:'Choices for Export button',exact:true}).getByRole('button')).toHaveText(['Tell the agent… Recommended','Have Gaffer look again','Move to next stage','Open the session'])
+      await expect(ask).toContainText(/(Code|Review|Test|PR) stage/);await expect(ask).toContainText('It would say: “Use the illustrated empty state from the design.”')
+      await expect(gate.getByRole('button')).toHaveText(['Approve the merge… Recommended','Open the session']);await expect(gate).toContainText('Nothing merges until you approve it.')
+      // Taking Gaffer's recommendation starts from the words it would use; they are the person's to change, and nothing is sent yet.
+      await ask.getByRole('button',{name:'Tell the agent… Recommended',exact:true}).click()
+      const suggest=page.getByRole('dialog',{name:'Tell the agent of “Export button”',exact:true})
+      await expect(suggest.getByRole('textbox',{name:'Instruction',exact:true})).toHaveValue('Use the illustrated empty state from the design.')
+      await suggest.getByRole('button',{name:'Cancel',exact:true}).click();expect(box.told).toEqual([])
+      // What Gaffer decided earlier is kept with what had stopped the stage, what it did and why.
+      await head.getByText('What Gaffer decided (1)',{exact:true}).click()
+      const took=head.getByRole('list',{name:'What Gaffer decided, newest first',exact:true}).getByRole('listitem')
+      await expect(took).toHaveCount(1);await expect(took.first()).toContainText('Export API · Code')
+      await expect(took.first()).toContainText('Gaffer’s review brought the stage back. Moved to the next stage. The endpoint and its tests are in the handover; nothing more belongs in this stage.')
+      // The person can give Gaffer the decisions, and take them back. A merge stays theirs either way.
+      const decider=head.getByRole('radiogroup',{name:'Who decides when a stage stops',exact:true})
+      await expect(decider.getByRole('radio',{name:'You decide',exact:true})).toBeChecked()
+      await decider.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+      await expect(page.getByRole('status').filter({hasText:'Gaffer takes'})).toContainText('Merges and agents’ approvals still come to you.')
+      await expect(ask).toContainText('Gaffer is deciding this. You can still choose first.');await expect(gate).not.toContainText('Gaffer is deciding')
+      await expect(head).toContainText('at most 3 times for a stage')
+      expect(await head.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await head.screenshot({path:`${shots}/gaffer-factory-decisions-${width}-${theme}.png`})
+      await decider.getByRole('radio',{name:'You decide',exact:true}).check()
+      await expect(page.getByRole('status').filter({hasText:'You take'})).toHaveText('You take this outcome’s decisions again.');expect(box.who).toEqual([true,false])
+      // Those two switches are the only writes so far.
+      expect(box.writes.splice(0)).toEqual(Array(2).fill(`POST /api/v2/gaffer/outcomes/${'e'.repeat(32)}/automation`))
+      await head.getByText('What Gaffer decided (1)',{exact:true}).click()
       await expect(needy).toContainText('Which of the two do you want?')
       // With a machine, a project and a provider in place there is nothing left to set up.
       await expect(page.getByRole('region',{name:'Set up your factory',exact:true})).toHaveCount(0)
@@ -279,7 +317,7 @@ try {
   }
   // A finished outcome is one line, and can be archived (kept, hidden, restorable) or deleted (after a confirmation); the account's default only picks which button stands out.
   for(const [width,mode] of [[1280,'archive'],[390,'delete']]){
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
     const finished={...structuredClone(outcomes[1]),id:'c'.repeat(32),revision:3,objective:'Tidy the importer logs.',report:{text:'Everything is merged. '.repeat(60),at:now,proposals:[],inputTokens:1,outputTokens:1,usageReported:true},sessions:[{key:'a',title:'Importer logs',prompt:'p',state:'done',note:'Every stage is done.',sessionId:'s9',conversationId:'9'.repeat(32),updatedAt:now,stage:7,stages:line(7,false)}]}
     const list=[finished]
     const routes={...routesFor(box),'/api/v2/gaffer/outcomes':()=>({outcomes:list}),
@@ -330,7 +368,7 @@ try {
   }
   // A new installation is told what Gaffer still needs, each with the place to do it, and has no pipelines yet.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
     const w=await openWorkspace(browser,{width:1280,height:1000,routes:{'/api/v2/gaffer/providers':{providers:[],presets:[],available:true,canUseLocal:true,maxProviders:12}}})
     watch(w,box)
     try {
@@ -349,7 +387,7 @@ try {
   }
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
     const w=await openWorkspace(browser,{width:1280,height:1000,routes:routesFor(box)})
     try {
       const page=w.page

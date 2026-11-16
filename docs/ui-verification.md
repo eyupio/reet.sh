@@ -483,6 +483,15 @@ pass with the fifth tab.
 
 ![Factory desktop light](images/ui/gaffer-factory-1440-light.png)
 ![Factory desktop dark](images/ui/gaffer-factory-1440-dark.png)
+
+Decisions are clickable choices with the recommended one first, at the head of an outcome's card and in the
+pipeline's session; the head also holds the You decide / Gaffer decides switch and what Gaffer decided
+(`gaffer-factory.e2e.mjs`, `factory-decision.e2e.mjs`).
+
+![Decisions at the head of an outcome](images/ui/gaffer-factory-decisions-1440-light.png)
+![Decisions at the head of an outcome, phone](images/ui/gaffer-factory-decisions-390-light.png)
+![A decision in the pipeline's session](images/ui/factory-decision-1440-light.png)
+![A decision in the pipeline's session, phone dark](images/ui/factory-decision-390-dark.png)
 ![Factory phone](images/ui/gaffer-factory-390-light.png)
 
 ## Gaffer alignment and polish (10 November 2026)

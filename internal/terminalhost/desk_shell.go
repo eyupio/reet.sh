@@ -127,12 +127,14 @@ case ${REET_DESK_PANE-} in
 			case $(fc -ln 1 1 2>/dev/null) in *'` + deskBashSeedLine + `'*) history -d 1 ;; esac
 			__reet_unseed() { :; }
 		}
-		PROMPT_COMMAND="history -a; __reet_unseed${PROMPT_COMMAND:+
-$PROMPT_COMMAND}"
+		__reet_hist() { local s=$?; history -a; __reet_unseed; return $s; }
 	else
-		PROMPT_COMMAND="history -a${PROMPT_COMMAND:+
-$PROMPT_COMMAND}"
+		__reet_hist() { local s=$?; history -a; return $s; }
 	fi
+	# The person's own prompt command, after this one, still sees the exit
+	# status of the command they ran.
+	PROMPT_COMMAND="__reet_hist${PROMPT_COMMAND:+
+$PROMPT_COMMAND}"
 	;;
 esac
 `
@@ -146,13 +148,16 @@ func deskBashSeed(home string) string { return filepath.Join(deskShellDir(home),
 
 // deskZshSource sources the person's own copy of name from their ZDOTDIR (or
 // home) at the top level, so their typeset and setopt lines keep their usual
-// scope, and notices a ZDOTDIR their file sets for the files after it.
+// scope, and notices a ZDOTDIR their file sets for the files after it. While
+// their file runs, ZDOTDIR is theirs: unset when they have none, so a
+// ~/.zshenv that sets a default (ZDOTDIR=${ZDOTDIR:-$HOME/.config/zsh}) gets
+// it.
 func deskZshSource(name string) string {
 	return `__reet_zdotdir=$ZDOTDIR
-ZDOTDIR=${REET_USER_ZDOTDIR:-$HOME}
-if [[ -r $ZDOTDIR/` + name + ` ]]; then source "$ZDOTDIR/` + name + `" || :; fi
-REET_USER_ZDOTDIR=$ZDOTDIR
-ZDOTDIR=$__reet_zdotdir
+if [[ -n ${REET_USER_ZDOTDIR-} ]]; then ZDOTDIR=$REET_USER_ZDOTDIR; else unset ZDOTDIR; fi
+if [[ -r ${ZDOTDIR:-$HOME}/` + name + ` ]]; then source "${ZDOTDIR:-$HOME}/` + name + `" || :; fi
+REET_USER_ZDOTDIR=${ZDOTDIR-}
+export ZDOTDIR=$__reet_zdotdir
 unset __reet_zdotdir
 `
 }

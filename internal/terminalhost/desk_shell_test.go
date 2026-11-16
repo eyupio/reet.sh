@@ -220,6 +220,64 @@ func TestZshWrapperSourcesUserRc(t *testing.T) {
 	waitFileHas(t, deskHistoryFile(home, m.shell, deskPaneA), "reet-saw-")
 }
 
+// zsh: a ~/.zshenv that gives ZDOTDIR a default when none is set, a common
+// way to keep zsh's files under ~/.config/zsh, gets that default, so the
+// files there are read, and the pane's history still goes to the pane's file.
+func TestZshWrapperHonoursXDGZdotdir(t *testing.T) {
+	m, home := deskShellFixture(t, "zsh", map[string]string{
+		".zshenv": "export ZDOTDIR=\"${ZDOTDIR:-$HOME/.config/zsh}\"\n",
+	})
+	dot := filepath.Join(home, ".config", "zsh")
+	if err := os.MkdirAll(dot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		".zprofile": "export REET_SAW_ZPROFILE=1\n",
+		".zshrc":    "REET_SAW_ZSHRC=1\nHISTFILE=$ZDOTDIR/.zsh_history\n",
+		".zlogin":   "REET_SAW_ZLOGIN=1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dot, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := createDeskShell(t, m, 1, deskPaneA)
+	typeInShell(t, m, s.ID, `echo reet-xdg-$REET_SAW_ZPROFILE$REET_SAW_ZSHRC$REET_SAW_ZLOGIN-${ZDOTDIR#$HOME}`)
+	waitScreen(t, m, s.ID, "reet-xdg-111-/.config/zsh")
+	waitFileHas(t, deskHistoryFile(home, m.shell, deskPaneA), "reet-xdg-")
+	if data, err := os.ReadFile(filepath.Join(dot, ".zsh_history")); err == nil && strings.Contains(string(data), "reet-xdg-") {
+		t.Fatalf("the command went to the file the person's .zshrc chose: %s", data)
+	}
+}
+
+// The person's own PROMPT_COMMAND sees the exit status of the command they
+// ran, not that of reet's history -a, for a pane with no history yet (on bash
+// 3.2 the placeholder branch) and for one with history already.
+func TestBashWrapperKeepsExitStatusForPromptCommand(t *testing.T) {
+	m, home := deskShellFixture(t, "bash", map[string]string{
+		".bash_profile": "PROMPT_COMMAND='echo \"reet-status-$?\" >> \"$HOME/statuses-$REET_DESK_PANE\"'\n",
+	})
+	// Pane B already has history, so bash 3.2 takes the wrapper's usual branch.
+	seeded := deskHistoryFile(home, m.shell, deskPaneB)
+	for _, dir := range []string{filepath.Join(home, ".reet"), deskRoot(home), deskHistoryDir(home)} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(seeded, []byte("echo old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i, pane := range []string{deskPaneA, deskPaneB} {
+		s := createDeskShell(t, m, i+1, pane)
+		statuses := filepath.Join(home, "statuses-"+pane)
+		waitFileHas(t, statuses, "reet-status-0")
+		typeInShell(t, m, s.ID, "false")
+		waitFileHas(t, statuses, "reet-status-1")
+		typeInShell(t, m, s.ID, "(exit 7)")
+		waitFileHas(t, statuses, "reet-status-7")
+		waitFileHas(t, deskHistoryFile(home, m.shell, pane), "(exit 7)")
+	}
+}
+
 // A shell that is neither bash nor zsh starts exactly as a plain create, with
 // no wrapper written, and the history read says the pane has none.
 func TestUnknownShellLeftAlone(t *testing.T) {

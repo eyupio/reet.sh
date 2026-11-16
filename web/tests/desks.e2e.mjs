@@ -22,7 +22,7 @@ const summary = d => ({ id: d.id, name: d.name, colour: d.colour, template: d.te
   hosts: [...new Set(d.doc.tabs.flatMap(t => Object.values(t.panes).map(p => p.host)))] })
 
 // The fixture's state: reset() before each part.
-let desks, sessions, patches, ends, creates, staleNext, hidden
+let desks, sessions, patches, patched, ends, creates, staleNext, hidden
 function reset({ empty = false } = {}) {
   sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db')]
   desks = new Map()
@@ -35,11 +35,11 @@ function reset({ empty = false } = {}) {
     desks.set(d.id, d)
     desks.set('desk-dev', deskOf('desk-dev', 'zoomies dev', [], { colour: 'green', position: 1 }))
   }
-  patches = []; ends = []; creates = []; staleNext = null; hidden = false
+  patches = []; patched = []; ends = []; creates = []; staleNext = null; hidden = false
 }
 reset()
 
-await page.route('**/api/**', async route => {
+const api = async route => {
   const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method()
   let data = {}
   if (path === '/api/v2/auth/status') data = { mode: 'accounts', user: { id: 1, name: 'Desk tester', email: 'test@example.test', role: 'owner' } }
@@ -87,7 +87,7 @@ await page.route('**/api/**', async route => {
     if (method === 'GET') data = d
     else if (method === 'PATCH') {
       const body = request.postDataJSON()
-      patches.push(body)
+      patches.push(body); patched.push(id)
       if (staleNext) { const newer = staleNext; staleNext = null; desks.set(id, newer); return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: newer } }) }
       if (body.expect !== d.version) return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: d } })
       const next = { ...d, ...(body.name !== undefined ? { name: body.name } : {}), ...(body.colour !== undefined ? { colour: body.colour } : {}), ...(body.doc ? { doc: body.doc } : {}), version: d.version + 1 }
@@ -97,14 +97,16 @@ await page.route('**/api/**', async route => {
   }
   else return route.fulfill({ status: 404, json: { error: `Unmocked ${path}` } })
   await route.fulfill({ json: data })
-})
-await page.routeWebSocket('**/api/v2/terminal/socket', socket => {
+}
+const socketStub = socket => {
   socket.onMessage(message => {
     if (typeof message !== 'string') return
     const data = JSON.parse(message)
     if (data.ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('\x1b[2J\x1b[Hdev@studio:~/PROD_reet$ ')) }
   })
-})
+}
+await page.route('**/api/**', api)
+await page.routeWebSocket('**/api/v2/terminal/socket', socketStub)
 
 const nav = page.getByRole('navigation', { name: 'Main navigation' })
 const tablist = page.getByRole('tablist', { name: 'Tabs' })
@@ -327,6 +329,92 @@ try {
   expect(lastDoc().active).toBe(added.id)
   console.log('ok - New tab starts a plain shell and adds a tab for it')
 
+  // ── switching desk at once still saves the change on the first desk ──
+  reset()
+  await openDesk()
+  await quiet(); patches = []; patched = []
+  await tab('db').focus()
+  await page.keyboard.press('F2')
+  await tablist.getByRole('textbox', { name: 'Tab name' }).fill('database')
+  await tablist.getByRole('textbox', { name: 'Tab name' }).press('Enter')
+  // Within autosave's pause, before any save is sent.
+  await page.getByRole('button', { name: 'prod deploy, switch desk' }).click()
+  await page.getByRole('menu', { name: 'Switch desk' }).getByRole('menuitem', { name: 'zoomies dev' }).click()
+  await expect(page.getByRole('heading', { name: 'zoomies dev', level: 1 })).toBeVisible()
+  await expect.poll(() => patched.length).toBe(1)
+  await quiet()
+  expect(patched).toEqual(['desk-prod'])
+  expect(desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-db').name).toBe('database')
+  console.log('ok - switching desk at once still saves the change on the first desk')
+
+  // ── moves a tab with the menu ──
+  reset()
+  await openDesk()
+  await quiet(); patches = []
+  await tab('deploy').focus()
+  await page.keyboard.press('Shift+F10')
+  const moveMenu = page.getByRole('menu', { name: 'Actions for tab deploy' })
+  await expect(moveMenu.getByRole('menuitem', { name: 'Move left' })).toBeDisabled()
+  await moveMenu.getByRole('menuitem', { name: 'Move right' }).click()
+  await expect.poll(tabNames).toEqual(['logs', 'deploy', 'db'])
+  await expect(tab('deploy')).toBeFocused()
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByRole('menu', { name: 'Actions for tab deploy' }).getByRole('menuitem', { name: 'Move left' })).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await quiet()
+  expect(patches.length).toBe(1)
+  expect(lastDoc().tabs.map(t => t.id)).toEqual(['tab-logs', 'tab-deploy', 'tab-db'])
+  await tab('db').click({ button: 'right' })
+  await expect(page.getByRole('menu', { name: 'Actions for tab db' }).getByRole('menuitem', { name: 'Move right' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  console.log('ok - moves a tab with the menu')
+
+  // ── touch targets are 44 px on a touch screen ──
+  {
+    reset()
+    const touch = await browser.newContext({ viewport: { width: 834, height: 1000 }, hasTouch: true, isMobile: true })
+    const tp = await touch.newPage()
+    tp.on('pageerror', error => errors.push(error.message))
+    await tp.route('**/api/**', api)
+    await tp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await tp.goto(`${base}/desks/desk-prod`)
+    const ttabs = tp.getByRole('tablist', { name: 'Tabs' })
+    await expect(ttabs.getByRole('tab', { name: 'deploy', exact: true })).toBeVisible()
+    const heights = async locator => (await locator.boundingBox()).height
+    for (const [what, locator] of [
+      ['tab', ttabs.getByRole('tab', { name: 'deploy', exact: true })],
+      ['tab menu', tp.getByRole('button', { name: 'Actions for tab deploy' })],
+      ['new tab', tp.getByRole('button', { name: 'New tab' })],
+      ['desk name', tp.getByRole('button', { name: 'prod deploy, switch desk' })],
+      ['desk menu', tp.getByRole('button', { name: 'Desk menu' })],
+    ]) expect(await heights(locator), what).toBeGreaterThanOrEqual(44)
+    await tp.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+    await tp.goto(`${base}/desks`)
+    const title = tp.getByRole('link', { name: 'prod deploy' })
+    await expect(title).toBeVisible()
+    expect(await heights(title), 'card title').toBeGreaterThanOrEqual(44)
+    await touch.close()
+  }
+  console.log('ok - touch targets are 44 px on a touch screen')
+
+  // ── loading another page does not read the desks ──
+  {
+    reset()
+    const reads = []
+    const note = request => { if (new URL(request.url()).pathname.startsWith('/api/v2/desks')) reads.push(request.url()) }
+    page.on('request', note)
+    await page.goto(`${base}/`)
+    await expect(nav.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page')
+    await page.waitForLoadState('networkidle')
+    expect(reads).toEqual([])
+    // Jump reads them once it is opened, to offer each desk.
+    await page.getByRole('combobox', { name: 'Jump to a session, project, skill or machine' }).fill('prod')
+    await expect(page.getByRole('listbox', { name: 'Jump results' }).getByRole('option', { name: /prod deploy/ })).toHaveAttribute('href', '/desks/desk-prod')
+    expect(reads.length).toBeGreaterThan(0)
+    page.off('request', note)
+  }
+  console.log('ok - loading another page does not read the desks')
+
   // ── the look, in both themes and on a phone ──
   if (shots) {
     reset()
@@ -348,7 +436,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

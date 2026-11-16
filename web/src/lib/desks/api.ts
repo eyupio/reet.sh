@@ -46,8 +46,9 @@ export async function createDesk(input: { name: string; colour?: ProjectColour; 
   return (await deskRequest(base, json('POST', input))).json()
 }
 
-export async function patchDesk(id: string, input: { expect: number; name?: string; colour?: ProjectColour; doc?: Doc }): Promise<Desk> {
-  return (await deskRequest(`${base}/${encodeURIComponent(id)}`, json('PATCH', input))).json()
+/** `keepalive` lets a save sent as the page goes away finish after it has gone. */
+export async function patchDesk(id: string, input: { expect: number; name?: string; colour?: ProjectColour; doc?: Doc }, opts: { keepalive?: boolean } = {}): Promise<Desk> {
+  return (await deskRequest(`${base}/${encodeURIComponent(id)}`, { ...json('PATCH', input), ...(opts.keepalive ? { keepalive: true } : {}) })).json()
 }
 
 /** Deletes a desk. Sessions in it keep running unless `endSessions`; `left` lists the ones left running. */

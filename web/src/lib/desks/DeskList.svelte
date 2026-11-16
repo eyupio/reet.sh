@@ -144,5 +144,5 @@
   .card.new button:hover:not(:disabled) { color: var(--ink); background: var(--card); }
   .card.new b { color: var(--ink); }
   @media (max-width: 760px) { .desk-list { padding: 24px 16px 40px; } h1 { font-size: 1.75rem; } }
-  @media (pointer: coarse) { .more { width: 44px; height: 44px; } }
+  @media (pointer: coarse) { .more { width: 44px; height: 44px; } .t a { line-height: 44px; } }
 </style>

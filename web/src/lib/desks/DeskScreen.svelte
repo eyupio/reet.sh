@@ -40,11 +40,13 @@
   const panelId = $props.id()
 
   function start(deskId: string) {
-    auto?.stop()
+    // Whatever the desk being left still has waiting is sent before that copy stops; its late answers are ignored below.
+    const old = auto
+    void old?.flush().finally(() => old.stop())
     desk = null; failure = ''; saveState = 'saved'
     const mine = createAutosave({
       load: () => getDesk(deskId),
-      save: (d, expect) => patchDesk(d.id, { expect, doc: d.doc }),
+      save: (d, expect, keepalive) => patchDesk(d.id, { expect, doc: d.doc }, { keepalive }),
       onState: s => { if (auto === mine) saveState = s },
       onDesk: d => { if (auto === mine) desk = d },
     })
@@ -191,14 +193,17 @@
   const startAgent = $derived(activePane?.host ?? '')
   const startDir = $derived.by(() => { const s = activePane?.session ? sessionById.get(activePane.session) : undefined; return s?.dir || activePane?.dir || '' })
   async function createTab(agentId: string, dir: string) {
+    // The tab goes to the desk the dialog was opened on, even if another desk is shown by the time the shell starts.
+    const mine = auto
     const name = [...(dir.split('/').filter(Boolean).pop() || machineById.get(agentId)?.host || 'Shell')].slice(0, 80).join('')
     const created = await createTerminal(agentId, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), dir ? { dir } : undefined)
     const pid = newId()
     const pane: Pane = { id: pid, name, colour: '', host: agentId, session: created.id, kind: 'shell', dir: created.dir || dir, dirAt: Date.now(), start: '' }
     const tab: Tab = { id: newId(), name, colour: '', root: { pane: pid }, zoomed: '', active: pid, panes: { [pid]: pane } }
+    onrefresh()
+    if (!mine || auto !== mine) { notice = `The shell “${name}” started, but its desk is no longer open. It is in Sessions.`; return }
     change({ kind: 'addTab', tab })
     change({ kind: 'active', tab: tab.id })
-    onrefresh()
   }
   async function closeNewTab() { const opener = adding; adding = null; await tick(); opener?.focus() }
 </script>
@@ -287,6 +292,7 @@
   .save[data-save='unsaved'] { color: var(--warn); }
   .sp { margin-left: auto; }
   .btn.icon { min-width: 40px; padding: 6px 10px; }
+  @media (pointer: coarse) { .dname, .btn.icon { min-height: 44px; } .btn.icon { min-width: 44px; } }
   .notice { flex: none; margin: 0; padding: 6px 14px; background: color-mix(in srgb, var(--info) 14%, var(--bg)); border-bottom: 1px solid var(--line-soft); color: var(--ink); font-size: 14px; }
   .notice.bad { background: color-mix(in srgb, var(--bad) 12%, var(--bg)); display: flex; align-items: center; gap: 8px; }
   .area { flex: 1; min-height: 0; display: flex; padding: 6px; background: var(--line-soft); }

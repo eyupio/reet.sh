@@ -55,6 +55,14 @@
     const box = opener.getBoundingClientRect()
     menu = { id, opener, x: at?.x ?? box.left, y: at?.y ?? box.bottom + 4 }
   }
+  /** Move left or right from the menu: the same reorder a drag makes, for a keyboard. */
+  function shift(id: string, by: -1 | 1) {
+    const ids = tabs.map(t => t.id), at = ids.indexOf(id), to = at + by
+    if (at < 0 || to < 0 || to >= ids.length) return
+    ids.splice(at, 1); ids.splice(to, 0, id)
+    onreorder(ids)
+    void tick().then(() => tabButton(id)?.focus())
+  }
   function closeMenu(focus: boolean) { const opener = menu?.opener; menu = null; if (focus) opener?.focus() }
   function menuThen(run: (id: string) => void) { const id = menu?.id; closeMenu(false); if (id) run(id) }
 
@@ -138,6 +146,8 @@
   <DeskMenu x={menu.x} y={menu.y} label={`Actions for tab ${label(menuTab)}`} opener={menu.opener} onclose={closeMenu} colour={menuTab.colour}
     oncolour={c => { const id = menu?.id; closeMenu(true); if (id) oncolour(id, c) }}>
     <button type="button" role="menuitem" onclick={() => menuThen(id => void startRename(id))}>Rename</button>
+    <button type="button" role="menuitem" disabled={tabs[0]?.id === menuTab.id} onclick={() => menuThen(id => shift(id, -1))}>Move left</button>
+    <button type="button" role="menuitem" disabled={tabs.at(-1)?.id === menuTab.id} onclick={() => menuThen(id => shift(id, 1))}>Move right</button>
     <button type="button" role="menuitem" disabled={full} onclick={() => menuThen(onduplicate)}>Duplicate tab</button>
     <button type="button" role="menuitem" class="danger" onclick={() => menuThen(onclose)}>Close tab</button>
   </DeskMenu>

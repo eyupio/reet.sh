@@ -375,6 +375,7 @@ func (p *Peer) observe() {
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)
 			}
+			p.b.recordLiveDir(p.key.uid, p.key.agent, m.SessionID, s.Dir)
 			unexpected := err != nil && !errors.Is(err, store.ErrRemoteNotFound)
 			if unexpected && !errors.Is(err, store.ErrTerminalConflict) {
 				p.Close()
@@ -724,6 +725,9 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 				s.BellAt = observed.BellAt
 			}
 			p.b.restoreChat(p.key.uid, s)
+		}
+		if exists && observed.Dir != s.LiveDir {
+			p.b.recordLiveDir(p.key.uid, p.key.agent, s.ID, observed.Dir)
 		}
 		if exists && observed.ACPSessionID != "" {
 			if err := p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, s.ID, observed.ACPSessionID); err != nil && !errors.Is(err, store.ErrTerminalConflict) {
@@ -1139,6 +1143,17 @@ func (b *Broker) observe(p *Peer, uid int64, agent, session string, generation i
 		}
 	}
 	return err
+}
+
+// recordLiveDir keeps the live folder a desk-shell-v1 machine reported for a
+// session on its record and on the desk pane that holds it. Only a machine
+// that negotiated desk-shell-v1 ever sends one; empty means no news. A folder
+// that cannot be recorded is dropped: it never costs the machine its link.
+func (b *Broker) recordLiveDir(uid int64, agent, session, dir string) {
+	if dir == "" {
+		return
+	}
+	_ = b.st.RecordTerminalLiveDirFor(uid, agent, session, dir, time.Now().UnixMilli())
 }
 
 func (p *Peer) isReady() bool {

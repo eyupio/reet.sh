@@ -51,6 +51,9 @@ type ManagedSession struct {
 	// one answer, not to the session, so it is never persisted: a replay of the
 	// create adopts the worktree and has no fresh base to report.
 	Base *terminalproto.BaseState `json:"-"`
+	// LiveDir is the session's live working folder as the manager last read
+	// it from tmux. It is never persisted: List fills it from memory.
+	LiveDir string `json:"-"`
 }
 
 type operationReceipt struct {

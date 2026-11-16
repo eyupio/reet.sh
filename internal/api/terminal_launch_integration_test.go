@@ -178,11 +178,14 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	if !terminalproto.SupportsLaunch(advertised) || !terminalproto.SupportsCommandHistory(advertised) {
 		t.Fatal("controller did not advertise launch", advertised)
 	}
-	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalControl: true, TerminalEnabled: true, HealthEnabled: true, Readiness: terminalproto.Ready, CommandHistory: true, Launch: true, Tools: terminalhost.InstalledTools(exec.LookPath)}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalControl: true, TerminalEnabled: true, HealthEnabled: true, Readiness: terminalproto.Ready, CommandHistory: true, Launch: true, DeskShell: true, Tools: terminalhost.InstalledTools(exec.LookPath)}
 	if !slices.Equal(caps.Tools, []string{"claude", "opencode"}) {
 		t.Fatal("installed tools", caps.Tools)
 	}
-	headers.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature)
+	if !terminalproto.SupportsDeskShell(advertised) {
+		t.Fatal("controller did not advertise desk-shell-v1", advertised)
+	}
+	headers.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature+","+terminalproto.DeskShellFeature)
 	handshake, _ := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: terminalbroker.ID(), Capabilities: caps})
 	if err = c.Write(ctx, websocket.MessageText, handshake); err != nil {
 		t.Fatal(err)
@@ -333,6 +336,41 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	if len(readStarts(t, records)) != 1 {
 		t.Fatal("plain create started an agent")
 	}
+
+	// desk-shell-v1: each session's live folder reaches its record, and a cd
+	// in the shell is reported on a later sweep.
+	liveDir := func(id string, want string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			s, err := st.TerminalSessionFor(uid, id)
+			if err == nil && s.LiveDir == want {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("session %s live folder %q (%v), want %q", id, s.LiveDir, err, want)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	plainID, _ := plain["id"].(string)
+	liveDir(first["id"].(string), realSite)
+	liveDir(plainID, realHome)
+	moved := filepath.Join(home, "moved here")
+	if err := os.Mkdir(moved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realMoved, _ := filepath.EvalSymlinks(moved)
+	shellSession := ""
+	for _, line := range strings.Split(tmuxOut("list-panes", "-a", "-F", "#{session_name} #{pane_current_command}"), "\n") {
+		name, command, _ := strings.Cut(line, " ")
+		if command != "sleep" {
+			shellSession = name
+		}
+	}
+	tmuxOut("send-keys", "-t", "="+shellSession+":", "-l", "cd '"+moved+"'")
+	tmuxOut("send-keys", "-t", "="+shellSession+":", "Enter")
+	liveDir(plainID, realMoved)
 
 	// Refusals leave no tmux session and start nothing.
 	before, _ := st.TerminalSessionsFor(uid)

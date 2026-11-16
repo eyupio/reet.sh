@@ -86,7 +86,13 @@ type Manager struct {
 	// promptEvery and promptAgain replace promptReadEvery and promptReadAgain
 	// when set, so a test need not wait out the real gaps.
 	promptEvery, promptAgain time.Duration
-	changed                  chan struct{}
+	// liveDir is each session's live working folder as the last sweep read
+	// it, kept in memory only: the registry's strict reader on an older reet
+	// would refuse a new field. List reports it as ManagedSession.LiveDir.
+	liveDir map[string]string
+	// readLiveDirs replaces liveDirs when set; only tests set it.
+	readLiveDirs func(context.Context) (map[string]string, error)
+	changed      chan struct{}
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -110,7 +116,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -386,6 +392,8 @@ func (m *Manager) End(ctx context.Context, requestID, sessionID string) (Managed
 		return s, err
 	}
 	if names[m.name(sessionID)] {
+		// The folder the shell was last in is read before it goes.
+		_ = m.noteLiveDirsLocked(ctx, &r)
 		if _, err := m.command(ctx, 0, "kill-session", "-t", "="+m.name(sessionID)); err != nil {
 			return s, err
 		}
@@ -505,7 +513,8 @@ func (m *Manager) List(ctx context.Context) ([]ManagedSession, error) {
 		return nil, err
 	}
 	out := make([]ManagedSession, 0, len(r.Sessions))
-	for _, s := range r.Sessions {
+	for id, s := range r.Sessions {
+		s.LiveDir = m.liveDir[id]
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -560,6 +569,10 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	// A clipboard option that cannot be set must not end the manager; a later
 	// reconcile tries again.
 	_ = m.applyClipboard(ctx)
+	// The live folders are read before the states move, so a session whose
+	// shell is still there is read once more. A failed read never fails the
+	// sweep.
+	dirsChanged := m.noteLiveDirsLocked(ctx, r)
 	changed := false
 	var listing map[string][]paneWindow
 	for id, s := range r.Sessions {
@@ -658,6 +671,8 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 		if err := m.saveRegistry(*r); err != nil {
 			return err
 		}
+	} else if dirsChanged {
+		m.signalLocked()
 	}
 	m.cleanupClosedSessions(r)
 	// Persist the exit observation before removing dead panes. A later pass can

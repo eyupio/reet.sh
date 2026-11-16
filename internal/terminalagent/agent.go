@@ -243,6 +243,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			go func() {
 				defer wg.Done()
 				observed := map[string]terminalproto.SessionChanged{}
+				sentDirs := map[string]string{}
 				initial := true
 				for {
 					changed := m.Changed()
@@ -257,24 +258,12 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					seen := make(map[string]struct{}, len(sessions))
 					for _, s := range sessions {
 						seen[s.ID] = struct{}{}
-						state := terminalproto.SessionChanged{
-							State:      s.State,
-							ExitCode:   s.ExitCode,
-							ActivityAt: s.ActivityAt,
-							BellAt:     s.BellAt,
-							ExitStatus: s.ExitCode,
-						}.ForFeatures(featureHeader)
-						old, known := observed[s.ID]
-						sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
-						changed := !known || old.State != state.State || !sameCode
-						timesChanged := old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt
-						modified := changed || timesChanged
+						state, modified := observeShell(observed, sentDirs, s, featureHeader)
 						if !initial && modified {
 							if send(ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: s.ID, Generation: generation, Body: state}) != nil {
 								return
 							}
 						}
-						observed[s.ID] = state
 					}
 					// Forget sessions that left the listing, so a reused id is
 					// reported as new rather than compared with a stale state.
@@ -286,6 +275,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 							continue
 						}
 						delete(observed, id)
+						delete(sentDirs, id)
 					}
 					initial = false
 					select {
@@ -1714,6 +1704,34 @@ func newID() string {
 
 // idFallback disambiguates ids made after crypto/rand failed.
 var idFallback atomic.Uint64
+
+// observeShell compares one listed terminal with what this connection last
+// observed of it, records the new observation, and returns the change to send
+// and whether there is one. The live folder rides along only when it differs
+// from the last one sent for that session on this connection, and only when
+// desk-shell-v1 was negotiated: a folder change alone is then news too.
+func observeShell(observed map[string]terminalproto.SessionChanged, sentDirs map[string]string, s terminalhost.ManagedSession, features string) (terminalproto.SessionChanged, bool) {
+	state := terminalproto.SessionChanged{
+		State:      s.State,
+		ExitCode:   s.ExitCode,
+		ActivityAt: s.ActivityAt,
+		BellAt:     s.BellAt,
+		ExitStatus: s.ExitCode,
+		Dir:        s.LiveDir,
+	}.ForFeatures(features)
+	old, known := observed[s.ID]
+	sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
+	changed := !known || old.State != state.State || !sameCode
+	timesChanged := old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt
+	dirChanged := state.Dir != "" && state.Dir != sentDirs[s.ID]
+	if dirChanged {
+		sentDirs[s.ID] = state.Dir
+	} else {
+		state.Dir = ""
+	}
+	observed[s.ID] = state
+	return state, changed || timesChanged || dirChanged
+}
 
 // reconcileSnapshot merges terminal and chat receipts without letting history
 // push a live session out of the complete 32-entry snapshot. The controller

@@ -64,6 +64,10 @@ func (s *Store) migrateTerminal() error {
 		{"terminal_sessions", "acp_session_id TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "agent_mode TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "prompt TEXT NOT NULL DEFAULT ''"},
+		// The live working folder a desk-shell-v1 machine last reported for
+		// the session, and when (Unix milliseconds).
+		{"terminal_sessions", "live_dir TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "live_dir_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
@@ -405,6 +409,10 @@ type TerminalSession struct {
 	BellAt       int64  `json:"bellAt,omitempty"`
 	CompletedAt  int64  `json:"completedAt,omitempty"`
 	ChatStatus   string `json:"chatStatus,omitempty"`
+	// LiveDir is the session's working folder as its machine last reported it
+	// (desk-shell-v1), and LiveDirAt when; absent from the JSON until one is.
+	LiveDir   string `json:"liveDir,omitempty"`
+	LiveDirAt int64  `json:"-"`
 	// AgentMode is the agent mode the chat is confirmed to be in (Codex:
 	// "read-only" or "agent"). Empty means the agent offers no modes or the mode
 	// is not known, for example after a switch it did not confirm.
@@ -444,14 +452,14 @@ type PendingPermission struct {
 	Queued       int    `json:"queued,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,base_relation,base_start,base_name,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode,substr(prompt,1,300),length(prompt)>300`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,base_relation,base_start,base_name,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode,substr(prompt,1,300),length(prompt)>300,live_dir,live_dir_at`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
 	var attentionObserved int
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.BaseRelation, &t.BaseStart, &t.BaseName, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.BaseRelation, &t.BaseStart, &t.BaseName, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore, &t.LiveDir, &t.LiveDirAt)
 	t.AttentionObserved = attentionObserved != 0
 	if exit.Valid {
 		n := int(exit.Int64)
@@ -1114,6 +1122,37 @@ func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSe
 		_, err = tx.Exec(`UPDATE terminal_sessions SET acp_session_id=?,updated_at=? WHERE id=? AND user_id=? AND agent_id=? AND structured=1 AND acp_session_id=''`, acpSessionID, now(), sessionID, uid, agentID)
 		return err
 	})
+}
+
+// RecordTerminalLiveDirFor records the live working folder agentID reported
+// for one of its sessions at at (Unix milliseconds), unless a newer report is
+// already stored. It then notes the folder on the desk pane that holds the
+// session, if any (NoteDeskPaneDirFor), so the last folder outlives the
+// session. The desk's version is not changed.
+func (s *Store) RecordTerminalLiveDirFor(uid int64, agentID, sessionID, dir string, at int64) error {
+	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidDir(dir) || at <= 0 {
+		return terminalproto.ErrInvalid
+	}
+	applied := false
+	err := s.withTx(func(tx *sql.Tx) error {
+		if err := lockRemoteAgent(tx, uid, agentID, false); err != nil {
+			return err
+		}
+		if _, err := terminalForTx(tx, uid, agentID, sessionID); err != nil {
+			return err
+		}
+		r, err := tx.Exec(`UPDATE terminal_sessions SET live_dir=?,live_dir_at=? WHERE id=? AND user_id=? AND agent_id=? AND live_dir_at<?`, dir, at, sessionID, uid, agentID, at)
+		if err != nil {
+			return err
+		}
+		n, err := r.RowsAffected()
+		applied = n == 1
+		return err
+	})
+	if err != nil || !applied {
+		return err
+	}
+	return s.NoteDeskPaneDirFor(uid, sessionID, dir, at)
 }
 
 // SetTerminalYoloFor records a live structured session's current approval

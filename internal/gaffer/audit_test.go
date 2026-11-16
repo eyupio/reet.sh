@@ -95,6 +95,12 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+	// The review's session is ended just after the test stage starts. The log is read in order, so that is
+	// waited for before the next move, as it was for the code stage's session above.
+	log.wait(t,
+		"gaffer-stage-started code", "gaffer-stage-handed-over code gaffer",
+		"gaffer-stage-started review", "gaffer-session-ended", "gaffer-stage-handed-over review person",
+		"gaffer-stage-started test", "gaffer-session-ended")
 	r.s.stageHandedOver(r.p.UserID, test.ConversationID, "All checks pass.", "gaffer")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
 	log.wait(t,

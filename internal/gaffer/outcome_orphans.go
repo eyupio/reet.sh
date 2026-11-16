@@ -138,19 +138,6 @@ func (s *Service) WorkDirInUse(uid int64, dir string) bool {
 	if dir == "" {
 		return false
 	}
-	rows, err := s.store.GafferOutcomesFor(uid)
-	if err != nil {
-		return true
-	}
-	for _, o := range rows {
-		if o.ArchivedAt > 0 {
-			continue
-		}
-		for _, piece := range o.Sessions {
-			if piece.WorkDir == dir && piece.State != "done" {
-				return true
-			}
-		}
-	}
-	return false
+	used, err := s.store.GafferWorkDirInUseFor(uid, dir)
+	return err != nil || used
 }

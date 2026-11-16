@@ -109,6 +109,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     agent: z.enum(['claude', 'codex', 'opencode', 'cline', 'antigravity']).describe('The coding agent that does every stage. It must be able to run a chat on the project’s machine. Google Antigravity needs folder trust, which is given on the Factory page only, so it is refused here.'),
     model: z.string().max(200).optional().describe('The model every stage runs on, as that agent names it. Omit for the agent’s default. A name the agent does not offer stops the pipeline at launch.'),
     pipelines: pipelineList,
+    request_id: z.string().regex(/^[a-f0-9]{32}$/).optional().describe('Optional stable request ID, 32 lowercase hex characters. Keep it when retrying a call that was not answered: the same ID answers the outcome it already started instead of starting another.'),
     reports_by_itself: z.boolean().default(false).describe('Have Gaffer report across the outcome when a pipeline finishes or stops. Each report is one model request.'),
     confirm: confirmed,
   }, factoryConnectionRequired, { write: true });

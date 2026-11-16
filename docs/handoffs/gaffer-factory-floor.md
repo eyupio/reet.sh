@@ -1379,19 +1379,33 @@ adapter's `get` names the model and effort the same way its launch was given
 them (a provider-prefixed name, say) decides whether a real stage reads as
 applied, and is the first thing to look at on a real run.
 
-### Found and not fixed
+### The four findings first left, fixed in the same PR
 
-- **A launch that times out is recorded as failed**, and Retry asks under a
-  new request, so a launch that did start late leaves a second session in the
-  same worktree. Keeping the request ID needs the broker's behaviour for a
-  repeated request that truly failed to be read first.
-- **`reet_start_outcome` has no idempotency key**, so a client that retries
-  an unanswered call starts a second outcome.
-- `WorkDirInUse` reads the sixty outcomes the list read returns.
-- The previous stage's session is not ended when the controller restarts in
-  the middle of starting the next stage's own session.
-- Over MCP, retry, move on and merge approval are not refused on a YOLO
-  outcome (tell, add and send back are). The gate above now covers the merge.
+The owner asked for these to go into the same PR.
+
+- **A launch that was not answered in time.** It is recorded as not started
+  with `GafferOutcomeSession.UnsureRequest` holding its request. The next
+  attempt asks under that request first: the broker answers a repeated request
+  from its reservation, so a session that did start is taken up, and a new
+  request is made only when the old one is known to have failed. If the
+  repeat is not answered in time either, nothing new is asked for. The note
+  says reet cannot tell whether the session started.
+- **`reet_start_outcome` takes an optional `request_id`**, which becomes the
+  outcome's ID (`OutcomeInput.RequestID`). Asked again under the same one, it
+  answers the outcome already started with `applied: false`.
+- **`WorkDirInUse` reads every outcome** (`GafferWorkDirInUseFor`, one query
+  over all of the account's records) instead of the sixty the list returns.
+- **The stage before is ended after a restart too.** When a stage's own
+  session is followed, the previous stage's session is ended there as well as
+  where the stage was moved on.
+
+Tests: `internal/gaffer/outcome_leftovers_test.go` and
+`TestFactoryMCPStartUnderARequestAlreadyUsedStartsNothingMore`.
+
+Still open: over MCP, retry, move on and merge approval are not refused on a
+YOLO outcome (tell, add and send back are); the merge gate now covers the
+merge. Whether a real machine answers a repeated request for a launch that
+timed out as the broker's code reads has not been seen on one.
 
 ## Not done, for the next slice
 

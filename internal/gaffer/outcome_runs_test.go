@@ -38,6 +38,16 @@ type outcomeStarterFake struct {
 	// what the machine reads back for a session instead of that.
 	started map[string]OutcomeLaunch
 	choice  func(session string, asked OutcomeLaunch) (SessionChoice, error)
+	// late names a title whose first launch starts its session on the
+	// machine and then never answers in time.
+	late string
+}
+
+// sessions is how many sessions were really started.
+func (f *outcomeStarterFake) sessions() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.started)
 }
 
 // OutcomeSessionChoice reads back what a session runs. By default the machine
@@ -83,8 +93,14 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	if f.started == nil {
 		f.started = map[string]OutcomeLaunch{}
 	}
+	_, replay := f.started[row.ID]
 	f.started[row.ID] = in
+	slow := f.late == in.Title && !replay
 	f.mu.Unlock()
+	if slow {
+		<-ctx.Done()
+		return "", "", ctx.Err()
+	}
 	// The first launch of a project gets a worktree; later stages are sent there.
 	work := in.Dir
 	if in.ProjectID != "" {

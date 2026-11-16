@@ -89,6 +89,10 @@ type OutcomeInput struct {
 	// pipeline finishes or stops. Each report is one model request, and it
 	// only ever proposes.
 	AutoReport bool `json:"autoReport"`
+	// RequestID, when given, names this request: asking again under the same
+	// one answers the outcome it already started instead of starting another.
+	// It is for a client that may not hear back; the browser sends none.
+	RequestID string `json:"-"`
 }
 
 // OutcomeStageInput is one stage of a planned pipeline: what it is and which
@@ -199,11 +203,14 @@ func clipPrompt(text string) string {
 
 const (
 	outcomeLineBytes  = 600
-	outcomeStartWait  = 90 * time.Second
 	outcomeFollowWait = 60 * time.Second
 )
 
-var outcomeFollowEvery = 2 * time.Second
+// outcomeStartWait is how long one launch is waited for.
+var (
+	outcomeStartWait   = 90 * time.Second
+	outcomeFollowEvery = 2 * time.Second
+)
 
 func clipBytes(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
@@ -298,6 +305,16 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	id, err := newChatID()
 	if err != nil {
 		return o, err
+	}
+	if in.RequestID != "" {
+		if !store.ValidGafferOutcomeID(in.RequestID) {
+			return o, invalid("requestId", "A request ID is 32 lowercase hexadecimal characters.")
+		}
+		// Asked for before under this request: that outcome is the answer.
+		if existing, err := s.store.GafferOutcomeFor(uid, in.RequestID); err == nil {
+			return outcomeView(existing), nil
+		}
+		id = in.RequestID
 	}
 	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
@@ -1090,19 +1107,57 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if starter == nil {
 			return false
 		}
-		startCtx, cancel := context.WithTimeout(ctx, outcomeStartWait)
-		started, workDir, err := starter.StartOutcomeSession(startCtx, uid, launch)
-		cancel()
+		// ask makes one launch request and says whether it ran out of time.
+		ask := func(request string) (string, string, error, bool) {
+			in := launch
+			in.RequestID = request
+			startCtx, cancel := context.WithTimeout(ctx, outcomeStartWait)
+			defer cancel()
+			id, dir, err := starter.StartOutcomeSession(startCtx, uid, in)
+			return id, dir, err, err != nil && startCtx.Err() == context.DeadlineExceeded
+		}
+		var started, workDir string
+		var err error
+		unsure, timedOut := item.UnsureRequest, false
+		if unsure != "" && unsure != launch.RequestID {
+			// An earlier launch was not answered in time and may have started
+			// its session all the same. Its request is asked again first: a
+			// session it started is taken up, and only a launch that is known
+			// to have failed is asked for afresh.
+			started, workDir, err, timedOut = ask(unsure)
+			if ctx.Err() != nil {
+				return false
+			}
+			if err != nil && !timedOut {
+				unsure = ""
+			}
+		} else {
+			unsure = ""
+		}
+		if unsure == "" {
+			started, workDir, err, timedOut = ask(launch.RequestID)
+			if timedOut {
+				unsure = launch.RequestID
+			}
+		}
 		if ctx.Err() != nil {
 			// The same request ID is sent again after a restart, so a launch
 			// whose answer was lost is adopted, not repeated.
 			return false
 		}
 		if err != nil {
+			state, note := "failed", "Not started: "+clipBytes(err.Error(), 400)
 			if staged && item.Stage > 0 {
-				return fail("unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400))
+				state, note = "unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400)
 			}
-			return fail("failed", "Not started: "+clipBytes(err.Error(), 400))
+			if timedOut {
+				note = "The machine did not answer in time, so reet cannot tell whether the session started. Try again: a session that did start is taken up, not started twice."
+			}
+			after, stepErr := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, &wrote, func(row *store.GafferOutcomeSession) { row.UnsureRequest = unsure }))
+			if stepErr == nil && wrote {
+				s.auditPipeline(after, item.Key)
+			}
+			return stepErr == nil
 		}
 		sessionID = started
 		// The launch took a while. The session is put in Gaffer's care only if
@@ -1130,7 +1185,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				} else {
 					row.State, row.Note, left = "unfollowed", "Started, but not followed: this outcome was stopped while its session was starting. Look after it from the floor.", true
 				}
-				row.SessionID, row.UpdatedAt = sessionID, time.Now().UnixMilli()
+				row.SessionID, row.UpdatedAt, row.UnsureRequest = sessionID, time.Now().UnixMilli(), ""
 				if row.WorkDir == "" {
 					row.WorkDir = workDir
 				}
@@ -1183,6 +1238,15 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			s.auditPipeline(after, item.Key)
 			if staged {
 				s.checkStageChoice(ctx, o, item.Key, item.Stage, sessionID)
+			}
+			if staged && item.Stage > 0 {
+				// The stage before worked in a session of its own, which the
+				// pipeline has finished with. It is ended here as well as where
+				// the stage was moved on, so a controller that restarted in
+				// between does not leave it running.
+				if before := item.Stages[item.Stage-1].SessionID; before != "" && before != sessionID {
+					s.endFinishedSession(ctx, o, item.Key, before, "The "+item.Stages[item.Stage].Kind+" stage started in a session of its own.")
+				}
 			}
 		}
 		if err == nil && !wrote {

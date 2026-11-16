@@ -130,6 +130,25 @@ func TestFactoryMCPStartIsRefusedWhenTheMachineHasNotSaidWhatItRuns(t *testing.T
 	}
 }
 
+// A client that did not hear back and asks again under the same request_id
+// is answered with the outcome that request started, and told nothing more
+// was started.
+func TestFactoryMCPStartUnderARequestAlreadyUsedStartsNothingMore(t *testing.T) {
+	t.Parallel()
+	s, user, write := factoryMCPFixture(t)
+	o := factoryRecord(t, s, user.ID, "e", "following", nil)
+	out, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", map[string]any{
+		"objective": "Ship CSV export.", "project_id": "missing", "agent": "opencode", "confirm": true, "request_id": o.ID,
+		"pipelines": []any{map[string]any{"title": "Export", "prompt": "Add CSV export. Do not merge."}},
+	})
+	if err != nil || out["applied"] != false || out["outcome"].(map[string]any)["id"] != o.ID {
+		t.Fatalf("a repeated request: %v %v", out, err)
+	}
+	if rows, err := s.st.GafferOutcomesFor(user.ID); err != nil || len(rows) != 1 {
+		t.Fatalf("outcomes after a repeated request: %d %v", len(rows), err)
+	}
+}
+
 // The tools whose answers carry handover notes and reports are marked, so a
 // change Gaffer asks for after reading them waits for the person.
 func TestGafferToolsThatReturnSessionTextAreMarked(t *testing.T) {

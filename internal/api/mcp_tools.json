@@ -835,6 +835,11 @@
             "additionalProperties": false
           }
         },
+        "request_id": {
+          "description": "Optional stable request ID, 32 lowercase hex characters. Keep it when retrying a call that was not answered: the same ID answers the outcome it already started instead of starting another.",
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
         "reports_by_itself": {
           "default": false,
           "description": "Have Gaffer report across the outcome when a pipeline finishes or stops. Each report is one model request.",

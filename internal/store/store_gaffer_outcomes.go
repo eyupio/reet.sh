@@ -122,10 +122,14 @@ type GafferOutcomeSession struct {
 	// stage in hand. WorkDir is where the first stage's session works, which
 	// later stages share. AutoMerge and MergeApproved are the person's own
 	// choices: without one of them the merge stage never starts.
-	Stages    []GafferOutcomeStage `json:"stages,omitempty"`
-	Stage     int                  `json:"stage"`
-	WorkDir   string               `json:"workDir,omitempty"`
-	AutoMerge bool                 `json:"autoMerge,omitempty"`
+	Stages  []GafferOutcomeStage `json:"stages,omitempty"`
+	Stage   int                  `json:"stage"`
+	WorkDir string               `json:"workDir,omitempty"`
+	// UnsureRequest is the request of a launch that was not answered in time.
+	// Its session may have started all the same, so the next attempt asks
+	// under this request first and takes that session up if it is there.
+	UnsureRequest string `json:"unsureRequest,omitempty"`
+	AutoMerge     bool   `json:"autoMerge,omitempty"`
 	// YoloMergeOK is the person's separate confirmation that a pipeline whose
 	// agent runs on YOLO may also merge by itself. Without it such a pipeline
 	// stops at Ready to merge whatever AutoMerge says.
@@ -300,6 +304,20 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// ValidGafferOutcomeID reports whether id has the form of an outcome's id.
+func ValidGafferOutcomeID(id string) bool { return validGafferID(id) }
+
+// GafferWorkDirInUseFor reports whether any pipeline that is not finished, in
+// any of the account's outcomes that is not archived, works in dir. It reads
+// every outcome, not only the ones the list shows.
+func (s *Store) GafferWorkDirInUseFor(uid int64, dir string) (bool, error) {
+	var used bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gaffer_outcomes o, json_each(o.data,'$.sessions') piece
+ WHERE o.user_id=? AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0
+ AND json_extract(piece.value,'$.workDir')=? AND json_extract(piece.value,'$.state')!='done')`, uid, dir).Scan(&used)
+	return used, err
 }
 
 // DeleteGafferOutcomeFor removes one outcome record when it is still at

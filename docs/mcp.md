@@ -179,7 +179,7 @@ Six more are the person's own controls and need management scope:
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
 | `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |
 | `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. |
-| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
 | `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.

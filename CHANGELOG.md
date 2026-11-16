@@ -17,12 +17,16 @@ this file existed releases were described on their GitHub release pages.
   model and effort, including one you left to the agent), Not as chosen
   (naming what differs) or Not checked. A later change made in the session's
   own chat shows too. "Who did each stage" now lists effort.
+- Factory: a session that started but did not answer in time is taken up when
+  you try the pipeline again, instead of a second agent being started in the
+  same folder.
 - MCP: `reet_approve_pipeline_merge` now needs `seen_updated_at`, the
   pipeline's `updated_at` from the read the approval is made on, and approves
   nothing if the pipeline has changed since. `reet_tell_pipeline_agent` and
   `reet_stop_outcome` answer `applied: false` when nothing was queued or
   changed, and `reet_start_outcome` is refused for a machine that has not
-  reported that it can run the agent.
+  reported that it can run the agent. It takes an optional `request_id`, so a
+  retried call starts the outcome once.
 - Gaffer's tools: after Gaffer reads one outcome in full in a chat turn, a
   tool that changes something asks you first for the rest of that turn, even
   on Allow.

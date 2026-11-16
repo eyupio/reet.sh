@@ -32,7 +32,9 @@
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { nativeView=false, visible=true, session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false,headerTheatre=false }: { nativeView?:boolean; visible?:boolean; session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean;headerTheatre?:boolean } = $props()
+  let { nativeView=false, visible=true, session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false,headerTheatre=false,onconnection }: { nativeView?:boolean; visible?:boolean; session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean;headerTheatre?:boolean;
+    /** Told each time the attachment changes state (a desk pane draws its own words for open elsewhere and reconnecting). */
+    onconnection?:(state:ConnectionState)=>void } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -78,6 +80,11 @@
   const shownGroup = $derived(keyGroups.find(group=>group.id===keyGroup)??keyGroups[0])
   try{keysOpen=localStorage.getItem('reet-terminal-keys-open')==='1';const stored=localStorage.getItem('reet-terminal-keys-group');if(stored&&keyGroups.some(group=>group.id===stored))keyGroup=stored}catch{/* optional preference */}
   export function disconnect(){connection?.detach()}
+  /** Use it here: take the terminal over from another window. */
+  export function takeOver(){void connection?.connect(true)}
+  /** Retry now, while reconnecting. */
+  export function retryNow(){connection?.recover()}
+  $effect(()=>{onconnection?.(connectionState)})
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
   function chooseCopyOnSelect(on:boolean){copyOnSelect=on;if(!on){clearTimeout(selectionTimer);selectionTimer=undefined}try{localStorage.setItem('reet-terminal-copy-on-select',on?'1':'0')}catch{/* optional preference */}}

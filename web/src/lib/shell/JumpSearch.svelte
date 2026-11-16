@@ -1,6 +1,6 @@
 <script lang="ts">
   import { jumpMatches, jumpRows, type JumpItem } from './tabs'
-  // "Jump to a session, project, skill or machine": a combobox over what the workspace already lists. Sessions, existing
+  // "Jump to a session, project, skill or machine": a combobox over what the workspace already lists. Sessions, desks, existing
   // Projects and terminal machines are fetched when the field is first used and again after 15 seconds; shelf skills and
   // machines are already in memory, so they arrive as `live` and are never held back by that wait (a skill list that
   // finished loading after the field was first used would otherwise be missing for 15 seconds). Arrow Down moves into the results,
@@ -99,7 +99,7 @@
       {/each}
     </div>
     {#if matches.length === 0}
-      <p class="note" role="status">{loading && rows.length === 0 ? 'Looking…' : failed && rows.length === 0 ? 'Could not read the sessions, Projects, skills and machines. Try again in a moment.' : 'Nothing matches.'}</p>
+      <p class="note" role="status">{loading && rows.length === 0 ? 'Looking…' : failed && rows.length === 0 ? 'Could not read the sessions, desks, Projects, skills and machines. Try again in a moment.' : 'Nothing matches.'}</p>
     {/if}
   </div>
 </div>

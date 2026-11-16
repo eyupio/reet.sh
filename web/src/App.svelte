@@ -5,6 +5,7 @@
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import { pageGroup, type JumpItem, type Tab } from './lib/shell/tabs'
+  import { listDesks } from './lib/desks/api'
   import { ADVANCED_SYNC, syncRedirect } from './lib/syncRoutes'
   import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
@@ -58,6 +59,7 @@
     ActivityPage: () => loadPage(() => import('./lib/ActivityPage.svelte')),
     SessionsPage: () => loadPage(() => import('./lib/sessions/SessionsPage.svelte')),
     Factory: () => loadPage(() => import('./lib/factory/Factory.svelte')),
+    Desks: () => loadPage(() => import('./lib/desks/DesksPage.svelte')),
     Machines: () => loadPage(() => import('./lib/Machines.svelte')),
     Home: () => loadPage(() => import('./lib/home/Home.svelte')),
     Community: () => loadPage(() => import('./lib/Community.svelte')),
@@ -175,6 +177,10 @@
   const isSkills = location.pathname === '/skills'
   // The Factory: Gaffer's outcomes drawn as pipelines. It is for an account that can start sessions.
   const isFactory = location.pathname === '/factory'
+  // Desks: saved sets of terminals. /desks lists them (or opens the last one used) and /desks/<id> opens one; for the same
+  // accounts as the Factory. An open desk takes the whole window, as the session workspace does (`deskOpen`).
+  const isDesks = /^\/desks(?:\/[^/]+)?\/?$/.test(location.pathname)
+  let deskOpen = $state(/^\/desks\/[^/]+\/?$/.test(location.pathname))
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
   // /sessions lists the sessions; with `session` or `agent` (a session, or a machine's sessions) or the workspace's own
@@ -231,6 +237,9 @@
   // where it is. Otherwise it opens Sync, which explains what is missing.
   const syncInPlace = $derived(canWrite && (syncSnapshot?.agents?.length ?? 0) > 0)
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
+  // Desks run the whole width with no footer; an open desk also takes the slim header, as the session workspace does.
+  const desksLayout = $derived(isDesks && authMode === 'accounts' && authenticated && canWrite && !needsAuth && !setupRequired)
+  const deskScreen = $derived(desksLayout && deskOpen)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   // Navigation (R13): four tabs on a desktop (Activity lives in the account; without accounts it is a fifth tab); Home,
   // Sessions and Machines stay in view on a tablet or phone and the rest
@@ -249,6 +258,7 @@
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
+    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/desks', label: 'Desks', current: isDesks }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
     ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
@@ -280,12 +290,13 @@
     const items: JumpItem[] = []
     const hosts = new Map<string, string>()
     if (sessionsAccess) {
-      const [sessions, projects, terminal] = await Promise.allSettled([terminalSessions(), listFolderProjects(), terminalMachines()])
+      const [sessions, projects, terminal, desks] = await Promise.allSettled([terminalSessions(), listFolderProjects(), terminalMachines(), authMode === 'accounts' ? listDesks() : Promise.resolve([])])
       if (terminal.status === 'fulfilled') for (const machine of terminal.value) hosts.set(machine.agentId, machine.host)
       if (sessions.status === 'fulfilled') for (const session of sessions.value) {
         const host = hosts.get(session.agentId)
         items.push({ kind: 'session', label: session.title, detail: host ? `Session · ${host}` : 'Session', href: sessionHref(session) })
       }
+      if (desks.status === 'fulfilled') for (const desk of desks.value) if (!desk.template) items.push({ kind: 'desk', label: desk.name, detail: `Desk · ${desk.tabs} ${desk.tabs === 1 ? 'tab' : 'tabs'}`, href: `/desks/${encodeURIComponent(desk.id)}` })
       if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: project.machine ? `Project · ${project.machine}` : 'Project', href: `/?project=${encodeURIComponent(project.id)}` })
       if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
     }
@@ -1016,7 +1027,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1054,7 +1065,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -1085,9 +1096,9 @@
 {#if authenticated && !needsAuth && !isPublicList && !isJoin}
   <!-- The session workspace fills the viewport to the pixel and Backups says the same thing in full, so both keep the
        listening and drop the line. -->
-  <FenceStrip admin={isAdminUser} quiet={terminalLayout || location.pathname === '/admin/backups'} {timeZone} {dateFormat} />
+  <FenceStrip admin={isAdminUser} quiet={terminalLayout || deskScreen || location.pathname === '/admin/backups'} {timeZone} {dateFormat} />
 {/if}
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:desks-layout={desksLayout} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     {#await pages.Community()}
       <RouteSkeleton variant="cards" />
@@ -1196,6 +1207,14 @@
       <RouteSkeleton variant="cards" />
     {:then { default: Page }}
       <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} onsignedout={fail} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isDesks && sessionsAccess && authMode === 'accounts'}
+    {#await pages.Desks()}
+      <RouteSkeleton variant={deskOpen ? 'workspace' : 'cards'} />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} onsignedout={fail} onscreen={open => (deskOpen = open)} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1549,7 +1568,7 @@
 {/if}
 {#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}
 {#if (isSkills || isHosting) && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
-{#if !terminalLayout && !homeLayout}<Footer
+{#if !terminalLayout && !homeLayout && !desksLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}
   userName={currentUser?.name ?? ''}
@@ -1615,6 +1634,7 @@
   main.auth-page { max-width: 1150px; padding-top: clamp(32px, 7vh, 88px); }
   @media (max-width: 760px) { main.auth-page { padding: 24px 20px 36px; } }
   main.home-layout { max-width: none; padding: 0; }
+  main.desks-layout { max-width: none; padding: 0; display: flex; flex-direction: column; }
   main:focus { outline: none; }
   .site-header { border-bottom: 1px solid var(--line-soft); }
   .header-inner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: var(--content-width); margin: auto; padding: 24px 40px; }

@@ -12,6 +12,40 @@ const minute = 60_000, hour = 60 * minute, day = 24 * hour
 const signedIn = (over = {}) => ({ tool: 'claude', state: 'signed_in', method: 'subscription', account: 'person@example.com', plan: 'max', limitsState: 'not_asked', ...over })
 const limits = [{ kind: 'session', usedPercent: 19, resetsAt: now + 2 * hour + 10 * minute }, { kind: 'week', usedPercent: 60, resetsAt: now + 3 * day }, { kind: 'week', label: 'Opus', usedPercent: 92 }]
 
+test('a plan in one line names the window with the least left, and says nothing without figures', () => {
+  const read = a.planLeft(signedIn({ limitsState: 'read', limits, limitsAt: now }), now)
+  // The tightest window is the one that stops the agent first.
+  const tightest = a.limitLines(signedIn({ limits }), now).reduce((x, y) => y.left < x.left ? y : x)
+  assert.equal(read.left, tightest.left)
+  assert.equal(read.label, `Plan ${tightest.left}% left (${tightest.name.toLowerCase()})`)
+  assert.equal(read.low, tightest.low)
+  assert.ok(read.summary.startsWith('Session 81% left · Week 40% left'))
+  assert.ok(read.detail.startsWith('Session 81% left, resets in 2 h 10 min. Week 40% left, resets in 3 days.'))
+  assert.ok(!read.detail.includes('Read '))
+  // One window needs no name beside it.
+  assert.equal(a.planLeft(signedIn({ limitsState: 'read', limits: [limits[0]] }), now).label, 'Plan 81% left')
+  // Figures kept from an earlier read say how old they are.
+  assert.ok(a.planLeft(signedIn({ limitsState: 'failed', limits, limitsAt: now - 3 * hour }), now).detail.endsWith('Read 3 h ago.'))
+  // No figures, no line: plan limits off, an API key, no sign-in, or an agent the machine said nothing about.
+  assert.equal(a.planLeft(signedIn(), now), null)
+  assert.equal(a.planLeft(signedIn({ method: 'api_key', limitsState: 'unsupported' }), now), null)
+  assert.equal(a.planLeft({ tool: 'codex', state: 'none', limitsState: 'not_asked' }, now), null)
+  assert.equal(a.planLeft(undefined, now), null)
+})
+
+test('plans across machines list each account once, from the machine that read it last', () => {
+  const read = (over = {}) => signedIn({ limitsState: 'read', limits, limitsAt: now, ...over })
+  const entries = a.planEntries([
+    { host: 'studio', answer: { accounts: [read({ limitsAt: now - hour }), { tool: 'codex', state: 'signed_in', method: 'api_key', limitsState: 'unsupported' }] } },
+    { host: 'laptop', answer: { accounts: [read(), read({ tool: 'codex', account: '', limitsState: 'failed', limits: [limits[0]] })] } },
+    { host: 'offline', answer: null },
+  ], now)
+  // The same Claude account on two machines is one allowance; a Codex key has no plan; an unnamed account is its machine's.
+  assert.deepEqual(entries.map(e => [e.key, e.host, e.stale]), [['claude:person@example.com', 'laptop', false], ['codex@laptop', 'laptop', true]])
+  assert.equal(entries[0].plan.left, a.planLeft(read(), now).left)
+  assert.deepEqual(a.planEntries([], now), [])
+})
+
 test('the sign-in line says who is signed in and on which plan', () => {
   assert.equal(a.signInLine(signedIn()), 'Signed in as person@example.com · Max plan')
   assert.equal(a.signInLine(signedIn({ plan: '' })), 'Signed in as person@example.com')

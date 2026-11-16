@@ -343,3 +343,98 @@ func TestQueueDeliversLongInstructionOnlyToAMachineThatTakesIt(t *testing.T) {
 		}
 	}
 }
+
+// A message queued while the agent works goes by itself once the turn ends.
+// Nobody has to open the session, press Stop and send, or retry.
+func TestAMessageQueuedForABusyAgentGoesWhenItsTurnEndsWithNobodyActing(t *testing.T) {
+	working := true
+	prompts := 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: working, Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "next step", nil); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if q, _ := b.st.TerminalQueueFor(uid, s.ID); prompts != 0 || len(q) != 1 || q[0].State != "queued" {
+		t.Fatalf("while the agent works: %d prompts %+v", prompts, q)
+	}
+	working = false
+	b.stepChatQueue(uid, s.ID)
+	if q, _ := b.st.TerminalQueueFor(uid, s.ID); prompts != 1 || len(q) != 0 {
+		t.Fatalf("after the turn ended: %d prompts %+v", prompts, q)
+	}
+}
+
+// The agent looked free and then answered that it was busy: it began a turn
+// in between. The message was not taken, so it is still waiting for the turn
+// to end and goes then. It is not a failure the person has to retry.
+func TestAMessageTheAgentWasTooBusyToTakeStaysQueuedAndGoesLater(t *testing.T) {
+	busy := true
+	prompts := 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+			if busy {
+				return terminalproto.Result{Code: terminalproto.Conflict}, true
+			}
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "next step", nil); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if prompts != 1 || len(q) != 1 || q[0].State != "queued" || q[0].Intent != "wait" {
+		t.Fatalf("a busy agent made the message a failure: %d prompts %+v", prompts, q)
+	}
+	busy = false
+	b.stepChatQueue(uid, s.ID)
+	if q, _ := b.st.TerminalQueueFor(uid, s.ID); prompts != 2 || len(q) != 0 {
+		t.Fatalf("the message did not go once the agent was free: %d prompts %+v", prompts, q)
+	}
+}
+
+// A message that failed is known not to have been delivered, and stays for
+// the person to retry or remove. It does not hold back what was queued after
+// it: Gaffer's next instruction, or the person's next message, still goes.
+func TestAFailedMessageDoesNotHoldBackTheNextOne(t *testing.T) {
+	prompts := []string{}
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch op := m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts = append(prompts, op.Text)
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "first", nil); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if ok, err := b.st.TransitionTerminalQueueFor(uid, s.ID, q[0], "failed", "wait", "The agent refused this message.", b.queueOwner); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if err := b.EnqueueChat(uid, s.ID, ID(), "second", nil); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	q, _ = b.st.TerminalQueueFor(uid, s.ID)
+	if len(prompts) != 1 || prompts[0] != "second" || len(q) != 1 || q[0].State != "failed" || q[0].Text != "first" {
+		t.Fatalf("the failed message held the next one back: prompts %v queue %+v", prompts, q)
+	}
+}

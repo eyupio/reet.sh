@@ -594,6 +594,8 @@ func (s *Service) answer(ctx context.Context, job *chatJob, c store.GafferConver
 			workerHistoryAllowed = w.Grant.Enabled && w.Allowed && !w.NeedsReview
 		}
 	}
+	// row is the provider this turn goes to, as it is allowed now.
+	sessionText := row.AllowSessions && row.AllowCode
 	trimmed := false
 	for i := len(turns) - 1; i >= 0; i-- {
 		old := turns[i]
@@ -609,7 +611,7 @@ func (s *Service) answer(ctx context.Context, job *chatJob, c store.GafferConver
 			continue
 		}
 		// What reet tools did in that turn is part of what Gaffer said and did.
-		said := old.Answer + toolHistory(old.Tools)
+		said := old.Answer + toolHistory(old.Tools, sessionText)
 		n := len(old.Prompt) + len(said)
 		if bytes+n > historyBudget {
 			trimmed = true

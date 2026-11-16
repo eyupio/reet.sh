@@ -25,16 +25,22 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
 ]}]
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
 const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null,...(id==='s5'?{projectId:'p1'}:{})}))
-const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
+const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{agentAccounts:true,launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
 // What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
 Object.assign(outcomes[0].sessions[0].stages[2],{agentInputTokens:60000,agentOutputTokens:24600,agentCachedTokens:410000,agentUsageReported:true})
 Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutputTokens:3400,agentUsageReported:true,contextUsed:176000,contextSize:200000})
 // The first pipeline's plan was moved on by the person, and its review stage in hand reports what its agent is doing.
 Object.assign(outcomes[0].sessions[0].stages[0],{closedBy:'person'});Object.assign(outcomes[0].sessions[0].stages[1],{closedBy:'gaffer'})
 Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentState:'working',agentActiveAt:now-20*60000})
+// What each stage's session was read back to be on: the code stage ran as chosen (its model left to the agent), and the
+// review stage in hand is on a lower effort than the one chosen for it.
+Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTool:'codex',appliedModel:'gpt-coder',appliedEffort:'medium',appliedAt:now-90*60000})
+Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
-const routesFor=box=>({'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
+// What the machine last read of its agents' plans. Claude Code is on a plan with two windows; Codex is signed in with a key, which has none.
+const plans={state:'read',sentence:'',planLimits:true,checkedAt:now,accounts:[{tool:'claude',state:'signed_in',method:'subscription',account:'sam@example.test',plan:'max',limitsState:'read',limitsAt:now,limits:[{kind:'session',usedPercent:19,resetsAt:now+130*60000},{kind:'week',usedPercent:88,resetsAt:now+3*86400000+3600000}]},{tool:'codex',state:'signed_in',method:'api_key',limitsState:'unsupported'}]}
+const routesFor=box=>({'/api/v2/machines/a1/accounts':plans,'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
@@ -221,6 +227,23 @@ try {
       await expect(pipes.nth(0).getByRole('listitem').filter({hasText:'Design'})).not.toContainText('moved on by you')
       await expect(pipes.nth(0)).toContainText('In this stage');await expect(pipes.nth(0)).toContainText('42 min')
       await expect(pipes.nth(0)).toContainText('Working · last active 20 min ago')
+      // …and whether the agent, model and effort chosen for a stage were applied, as read back from the machine: a
+      // stage on something else says what, and is never shown as confirmed.
+      await expect(pipes.nth(0).locator('dl.facts').first()).toContainText('Not as chosen. You chose the effort high; the session is on low.')
+      await expect(pipes.nth(0).locator('ol.stages > li').nth(3)).toContainText('high effort')
+      await expect(pipes.nth(0).locator('ol.stages > li').nth(2)).toContainText('Confirmed. The session is on gpt-coder · medium effort. The model and effort were left to the agent.')
+      await expect(pipes.nth(1).locator('dl.facts').first()).not.toContainText('Applied')
+      // What is left of the plan of the agent doing the stage in hand: every window, marked when one is nearly spent.
+      // (An agent with no plan to read shows no line: agentAccounts.test.mjs.)
+      const planLine=pipes.nth(0).locator('dl.facts').first().locator('div').filter({hasText:'Plan left'}).locator('dd'),planChips=planLine.locator('button.strip')
+      await expect(planChips.locator('.words')).toHaveText('Session 81% left · Week 12% left');await expect(planLine.locator('.chip')).toHaveClass(/low/)
+      // A click on it opens every limit with its reset and the account, over the card and inside the window.
+      await planChips.click()
+      const planPanel=page.getByRole('dialog',{name:'Plan limits',exact:true})
+      await expect(planPanel).toContainText('Claude Code');await expect(planPanel).toContainText('Max');await expect(planPanel).toContainText('sam@example.test')
+      await expect(planPanel.getByRole('meter',{name:'Week left',exact:true})).toHaveAttribute('aria-valuenow','12')
+      await expect(planPanel).toContainText('Read on workshop')
+      await page.keyboard.press('Escape');await expect(planPanel).toBeHidden()
       // …and the outcome's history is read from the activity log only when asked for.
       await first.getByRole('button',{name:'History',exact:true}).click()
       const told=first.getByRole('region',{name:'History of this outcome',exact:true})

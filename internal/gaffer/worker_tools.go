@@ -114,6 +114,9 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 		system += hostToolsGuidance
 	}
 	hostRounds := 0
+	// readSessionText is set once a tool has put a working agent's words (a
+	// handover note, a report) in front of the model in this turn.
+	readSessionText := false
 	allUsage := true
 	for round := 0; round < 2; round++ {
 		if err := s.turnAccess(job.uid, c, row); err != nil {
@@ -161,10 +164,16 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 			if err = s.turnAccess(job.uid, c, row); err != nil {
 				return err
 			}
+			if readSessionText && !tool.ReadOnly {
+				// As in a session's chat: once the model has read what a working
+				// agent wrote, that text can propose a change but never make one.
+				tool.Mode = "ask"
+			}
 			result, asked, err := s.runHostTool(ctx, job, c, turn, tool, calls[0])
 			if err != nil {
 				return err
 			}
+			readSessionText = readSessionText || tool.SessionText && !asked
 			messages = append(messages, elicore.Message{Role: elicore.RoleAssistant, ToolCalls: calls}, elicore.Message{Role: elicore.RoleTool, ToolCallID: calls[0].ID, Content: result})
 			if asked || hostRounds >= maxHostToolRounds {
 				// A call waiting for the person ends the tool use: the model only reports.

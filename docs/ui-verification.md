@@ -4139,3 +4139,60 @@ name and description were checked as markup, not heard). No real machine was ask
 are synthetic here, and are covered by the Go tests (`internal/api` with a stand-in machine, `internal/terminalhost`
 with real git). The same dialog opened from Manage projects and from the Factory's rail was not exercised. The real
 60-second wait of a slow delete was not exercised in a browser.
+
+## Factory: whether a stage's agent, model and effort were applied (16 November 2026)
+
+Production build served with `vite preview`, Chromium through `web/tests/gaffer-factory.e2e.mjs` at 1440 px light and
+dark and 390 px light, synthetic outcomes.
+
+- A stage in hand whose session is on a lower effort than chosen shows **Applied: Not as chosen. You chose the effort
+  high; the session is on low.** in the warning colour beside "Doing this stage"
+  ([capture](images/ui/gaffer-factory-applied-1440-light.png)).
+- "Who did each stage" lists each stage's effort, and under a checked stage says **Confirmed** with the model and
+  effort the session is on, naming what was left to the agent.
+- A pipeline whose stage has not been checked shows no Applied line.
+
+**Not checked.** A real machine or agent: the read-back is covered by Go tests with a stand-in machine. The 390 px and
+dark captures were made and not looked at one by one. No screen reader.
+
+## Focus mode around a busy chat (16 November 2026)
+
+Production build served with `vite preview`, Chromium as a touch phone at 390 × 844 and 844 × 390, light. A Factory
+pipeline's chat with its agent working, Gaffer's instruction and one of the person's queued, and the context nearly
+full; synthetic data.
+
+- Before: upright, the header took two rows, the agent's state showed twice, the queue showed both messages with
+  their buttons, and the composer had its settings row. The conversation had about 250 of 844 px; sideways, one line.
+- After ([upright](images/ui/focus-chat-busy-390-light.png), [sideways](images/ui/focus-chat-busy-844x390-light.png)):
+  one header row (Back, title, state, Ask Gaffer, Exit), one status strip, **Queued 2** with what goes next on one
+  line, and the message field with Stop and Queue. The conversation has about 550 px upright and three messages
+  sideways.
+
+`terminal-focus.e2e.mjs` asserts it: one header row no taller than 52 px, the view switch, Details, Prompts, Skills and
+the model control hidden and back after Exit focus, and the queue as one line of at most 56 px that says "1 not sent",
+names Gaffer's instruction as what goes next, opens to all three messages with Retry and Stop and send, and closes.
+
+**Not checked.** A real phone. The line under the header returning for a failure or a reconnect was built and not
+looked at (a waiting approval is, in the same suite). Dark theme. A screen reader.
+
+## Plan meters on Home, Sessions, a chat and a Factory card (16 November 2026)
+
+Production build served with `vite preview`, Chromium, synthetic figures: one Claude Code account signed in on two
+machines (12% of its week left) and a Codex account whose latest read failed three hours ago.
+
+- **Home and the Sessions toolbar** at 1440 px: two chips, one per account, the low one in the warning colour and the
+  kept one dimmed. A mouse over them shows a tip listing both accounts' windows
+  ([Home](images/ui/plan-meters-home-1440-hover.png)); keyboard focus shows the same tip. Enter or a click opens
+  **Plan limits** ([Sessions](images/ui/plan-meters-sessions-1440-open.png)) with focus on its close button; Escape
+  closes it and returns focus; a click elsewhere closes it. Tip and panel stay inside the window.
+- **A phone** (390 × 844, touch, light and dark): no tip on a tap; the panel fits the screen with a 44 px close button
+  ([capture](images/ui/plan-meters-home-390-open.png)); no sideways scroll.
+- **A chat's status strip** and **a Factory card** use the same control (`chat-usage.e2e.mjs`,
+  `gaffer-factory.e2e.mjs`).
+- A machine that does not read sign-ins is never asked, and with none that does nothing is drawn.
+
+All of the above is asserted in `plan-meters.e2e.mjs`, which runs with the chat suites.
+
+**Not checked.** A real machine's figures. A screen reader (roles and names were checked as markup: a button with
+`aria-expanded`, a `tooltip`, a `dialog`, a `meter` per window). The +N fold with more than three accounts. Safari and
+Firefox, which draw HTML popovers but were not run.

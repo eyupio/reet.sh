@@ -225,28 +225,13 @@ func (s *Service) endOutcomeForSession(uid int64, id, mode string) error {
 // WorkDirInUse reports whether a pipeline still has work to do in a folder:
 // the worktree its first stage was given, which every later stage and any
 // retry works in. The session list uses it to keep that worktree when the
-// session that made it is removed from history.
+// session that made it is removed from history. Every pipeline that is not
+// finished counts, whatever stopped it, because each can be tried again there;
+// and a record that cannot be read keeps the folder rather than losing it.
 func (s *Service) WorkDirInUse(uid int64, dir string) bool {
 	if dir == "" {
 		return false
 	}
-	rows, err := s.store.GafferOutcomesFor(uid)
-	if err != nil {
-		return false
-	}
-	for _, o := range rows {
-		if o.ArchivedAt > 0 {
-			continue
-		}
-		for _, piece := range o.Sessions {
-			if piece.WorkDir != dir {
-				continue
-			}
-			switch piece.State {
-			case "following", "starting", "advancing", "ready_to_merge", "unfollowed":
-				return true
-			}
-		}
-	}
-	return false
+	used, err := s.store.GafferWorkDirInUseFor(uid, dir)
+	return err != nil || used
 }

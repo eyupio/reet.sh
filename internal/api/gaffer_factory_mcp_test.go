@@ -80,11 +80,20 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"reet_tell_pipeline_agent", "reet_add_pipelines", "reet_send_pipeline_back"} {
-		_, err := s.executeMCPFactory(ctx, write, name, map[string]any{"outcome_id": yolo.ID, "pipeline": "a", "confirm": true, "stage": "code", "reason": "Again.", "text": "Do more.", "request_id": strings.Repeat("c", 32), "pipelines": []any{map[string]any{"title": "More", "brief": "Do more."}}})
+	// Nor try a pipeline again, move it on or approve its merge: each sets
+	// an agent that asks nobody going, or lets it merge.
+	for _, name := range []string{"reet_tell_pipeline_agent", "reet_add_pipelines", "reet_send_pipeline_back", "reet_retry_pipeline", "reet_move_pipeline_on", "reet_approve_pipeline_merge"} {
+		_, err := s.executeMCPFactory(ctx, write, name, map[string]any{"outcome_id": yolo.ID, "pipeline": "a", "confirm": true, "stage": "code", "reason": "Again.", "text": "Do more.", "request_id": strings.Repeat("c", 32), "seen_updated_at": float64(1), "pipelines": []any{map[string]any{"title": "More", "brief": "Do more."}}})
 		if err == nil || !strings.Contains(err.Error(), "runs on YOLO") {
 			t.Fatalf("%s on a YOLO outcome: %v", name, err)
 		}
+	}
+	if after, err := s.st.GafferOutcomeFor(user.ID, yolo.ID); err != nil || after.Revision != yolo.Revision {
+		t.Fatalf("a refused control changed the YOLO outcome: %+v %v", after, err)
+	}
+	// It can still be read, made to wait for approval and stopped.
+	if _, err := s.executeMCPFactory(ctx, write, "reet_get_factory_outcome", map[string]any{"outcome_id": yolo.ID}); err != nil {
+		t.Fatalf("reading a YOLO outcome: %v", err)
 	}
 	// A fenced controller accepts no Factory change over MCP, as its browser routes accept none.
 	if _, err := s.st.SetFence("https://new.example"); err != nil {

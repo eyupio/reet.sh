@@ -918,6 +918,10 @@ try {
   // On a phone the panel fits with no sideways scroll.
   resetInstall()
   await page.setViewportSize({ width: 390, height: 844 })
+  // A phone opens a chat in focus, where Skills waits behind Exit focus.
+  await expect(page.locator('.session-screen')).toHaveClass(/focus/)
+  await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
+  await expect(page.locator('.session-screen')).not.toHaveClass(/focus/)
   await openPanel(); await confirmInstall()
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'a-very-long-skill-name-that-has-to-wrap-inside-the-narrow-sheet-without-scrolling' } }])
   await poll()
@@ -934,23 +938,19 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  // A phone opens Gaffer in super focus: the site chrome, workspace toolbar and secondary session controls step aside,
-  // while the narrative and composer (skills and attachments included) keep the screen. Exit focus restores them.
+  // A phone opens Gaffer in super focus: the site chrome, the workspace toolbar, the session's secondary controls and
+  // the composer's own (Skills, the model and the rest) step aside, and the narrative and the message field keep the
+  // screen. Exit focus restores them. The install check above left focus to reach Skills, so it is turned back on.
+  await page.getByRole('button', { name: 'Focus mode', exact: true }).click()
   const focusScreen = page.locator('.session-screen')
   await expect(focusScreen).toHaveClass(/focus/)
   await expect(page.locator('.site-header')).toBeHidden()
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeHidden()
   await expect(page.locator('.workspace-toolbar')).toBeHidden()
   await expect(page.getByRole('button', { name: 'Exit focus mode', exact: true })).toBeVisible()
-  await expect(page.locator('.composer-bar').getByRole('button', { name: 'Skills', exact: true })).toBeVisible()
-  // The model control stays in the phone's super focus, and opens a full-width sheet rather than a native list.
-  const phoneModel = page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })
-  await expect(phoneModel).toBeVisible()
-  await phoneModel.click()
-  await expect(page.getByRole('dialog', { name: 'Model', exact: true })).toBeVisible()
-  await expect(page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true })).toBeVisible()
-  await page.keyboard.press('Escape')
-  // A tablet keeps the same control with room for the toolbar.
+  await expect(page.locator('.composer-bar')).toBeHidden()
+  await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
+  // A tablet is not in focus and keeps the model control, with room for the toolbar.
   await page.setViewportSize({ width: 820, height: 1180 })
   await expect(page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -959,6 +959,14 @@ try {
   await expect(focusScreen).not.toHaveClass(/focus/)
   await expect(page.locator('.site-header')).toBeVisible()
   await expect(page.locator('.workspace-toolbar')).toBeVisible()
+  await expect(page.locator('.composer-bar').getByRole('button', { name: 'Skills', exact: true })).toBeVisible()
+  // Out of focus the phone's model control opens a full-width sheet rather than a native list.
+  const phoneModel = page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })
+  await expect(phoneModel).toBeVisible()
+  await phoneModel.click()
+  await expect(page.getByRole('dialog', { name: 'Model', exact: true })).toBeVisible()
+  await expect(page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Focus mode', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Focus mode', exact: true }).click()
   await expect(focusScreen).toHaveClass(/focus/)

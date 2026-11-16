@@ -30,7 +30,7 @@ async function session(marker){
   const s=workers[marker].session
   await page.goto(`${base}/sessions?agent=${s.agentId}&session=${s.id}`)
   // The phone chat carries Gaffer in its status row; the floating launcher is hidden over a chat.
-  const opener=mode==='docker'?page.locator('.chat-status .gaffer-entry'):page.getByRole('button',{name:'Ask Gaffer',exact:true})
+  const opener=mode==='docker'?page.locator('.gaffer-entry:visible'):page.getByRole('button',{name:'Ask Gaffer',exact:true})
   await opener.click()
   await expect(chat().locator('.scope-title')).toHaveText(s.title)
   await expect(chat().getByRole('textbox',{name:'Message Gaffer',exact:true})).toBeVisible()

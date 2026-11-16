@@ -215,24 +215,80 @@ try {
   }
 
   if (run('chat typing')) {
-    // Typing in a chat on a phone: the model setting and the pane's own status line wait; Prompts, Skills and Send stay.
+    // A chat in focus on a phone gives the conversation the screen: one header row (Back, the name, the state, Ask
+    // Gaffer, Exit focus), the agent's state said once in the strip above the composer, and a message field with its
+    // send button. The view switch, Details, the session's actions and the composer's Prompts, Skills, image,
+    // dictation, effort and model wait behind Exit focus. Typing changes none of that; the header's buttons step aside.
     const { page, context } = await open({ width: 390, height: 844, path: '/sessions?agent=a1&session=c1' })
     const input = page.locator('textarea.composer-input')
     await expect(input).toBeVisible()
     await expect(page.locator('.gaffer-launcher')).toBeHidden()
-    await expect(page.locator('.chat-status')).toBeVisible()
-    // A chat's session actions wait behind Exit focus, as before.
+    const quiet = async () => {
+      // The line under the header is kept for a screen reader and takes no room while the chat is simply idle or working.
+      const box = await page.locator('.chat-status').boundingBox()
+      expect(box === null || box.height <= 1).toBe(true)
+      await expect(page.getByRole('button', { name: 'Prompts', exact: true })).toBeHidden()
+      await expect(page.getByRole('button', { name: 'Skills', exact: true })).toBeHidden()
+      await expect(page.locator('.model-controls')).toBeHidden()
+      await expect(page.getByRole('button', { name: /^Send/ })).toBeVisible()
+    }
+    await quiet()
     await expect(screen(page).getByRole('button', { name: 'Session actions', exact: true })).toBeHidden()
+    await expect(screen(page).getByRole('group', { name: 'Session view', exact: true })).toBeHidden()
+    await expect(screen(page).getByRole('button', { name: 'Session details panel', exact: true })).toBeHidden()
+    await expect(screen(page).locator('.header-actions').getByRole('button', { name: 'Ask Gaffer', exact: true })).toBeVisible()
+    await expect(screen(page).getByRole('button', { name: 'Exit focus mode', exact: true })).toBeVisible()
+    // One row: the header is no taller than its 44 px controls and the safe area.
+    expect((await screen(page).locator('.head').boundingBox()).height).toBeLessThanOrEqual(52)
     await input.focus()
     await page.evaluate(() => window.__keyboard(490))
     await expect(screen(page)).toHaveClass(/keyboard/)
-    await expect(page.locator('.chat-status')).toBeHidden()
-    await expect(page.locator('.model-controls')).toBeHidden()
     await expect(screen(page).locator('.header-actions')).toBeHidden()
-    await expect(page.getByRole('button', { name: 'Prompts', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: /^Send/ })).toBeVisible()
+    await quiet()
     await page.evaluate(() => { window.__keyboard(null); document.activeElement?.blur() })
+    await quiet()
+    // Exit focus brings all of it back.
+    await screen(page).getByRole('button', { name: 'Exit focus mode', exact: true }).click()
     await expect(page.locator('.chat-status')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Prompts', exact: true })).toBeVisible()
+    await expect(screen(page).getByRole('group', { name: 'Session view', exact: true })).toBeVisible()
+    await context.close()
+  }
+
+  if (run('chat queue')) {
+    // Queued messages in focus are one line that opens: how many, what goes next, and how many were not sent. The
+    // list, with each message's own actions, is one tap away and nothing in it is lost.
+    const { page, context } = await open({ width: 390, height: 844, path: '/sessions?agent=a1&session=c1' })
+    const queue = [
+      { id: 'q1', text: 'This one was refused.', images: [], state: 'failed', intent: 'wait', note: 'The agent refused this message.', revision: 2, origin: '' },
+      { id: 'q2', text: 'Add the missing error case, then run the tests again.', images: [], state: 'queued', intent: 'wait', note: '', revision: 1, origin: 'companion' },
+      { id: 'q3', text: 'Also check the header order.', images: [], state: 'queued', intent: 'wait', note: '', revision: 1, origin: '' },
+    ]
+    await page.route('**/api/v2/terminal/sessions/c1/chat/queue', route => route.fulfill({ json: { queue } }))
+    // The queue belongs to a machine with live chat controls.
+    await page.route('**/api/v2/terminal/machines', route => route.fulfill({ json: { machines: machines.map(m => ({ ...m, capabilities: { ...caps, acpLiveControls: true } })) } }))
+    await page.route('**/api/v2/terminal/sessions/c1/chat/controls', route => route.fulfill({ json: { controls: { working: true, waiting: false, steering: true, model: 'm', options: [] } } }))
+    await page.reload()
+    const region = page.getByRole('region', { name: 'Queued messages', exact: true })
+    const summary = region.getByRole('button', { name: /^Queued 3/ })
+    await expect(summary).toBeVisible()
+    await expect(summary).toHaveAttribute('aria-expanded', 'false')
+    await expect(summary).toContainText('1 not sent')
+    // What goes next is the first message that can still go, and Gaffer's is named as Gaffer's.
+    await expect(summary).toContainText('Gaffer: Add the missing error case')
+    await expect(region.getByRole('listitem')).toHaveCount(0)
+    expect((await region.boundingBox()).height).toBeLessThanOrEqual(56)
+    await summary.click()
+    await expect(summary).toHaveAttribute('aria-expanded', 'true')
+    await expect(region.getByRole('listitem')).toHaveCount(3)
+    await expect(region.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+    await expect(region.getByRole('button', { name: 'Stop and send', exact: true })).toBeVisible()
+    await summary.click()
+    await expect(region.getByRole('listitem')).toHaveCount(0)
+    // Out of focus the list is simply shown, as before, with no summary line.
+    await screen(page).getByRole('button', { name: 'Exit focus mode', exact: true }).click()
+    await expect(region.getByRole('listitem')).toHaveCount(3)
+    await expect(summary).toBeHidden()
     await context.close()
   }
 
@@ -382,7 +438,8 @@ try {
   if (run('chat dictation')) {
     // The chat composer has Dictate where the browser has speech recognition: a finished phrase joins the draft, the
     // line under it says where the audio goes, and nothing is sent by speaking.
-    const { page, context, state } = await open({ width: 390, height: 844, path: '/sessions?agent=a1&session=c1', speech: true })
+    // In focus the composer is the message field alone, so Dictate is used with the full session screen.
+    const { page, context, state } = await open({ width: 390, height: 844, path: '/sessions?agent=a1&session=c1', speech: true, sessionFocus: false })
     const input = page.locator('textarea.composer-input')
     await expect(input).toBeVisible()
     const dictate = page.locator('.composer').getByRole('button', { name: 'Dictate', exact: true })

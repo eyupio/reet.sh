@@ -1238,14 +1238,228 @@ The owner asked for everything the review had found and left to be fixed.
 - A pending tool call is closed when it is answered after a day, not on a
   timer; nothing expires it while it sits unanswered.
 
+## Second review: the merge gate, and a stop that stands (16 November 2026)
+
+The owner asked for a review of Gaffer, the Factory integration and what the
+handoffs still owed, then chose to have every finding fixed in one PR. Two
+independent reads were made (the controller engine; the REST, MCP and
+Gaffer-tool surface). Each defect below was reproduced by a failing test
+before it was fixed. The owner runs the Factory against real agents and
+raises what they find; the fixes in this section were checked with the test
+fakes only, not against a real machine, agent or provider.
+
+### Found and fixed
+
+- **The merge gate could be walked round.** Only `advancePipeline` checked it.
+  A pipeline at Ready to merge, stopped and then tried again, went through
+  `runOutcomeSession`, which started and followed the merge stage with no
+  approval. A pipeline whose first stage is `merge` did the same. This was
+  reachable from the page, over MCP (retry takes no `confirm`) and by Gaffer
+  with *Factory: control* on Allow and *Factory: merge* off, and on YOLO
+  outcomes. `runOutcomeSession` now holds the gate itself: a merge stage that
+  is neither approved nor set to merge by itself goes to `ready_to_merge`
+  (`mergeWaitNote`), whatever path led there.
+- **A launch that came back overwrote the person's stop.** The controller's
+  writes were unconditional. `setOutcomeSession` now writes only while the
+  pipeline is in a state the controller holds (`controllerHolds`: waiting,
+  starting, advancing) and reports whether it wrote. A session that came up
+  after Stop following is kept on the record as `unfollowed`, with no goal; a
+  goal set just before the stop is closed again; a session whose outcome was
+  deleted, or whose pipeline asks for another launch by now, is ended.
+- **An archived outcome could be set going again.** `RetryPipeline`,
+  `AddPipelines` and `SendPipelineBack` refuse it (`errOutcomeArchived`): the
+  person brings it back first. Archiving lets go of the pipelines' folders,
+  so this also closes a way to work in a worktree nothing protected.
+- **`WorkDirInUse` let go of folders that were still needed.** A `failed`,
+  `waiting` or `cancelled` pipeline can be tried again in its worktree, so
+  every pipeline that is not `done` now keeps it, and a store error keeps the
+  folder instead of releasing it.
+- **A restart between setting a stage's goal and recording `following`** left
+  the pipeline "unfollowed: this session already has a goal", and every retry
+  repeated it. A goal whose text is this stage's own goal is adopted.
+- **Two runners for one outcome.** The early and the deferred
+  `outcomeRuns.Delete` could release a successor's entry. The entry is now
+  released once, before the wake.
+- **A finished stage's session was left running** when the next stage could
+  not be started in a session of its own. It is ended then too.
+- **A hand-over that changed nothing was still logged** as one
+  (`stageHandedOver`), and **send back and tell** judged a pipeline by its
+  saved state where the page shows the settled one.
+- **MCP approval was not of what was read.** `reet_approve_pipeline_merge`
+  takes `seen_updated_at` (required), the pipeline's `updated_at` from the
+  read; a pipeline that changed since is not approved. A Gaffer request left
+  on Ask me carries the value it was made with, so answering it after a
+  send-back approves nothing.
+- **MCP results that said `applied: true` when nothing happened.**
+  `reet_tell_pipeline_agent` reports `applied: false` for a blocked or failed
+  receipt and says a new `request_id` is needed; `reet_stop_outcome` on a
+  finished outcome reports `applied: false` and is not logged. A missing
+  session chat in tell is named as that, not as a missing outcome.
+- **`reet_start_outcome`'s agent check failed open** when the machine's
+  capabilities could not be read or it reported no chats. It now refuses.
+- **Gaffer, in general chat, could read handover text and then change
+  something on Allow in the same turn.** `HostTool.SessionText` marks the
+  tools whose answers carry it (`gafferToolReturnsSessionText`: the
+  one-outcome read and every Factory control). Once one has run in a turn,
+  any tool that changes something asks first for the rest of it. The mark is
+  kept on the turn (`GafferTurnTool.SessionText`) and `toolHistory` leaves
+  such a result out for a provider that may not read session text.
+- A tool call may carry 64 KiB of arguments (a full `reet_start_outcome` did
+  not fit in 32), and the browser's merge approval is refused where remote
+  sessions are off, like the other controls that start work.
+
+### Validation
+
+`internal/gaffer/outcome_gate_test.go` (the gate after a retry and for a
+merge-first pipeline; a stop during a launch; an archived outcome; folders;
+the adopted goal; the last stage's session), `host_tools_test.go` (a change
+after session text; history for a provider without it; a full-size call) and
+`internal/api/gaffer_factory_mcp_seen_test.go` (the approval of what was
+read; `applied`; the start check; the marked tools). `mcp_tools.json` was
+regenerated from `mcp/src/server.ts`; still 48 definitions.
+
+### Whether the chosen agent, model and effort were applied
+
+The owner asked for a check that what they choose for a stage is what runs.
+What was found by reading the path from the dialog to the agent:
+
+- **At launch the machine already confirms.** `acpagent` reads the model back
+  and sets the effort through the agent's own option, and refuses the chat if
+  either is not confirmed; the broker refuses an effort for a machine without
+  `acp-start-options-v1`. A launch that succeeds was on the chosen model and
+  effort.
+- **The Factory kept and showed only the choice.** Nothing recorded what a
+  session was on, so the page could not tell "applied" from "asked for", and
+  "Who did each stage" did not show effort at all.
+- **A stage that carries on in the session before it is never launched**, so
+  nothing confirmed its choice; and a model or effort changed in the session's
+  own chat afterwards left the stage saying the old one.
+- **A model or effort left to the agent** was never named.
+
+What was added:
+
+- `gaffer.SessionChoiceReader`, implemented by the API's
+  `outcomeStarter.OutcomeSessionChoice`: a `get` of the session's live
+  controls on its machine (the same read the browser makes), giving the
+  model and the `thought_level` option's current value. An agent that is in
+  the middle of changing settings is not taken at its word.
+- `checkStageChoice` (`internal/gaffer/outcome_choice.go`) runs once a staged
+  pipeline's session is in Gaffer's care, for a stage with a session of its
+  own and for one that carries on in the same session. It writes
+  `AppliedTool`, `AppliedModel`, `AppliedEffort`, `AppliedAt`, `ChoiceCheck`
+  (`applied`, `mismatch`, `unchecked`) and `ChoiceNote` on the stage. Only
+  what was chosen is compared (`stageChoiceCheck`): a default cannot be wrong,
+  and what it turned out to be is recorded.
+- A mismatch stops nothing. It is on the stage and in the activity log as
+  `gaffer-stage-choice-not-applied {outcome, pipeline, stage, session, chosen,
+  applied, reason}`. A machine that cannot be asked leaves `unchecked`, never
+  `applied`.
+- For the stage in hand, `withAgentUsage` compares again on every read against
+  the session's row, which the read-back and every later confirmed change
+  keep current, so a change made in the session's chat shows without another
+  call to the machine.
+- The page: an **Applied** line on the card (Confirmed, Not as chosen, Not
+  checked) and the same under each stage in "Who did each stage", which now
+  shows effort (`stageChoice` in `gafferOutcome.ts`). MCP: `choice`,
+  `applied_model`, `applied_effort` and `choice_note` on each stage.
+
+Validation: `outcome_choice_test.go` (applied, per stage and in a kept
+session; a mismatch named and logged without stopping the pipeline; an
+agent default recorded; a machine that cannot be asked; a later change),
+`TestOutcomeSessionChoiceIsReadBackFromTheMachine` in `internal/api`,
+`gafferOutcome.test.mjs` and `gaffer-factory.e2e.mjs`.
+
+![Applied, desktop](../images/ui/gaffer-factory-applied-1440-light.png)
+
+Limits: a pipeline without stages is not checked (it has no stage to keep
+the answer on). A finished stage keeps the answer from when it started. The
+check asks what the agent reports; it cannot see past an agent that reports
+one model and uses another. Not run against a real agent: whether each
+adapter's `get` names the model and effort the same way its launch was given
+them (a provider-prefixed name, say) decides whether a real stage reads as
+applied, and is the first thing to look at on a real run.
+
+### The four findings first left, fixed in the same PR
+
+The owner asked for these to go into the same PR.
+
+- **A launch that was not answered in time.** It is recorded as not started
+  with `GafferOutcomeSession.UnsureRequest` holding its request. The next
+  attempt asks under that request first: the broker answers a repeated request
+  from its reservation, so a session that did start is taken up, and a new
+  request is made only when the old one is known to have failed. If the
+  repeat is not answered in time either, nothing new is asked for. The note
+  says reet cannot tell whether the session started. A machine that cannot be
+  reached proves nothing either way: the API marks such an error
+  (`gaffer.LaunchUnknown`, for an offline machine, a request that never left
+  or one that timed out) and the request is kept through it, so a retry made
+  while the machine is offline does not lead to a second agent later. This
+  last case came from the automated review of the PR.
+- **`reet_start_outcome` takes an optional `request_id`**, which becomes the
+  outcome's ID (`OutcomeInput.RequestID`). Asked again under the same one, it
+  answers the outcome already started with `applied: false`.
+- **`WorkDirInUse` reads every outcome** (`GafferWorkDirInUseFor`, one query
+  over all of the account's records) instead of the sixty the list returns.
+- **The stage before is ended after a restart too.** When a stage's own
+  session is followed, the previous stage's session is ended there as well as
+  where the stage was moved on.
+
+Tests: `internal/gaffer/outcome_leftovers_test.go` and
+`TestFactoryMCPStartUnderARequestAlreadyUsedStartsNothingMore`.
+
+**YOLO over MCP** (asked for after): `reet_retry_pipeline`,
+`reet_move_pipeline_on` and `reet_approve_pipeline_merge` are refused on a
+YOLO outcome too, as tell, add and send back were. Reading, making a pipeline
+wait, a report and stopping remain. Gaffer's own tools go through the same
+check.
+
+### A message for the agent that goes by itself
+
+The owner reported having to press Stop and send for Gaffer's next message to
+reach an agent that had finished. The plain case was checked and holds: a
+message queued while the agent works is delivered by the queue's own worker
+within a second of the turn ending, with no browser open
+(`TestAMessageQueuedForABusyAgentGoesWhenItsTurnEndsWithNobodyActing`). Two
+ways it got stuck were found in `stepChatQueue` and fixed:
+
+- **An agent that answered "busy" made the message a failure.** The queue
+  reads the controls, sees the agent free and sends; an agent that began a
+  turn in between answers Conflict. The message was marked `failed`, to be
+  retried by hand. It was not taken, so it now goes back to `queued` and is
+  sent when the turn ends.
+- **A failed message held back everything behind it.** The queue only looked
+  at its first row, and a failed row stays until the person retries or removes
+  it. Gaffer's next instruction, and the person's next message, sat behind it
+  for good; Stop and send worked only because that intent sorts first.
+  `nextQueued` now passes over failed rows. An uncertain row is still not
+  passed (`TestQueueWillNotPassWaitingOrUncertainMessage` stands): it may
+  have been taken, and what follows could arrive out of order. A queue still
+  pauses after the agent's own turn failed, since each waiting message then
+  fails in turn.
+- A goal whose instruction failed now says why, from the queue's own note,
+  instead of the general "blocked, removed or uncertain" sentence.
+
+Not found by reading: a case where the machine keeps reporting an agent as
+working after its turn has ended. `Working` comes from the agent adapter
+(`acpagent`), and OpenCode's native terminal view counts as busy too; if a
+message still waits on a real agent that looks finished, the session's live
+controls (`working`, `waiting`) at that moment are the thing to capture.
+
+Whether a real machine answers a repeated request for a launch that
+timed out as the broker's code reads has not been seen on one.
+
 ## Not done, for the next slice
 
-- No bulk resume (deliberate), and no per-session goal text in one review.
-- The review uses the default provider's own model; a per-session override is
-  still made in that session's chat.
-- General chat still cannot instruct workers.
-- Gaffer still reviews each session on its own: no cross-session report, and no
-  re-planning (proposing an added or replacement session for approval).
-- No per-session model or effort; one model applies to the whole outcome.
-- A failed or unfollowed session of an outcome cannot be retried from the outcome;
-  start it again or look after it from the floor.
+- **These fixes on a real run.** The owner runs the Factory against real
+  agents; this slice was checked with fakes. On the next real outcome, look
+  at the Applied line of each stage first, then at a stop and a retry at
+  Ready to merge.
+- Home's worktree sweep and branch pruning remove worktrees by paths
+  `WorkDirInUse` does not guard.
+- Model names are checked against the machine only for OpenCode, and an added
+  pipeline cannot choose a Cline source of its own.
+- A tool request left on Ask me is closed when it is answered after a day,
+  not on a timer.
+- No bulk resume (deliberate), and general chat cannot instruct workers.
+- Per-stage budgets are the outcome's one budget, renewed for each stage; no
+  token prices.

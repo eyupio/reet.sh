@@ -419,7 +419,7 @@
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason} {onview} onunavailable={text => notice = { text }} />{/if}
         {@render contextControls?.()}
-        {#if terminalShowing && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
+        {#if (terminalShowing || focusOn) && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
         <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}
           title="Session actions" onclick={() => actionsOpen = true}><span aria-hidden="true">···</span></button>
         <button type="button" class="focus-button" bind:this={focusButton} aria-pressed={focusOn}
@@ -634,6 +634,30 @@
     .session-screen.focus:not(.terminal-view) .actions-button { display: none; }
     .session-screen.focus .header-actions { gap: 0; }
     .session-screen.focus .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; }
+    /* A chat in focus has one header row: Back, the name, the state, Ask Gaffer and Exit focus. The view switch and
+       Details wait behind Exit focus, as the session's actions do. A terminal keeps its switch: it is the way back. */
+    .session-screen.focus:not(.terminal-view) .header-actions :global(.view-switch),
+    .session-screen.focus:not(.terminal-view) .header-actions :global(.details-toggle) { display: none; }
+    .session-screen.focus:not(.terminal-view) .identity-row { flex-wrap: nowrap; }
+    .session-screen.focus:not(.terminal-view) .header-actions { width: auto; flex: none; }
+    /* The agent's state is said once, in the strip above the composer, which also carries the context left. The line
+       under the header says the same while the chat is simply working or idle, so it gives up its row then; it stays
+       for a reconnect, a failure or a waiting approval, and is always there for a screen reader. Ask Gaffer, which
+       sat on that line, is in the header. */
+    .session-screen.focus :global(.chat-status.plain) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .session-screen.focus :global(.chat-status .chat-actions) { display: none; }
+    /* The composer keeps its message field with Stop and Queue. Prompts, Skills, an image, dictation, effort, model
+       and source wait behind Exit focus. */
+    .session-screen.focus :global(.composer-bar) { display: none; }
+    /* The queue is one line that opens (ChatQueue). */
+    .session-screen.focus :global(.server-queue) { padding: 0; margin-bottom: 6px; }
+    .session-screen.focus :global(.server-queue .queue-summary) { display: flex; }
+    .session-screen.focus :global(.server-queue:not(.open) > header),
+    .session-screen.focus :global(.server-queue:not(.open) > ol),
+    .session-screen.focus :global(.server-queue:not(.open) > [role=alert]) { display: none; }
+    .session-screen.focus :global(.server-queue.open) { padding: 0 10px 10px; }
+    .session-screen.focus :global(.server-queue.open .queue-summary) { margin: 0 -10px; width: calc(100% + 20px); }
+    .session-screen.focus :global(.server-queue.open > header) { display: none; }
     .session-screen.focus .live p { margin: 0 8px 6px; }
     .session-screen.focus .stage { border-top: 0; }
     /* A terminal in focus: the slim header names the session and its state, so the pane's own header and status footer give

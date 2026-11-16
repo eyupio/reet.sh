@@ -39,7 +39,7 @@ try{
   await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
-   const opener=width<=767?w.page.locator('.chat-status .gaffer-entry'):w.page.getByRole('button',{name:'Ask Gaffer',exact:true})
+   const opener=width<=767?w.page.locator('.gaffer-entry:visible'):w.page.getByRole('button',{name:'Ask Gaffer',exact:true})
    await opener.click()
    const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),dialog=w.page.getByRole('dialog',{name:'Worker messages',exact:true})
    await expect(chat.locator('.scope-title')).toHaveText('Prepare the release')

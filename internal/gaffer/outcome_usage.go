@@ -58,6 +58,15 @@ func (s *Service) withAgentUsage(uid int64, o store.GafferOutcome) store.GafferO
 			// busy agent from one that has gone quiet.
 			if row, err := s.store.TerminalSessionFor(uid, piece.SessionID); err == nil {
 				piece.Stages[at].AgentState, piece.Stages[at].AgentActiveAt = row.ChatStatus, row.ActivityAt
+				// Once the stage's choice has been read back from the machine,
+				// the session's row holds what it is confirmed to be on, and a
+				// later change in the session's own chat is recorded there. The
+				// stage in hand is therefore compared again on every read.
+				if stage := &piece.Stages[at]; stage.ChoiceCheck == "applied" || stage.ChoiceCheck == "mismatch" {
+					got := SessionChoice{Tool: row.Tool, Model: row.Model, Effort: row.Effort}
+					stage.AppliedTool, stage.AppliedModel, stage.AppliedEffort = got.Tool, got.Model, got.Effort
+					stage.ChoiceCheck, stage.ChoiceNote = stageChoiceCheck(*stage, got)
+				}
 			}
 		}
 		if used, ok := s.stageAgentUsage(uid, *piece, at); ok {

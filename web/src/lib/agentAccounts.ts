@@ -58,6 +58,42 @@ export function limitLines(account: AgentAccount | undefined, now: number): Limi
   })
 }
 
+/** A plan's allowance in one short line, for places with little room: beside a chat's status and on a Factory card. */
+export type PlanLeft = { label: string; left: number; summary: string; detail: string; low: boolean }
+/** The window with the least left is the one that will stop the agent first, so it is the one named. `summary` lists
+ *  every window and `detail` adds when each starts again and, when the latest read failed, how old the figures are.
+ *  Null when there are no figures: plan limits are off, the agent is not signed in to a plan, or it is not one reet reads. */
+export function planLeft(account: AgentAccount | undefined, now: number): PlanLeft | null {
+  const lines = limitLines(account, now)
+  if (!lines.length) return null
+  const tight = lines.reduce((least, line) => line.left < least.left ? line : least)
+  const stale = account!.limitsState !== 'read' && account!.limitsAt ? ` Read ${readAgo(account!.limitsAt, now)}.` : ''
+  return {
+    label: `Plan ${tight.left}% left${lines.length > 1 ? ` (${tight.name.toLowerCase()})` : ''}`, left: tight.left,
+    summary: lines.map(line => line.text).join(' · '),
+    detail: lines.map(line => `${line.text}${line.resets ? `, ${line.resets}` : ''}.`).join(' ') + stale,
+    low: tight.low,
+  }
+}
+
+/** One plan to draw: an agent's account on a machine that has figures for it. */
+export type PlanEntry = { key: string; tool: string; host: string; account: AgentAccount; plan: PlanLeft; stale: boolean }
+/** The plans across a set of machines, one per account. The same account signed in on two machines is one allowance,
+ *  so it is listed once, from whichever machine read it last. An account with no figures (plan limits off, an API key,
+ *  no sign-in) is left out. `stale` marks figures kept from a read that has since failed. */
+export function planEntries(machines: { host: string; answer: Pick<MachineAccounts, 'accounts'> | null | undefined }[], now: number): PlanEntry[] {
+  const out = new Map<string, PlanEntry>()
+  for (const machine of machines) for (const account of machine.answer?.accounts ?? []) {
+    const plan = planLeft(account, now)
+    if (!plan) continue
+    const key = account.account ? `${account.tool}:${account.account}` : `${account.tool}@${machine.host}`
+    const have = out.get(key)
+    if (have && (have.account.limitsAt ?? 0) >= (account.limitsAt ?? 0)) continue
+    out.set(key, { key, tool: account.tool, host: machine.host, account, plan, stale: account.limitsState !== 'read' })
+  }
+  return [...out.values()]
+}
+
 /** How long ago something was read. '' when it never was. */
 export function readAgo(at: number | null | undefined, now: number): string {
   if (!at || at <= 0) return ''

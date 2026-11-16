@@ -25,7 +25,8 @@ func runTerminalBrowser(t *testing.T, base, cookie, agent, builder string, comma
 	if _, err := os.Stat(filepath.Join("..", "..", "web", "dist", "index.html")); err != nil {
 		t.Fatal("build web before REET_BROWSER_TESTS=1", err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	// A pushed main runs this on a slower host than a pull request does, where 90 seconds was not always enough.
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	script, err := filepath.Abs(filepath.Join("..", "..", "web", "tests", "terminal.e2e.mjs"))
 	if err != nil {

@@ -174,3 +174,23 @@ func TestGafferToolsThatReturnSessionTextAreMarked(t *testing.T) {
 		t.Fatalf("tools that return no session text are marked: %v", marked)
 	}
 }
+
+// An MCP client can say how demanding a stage is, which picks the agent and
+// backup from the person's saved crew. It names no agent, and a tier for a
+// stage the pipeline does not have, or a tier that is not one, is refused.
+func TestFactoryMCPPipelinesCarryStageTiers(t *testing.T) {
+	t.Parallel()
+	got, err := mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code", "pr"}, "tiers": map[string]any{"code": "heavy"}}})
+	if err != nil || len(got) != 1 || len(got[0].Stages) != 2 || got[0].Stages[0].Tier != "heavy" || got[0].Stages[0].Tool != "" || got[0].Stages[1].Tier != "" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// With no stages given the usual six are used, and a tier can still be set on one.
+	if got, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "tiers": map[string]any{"review": "light"}}}); err != nil || len(got[0].Stages) != 6 || got[0].Stages[1].Tier != "light" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	for _, bad := range []map[string]any{{"code": "enormous"}, {"design": "heavy"}} {
+		if _, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code"}, "tiers": bad}}); err == nil {
+			t.Fatalf("accepted tiers %v", bad)
+		}
+	}
+}

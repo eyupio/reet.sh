@@ -591,13 +591,25 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    stage usually is. It cannot choose an agent, a model or whether
    anything merges: its rating picks a tier, and the tier's agent is yours.
    **Write the plan myself** skips this.
+
+   Gaffer may also **split a stage into parts** where its work falls into
+   clearly different pieces: a code stage with a hard database part and an
+   easy wiring part, say. Each part has a short name, a brief of its own and
+   its own tier, so the hard part goes to your Heavy agent and the easy one to
+   your Light agent. Parts of a stage run one after another in the pipeline's
+   folder and branch, each in an agent session of its own; a part's agent
+   sees its own brief and the handover from the part before. Gaffer reviews
+   and hands over each part as it does a stage. A stage has at most four
+   parts, and the pull request, babysitting and merge are never split.
 4. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the
    stages each one runs through. Under each pipeline every stage has its tier and
    the agent, model and effort that tier means. A stage Gaffer moved off its usual
    tier is marked **Gaffer's assessment** with its reason and a **Use Standard**
    (or Heavy, or Light) button that puts it back; a tier you change is marked
    **Your choice**. On the Factory, **Who did each stage** names each stage's tier
-   and keeps Gaffer's reason. Every stage runs in an agent session of its
+   and keeps Gaffer's reason. A stage Gaffer split is shown as its parts, in the
+   order they run. You can rename a part, rewrite its brief, change its tier,
+   remove it, or choose **Do as one stage** to undo the split. Every stage runs in an agent session of its
    own, in the pipeline's folder and branch: it starts from that stage's
    instruction and the handover of the stage before, and the earlier stage's
    session is ended with its history kept.
@@ -626,6 +638,16 @@ outcome that was still starting. Nothing is retried on its own: a stage that cou
 not start says why, and its session is left for you to look after.
 
 ### Settings for the whole account
+
+**Your Factory crew**, in Gaffer settings, is the account's crew: who does a
+heavy, a standard and a light stage, each tier's backup, the share of a plan
+under which a backup takes over, and whether the outcome dialog starts on
+**Ask me** or **Gaffer decides**. Every outcome starts from it and can still
+be changed when you approve one. The default for who decides only sets where
+the dialog starts: an outcome started any other way, such as over MCP, is
+never given to Gaffer by it. Model and effort are typed there, because no one
+machine is in view to list them; the outcome dialog checks them against the
+project's machine.
 
 **Account → Gaffer AI → How Gaffer works** has two choices:
 

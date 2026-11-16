@@ -452,6 +452,76 @@ func (s *Store) ResolveGafferTurnToolFor(uid int64, conversation, turn, tool, fr
 	})
 }
 
+// ExpiredGafferTool is a tool request that was closed for waiting too long.
+type ExpiredGafferTool struct {
+	UserID       int64
+	Conversation string
+	Turn         string
+	Name         string
+}
+
+// ExpireGafferPendingTools declines every tool request that has waited for
+// the person since before cutoff, with result as the reason, and returns what
+// it closed. A request is as old as the turn that asked for it.
+func (s *Store) ExpireGafferPendingTools(cutoff int64, result string) ([]ExpiredGafferTool, error) {
+	var out []ExpiredGafferTool
+	err := s.withTx(func(tx *sql.Tx) error {
+		out = nil
+		rows, err := tx.Query(`SELECT c.user_id,t.conversation_id,t.id,t.tools_json FROM gaffer_turns t JOIN gaffer_conversations c ON c.id=t.conversation_id
+ WHERE t.state!='running' AND t.tools_json LIKE '%"state":"pending"%' AND MAX(t.finished_at,t.started_at)>0 AND MAX(t.finished_at,t.started_at)<? LIMIT 200`, cutoff)
+		if err != nil {
+			return err
+		}
+		type found struct {
+			uid          int64
+			conversation string
+			turn, raw    string
+		}
+		var turns []found
+		for rows.Next() {
+			var f found
+			if err = rows.Scan(&f.uid, &f.conversation, &f.turn, &f.raw); err != nil {
+				rows.Close()
+				return err
+			}
+			turns = append(turns, f)
+		}
+		rows.Close()
+		if err = rows.Err(); err != nil {
+			return err
+		}
+		for _, f := range turns {
+			var tools []GafferTurnTool
+			if json.Unmarshal([]byte(f.raw), &tools) != nil {
+				continue
+			}
+			changed := false
+			for i := range tools {
+				if tools[i].State == "pending" {
+					tools[i].State, tools[i].Result, tools[i].At = "declined", result, now()
+					out = append(out, ExpiredGafferTool{UserID: f.uid, Conversation: f.conversation, Turn: f.turn, Name: tools[i].Name})
+					changed = true
+				}
+			}
+			if !changed {
+				continue
+			}
+			raw, err := gafferToolsJSON(tools)
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Exec(`UPDATE gaffer_turns SET tools_json=?,updated_at=? WHERE conversation_id=? AND id=?`, raw, now(), f.conversation, f.turn); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(`UPDATE gaffer_conversations SET revision=revision+1,updated_at=? WHERE id=?`, now(), f.conversation); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // GafferToolModesFor returns the reet tools the person let Gaffer use: tool
 // name to "ask" or "allow". A tool that is not listed is off.
 func (s *Store) GafferToolModesFor(uid int64) (map[string]string, error) {

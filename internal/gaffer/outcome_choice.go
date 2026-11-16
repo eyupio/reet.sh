@@ -76,7 +76,21 @@ func (s *Service) checkStageChoice(ctx context.Context, o store.GafferOutcome, k
 		wrote = false
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
-			if row.Key != key || at >= len(row.Stages) || row.Stage != at || row.SessionID != sessionID {
+			if row.Key != key || row.SessionID != sessionID {
+				continue
+			}
+			if len(row.Stages) == 0 {
+				// A pipeline with no stages runs on the outcome's own agent and
+				// model, so that is what its one session is compared with.
+				chosen := store.GafferOutcomeStage{Tool: o.Tool, Model: o.Model}
+				if err == nil {
+					check, note = stageChoiceCheck(chosen, got)
+				}
+				row.Applied = &store.GafferAppliedChoice{Tool: got.Tool, Model: got.Model, Effort: got.Effort, At: time.Now().UnixMilli(), Check: check, Note: note, ChosenTool: o.Tool, ChosenModel: o.Model}
+				stage, wrote = chosen, true
+				return true
+			}
+			if at >= len(row.Stages) || row.Stage != at {
 				continue
 			}
 			if err == nil {

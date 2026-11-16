@@ -18,6 +18,28 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-PARTS-1: a stage split into parts, and what earlier slices left (16 November 2026)
+
+The owner asked for several agents delivering one stage, the smaller gaps closed and the FACTORY-REVIEW-2 leftovers
+fixed. Their choices: parts of different work (not several opinions), Gaffer proposes and the person approves, parts
+run one after another, and MCP may never give Gaffer the decisions.
+
+- **Parts are stage entries.** A split stage is two to four `GafferOutcomeStage` entries of one `Kind`, next to
+  each other, each with `Part` and `Brief`. Everything a stage has (own session, tier, backup, balancing, review,
+  hand-over, decisions) therefore holds for a part with no second code path. `outcomePieces` allows a repeated kind
+  only as named parts; `stagePrompt`, the goal and the session title name the part. Not split: pr, babysit, merge.
+- **Gaffer's plan** has `parts: [{stage, title, brief, tier, why}]`; `outcomeSessions` replaces the stage with them.
+- **Web:** `planRatings` returns `parts`; `stagePlan` expands them; the plan review edits them; `track()` gives each
+  part a node with a key of its own.
+- **Send back** to a split kind now returns to its first part.
+- **Crew in settings:** `GafferCrewSettings.svelte`; `GafferCrew.GafferDecides` only sets where the dialog starts.
+- **MCP start:** a pipeline's `tiers` and the outcome's `balance_below`. Never automation, never a split.
+- **Leftovers fixed:** `worktreeInPipeline` guards the sweep, its removal step and the manual remove;
+  `GafferOutcomeSession.Applied` for a pipeline with no stages; `expirePendingTools` on the outcome supervisor.
+- **Not done:** model names are still checked against the machine only for agents whose preset has a model list
+  (OpenCode). Each other agent needs its own listing command confirmed on a real machine. Also not done: adding a
+  part by hand in the plan review, parts over MCP, parts in the Add pipelines dialog, parts running at the same time.
+
 ## FACTORY-BALANCE-1: stages balanced across plans (16 November 2026)
 
 The owner asked for stages to use one agent or model over another when it has more of its plan left.

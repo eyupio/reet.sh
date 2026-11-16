@@ -21,7 +21,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, type StagePart } from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
   import { cloneForStart } from './cloneForStart'
@@ -137,7 +137,8 @@
   // The crew the person saved for their account is where the dialog starts, for the tiers this machine can run. It is
   // applied once, when the machine's agents are known; after that the crew here is theirs to change for this outcome.
   let savedCrew = $state<GafferCrew | null>(null), crewApplied = false, crewSaving = $state(false), crewNote = $state('')
-  onMount(() => { void getGafferCrew().then(answer => { if (answer.saved) savedCrew = answer.crew }).catch(() => {}) })
+  // The saved default for who decides is where this dialog starts; the person still chooses for this outcome.
+  onMount(() => { void getGafferCrew().then(answer => { if (answer.saved) { savedCrew = answer.crew; if (answer.crew.gafferDecides) automation = true } }).catch(() => {}) })
   $effect(() => {
     if (crewApplied || !savedCrew || !tools.length || !tool) return
     crewApplied = true
@@ -163,7 +164,7 @@
       const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}), ...(backups[tier].tool ? { backup: { tool: backups[tier].tool, model: backups[tier].model.trim(), effort: backups[tier].effort } } : {}) })
       // What was just saved is what is on screen: there is nothing to apply again.
       crewApplied = true
-      savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy'), balanceBelow: balancePercent(balanceBelow) })).crew
+      savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy'), balanceBelow: balancePercent(balanceBelow), gafferDecides: !!savedCrew?.gafferDecides })).crew
       crewNote = 'Saved. New outcomes start from this crew.'
     } catch (e) { crewNote = e instanceof Error ? e.message : 'The crew could not be saved.' }
     finally { crewSaving = false }
@@ -266,7 +267,7 @@
     try {
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, life.signal)
       summary = plan.summary
-      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages(item.stages.map(stage => stage.kind)) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
+      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
       step = 'plan'
     } catch (e) { if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not plan this outcome.' }
     finally { planning = false }
@@ -288,7 +289,7 @@
     try {
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted, reply: text, previous: previousPlan(summary, sessions) }, life.signal)
       summary = plan.summary
-      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages(item.stages.map(stage => stage.kind)) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
+      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
       planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
       declined = false
     } catch (e) {
@@ -453,15 +454,27 @@
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
           {#if item.stages?.length}<div class="stage-tiers" role="group" aria-label={`Pipeline ${index + 1} stage tiers`}>
-            {#each item.stages as kind (kind)}{@const rated = stageTier(kind, item)}{@const member = crew[rated.tier]}
+            {#each item.stages as kind (kind)}{@const split = stageParts(item, kind)}{#if split.length > 1}
+            <div class="stage-split" role="group" aria-label={`${stageLabel(kind)} parts in pipeline ${index + 1}`} data-stage={kind}>
+              <p class="split-head"><span class="stage-name">{stageLabel(kind)}</span><span class="split-count">Split into {split.length} parts, done in this order, each by its own agent.</span><button class="link" type="button" disabled={busy} aria-label={`Do ${stageLabel(kind)} in pipeline ${index + 1} as one stage`} onclick={() => item.parts = withoutParts(item, kind)}>Do as one stage</button></p>
+              {#each split as part, at (at)}{@const who = crew[part.tier]}<div class="split-part" role="group" aria-label={`Part ${at + 1} of ${stageLabel(kind)} in pipeline ${index + 1}`}>
+                <span class="part-no" aria-hidden="true">{at + 1}</span>
+                <input aria-label={`Part ${at + 1} name`} value={part.title} maxlength="60" disabled={busy} oninput={event => item.parts = withPart(item, kind, at, { title: event.currentTarget.value })}/>
+                <select aria-label={`Part ${at + 1} tier`} value={part.tier} disabled={busy} onchange={event => item.parts = withPart(item, kind, at, { tier: event.currentTarget.value as StagePart['tier'] })}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
+                <button class="link part-remove" type="button" disabled={busy} aria-label={`Remove part ${at + 1} of ${stageLabel(kind)} in pipeline ${index + 1}`} onclick={() => item.parts = withPart(item, kind, at, null)}>Remove</button>
+                <textarea aria-label={`Part ${at + 1} brief`} rows="2" maxlength="1000" value={part.brief} disabled={busy} oninput={event => item.parts = withPart(item, kind, at, { brief: event.currentTarget.value })}></textarea>
+                <span class="stage-who">{who.tool ? chatToolName(who.tool) : 'No agent'}{who.model.trim() ? ` · ${who.model.trim()}` : ''}{who.effort ? ` · ${who.effort} effort` : ''}{#if part.why}<span class="stage-spare"><strong>Gaffer’s assessment.</strong> {part.why}</span>{/if}</span>
+              </div>{/each}
+            </div>
+            {:else}{@const rated = stageTier(kind, item)}{@const member = crew[rated.tier]}
             <div class="stage-tier" class:changed={rated.changed} data-stage={kind}>
               <span class="stage-name">{stageLabel(kind)}</span>
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
               <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ''}{member.effort ? ` · ${member.effort} effort` : ''}{#if backups[rated.tier].tool}<span class="stage-spare">Backup: {chatToolName(backups[rated.tier].tool)}{backups[rated.tier].model.trim() ? ` · ${backups[rated.tier].model.trim()}` : ''}{backups[rated.tier].effort ? ` · ${backups[rated.tier].effort} effort` : ''}</span>{/if}</span>
               {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
-            </div>{/each}
+            </div>{/if}{/each}
           </div>{/if}
-          <p class="hint">{item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}, each in an agent session of its own.</p>
+          {#if true}{@const count = (item.stages ?? []).reduce((sum, kind) => sum + Math.max(1, stageParts(item, kind).length), 0)}{@const splits = (item.stages ?? []).filter(kind => stageParts(item, kind).length > 1).length}<p class="hint">{item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}{splits ? `, ${splits} split into parts: ${count} agent sessions in all, one after another.` : ', each in an agent session of its own.'}</p>{/if}
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a pipeline</button>{/if}
@@ -542,6 +555,9 @@
   .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.crew-slot{align-self:start;line-height:44px;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-none{grid-column:3/-1;align-self:start;line-height:44px;font-size:0.875rem;color:var(--muted)}.crew-row select{width:100%;min-width:0}
   .balance{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.balance label{font-weight:600;line-height:1.3}.percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--ink)}.percent input{width:5.5rem;min-height:44px;text-align:right;font-variant-numeric:tabular-nums}.balance+.hint{margin-top:8px}@media(max-width:479px){.balance{grid-template-columns:1fr}}
   .stage-spare{display:block;color:var(--muted)}
+  .stage-split{display:grid;gap:8px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--tint)}.split-head{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}.split-count{color:var(--muted);font-size:0.875rem;flex:1 1 12rem}
+  .split-part{display:grid;grid-template-columns:1.75rem minmax(0,1fr) 8rem auto;gap:6px 10px;align-items:center;padding:8px;border:1px solid var(--line-soft);border-radius:8px;background:var(--card)}.part-no{width:1.75rem;height:1.75rem;border-radius:999px;display:grid;place-items:center;font-weight:700;font-size:0.875rem;border:1px solid var(--line);color:var(--muted)}.split-part input,.split-part select{min-height:44px;min-width:0;width:100%}.split-part textarea{grid-column:2/-1;min-width:0;width:100%;resize:vertical}.split-part .stage-who{grid-column:2/-1}.part-remove{min-height:44px}
+  @media(max-width:479px){.split-part{grid-template-columns:1.75rem minmax(0,1fr)}.split-part select,.split-part textarea,.split-part .stage-who,.part-remove{grid-column:2}.part-remove{order:5;justify-self:start}}
   .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1.25fr) minmax(0,1.05fr);gap:8px 10px;align-items:start}.crew-row+.crew-row{padding-top:12px;border-top:1px solid var(--line)}.crew-source{grid-column:2/-1}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   /* Each chosen stage with its tier and who that means. One the plan or the person moved off its default is marked, with why. */

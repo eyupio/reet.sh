@@ -2,7 +2,7 @@
   // Approving pipelines Gaffer proposed. Each one can be given its own agent, model and effort; left alone it uses the
   // outcome's. Nothing is added or started until the person approves, and an added pipeline never merges by itself.
   import { onMount } from 'svelte'
-  import { listModelFavourites, type GafferOutcome } from '../api'
+  import { getGafferCrew, listModelFavourites, type GafferOutcome } from '../api'
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
@@ -11,7 +11,7 @@
   import { reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
-  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }
+  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string; tier?: string; backup?: { tool: string; model?: string; effort?: string } }[] }
   let { record, proposals, busy = false, error = '', oncancel, onconfirm }: {
     record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
   } = $props()
@@ -33,6 +33,11 @@
   const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
   const choice = (title: string) => main[title] ?? own()
   const crewOf = (title: string): Crew => crews[title] ?? { heavy: choice(title), standard: choice(title), light: choice(title) }
+  // Each tier's backup comes from the person's saved crew, for the agents this machine can run: an added pipeline is
+  // balanced across plans like the outcome's own. It is changed where the crew is, in Gaffer settings.
+  let spares = $state<Partial<Record<keyof Crew, { tool: string; model: string; effort: string }>>>({})
+  const spare = (tier: keyof Crew) => { const found = spares[tier]; return found && tools.includes(found.tool) ? found : undefined }
+  const crewSent = (title: string): Crew => { const crew = crewOf(title); return { heavy: { ...crew.heavy, backup: spare('heavy') }, standard: { ...crew.standard, backup: spare('standard') }, light: { ...crew.light, backup: spare('light') } } }
   const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
@@ -66,13 +71,14 @@
     }
   })
   onMount(() => {
+    void getGafferCrew(life.signal).then(answer => { if (!answer.saved) return; for (const item of CREW_TIERS) { const second = answer.crew[item.tier]?.backup; if (second?.tool) spares[item.tier] = { tool: second.tool, model: second.model ?? '', effort: second.effort ?? '' } } }).catch(() => {})
     void terminalMachines(life.signal).then(found => { machine = found.find(item => item.agentId === record.agentId) ?? null }).catch(() => { /* the outcome's own agent is still offered */ }).finally(() => { capabilitiesRead = true })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     return () => life.abort()
   })
   function approve() {
     onconfirm(proposals.map(item => {
-      const plan = withReportedEfforts(stagePlan(kinds(item), crewOf(item.title)), efforts)
+      const plan = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title)), efforts)
       // Left as the outcome's own agent and model, the stages name no one and the controller fills them in.
       const untouched = plan.every(stage => stage.tool === record.tool && stage.model === (record.model ?? '') && !stage.effort)
       // A Cline stage keeps the outcome's billing source: a stage that names its agent is otherwise started on Cline's own.
@@ -104,6 +110,7 @@
               <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
               <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.tier, { model: next })}/>
               <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(role.tool) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
+              {#if spare(part.tier)}{@const second = spare(part.tier)!}<p class="crew-spare">Backup from your crew: {chatToolName(second.tool)}{second.model.trim() ? ` · ${second.model.trim()}` : ''}{second.effort ? ` · ${second.effort} effort` : ''}</p>{/if}
             </div>{/each}
           </div>
           <p class="hint">{kinds(item).length} {kinds(item).length === 1 ? 'stage' : 'stages'}, each in an agent session of its own.</p>
@@ -126,6 +133,7 @@
   .who{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:10px;align-items:start}label{font-weight:600;display:grid;gap:6px;min-width:0}
   select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;min-height:44px;box-sizing:border-box}
   .crew summary{min-height:44px;display:list-item;align-content:center;cursor:pointer}.crew summary span{color:var(--accent-text);margin-left:8px}
+  .crew-spare{grid-column:1/-1;margin:0;font-size:0.875rem;color:var(--muted)}
   .crew-rows{display:grid;gap:10px;padding:6px 0 8px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted)}
   summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}

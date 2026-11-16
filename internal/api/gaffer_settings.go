@@ -65,11 +65,13 @@ func (s *server) gafferCrewPut(w http.ResponseWriter, r *http.Request) {
 		Heavy    store.GafferCrewTier `json:"heavy"`
 		// BalanceBelow is when a tier's backup takes over; absent keeps reet's default.
 		BalanceBelow int `json:"balanceBelow"`
+		// GafferDecides is where the outcome dialog starts for who decides.
+		GafferDecides bool `json:"gafferDecides"`
 	}
 	if !decodeStrictJSON(w, r, 8<<10, &in, "That crew is invalid.") {
 		return
 	}
-	crew, err := s.gafferProviders.SaveCrew(s.uid(r), store.GafferCrew{Light: in.Light, Standard: in.Standard, Heavy: in.Heavy, BalanceBelow: in.BalanceBelow})
+	crew, err := s.gafferProviders.SaveCrew(s.uid(r), store.GafferCrew{Light: in.Light, Standard: in.Standard, Heavy: in.Heavy, BalanceBelow: in.BalanceBelow, GafferDecides: in.GafferDecides})
 	if err != nil {
 		gafferError(w, err)
 		return

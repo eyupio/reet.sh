@@ -180,6 +180,10 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	uid := s.uid(r)
+	if s.worktreeInPipeline(uid, in.Project, in.Run) {
+		writeErrCode(w, http.StatusConflict, "worktree_in_pipeline", "", "A Factory pipeline still works in this worktree, so it is kept. Let the pipeline finish, or stop following its outcome and archive or delete it, then remove the worktree.", "")
+		return
+	}
 	removed, err := s.terminals.WorktreeRemove(r.Context(), uid, in.AgentID, in.Project, in.Repo, in.Run, shown)
 	if errors.Is(err, terminalbroker.ErrWorktreeReplyLost) {
 		// The remove was sent but its answer never came. Ask for status once,

@@ -5,6 +5,20 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: Gaffer can split a stage into parts of different work, each with
+  its own brief and tier, so each part runs on the agent that suits it. Parts
+  run one after another, each in a session of its own. You see and edit the
+  split before anything starts.
+- Gaffer settings has **Your Factory crew**: the tiers, their backups, when a
+  backup takes over, and whether the outcome dialog starts on Gaffer decides.
+  Added pipelines take each tier's backup from it.
+- MCP: `reet_start_outcome` takes a stage's tier and `balance_below`. It
+  cannot give Gaffer an outcome's decisions.
+- A worktree a Factory pipeline still works in is kept by every kind of
+  cleaning. A pipeline with no stages now says whether the outcome's agent
+  and model were applied. A tool request Gaffer left waiting for you is
+  closed after a day whether or not anyone answers it.
+
 - Factory: on an outcome set to **Gaffer decides**, Gaffer now answers a
   working agent's multiple-choice question, choosing among the options the
   agent offered, or leaves it to you with its reason. It never answers an

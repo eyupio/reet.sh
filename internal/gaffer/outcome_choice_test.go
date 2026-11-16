@@ -177,3 +177,25 @@ func TestStageChoiceCheckComparesOnlyWhatWasChosen(t *testing.T) {
 		t.Errorf("an agent default is never a mismatch: %s", check)
 	}
 }
+
+// A pipeline with no stages runs on the outcome's own agent and model, and
+// its session is read back and compared with those like a stage's.
+func TestAPipelineWithNoStagesSaysWhetherTheOutcomesChoiceWasApplied(t *testing.T) {
+	r := outcomeFixture(t)
+	r.in.Model = "provider/model-a"
+	r.in.Sessions = r.in.Sessions[:1]
+	r.starter.mu.Lock()
+	r.starter.choice = func(string, OutcomeLaunch) (SessionChoice, error) {
+		return SessionChoice{Tool: "opencode", Model: "provider/model-b"}, nil
+	}
+	r.starter.mu.Unlock()
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Applied != nil })
+	if got := piece.Applied; got.Check != "mismatch" || got.Model != "provider/model-b" || got.ChosenModel != "provider/model-a" || !strings.Contains(got.Note, "the session is on provider/model-b") || len(piece.Stages) != 0 {
+		t.Fatalf("applied: %+v", got)
+	}
+}

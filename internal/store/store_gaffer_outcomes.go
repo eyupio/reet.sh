@@ -82,6 +82,12 @@ type GafferOutcomeStage struct {
 	// stage over), "person" (they moved it on), "chat" (they told Gaffer to)
 	// or "auto" (Gaffer decided to, on an outcome whose decisions it was given).
 	ClosedBy string `json:"closedBy,omitempty"`
+	// Part and Brief mark one part of a stage that was split: the part's
+	// short name and what it is to do. Parts of a stage sit next to each
+	// other under the same Kind and run in order, each in a session of its
+	// own on the agent its own tier means. Empty for a stage done as one.
+	Part  string `json:"part,omitempty"`
+	Brief string `json:"brief,omitempty"`
 	// Backup is the person's second choice for this stage: used instead of
 	// Tool, Model and Effort when their plan is running low and the backup's
 	// has more left. When that happened, First is the first choice the stage
@@ -104,6 +110,20 @@ type GafferOutcomeStage struct {
 	InputTokens   int  `json:"inputTokens,omitempty"`
 	OutputTokens  int  `json:"outputTokens,omitempty"`
 	UsageReported bool `json:"usageReported,omitempty"`
+}
+
+// GafferAppliedChoice is what a session was read back to be running, and
+// whether that is what was chosen for it: applied, mismatch or unchecked.
+type GafferAppliedChoice struct {
+	Tool   string `json:"appliedTool,omitempty"`
+	Model  string `json:"appliedModel,omitempty"`
+	Effort string `json:"appliedEffort,omitempty"`
+	At     int64  `json:"appliedAt,omitempty"`
+	Check  string `json:"choiceCheck"`
+	Note   string `json:"choiceNote,omitempty"`
+	// ChosenTool and ChosenModel are what it was compared with.
+	ChosenTool  string `json:"tool"`
+	ChosenModel string `json:"model,omitempty"`
 }
 
 // GafferOutcomeReport is Gaffer's account of the whole outcome, made when
@@ -149,7 +169,11 @@ type GafferOutcomeSession struct {
 	// Its session may have started all the same, so the next attempt asks
 	// under this request first and takes that session up if it is there.
 	UnsureRequest string `json:"unsureRequest,omitempty"`
-	AutoMerge     bool   `json:"autoMerge,omitempty"`
+	// Applied is what a pipeline with no stages was read back to be running,
+	// against the outcome's own agent and model. A pipeline with stages keeps
+	// this on each stage instead.
+	Applied   *GafferAppliedChoice `json:"applied,omitempty"`
+	AutoMerge bool                 `json:"autoMerge,omitempty"`
 	// YoloMergeOK is the person's separate confirmation that a pipeline whose
 	// agent runs on YOLO may also merge by itself. Without it such a pipeline
 	// stops at Ready to merge whatever AutoMerge says.
@@ -398,8 +422,13 @@ type GafferCrew struct {
 	Heavy    GafferCrewTier `json:"heavy"`
 	// BalanceBelow is the share of a plan, as a whole percentage, under which
 	// a tier's stages start on its backup. Zero is reet's own default.
-	BalanceBelow int   `json:"balanceBelow,omitempty"`
-	UpdatedAt    int64 `json:"updatedAt,omitempty"`
+	BalanceBelow int `json:"balanceBelow,omitempty"`
+	// GafferDecides is what the outcome dialog starts on for who takes an
+	// outcome's decisions. It only sets where the dialog starts: each outcome
+	// is still given to Gaffer, or not, by the person when they approve it,
+	// and an outcome started any other way is never given to Gaffer by it.
+	GafferDecides bool  `json:"gafferDecides,omitempty"`
+	UpdatedAt     int64 `json:"updatedAt,omitempty"`
 }
 
 // Saved reports whether the person has ever saved a crew.
@@ -460,6 +489,27 @@ func (s *Store) GafferWorkDirInUseFor(uid int64, dir string) (bool, error) {
  WHERE o.user_id=? AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0
  AND json_extract(piece.value,'$.workDir')=? AND json_extract(piece.value,'$.state')!='done')`, uid, dir).Scan(&used)
 	return used, err
+}
+
+// GafferWorkDirsInUseFor lists the folders that pipelines which are not
+// finished, in outcomes that are not archived, work in.
+func (s *Store) GafferWorkDirsInUseFor(uid int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT json_extract(piece.value,'$.workDir') FROM gaffer_outcomes o, json_each(o.data,'$.sessions') piece
+ WHERE o.user_id=? AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0
+ AND COALESCE(json_extract(piece.value,'$.workDir'),'')!='' AND json_extract(piece.value,'$.state')!='done'`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var dir string
+		if err = rows.Scan(&dir); err != nil {
+			return nil, err
+		}
+		out = append(out, dir)
+	}
+	return out, rows.Err()
 }
 
 // DeleteGafferOutcomeFor removes one outcome record when it is still at

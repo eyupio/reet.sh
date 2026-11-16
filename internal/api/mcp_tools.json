@@ -826,6 +826,41 @@
                     "merge"
                   ]
                 }
+              },
+              "tiers": {
+                "description": "How demanding a stage of this pipeline is, by stage: light, standard or heavy. Omit a stage for its usual tier (plan, design and review heavy; code and test standard; pr, babysit and merge light). The tier chooses the agent, model, effort and backup from the user’s saved crew; you cannot name an agent for a stage.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "design",
+                    "code",
+                    "review",
+                    "test",
+                    "pr",
+                    "babysit",
+                    "merge"
+                  ]
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "light",
+                    "standard",
+                    "heavy"
+                  ]
+                },
+                "required": [
+                  "plan",
+                  "design",
+                  "code",
+                  "review",
+                  "test",
+                  "pr",
+                  "babysit",
+                  "merge"
+                ]
               }
             },
             "required": [
@@ -844,6 +879,12 @@
           "default": false,
           "description": "Have Gaffer report across the outcome when a pipeline finishes or stops. Each report is one model request.",
           "type": "boolean"
+        },
+        "balance_below": {
+          "description": "The share of an agent’s plan, in percent, under which a stage starts on its tier’s backup instead. Omit for the user’s saved figure, else 20. Who takes the outcome’s decisions cannot be set here: only the user can give them to Gaffer, on the Factory page.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 90
         },
         "confirm": {
           "type": "boolean",
@@ -939,6 +980,41 @@
                     "merge"
                   ]
                 }
+              },
+              "tiers": {
+                "description": "How demanding a stage of this pipeline is, by stage: light, standard or heavy. Omit a stage for its usual tier (plan, design and review heavy; code and test standard; pr, babysit and merge light). The tier chooses the agent, model, effort and backup from the user’s saved crew; you cannot name an agent for a stage.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "design",
+                    "code",
+                    "review",
+                    "test",
+                    "pr",
+                    "babysit",
+                    "merge"
+                  ]
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "light",
+                    "standard",
+                    "heavy"
+                  ]
+                },
+                "required": [
+                  "plan",
+                  "design",
+                  "code",
+                  "review",
+                  "test",
+                  "pr",
+                  "babysit",
+                  "merge"
+                ]
               }
             },
             "required": [

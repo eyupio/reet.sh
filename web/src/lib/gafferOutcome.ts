@@ -9,7 +9,11 @@ const MAX_GOAL_BYTES = 2000
 const OUTCOME_PREFIX = 'Outcome: '
 const OUTCOME_LINE_BYTES = 600
 
-export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string> }
+export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string>; /** The parts a stage is split into, by stage kind, in the order they run. */ parts?: Record<string, StagePart[]> }
+/** One part of a split stage: a short name, what it does, and how demanding it is. `why` is Gaffer's reason for the tier. */
+export type StagePart = { title: string; brief: string; tier: 'heavy' | 'standard' | 'light'; why?: string }
+/** How many parts a stage can be split into. */
+export const MAX_STAGE_PARTS = 4
 export type OutcomeRow = { goal: { text: string; state: string }; attention: boolean }
 export type OutcomeGroup<T> = { objective: string; rows: T[]; needsReview: number; following: number; finished: number }
 export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'
@@ -260,12 +264,31 @@ const isTier = (tier: unknown): tier is CrewTier => tier === 'heavy' || tier ===
 export const defaultTier = (kind: string): CrewTier => STAGES.find(stage => stage.kind === kind)?.tier ?? 'standard'
 /** The tiers a pipeline's stages are on where that is not their default, and Gaffer's reasons. A stage Gaffer rated
  *  has an entry in `whys`, empty when it gave no reason, so its tier can be told from one the person chose. */
-export type StageRatings = { tiers?: Record<string, CrewTier>; whys?: Record<string, string> }
+export type StageRatings = { tiers?: Record<string, CrewTier>; whys?: Record<string, string>; parts?: Record<string, StagePart[]> }
 /** Gaffer's assessment as a plan carries it. Only a tier that is one is kept. */
-export function planRatings(stages: { kind: string; tier?: string; tierWhy?: string }[] | undefined): StageRatings {
-  const tiers: Record<string, CrewTier> = {}, whys: Record<string, string> = {}
-  for (const stage of stages ?? []) if (isTier(stage.tier)) { tiers[stage.kind] = stage.tier; whys[stage.kind] = stage.tierWhy?.trim() ?? '' }
-  return { tiers, whys }
+export function planRatings(stages: { kind: string; tier?: string; tierWhy?: string; part?: string; brief?: string }[] | undefined): StageRatings {
+  const tiers: Record<string, CrewTier> = {}, whys: Record<string, string> = {}, parts: Record<string, StagePart[]> = {}
+  for (const stage of stages ?? []) {
+    // A split stage arrives as one entry for each part; the rest are one entry with, perhaps, a rating.
+    if (stage.part?.trim()) (parts[stage.kind] ??= []).push({ title: stage.part.trim(), brief: stage.brief?.trim() ?? '', tier: isTier(stage.tier) ? stage.tier : defaultTier(stage.kind), ...(stage.tierWhy?.trim() ? { why: stage.tierWhy.trim() } : {}) })
+    else if (isTier(stage.tier)) { tiers[stage.kind] = stage.tier; whys[stage.kind] = stage.tierWhy?.trim() ?? '' }
+  }
+  return { tiers, whys, parts }
+}
+/** The parts of a stage, when it is split. */
+export const stageParts = (ratings: StageRatings | undefined, kind: string): StagePart[] => ratings?.parts?.[kind] ?? []
+/** The parts after one is changed, or removed when `next` is null. A stage left with one part is done as one again. */
+export function withPart(ratings: StageRatings | undefined, kind: string, index: number, next: Partial<StagePart> | null): Record<string, StagePart[]> {
+  const parts = { ...(ratings?.parts ?? {}) }
+  const list = stageParts(ratings, kind).flatMap((part, at) => at !== index ? [part] : next === null ? [] : [{ ...part, ...next, ...(next.tier && next.tier !== part.tier ? { why: undefined } : {}) }])
+  if (list.length > 1) parts[kind] = list; else delete parts[kind]
+  return parts
+}
+/** The parts with a stage done as one again. */
+export function withoutParts(ratings: StageRatings | undefined, kind: string): Record<string, StagePart[]> {
+  const parts = { ...(ratings?.parts ?? {}) }
+  delete parts[kind]
+  return parts
 }
 /** One stage's tier as the dialog shows it: the tier in force, the default for its kind, whether they differ, who
  *  set it (Gaffer's assessment, the person, or nobody) and Gaffer's reason. */
@@ -279,7 +302,7 @@ export function withTier(ratings: StageRatings | undefined, kind: string, tier: 
   const tiers = { ...(ratings?.tiers ?? {}) }, whys = { ...(ratings?.whys ?? {}) }
   delete whys[kind]
   if (isTier(tier) && tier !== defaultTier(kind)) tiers[kind] = tier; else delete tiers[kind]
-  return { tiers, whys }
+  return { tiers, whys, parts: ratings?.parts ?? {} }
 }
 /** The stages a hand-written session gets, and the fallback when Gaffer's plan names none. */
 export const DEFAULT_STAGES: StageKind[] = ['code', 'review', 'test', 'pr', 'babysit', 'merge']
@@ -294,13 +317,15 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
 /** What is sent for one pipeline: each chosen stage with its tier and the agent and model of the crew member for that
  *  tier. Gaffer's reason goes with a tier that is Gaffer's. A Cline stage carries its chosen billing source when the
  *  machine takes one; empty is Cline's own choice and is left out. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string; backup?: { tool: string; model?: string; effort?: string } }[] {
-  return orderStages(kinds).map(kind => {
-    const { tier, why } = stageTier(kind, ratings), member = crew[tier]
+export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string; backup?: { tool: string; model?: string; effort?: string }; part?: string; brief?: string }[] {
+  // A split stage is sent as one entry for each part, in order, each on its own tier's agent.
+  const entries = orderStages(kinds).flatMap(kind => { const parts = stageParts(ratings, kind); return parts.length > 1 ? parts.map(part => ({ kind, part })) : [{ kind, part: undefined as StagePart | undefined }] })
+  return entries.map(({ kind, part }) => {
+    const { tier, why } = part ? { tier: part.tier, why: part.why ?? '' } : stageTier(kind, ratings), member = crew[tier]
     const source = sourceSupported && member.tool === 'cline' ? (member.source ?? '').trim() : ''
     // A backup that is the first choice again is no backup.
     const spare = member.backup?.tool && (member.backup.tool !== member.tool || member.backup.model.trim() !== member.model.trim() || (member.backup.effort ?? '') !== (member.effort ?? '')) ? member.backup : undefined
-    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}), ...(spare ? { backup: { tool: spare.tool, ...(spare.model.trim() ? { model: spare.model.trim() } : {}), ...(spare.effort ? { effort: spare.effort } : {}) } } : {}) }
+    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}), ...(part ? { part: part.title.trim(), brief: part.brief.trim() } : {}), ...(spare ? { backup: { tool: spare.tool, ...(spare.model.trim() ? { model: spare.model.trim() } : {}), ...(spare.effort ? { effort: spare.effort } : {}) } } : {}) }
   })
 }
 
@@ -320,9 +345,9 @@ export function sessionCount(plan: unknown[]): number {
   return plan.length
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; /** Why the stage ran on its backup instead of its first choice; empty when it did not. */ balanced: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
+export type TrackNode = { /** Unique in the pipeline: a split stage has one node for each part. */ key: string; kind: string; /** The part's name, for one part of a split stage. */ part: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; /** Why the stage ran on its backup instead of its first choice; empty when it did not. */ balanced: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
 type ChosenStage = { tool: string; model?: string; effort?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
-type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
+type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; part?: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
 
 /** Whether a stage's agent, model and effort were applied, as the controller read it back from the machine. */
 export type StageChoice = { tone: 'good' | 'bad' | 'idle'; label: string; text: string }
@@ -349,7 +374,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', balanced: stage.balanced ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
+    return { key: `${stage.kind}:${index}`, kind: stage.kind, part: stage.part ?? '', label: stage.part ? `${stageLabel(stage.kind)}: ${stage.part}` : stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', balanced: stage.balanced ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
   })
 }
 

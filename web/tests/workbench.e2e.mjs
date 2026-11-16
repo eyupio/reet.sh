@@ -102,7 +102,7 @@ try {
 
   // Existing backlog work keeps the board as the initial view rather than being hidden by the empty-session launcher.
   {
-    const w = await open({ routes: { '/api/v2/session-backlog': { drafts: [{ id: 'd1', title: 'Saved idea', prompt: '', idea: true, version: 1, createdAt: now, updatedAt: now }] } } })
+    const w = await open({ routes: { '/api/v2/session-backlog': { drafts: [{ id: 'd1', title: 'Saved idea', prompt: '', idea: true, agentId: 'm1', projectId: 'p1', dir: '/work/reet', tool: 'claude', model: '', effort: '', imageCount: 0, starting: false, version: 1, createdAt: now, updatedAt: now }] } } })
     try {
       await w.page.goto(base)
       await expect(w.page.getByRole('button', { name: 'Planning board', exact: true })).toHaveAttribute('aria-pressed', 'true')

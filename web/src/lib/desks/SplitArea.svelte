@@ -7,13 +7,15 @@
   // are drawn in a fixed order (by id) so a swap, a move or a preset only changes where a pane sits, never remounts its
   // terminal. A zoomed pane fills the area and the others stay mounted, hidden; a phone shows the focused pane alone the
   // same way. A separator drag is drawn locally and saved once, on release, while the panes hold their sizes.
-  let { tab, focused, zoomed, single = false, pane, onratio, onmove }: {
+  let { tab, focused, zoomed, single = false, name, pane, onratio, onmove }: {
     tab: Tab
     focused: string
     /** The pane that fills the area, or '' for the split. */
     zoomed: string
     /** One pane at a time (a phone): the focused one fills the area; separators are not offered. */
     single?: boolean
+    /** A pane's name, for the separators' labels. */
+    name: (id: string) => string
     /** Draws one pane. `visible` is false while it is hidden by zoom; `hold` is true while a separator is dragged. */
     pane: Snippet<[string, { visible: boolean; hold: boolean }]>
     onratio: (path: string, ratio: number) => void
@@ -29,7 +31,7 @@
   let area = $state<HTMLElement>()
   let width = $state(0), height = $state(0)
   // A drag in progress: the split's path and the ratio drawn now.
-  let drag = $state<{ path: string; ratio: number; pointer: number } | null>(null)
+  let drag = $state<{ path: string; ratio: number; pointer: number; cell: { w: number; h: number } } | null>(null)
   const shown = $derived(drag ? setRatio(tab, drag.path, drag.ratio) : tab)
   const ids = $derived(leaves(tab.root))
   const order = $derived([...ids].sort())
@@ -37,6 +39,13 @@
   const rects = $derived(layout(shown.root))
   const seps = $derived(solo ? [] : separators(shown.root))
   const whole: Rect = { x: 0, y: 0, w: 1, h: 1 }
+  /** "Resize alpha and beta": the first pane on each side of the split at `path`. */
+  function sepLabel(path: string): string {
+    let n = tab.root
+    for (const step of path) n = n && 'split' in n ? (step === 'a' ? n.a : n.b) : null
+    if (!n || !('split' in n)) return 'Resize the panes'
+    return `Resize ${name(leaves(n.a)[0])} and ${name(leaves(n.b)[0])}`
+  }
 
   /** One terminal cell in pixels, for the terminal's font size as this browser has it. */
   function cell(): { w: number; h: number } {
@@ -63,8 +72,8 @@
     return roomy(half)
   }
   /** A new ratio is refused when it squeezes a pane that had room below 20 × 8 cells, or squeezes one that already had none. */
-  function allowed(path: string, ratio: number): boolean {
-    const before = layout(tab.root), after = layout(setRatio(tab, path, ratio).root), c = cell()
+  function allowed(path: string, ratio: number, c: { w: number; h: number }): boolean {
+    const before = layout(tab.root), after = layout(setRatio(tab, path, ratio).root)
     for (const [id, r] of after) {
       const old = before.get(id)
       if (!old || (old.w === r.w && old.h === r.h) || roomy(r, c)) continue
@@ -73,12 +82,12 @@
     return true
   }
   /** Moves toward `want` from `from` and stops at the last ratio that is allowed. */
-  function reach(path: string, from: number, want: number): number {
+  function reach(path: string, from: number, want: number, c = cell()): number {
     want = clamp(want)
-    if (allowed(path, want)) return want
+    if (allowed(path, want, c)) return want
     const dir = want > from ? 1 : -1
     let at = from
-    for (let r = from + dir * 0.005; dir > 0 ? r <= want : r >= want; r += dir * 0.005) { if (!allowed(path, r)) break; at = r }
+    for (let r = from + dir * 0.005; dir > 0 ? r <= want : r >= want; r += dir * 0.005) { if (!allowed(path, r, c)) break; at = r }
     return at
   }
 
@@ -92,11 +101,12 @@
     event.preventDefault()
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     ;(event.currentTarget as HTMLElement).focus()
-    drag = { path: s.path, ratio: s.ratio, pointer: event.pointerId }
+    // The cell is measured once a drag, not on every move.
+    drag = { path: s.path, ratio: s.ratio, pointer: event.pointerId, cell: cell() }
   }
   function move(s: { path: string; split: Split; rect: Rect; ratio: number }, event: PointerEvent) {
     if (!drag || drag.path !== s.path || drag.pointer !== event.pointerId) return
-    drag = { ...drag, ratio: reach(s.path, drag.ratio, ratioAt(s, event)) }
+    drag = { ...drag, ratio: reach(s.path, drag.ratio, ratioAt(s, event), drag.cell) }
   }
   function up(s: { path: string }, event: PointerEvent) {
     if (!drag || drag.path !== s.path || drag.pointer !== event.pointerId) return
@@ -177,7 +187,7 @@
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (a focusable separator with a value is a widget: it is moved by pointer and by keys) -->
     <div class="sep" class:active={drag?.path === s.path} data-split={s.split} style={sepPlace(s)} role="separator" tabindex="0"
       aria-orientation={s.split === 'right' ? 'vertical' : 'horizontal'} aria-valuenow={Math.round(s.ratio * 100)} aria-valuemin={10} aria-valuemax={90}
-      aria-label={s.split === 'right' ? 'Resize the panes either side' : 'Resize the panes above and below'}
+      aria-label={sepLabel(s.path)}
       onpointerdown={event => down(s, event)} onpointermove={event => move(s, event)} onpointerup={event => up(s, event)} onpointercancel={event => up(s, event)}
       onkeydown={event => key(s, event)} ondblclick={() => even(s)}></div>
   {/each}
@@ -192,6 +202,11 @@
   .split-area.dragging .slot { pointer-events: none; }
   .preview { position: absolute; z-index: 6; border: 2px solid var(--accent-text); border-radius: 6px; background: color-mix(in srgb, var(--accent-text) 18%, transparent); pointer-events: none; }
   .sep { position: absolute; z-index: 4; touch-action: none; display: flex; align-items: center; justify-content: center; }
+  /* A touch screen gets a 44 px hit area; the line drawn stays 2 px. */
+  @media (pointer: coarse) {
+    .sep[data-split='right'] { margin-left: -10px; width: 44px !important; }
+    .sep[data-split='down'] { margin-top: -10px; height: 44px !important; }
+  }
   .sep[data-split='right'] { cursor: col-resize; }
   .sep[data-split='down'] { cursor: row-resize; }
   .sep::after { content: ''; border-radius: 2px; background: transparent; transition: background-color 120ms; }

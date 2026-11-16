@@ -14,7 +14,7 @@
   // either the terminal or a card that says what happened and offers one action. A pane never shows a blank terminal.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
   let { tab, pane, session, machine, ready, focused = true, failure, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [],
-    onfocus, onrename, oncolour, onclose, onend, onactions, onsettled, onsplit, onzoom, onswap, onmovetab }: {
+    onfocus, onrename, oncolour, onclose, onactions, onsettled, onsplit, onzoom, onswap, onmovetab }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -39,8 +39,6 @@
     onrename: (name: string) => void
     oncolour: (colour: ProjectColour) => void
     onclose: () => void
-    /** End session from the terminal's own menu: the shell stops and the pane stays, ready to reopen. */
-    onend: () => void
     /** The terminal's toolbar actions while it is mounted, undefined otherwise. */
     onactions?: (actions: TerminalActions | undefined) => void
     /** The attach this pane was admitted for has an answer (or will not start), so the next pane may start. */
@@ -114,7 +112,7 @@
   const working = (kind: string) => kind === 'takeover' || kind === 'retry'
 </script>
 
-<section class="desk-pane" class:focused data-pane={pane.id} data-state={shown} bind:this={section} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => onfocus?.()} onfocusin={() => onfocus?.()}>
+<section class="desk-pane" class:focused data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => onfocus?.()} onfocusin={() => onfocus?.()}>
   <header class="ph" class:tinted={!!colour} draggable={layout && !editing && swappable.length > 0 ? 'true' : undefined} data-drag-pane={pane.id}>
     {#if editing}
       <input class="rename" aria-label="Pane name" maxlength="80" bind:this={input} bind:value={draft} onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); finishRename(true) } else if (event.key === 'Escape') { event.preventDefault(); finishRename(false) } }} onblur={() => finishRename(true)} />
@@ -135,7 +133,7 @@
     {:else if mounted && session}
       <TerminalPane bind:this={terminal} bind:actions chrome={false} {session} {host} user={machine?.capabilities?.osUser ?? ''} {visible} holdSize={hold}
         historySupported={machine?.capabilities?.commandHistory ?? false} uploadsSupported={machine?.capabilities?.uploads ?? false} uploadsOff={machine?.capabilities?.uploadsOff ?? false}
-        onrename={() => void startRename()} {onend} onconnection={next => (connection = next)} />
+        onconnection={next => (connection = next)} />
       {#if shown !== 'live'}
         <div class="sbar" role="status"><span><b>{copy.title}</b> {copy.body}</span>{#if first}<button type="button" class="btn primary" onclick={() => act(first.kind)}>{first.label}</button>{/if}</div>
       {/if}

@@ -524,6 +524,8 @@ try {
   {
     const sep = page.locator('[role=separator][aria-orientation=vertical]')
     await expect(sep).toHaveAttribute('aria-valuenow', '50')
+    await expect(sep).toHaveAccessibleName('Resize alpha and beta')
+    await expect(page.locator('[role=separator][aria-orientation=horizontal]')).toHaveAccessibleName('Resize alpha and gamma')
     const box = await sep.boundingBox(), y = box.y + box.height / 2
     await page.mouse.move(box.x + box.width / 2, y)
     await page.mouse.down()
@@ -679,6 +681,37 @@ try {
   }
   console.log('ok - Alt+Shift+arrow moves focus')
 
+  // ── chords stay out of text fields ──
+  reset()
+  await openDesk()
+  await attached(['sess-deploy'])
+  await quiet(); patches = []
+  // One pane: nothing to zoom between.
+  await expect(page.getByRole('button', { name: 'Zoom' })).toBeDisabled()
+  await expect(pane('pane-deploy')).toHaveAttribute('aria-current', 'true')
+  await tab('db').focus()
+  await page.keyboard.press('F2')
+  {
+    const field = tablist.getByRole('textbox', { name: 'Tab name' })
+    await expect(field).toBeFocused()
+    await chord('KeyW')
+    await chord('KeyD')
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(creates).toEqual([])
+    await expect(field).toBeFocused()
+    await field.press('Escape')
+  }
+  // Held down, Alt+Shift+D starts one shell, not one per repeat.
+  await pane('pane-deploy').locator('.xterm').click()
+  await page.keyboard.down('Alt'); await page.keyboard.down('Shift')
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyD'); await page.keyboard.down('KeyD')
+  await page.keyboard.up('KeyD'); await page.keyboard.up('Shift'); await page.keyboard.up('Alt')
+  await expect(page.locator('.desk-pane')).toHaveCount(2)
+  await page.waitForTimeout(500)
+  expect(creates).toHaveLength(1)
+  console.log('ok - chords stay out of text fields')
+
   // ── a pane's failure leaves its neighbours live ──
   reset()
   failing.add('sess-b')
@@ -832,7 +865,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, a failing pane, theatre, the live folder, swap and move, the phone.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

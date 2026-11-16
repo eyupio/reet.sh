@@ -5,13 +5,15 @@
   // The one terminal toolbar of a desk tab: it names the focused pane and acts on it, so nine panes do not carry nine
   // toolbars. The pane's own TerminalPane (chrome={false}) does the work and opens its own dialogs; a pane with no
   // terminal (a state card) leaves the terminal's buttons off. Split right, Split down, Zoom and Theatre sit at the end.
-  let { name, actions, splits = true, zoomed = false, theatre = false, onsplit, onzoom, ontheatre }: {
+  let { name, actions, splits = true, canZoom = true, zoomed = false, theatre = false, onsplit, onzoom, ontheatre }: {
     /** The focused pane's name. */
     name: string
     /** The focused pane's terminal, when it has one. */
     actions: TerminalActions | undefined
     /** Splits and zoom are offered (not on a phone). */
     splits?: boolean
+    /** There is more than one pane to zoom between. */
+    canZoom?: boolean
     zoomed?: boolean
     theatre?: boolean
     onsplit: (dir: 'right' | 'down') => void
@@ -46,7 +48,7 @@
     {#if splits}
       <button type="button" onclick={() => onsplit('right')} aria-label="Split right" title="Split right · Alt+Shift+D"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 2.5h13v11h-13zM8 2.5v11" /></svg><span class="tl">Split right</span></button>
       <button type="button" onclick={() => onsplit('down')} aria-label="Split down" title="Split down · Alt+Shift+E"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 2.5h13v11h-13zM1.5 8h13" /></svg><span class="tl">Split down</span></button>
-      <button type="button" onclick={onzoom} aria-pressed={zoomed} aria-label={zoomed ? 'Show all panes' : 'Zoom'} title={zoomed ? 'Show all panes · Alt+Shift+Z' : 'Zoom this pane · Alt+Shift+Z'}><TerminalIcon name={zoomed ? 'contract' : 'expand'} /><span class="tl">{zoomed ? 'Show all' : 'Zoom'}</span></button>
+      <button type="button" disabled={!canZoom} onclick={onzoom} aria-pressed={zoomed} aria-label={zoomed ? 'Show all panes' : 'Zoom'} title={zoomed ? 'Show all panes · Alt+Shift+Z' : 'Zoom this pane · Alt+Shift+Z'}><TerminalIcon name={zoomed ? 'contract' : 'expand'} /><span class="tl">{zoomed ? 'Show all' : 'Zoom'}</span></button>
     {/if}
     <button type="button" onclick={ontheatre} aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Show the top bar and desk header' : 'Wide terminal · theatre view'}><TerminalIcon name="theatre" /></button>
   </div>

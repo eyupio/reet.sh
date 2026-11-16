@@ -199,11 +199,6 @@
     // Sessions and the desk agree on the name.
     if (live(p)) renameTerminal(p.session, name).then(onrefresh, () => { /* the desk keeps its name; Sessions keeps the old one */ })
   }
-  async function endPane(p: Pane) {
-    if (!p.session) return
-    try { await endTerminal(p.session, crypto.randomUUID(), false) } catch (e) { notice = e instanceof Error && e.message ? e.message : 'That shell could not be ended. Try again.' }
-    onrefresh()
-  }
 
   // New tab: a plain shell, then the tab that holds it.
   let adding = $state<HTMLElement | null>(null)
@@ -269,6 +264,8 @@
       const pane: Pane = { id: newId(), name, colour: '', host: p.host, session: created.id, kind: 'shell', dir: created.dir || where, dirAt: Date.now(), start: '' }
       if (t.zoomed) change({ kind: 'zoom', tab: t.id, pane: '' })
       change({ kind: 'addPane', tab: t.id, at: p.id, dir, pane })
+      // The pane it was beside may have closed, or the tab filled from another window, while the shell started.
+      if (!desk?.doc.tabs.find(x => x.id === t.id)?.panes[pane.id]) { notice = `The shell “${name}” started, but there was no longer room for it on this tab. It is in Sessions.`; return }
       change({ kind: 'active', tab: t.id, pane: pane.id })
     } catch (e) {
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
@@ -339,9 +336,18 @@
   $effect(() => { if (keysOpen) keysDialog?.showModal() })
 
   // The desk's keys, caught in the capture phase so the terminal never sees them. None is a plain shell key.
+  // A text field keeps its keys (a rename, a search, the top bar): there Alt+Shift selects by word or types a letter on a
+  // Mac layout. xterm's own helper textarea is the terminal, so the chords work there.
+  function typingIn(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false
+    if (target instanceof HTMLTextAreaElement) return !target.classList.contains('xterm-helper-textarea')
+    return target instanceof HTMLInputElement || target instanceof HTMLSelectElement || !!target.closest('[contenteditable]:not([contenteditable="false"])')
+  }
   function onKey(event: KeyboardEvent) {
     const k = deskKey(event)
-    if (!k || !desk || event.repeat && typeof k !== 'string') return
+    if (!k || !desk || typingIn(event.target)) return
+    // Held down, only the focus arrows repeat: a held Alt+Shift+D must not start shell after shell.
+    if (event.repeat && !(typeof k === 'string' && k.startsWith('focus'))) { event.preventDefault(); event.stopPropagation(); return }
     if (closing || adding || keysOpen || document.querySelector('dialog[open]')) return
     event.preventDefault()
     event.stopPropagation()
@@ -408,12 +414,12 @@
     {/if}
     {#if activeTab && activePane}
       <DeskToolbar name={paneName(activePane)} actions={actionsFor[activePaneId]} splits={!phone} zoomed={!!zoomed} {theatre}
-        onsplit={dir => void splitPane(dir)} onzoom={() => zoom()} ontheatre={() => (theatre = !theatre)} />
+        canZoom={ids.length > 1} onsplit={dir => void splitPane(dir)} onzoom={() => zoom()} ontheatre={() => (theatre = !theatre)} />
     {/if}
     <div class="area" id={panelId} role="tabpanel" aria-labelledby={activeTab ? `desk-tab-${activeTab.id}` : undefined}>
       {#if activeTab && activePane}
         {@const t = activeTab}
-        <SplitArea bind:this={split} tab={t} focused={activePaneId} {zoomed} single={phone}
+        <SplitArea bind:this={split} tab={t} focused={activePaneId} {zoomed} single={phone} name={pid => paneName(t.panes[pid])}
           onratio={(path, ratio) => change({ kind: 'ratio', tab: t.id, path, ratio })}
           onmove={(paneId, onto, edge) => change({ kind: 'move', tab: t.id, pane: paneId, onto, edge })}>
           {#snippet pane(pid, view)}
@@ -430,8 +436,7 @@
                 onzoom={() => zoom(pid)}
                 onswap={other => change({ kind: 'swap', tab: t.id, a: pid, b: other })}
                 onmovetab={to => moveToTab(t, pid, to)}
-                onclose={() => askClose(t.id, pid)}
-                onend={() => void endPane(p)} />
+                onclose={() => askClose(t.id, pid)} />
             {/if}
           {/snippet}
         </SplitArea>
@@ -501,7 +506,7 @@
   .save[data-save='unsaved'] { color: var(--warn); }
   .sp { margin-left: auto; }
   .btn.icon { min-width: 40px; padding: 6px 10px; }
-  @media (pointer: coarse) { .dname, .btn.icon { min-height: 44px; } .btn.icon { min-width: 44px; } }
+  @media (pointer: coarse) { .dname, .btn.icon, .btn.lay { min-height: 44px; } .btn.icon { min-width: 44px; } }
   .notice { flex: none; margin: 0; padding: 6px 14px; background: color-mix(in srgb, var(--info) 14%, var(--bg)); border-bottom: 1px solid var(--line-soft); color: var(--ink); font-size: 14px; }
   .notice.bad { background: color-mix(in srgb, var(--bad) 12%, var(--bg)); display: flex; align-items: center; gap: 8px; }
   .area { flex: 1; min-height: 0; display: flex; padding: 0; background: var(--line-soft); }

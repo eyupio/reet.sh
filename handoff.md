@@ -95,8 +95,11 @@ What a person sees is in [docs/desks.md](docs/desks.md). PR [#813](https://githu
   Go suite passed
   in CI on 0a22ab1 and the macOS native job on 04cf6f2; web unit tests for the tree, autosave, keys, pane states and the
   Type in all gate; Playwright with synthetic answers in `web/tests/desks.e2e.mjs` and `desks-phone.e2e.mjs`, run in
-  `.github/workflows/terminal-browser.yml`. The whole-branch run, screenshots at three widths and both themes, and the
-  record in `docs/ui-verification.md` are still to do.
+  `.github/workflows/terminal-browser.yml`. CI on f776e4f (before the final fix wave): 31 checks, 27 passed, 4 skipped
+  by design. On the final head the web check and build, thirteen browser files, `go vet`, `go build`, the desk Go
+  packages under `-race` and focused store and api runs passed in the container, and screenshots at 1440, 820 and
+  390 px in both themes were looked at; the record, with what was not checked, is the Desks section of
+  [docs/ui-verification.md](docs/ui-verification.md).
 
 ## FACTORY-LIMITS-1: the limits FACTORY-PARTS-1 and FACTORY-BALANCE-1 left (16 November 2026)
 

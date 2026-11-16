@@ -131,6 +131,12 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	if got := installCommand(aliceSkill); got != "npx skills add "+srv.URL+"/alice/reet-demo --skill reet-demo" {
 		t.Fatal(got)
 	}
+	// The skills CLI matches on the skill's own name, so a name that is not the
+	// folder name is offered as well, quoted for a shell.
+	named := store.Skill{Name: "SVG Logo Designer", Slug: "svg-logo-designer", Source: "rknall/claude-skills", SourceType: "github"}
+	if got := installCommand(named); got != "npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'" {
+		t.Fatal(got)
+	}
 	shelfHas := func(uid int64, skillID string) bool {
 		t.Helper()
 		return strings.Contains(expect(uid, "GET", "/api/skills", nil, 200), `"id":"`+skillID+`"`)

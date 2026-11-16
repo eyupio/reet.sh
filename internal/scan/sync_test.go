@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -433,5 +434,56 @@ func TestNetworkFailureRecognisesOfflineErrors(t *testing.T) {
 	}
 	if networkFailure(errors.New("source conflict for alpha")) {
 		t.Fatal("ordinary refusal looked like a network failure")
+	}
+}
+
+// The skills CLI selects a skill by the name in its SKILL.md. A skill whose
+// name is not its folder name ("SVG Logo Designer" in svg-logo-designer) was
+// asked for by folder name only, so every install of it failed.
+func TestSkillsAddCommandOffersTheSkillsOwnName(t *testing.T) {
+	for _, tc := range []struct {
+		label string
+		skill store.SyncSkill
+		names []string
+	}{
+		{"name is the folder", store.SyncSkill{Name: "beta", Slug: "beta"}, []string{"beta"}},
+		{"display name", store.SyncSkill{Name: "SVG Logo Designer", Slug: "svg-logo-designer"}, []string{"svg-logo-designer", "SVG Logo Designer"}},
+		{"only case differs", store.SyncSkill{Name: "Beta", Slug: "beta"}, []string{"beta"}},
+		{"no name", store.SyncSkill{Slug: "beta"}, []string{"beta"}},
+		{"a name that reads as a flag", store.SyncSkill{Name: "--all", Slug: "beta"}, []string{"beta"}},
+		{"a name that selects everything", store.SyncSkill{Name: "*", Slug: "beta"}, []string{"beta"}},
+		{"a name with a line break", store.SyncSkill{Name: "Beta\nTwo", Slug: "beta"}, []string{"beta"}},
+	} {
+		want := append([]string{"--yes", "skills@1.7.4", "add", "https://github.com/o/r", "--skill"}, tc.names...)
+		want = append(want, "--agent", "codex", "--yes", "--global")
+		got := skillsAddCommand("https://github.com/o/r", tc.skill, "codex", true)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s:\n got %q\nwant %q", tc.label, got, want)
+		}
+	}
+	project := strings.Join(skillsAddCommand("https://github.com/o/r", store.SyncSkill{Slug: "beta"}, "codex", false), " ")
+	if strings.Contains(project, "--global") {
+		t.Errorf("a project install must not be global: %s", project)
+	}
+}
+
+// A failed install says what the installer said, not only its exit status, and
+// never tells the person to preview again: nothing about the plan was stale.
+func TestInstallFailureSaysWhatTheInstallerSaid(t *testing.T) {
+	output := "\x1b[?25l|\n\x1b[32mo\x1b[39m  Found 10 skills\n|\n\x1b[31m■\x1b[39m  No matching skills found for: svg-logo-designer\n|\n•  Available skills:\n|    - SVG Logo Designer\nnpm notice\nnpm notice New major version of npm available!\n"
+	err := installFailure("svg-logo-designer", &commandOutputError{err: errors.New("exit status 1"), output: output})
+	if got := err.Error(); got != "sync stopped at svg-logo-designer: No matching skills found for: svg-logo-designer" {
+		t.Fatalf("got %q", got)
+	}
+	if ErrReplanWorthAttempting(err) || strings.Contains(err.Error(), "preview again") {
+		t.Fatalf("an install failure is not a stale plan: %v", err)
+	}
+	plain := installFailure("beta", errors.New("fixture failure"))
+	if got := plain.Error(); got != "sync stopped at beta: fixture failure" {
+		t.Fatalf("got %q", got)
+	}
+	offline := installFailure("beta", &commandOutputError{err: errors.New("exit status 1"), output: "npm error code ENOTFOUND\nnpm error network request to https://registry.npmjs.org/skills failed\n"})
+	if got := offline.Error(); !strings.Contains(got, "npm error network request") || !strings.Contains(got, "check network access") {
+		t.Fatalf("got %q", got)
 	}
 }

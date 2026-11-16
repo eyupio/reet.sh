@@ -48,7 +48,7 @@ test('a missing caret falls back to the end of the prompt, and out-of-range valu
 
 const installSource = readFileSync(new URL('./install.ts', import.meta.url), 'utf8')
 const installCompiled = ts.transpileModule(installSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { useSkillPrompt } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
+const { useSkillPrompt, installCommand } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
 
 const skill = over => ({ id: 'local/unslop', name: 'unslop', slug: 'unslop', source: 'local', sourceType: 'local', url: '', ...over })
 
@@ -70,4 +70,13 @@ test('a skill with an install source keeps the fetch-and-run prompt', () => {
 
 test('a skill with neither a source nor a name cannot be used', () => {
   assert.equal(useSkillPrompt(skill({ name: '', slug: '' })), null)
+})
+
+test('a copied install command offers the skill\'s own name when it is not its folder name', () => {
+  // The skills CLI matches --skill on the name in SKILL.md, so the folder name alone finds nothing.
+  assert.equal(installCommand(skill({ name: 'SVG Logo Designer', slug: 'svg-logo-designer', source: 'rknall/claude-skills', sourceType: 'github' })), "npx skills add https://github.com/rknall/claude-skills --skill svg-logo-designer 'SVG Logo Designer'")
+  assert.equal(installCommand(skill({ source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
+  assert.equal(installCommand(skill({ name: 'Unslop', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
+  assert.equal(installCommand(skill({ name: "It's --all", slug: 'its', source: 'demo/toolkit', sourceType: 'github' })), "npx skills add https://github.com/demo/toolkit --skill its 'It'\\''s --all'")
+  assert.equal(installCommand(skill({ name: '--all', source: 'demo/toolkit', sourceType: 'github' })), 'npx skills add https://github.com/demo/toolkit --skill unslop')
 })

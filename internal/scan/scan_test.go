@@ -80,6 +80,46 @@ func TestCollectMapsLockDisplayNameToSkillFolder(t *testing.T) {
 	}
 }
 
+// The skills CLI names the installed folder after the skill's own name, not the
+// folder it had in its repository. Real entry: "Python Backend Architecture
+// Review" lives in python-architecture-review upstream and is installed as
+// python-backend-architecture-review. Reading the repository folder left the
+// install with no source, so every sync planned to replace it again.
+func TestCollectMapsLockEntryToTheFolderTheInstallerMade(t *testing.T) {
+	home := t.TempDir()
+	mkSkill(t, filepath.Join(home, ".agents", "skills"), "python-backend-architecture-review", true)
+	mkSkill(t, filepath.Join(home, ".agents", "skills"), "ui-ux-design-review", true)
+	lock := `{"version":3,"skills":{
+		"Python Backend Architecture Review":{"source":"rknall/claude-skills","skillPath":"python-architecture-review/SKILL.md"},
+		"UI/UX Design Review":{"source":"rknall/claude-skills","skillPath":"ui-design-review/SKILL.md"}}}`
+	if err := os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := CollectScan(home, t.TempDir(), nil, "machine").Found
+	if len(got) != 2 {
+		t.Fatalf("want the two installed skills and no lock-only extras: %+v", got)
+	}
+	for _, f := range got {
+		if f.Source != "rknall/claude-skills" || f.Agent != "agents" {
+			t.Errorf("%s lost its source: %+v", f.Name, f)
+		}
+	}
+}
+
+// A folder that does carry the repository's name keeps its source too.
+func TestCollectStillMapsLockEntryByRepositoryFolder(t *testing.T) {
+	home := t.TempDir()
+	mkSkill(t, filepath.Join(home, ".agents", "skills"), "alpha", true)
+	lock := `{"version":3,"skills":{"Display Name":{"source":"owner/repo","skillPath":"alpha/SKILL.md"}}}`
+	if err := os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(lock), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := CollectScan(home, t.TempDir(), nil, "machine").Found
+	if len(got) != 1 || got[0].Name != "alpha" || got[0].Source != "owner/repo" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestCollectToleratesBadLockFile(t *testing.T) {
 	home := t.TempDir()
 	mkSkill(t, filepath.Join(home, ".claude", "skills"), "alpha", true)

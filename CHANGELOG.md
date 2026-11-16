@@ -5,6 +5,22 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Skills sync: a skill whose name is not its folder name ("SVG Logo
+  Designer", installed as `svg-logo-designer`) now installs. Reet asked the
+  `skills` CLI for it by folder name only, the CLI matches on the skill's own
+  name, and every install of such a skill failed. Machines need the new
+  agent build; they update themselves where auto-update is on.
+- Skills sync: a failed install is reported as that, with the skill's name
+  and what the installer said. It was shown as **The plan changed before it
+  ran**, which sent you to preview again for a plan that had not changed.
+- Skills sync: a skill the `skills` CLI installs under a different folder
+  than it has in its repository keeps its source in a scan, instead of
+  showing as an unlinked local copy beside a second, phantom entry.
+- MCP: `reet_list_sync_targets` returns a target that is too large for one
+  response with its largest lists replaced by counts (`desired_count`,
+  `lists_counted`), instead of failing with "one record exceeds the response
+  limit".
+
 - Factory: on an outcome set to **Gaffer decides**, Gaffer now answers a
   working agent's multiple-choice question, choosing among the options the
   agent offered, or leaves it to you with its reason. It never answers an

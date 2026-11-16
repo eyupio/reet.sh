@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/noderuntime"
@@ -1140,11 +1141,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				if err != nil {
 					return err
 				}
-				command := []string{"--yes", "skills@1.7.4", "add", source, "--skill", action.Skill.Slug, "--agent", agent, "--yes"}
-				if target.Target.Project == "" {
-					command = append(command, "--global")
-				}
-				operationErr = execute(command, cwd)
+				operationErr = execute(skillsAddCommand(source, action.Skill, agent, target.Target.Project == ""), cwd)
 				global := operationErr == nil && target.Target.Project == ""
 				supported := agent == "cursor" || agent == "opencode"
 				if global && supported {
@@ -1168,11 +1165,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		if operationErr != nil {
 			_ = rescan()
-			hint := "rescan and preview again"
-			if networkFailure(operationErr) {
-				hint += "; check network access to registry.npmjs.org and github.com (or your proxy)"
-			}
-			return fmt.Errorf("sync stopped at %s: %w; %s", action.Skill.Slug, operationErr, hint)
+			return installFailure(action.Skill.Slug, operationErr)
 		}
 	}
 
@@ -1194,7 +1187,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		remaining = kept
 	}
 	if len(remaining) > 0 {
-		return errors.New("commands completed but the installed skills still differ from the plan; inspect the agent installation, then sync again")
+		names := make([]string, 0, len(remaining))
+		for _, action := range remaining {
+			names = append(names, action.Skill.Slug)
+		}
+		return fmt.Errorf("commands completed but the installed skills still differ from the plan (%s); inspect the agent installation, then sync again", strings.Join(names, ", "))
 	}
 	if len(failed) > 0 {
 		return itemFailuresError(failed)
@@ -1202,6 +1199,90 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
 }
+
+// skillsAddCommand is the skills CLI call that installs one skill. The CLI
+// selects a skill by the name in its SKILL.md, which is not always the folder
+// name reet tracks ("SVG Logo Designer" is installed as svg-logo-designer), so
+// both are offered and the CLI takes whichever one the source uses.
+func skillsAddCommand(source string, skill store.SyncSkill, agent string, global bool) []string {
+	command := []string{"--yes", "skills@1.7.4", "add", source, "--skill", skill.Slug}
+	if name := strings.TrimSpace(skill.Name); !strings.EqualFold(name, skill.Slug) && plainSkillName(name) {
+		command = append(command, name)
+	}
+	command = append(command, "--agent", agent, "--yes")
+	if global {
+		command = append(command, "--global")
+	}
+	return command
+}
+
+// plainSkillName reports whether a controller-supplied name is safe to hand to
+// the skills CLI as a value: it cannot read as a flag, select every skill, or
+// carry control characters.
+func plainSkillName(name string) bool {
+	if name == "" || len(name) > 200 || strings.HasPrefix(name, "-") || strings.Contains(name, "*") {
+		return false
+	}
+	return !strings.ContainsFunc(name, unicode.IsControl)
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+
+// installerReason is the last line the skills CLI, npm or git marked as an
+// error, so a failed install says why instead of only "exit status 1".
+func installerReason(err error) string {
+	var withOutput *commandOutputError
+	if !errors.As(err, &withOutput) {
+		return ""
+	}
+	reason := ""
+	for _, line := range strings.Split(ansiEscape.ReplaceAllString(withOutput.output, ""), "\n") {
+		if at := strings.LastIndexByte(line, '\r'); at >= 0 {
+			line = line[at+1:]
+		}
+		line = strings.TrimSpace(line)
+		for _, mark := range []string{"■", "✖", "✗", "x  ", "npm error", "npm ERR!", "fatal:", "Error:"} {
+			if text, ok := strings.CutPrefix(line, mark); ok && strings.TrimSpace(text) != "" {
+				reason = strings.TrimSpace(text)
+				if strings.HasPrefix(mark, "npm") || strings.HasSuffix(mark, ":") {
+					reason = line
+				}
+			}
+		}
+	}
+	if len(reason) > 300 {
+		reason = reason[:300]
+	}
+	return reason
+}
+
+// installFailure names the skill an apply stopped at and why. It does not ask
+// for another preview: the plan was right, the install is what failed.
+func installFailure(slug string, err error) error {
+	reason := failureReason(err)
+	if networkFailure(err) {
+		reason += "; check network access to registry.npmjs.org and github.com (or your proxy)"
+	}
+	return &installError{message: "sync stopped at " + slug + ": " + reason, err: err}
+}
+
+// failureReason prefers what the installer said over its exit status.
+func failureReason(err error) string {
+	if reason := installerReason(err); reason != "" {
+		return reason
+	}
+	return err.Error()
+}
+
+// installError carries the cause, so a cancelled or timed-out install is still
+// recognised as one after it has been given readable words.
+type installError struct {
+	message string
+	err     error
+}
+
+func (e *installError) Error() string { return e.message }
+func (e *installError) Unwrap() error { return e.err }
 
 // itemScopedFailure reports whether an apply failure belongs to one item.
 func itemScopedFailure(err error) bool {
@@ -1217,7 +1298,7 @@ func itemFailuresError(failed map[string]error) error {
 	sort.Strings(slugs)
 	parts := make([]string, 0, len(slugs))
 	for _, slug := range slugs {
-		parts = append(parts, slug+": "+failed[slug].Error())
+		parts = append(parts, slug+": "+failureReason(failed[slug]))
 	}
 	noun := "items need"
 	if len(slugs) == 1 {

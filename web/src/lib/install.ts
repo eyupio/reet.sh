@@ -27,10 +27,22 @@ export function sourceURL(skill: Skill): string | null {
   return null
 }
 
+/**
+ * What `--skill` is given. The skills CLI matches a skill by its own name, which
+ * is not always its folder name ("SVG Logo Designer" in svg-logo-designer), so a
+ * differing name is offered as well and the CLI takes whichever the source uses.
+ */
+export function skillSelector(skill: Pick<Skill, 'name' | 'slug'>): string {
+  const name = (skill.name ?? '').trim()
+  const plain = name !== '' && name.length <= 200 && !name.startsWith('-') && !name.includes('*') && !/[\u0000-\u001f\u007f]/.test(name)
+  if (!plain || name.toLowerCase() === skill.slug.toLowerCase()) return skill.slug
+  return `${skill.slug} '${name.replaceAll("'", "'\\''")}'`
+}
+
 export function installCommand(skill: Skill): string | null {
   const url = sourceURL(skill)
   if (!url) return null
-  return `npx skills add ${url} --skill ${skill.slug}`
+  return `npx skills add ${url} --skill ${skillSelector(skill)}`
 }
 
 export function installPrompt(skill: Skill): string | null {

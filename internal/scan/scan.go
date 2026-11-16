@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -55,19 +56,24 @@ var projectDirs = []struct{ Dir, Agent string }{
 // CollectScan gathers installed skills and the environments they live in.
 func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 
-	sources, globalSources, projectSources := map[string]string{}, map[string]string{}, map[string]string{}
-	readLock(filepath.Join(home, ".agents", ".skill-lock.json"), func(name, source string) {
-		if source != "" {
-			globalSources[name] = source
-			sources[name] = source
+	// A lock entry is read under the folder the installer made and, when it
+	// differs, the folder the skill had upstream. Only the first is reported as
+	// a lock-only skill; the second is another name for the same entry.
+	sources, upstream := map[string]string{}, map[string]string{}
+	globalSources, projectSources := map[string]string{}, map[string]string{}
+	keep := func(scope map[string]string) func(name, alias, source string) {
+		return func(name, alias, source string) {
+			if source == "" {
+				return
+			}
+			scope[name], sources[name] = source, source
+			if alias != "" {
+				scope[alias], upstream[name] = source, alias
+			}
 		}
-	})
-	readLock(filepath.Join(cwd, "skills-lock.json"), func(name, source string) {
-		if source != "" {
-			projectSources[name] = source
-			sources[name] = source
-		}
-	})
+	}
+	readLock(filepath.Join(home, ".agents", ".skill-lock.json"), keep(globalSources))
+	readLock(filepath.Join(cwd, "skills-lock.json"), keep(projectSources))
 	found := map[string]Found{}
 	envs := map[string]*ScannedEnv{}
 	addEnv := func(agent, project, path string) *ScannedEnv {
@@ -96,9 +102,13 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 		}
 		scopeSources := map[string]string{}
 		for _, lock := range []string{filepath.Join(filepath.Dir(dir), ".skill-lock.json"), filepath.Join(filepath.Dir(dir), "skills-lock.json"), filepath.Join(dir, ".skill-lock.json")} {
-			readLock(lock, func(name, source string) {
-				if source != "" {
-					scopeSources[name] = source
+			readLock(lock, func(name, alias, source string) {
+				if source == "" {
+					return
+				}
+				scopeSources[name] = source
+				if alias != "" {
+					scopeSources[alias] = source
 				}
 			})
 		}
@@ -161,7 +171,7 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 		anyEnv[f.Name] = true
 	}
 	for name, source := range sources {
-		if !anyEnv[name] {
+		if !anyEnv[name] && !anyEnv[upstream[name]] {
 			found["\x00"+name] = Found{Name: name, Source: source}
 		}
 	}
@@ -204,7 +214,7 @@ func Collect(home, cwd string, extraDirs []string) []Found {
 	return out
 }
 
-func readLock(path string, add func(name, source string)) {
+func readLock(path string, add func(name, alias, source string)) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -224,7 +234,7 @@ func readLock(path string, add func(name, source string)) {
 	}
 	if json.Unmarshal(v.Skills, &asMap) == nil {
 		for key, e := range asMap {
-			name := lockSkillName(key, e.SkillPath)
+			name, alias := lockSkillNames(key, e.SkillPath)
 			source := e.Source
 			if source == "" && e.SourceType == "github" {
 				source = e.SourceURL
@@ -238,13 +248,13 @@ func readLock(path string, add func(name, source string)) {
 				valid := err == nil && u.Host != "" && u.User == nil
 				if valid {
 					parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-					match := len(parts) == 2 && (parts[1] == name || parts[1] == key)
+					match := len(parts) == 2 && (parts[1] == name || parts[1] == alias || parts[1] == key)
 					if match {
 						source = u.Scheme + "://" + u.Host + "/" + parts[0]
 					}
 				}
 			}
-			add(name, source)
+			add(name, alias, source)
 		}
 		return
 	}
@@ -254,25 +264,46 @@ func readLock(path string, add func(name, source string)) {
 	}
 	if json.Unmarshal(v.Skills, &asList) == nil {
 		for _, e := range asList {
-			add(e.Name, e.Source)
+			add(e.Name, "", e.Source)
 		}
 	}
 }
 
-// lockSkillName prefers the installed folder name from the lock entry's skillPath.
-// The skills CLI may key entries by a display name (for example "SVG Logo
-// Designer"), while scans see the folder name ("svg-logo-designer"); matching on
-// the folder keeps sources attached and avoids phantom lock-only skills.
-func lockSkillName(key, skillPath string) string {
-	if skillPath == "" {
-		return key
+var notFolderSafe = regexp.MustCompile(`[^a-z0-9._]+`)
+
+// InstalledFolderName is the folder the skills CLI installs a skill into: the
+// skill's own name, lower-cased, with every run of other characters made one
+// hyphen ("UI/UX Design Review" becomes ui-ux-design-review).
+func InstalledFolderName(name string) string {
+	folder := strings.Trim(notFolderSafe.ReplaceAllString(strings.ToLower(name), "-"), ".-")
+	if len(folder) > 255 {
+		folder = folder[:255]
 	}
-	base := path.Base(path.Dir(strings.ReplaceAll(skillPath, "\\", "/")))
-	invalid := base == "." || base == "/" || base == ""
-	if invalid {
-		return key
+	if folder == "" {
+		return "unnamed-skill"
 	}
-	return base
+	return folder
+}
+
+// lockSkillNames gives the folder names a lock entry can describe. The skills
+// CLI keys an entry by the skill's own name and installs it into a folder made
+// from that name, which is the first result. The folder the skill had in its
+// repository (skillPath) can differ, and is returned as an alias when it does:
+// "Python Backend Architecture Review" is installed as
+// python-backend-architecture-review but lives in python-architecture-review.
+func lockSkillNames(key, skillPath string) (name, alias string) {
+	name = InstalledFolderName(key)
+	if skillPath != "" {
+		base := path.Base(path.Dir(strings.ReplaceAll(skillPath, "\\", "/")))
+		if base != "." && base != "/" && base != "" && base != name {
+			return name, base
+		}
+	}
+	if key != name {
+		// Not written by the skills CLI: the entry may name its folder exactly.
+		return name, key
+	}
+	return name, ""
 }
 
 type multi []string

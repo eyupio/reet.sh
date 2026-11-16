@@ -18,6 +18,39 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## SYNC-INSTALL-NAME-1: installs that failed were called a changed plan (16 November 2026)
+
+The owner reported skills sync still failing on Elitebook with **The plan changed before it ran**, after
+f70eef5 had made stale plans repair themselves. The plan never changed. Read this before touching sync again.
+
+- **Root cause, reproduced with the real CLI.** `npx skills@1.7.4 add <source> --skill <slug>` matches `--skill`
+  against the name in the skill's SKILL.md, case-insensitively, not its folder. `rknall/claude-skills` names its
+  skills "SVG Logo Designer" and "Web Design Builder"; reet passed `svg-logo-designer`, the CLI answered
+  "No matching skills found" and exited 1. Those were the two installs on the failing card and the only two
+  skills in the plan whose name is not their slug.
+- **Why it read as a changed plan.** The apply failed as `sync stopped at <slug>: exit status 1; rescan and
+  preview again`. `web/src/lib/syncProblems.ts` matched the bare words "preview again" as a stale plan. The
+  stage strip was the tell: a stale plan stops at Plan, this stopped at Apply.
+- **Fixes.** `skillsAddCommand` (`internal/scan/sync.go`) offers the slug and the skill's own name
+  (`--skill` takes several values); a name that reads as a flag, holds `*` or control characters is left out.
+  `installFailure` gives the installer's own error line and no longer says "preview again". The web has an
+  `install` problem kind and its stale-plan matcher lists only messages that mean a stale plan.
+- **Three names for one skill.** Catalogue slug (skills.sh `skillId`), installed folder (the CLI's
+  `sanitizeName` of the skill name) and repository folder (lock `skillPath`) can all differ: "Python Backend
+  Architecture Review" is `python-backend-architecture-review` installed and `python-architecture-review`
+  upstream. `lockSkillNames` (`internal/scan/scan.go`) now maps a lock entry to the installed folder, with the
+  repository folder as an alias; `internal/setup/skills.go` does the same for snapshots.
+- **Not done.** When the catalogue slug differs from the installed folder ("UI/UX Design Review":
+  `uiux-design-review` against `ui-ux-design-review`) the install works and the plan never settles; the verify
+  error now names the skill. It needs the controller and `planSync` to treat the two as one skill. The
+  copied `npx skills add` commands (`web/src/lib/install.ts`, `installCommand` in `internal/api/api.go`) offer the
+  name too; the `npx skills use` prompt still passes the slug only, and was not checked against the CLI.
+- **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
+  `reet_list_sync_targets` failed for five of the owner's seven targets.
+- **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the
+  `prune_server_environments_days` setting. `TestLibraryManagedRemovalExecutor/journal_refused` fails when the
+  tests run as root (it relies on `chmod 0500`), with or without this change.
+
 ## FACTORY-BALANCE-1: stages balanced across plans (16 November 2026)
 
 The owner asked for stages to use one agent or model over another when it has more of its plan left.

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
@@ -2961,7 +2962,15 @@ func installCommand(s store.Skill) string {
 	default:
 		return ""
 	}
-	return fmt.Sprintf("npx skills add %s --skill %s", source, s.Slug)
+	// The skills CLI matches a skill by its own name, which is not always its
+	// folder name, so a differing name is offered as well.
+	selector := s.Slug
+	name := strings.TrimSpace(s.Name)
+	plain := name != "" && len(name) <= 200 && !strings.HasPrefix(name, "-") && !strings.Contains(name, "*") && !strings.ContainsFunc(name, unicode.IsControl)
+	if plain && !strings.EqualFold(name, s.Slug) {
+		selector += " '" + strings.ReplaceAll(name, "'", `'\''`) + "'"
+	}
+	return fmt.Sprintf("npx skills add %s --skill %s", source, selector)
 }
 
 func markdown(skills []store.Skill) string {

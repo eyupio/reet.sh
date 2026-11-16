@@ -109,11 +109,13 @@ Start with the default mode. Move to exact or bidirectional only when you want t
 - **A machine is skipped.** It is offline, paused, stale or incomplete, or a preview is already pending. The reason is shown in the UI.
 - **Apply fails without changing anything.** Remote apply is off on that machine. Run `reet agent allow-apply on` there, or re-enrol with `--allow-apply`.
 - **The plan changed before it ran.** The files, source revision or target changed between preview and apply. Reet asks the machine for a fresh plan automatically and continues, up to a bounded number of attempts; after that, preview again and review the new plan.
+- **A skill could not be installed.** The plan was right and one install failed. The card names the skill and says what the installer on the machine said, for example that the source has no skill of that name or that the network could not be reached. Skills installed before it stay in place. Fix the cause, then retry. A machine on an older reet reports only an exit status; update reet there to see the reason.
 - **A skill is unknown or unlinked.** Link it to its source, or publish a supported bundle, before selecting it for installation.
 - **Two known sources have the same name.** When you choose skills yourself, resolve the source conflict explicitly. reet does not guess which one you meant. If the plan disagrees with a copy another agent already holds on the same machine, sync follows the one installed source automatically and records what it changed; when a name is installed from more than one source there is no single safe source to follow, so it is left for you to unlink and the Sync page says why. The shared library behind **Sync all machines** is different: only one copy of a name fits in a skills folder, so it keeps the copy a saved plan already installs (otherwise the oldest on your shelf), leaves the other where it is, and names it on the Sync page.
 
 ## Limits
 
+- A skill is installed by the `skills` CLI into a folder made from the skill's own name. When the catalogue's name for a skill differs from that folder (a name with punctuation, such as "UI/UX Design Review", catalogued as `uiux-design-review` and installed as `ui-ux-design-review`), the install succeeds but reet still reports the skill as different from the plan, and names it. Install such a skill by hand for now.
 - Sync matches identity and source, not bytes. Two skills with the same name from different sources are not the same skill.
 - A replacement backs up the installed local copy, but you should still keep your own backups.
 - Applying content changes to private machine skill files is not available yet; the current reviewed path covers installation and replacement through the supported sync flow.

@@ -518,6 +518,7 @@ func (s *server) routes() http.Handler {
 	s.registerSoftwareRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)
+	s.registerDeskRoutes(mux)
 	s.registerSessionBacklogRoutes(mux)
 	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))

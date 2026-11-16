@@ -422,3 +422,81 @@ func TestDeskNameRefusesFormatCharacters(t *testing.T) {
 	}
 	mustDesk(t, s, uid, Desk{Name: "café ☕"})
 }
+
+// deskSessionsKey is the desk_sessions primary key, in order.
+func deskSessionsKey(t *testing.T, s *Store) []string {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('desk_sessions') WHERE pk>0 ORDER BY pk`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var key []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		key = append(key, name)
+	}
+	return key
+}
+
+// The session index is keyed by account and session, so the same session id
+// on two accounts never collides.
+func TestDeskSessionsKeyedByAccount(t *testing.T) {
+	s := newStore(t)
+	if key := deskSessionsKey(t, s); fmt.Sprint(key) != "[user_id session_id]" {
+		t.Fatalf("key %v", key)
+	}
+	a, b := projectUser(t, s, "a"), projectUser(t, s, "b")
+	mustDesk(t, s, a, Desk{Name: "A", Doc: deskDoc("m1", "same-session")})
+	mustDesk(t, s, b, Desk{Name: "B", Doc: deskDoc("m2", "same-session")})
+	for _, uid := range []int64{a, b} {
+		if _, _, ok, _ := s.DeskPaneForSession(uid, "same-session"); !ok {
+			t.Fatalf("account %d lost its index row", uid)
+		}
+	}
+}
+
+// A development database whose desk_sessions was keyed by session alone is
+// rebuilt with the account in the key, keeping its rows; running the
+// migration again changes nothing.
+func TestDeskSessionsOldKeyRebuilt(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	d := mustDesk(t, s, uid, Desk{Name: "A", Doc: deskDoc("m1", "s1")})
+	for _, stmt := range []string{
+		`DROP TABLE desk_sessions`,
+		`CREATE TABLE desk_sessions (
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			session_id TEXT PRIMARY KEY, desk_id TEXT NOT NULL, pane_id TEXT NOT NULL)`,
+		`CREATE INDEX desk_sessions_desk ON desk_sessions(user_id,desk_id)`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`INSERT INTO desk_sessions(user_id,session_id,desk_id,pane_id) VALUES(?,?,?,?)`, uid, "s1", d.ID, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.migrateDesks(); err != nil {
+			t.Fatal(err)
+		}
+		if key := deskSessionsKey(t, s); fmt.Sprint(key) != "[user_id session_id]" {
+			t.Fatalf("key %v", key)
+		}
+		if desk, pane, ok, err := s.DeskPaneForSession(uid, "s1"); err != nil || !ok || desk != d.ID || pane != "p1" {
+			t.Fatalf("row lost: %q %q %v %v", desk, pane, ok, err)
+		}
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('desk_sessions_desk','desk_sessions_old')`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("index and leftovers: %d %v", n, err)
+	}
+	// A session taken twice on one account is still refused.
+	if _, err := s.CreateDeskFor(uid, Desk{Name: "B", Doc: deskDoc("m1", "s1")}); !errors.Is(err, ErrDeskSessionTaken) {
+		t.Fatal(err)
+	}
+}

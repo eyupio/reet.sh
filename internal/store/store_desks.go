@@ -43,6 +43,9 @@ type Desk struct {
 
 func (s *Store) migrateDesks() error {
 	return s.withTx(func(tx *sql.Tx) error {
+		if err := rekeyDeskSessionsTx(tx); err != nil {
+			return err
+		}
 		for _, stmt := range []string{
 			`CREATE TABLE IF NOT EXISTS desks (
 				id TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -56,9 +59,7 @@ func (s *Store) migrateDesks() error {
 				version INTEGER NOT NULL DEFAULT 1,
 				PRIMARY KEY(user_id,id))`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS desks_name ON desks(user_id,name_key)`,
-			`CREATE TABLE IF NOT EXISTS desk_sessions (
-				user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-				session_id TEXT PRIMARY KEY, desk_id TEXT NOT NULL, pane_id TEXT NOT NULL)`,
+			deskSessionsTable,
 			`CREATE INDEX IF NOT EXISTS desk_sessions_desk ON desk_sessions(user_id,desk_id)`,
 			// desk_pane_dirs is the folder a machine itself last reported for a
 			// pane's shell. A browser writes the document's dir and dirAt freely,
@@ -75,6 +76,55 @@ func (s *Store) migrateDesks() error {
 		}
 		return nil
 	})
+}
+
+// deskSessionsTable is the session index: which desk and pane hold each of an
+// account's sessions, so a session is in one pane only.
+const deskSessionsTable = `CREATE TABLE IF NOT EXISTS desk_sessions (
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	session_id TEXT NOT NULL, desk_id TEXT NOT NULL, pane_id TEXT NOT NULL,
+	PRIMARY KEY(user_id,session_id))`
+
+// rekeyDeskSessionsTx rebuilds a desk_sessions table made before its key took
+// in the account (keyed by session_id alone; only development databases made
+// before desks were released have one), keeping its rows. Any other shape, or
+// no table yet, is left alone.
+func rekeyDeskSessionsTx(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT name,pk FROM pragma_table_info('desk_sessions')`)
+	if err != nil {
+		return err
+	}
+	key := map[string]int{}
+	for rows.Next() {
+		var name string
+		var pk int
+		if err := rows.Scan(&name, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		key[name] = pk
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(key) == 0 || key["user_id"] != 0 || key["session_id"] != 1 {
+		return nil
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE desk_sessions RENAME TO desk_sessions_old`,
+		`DROP INDEX IF EXISTS desk_sessions_desk`,
+		deskSessionsTable,
+		`INSERT INTO desk_sessions(user_id,session_id,desk_id,pane_id) SELECT user_id,session_id,desk_id,pane_id FROM desk_sessions_old`,
+		`DROP TABLE desk_sessions_old`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("rekey desk_sessions: %w", err)
+		}
+	}
+	return nil
 }
 
 func deskInvalid(format string, args ...any) error {

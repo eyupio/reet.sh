@@ -34,6 +34,9 @@ at most once every two minutes, so a pull request created moments before the loo
   GitHub's limits; quiet sessions and other sessions in the navigation keep the slower clock.
 - **Validation.** `pullFacts.test.mjs` holds the two clocks and their boundary (a stored answer is due at, not before,
   the cadence). `npm run check` passes.
+- **CI.** Two Gaffer tests that raced after merging main are fixed: the audit test now waits for the background
+  hand-over to end the previous stage's session, and the question test keeps the supervisor from asking a model when
+  it only checks `pipelineStop`. Both pass repeatedly under `go test -race ./internal/gaffer`.
 - **PR.** [#812](https://github.com/eyupio/reet.sh/pull/812) on `reet/reet-da349d2dcba62110d9c98f373d5bfbc3`.
 
 ## FACTORY-BALANCE-1: stages balanced across plans (16 November 2026)

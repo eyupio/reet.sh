@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { UnauthorizedError, listGafferOutcomes } from '../api'
-  import { factoryEndWarning, factoryMembers } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import { copyText } from '../clipboard'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorktreeDialog from '../WorktreeDialog.svelte'
@@ -13,7 +13,7 @@
   // Shift+F10 / the menu key, or the row's ⋮ button. Arrow keys move, Escape closes and gives focus back to what opened it.
   // Rename, End (with remove from history) and Remove from history are confirmed; Check and remove worktree uses the
   // existing worktree sheet. A machine whose session server is turned off can't rename or end one.
-  let { machines, offline, terminals = [], removeDefault = false, onsignedout, onchanged, onnotice, onopen, onclose }: {
+  let { machines, offline, terminals = [], removeDefault = false, factorySessionEndDefault = FACTORY_SESSION_END_DEFAULT, onsignedout, onchanged, onnotice, onopen, onclose }: {
     /** The machines' names, so a menu says where the session runs. */
     machines: { agentId: string; host: string }[]
     /** The agent ids whose machine is not reporting now. */
@@ -22,6 +22,8 @@
     terminals?: Pick<TerminalMachine, 'agentId' | 'serverEnabled'>[]
     /** The profile's choice for a session that ends: remove it from history too. */
     removeDefault?: boolean
+    /** The profile's choice for a Factory outcome whose session is ended; the system default when unset. */
+    factorySessionEndDefault?: FactorySessionEndMode
     onsignedout: (e: unknown) => void
     /** The action went through: read the sessions again. */
     onchanged: () => void | Promise<void>
@@ -73,7 +75,10 @@
   // Rename, End (with the remove-from-history choice) and Remove from history, each confirmed; then the list is read again.
   let action = $state<{ kind: 'rename' | 'end' | 'archive'; item: TerminalSession } | null>(null), warning = $state('')
   let rename = $state(''), removeOnEnd = $state(false), busy = $state(false)
-  const endKeys = new Map<string, { key: string; remove: boolean }>()
+  // The Factory outcome this session is working in, and what the person asked to do with it when ending the session.
+  let factoryMember = $state<FactoryMember | undefined>()
+  let factoryMode = $state<FactorySessionEndMode>(FACTORY_SESSION_END_DEFAULT)
+  const endKeys = new Map<string, { key: string; remove: boolean; factory: FactorySessionEndMode }>()
   function begin(kind: 'rename' | 'end' | 'archive') {
     if (!context) return
     const item = context.item
@@ -83,8 +88,20 @@
     action = { kind, item }
     // A session doing a Factory stage says so before it is ended: read fresh, so a stage that has moved on is not warned about.
     warning = ''
-    if (kind !== 'rename') void listGafferOutcomes().then(found => { if (action?.item.id === item.id) warning = factoryEndWarning(factoryMembers(found).get(item.id), kind === 'archive') }).catch(() => { /* not a Factory account, or not readable: the ordinary wording stands */ })
+    factoryMember = undefined
+    factoryMode = endKeys.get(item.id)?.factory ?? factorySessionEndModeOf(factorySessionEndDefault)
+    if (kind !== 'rename') void listGafferOutcomes().then(found => {
+      if (action?.item.id !== item.id) return
+      const member = factoryMembers(found).get(item.id)
+      factoryMember = member?.working ? member : undefined
+      warning = factoryEndWarning(member, kind === 'archive')
+    }).catch(() => { /* not a Factory account, or not readable: the ordinary wording stands */ })
   }
+  // The two toggles map onto one mode: leave the outcome, stop following and archive it, or stop following and delete it.
+  function stopFollowing(on: boolean) {
+    factoryMode = on ? (factoryMode === 'leave' ? FACTORY_SESSION_END_DEFAULT : factoryMode) : 'leave'
+  }
+  function deleteOutcome(on: boolean) { factoryMode = on ? 'delete' : 'archive' }
   function cancel() { action = null; returnFocus?.focus() }
   async function perform() {
     if (!action || busy) return
@@ -99,8 +116,8 @@
       }
       else {
         let op = endKeys.get(item.id)
-        if (!op) { op = { key: crypto.randomUUID(), remove: removeOnEnd }; endKeys.set(item.id, op) }
-        await endTerminal(item.id, op.key, op.remove)
+        if (!op) { op = { key: crypto.randomUUID(), remove: removeOnEnd, factory: factoryMember ? factoryMode : 'leave' }; endKeys.set(item.id, op) }
+        await endTerminal(item.id, op.key, op.remove, factorySessionEndRequest(op.factory))
       }
       await onchanged()
     } catch (e) {
@@ -150,6 +167,16 @@
 {:else if action?.kind === 'end'}
   <ConfirmDialog title={`End ${action.item.title}?`} body={`${warning ? `${warning} ` : ''}This stops the shell and its running jobs. If the machine is offline, the request stays pending until it reconnects.`} confirmLabel="End session" danger onconfirm={() => void perform()} oncancel={cancel}>
     <label class="option"><input type="checkbox" bind:checked={removeOnEnd} disabled={endKeys.has(action.item.id) || action.item.state === 'end_requested'} /><span>Remove from history when this session ends</span></label>
+    {#if factoryMember}
+      <fieldset class="factory-end">
+        <legend>Factory outcome “{factoryMember.objective}”</legend>
+        <label class="option"><input type="checkbox" checked={factoryMode !== 'leave'} onchange={event => stopFollowing(event.currentTarget.checked)} /><span>Stop following the outcome</span></label>
+        {#if factoryMode !== 'leave'}
+          <label class="option"><input type="checkbox" checked={factoryMode === 'delete'} onchange={event => deleteOutcome(event.currentTarget.checked)} /><span>Delete it for good, instead of archiving it</span></label>
+          <p class="factory-note">{factoryMode === 'delete' ? 'Its report and totals are erased. The session and pull requests it started are not touched.' : 'It leaves the Factory floor and can be restored later.'}</p>
+        {/if}
+      </fieldset>
+    {/if}
   </ConfirmDialog>
 {:else if action?.kind === 'archive'}
   <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={`${warning ? `${warning} ` : ''}${terminalArchiveBody(action.item.state)}`} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel}>
@@ -170,5 +197,9 @@
   .field { display: grid; gap: 6px; margin-top: 12px; font-size: 14px; }
   .option { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; font-size: 14px; line-height: 1.5; cursor: pointer; }
   .option input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
+  .factory-end { margin: 16px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .factory-end legend { padding: 0 4px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .factory-end .option { margin-top: 8px; }
+  .factory-note { margin: 6px 0 0 25px; font-size: 14px; line-height: 1.5; color: var(--muted); }
   @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } }
 </style>

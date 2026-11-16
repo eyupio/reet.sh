@@ -96,6 +96,64 @@ func TestAPipelineWhoseSessionIsGoneIsNoLongerFollowedAndItsOutcomeCanBeDeleted(
 	}
 }
 
+func TestEndingAPipelinesSessionCanStopAndDeleteItsOutcome(t *testing.T) {
+	r := outcomeFixture(t)
+	uid := r.p.UserID
+	o := r.followedOutcome(t, "1", r.liveSession(t, "2"), "following")
+	if err := r.s.EndSessionOutcome(uid, o.Sessions[0].SessionID, SessionEndDelete); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.Outcome(uid, o.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the outcome a session worked in is deleted: %v", err)
+	}
+}
+
+func TestEndingAPipelinesSessionCanArchiveOrLeaveItsOutcome(t *testing.T) {
+	r := outcomeFixture(t)
+	uid := r.p.UserID
+	archive := r.followedOutcome(t, "1", r.liveSession(t, "2"), "following")
+	if err := r.s.EndSessionOutcome(uid, archive.Sessions[0].SessionID, SessionEndArchive); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.st.GafferOutcomeFor(uid, archive.ID)
+	if err != nil || got.ArchivedAt == 0 || got.Sessions[0].State != "unfollowed" {
+		t.Fatalf("archived after the session ended: %+v %v", got, err)
+	}
+	left := r.followedOutcome(t, "3", r.liveSession(t, "4"), "following")
+	if err := r.s.EndSessionOutcome(uid, left.Sessions[0].SessionID, SessionEndLeave); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.st.GafferOutcomeFor(uid, left.ID); err != nil || got.Revision != left.Revision || got.Sessions[0].State != "following" {
+		t.Fatalf("leaving the outcome alone: %+v %v", got, err)
+	}
+}
+
+func TestEndingAnEarlierStagesSessionLeavesThePipelineAlone(t *testing.T) {
+	r := outcomeFixture(t)
+	uid := r.p.UserID
+	o, err := r.st.CreateGafferOutcomeFor(uid, store.GafferOutcome{ID: strings.Repeat("1", 32), Objective: "Ship it.", Sessions: []store.GafferOutcomeSession{{
+		Key: "a", Title: "Part", Prompt: "Do it.", RequestID: strings.Repeat("8", 32),
+		Stages: []store.GafferOutcomeStage{{Kind: "plan", RequestID: strings.Repeat("7", 32), State: "done", SessionID: strings.Repeat("a", 48), ConversationID: "old"}, {Kind: "code", RequestID: strings.Repeat("7", 32), State: "running"}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := r.liveSession(t, "2")
+	o, err = r.st.UpdateGafferOutcomeFor(uid, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+		o.State, o.Sessions[0].State, o.Sessions[0].SessionID = "settled", "following", current
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.s.EndSessionOutcome(uid, strings.Repeat("a", 48), SessionEndDelete); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.st.GafferOutcomeFor(uid, o.ID); err != nil || got.Revision != o.Revision {
+		t.Fatalf("an earlier stage's session must not touch the outcome: %+v %v", got, err)
+	}
+}
+
 func TestStoppingFollowingEndsAStuckOutcomeSoItCanBeArchivedAndDeleted(t *testing.T) {
 	r := outcomeFixture(t)
 	uid := r.p.UserID

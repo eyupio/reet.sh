@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -503,18 +504,37 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		RequestID     string `json:"requestId"`
 		RemoveHistory bool   `json:"removeHistory"`
+		// FactoryOutcome is the person's choice for an outcome whose pipeline
+		// still works in this session: "" leaves it alone, "archive" stops
+		// following it and hides it, "delete" stops following it and erases it.
+		FactoryOutcome string `json:"factoryOutcome"`
 	}
 	if !terminalJSON(w, r, &in) {
+		return
+	}
+	switch in.FactoryOutcome {
+	case gaffer.SessionEndLeave, gaffer.SessionEndArchive, gaffer.SessionEndDelete:
+	default:
+		writeErr(w, 400, "Choose leave, archive or delete for a Factory outcome.")
 		return
 	}
 	// A session with a worktree keeps its place in history until the worktree
 	// is gone: onSessionClosed checks and removes it once the machine confirms
 	// the session stopped, and archives the session only when nothing is left
 	// behind. Uncommitted changes are never discarded without a person.
-	session, err := s.terminals.End(r.Context(), s.uid(r), r.PathValue("id"), in.RequestID, in.RemoveHistory)
+	uid, id := s.uid(r), r.PathValue("id")
+	session, err := s.terminals.End(r.Context(), uid, id, in.RequestID, in.RemoveHistory)
 	if err != nil {
 		terminalError(w, err)
 		return
+	}
+	// The outcome is released only after the end request is accepted. It is
+	// the person's explicit choice, confirmed in the session's end dialog; a
+	// failure is recorded and leaves the session end (already requested) alone.
+	if in.FactoryOutcome != gaffer.SessionEndLeave && s.gafferProviders != nil {
+		if err := s.gafferProviders.EndSessionOutcome(uid, id, in.FactoryOutcome); err != nil {
+			s.event(uid, "system", "factory-outcome-not-released", "", map[string]string{"session": id, "action": in.FactoryOutcome})
+		}
 	}
 	writeJSON(w, 200, session)
 }

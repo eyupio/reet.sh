@@ -13,6 +13,7 @@
   import { folderProjectList, listProjectGroups, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
+  import { FACTORY_SESSION_END_DEFAULT, factorySessionEndModeOf, type FactorySessionEndMode } from '../gafferOutcome'
 
   // The Sessions page (/sessions): every session across machines from the account-wide listing, grouped as Home groups them
   // (the Group by choice is Home's), with search, filters and each session's actions menu; the projects come below with
@@ -147,6 +148,7 @@
   const menuKeyOpens = (event: KeyboardEvent) => event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
   const openMenu = (event: MouseEvent | KeyboardEvent, item: TerminalSession) => void actions?.openMenu(event, item)
   let removeDefault = $state(false)
+  let factorySessionEndDefault = $state<FactorySessionEndMode>(FACTORY_SESSION_END_DEFAULT)
 
   // A project card's menu: right-click or Shift+F10 offers the ways into the project that fit here. Edit and remove stay on
   // Home's rail; Worktrees opens the existing sheet for the folder.
@@ -194,7 +196,7 @@
 
   onMount(() => {
     void load()
-    void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false }).catch(() => { /* the safe default keeps history */ })
+    void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) }).catch(() => { /* the safe default keeps history */ })
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', wake)
@@ -339,7 +341,7 @@
     <button role="menuitem" onclick={openWorktrees}>Worktrees…</button>
   </div>
 {/if}
-<SessionActions bind:this={actions} machines={machines} {offline} {terminals} {removeDefault}
+<SessionActions bind:this={actions} machines={machines} {offline} {terminals} {removeDefault} {factorySessionEndDefault}
   onsignedout={signOut} onchanged={() => load(true)} onnotice={(n) => (notice = n)}
   onopen={(item) => (openActionsFor = item.id)} onclose={() => (openActionsFor = '')} />
 {#if commandsOpen}<CommandLibrary onclose={() => void closeCommands()} />{/if}

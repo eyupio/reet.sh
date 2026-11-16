@@ -1,0 +1,274 @@
+<title>reet Desks mock-ups</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a notes column on top, then one large framed mock of the reet app that the controls above it re-draw. */
+:root {
+  --bg:#1d201c; --card:#262a24; --raised:#2a2e26; --sunk:#191c18; --line-soft:#333a2f; --line:#3b4237; --line-strong:#535f4b;
+  --ink:#efeee5; --ink-soft:#d4d9cc; --muted:#adb5a6; --faint:#9aa492;
+  --accent:#b84216; --accent-text:#ed976e; --accent-ink:#fff; --tint:#3e2d24;
+  --good:#7fc79a; --warn:#e9b44c; --bad:#f87171; --info:#7fb3d9; --working:#22c55e; --waiting:#fbbf24;
+  --c-red:#d95757; --c-amber:#c48b2f; --c-green:#3f9c72; --c-blue:#598ed7; --c-violet:#a17ed1;
+  --scrim:rgb(0 0 0 / .62); --term:#191c18; --term-ink:#dfe3d6;
+  --serif:'Fraunces',Georgia,serif; --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',Consolas,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg:#f6f5f0; --card:#fffefb; --raised:#fffefb; --sunk:#eeede6; --line-soft:#e6e7de; --line:#dddfd5; --line-strong:#c9cdbf;
+  --ink:#292b25; --ink-soft:#3a4233; --muted:#60675a; --faint:#656c5e;
+  --accent:#b84216; --accent-text:#b84216; --accent-ink:#fff; --tint:#f5e8dd;
+  --good:#15703b; --warn:#92400e; --bad:#b91c1c; --info:#1d5f8a; --working:#15803d; --waiting:#a16207;
+  --scrim:rgb(20 18 15 / .45); --term:#fbfaf6; --term-ink:#2c2f28; color-scheme:light;
+} }
+:root[data-theme="light"] {
+  --bg:#f6f5f0; --card:#fffefb; --raised:#fffefb; --sunk:#eeede6; --line-soft:#e6e7de; --line:#dddfd5; --line-strong:#c9cdbf;
+  --ink:#292b25; --ink-soft:#3a4233; --muted:#60675a; --faint:#656c5e;
+  --accent:#b84216; --accent-text:#b84216; --accent-ink:#fff; --tint:#f5e8dd;
+  --good:#15703b; --warn:#92400e; --bad:#b91c1c; --info:#1d5f8a; --working:#15803d; --waiting:#a16207;
+  --scrim:rgb(20 18 15 / .45); --term:#fbfaf6; --term-ink:#2c2f28; color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1{font:600 28px/1.15 var(--serif);margin:0;text-wrap:balance}
+.lede{color:var(--muted);max-width:68ch;margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
+.controls{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+.group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.group>span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.seg button{border:0;background:none;padding:6px 11px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--tint);color:var(--accent-text);font-weight:600}
+.ask{border-left:3px solid var(--accent);padding:2px 0 2px 12px;color:var(--ink-soft);max-width:80ch;margin:0}
+.ask b{color:var(--ink)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+/* ---- the mock app ---- */
+.app{min-width:940px;display:flex;flex-direction:column;height:640px;position:relative}
+.top{display:flex;align-items:center;gap:22px;padding:0 18px;height:52px;border-bottom:1px solid var(--line);flex:none}
+.logo{font:600 20px var(--serif)}.logo i{font-style:normal;color:var(--accent-text)}
+.nav{display:flex;gap:20px;color:var(--muted);height:100%}
+.nav span{display:flex;align-items:center;border-bottom:2px solid transparent}
+.nav .on{color:var(--ink);font-weight:600;border-color:var(--accent)}
+.jump{margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:6px 12px;color:var(--faint);min-width:230px}
+.av{width:30px;height:30px;border-radius:50%;background:var(--tint);color:var(--accent-text);display:grid;place-items:center;font-size:11px;font-weight:600}
+.dhead{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line-soft);flex:none}
+.dname{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px}
+.sw{width:10px;height:10px;border-radius:3px;flex:none}
+.sub{color:var(--faint);font-size:12px}
+.sp{margin-left:auto}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:7px;padding:5px 10px;font-size:13px;color:var(--ink-soft);white-space:nowrap}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.on{background:color-mix(in srgb,var(--warn) 18%,var(--card));border-color:var(--warn);color:var(--warn);font-weight:600}
+.lay{display:inline-grid;width:16px;height:12px;gap:1.5px;vertical-align:-1px;margin-right:6px}
+.lay i{background:currentColor;border-radius:1px;opacity:.85}
+/* tab bar, three looks */
+.tabs{display:flex;align-items:flex-end;gap:2px;padding:0 10px;border-bottom:1px solid var(--line);flex:none;min-height:38px}
+.tab{display:flex;align-items:center;gap:7px;padding:7px 12px;color:var(--muted);border:1px solid transparent;background:none;font-size:13px;position:relative;white-space:nowrap}
+.tab .dot{width:7px;height:7px;border-radius:50%;background:var(--working)}
+.tab .dot.wait{background:var(--waiting);border-radius:1px;transform:rotate(45deg)}
+.tab .dot.off{background:none;border:1.5px solid var(--faint)}
+.tab .x{color:var(--faint);font-size:12px;margin-left:2px}
+.tab .n{font:11px var(--mono);color:var(--faint)}
+.t-line .tab{border-bottom:2px solid transparent;margin-bottom:-1px}
+.t-line .tab.on{color:var(--ink);font-weight:600;border-bottom-color:var(--tc,var(--accent))}
+.t-line .tab::before{content:"";width:3px;height:14px;border-radius:2px;background:var(--tc,transparent)}
+.t-pill{align-items:center;padding-block:6px;gap:6px}
+.t-pill .tab{border-radius:999px;border-color:var(--line);padding:4px 12px}
+.t-pill .tab.on{color:var(--ink);font-weight:600;background:color-mix(in srgb,var(--tc,var(--accent)) 22%,var(--card));border-color:var(--tc,var(--accent))}
+.t-pill .tab::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--tc,var(--line-strong))}
+.t-block .tab{border-radius:8px 8px 0 0;border-color:var(--line) var(--line) transparent;background:var(--sunk);margin-bottom:-1px;border-top:3px solid var(--tc,var(--line))}
+.t-block .tab.on{color:var(--ink);font-weight:600;background:var(--card);border-bottom-color:var(--card)}
+.add{color:var(--muted);padding:7px 10px;border:0;background:none;font-size:16px;line-height:1}
+.stripe{background:color-mix(in srgb,var(--warn) 16%,var(--bg));color:var(--warn);font-size:12px;font-weight:600;padding:4px 14px;border-bottom:1px solid var(--warn);flex:none}
+.tool{display:flex;gap:16px;padding:6px 14px;color:var(--muted);font-size:12.5px;border-bottom:1px solid var(--line-soft);flex:none;white-space:nowrap;overflow:hidden}
+.tool b{color:var(--ink-soft);font-weight:500}
+/* split area */
+.area{flex:1;min-height:0;display:grid;gap:5px;padding:5px;background:var(--line-soft)}
+.pane{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--term);border:1px solid var(--line);border-radius:6px;overflow:hidden;cursor:pointer}
+.pane.focus{border-color:var(--accent-text);box-shadow:0 0 0 1px var(--accent-text)}
+.ph{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);flex:none;white-space:nowrap;overflow:hidden}
+.ph .nm{color:var(--ink-soft);font-weight:600}
+.pane.focus .ph .nm{color:var(--ink)}
+.ph .dir{font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+.ph .st{margin-left:auto;display:flex;align-items:center;gap:6px;padding-right:8px}
+.ph .rcv{color:var(--warn);font-weight:600}
+.h-slim .ph{padding:4px 0 4px 8px;border-bottom:1px solid var(--line-soft);background:var(--card)}
+.h-slim .ph::before{content:"";width:3px;height:14px;border-radius:2px;background:var(--pc);flex:none}
+.h-band .ph{padding:5px 0 5px 10px;background:color-mix(in srgb,var(--pc) 24%,var(--card));border-bottom:1px solid color-mix(in srgb,var(--pc) 55%,var(--line))}
+.h-edge .pane{border-left:3px solid var(--pc)}
+.h-edge .pane.focus{border-left-color:var(--pc)}
+.h-edge .ph{padding:4px 0 4px 8px;border-bottom:1px solid var(--line-soft);background:var(--card)}
+pre{margin:0;padding:8px 10px;font:12px/1.5 var(--mono);color:var(--term-ink);flex:1;overflow:hidden;white-space:pre}
+pre .g{color:var(--good)} pre .m{color:var(--faint)} pre .a{color:var(--accent-text)} pre .i{color:var(--info)}
+.cur{display:inline-block;width:7px;height:14px;background:var(--term-ink);vertical-align:-2px}
+/* state cards inside panes */
+.state{flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;padding:16px 18px;font-size:13px}
+.state h3{margin:0;font-size:14px;font-weight:600}
+.state p{margin:0;color:var(--muted);max-width:44ch}
+.state code{font-family:var(--mono);color:var(--ink-soft);font-size:12px}
+.tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.sbar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--tint);border-bottom:1px solid var(--line);font-size:12.5px;flex:none}
+.sbar code{font-family:var(--mono);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+/* list */
+.list{flex:1;padding:22px 26px;overflow:auto}
+.list h2{font:600 22px var(--serif);margin:0 0 4px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card .t{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}
+.mini{display:grid;gap:2px;height:64px;background:var(--line-soft);border-radius:6px;padding:2px}
+.mini i{background:var(--sunk);border-radius:3px;border-left:2px solid var(--pc)}
+.meta{color:var(--muted);font-size:12.5px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.pill{font-size:11.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--line);color:var(--muted)}
+.pill.w{border-color:var(--waiting);color:var(--waiting)}
+.card.new{border-style:dashed;align-items:center;justify-content:center;color:var(--muted);background:none;min-height:150px}
+/* dialog */
+.scrim{position:absolute;inset:0;background:var(--scrim);display:grid;place-items:center}
+.dlg{background:var(--raised);border:1px solid var(--line-strong);border-radius:12px;padding:20px;width:420px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 60px -20px rgb(0 0 0 / .5)}
+.dlg h3{margin:0;font:600 18px var(--serif)}
+.dlg p{margin:0;color:var(--muted)}
+.opt{border:1px solid var(--line);border-radius:9px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;background:var(--card);text-align:left}
+.opt.sel{border-color:var(--accent-text);background:var(--tint)}
+.opt b{font-weight:600}.opt span{color:var(--muted);font-size:12.5px}
+.row{display:flex;gap:8px;justify-content:flex-end}
+/* phone */
+.phone-wrap{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;padding:22px 0}
+.phone{width:340px;max-width:100%;height:600px;border:1px solid var(--line-strong);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;background:var(--bg)}
+.chips{display:flex;gap:6px;padding:6px 10px;overflow:hidden;border-bottom:1px solid var(--line-soft);flex:none}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.chip.on{border-color:var(--pc);color:var(--ink);background:color-mix(in srgb,var(--pc) 20%,var(--card))}
+.chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--pc)}
+.keys{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line);flex:none}
+.keys span{flex:1;text-align:center;border:1px solid var(--line);border-radius:7px;padding:8px 0;font:12px var(--mono);color:var(--muted)}
+@media (max-width:700px){h1{font-size:23px}}
+</style>
+
+<div class="wrap">
+  <h1>Desks: look and feel</h1>
+  <p class="lede">Mock-ups only, drawn in reet's own colours and type; nothing here is built. Switch screens and try each look, then tell me which you want. Click a pane to focus it.</p>
+
+  <div class="controls">
+    <div class="group"><span>Screen</span><div class="seg" id="g-view"></div></div>
+  </div>
+  <div class="controls" id="desk-controls">
+    <div class="group"><span>Tabs</span><div class="seg" id="g-tabs"></div></div>
+    <div class="group"><span>Pane colour</span><div class="seg" id="g-head"></div></div>
+    <div class="group"><span>Layout</span><div class="seg" id="g-lay"></div></div>
+    <div class="group"><span>Type in all</span><div class="seg" id="g-all"></div></div>
+  </div>
+  <p class="ask" id="ask"></p>
+  <div class="scroll"><div class="app" id="app"></div></div>
+</div>
+
+<script>
+const C={red:'var(--c-red)',amber:'var(--c-amber)',green:'var(--c-green)',blue:'var(--c-blue)',violet:'var(--c-violet)'};
+const panes=[
+ {nm:'reet',host:'ns3142913',dir:'~/PROD_reet',c:C.red,out:`<span class="m">root@ns3142913:~/PROD_reet#</span> docker compose pull
+[+] pull 15/15
+ <span class="g">✔</span> Image ghcr.io/eyupio/reet.sh:dev <span class="g">Pulled</span>      <span class="i">3.4s</span>
+<span class="m">root@ns3142913:~/PROD_reet#</span> docker compose up -d
+[+] up 1/1
+ <span class="g">✔</span> Container reet <span class="g">Started</span>                    <span class="i">0.9s</span>
+<span class="m">root@ns3142913:~/PROD_reet#</span> <span class="cur"></span>`},
+ {nm:'platform logs',host:'ns3142913',dir:'~/PROD_reet_platform',c:C.blue,out:`<span class="m">root@ns3142913:~/PROD_reet_platform#</span> docker compose logs -f
+platform  | 13:38:02 listening on :8080
+platform  | 13:38:02 store: reet.db opened (WAL)
+platform  | 13:38:04 machine ns3142913 connected
+platform  | 13:38:09 <span class="g">GET</span> /api/v2/desks 200 4ms
+platform  | 13:38:11 <span class="g">GET</span> /api/v2/terminal/sessions 200 6ms
+platform  | 13:38:26 <span class="g">GET</span> /api/v2/desks 200 3ms`},
+ {nm:'snicket',host:'dev_snicket',dir:'~/app',c:C.green,agent:'Claude Code',out:`<span class="a">●</span> I've updated the migration and re-run the tests.
+
+  <span class="g">✔</span> 42 passed  <span class="m">(3.1s)</span>
+
+<span class="a">?</span> Push the branch and open a pull request?
+  <span class="a">❯</span> Yes
+    No, keep it local`,wait:true},
+ {nm:'db',host:'ns3142913',dir:'~',c:C.violet,out:`<span class="m">root@ns3142913:~#</span> psql reet
+psql (16.4)
+reet=# select count(*) from desks;
+ count
+-------
+     3
+reet=# <span class="cur"></span>`}
+];
+const S={view:'desk',tabs:'line',head:'slim',lay:'three',all:'off',focus:0};
+try{Object.assign(S,JSON.parse(localStorage.getItem('desks-mock')||'{}'))}catch(e){}
+const opts={
+ view:[['desk','A desk'],['list','All desks'],['states','Pane states'],['close','Closing a pane'],['phone','Phone']],
+ tabs:[['line','Underline'],['pill','Pills'],['block','Folder tabs']],
+ head:[['slim','Marker'],['band','Tinted bar'],['edge','Left edge']],
+ lay:[['one','Zoomed'],['side','Side by side'],['stack','Stacked'],['three','2 + 1'],['grid','2 × 2'],['main','Main + stack']],
+ all:[['off','Off'],['on','On']]
+};
+const asks={
+ desk:'<b>Decide:</b> the tab style, how a pane shows its colour, and whether one shared toolbar above the panes (as drawn) is right, or each pane should carry its own.',
+ list:'<b>Decide:</b> whether the Desks tab should open on this list of cards, or straight into the desk you last used with the list behind the switcher.',
+ states:'<b>Decide:</b> whether these in-pane messages read right. A pane never shows a blank terminal; it says what happened and offers one clear action.',
+ close:'<b>Decide:</b> the wording and the default. Enter ends the shell; the other choice keeps it running in Sessions.',
+ phone:'<b>Decide:</b> whether one pane at a time with name chips is right on a phone, with splits kept for tablets and desktops.'
+};
+const layIcon={one:'1fr/1fr',side:'1fr/1fr 1fr',stack:'1fr 1fr/1fr',three:'1fr 1fr/1fr 1fr',grid:'1fr 1fr/1fr 1fr',main:'1fr 1fr 1fr/1.4fr 1fr'};
+const layN={one:1,side:2,stack:2,three:3,grid:4,main:4};
+function icon(k){const n=layN[k];let s='';for(let i=0;i<n;i++){let st='';if(k==='three'&&i===2)st='grid-column:1/3';if(k==='main'&&i===0)st='grid-row:1/4';s+=`<i style="${st}"></i>`}return `<span class="lay" style="grid-template:${layIcon[k]}">${s}</span>`}
+function seg(key){const el=document.getElementById('g-'+key);el.innerHTML=opts[key].map(([v,l])=>`<button type="button" aria-pressed="${S[key]===v}" data-k="${key}" data-v="${v}">${key==='lay'?icon(v):''}${l}</button>`).join('')}
+function topBar(){return `<div class="top"><span class="logo">reet<i>.sh</i></span><div class="nav"><span>Home</span><span>Factory</span><span>Sessions</span><span class="on">Desks</span><span>Machines</span><span>Skills</span></div><span class="jump">Jump to a session, desk, skill or machine</span><span class="av">PJ</span></div>`}
+function paneHtml(p,i,body){const all=S.all==='on'&&S.view==='desk';
+ return `<div class="pane ${i===S.focus?'focus':''}" style="--pc:${p.c};${p.style||''}" data-pane="${i}" tabindex="0"><div class="ph"><span class="nm">${p.nm}</span><span>${p.host}</span><span class="dir">${p.dir}</span><span class="st">${all?'<span class="rcv">Receiving</span>':p.agent?`<span>${p.agent}</span>`:''}${p.state||(p.wait?'<span style="color:var(--waiting)">Needs you</span>':'')}<span>⋮</span></span></div>${body??`<pre>${p.out}</pre>`}</div>`}
+function tabsHtml(){return `<div class="tabs t-${S.tabs}">
+ <button class="tab on" style="--tc:${C.red}"><span class="dot wait"></span>deploy<span class="n">${layN[S.lay]}</span><span class="x">✕</span></button>
+ <button class="tab" style="--tc:${C.blue}"><span class="dot"></span>logs<span class="n">1</span><span class="x">✕</span></button>
+ <button class="tab" style="--tc:${C.violet}"><span class="dot off"></span>db migrations<span class="n">2</span><span class="x">✕</span></button>
+ <button class="tab"><span class="dot"></span>scratch<span class="n">1</span><span class="x">✕</span></button>
+ <button class="add" aria-label="New tab">+</button></div>`}
+function head(extra=''){return `<div class="dhead"><span class="dname"><span class="sw" style="background:${C.red}"></span>prod deploy ▾</span><span class="sub">4 tabs · 2 machines · saved</span><span class="sp"></span>${extra}<button class="btn">${icon(S.lay)}Layout</button><button class="btn ${S.all==='on'?'on':''}">Type in all panes</button><button class="btn">⋮</button></div>`}
+function area(list,tpl,cls=''){return `<div class="area h-${S.head} ${cls}" style="grid-template:${tpl}">${list.join('')}</div>`}
+function desk(){const n=layN[S.lay];const ps=panes.slice(0,n).map((p,i)=>{let st='';if(S.lay==='three'&&i===2)st='grid-column:1/3';if(S.lay==='main'&&i===0)st='grid-row:1/4';return paneHtml({...p,style:st},i)});
+ const f=panes[Math.min(S.focus,n-1)];
+ return topBar()+head()+tabsHtml()+(S.all==='on'?`<div class="stripe">Typing in ${n} pane${n>1?'s':''} on this tab. Turns off when you change tab.</div>`:'')+
+ `<div class="tool"><b>${f.nm}</b><span>Earlier output</span><span>Compose</span><span>Search</span><span>Copy</span><span>Paste</span><span>Attach</span><span>Interrupt</span><span>Commands</span><span>History</span><span>Appearance</span><span class="sp">Split right</span><span>Split down</span><span>Zoom</span></div>`+area(ps,layIcon[S.lay])}
+function st(tag,h,p,btns){return `<div class="state"><span class="tag">${tag}</span><h3>${h}</h3><p>${p}</p><div class="row">${btns}</div></div>`}
+function states(){const b=(t,pri)=>`<button class="btn ${pri?'pri':''}">${t}</button>`;const P=(i,o)=>({...panes[i],wait:false,agent:'',...o});
+ const list=[
+  paneHtml(P(0,{state:'<span style="color:var(--bad)">Lost</span>'}),0,st('Lost','ns3142913 restarted, so this shell was lost.','It was in <code>~/PROD_reet</code>. A new shell opens there with this pane\'s command history.',b('Reopen in ~/PROD_reet',1)+b('Close pane'))),
+  paneHtml(P(1,{state:'<span style="color:var(--good)">Running</span>'}),1,`<div class="sbar"><span>Start-up command</span><code>docker compose logs -f</code><button class="btn pri">Run</button><button class="btn">Dismiss</button></div><pre><span class="m">root@ns3142913:~/PROD_reet_platform#</span> <span class="cur"></span></pre>`),
+  paneHtml(P(2,{state:'Reconnecting'}),2,st('Machine offline','dev_snicket is not reporting.','The shell may still be running there. reet keeps trying; nothing you typed is resent.',b('Retry now'))),
+  paneHtml(P(3,{state:'Elsewhere'}),3,st('Open elsewhere','This terminal is open in another window.','A terminal has one keyboard at a time.',b('Use it here',1))),
+  paneHtml(P(0,{nm:'old build',dir:'~/builds/2025',state:'<span style="color:var(--warn)">Folder gone</span>'}),4,st('Folder gone','~/builds/2025 no longer exists on ns3142913.','reet won\'t quietly open somewhere else.',b('Choose a folder',1)+b('Reopen in home'))),
+  paneHtml(P(2,{nm:'snicket',agent:'',state:'Ended'}),5,st('Agent ended','Claude Code finished in this pane.','Continue the same conversation, or start a plain shell in <code>~/app</code>.',b('Continue',1)+b('Start a shell here')))
+ ];
+ return topBar()+head('<button class="btn pri">Reopen all (3)</button>')+tabsHtml()+area(list,'1fr 1fr/1fr 1fr 1fr')}
+function closeV(){const ps=panes.slice(0,3).map((p,i)=>paneHtml({...p,style:i===2?'grid-column:1/3':''},i));
+ return topBar()+head()+tabsHtml()+area(ps,layIcon.three)+`<div class="scrim"><div class="dlg" role="dialog" aria-label="Close this pane?"><h3>Close “platform logs”?</h3><p>Its shell is still running on ns3142913.</p>
+ <button class="opt sel"><b>End the shell</b><span>Stops what is running in it. Its command history for this pane is removed.</span></button>
+ <button class="opt"><b>Take off this desk</b><span>It keeps running, and stays in Sessions.</span></button>
+ <div class="row"><button class="btn">Cancel</button><button class="btn pri">End the shell</button></div></div></div>`}
+function mini(cs,tpl){return `<div class="mini" style="grid-template:${tpl}">${cs.map((c,i)=>`<i style="--pc:${c};${tpl==='1fr 1fr/1fr 1fr'&&cs.length===3&&i===2?'grid-column:1/3':''}"></i>`).join('')}</div>`}
+function listV(){const card=(n,c,m,tpl,meta,pill)=>`<div class="card"><div class="t"><span class="sw" style="background:${c}"></span>${n}<span class="sp" style="color:var(--faint)">⋮</span></div>${mini(m,tpl)}<div class="meta">${meta.map(x=>`<span>${x}</span>`).join('')}</div><div class="row" style="justify-content:flex-start">${pill}</div></div>`;
+ return topBar()+`<div class="list"><div class="dhead" style="padding:0;border:0"><div><h2>Desks</h2><span class="sub">Saved sets of terminals. Each one comes back as you left it.</span></div><span class="sp"></span><button class="btn">From a template ▾</button><button class="btn pri">New desk</button></div>
+ <div class="cards">
+ ${card('prod deploy',C.red,[C.red,C.blue,C.green],'1fr 1fr/1fr 1fr',['4 tabs · 6 panes','ns3142913, dev_snicket'],'<span class="pill w">1 needs you</span><span class="pill">5 live</span>')}
+ ${card('zoomies dev',C.green,[C.green,C.amber],'1fr/1fr 1fr',['2 tabs · 3 panes','dev_snicket'],'<span class="pill">3 live</span>')}
+ ${card('database',C.violet,[C.violet,C.violet,C.blue,C.blue],'1fr 1fr/1fr 1fr',['1 tab · 4 panes','ns3142913'],'<span class="pill">2 live</span><span class="pill">2 to reopen</span>')}
+ <div class="card new"><b>New desk</b><span>Start empty, or from “two-machine deploy”.</span></div>
+ </div></div>`}
+function phone(){const ph=(body)=>`<div class="phone"><div class="top" style="height:44px;padding:0 12px"><span class="logo" style="font-size:17px">reet<i>.sh</i></span><span class="sp" style="margin-left:auto"></span><span class="av">PJ</span></div><div class="dhead" style="padding:6px 10px"><span class="dname" style="font-size:14px"><span class="sw" style="background:${C.red}"></span>prod deploy ▾</span><span class="sp"></span><button class="btn">⋮</button></div>${body}</div>`;
+ const t=`<div class="tabs t-${S.tabs}" style="overflow:hidden"><button class="tab on" style="--tc:${C.red}">deploy</button><button class="tab" style="--tc:${C.blue}">logs</button><button class="tab" style="--tc:${C.violet}">db migr…</button><button class="add">+</button></div>`;
+ const chips=`<div class="chips"><span class="chip on" style="--pc:${C.red}">reet</span><span class="chip" style="--pc:${C.blue}">platform logs</span><span class="chip" style="--pc:${C.green}">snicket</span></div>`;
+ const keys=`<div class="keys"><span>esc</span><span>tab</span><span>ctrl</span><span>↑</span><span>↓</span><span>⌫</span></div>`;
+ const one=`<div class="area h-${S.head}" style="grid-template:1fr/1fr;padding:0;gap:0">${paneHtml({...panes[0],host:'',style:'border-radius:0;border-width:0'},0)}</div>`;
+ const lost=`<div class="area h-${S.head}" style="grid-template:1fr/1fr;padding:0;gap:0">${paneHtml({...panes[0],host:'',state:'<span style="color:var(--bad)">Lost</span>',style:'border-radius:0;border-width:0'},0,st('Lost','ns3142913 restarted, so this shell was lost.','A new shell opens in <code>~/PROD_reet</code> with this pane\'s history.','<button class="btn pri">Reopen</button>'))}</div>`;
+ return `<div class="phone-wrap">${ph(t+chips+one+keys)}${ph(t+chips+lost)}</div>`}
+function render(){for(const k in opts)seg(k);
+ document.getElementById('desk-controls').hidden=S.view!=='desk';
+ document.getElementById('ask').innerHTML=asks[S.view];
+ const app=document.getElementById('app');
+ app.style.minWidth=S.view==='phone'?'0':'';app.style.height=S.view==='phone'?'auto':'';
+ app.innerHTML={desk,list:listV,states,close:closeV,phone}[S.view]();
+ try{localStorage.setItem('desks-mock',JSON.stringify(S))}catch(e){}}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(b){S[b.dataset.k]=b.dataset.v;if(b.dataset.k==='lay')S.focus=Math.min(S.focus,layN[S.lay]-1);render();return}
+ const p=e.target.closest('[data-pane]');if(p&&S.view==='desk'){S.focus=+p.dataset.pane;render()}});
+if(location.hash&&opts.view.some(([v])=>'#'+v===location.hash))S.view=location.hash.slice(1);
+render();
+</script>

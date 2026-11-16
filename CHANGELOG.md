@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desks**: the tab shown is now each window's own, so switching tab saves
+  nothing and no longer moves another window on the same desk. **Move here**
+  closes the pane the session left (a tab's only pane stays, empty). The
+  floating Gaffer button is not shown on an open desk, and the tab list is
+  cleaner for screen readers.
 - **Desks**, a new tab: a saved set of terminal tabs, each split into up to
   nine panes on any of your machines, saved to your account as you change it
   and opened the same in any browser. Panes can be split, resized, zoomed,

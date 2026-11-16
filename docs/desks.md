@@ -46,6 +46,8 @@ If a desk cannot be read when you open it, the page says so and offers **Try aga
 The tab bar shows flat tabs with a colour marker and an underline in the tab's colour on the current one.
 
 - Click to switch. Double-click or F2 renames in place. Drag a tab to reorder.
+- The tab shown is each window's own: switching tab saves nothing and moves no other window. The window remembers its tab
+  for the desk until it is closed; a new window opens on the tab the desk was last worked in.
 - The tab's menu (right-click, Shift+F10 or ⋮) has Rename, Move left, Move right, Duplicate tab, Close tab and the
   colour swatches.
 - A tab you are not looking at shows a mark when one of its shells is waiting for you.
@@ -345,8 +347,8 @@ Templates count towards the 50 desks.
 
 - **Add to a desk…** is in a running session's actions menu on Sessions and on Home (not for a chat). Choose a desk and
   a tab of it, or **A new tab**; the session goes in a new pane beside that tab's focused pane. A session that is
-  already on a desk is offered as **Move here**: "It is on “`<desk>`” now. Moving it takes it off that desk; the pane
-  there stays, empty." If the move takes it off the old desk but cannot add it to the new one, the dialog says it is on
+  already on a desk is offered as **Move here**: "It is on “`<desk>`” now. Moving it closes its pane on that desk; a
+  tab’s only pane stays, empty." The old pane's neighbours take its space. If the move takes it off the old desk but cannot add it to the new one, the dialog says it is on
   neither desk and still running in Sessions.
 - **Add a running session…** in a desk's **+** menu does the same from the desk's side, into a new tab, listing the
   running sessions that are not already on this desk.
@@ -497,9 +499,9 @@ starts nothing, and the session it had reserved is removed from history at once.
   character, and such characters are removed from a stored desk when it is read.
 - **Removing a session that is still ending** from Sessions empties its pane at once, while its shell may still be
   stopping; the pane then offers **Start**.
-- **The tab bar for screen readers.** Each tab's ⋮ button and the rename field sit inside the tab list, which a screen
-  reader may announce as a slightly malformed list of tabs. Shift+F10 on a tab still opens its menu.
-- **The current tab is saved with the desk.** Switching tab in one window moves another window showing the same desk to
-  that tab too.
+- **The tab bar for screen readers.** The tab list holds only the tabs: it claims them with `aria-owns`, and each tab's
+  ⋮ button and the rename field sit beside it. This was checked in Chromium's accessibility tree only, not with a screen
+  reader.
+- **The floating Gaffer button is not shown on an open desk**, so nothing covers a terminal. It is on every other page.
 - **Ending an agent from a desk** (End the shell on an agent's pane) does not repeat the warnings Sessions' own End
   dialog gives about a Factory outcome or a worktree.

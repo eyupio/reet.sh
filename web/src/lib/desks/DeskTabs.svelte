@@ -121,7 +121,9 @@
 </script>
 
 <div class="bar" bind:this={bar} data-keeps-focus>
-  <div class="tabs" role="tablist" aria-label="Tabs">
+  <!-- The tab list owns only the tabs (aria-owns), so each tab's ⋮ button beside it is not inside the list. -->
+  <div class="tabs">
+    <span role="tablist" aria-label="Tabs" aria-owns={order.filter(t => t.id !== renaming).map(t => `desk-tab-${t.id}`).join(' ')}></span>
     {#each order as t (t.id)}
       {@const on = t.id === active}
       <div class="tab" class:on class:dragging={dragging === t.id} data-tab={t.id} style={`--tc:${t.colour ? projectColourHex(t.colour) : 'transparent'}`} data-colour={t.colour || undefined}>

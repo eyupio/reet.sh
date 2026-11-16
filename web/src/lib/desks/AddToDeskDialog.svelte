@@ -82,7 +82,7 @@
     {:else if choices.length === 0}
       <p>You have no desks yet. Make one on Desks first.</p>
     {:else}
-      {#if holder}<p class="move">It is on “{holder.name}” now. Moving it takes it off that desk; the pane there stays, empty.</p>{/if}
+      {#if holder}<p class="move">It is on “{holder.name}” now. Moving it closes its pane on that desk; a tab’s only pane stays, empty.</p>{/if}
       <label class="field"><span>Desk</span>
         <select aria-label="Desk" value={deskId} onchange={event => pick(event.currentTarget.value)}>
           {#each choices as d (d.id)}<option value={d.id}>{d.name}{d.id === holder?.id ? ' (it is on this one)' : ''}</option>{/each}

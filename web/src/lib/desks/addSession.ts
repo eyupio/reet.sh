@@ -1,6 +1,6 @@
 // Putting a session that is already running on a desk: from a session's menu (Add to a desk…) and from a desk's + menu
 // (Add a running session…). A session is in one pane across the account's desks, so one already on a desk is moved:
-// taken off its old pane first (that pane stays, empty), then added, in two saves. If the add then fails the session is
+// taken off its old desk first (its old pane is closed, unless it is the only pane in its tab, which stays, empty), then added, in two saves. If the add then fails the session is
 // on neither desk and the person is told so; nothing is guessed.
 import { stripHiddenChars, type TerminalSession } from '../terminal/api'
 import { getDesk, patchDesk, StaleDesk, type Desk, type DeskSummary } from './api'
@@ -42,10 +42,15 @@ export function withSession(desk: Desk, s: Parameters<typeof paneFor>[0], tab: s
   return added && apply(added, { kind: 'active', tab: t.id, pane: pane.id })
 }
 
-/** The desk with the session taken off the pane that holds it (the pane stays, empty); the desk itself when no pane does. */
+/** The desk without the pane that holds the session, so a move leaves no hole: the pane is closed and its neighbours
+ *  take the space. A pane that is the only one in its tab stays, empty (a tab is never closed by a move). The desk itself
+ *  when no pane holds the session. */
 export function withoutSession(desk: Desk, session: string): Desk {
   let out = desk
-  for (const t of desk.doc.tabs) for (const p of Object.values(t.panes)) if (p.session === session) out = apply(out, { kind: 'setSession', tab: t.id, pane: p.id, session: '' }) ?? out
+  for (const t of desk.doc.tabs) for (const p of Object.values(t.panes)) if (p.session === session) {
+    const alone = Object.keys(t.panes).length <= 1
+    out = apply(out, alone ? { kind: 'setSession', tab: t.id, pane: p.id, session: '' } : { kind: 'closePane', tab: t.id, pane: p.id }) ?? out
+  }
   return out
 }
 

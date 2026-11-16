@@ -71,7 +71,7 @@
     // ignored below.
     auto?.retire()
     // Nothing of the desk being left carries over: its dialogs, menus, offers, failures and notices go with it.
-    desk = null; failure = ''; saveState = 'saved'; typeAll = null; askAll = false
+    desk = null; failure = ''; saveState = 'saved'; typeAll = null; askAll = false; localTab = readTab(deskId)
     offered = {}; failures = {}; closing = null; choosing = null; menu = null; reopenNotice = ''; notice = ''; reopening = {}
     adding = null; agentStart = null; addingRunning = null
     continueIds.clear(); attempts.clear()
@@ -105,7 +105,9 @@
     if (!want) return
     history.replaceState(history.state, '', location.pathname + location.search)
     const t = loaded.doc.tabs.find(x => x.panes[want])
-    if (t && (loaded.doc.active !== t.id || t.active !== want)) change({ kind: 'active', tab: t.id, pane: want })
+    if (!t) return
+    showTab(t.id)
+    if (t.active !== want) change({ kind: 'active', tab: t.id, pane: want })
   }
   export function reload() { void auto?.refresh().catch(() => { /* the next save, or the next read of the desk list, tries again */ }) }
   // The Desks page reads the desk list every 15 seconds while it is in view: when it lists this desk at a newer version
@@ -146,7 +148,16 @@
   }
 
   const tabs = $derived(desk?.doc.tabs ?? [])
-  const activeTab = $derived(tabs.find(t => t.id === desk?.doc.active) ?? tabs[0])
+  // The tab shown is this window's own choice (kept for the window in sessionStorage), so switching tabs saves nothing
+  // and moves no other window. A window with no choice yet opens on the tab the desk was last worked in.
+  let localTab = $state('')
+  const tabKey = (deskId: string) => `reet-desk-tab:${deskId}`
+  const readTab = (deskId: string) => { try { return sessionStorage.getItem(tabKey(deskId)) ?? '' } catch { return '' } }
+  function showTab(tabId: string) {
+    localTab = tabId
+    try { if (desk) sessionStorage.setItem(tabKey(desk.id), tabId) } catch { /* only a convenience */ }
+  }
+  const activeTab = $derived(tabs.find(t => t.id === localTab) ?? tabs.find(t => t.id === desk?.doc.active) ?? tabs[0])
   const activePaneId = $derived(activeTab ? (activeTab.panes[activeTab.active] ? activeTab.active : leaves(activeTab.root)[0] ?? '') : '')
   const activePane = $derived(activeTab && activePaneId ? activeTab.panes[activePaneId] : undefined)
   // A shell started here (New tab, a split) counts as listed until the next read of the sessions lists it.
@@ -201,7 +212,7 @@
   }
 
   // Tabs.
-  function select(tabId: string) { if (tabId !== desk?.doc.active) change({ kind: 'active', tab: tabId }) }
+  function select(tabId: string) { if (tabId !== activeTab?.id && tabs.some(t => t.id === tabId)) showTab(tabId) }
   function duplicateTab(tabId: string) {
     const t = tabs.find(x => x.id === tabId)
     if (!t || tabs.length >= MAX_TABS) return
@@ -238,7 +249,11 @@
     const t = tabs.find(x => x.id === tabId)
     if (!t) return
     // The last pane of a tab takes the tab with it.
-    if (!paneId || Object.keys(t.panes).length <= 1) change({ kind: 'closeTab', tab: tabId })
+    if (!paneId || Object.keys(t.panes).length <= 1) {
+      // This window was showing it: the tab that takes its place is shown.
+      if (activeTab?.id === tabId) { const rest = tabs.filter(x => x.id !== tabId), next = rest[Math.min(tabs.indexOf(t), rest.length - 1)]; if (next) showTab(next.id) }
+      change({ kind: 'closeTab', tab: tabId })
+    }
     else change({ kind: 'closePane', tab: tabId, pane: paneId })
   }
   async function endAndClose() {
@@ -334,6 +349,8 @@
     change({ kind: 'addTab', tab })
     // The desk may have filled from another window while the shell started.
     if (!desk?.doc.tabs.some(x => x.id === tab.id)) { notice = `The shell “${name}” started, but there was no room for a tab. It is in Sessions.`; return }
+    // Shown in this window, and saved with the tab as the one the desk was last worked in.
+    showTab(tab.id)
     change({ kind: 'active', tab: tab.id })
   }
   async function closeNewTab() {
@@ -361,6 +378,8 @@
     if (!mine || !desk) { notice = `“${pane.name}” started, but its desk is no longer open. It is in Sessions.`; return }
     change({ kind: 'addTab', tab: t })
     if (!desk.doc.tabs.some(x => x.id === t.id)) { notice = `“${pane.name}” started, but there was no room for a tab. It is in Sessions.`; return }
+    // Shown in this window, and saved with the tab as the one the desk was last worked in.
+    showTab(t.id)
     change({ kind: 'active', tab: t.id })
   }
 
@@ -376,6 +395,8 @@
     if (auto !== mine) throw new Error('This desk is no longer open.')
     await putOnDesk(s, { id: current.id, name: current.name }, '', from)
     await mine.refresh().catch(() => { /* the next read of the desk list brings it in */ })
+    const added = auto === mine ? desk?.doc.tabs.find(t => Object.values(t.panes).some(p => p.session === s.id)) : undefined
+    if (added) showTab(added.id)
     onrefresh()
   }
 
@@ -458,6 +479,7 @@
     // One change: the pane reaches the other tab and leaves this one together, or neither (here, or when the change is
     // merged onto a newer copy of the desk). The last pane of a tab takes the tab with it.
     change({ kind: 'movePaneToTab', from: from.id, to: toId, pane: paneId })
+    if (desk?.doc.tabs.some(x => x.id === toId && x.panes[paneId])) showTab(toId)
     if (!desk?.doc.tabs.find(t => t.id === toId)?.panes[paneId]) notice = 'That pane could not be moved there.'
   }
 

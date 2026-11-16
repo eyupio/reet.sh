@@ -27,10 +27,11 @@ func SupportsDeskShell(features string) bool {
 
 // DeskRef ties a plain shell to the desk pane it is opened for. Pane is the
 // pane's id (a ValidID, so it is safe in a path on the machine). Dir is a
-// folder the shell starts in that may lie outside home: the controller sends
-// it only for a folder that machine itself reported for that pane, and the
-// machine then opens any folder its user can enter. A create carries Dir or
-// Desk.Dir, never both; Create.Dir keeps the home rule.
+// folder the shell starts in that may lie outside home. The rule that it is a
+// folder that machine itself reported for that pane is the controller's: it
+// sends Desk.Dir only then. The machine does not check that itself; it opens
+// any folder its user can enter. A create carries Dir or Desk.Dir, never both;
+// Create.Dir keeps the home rule.
 type DeskRef struct {
 	Pane string `json:"pane"`
 	Dir  string `json:"dir,omitempty"`

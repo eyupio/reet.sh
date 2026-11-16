@@ -229,10 +229,13 @@ func keepNewerDirs(doc *desk.Doc, stored desk.Doc) {
 }
 
 // UpdateDeskFor replaces the name, colour, template flag and document of
-// desk d.ID. A non-zero expect must be the stored version (ErrDeskStale
-// otherwise, and the caller re-reads); zero means the last write wins. The
+// desk d.ID. expect must be the stored version (ErrDeskStale
+// otherwise, and the caller re-reads). The
 // version goes up by one. Position and CreatedAt are kept.
 func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
+	if expect <= 0 {
+		return Desk{}, ErrDeskStale
+	}
 	id := d.ID
 	d, raw, err := normalizeDesk(d)
 	if err != nil {
@@ -254,6 +257,9 @@ func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
 		b, err := json.Marshal(d.Doc)
 		if err != nil {
 			return err
+		}
+		if len(b) > desk.MaxDocBytes {
+			return deskInvalid("document over %d bytes", desk.MaxDocBytes)
 		}
 		raw = string(b)
 		t := now()
@@ -279,8 +285,11 @@ func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
 	return d, nil
 }
 
-// DeleteDeskFor removes a desk. A non-zero expect must match its version.
+// DeleteDeskFor removes a desk. expect must match its version.
 func (s *Store) DeleteDeskFor(uid int64, id string, expect int64) error {
+	if expect <= 0 {
+		return ErrDeskStale
+	}
 	return s.withTx(func(tx *sql.Tx) error {
 		var version int64
 		if err := tx.QueryRow(`SELECT version FROM desks WHERE id=? AND user_id=? AND schema<=?`, id, uid, desk.Schema).Scan(&version); err != nil {
@@ -551,13 +560,4 @@ func clearDeskSessionsForHostsTx(tx *sql.Tx, uid int64, hosts []string) error {
 		}
 		return changed
 	})
-}
-
-// repointDeskHostsTx moves every desk pane on machine from to machine to
-// (enrollment ids).
-func repointDeskHostsTx(tx *sql.Tx, uid int64, from, to string) error {
-	if from == to || from == "" || to == "" {
-		return nil
-	}
-	return rewriteDesksTx(tx, uid, func(doc *desk.Doc) bool { return doc.RepointHost(from, to) })
 }

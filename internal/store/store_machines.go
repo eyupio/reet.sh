@@ -81,21 +81,7 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 		if running > 0 {
 			return errors.New("wait for the machine's running job before renaming its reports")
 		}
-		// Desk panes name a machine by enrollment id. Merging renames, so the
-		// id normally stays; if the two names each had one, panes follow it.
-		sourceAgents, err := agentIDsForHost(tx, userID, source)
-		if err != nil {
-			return err
-		}
-		destAgents, err := agentIDsForHost(tx, userID, destination)
-		if err != nil {
-			return err
-		}
-		if len(sourceAgents) == 1 && len(destAgents) == 1 {
-			if err := repointDeskHostsTx(tx, userID, sourceAgents[0], destAgents[0]); err != nil {
-				return err
-			}
-		}
+		// Desks need nothing here: a pane holds the enrolment id, which a rename keeps.
 		// An alias belonging to another report selects that report’s preferred name.
 		to = destination
 		// Pending work is cancelled before the reports move, so an install's

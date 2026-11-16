@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -73,7 +72,7 @@ func TestDeskCreateListOrder(t *testing.T) {
 	if _, err := s.DeskFor(uid, "nope"); !errors.Is(err, ErrDeskMissing) {
 		t.Fatal(err)
 	}
-	if err := s.DeleteDeskFor(uid, a.ID, 0); err != nil {
+	if err := s.DeleteDeskFor(uid, a.ID, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DeskFor(uid, a.ID); !errors.Is(err, ErrDeskMissing) {
@@ -107,7 +106,7 @@ func TestDeskStaleWrite(t *testing.T) {
 	if err := s.DeleteDeskFor(uid, d.ID, 1); !errors.Is(err, ErrDeskStale) {
 		t.Fatal(err)
 	}
-	if _, err := s.UpdateDeskFor(uid, d, 0); err != nil {
+	if _, err := s.UpdateDeskFor(uid, d, 2); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -151,13 +150,13 @@ func TestDeskHigherSchemaHidden(t *testing.T) {
 	if err != nil || len(list) != 0 {
 		t.Fatalf("%v %+v", err, list)
 	}
-	if _, err := s.UpdateDeskFor(uid, d, 0); !errors.Is(err, ErrDeskMissing) {
+	if _, err := s.UpdateDeskFor(uid, d, 1); !errors.Is(err, ErrDeskMissing) {
 		t.Fatal(err)
 	}
 	if _, err := s.DeskFor(uid, d.ID); !errors.Is(err, ErrDeskMissing) {
 		t.Fatal(err)
 	}
-	if err := s.DeleteDeskFor(uid, d.ID, 0); !errors.Is(err, ErrDeskMissing) {
+	if err := s.DeleteDeskFor(uid, d.ID, 1); !errors.Is(err, ErrDeskMissing) {
 		t.Fatal(err)
 	}
 	var n int
@@ -178,7 +177,7 @@ func TestTemplateHoldsNoSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.Doc = deskDoc("m1", "s2")
-	if _, err := s.UpdateDeskFor(uid, d, 0); !errors.Is(err, ErrDeskInvalid) {
+	if _, err := s.UpdateDeskFor(uid, d, 1); !errors.Is(err, ErrDeskInvalid) {
 		t.Fatal(err)
 	}
 }
@@ -213,7 +212,7 @@ func TestForgetMachineClearsDeskPanes(t *testing.T) {
 	}
 }
 
-func TestMergeMachinesRepointsDeskPanes(t *testing.T) {
+func TestMergeMachinesKeepsDeskPanes(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
 	deskAgent(t, s, uid, "agent-1", "laptop")
@@ -226,16 +225,28 @@ func TestMergeMachinesRepointsDeskPanes(t *testing.T) {
 	if got.Doc.Tabs[0].Panes["p1"].Host != "agent-1" || got.Doc.Tabs[0].Panes["p1"].Session != "s1" {
 		t.Fatalf("%+v", got)
 	}
-	// Panes follow when one machine's enrollment id is replaced by another.
-	if err := s.withTx(func(tx *sql.Tx) error { return repointDeskHostsTx(tx, uid, "agent-1", "agent-9") }); err != nil {
+	if err := got.Doc.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = s.DeskFor(uid, d.ID)
-	if got.Doc.Tabs[0].Panes["p1"].Host != "agent-9" || got.Version != 2 {
-		t.Fatalf("%+v", got)
-	}
-	if id, _, ok, _ := s.DeskPaneForSession(uid, "s1"); !ok || id != d.ID {
+	if _, _, ok, _ := s.DeskPaneForSession(uid, "s1"); !ok {
 		t.Fatal("session index lost")
+	}
+}
+
+func TestDeskWriteNeedsExpect(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	d := mustDesk(t, s, uid, Desk{Name: "A"})
+	for _, e := range []int64{0, -1} {
+		if _, err := s.UpdateDeskFor(uid, d, e); !errors.Is(err, ErrDeskStale) {
+			t.Fatal(e, err)
+		}
+		if err := s.DeleteDeskFor(uid, d.ID, e); !errors.Is(err, ErrDeskStale) {
+			t.Fatal(e, err)
+		}
+	}
+	if _, err := s.UpdateDeskFor(uid, d, 1); err != nil {
+		t.Fatal(err)
 	}
 }
 

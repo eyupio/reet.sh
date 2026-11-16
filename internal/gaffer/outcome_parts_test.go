@@ -135,3 +135,22 @@ func TestGaffersPlanCanSplitAStageIntoParts(t *testing.T) {
 		}
 	}
 }
+
+// A part's session title fits the protocol's limit whatever the lengths of
+// the pipeline's and the part's names, and keeps the stage and the part.
+func TestAPartsSessionTitleFitsTheLimit(t *testing.T) {
+	long := strings.Repeat("Pipeline name ", 6)[:80]
+	for _, kind := range []string{"code", "review", "design"} {
+		got := partTitle(long, kind, strings.Repeat("p", 60))
+		if n := len([]rune(got)); n > 80 || !strings.Contains(got, " · "+kind+": ") || !strings.HasSuffix(got, "…") {
+			t.Fatalf("%s: %d runes: %q", kind, n, got)
+		}
+	}
+	if got := partTitle("Export API", "code", "Ledger query"); got != "Export API · code: Ledger query" {
+		t.Fatalf("short: %q", got)
+	}
+	// Counted in characters, not bytes.
+	if got := partTitle(strings.Repeat("é", 80), "code", "Ünïcödé"); len([]rune(got)) > 80 {
+		t.Fatalf("accents: %d", len([]rune(got)))
+	}
+}

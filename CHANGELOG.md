@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a stage can be split into parts by hand, and a part added, in the
+  outcome dialog and in Add pipelines; an MCP client can split a stage too.
+- Factory: a tier can have up to three backups, tried in order, and a Cline
+  backup its own billing source. A stage whose agent stops with its plan
+  below your figure is run again on its backup, once; a working agent is
+  never interrupted. Add pipelines can leave a tier's backups off.
+
 - Factory: Gaffer can split a stage into parts of different work, each with
   its own brief and tier, so each part runs on the agent that suits it. Parts
   run one after another, each in a session of its own. You see and edit the

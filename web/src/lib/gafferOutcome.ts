@@ -242,7 +242,11 @@ export const STAGES = [
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
 export type CrewTier = 'heavy' | 'standard' | 'light'
-export type Crew = Record<CrewTier, { tool: string; model: string; effort?: string; source?: string; /** The tier's second choice, used when the first choice's plan is running low. An empty tool is no backup. */ backup?: { tool: string; model: string; effort?: string } }>
+export type Crew = Record<CrewTier, { tool: string; model: string; effort?: string; source?: string; /** The tier's second choice, used when the first choice's plan is running low. An empty tool is no backup. */ backup?: CrewSpare; /** Further backups, tried in order after the first. */ more?: CrewSpare[] }>
+/** One backup of a tier. `source` is the billing source a Cline backup starts on. */
+export type CrewSpare = { tool: string; model: string; effort?: string; source?: string }
+/** How many backups a tier can have. */
+export const MAX_BACKUPS = 3
 /** How much of a plan must be left, in its tightest window, for a stage to stay on its first choice. */
 export const BALANCE_LOW_PERCENT = 20
 /** The least and most a person may choose for that share. */
@@ -284,6 +288,28 @@ export function withPart(ratings: StageRatings | undefined, kind: string, index:
   if (list.length > 1) parts[kind] = list; else delete parts[kind]
   return parts
 }
+/** Whether a kind of stage can be split: the pull request, its babysitting and the merge are each one thing. */
+export const stageTakesParts = (kind: string): boolean => ['plan', 'design', 'code', 'review', 'test'].includes(kind)
+/** The parts after the person splits a stage by hand, or adds a part to one already split. A stage starts as two
+ *  parts on the tier the stage was on, named and briefed by the person; a split holds at most MAX_STAGE_PARTS. */
+export function withNewPart(ratings: StageRatings | undefined, kind: string): Record<string, StagePart[]> {
+  const parts = { ...(ratings?.parts ?? {}) }, have = stageParts(ratings, kind), tier = stageTier(kind, ratings).tier
+  if (!stageTakesParts(kind) || have.length >= MAX_STAGE_PARTS) return parts
+  const blank = (n: number): StagePart => ({ title: `Part ${n}`, brief: '', tier })
+  parts[kind] = have.length ? [...have, blank(have.length + 1)] : [blank(1), blank(2)]
+  return parts
+}
+/** Why a plan's parts cannot be sent yet: every part needs a name of its own and a brief. Empty when they can. */
+export function partsBlocker(sessions: { title: string; stages?: string[]; parts?: Record<string, StagePart[]> }[]): string {
+  for (const item of sessions) for (const kind of item.stages ?? []) {
+    const parts = stageParts(item, kind)
+    if (parts.length < 2) continue
+    const names = parts.map(part => part.title.trim())
+    if (names.some(name => !name) || parts.some(part => !part.brief.trim())) return `Give every part of the ${stageLabel(kind).toLowerCase()} stage of “${item.title.trim() || 'a pipeline'}” a name and a brief saying what it does.`
+    if (new Set(names).size !== names.length) return `Two parts of the ${stageLabel(kind).toLowerCase()} stage of “${item.title.trim() || 'a pipeline'}” have the same name.`
+  }
+  return ''
+}
 /** The parts with a stage done as one again. */
 export function withoutParts(ratings: StageRatings | undefined, kind: string): Record<string, StagePart[]> {
   const parts = { ...(ratings?.parts ?? {}) }
@@ -314,18 +340,28 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
   return STAGES.filter(stage => chosen.has(stage.kind)).map(stage => stage.kind)
 }
 
+/** A backup as it is sent with a stage. */
+export type SentSpare = { tool: string; model?: string; effort?: string; provider?: string }
 /** What is sent for one pipeline: each chosen stage with its tier and the agent and model of the crew member for that
  *  tier. Gaffer's reason goes with a tier that is Gaffer's. A Cline stage carries its chosen billing source when the
  *  machine takes one; empty is Cline's own choice and is left out. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string; backup?: { tool: string; model?: string; effort?: string }; part?: string; brief?: string }[] {
+export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string; backup?: SentSpare; moreBackups?: SentSpare[]; part?: string; brief?: string }[] {
   // A split stage is sent as one entry for each part, in order, each on its own tier's agent.
   const entries = orderStages(kinds).flatMap(kind => { const parts = stageParts(ratings, kind); return parts.length > 1 ? parts.map(part => ({ kind, part })) : [{ kind, part: undefined as StagePart | undefined }] })
   return entries.map(({ kind, part }) => {
     const { tier, why } = part ? { tier: part.tier, why: part.why ?? '' } : stageTier(kind, ratings), member = crew[tier]
     const source = sourceSupported && member.tool === 'cline' ? (member.source ?? '').trim() : ''
-    // A backup that is the first choice again is no backup.
-    const spare = member.backup?.tool && (member.backup.tool !== member.tool || member.backup.model.trim() !== member.model.trim() || (member.backup.effort ?? '') !== (member.effort ?? '')) ? member.backup : undefined
-    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}), ...(part ? { part: part.title.trim(), brief: part.brief.trim() } : {}), ...(spare ? { backup: { tool: spare.tool, ...(spare.model.trim() ? { model: spare.model.trim() } : {}), ...(spare.effort ? { effort: spare.effort } : {}) } } : {}) }
+    // A backup that is the first choice again, or one given twice, is no backup. They are sent in the order they are tried.
+    const spares: SentSpare[] = []
+    for (const one of [member.backup, ...(member.more ?? [])]) {
+      if (!one?.tool || spares.length >= MAX_BACKUPS) continue
+      const cline = sourceSupported && one.tool === 'cline' ? (one.source ?? '').trim() : ''
+      const sent: SentSpare = { tool: one.tool, ...(one.model.trim() ? { model: one.model.trim() } : {}), ...(one.effort ? { effort: one.effort } : {}), ...(cline ? { provider: cline } : {}) }
+      const same = (a: SentSpare) => a.tool === sent.tool && (a.model ?? '') === (sent.model ?? '') && (a.effort ?? '') === (sent.effort ?? '') && (a.provider ?? '') === (sent.provider ?? '')
+      if (same({ tool: member.tool, ...(member.model.trim() ? { model: member.model.trim() } : {}), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}) }) || spares.some(same)) continue
+      spares.push(sent)
+    }
+    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}), ...(part ? { part: part.title.trim(), brief: part.brief.trim() } : {}), ...(spares.length ? { backup: spares[0] } : {}), ...(spares.length > 1 ? { moreBackups: spares.slice(1) } : {}) }
   })
 }
 

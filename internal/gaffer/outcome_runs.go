@@ -137,6 +137,8 @@ type OutcomeStageInput struct {
 	// Backup is the person's second choice for the stage, used when the
 	// first choice's plan is running low and the backup's has more left.
 	Backup *store.GafferStageAgent `json:"backup,omitempty"`
+	// More are further backups, tried in order after Backup.
+	More []store.GafferStageAgent `json:"moreBackups,omitempty"`
 	// Part and Brief make this entry one part of a split stage: its short
 	// name and what it is to do. Entries of one kind that carry a part sit
 	// together and run in order, each on its own tier's agent.
@@ -151,6 +153,24 @@ const (
 	MaxPipelineStages = 16
 	maxPartBriefBytes = 1200
 )
+
+// partTitle names the session of one part of a split stage: the pipeline,
+// the stage and the part, within the protocol's limit for a session title
+// whatever the lengths of the three. The pipeline's name gives way first.
+func partTitle(pipeline, kind, part string) string {
+	clip := func(text string, max int) string {
+		runes := []rune(text)
+		if len(runes) <= max {
+			return text
+		}
+		if max < 1 {
+			return ""
+		}
+		return strings.TrimSpace(string(runes[:max-1])) + "…"
+	}
+	tail := " · " + kind + ": " + clip(part, 30)
+	return clip(pipeline, terminalproto.MaxTitleRunes-len([]rune(tail))) + tail
+}
 
 // stageTakesParts reports whether a kind of stage can be split. The pull
 // request, its babysitting and the merge are each one thing.
@@ -494,7 +514,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			}
 			last = at
 			stageTool, stageModel, stageProvider, stageEffort := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider), stage.Effort
-			second := stage.Backup
+			second, others := stage.Backup, stage.More
 			// How demanding the stage is: what Gaffer or the person said, else
 			// its kind's default. It is kept with the stage either way.
 			tier, why := stage.Tier, strings.TrimSpace(stage.TierWhy)
@@ -511,7 +531,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 				if member := crew.Tier(tier); member.Tool != "" {
 					stageTool, stageModel, stageEffort, stageProvider = member.Tool, member.Model, member.Effort, member.Provider
 					// The tier's backup comes with it.
-					second = member.Backup
+					second, others = member.Backup, member.More
 				} else {
 					stageTool, stageModel = tool, model
 					if stageProvider == "" {
@@ -531,7 +551,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
 				return nil, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
 			}
-			backup, err := stageBackup(second, stageTool, stageModel, stageEffort, stageProvider)
+			backup, more, err := stageBackups(second, others, stageTool, stageModel, stageEffort, stageProvider)
 			if err != nil {
 				return nil, err
 			}
@@ -539,7 +559,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, Tier: tier, TierWhy: why, Part: part, Brief: brief, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -556,8 +576,8 @@ func stageAgents(stage store.GafferOutcomeStage) []string {
 	if stage.First != nil {
 		tools = append(tools, stage.First.Tool)
 	}
-	if stage.Backup != nil {
-		tools = append(tools, stage.Backup.Tool)
+	for _, spare := range store.Spares(stage.Backup, stage.More) {
+		tools = append(tools, spare.Tool)
 	}
 	return tools
 }
@@ -740,6 +760,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 		return
 	}
 	s.releaseGoneSessions()
+	s.rebalanceStopped(ctx)
 	s.autoReports(ctx)
 	s.autoDecisions(ctx)
 	s.expirePendingTools()
@@ -1204,7 +1225,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		goal = StageGoal(o.Objective, item.Title, stage.Kind)
 		if stage.Part != "" {
 			// One part of a split stage: Gaffer follows it against the part's own brief.
-			launch.Title = clipBytes(item.Title, 44) + " · " + stage.Kind + ": " + clipBytes(stage.Part, 30)
+			launch.Title = partTitle(item.Title, stage.Kind, stage.Part)
 			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 600) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
 		}
 		// The merge gate holds on every path into the merge stage, not only on
@@ -1224,6 +1245,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 						if row := &o.Sessions[i]; row.Key == item.Key && row.Stage == at && at < len(row.Stages) && row.Stages[at].RequestID == stage.RequestID {
 							row.Stages[at].Tool, row.Stages[at].Model, row.Stages[at].Effort, row.Stages[at].Provider = next.Tool, next.Model, next.Effort, next.Provider
 							row.Stages[at].First, row.Stages[at].Balanced = next.First, next.Balanced
+							row.Stages[at].Rebalanced = row.Stages[at].Rebalanced || next.Rebalanced
 							return true
 						}
 					}

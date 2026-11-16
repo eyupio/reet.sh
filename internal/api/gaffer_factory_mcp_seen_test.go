@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -193,4 +194,63 @@ func TestFactoryMCPPipelinesCarryStageTiers(t *testing.T) {
 			t.Fatalf("accepted tiers %v", bad)
 		}
 	}
+}
+
+// An MCP client can split a stage into parts: they replace the stage, in
+// order, and take the stage's tier unless they give their own.
+func TestFactoryMCPPipelinesCanSplitAStage(t *testing.T) {
+	t.Parallel()
+	got, err := mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code", "pr"}, "tiers": map[string]any{"code": "heavy"},
+		"parts": []any{map[string]any{"stage": "code", "title": "Query", "brief": "Write the query."}, map[string]any{"stage": "code", "title": "Button", "brief": "Add the button.", "tier": "light"}}}})
+	if err != nil || len(got[0].Stages) != 3 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	st := got[0].Stages
+	if st[0].Part != "Query" || st[0].Tier != "heavy" || st[0].Brief != "Write the query." || st[1].Part != "Button" || st[1].Tier != "light" || st[2].Kind != "pr" || st[2].Part != "" {
+		t.Fatalf("stages: %+v", st)
+	}
+	for name, parts := range map[string][]any{
+		"one part":         {map[string]any{"stage": "code", "title": "Query", "brief": "b"}},
+		"a stage it lacks": {map[string]any{"stage": "design", "title": "A", "brief": "a"}, map[string]any{"stage": "design", "title": "B", "brief": "b"}},
+	} {
+		if _, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code"}, "parts": parts}}); err == nil {
+			t.Fatalf("accepted: %s", name)
+		}
+	}
+}
+
+// The exported schema lets a client give a tier for some stages only: no
+// stage is required, as the tool's own description says.
+func TestTheStartToolsTiersAreAPartialRecord(t *testing.T) {
+	t.Parallel()
+	for _, tool := range mcpToolDefinitions {
+		if tool.Name != "reet_start_outcome" {
+			continue
+		}
+		raw, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema struct {
+			Properties struct {
+				Pipelines struct {
+					Items struct {
+						Properties struct {
+							Tiers struct {
+								Required []string `json:"required"`
+							} `json:"tiers"`
+						} `json:"properties"`
+					} `json:"items"`
+				} `json:"pipelines"`
+			} `json:"properties"`
+		}
+		if err = json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		if got := schema.Properties.Pipelines.Items.Properties.Tiers.Required; len(got) != 0 {
+			t.Fatalf("tiers requires %v", got)
+		}
+		return
+	}
+	t.Fatal("reet_start_outcome is not exported")
 }

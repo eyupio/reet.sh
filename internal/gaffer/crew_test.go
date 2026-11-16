@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,10 +69,10 @@ func TestTheCrewIsSavedPerAccountAndChecked(t *testing.T) {
 		Heavy:    store.GafferCrewTier{Tool: "claude", Model: "opus", Effort: "high"},
 	}
 	saved, err := s.SaveCrew(p.UserID, crew)
-	if err != nil || !saved.Saved() || saved.Heavy != crew.Heavy || saved.UpdatedAt == 0 {
+	if err != nil || !saved.Saved() || !reflect.DeepEqual(saved.Heavy, crew.Heavy) || saved.UpdatedAt == 0 {
 		t.Fatalf("saved: %+v %v", saved, err)
 	}
-	if again, err := s.Crew(p.UserID); err != nil || again.Light != crew.Light || again.Standard != crew.Standard {
+	if again, err := s.Crew(p.UserID); err != nil || !reflect.DeepEqual(again.Light, crew.Light) || !reflect.DeepEqual(again.Standard, crew.Standard) {
 		t.Fatalf("read back: %+v %v", again, err)
 	}
 	other, err := st.CreateUser("crew-other@example.test", "Other", "member", "hash")

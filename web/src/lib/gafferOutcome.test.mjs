@@ -466,3 +466,29 @@ test('a split stage is sent as one entry for each part, on that part’s own tie
   const nodes = o.track({ state: 'following', stage: 1, stages: [{ kind: 'code', part: 'Ledger query', tool: 'claude', state: 'done' }, { kind: 'code', part: 'Download button', tool: 'codex', state: 'running' }, { kind: 'review', tool: 'claude', state: 'pending' }] })
   assert.deepEqual(nodes.map(n => [n.key, n.label, n.state]), [['code:0', 'Code: Ledger query', 'done'], ['code:1', 'Code: Download button', 'running'], ['review:2', 'Review', 'pending']])
 })
+
+test('a stage can be split by hand, and its parts need names and briefs before they are sent', () => {
+  const two = o.withNewPart({ tiers: { code: 'heavy' } }, 'code')
+  assert.deepEqual(two.code, [{ title: 'Part 1', brief: '', tier: 'heavy' }, { title: 'Part 2', brief: '', tier: 'heavy' }])
+  const three = o.withNewPart({ parts: two }, 'code')
+  assert.equal(three.code.length, 3)
+  // At most four, and never the pull request, babysitting or merge.
+  assert.equal(o.withNewPart({ parts: { code: [1, 2, 3, 4].map(n => ({ title: `P${n}`, brief: 'b', tier: 'standard' })) } }, 'code').code.length, 4)
+  assert.deepEqual(o.withNewPart(undefined, 'merge'), {})
+  assert.equal(o.stageTakesParts('review'), true)
+  const item = { title: 'Export', stages: ['code', 'pr'], parts: two }
+  assert.match(o.partsBlocker([item]), /Give every part of the code stage of “Export” a name and a brief/)
+  const filled = { ...item, parts: { code: two.code.map((part, n) => ({ ...part, brief: `Do ${n}.` })) } }
+  assert.equal(o.partsBlocker([filled]), '')
+  assert.match(o.partsBlocker([{ ...filled, parts: { code: filled.parts.code.map(part => ({ ...part, title: 'Same' })) } }]), /have the same name/)
+})
+
+test('a tier’s backups are sent in order, without repeats, and a Cline backup carries its source', () => {
+  const crew = { heavy: { tool: 'claude', model: 'opus', backup: { tool: 'codex', model: 'big' }, more: [{ tool: 'cline', model: '', source: 'openrouter' }, { tool: 'codex', model: 'big' }, { tool: 'claude', model: 'opus' }] }, standard: { tool: 'claude', model: '' }, light: { tool: 'claude', model: '', backup: { tool: '', model: '' }, more: [{ tool: 'codex', model: '' }] } }
+  const plan = o.stagePlan(['review', 'pr'], crew)
+  assert.deepEqual(plan[0].backup, { tool: 'codex', model: 'big' })
+  assert.deepEqual(plan[0].moreBackups, [{ tool: 'cline', provider: 'openrouter' }])
+  // A first backup left empty does not hide the one after it.
+  assert.deepEqual([plan[1].backup, plan[1].moreBackups], [{ tool: 'codex' }, undefined])
+  assert.equal(o.MAX_BACKUPS, 3)
+})

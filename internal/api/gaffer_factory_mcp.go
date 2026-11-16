@@ -57,10 +57,45 @@ func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
 				piece.Stages = append(piece.Stages, gaffer.OutcomeStageInput{Kind: kind})
 			}
 		}
+		// A stage can be split into named parts, each with a brief and, if it
+		// differs, a tier. The parts replace the stage, in the order given.
+		if list, ok := item["parts"].([]any); ok && len(list) > 0 {
+			split, order := map[string][]gaffer.OutcomeStageInput{}, []string{}
+			for _, entry := range list {
+				part, _ := entry.(map[string]any)
+				kind, _ := part["stage"].(string)
+				name, _ := part["title"].(string)
+				brief, _ := part["brief"].(string)
+				tier, _ := part["tier"].(string)
+				if len(split[kind]) == 0 {
+					order = append(order, kind)
+				}
+				split[kind] = append(split[kind], gaffer.OutcomeStageInput{Kind: kind, Part: name, Brief: brief, Tier: tier})
+			}
+			for _, kind := range order {
+				at := -1
+				for i := range piece.Stages {
+					if piece.Stages[i].Kind == kind {
+						at = i
+					}
+				}
+				if at < 0 || len(split[kind]) < 2 {
+					return nil, errors.New("“" + title + "” splits a \"" + kind + "\" stage it does not have, or gives it only one part. A split is two to four parts of a stage the pipeline runs.")
+				}
+				for i := range split[kind] {
+					if split[kind][i].Tier == "" {
+						if tier, ok := tiers[kind].(string); ok {
+							split[kind][i].Tier = tier
+						}
+					}
+				}
+				piece.Stages = append(piece.Stages[:at], append(split[kind], piece.Stages[at+1:]...)...)
+			}
+		}
 		named := map[string]bool{}
 		for i := range piece.Stages {
 			named[piece.Stages[i].Kind] = true
-			if tier, ok := tiers[piece.Stages[i].Kind].(string); ok {
+			if tier, ok := tiers[piece.Stages[i].Kind].(string); ok && piece.Stages[i].Part == "" {
 				piece.Stages[i].Tier = tier
 			}
 		}

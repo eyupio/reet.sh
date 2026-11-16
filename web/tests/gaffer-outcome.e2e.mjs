@@ -166,6 +166,15 @@ try {
       await below.fill('35');await below.blur();await expect(outcome).toContainText('under 35% left in its tightest window')
       expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await outcome.locator('details.crew').screenshot({path:`${shots}/gaffer-outcome-backup-${width}-${theme}.png`})
+      // A tier can have further backups, tried in order: up to three in all. One is added and then removed again.
+      await spare.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
+      // A further backup starts on another agent than the one before it.
+      await expect(spare.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true})).not.toHaveValue('')
+      await spare.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
+      await expect(spare.getByRole('button',{name:'Add another backup for Heavy',exact:true})).toHaveCount(0)
+      await spare.getByRole('combobox',{name:'Heavy backup 3 agent',exact:true}).selectOption('')
+      await spare.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true}).selectOption('')
+      await expect(spare.getByRole('combobox',{name:/^Heavy backup \d agent$/})).toHaveCount(0)
       // Saved with the crew, the backup comes back for the next outcome.
       await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
       await expect.poll(()=>f.box.crewSaves.length).toBe(2)
@@ -213,6 +222,20 @@ try {
       await expect(part2.getByRole('combobox',{name:'Part 2 tier',exact:true})).toHaveValue('standard')
       await part2.getByRole('textbox',{name:'Part 2 brief',exact:true}).fill('Draw the empty state, with the illustration.')
       await expect(split.getByRole('button',{name:'Do Code in pipeline 2 as one stage',exact:true})).toBeVisible()
+      // A stage can also be split by hand: it starts as two parts on the stage's own tier, and a part can be added.
+      // Parts need a name and a brief before the plan can be approved; doing the stage as one again clears that.
+      await tiers2.getByRole('button',{name:'Split Review in pipeline 2 into parts',exact:true}).click()
+      const mine=tiers2.getByRole('group',{name:'Review parts in pipeline 2',exact:true})
+      await expect(mine.getByRole('group',{name:/^Part \d of Review in pipeline 2$/})).toHaveCount(2)
+      await expect(mine.getByRole('combobox',{name:'Part 1 tier',exact:true})).toHaveValue('heavy')
+      await mine.getByRole('button',{name:'Add a part to Review in pipeline 2',exact:true}).click()
+      await expect(mine.getByRole('group',{name:/^Part \d of Review in pipeline 2$/})).toHaveCount(3)
+      await expect(outcome.getByRole('status').filter({hasText:'Give every part'})).toHaveText('Give every part of the review stage of “Export button” a name and a brief saying what it does.')
+      await expect(outcome.getByRole('button',{name:/^Approve and start/})).toBeDisabled()
+      await mine.getByRole('button',{name:'Do Review in pipeline 2 as one stage',exact:true}).click()
+      await expect(mine).toHaveCount(0);await expect(outcome.getByRole('status').filter({hasText:'Give every part'})).toHaveCount(0)
+      // The pull request, babysitting and merge are never split.
+      await expect(tiers2.getByRole('button',{name:/^Split (PR|Babysit|Merge) in pipeline 2/})).toHaveCount(0)
       await expect(outcome.getByText('6 stages, 1 split into parts: 7 agent sessions in all, one after another.',{exact:true})).toBeVisible()
       await split.scrollIntoViewIfNeeded();expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await split.screenshot({path:`${shots}/gaffer-outcome-parts-${width}-${theme}.png`})

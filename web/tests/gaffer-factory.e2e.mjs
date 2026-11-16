@@ -256,6 +256,15 @@ try {
       await expect(add.getByText('2 stages, each in an agent session of its own.',{exact:false})).toBeVisible()
       // The light tier's backup comes from the saved crew and is said, not edited here.
       await expect(add.getByRole('group',{name:'Light crew for Changelog entry',exact:true})).toContainText('Backup from your crew: Codex · gpt-small')
+      // It can be left off this pipeline, and put back.
+      const kept=add.getByRole('checkbox',{name:'Backup from your crew: Codex · gpt-small',exact:true})
+      await expect(kept).toBeChecked();await kept.uncheck();await kept.check()
+      // A stage of an added pipeline can be split into parts too; undone here, so the pipeline is added whole.
+      await add.getByRole('button',{name:'Split Code of Changelog entry into parts',exact:true}).click()
+      await expect(add.getByRole('group',{name:'Code parts in Changelog entry',exact:true}).getByRole('group',{name:/^Part \d of Code in Changelog entry$/})).toHaveCount(2)
+      await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeDisabled()
+      await add.getByRole('button',{name:'Do Code in Changelog entry as one stage',exact:true}).click()
+      await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeEnabled()
       await expect(add.getByRole('group',{name:'Standard crew for Changelog entry',exact:true})).not.toContainText('Backup from your crew')
       expect(await add.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await add.screenshot({path:`${shots}/gaffer-factory-add-${width}-${theme}.png`})
@@ -427,12 +436,15 @@ try {
       await expect(below).toHaveValue('20');await below.fill('3');await below.blur();await expect(below).toHaveValue('5');await below.fill('30')
       const who=crew.getByRole('radiogroup',{name:'Who decides by default',exact:true})
       await expect(who.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked();await who.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+      // A tier can have a second backup, tried after the first.
+      await heavy.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
+      await heavy.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true}).selectOption('opencode')
       await expect(crew).toContainText('an outcome started any other way, such as over MCP, is never given to Gaffer by this.')
       expect(await crew.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
       await crew.getByRole('button',{name:'Save crew',exact:true}).click()
       await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
-      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''}},standard:{},light:{},balanceBelow:30,gafferDecides:true}])
+      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

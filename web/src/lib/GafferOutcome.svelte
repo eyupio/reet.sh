@@ -21,7 +21,8 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, type StagePart } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS } from './gafferOutcome'
+  import StageParts from './factory/StageParts.svelte'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
   import { cloneForStart } from './cloneForStart'
@@ -55,11 +56,14 @@
   // The crew: which agent and model does the thinking, the building and the shipping stages of every pipeline.
   let crew = $state<Crew>({ heavy: { tool: '', model: '' }, standard: { tool: '', model: '' }, light: { tool: '', model: '' } })
   // Each tier's backup: who does its stages when the first choice's plan is running low. An empty agent is no backup.
-  let backups = $state<Record<'heavy' | 'standard' | 'light', { tool: string; model: string; effort: string }>>({ heavy: { tool: '', model: '', effort: '' }, standard: { tool: '', model: '', effort: '' }, light: { tool: '', model: '', effort: '' } })
+  type Spare = { tool: string; model: string; effort: string; source?: string }
+  let backups = $state<Record<'heavy' | 'standard' | 'light', Spare>>({ heavy: { tool: '', model: '', effort: '' }, standard: { tool: '', model: '', effort: '' }, light: { tool: '', model: '', effort: '' } })
+  // Further backups of a tier, tried in order after the first: up to MAX_BACKUPS in all.
+  let more = $state<Record<'heavy' | 'standard' | 'light', Spare[]>>({ heavy: [], standard: [], light: [] })
   // The share of the first choice's plan under which a backup takes over. The person's to set; saved with the crew.
   let balanceBelow = $state<number | string>(BALANCE_LOW_PERCENT)
   const anyBackup = $derived(CREW_TIERS.some(item => !!backups[item.tier].tool))
-  const crewSent = $derived<Crew>({ heavy: { ...crew.heavy, backup: backups.heavy }, standard: { ...crew.standard, backup: backups.standard }, light: { ...crew.light, backup: backups.light } })
+  const crewSent = $derived<Crew>({ heavy: { ...crew.heavy, backup: backups.heavy, more: more.heavy }, standard: { ...crew.standard, backup: backups.standard, more: more.standard }, light: { ...crew.light, backup: backups.light, more: more.light } })
   let autoMerge = $state(false)
   // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
   let autoReport = $state(false)
@@ -117,7 +121,7 @@
   }
   const crewTools = $derived(CREW_TIERS.map(item => crew[item.tier].tool))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
-  const approveBlocker = $derived(planBlocker(sessions, room) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
+  const approveBlocker = $derived(planBlocker(sessions, room) || partsBlocker(sessions) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   const sourceOffered = $derived.by(() => {
     const ids = KNOWN_SOURCES.map(item => item.id)
     if (savedSource && !ids.includes(savedSource)) ids.push(savedSource)
@@ -151,17 +155,24 @@
         crew[item.tier] = { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
         if (member.provider) crewSourceExplicit[item.tier] = true
         // A saved backup this machine cannot run is left out, like a saved first choice.
-        if (member.backup?.tool && tools.includes(member.backup.tool)) backups[item.tier] = { tool: member.backup.tool, model: member.backup.model ?? '', effort: member.backup.effort ?? '' }
+        const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
+        if (spares.length) { backups[item.tier] = spares[0]; more[item.tier] = spares.slice(1, MAX_BACKUPS) }
         used++
       }
       if (saved.balanceBelow) balanceBelow = balancePercent(saved.balanceBelow)
       if (used) crewNote = 'Started from your saved crew.'
     })
   })
+  // A tier's backups as the saved crew holds them: the first, then any further ones, each with its Cline source.
+  const sentSpare = (one: Spare) => ({ tool: one.tool, model: one.model.trim(), effort: one.effort, ...(one.tool === 'cline' && one.source ? { provider: one.source } : {}) })
+  function spareFields(tier: 'light' | 'standard' | 'heavy') {
+    const list = [backups[tier], ...more[tier]].filter(one => one.tool).map(sentSpare)
+    return list.length ? { backup: list[0], ...(list.length > 1 ? { moreBackups: list.slice(1) } : {}) } : {}
+  }
   async function rememberCrew() {
     crewSaving = true; crewNote = ''
     try {
-      const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}), ...(backups[tier].tool ? { backup: { tool: backups[tier].tool, model: backups[tier].model.trim(), effort: backups[tier].effort } } : {}) })
+      const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}), ...spareFields(tier) })
       // What was just saved is what is on screen: there is nothing to apply again.
       crewApplied = true
       savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy'), balanceBelow: balancePercent(balanceBelow), gafferDecides: !!savedCrew?.gafferDecides })).crew
@@ -399,10 +410,19 @@
                 {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
                 <div class="crew-backup" role="group" aria-label={`${item.label} backup`}>
                   <span class="crew-slot">Backup</span>
-                  <select aria-label={`${item.label} backup agent`} bind:value={backups[item.tier].tool} disabled={planning || !tools.length} onchange={() => { backups[item.tier].model = ''; backups[item.tier].effort = '' }}><option value="">No backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                  <select aria-label={`${item.label} backup agent`} bind:value={backups[item.tier].tool} disabled={planning || !tools.length} onchange={() => { backups[item.tier].model = ''; backups[item.tier].effort = ''; backups[item.tier].source = ''; if (!backups[item.tier].tool) more[item.tier] = [] }}><option value="">No backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                   {#if backups[item.tier].tool}
                     <GafferModelSelect label={`${item.label} backup model`} tool={backups[item.tier].tool} bind:value={backups[item.tier].model} machine={offeredFor(backups[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                     <select aria-label={`${item.label} backup effort`} bind:value={backups[item.tier].effort} disabled={planning || efforts(backups[item.tier].tool).length < 2}>{#each efforts(backups[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(backups[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                    {#if backups[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} backup source`} value={backups[item.tier].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => backups[item.tier].source = next} onsaved={next => savedSource = next} /></div>{/if}
+                    {#each more[item.tier] as extra, n (n)}
+                      <span class="crew-slot">Then</span>
+                      <select aria-label={`${item.label} backup ${n + 2} agent`} bind:value={extra.tool} disabled={planning} onchange={() => { if (!extra.tool) more[item.tier] = more[item.tier].filter((_, at) => at !== n); else { extra.model = ''; extra.effort = ''; extra.source = '' } }}><option value="">Remove this backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                      <GafferModelSelect label={`${item.label} backup ${n + 2} model`} tool={extra.tool} bind:value={extra.model} machine={offeredFor(extra.tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
+                      <select aria-label={`${item.label} backup ${n + 2} effort`} bind:value={extra.effort} disabled={planning || efforts(extra.tool).length < 2}>{#each efforts(extra.tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(extra.tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                      {#if extra.tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} backup ${n + 2} source`} value={extra.source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => extra.source = next} onsaved={next => savedSource = next} /></div>{/if}
+                    {/each}
+                    {#if more[item.tier].length < MAX_BACKUPS - 1}<button class="link crew-more" type="button" disabled={planning} aria-label={`Add another backup for ${item.label}`} onclick={() => more[item.tier] = [...more[item.tier], { tool: tools.find(id => id !== backups[item.tier].tool) ?? tools[0] ?? '', model: '', effort: '' }]}>Add another backup</button>{/if}
                   {:else}<span class="crew-none">Stages stay on the first choice.</span>{/if}
                 </div>
               </div>{/each}
@@ -455,22 +475,14 @@
           </div>
           {#if item.stages?.length}<div class="stage-tiers" role="group" aria-label={`Pipeline ${index + 1} stage tiers`}>
             {#each item.stages as kind (kind)}{@const split = stageParts(item, kind)}{#if split.length > 1}
-            <div class="stage-split" role="group" aria-label={`${stageLabel(kind)} parts in pipeline ${index + 1}`} data-stage={kind}>
-              <p class="split-head"><span class="stage-name">{stageLabel(kind)}</span><span class="split-count">Split into {split.length} parts, done in this order, each by its own agent.</span><button class="link" type="button" disabled={busy} aria-label={`Do ${stageLabel(kind)} in pipeline ${index + 1} as one stage`} onclick={() => item.parts = withoutParts(item, kind)}>Do as one stage</button></p>
-              {#each split as part, at (at)}{@const who = crew[part.tier]}<div class="split-part" role="group" aria-label={`Part ${at + 1} of ${stageLabel(kind)} in pipeline ${index + 1}`}>
-                <span class="part-no" aria-hidden="true">{at + 1}</span>
-                <input aria-label={`Part ${at + 1} name`} value={part.title} maxlength="60" disabled={busy} oninput={event => item.parts = withPart(item, kind, at, { title: event.currentTarget.value })}/>
-                <select aria-label={`Part ${at + 1} tier`} value={part.tier} disabled={busy} onchange={event => item.parts = withPart(item, kind, at, { tier: event.currentTarget.value as StagePart['tier'] })}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
-                <button class="link part-remove" type="button" disabled={busy} aria-label={`Remove part ${at + 1} of ${stageLabel(kind)} in pipeline ${index + 1}`} onclick={() => item.parts = withPart(item, kind, at, null)}>Remove</button>
-                <textarea aria-label={`Part ${at + 1} brief`} rows="2" maxlength="1000" value={part.brief} disabled={busy} oninput={event => item.parts = withPart(item, kind, at, { brief: event.currentTarget.value })}></textarea>
-                <span class="stage-who">{who.tool ? chatToolName(who.tool) : 'No agent'}{who.model.trim() ? ` · ${who.model.trim()}` : ''}{who.effort ? ` · ${who.effort} effort` : ''}{#if part.why}<span class="stage-spare"><strong>Gaffer’s assessment.</strong> {part.why}</span>{/if}</span>
-              </div>{/each}
-            </div>
+            <StageParts {kind} where={`pipeline ${index + 1}`} parts={split} {busy} who={tier => { const one = crew[tier]; return `${one.tool ? chatToolName(one.tool) : 'No agent'}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }}
+              onchange={(at, next) => item.parts = withPart(item, kind, at, next)} onadd={() => item.parts = withNewPart(item, kind)} onjoin={() => item.parts = withoutParts(item, kind)}/>
             {:else}{@const rated = stageTier(kind, item)}{@const member = crew[rated.tier]}
             <div class="stage-tier" class:changed={rated.changed} data-stage={kind}>
               <span class="stage-name">{stageLabel(kind)}</span>
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
               <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ''}{member.effort ? ` · ${member.effort} effort` : ''}{#if backups[rated.tier].tool}<span class="stage-spare">Backup: {chatToolName(backups[rated.tier].tool)}{backups[rated.tier].model.trim() ? ` · ${backups[rated.tier].model.trim()}` : ''}{backups[rated.tier].effort ? ` · ${backups[rated.tier].effort} effort` : ''}</span>{/if}</span>
+              {#if stageTakesParts(kind)}<button class="link stage-splitter" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} in pipeline ${index + 1} into parts`} onclick={() => item.parts = withNewPart(item, kind)}>Split into parts</button>{/if}
               {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
             </div>{/if}{/each}
           </div>{/if}
@@ -554,18 +566,16 @@
   .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.875rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
   .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.crew-slot{align-self:start;line-height:44px;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-none{grid-column:3/-1;align-self:start;line-height:44px;font-size:0.875rem;color:var(--muted)}.crew-row select{width:100%;min-width:0}
   .balance{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.balance label{font-weight:600;line-height:1.3}.percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--ink)}.percent input{width:5.5rem;min-height:44px;text-align:right;font-variant-numeric:tabular-nums}.balance+.hint{margin-top:8px}@media(max-width:479px){.balance{grid-template-columns:1fr}}
-  .stage-spare{display:block;color:var(--muted)}
-  .stage-split{display:grid;gap:8px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--tint)}.split-head{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}.split-count{color:var(--muted);font-size:0.875rem;flex:1 1 12rem}
-  .split-part{display:grid;grid-template-columns:1.75rem minmax(0,1fr) 8rem auto;gap:6px 10px;align-items:center;padding:8px;border:1px solid var(--line-soft);border-radius:8px;background:var(--card)}.part-no{width:1.75rem;height:1.75rem;border-radius:999px;display:grid;place-items:center;font-weight:700;font-size:0.875rem;border:1px solid var(--line);color:var(--muted)}.split-part input,.split-part select{min-height:44px;min-width:0;width:100%}.split-part textarea{grid-column:2/-1;min-width:0;width:100%;resize:vertical}.split-part .stage-who{grid-column:2/-1}.part-remove{min-height:44px}
-  @media(max-width:479px){.split-part{grid-template-columns:1.75rem minmax(0,1fr)}.split-part select,.split-part textarea,.split-part .stage-who,.part-remove{grid-column:2}.part-remove{order:5;justify-self:start}}
+  .crew-more{grid-column:2/-1;justify-self:start;min-height:44px;font-size:0.875rem}
+  .stage-spare{display:block;color:var(--muted)}.stage-splitter{font-size:0.875rem;white-space:nowrap}
   .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1.25fr) minmax(0,1.05fr);gap:8px 10px;align-items:start}.crew-row+.crew-row{padding-top:12px;border-top:1px solid var(--line)}.crew-source{grid-column:2/-1}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   /* Each chosen stage with its tier and who that means. One the plan or the person moved off its default is marked, with why. */
-  .stage-tiers{margin:8px 0 0;display:grid;gap:6px}.stage-tier{display:grid;grid-template-columns:5.5rem 8rem minmax(0,1fr);align-items:center;gap:2px 10px;padding:4px 8px;border:1px solid var(--line-soft);border-radius:8px}
+  .stage-tiers{margin:8px 0 0;display:grid;gap:6px}.stage-tier{display:grid;grid-template-columns:5.5rem 8rem minmax(0,1fr) auto;align-items:center;gap:2px 10px;padding:4px 8px;border:1px solid var(--line-soft);border-radius:8px}
   .stage-tier.changed{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--accent-wash)}.stage-name{font-weight:600}.stage-tiers select{min-height:36px;font:inherit;font-size:0.875rem}
   .stage-who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:0.875rem}.stage-why{grid-column:1/-1;margin:2px 0 0;font-size:0.875rem;color:var(--ink-soft)}
   .crew-save{margin:12px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:0.875rem;color:var(--muted)}
-  @media(max-width:479px){.crew-row{grid-template-columns:1fr}.crew-slot{line-height:1.4;margin-top:4px}.crew-none,.crew-source{grid-column:1/-1}.stage-tier{grid-template-columns:5rem minmax(0,1fr)}.stage-who{grid-column:1/-1}}@media(pointer:coarse){.stage-chip{min-height:44px}.stage-tiers select{min-height:44px}}
+  @media(max-width:479px){.crew-row{grid-template-columns:1fr}.crew-slot{line-height:1.4;margin-top:4px}.crew-none,.crew-source{grid-column:1/-1}.stage-tier{grid-template-columns:5rem minmax(0,1fr)}.stage-who,.stage-splitter{grid-column:1/-1}.stage-splitter{justify-self:start;min-height:44px}}@media(pointer:coarse){.stage-chip{min-height:44px}.stage-tiers select{min-height:44px}}
   .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}
   .choice{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;justify-self:start}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{background:var(--tint);color:var(--ink)}.choice label.off{cursor:not-allowed;opacity:.6}.choice input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--accent)}
   .hint.warn{color:var(--warn)}

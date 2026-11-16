@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +163,97 @@ func TestTheBalancingThresholdIsThePersonsToSet(t *testing.T) {
 	in.BalanceBelow = 60
 	if created, err = r.s.CreateOutcome(r.p.UserID, in); err != nil || created.BalanceBelow != 60 {
 		t.Fatalf("its own: %+v %v", created.BalanceBelow, err)
+	}
+}
+
+// Backups are tried in the order given: the first with more of its plan left
+// does the stage. At most three, none the first choice again, none twice.
+func TestBackupsAreTriedInOrder(t *testing.T) {
+	r := outcomeFixture(t)
+	now := time.Now()
+	// The first backup's own model is as low as the first choice's; the second has room.
+	if err := r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 92, "cheap"), window("week", 95, "tiny"))}, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "tiny/coder"},
+			More: []store.GafferStageAgent{{Tool: "opencode", Model: "other/coder"}, {Tool: "opencode", Model: "tiny/coder"}, {Tool: "opencode", Model: "cheap/coder"}}},
+	}}}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" }).Stages[0]
+	// The repeat and the first choice again were dropped; the second backup did the stage.
+	if stage.Backup == nil || stage.Backup.Model != "tiny/coder" || len(stage.More) != 1 || stage.More[0].Model != "other/coder" || stage.Model != "other/coder" || !strings.Contains(stage.Balanced, "which had 70% left") {
+		t.Fatalf("stage: %+v", stage)
+	}
+	four := []store.GafferStageAgent{{Tool: "opencode", Model: "b"}, {Tool: "opencode", Model: "c"}, {Tool: "opencode", Model: "d"}}
+	if _, err = r.s.SaveCrew(r.p.UserID, store.GafferCrew{Heavy: store.GafferCrewTier{Tool: "opencode", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "a"}, More: four}}); err == nil {
+		t.Fatal("four backups were saved")
+	}
+}
+
+// A working agent is never interrupted. When a stage's session has ended and
+// its plan is now below the threshold, the stage is run again on its backup,
+// once, and the activity log says so.
+func TestAStageThatStoppedWithItsPlanLowIsRunAgainOnItsBackup(t *testing.T) {
+	r := outcomeFixture(t)
+	log := recordAudit(r.s)
+	now := time.Now()
+	plenty := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 40, "cheap"))}
+	if err := r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, plenty, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "other/coder"}},
+	}}}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if first.Stages[0].Model != "cheap/coder" {
+		t.Fatalf("started on its backup with plenty left: %+v", first.Stages[0])
+	}
+	// The plan runs low while the agent is working: nothing is touched.
+	low := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 97, "cheap"))}
+	if err = r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, low, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	r.s.rebalanceStopped(context.Background())
+	if got := mustOutcome(t, r, created.ID).Sessions[0]; got.SessionID != first.SessionID || got.Stages[0].Rebalanced || len(r.starter.closed()) != 0 {
+		t.Fatalf("a working agent was interrupted: %+v", got)
+	}
+	// Its session ends. Now the stage is run again, on the backup.
+	if err = r.starter.EndOutcomeSession(context.Background(), r.p.UserID, first.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	r.s.rebalanceStopped(context.Background())
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	if stage := again.Stages[0]; stage.Model != "other/coder" || !stage.Rebalanced || stage.First == nil || stage.First.Model != "cheap/coder" || !strings.Contains(stage.Balanced, "had 3% left") {
+		t.Fatalf("run again: %+v", stage)
+	}
+	found := false
+	for _, row := range log.all() {
+		found = found || row.action == "gaffer-stage-rebalanced" && row.detail["stage"] == "code"
+	}
+	if !found {
+		t.Fatalf("not recorded: %+v", log.all())
+	}
+	// Once for a stage: a second stop does not start a third session.
+	if err = r.starter.EndOutcomeSession(context.Background(), r.p.UserID, again.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	r.s.rebalanceStopped(context.Background())
+	time.Sleep(80 * time.Millisecond)
+	if asked := r.starter.asked(); len(asked) != 2 {
+		t.Fatalf("launches: %d", len(asked))
 	}
 }

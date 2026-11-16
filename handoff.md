@@ -18,6 +18,24 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-LIMITS-1: the limits FACTORY-PARTS-1 and FACTORY-BALANCE-1 left (16 November 2026)
+
+The owner asked for the remaining limits on split stages and backups to be closed, and chose "switch when it
+stops" for a stage whose plan runs low while it is running.
+
+- **Split by hand:** `withNewPart`, `partsBlocker`, and the shared `factory/StageParts.svelte`, used by the outcome
+  dialog and Add pipelines. MCP `reet_start_outcome` pipelines take `parts`.
+- **Backups:** `More` (`moreBackups`) on a crew tier and a stage, after `Backup`; `store.Spares` lists them in order;
+  `stageBackups` validates (three at most, no repeats). `balanceStage` takes the first that qualifies. A Cline
+  backup carries `provider`.
+- **Switch when it stops:** `rebalanceStopped` on the outcome supervisor. A following stage with a backup whose
+  session has ended, or whose agent has stopped or failed with the goal needing the person, is run again through
+  `RetryPipeline` when `balanceStage` now says a backup. `Rebalanced` makes it once for a stage. A working agent is
+  never ended for this.
+- **Add pipelines:** a tier's saved backups can be unticked for a pipeline; a stage can be split.
+- **Not done:** parts running at the same time (the owner chose one after another). Choosing different backups in Add
+  pipelines than the saved crew's. Checked with fakes and synthetic plan figures only.
+
 ## FACTORY-PARTS-1: a stage split into parts, and what earlier slices left (16 November 2026)
 
 The owner asked for several agents delivering one stage, the smaller gaps closed and the FACTORY-REVIEW-2 leftovers

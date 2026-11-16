@@ -96,6 +96,11 @@ type GafferOutcomeStage struct {
 	Backup   *GafferStageAgent `json:"backup,omitempty"`
 	First    *GafferStageAgent `json:"first,omitempty"`
 	Balanced string            `json:"balanced,omitempty"`
+	// More are further backups, tried in order after Backup. Rebalanced marks
+	// a stage that was run again on a backup because its agent stopped with
+	// its plan low: that is done once for a stage, never in a loop.
+	More       []GafferStageAgent `json:"moreBackups,omitempty"`
+	Rebalanced bool               `json:"rebalanced,omitempty"`
 	// Decided counts the decisions Gaffer took on this stage for the person,
 	// BudgetRenewed is whether one of them gave the stage a new budget, and
 	// DecidedFor names the stop last put to Gaffer, so one stop is one request.
@@ -404,6 +409,19 @@ type GafferCrewTier struct {
 	// Backup is who does the tier's stages when the first choice's plan is
 	// running low and the backup has more left. Nil when none was chosen.
 	Backup *GafferStageAgent `json:"backup,omitempty"`
+	// More are further backups, tried in order after Backup.
+	More []GafferStageAgent `json:"moreBackups,omitempty"`
+}
+
+// MaxGafferBackups is how many backups a tier or a stage can have.
+const MaxGafferBackups = 3
+
+// Spares lists a first backup and any further ones, in the order they are tried.
+func Spares(first *GafferStageAgent, more []GafferStageAgent) []GafferStageAgent {
+	if first == nil {
+		return nil
+	}
+	return append([]GafferStageAgent{*first}, more...)
 }
 
 // GafferStageAgent is an agent, model and effort a stage can run on.
@@ -597,6 +615,30 @@ func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
 // decisions, and that are neither stopped nor archived.
 func (s *Store) AutomatedGafferOutcomes() ([]GafferOutcome, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.automation') AND json_extract(data,'$.state')!='stopped' AND COALESCE(json_extract(data,'$.archivedAt'),0)=0 ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// BackedGafferOutcomes lists the outcomes that are neither stopped nor
+// archived and have a stage with a backup.
+func (s *Store) BackedGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE data LIKE '%"backup":{%' AND json_extract(data,'$.state')!='stopped' AND COALESCE(json_extract(data,'$.archivedAt'),0)=0 ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}

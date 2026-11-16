@@ -576,6 +576,14 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    has no plan to run low). It switches by itself and says so: the pipeline's
    card shows **Balanced** with the reason, **Who did each stage** keeps it,
    and the outcome's History records it. A stage with no backup never moves.
+   A tier can have up to three backups, tried in the order you give them:
+   the first with more of its plan left does the stage. A Cline backup can be
+   given its own billing source.
+
+   A working agent is never interrupted. If a stage's agent stops, or its
+   session ends, and its plan is by then below your figure, the stage is run
+   again on its backup in a new session, in the same folder and branch, once
+   for a stage. The card and the History say so.
    A limit that covers one model counts only for stages on that model, so a
    cheaper model of the same agent can be the backup. Balancing uses the plan
    figures the machine last read ([plan limits](agent-accounts.md)), no more
@@ -609,7 +617,11 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    **Your choice**. On the Factory, **Who did each stage** names each stage's tier
    and keeps Gaffer's reason. A stage Gaffer split is shown as its parts, in the
    order they run. You can rename a part, rewrite its brief, change its tier,
-   remove it, or choose **Do as one stage** to undo the split. Every stage runs in an agent session of its
+   remove it, add one (up to four), or choose **Do as one stage** to undo the
+   split. **Split into parts** on a stage splits it by hand; every part then
+   needs a name and a brief before the plan can be approved. The Add
+   pipelines dialog offers the same split, and lets you leave a tier's saved
+   backups off a pipeline. Every stage runs in an agent session of its
    own, in the pipeline's folder and branch: it starts from that stage's
    instruction and the handover of the stage before, and the earlier stage's
    session is ended with its history kept.

@@ -40,6 +40,8 @@ function splitDesk() {
 // The fixture's state: reset() before each part.
 let profileTheme = 'light'
 let desks, sessions, patches, patched, ends, creates, staleNext, hidden, sockets, failing, ticketDelay, attachingNow, attachingMost
+// Reopens: what each sent, the answers some panes get instead, how many desks moved on first, and how many were in flight.
+let reopens, reopenFail, staleReopens, reopenDelay, reopenNow, reopenMost, conflicted
 function reset({ empty = false } = {}) {
   sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db'),
     ...['a', 'b', 'c', 'd1', 'd2', 'd3', 'd4'].map(x => running(`sess-${x}`, x))]
@@ -56,6 +58,7 @@ function reset({ empty = false } = {}) {
   }
   patches = []; patched = []; ends = []; creates = []; staleNext = null; hidden = false
   sockets = new Map(); failing = new Set(); ticketDelay = 0; attachingNow = 0; attachingMost = 0
+  reopens = []; reopenFail = new Map(); staleReopens = 0; reopenDelay = 0; reopenNow = 0; reopenMost = 0; conflicted = new Set()
 }
 reset()
 
@@ -92,6 +95,8 @@ const api = async route => {
   else if (path.endsWith('/attachments')) {
     // Each session's ticket names it, so the socket stub can tell the panes' sockets apart.
     const id = path.split('/').at(-2)
+    // Open in another window: the attach is refused as a conflict.
+    if (conflicted.has(id)) return route.fulfill({ status: 409, json: { error: 'terminal operation conflicts with current state' } })
     attachingNow++; attachingMost = Math.max(attachingMost, attachingNow)
     if (ticketDelay) await new Promise(resolve => setTimeout(resolve, ticketDelay))
     attachingNow--
@@ -107,6 +112,26 @@ const api = async route => {
     const d = deskOf(`desk-${desks.size + 1}`, body.name, [], { colour: body.colour ?? '' })
     desks.set(d.id, d)
     return route.fulfill({ status: 201, json: d })
+  }
+  else if (/^\/api\/v2\/desks\/[^/]+\/panes\/[^/]+\/reopen$/.test(path) && method === 'POST') {
+    // As the controller does: the version is checked as the request arrives and again as the new session is bound.
+    const parts = path.split('/'), id = decodeURIComponent(parts[4]), pid = decodeURIComponent(parts[6]), body = request.postDataJSON()
+    reopens.push({ pane: pid, ...body })
+    const stale = () => route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: desks.get(id) } })
+    if (staleReopens) { staleReopens--; const d = desks.get(id); desks.set(id, { ...d, version: d.version + 1 }); return stale() }
+    if (body.expect !== desks.get(id).version) return stale()
+    reopenNow++; reopenMost = Math.max(reopenMost, reopenNow)
+    if (reopenDelay) await new Promise(resolve => setTimeout(resolve, reopenDelay))
+    reopenNow--
+    if (!body.home && reopenFail.has(pid)) return route.fulfill(reopenFail.get(pid))
+    const d = desks.get(id)
+    if (body.expect !== d.version) return stale()
+    const t = d.doc.tabs.find(x => x.panes[pid]), p = t.panes[pid]
+    const created = running(`sess-re-${reopens.length}`, p.name, body.home ? '/home/dev' : p.dir)
+    sessions = [created, ...sessions]
+    const next = { ...d, version: d.version + 1, doc: { ...d.doc, tabs: d.doc.tabs.map(x => x !== t ? x : { ...x, panes: { ...x.panes, [pid]: { ...p, session: created.id, ...(body.home ? { dir: '/home/dev' } : {}) } } }) } }
+    desks.set(id, next)
+    return route.fulfill({ json: { desk: next, session: created } })
   }
   else if (path.startsWith('/api/v2/desks/')) {
     const id = decodeURIComponent(path.split('/')[4]), d = desks.get(id)
@@ -167,6 +192,40 @@ async function openSplit(tabId = 'tab-three') {
   await expect(page.locator(`[data-tab="${tabId}"] [role=tab]`)).toHaveAttribute('aria-selected', 'true')
 }
 const tabDoc = id => lastDoc().tabs.find(t => t.id === id)
+
+// A desk whose one tab shows a pane in each state that needs no press: lost, ended, an ended agent, never started, a
+// removed machine, open elsewhere and offline; and two lost shells whose reopen finds the folder gone or unavailable.
+const statePanes = ['pane-lost', 'pane-ended', 'pane-agent', 'pane-empty', 'pane-removed', 'pane-elsewhere', 'pane-offline', 'pane-folder', 'pane-unavail']
+function resetStates() {
+  reset()
+  const gone = (id, state, over = {}) => ({ ...running(id, id.slice(5)), state, exitCode: state === 'exited' ? 0 : null, ...over })
+  sessions.push(gone('sess-lost', 'lost'), gone('sess-ended', 'exited'), gone('sess-agent', 'exited', { tool: 'claude', dir: '/home/dev/app' }), gone('sess-removed', 'lost'),
+    running('sess-elsewhere', 'elsewhere'), running('sess-offline', 'offline'), gone('sess-folder', 'lost'), gone('sess-unavail', 'lost'))
+  const p = (id, name, session, over = {}) => ({ ...paneOf(id, name, session, '/home/dev/PROD_reet'), ...over })
+  const panes = {
+    'pane-lost': p('pane-lost', 'lost one', 'sess-lost'), 'pane-ended': p('pane-ended', 'ended one', 'sess-ended'),
+    'pane-agent': p('pane-agent', 'agent', 'sess-agent', { kind: 'agent', dir: '/home/dev/app' }), 'pane-empty': p('pane-empty', 'empty', ''),
+    'pane-removed': p('pane-removed', 'removed', 'sess-removed', { host: 'connector-removed0000001' }), 'pane-elsewhere': p('pane-elsewhere', 'elsewhere', 'sess-elsewhere'),
+    'pane-offline': p('pane-offline', 'offline', 'sess-offline'), 'pane-folder': p('pane-folder', 'old build', 'sess-folder', { dir: '/home/dev/old' }),
+    'pane-unavail': p('pane-unavail', 'locked', 'sess-unavail', { dir: '/home/dev/locked' }),
+  }
+  const root = { split: 'down', ratio: 1 / 3, a: sideOf(statePanes.slice(0, 3)), b: { split: 'down', ratio: 0.5, a: sideOf(statePanes.slice(3, 6)), b: sideOf(statePanes.slice(6)) } }
+  desks.set('desk-states', deskOf('desk-states', 'after reboot', [{ id: 'tab-states', name: 'states', colour: '', root, zoomed: '', active: 'pane-lost', panes }], { position: 3 }))
+  conflicted.add('sess-elsewhere'); failing.add('sess-offline')
+  reopenFail.set('pane-folder', { status: 409, json: { error: 'That folder no longer exists on studio.', code: 'folder_gone' } })
+  reopenFail.set('pane-unavail', { status: 409, json: { error: "reet couldn't open a shell in that folder.", code: 'folder_unavailable' } })
+}
+async function openStates() {
+  await page.goto(`${base}/desks/desk-states`)
+  await expect(page.getByRole('heading', { name: 'after reboot', level: 1 })).toBeVisible()
+}
+/** A pane's card: its state, its tag, its heading (a real heading) and its main action. */
+async function expectCard(id, state, tag, heading, primary) {
+  await expect(pane(id)).toHaveAttribute('data-state', state)
+  await expect(pane(id).locator('.tag')).toHaveText(tag)
+  await expect(pane(id).getByRole('heading', { name: heading, exact: true })).toBeVisible()
+  await expect(pane(id).locator('.btn.primary')).toHaveText(primary)
+}
 
 try {
   // ── Desks is in the top bar ──
@@ -823,8 +882,194 @@ try {
   }
   console.log('ok - a phone shows one pane, with the names as chips')
 
+  // ── each pane state shows its action ──
+  {
+    resetStates()
+    await openStates()
+    const cases = [
+      ['pane-lost', 'lost', 'Lost', 'studio restarted, so this shell was lost.', 'Reopen in ~/PROD_reet'],
+      ['pane-ended', 'ended', 'Ended', 'This shell ended.', 'Reopen in ~/PROD_reet'],
+      ['pane-agent', 'agentEnded', 'Agent ended', 'Claude Code finished in this pane.', 'Start a shell here'],
+      ['pane-empty', 'empty', 'Not started', 'studio · ~/PROD_reet', 'Start'],
+      ['pane-removed', 'machineGone', 'Machine removed', 'This machine was removed from reet.', 'Choose a machine'],
+      ['pane-elsewhere', 'elsewhere', 'Open elsewhere', 'This terminal is open in another window.', 'Use it here'],
+      ['pane-offline', 'reconnecting', 'Machine offline', 'studio is not reporting.', 'Retry now'],
+    ]
+    for (const [id, state, tag, heading, primary] of cases) await expectCard(id, state, tag, heading, primary)
+    await expect(pane('pane-lost')).toContainText("It was in ~/PROD_reet. A new shell opens there with this pane's command history.")
+    await expect(pane('pane-lost').getByRole('button', { name: 'Close pane' })).toBeVisible()
+    await expect(pane('pane-agent')).toContainText('Continue the same conversation, or start a plain shell in ~/app.')
+    await expect(pane('pane-elsewhere')).toContainText('A terminal has one keyboard at a time.')
+    // Folder gone and folder unavailable are what a reopen finds.
+    await pane('pane-folder').getByRole('button', { name: 'Reopen in ~/old' }).click()
+    await expectCard('pane-folder', 'folderGone', 'Folder gone', '~/old no longer exists on studio.', 'Choose a folder')
+    await expect(pane('pane-folder')).toContainText("reet won't quietly open somewhere else.")
+    await expect(pane('pane-folder').getByRole('button', { name: 'Reopen in home' })).toBeVisible()
+    await pane('pane-unavail').getByRole('button', { name: 'Reopen in ~/locked' }).click()
+    await expectCard('pane-unavail', 'folderUnavailable', 'Folder unavailable', "reet couldn't open a shell in ~/locked on studio.", 'Choose a folder')
+    // The change is said once, politely; the cards drawn on opening are not read out.
+    await expect(pane('pane-unavail').locator('[role=status]')).toHaveText("Folder unavailable. reet couldn't open a shell in ~/locked on studio.")
+    await expect(pane('pane-lost').locator('[role=status]')).toHaveText('')
+    // Every action is reachable by keyboard.
+    await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).focus()
+    await page.keyboard.press('Tab')
+    await expect(pane('pane-lost').getByRole('button', { name: 'Close pane' })).toBeFocused()
+    if (shots) await page.screenshot({ path: `${shots}/desk-states-light.png` })
+    console.log('ok - each pane state shows its action')
+  }
+
+  // ── opening a desk with lost panes sends no reopen ──
+  resetStates()
+  await openStates()
+  await quiet()
+  expect(reopens).toEqual([])
+  expect(creates).toEqual([])
+  await expect(page.getByRole('button', { name: /^Reopen all/ })).toHaveText('Reopen all (4)')
+  console.log('ok - opening a desk with lost panes sends no reopen')
+
+  // ── Reopen calls the route once and mounts the new session ──
+  {
+    resetStates()
+    await openStates()
+    const before = desks.get('desk-states').version
+    await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+    await expect(pane('pane-lost')).toHaveAttribute('data-state', 'live')
+    expect(reopens).toEqual([{ pane: 'pane-lost', expect: before }])
+    await attached(['sess-re-1'])
+    // The desk the route answered with is the one autosave now holds: the next edit saves on its version.
+    await pane('pane-lost').getByRole('button', { name: 'Actions for lost one' }).click()
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    await page.getByRole('textbox', { name: 'Pane name' }).fill('found one')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => patches.length).toBe(1)
+    expect(patches[0].expect).toBe(before + 1)
+    expect(patches[0].doc.tabs[0].panes['pane-lost'].session).toBe('sess-re-1')
+    await quiet()
+    expect(reopens.length).toBe(1)
+    console.log('ok - Reopen calls the route once and mounts the new session')
+  }
+
+  // ── Reopen in home sends home true ──
+  resetStates()
+  await openStates()
+  await pane('pane-folder').getByRole('button', { name: 'Reopen in ~/old' }).click()
+  await pane('pane-folder').getByRole('button', { name: 'Reopen in home' }).click()
+  await expect(pane('pane-folder')).toHaveAttribute('data-state', 'live')
+  expect(reopens.map(r => r.home ?? false)).toEqual([false, true])
+  console.log('ok - Reopen in home sends home true')
+
+  // ── a stale reopen re-reads the desk and retries once ──
+  {
+    resetStates()
+    await openStates()
+    staleReopens = 1
+    await pane('pane-ended').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+    await expect(pane('pane-ended')).toHaveAttribute('data-state', 'live')
+    // Pressing the card makes its pane the focused one, which is saved first: the version sent is the saved one.
+    expect(reopens[0].expect).toBe(desks.get('desk-states').version - 2)
+    expect(reopens[1].expect).toBe(reopens[0].expect + 1)
+    // Twice stale: it gives up and says so in the card.
+    staleReopens = 2
+    await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+    await expect(pane('pane-lost').getByRole('alert')).toHaveText('This desk changed in another window. Try again.')
+    expect(reopens.length).toBe(4)
+    console.log('ok - a stale reopen re-reads the desk and retries once')
+  }
+
+  // ── Reopen all reopens four at a time and reports the one that failed ──
+  {
+    resetStates()
+    const p = (id, name) => ({ ...paneOf(id, name, `sess-${id}`, '/home/dev/PROD_reet') })
+    const names = ['web', 'api', 'db', 'logs', 'jobs', 'cache']
+    for (const n of names) sessions.push({ ...running(`sess-${n}`, n), state: 'lost' })
+    desks.set('desk-many', deskOf('desk-many', 'after reboot', [
+      { id: 'tab-m1', name: 'one', colour: '', root: sideOf(['web', 'api', 'db']), zoomed: '', active: 'web', panes: Object.fromEntries(names.slice(0, 3).map(n => [n, p(n, n)])) },
+      { id: 'tab-m2', name: 'two', colour: '', root: sideOf(['logs', 'jobs', 'cache']), zoomed: '', active: 'logs', panes: Object.fromEntries(names.slice(3).map(n => [n, p(n, n)])) },
+    ]))
+    reopenFail.set('db', { status: 409, json: { error: 'That folder no longer exists on studio.', code: 'folder_gone' } })
+    reopenDelay = 400
+    await page.goto(`${base}/desks/desk-many`)
+    await expect(page.getByRole('heading', { name: 'after reboot', level: 1 })).toBeVisible()
+    await quiet()
+    expect(reopens).toEqual([])
+    await page.getByRole('button', { name: 'Reopen all (6)' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Reopened' })).toContainText('Reopened 5. 1 could not be reopened: db (folder gone).', { timeout: 20_000 })
+    expect(reopenMost).toBe(4)
+    expect(new Set(reopens.map(r => r.pane))).toEqual(new Set(names))
+    expect(sessions.filter(s => s.id.startsWith('sess-re-')).length).toBe(5)
+    await expect(pane('db')).toHaveAttribute('data-state', 'folderGone')
+    await expect(pane('web')).toHaveAttribute('data-state', 'live')
+    await expect(page.getByRole('button', { name: /^Reopen all/ })).toHaveCount(0)
+    console.log('ok - Reopen all reopens four at a time and reports the one that failed')
+  }
+
+  // ── the limit is checked in the browser and no request is sent ──
+  resetStates()
+  sessions = [...sessions, ...Array.from({ length: 24 - sessions.filter(s => s.state === 'running').length }, (_, i) => running(`sess-fill-${i}`, `fill ${i}`))]
+  await openStates()
+  await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+  await expectCard('pane-lost', 'limit', 'At the limit', 'studio already has 24 sessions running.', 'Try again')
+  await pane('pane-lost').getByRole('button', { name: 'Try again' }).click()
+  await quiet()
+  expect(reopens).toEqual([])
+  expect(creates).toEqual([])
+  console.log('ok - the limit is checked in the browser and no request is sent')
+
+  // ── Choose a folder writes the folder, then reopens there ──
+  resetStates()
+  await openStates()
+  await pane('pane-folder').getByRole('button', { name: 'Reopen in ~/old' }).click()
+  await pane('pane-folder').getByRole('button', { name: 'Choose a folder' }).click()
+  {
+    const dialog = page.getByRole('dialog', { name: 'Choose a folder' })
+    await expect(dialog.getByRole('combobox', { name: 'Machine' })).toBeDisabled()
+    await dialog.getByRole('textbox', { name: 'Folder', exact: true }).fill('/home/dev/new')
+    reopenFail.delete('pane-folder')
+    await dialog.getByRole('button', { name: 'Reopen' }).click()
+    await expect(dialog).toHaveCount(0)
+  }
+  await expect(pane('pane-folder')).toHaveAttribute('data-state', 'live')
+  expect(patches.at(-1).doc.tabs[0].panes['pane-folder'].dir).toBe('/home/dev/new')
+  expect(reopens.at(-1)).toEqual({ pane: 'pane-folder', expect: desks.get('desk-states').version - 1 })
+  console.log('ok - Choose a folder writes the folder, then reopens there')
+
   // ── the look, in both themes and on a phone ──
   if (shots) {
+    // Three states side by side (lost, folder gone, an ended agent) at 1440 px in both themes, and one card on a phone.
+    for (const theme of ['light', 'dark']) {
+      resetStates()
+      profileTheme = theme
+      const d = desks.get('desk-states'), t = d.doc.tabs[0]
+      t.root = sideOf(['pane-lost', 'pane-folder', 'pane-agent'])
+      const wide = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: theme })
+      const wp = await wide.newPage()
+      wp.on('pageerror', error => errors.push(error.message))
+      await wp.route('**/api/**', api)
+      await wp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+      await wp.goto(`${base}/desks/desk-states`)
+      await wp.locator('.desk-pane[data-pane="pane-folder"]').getByRole('button', { name: 'Reopen in ~/old' }).click()
+      await expect(wp.locator('.desk-pane[data-pane="pane-folder"]')).toHaveAttribute('data-state', 'folderGone')
+      await wp.locator('.desk-pane[data-pane="pane-lost"] .more').focus()
+      await expect(wp.locator('.save')).toHaveText('saved')
+      await wp.screenshot({ path: `${shots}/desk-pane-states-${theme}.png` })
+      await wide.close()
+    }
+    profileTheme = 'light'
+    {
+      resetStates()
+      const pc = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, colorScheme: 'dark' })
+      const pp = await pc.newPage()
+      pp.on('pageerror', error => errors.push(error.message))
+      await pp.route('**/api/**', api)
+      await pp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+      await pp.goto(`${base}/desks/desk-states`)
+      const reopenButton = pp.locator('.desk-pane[data-pane="pane-lost"]').getByRole('button', { name: 'Reopen in ~/PROD_reet' })
+      await expect(reopenButton).toBeVisible()
+      expect((await reopenButton.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      expect(await pp.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await pp.screenshot({ path: `${shots}/desk-pane-states-phone.png` })
+      await pc.close()
+    }
     // A 2 + 1 tab and a grid of four at 1440 px, light and dark; the dark 2 + 1 again at twice the pixels.
     reset()
     const wide = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
@@ -865,7 +1110,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

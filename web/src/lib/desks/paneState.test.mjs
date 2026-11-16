@@ -10,47 +10,95 @@ const pane = (over = {}) => ({ id: 'p1', name: 'reet', colour: '', host: 'm1', s
 const session = (over = {}) => ({ id: 's1', agentId: 'm1', title: 'reet', state: 'running', createdAt: 0, updatedAt: 0, exitCode: null, ...over })
 const online = { online: true, deskShell: true }
 const fine = { conflict: false, down: false }
-/** The state and the label of its first action. */
-const check = (args, state, first) => {
-  const got = p.paneState(...args)
-  assert.equal(got, state)
-  const [, s] = args
-  assert.equal(p.paneAction(got, args[0], s)[0]?.label, first)
-}
+const ctx = (over = {}) => ({ host: 'studio', dir: '~/PROD_reet', agent: 'Claude Code', perMachine: 24, perAccount: 64, accountLimit: false, canContinue: false, ...over })
 
-test('live: a running shell on a machine that reports', () => check([pane(), session(), online, fine], 'live', undefined))
-test('reconnecting: the machine is offline', () => check([pane(), session(), { online: false, deskShell: true }, fine], 'reconnecting', 'Retry now'))
-test('reconnecting: the attachment dropped', () => check([pane(), session(), online, { conflict: false, down: true }], 'reconnecting', 'Retry now'))
-test('elsewhere: open in another window', () => check([pane(), session(), online, { conflict: true, down: false }], 'elsewhere', 'Use it here'))
-test('ended shell offers to reopen in its folder', () => check([pane(), session({ state: 'exited', exitCode: 0 }), online, fine], 'ended', 'Reopen in ~/PROD_reet'))
-test('ended: a session no longer listed is ended', () => check([pane(), undefined, online, fine], 'ended', 'Reopen in ~/PROD_reet'))
-test('lost shell offers to reopen in its folder', () => check([pane(), session({ state: 'lost' }), online, fine], 'lost', 'Reopen in ~/PROD_reet'))
-test('ended agent offers Continue', () => check([pane({ kind: 'agent' }), session({ state: 'exited', tool: 'claude' }), online, fine], 'ended', 'Continue'))
-test('ended agent without a session to resume starts a shell', () => {
-  const state = p.paneState(pane({ kind: 'agent' }), undefined, online, fine)
-  assert.equal(state, 'ended')
-  assert.equal(p.paneAction(state, pane({ kind: 'agent' }))[0].label, 'Start a shell here')
+test('the state of each kind of pane', () => {
+  const cases = [
+    ['a running shell on a machine that reports', [pane(), session(), online, fine], 'live'],
+    ['the machine is offline', [pane(), session(), { online: false, deskShell: true }, fine], 'reconnecting'],
+    ['the attachment dropped', [pane(), session(), online, { conflict: false, down: true }], 'reconnecting'],
+    ['open in another window', [pane(), session(), online, { conflict: true, down: false }], 'elsewhere'],
+    ['an ended shell', [pane(), session({ state: 'exited', exitCode: 0 }), online, fine], 'ended'],
+    ['a session no longer listed', [pane(), undefined, online, fine], 'ended'],
+    ['a lost shell', [pane(), session({ state: 'lost' }), online, fine], 'lost'],
+    ['an ended agent', [pane({ kind: 'agent' }), session({ state: 'exited', tool: 'claude' }), online, fine], 'agentEnded'],
+    ['an agent no longer listed', [pane({ kind: 'agent' }), undefined, online, fine], 'agentEnded'],
+    ['a reopen found the folder gone', [pane(), session({ state: 'exited' }), online, fine, 'folderGone'], 'folderGone'],
+    ['a reopen could not open a shell in the folder', [pane(), session({ state: 'lost' }), online, fine, 'folderUnavailable'], 'folderUnavailable'],
+    ['the machine is at its limit', [pane(), session({ state: 'exited' }), online, fine, 'machineLimit'], 'limit'],
+    ['the account is at its limit', [pane(), session({ state: 'exited' }), online, fine, 'accountLimit'], 'limit'],
+    ['a reopen found the machine offline', [pane(), session({ state: 'lost' }), online, fine, 'offline'], 'reconnecting'],
+    ['the machine was removed', [pane(), session(), undefined, fine], 'machineGone'],
+    ['a reopen found the machine removed', [pane(), session({ state: 'lost' }), online, fine, 'machineGone'], 'machineGone'],
+    ['a pane never started', [pane({ session: '' }), undefined, online, fine], 'empty'],
+    ['an ended shell on a machine without desk shells is still ended', [pane(), session({ state: 'exited' }), { online: true, deskShell: false }, fine], 'ended'],
+    ['a live pane on an older machine is still live', [pane(), session(), { online: true, deskShell: false }, fine], 'live'],
+  ]
+  for (const [name, args, want] of cases) assert.equal(p.paneState(...args), want, name)
 })
-test('folder gone: choose a folder', () => check([pane(), session({ state: 'exited' }), online, fine, 'folderGone'], 'folderGone', 'Choose a folder'))
-test('at the limit: try again', () => check([pane(), session({ state: 'exited' }), online, fine, 'limit'], 'limit', 'Try again'))
-test('machine removed: choose a machine', () => check([pane(), session(), undefined, fine], 'machineGone', 'Choose a machine'))
-test('empty pane: start', () => check([pane({ session: '' }), undefined, online, fine], 'empty', 'Start'))
-test('update: a machine that says it has no desk shell', () => check([pane(), session({ state: 'exited' }), { online: true, deskShell: false }, fine], 'update', 'Reopen in ~/PROD_reet'))
-test('a machine that does not say (before desk-shell-v1 is reported) is not asked to update', () => {
-  assert.equal(p.paneState(pane(), session({ state: 'exited' }), { online: true }, fine), 'ended')
-})
-test('a live pane on an older machine is still live', () => {
-  assert.equal(p.paneState(pane(), session(), { online: true, deskShell: false }, fine), 'live')
-})
-test('a folder is shown from home', () => {
-  assert.equal(p.paneAction('lost', pane({ dir: '/home/dev/PROD_reet' }))[0].label, 'Reopen in ~/PROD_reet')
-  assert.equal(p.paneAction('lost', pane({ dir: '' }))[0].label, 'Reopen in ~')
-  assert.equal(p.paneAction('lost', pane({ dir: '/srv/app' }))[0].label, 'Reopen in /srv/app')
-})
-test('each state has a sentence', () => {
-  for (const s of ['reconnecting', 'elsewhere', 'ended', 'lost', 'folderGone', 'limit', 'machineGone', 'empty', 'update']) {
-    assert.ok(p.paneCopy(s, pane(), undefined, 'studio').title, s)
+
+// One row per card: the tag, the heading and the main action, read from the table the component draws from.
+test('each card has its tag, heading and main action', () => {
+  const rows = [
+    ['lost', ctx(), 'Lost', 'studio restarted, so this shell was lost.', "It was in ~/PROD_reet. A new shell opens there with this pane's command history.", ['Reopen in ~/PROD_reet', 'Close pane']],
+    ['ended', ctx(), 'Ended', 'This shell ended.', "It was in ~/PROD_reet. A new shell opens there with this pane's command history.", ['Reopen in ~/PROD_reet', 'Close pane']],
+    ['folderGone', ctx({ dir: '~/old' }), 'Folder gone', '~/old no longer exists on studio.', "reet won't quietly open somewhere else.", ['Choose a folder', 'Reopen in home']],
+    ['folderUnavailable', ctx({ dir: '~/old' }), 'Folder unavailable', "reet couldn't open a shell in ~/old on studio.", "reet won't quietly open somewhere else.", ['Choose a folder', 'Reopen in home']],
+    ['limit', ctx(), 'At the limit', 'studio already has 24 sessions running.', '', ['Try again']],
+    ['limit', ctx({ accountLimit: true }), 'At the limit', 'You already have 64 sessions running.', '', ['Try again']],
+    ['machineGone', ctx(), 'Machine removed', 'This machine was removed from reet.', '', ['Choose a machine', 'Close pane']],
+    ['reconnecting', ctx(), 'Machine offline', 'studio is not reporting.', 'The shell may still be running there. reet keeps trying; nothing you typed is resent.', ['Retry now']],
+    ['elsewhere', ctx(), 'Open elsewhere', 'This terminal is open in another window.', 'A terminal has one keyboard at a time.', ['Use it here']],
+    ['agentEnded', ctx({ canContinue: true, dir: '~/app' }), 'Agent ended', 'Claude Code finished in this pane.', 'Continue the same conversation, or start a plain shell in ~/app.', ['Continue', 'Start a shell here']],
+    ['agentEnded', ctx({ dir: '~/app' }), 'Agent ended', 'Claude Code finished in this pane.', 'Continue the same conversation, or start a plain shell in ~/app.', ['Start a shell here']],
+    ['empty', ctx(), 'Not started', 'studio · ~/PROD_reet', '', ['Start']],
+  ]
+  for (const [state, c, tag, heading, body, actions] of rows) {
+    const card = p.paneCard(state, c)
+    assert.equal(card.tag, tag, state)
+    assert.equal(card.tag, p.PANE_CARDS[state].tag, state)
+    assert.equal(card.heading, heading, state)
+    assert.equal(card.body, body, state)
+    assert.deepEqual(card.actions.map(a => a.label), actions, state)
   }
-  assert.equal(p.paneCopy('lost', pane(), undefined, 'studio').title, 'studio restarted, so this shell was lost.')
-  assert.equal(p.paneCopy('limit', pane(), undefined, 'studio').title, 'studio already has 24 sessions running.')
+  // Every state but live has a card, and the rows above cover them all.
+  assert.deepEqual(Object.keys(p.PANE_CARDS).sort(), [...new Set(rows.map(r => r[0]))].sort())
+  assert.equal(p.paneCard('live', ctx()), null)
+})
+
+test('the actions say what they do', () => {
+  assert.deepEqual(p.paneCard('folderGone', ctx()).actions.map(a => a.kind), ['chooseFolder', 'reopenHome'])
+  assert.deepEqual(p.paneCard('lost', ctx()).actions.map(a => a.kind), ['reopen', 'close'])
+  assert.deepEqual(p.paneCard('limit', ctx()).actions.map(a => a.kind), ['again'])
+  assert.deepEqual(p.paneCard('empty', ctx()).actions.map(a => a.kind), ['start'])
+})
+
+test('a machine with no name is that machine', () => {
+  assert.equal(p.paneCard('lost', ctx({ host: '' })).heading, 'That machine restarted, so this shell was lost.')
+})
+
+test('an older machine gets a note under a live shell, not a card', () => {
+  const note = "Update reet on that machine to keep this pane's folder and history."
+  assert.equal(p.paneNote(pane(), 'live', { deskShell: false }), note)
+  assert.equal(p.paneNote(pane(), 'live', { deskShell: true }), '')
+  assert.equal(p.paneNote(pane(), 'live', {}), '')
+  assert.equal(p.paneNote(pane({ kind: 'agent' }), 'live', { deskShell: false }), '')
+  assert.equal(p.paneNote(pane(), 'ended', { deskShell: false }), '')
+})
+
+test('only lost and ended shells are reopened together', () => {
+  assert.deepEqual(['live', 'reconnecting', 'elsewhere', 'ended', 'lost', 'agentEnded', 'folderGone', 'folderUnavailable', 'limit', 'machineGone', 'empty'].filter(p.reopenable), ['ended', 'lost'])
+})
+
+test('a folder is shown from home', () => {
+  assert.equal(p.dirLabel('/home/dev/PROD_reet'), '~/PROD_reet')
+  assert.equal(p.dirLabel(''), '~')
+  assert.equal(p.dirLabel('/root'), '~')
+  assert.equal(p.dirLabel('/srv/app'), '/srv/app')
+})
+
+test('agent names', () => {
+  assert.equal(p.agentName('claude'), 'Claude Code')
+  assert.equal(p.agentName(undefined), 'The agent')
+  assert.equal(p.agentName('other'), 'other')
 })

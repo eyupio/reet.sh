@@ -1,35 +1,43 @@
 // What a desk pane is showing, and what it offers. Pure: the pane, its session as last listed, its machine and the
-// attachment's own state go in; a state and its actions come out. A pane is never a blank terminal: every state but
-// live is drawn in the pane with a sentence and one clear action (spec: Restore). Only type imports, so the unit test can
-// load this file on its own.
+// attachment's own state go in; a state and its card come out. A pane is never a blank terminal: every state but live is
+// drawn in the pane as a card with a tag, a heading, a sentence and its actions, the main one first (spec: Restore).
+// Only type imports, so the unit test can load this file on its own.
 import type { TerminalSession } from '../terminal/api'
 import type { Pane } from './tree'
 
-export type PaneState = 'live' | 'reconnecting' | 'elsewhere' | 'ended' | 'lost' | 'folderGone' | 'limit' | 'machineGone' | 'empty' | 'update'
-export type PaneActionKind = 'reopen' | 'continue' | 'start' | 'takeover' | 'retry' | 'chooseFolder' | 'chooseMachine' | 'none'
+export type PaneState = 'live' | 'reconnecting' | 'elsewhere' | 'ended' | 'lost' | 'agentEnded' | 'folderGone' | 'folderUnavailable' | 'limit' | 'machineGone' | 'empty'
+export type PaneActionKind = 'reopen' | 'reopenHome' | 'continue' | 'start' | 'again' | 'takeover' | 'retry' | 'chooseFolder' | 'chooseMachine' | 'close'
 export type PaneAction = { label: string; kind: PaneActionKind }
-/** Why the last reopen of this pane was refused, kept by the screen until the next try. */
-export type PaneFailure = 'folderGone' | 'limit'
+/** Why the last reopen of this pane was refused, kept by the screen until the next try. `offline`: the machine did not
+ *  answer; `machineLimit` and `accountLimit`: the browser's own check of the session limits. */
+export type PaneFailure = 'folderGone' | 'folderUnavailable' | 'machineLimit' | 'accountLimit' | 'offline' | 'machineGone'
 
 const RUNNING = new Set(['creating', 'running', 'end_requested'])
+/** A session that holds a slot of the session limits, and that a pane attaches to. */
+export const isRunning = (s: Pick<TerminalSession, 'state'> | undefined) => !!s && RUNNING.has(s.state)
 
-/** The pane's state. `machine` is undefined when the pane's machine is no longer enrolled. A machine that does not say
- *  whether it has desk shells (`deskShell` undefined, before desk-shell-v1 is reported) is taken to have them; only an
- *  explicit `false` asks for an update. A pane with a running session is live, reconnecting or open elsewhere whatever
- *  the machine's version. */
+/** The pane's state. `machine` is undefined when the pane's machine is no longer enrolled. A pane with a running session
+ *  is live, reconnecting or open elsewhere whatever the machine's version; an older machine only gets a note (paneNote). */
 export function paneState(pane: Pane, session: TerminalSession | undefined, machine: { online: boolean; deskShell?: boolean } | undefined,
   attach: { conflict: boolean; down: boolean }, failure?: PaneFailure): PaneState {
-  if (!machine) return 'machineGone'
-  if (pane.session && session && RUNNING.has(session.state)) {
+  if (!machine || failure === 'machineGone') return 'machineGone'
+  if (pane.session && isRunning(session)) {
     if (attach.conflict) return 'elsewhere'
     if (attach.down || !machine.online) return 'reconnecting'
     return 'live'
   }
+  if (failure === 'offline') return 'reconnecting'
+  if (failure === 'machineLimit' || failure === 'accountLimit') return 'limit'
   if (failure) return failure
-  if (machine.deskShell === false && pane.kind === 'shell') return 'update'
   if (!pane.session) return 'empty'
+  if (pane.kind === 'agent' || session?.tool) return 'agentEnded'
   if (session?.state === 'lost') return 'lost'
   return 'ended'
+}
+
+/** The one line under a live terminal's header when its machine keeps no folder or history for desk panes. */
+export function paneNote(pane: Pane, state: PaneState, machine: { deskShell?: boolean } | undefined): string {
+  return state === 'live' && pane.kind === 'shell' && machine?.deskShell === false ? "Update reet on that machine to keep this pane's folder and history." : ''
 }
 
 /** A folder as the person knows it: `~` for the home, `~/x` below a home, the full path otherwise. */
@@ -42,49 +50,51 @@ export function dirLabel(dir: string): string {
   return rest ? `~${rest}` : '~'
 }
 
-const isAgent = (pane: Pane, session?: TerminalSession) => pane.kind === 'agent' || !!session?.tool
+/** What a card's words are made from. `host` is the machine's name; `agent` the agent's name for an agent pane. */
+export type CardContext = { host: string; dir: string; agent: string; perMachine: number; perAccount: number; accountLimit: boolean; canContinue: boolean }
+export type PaneCard = { tag: string; heading: string; body: string; actions: PaneAction[] }
 
-/** The actions a state offers, the main one first. */
-export function paneAction(state: PaneState, pane: Pane, session?: TerminalSession): PaneAction[] {
-  const reopen: PaneAction = { label: `Reopen in ${dirLabel(pane.dir)}`, kind: 'reopen' }
-  switch (state) {
-    case 'live': return []
-    case 'reconnecting': return [{ label: 'Retry now', kind: 'retry' }]
-    case 'elsewhere': return [{ label: 'Use it here', kind: 'takeover' }]
-    case 'ended':
-    case 'lost':
-      if (isAgent(pane, session)) {
-        const shell: PaneAction = { label: 'Start a shell here', kind: 'reopen' }
-        return session?.tool ? [{ label: 'Continue', kind: 'continue' }, shell] : [shell]
-      }
-      return [reopen]
-    case 'folderGone': return [{ label: 'Choose a folder', kind: 'chooseFolder' }, { label: 'Reopen in home', kind: 'reopen' }]
-    case 'limit': return [{ label: 'Try again', kind: 'reopen' }]
-    case 'machineGone': return [{ label: 'Choose a machine', kind: 'chooseMachine' }]
-    case 'empty': return [{ label: 'Start', kind: 'start' }]
-    case 'update': return pane.session ? [reopen] : [{ label: 'Start', kind: 'start' }]
-  }
-}
+type CardRow = { tag: string; heading: (c: CardContext) => string; body: (c: CardContext) => string; actions: (c: CardContext) => PaneAction[] }
+const where = (c: CardContext) => c.host || 'That machine'
+const reopenHere = (c: CardContext): PaneAction[] => [{ label: `Reopen in ${c.dir}`, kind: 'reopen' }, { label: 'Close pane', kind: 'close' }]
+const history = (c: CardContext) => `It was in ${c.dir}. A new shell opens there with this pane's command history.`
+const elsewhereFolder = (): PaneAction[] => [{ label: 'Choose a folder', kind: 'chooseFolder' }, { label: 'Reopen in home', kind: 'reopenHome' }]
 
-/** The pane's words for a state: a title and, for some, a line under it. `host` is the machine's name. */
-export function paneCopy(state: PaneState, pane: Pane, session: TerminalSession | undefined, host: string, perMachine = 24): { title: string; body: string } {
-  const where = host || 'That machine'
-  const dir = dirLabel(pane.dir)
-  switch (state) {
-    case 'live': return { title: '', body: '' }
-    case 'reconnecting': return { title: `${where} is not reporting.`, body: 'The shell may still be running there. reet keeps trying; nothing you typed is resent.' }
-    case 'elsewhere': return { title: 'This terminal is open in another window.', body: 'A terminal has one keyboard at a time.' }
-    case 'ended':
-      if (isAgent(pane, session)) return { title: `${session?.tool ? agentName(session.tool) : 'The agent'} finished in this pane.`, body: `Continue the same conversation, or start a plain shell in ${dir}.` }
-      return { title: 'This shell ended.', body: `It was in ${dir}. A new shell opens there with this pane's command history.` }
-    case 'lost': return { title: `${where} restarted, so this shell was lost.`, body: `It was in ${dir}. A new shell opens there with this pane's command history.` }
-    case 'folderGone': return { title: `${dir} no longer exists on ${where}.`, body: "reet won't quietly open somewhere else." }
-    case 'limit': return { title: `${where} already has ${perMachine} sessions running.`, body: '' }
-    case 'machineGone': return { title: 'This machine was removed from reet.', body: '' }
-    case 'empty': return { title: `${where} · ${dir}`, body: 'Nothing is running in this pane yet.' }
-    case 'update': return { title: "Update reet on that machine to keep this pane's folder and history.", body: '' }
-  }
+/** Every card, by state: the component draws from it and the unit test reads it, so the two cannot drift apart. */
+export const PANE_CARDS: Record<Exclude<PaneState, 'live'>, CardRow> = {
+  lost: { tag: 'Lost', heading: c => `${where(c)} restarted, so this shell was lost.`, body: history, actions: reopenHere },
+  ended: { tag: 'Ended', heading: () => 'This shell ended.', body: history, actions: reopenHere },
+  folderGone: { tag: 'Folder gone', heading: c => `${c.dir} no longer exists on ${where(c)}.`, body: () => "reet won't quietly open somewhere else.", actions: elsewhereFolder },
+  folderUnavailable: { tag: 'Folder unavailable', heading: c => `reet couldn't open a shell in ${c.dir} on ${where(c)}.`, body: () => "reet won't quietly open somewhere else.", actions: elsewhereFolder },
+  limit: {
+    tag: 'At the limit',
+    heading: c => (c.accountLimit ? `You already have ${c.perAccount} sessions running.` : `${where(c)} already has ${c.perMachine} sessions running.`),
+    body: () => '',
+    actions: () => [{ label: 'Try again', kind: 'again' }],
+  },
+  machineGone: { tag: 'Machine removed', heading: () => 'This machine was removed from reet.', body: () => '', actions: () => [{ label: 'Choose a machine', kind: 'chooseMachine' }, { label: 'Close pane', kind: 'close' }] },
+  reconnecting: { tag: 'Machine offline', heading: c => `${where(c)} is not reporting.`, body: () => 'The shell may still be running there. reet keeps trying; nothing you typed is resent.', actions: () => [{ label: 'Retry now', kind: 'retry' }] },
+  elsewhere: { tag: 'Open elsewhere', heading: () => 'This terminal is open in another window.', body: () => 'A terminal has one keyboard at a time.', actions: () => [{ label: 'Use it here', kind: 'takeover' }] },
+  agentEnded: {
+    tag: 'Agent ended',
+    heading: c => `${c.agent} finished in this pane.`,
+    body: c => `Continue the same conversation, or start a plain shell in ${c.dir}.`,
+    actions: c => [...(c.canContinue ? [{ label: 'Continue', kind: 'continue' } as PaneAction] : []), { label: 'Start a shell here', kind: 'reopen' }],
+  },
+  empty: { tag: 'Not started', heading: c => `${where(c)} · ${c.dir}`, body: () => '', actions: () => [{ label: 'Start', kind: 'start' }] },
 }
 
 const AGENTS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', cline: 'Cline', opencode: 'OpenCode', antigravity: 'Google Antigravity (AGY)' }
-const agentName = (tool: string) => AGENTS[tool] ?? tool
+/** The agent's name as people know it; `The agent` when the session is no longer listed. */
+export const agentName = (tool: string | undefined) => (tool ? AGENTS[tool] ?? tool : 'The agent')
+
+/** The card for a state, or null for a live pane. */
+export function paneCard(state: PaneState, ctx: CardContext): PaneCard | null {
+  if (state === 'live') return null
+  const row = PANE_CARDS[state]
+  return { tag: row.tag, heading: row.heading(ctx), body: row.body(ctx), actions: row.actions(ctx) }
+}
+
+/** Panes that Reopen all brings back: shells whose session ended or was lost, on a machine that is still enrolled, that
+ *  no earlier try found a reason not to reopen. */
+export const reopenable = (state: PaneState) => state === 'lost' || state === 'ended'

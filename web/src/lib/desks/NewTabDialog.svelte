@@ -6,11 +6,20 @@
   import type { TerminalMachine } from '../terminal/api'
 
   // New tab: a plain shell on a machine, in a folder (typed, or found with the machine's folder browser). It starts on the
-  // focused pane's machine and folder. Opening it is the press that starts the shell; nothing starts before.
-  let { machines, agentId: startAgent = '', dir: startDir = '', oncreate, onclose }: {
+  // focused pane's machine and folder. Opening it is the press that starts the shell; nothing starts before. A pane's
+  // Choose a folder and Choose a machine use the same fields under their own title (`fixed` keeps the pane's machine).
+  let { machines, agentId: startAgent = '', dir: startDir = '', title = 'New tab', aside = 'A plain shell, in the folder you choose.', submit: submitLabel = 'Open tab', busyLabel = 'Opening…', fixed = false, browsing = false, oncreate, onclose }: {
     machines: TerminalMachine[]
     agentId?: string
     dir?: string
+    title?: string
+    aside?: string
+    submit?: string
+    busyLabel?: string
+    /** The machine is the one given and cannot be changed. */
+    fixed?: boolean
+    /** The machine's folder browser is open from the start. */
+    browsing?: boolean
     /** Starts the shell and adds the tab; a refusal is thrown and shown here. */
     oncreate: (agentId: string, dir: string) => Promise<void>
     onclose: () => void
@@ -23,7 +32,8 @@
   let agentId = $state(usable.some(m => m.agentId === startAgent) ? startAgent : (usable.find(m => m.ready)?.agentId ?? usable[0]?.agentId ?? ''))
   // svelte-ignore state_referenced_locally
   let dir = $state(agentId === startAgent ? startDir : '')
-  let browse = $state(false), busy = $state(false), error = $state('')
+  // svelte-ignore state_referenced_locally
+  let browse = $state(browsing), busy = $state(false), error = $state('')
   const machine = $derived(usable.find(m => m.agentId === agentId))
   const canBrowse = $derived(!!machine?.ready && !!machine.capabilities?.browse && !machine.capabilities.browseOff)
 
@@ -51,13 +61,13 @@
 
 <dialog bind:this={dialog} class="new-tab" use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} oncancel={event => { event.preventDefault(); close() }}>
   <form class="box" data-shell-card onsubmit={submit}>
-    <h2 id={titleId}>New tab</h2>
-    <p data-shell-aside>A plain shell, in the folder you choose.</p>
+    <h2 id={titleId}>{title}</h2>
+    <p data-shell-aside>{aside}</p>
     {#if usable.length === 0}
       <p class="bad" role="alert">No machine can open a terminal yet. Add one on Machines.</p>
     {:else}
       <label class="field"><span>Machine</span>
-        <select aria-label="Machine" bind:value={agentId} onchange={() => { dir = ''; browse = false }}>
+        <select aria-label="Machine" disabled={fixed} bind:value={agentId} onchange={() => { dir = ''; browse = false }}>
           {#each usable as m (m.agentId)}<option value={m.agentId}>{m.host}{m.ready ? '' : ' · offline'}</option>{/each}
         </select>
       </label>
@@ -69,7 +79,7 @@
     {#if error}<p class="bad" role="alert">{error}</p>{/if}
     <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" onclick={close}>Cancel</button>
-      <button type="submit" class="btn primary" disabled={!machine || busy} aria-busy={busy}>{busy ? 'Opening…' : 'Open tab'}</button>
+      <button type="submit" class="btn primary" disabled={!machine || busy} aria-busy={busy}>{busy ? busyLabel : submitLabel}</button>
     </div>
   </form>
 </dialog>

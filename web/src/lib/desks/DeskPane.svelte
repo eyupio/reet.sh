@@ -2,19 +2,21 @@
   import { tick } from 'svelte'
   import TerminalPane, { type TerminalActions } from '../terminal/TerminalPane.svelte'
   import type { ConnectionState } from '../terminal/connection'
-  import { SESSIONS_PER_MACHINE, sessionHref, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, sessionHref, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { projectColourHex, type ProjectColour } from '../projectColour'
   import { sessionStatus, statusLabel } from '../sessionStatus'
   import { middleEllipsis } from '../sessions/middleEllipsis'
   import DeskMenu from './DeskMenu.svelte'
-  import { dirLabel, paneAction, paneCopy, paneState, type PaneFailure, type PaneState } from './paneState'
+  import { agentName, dirLabel, isRunning, paneCard, paneNote, paneState, type PaneActionKind, type PaneFailure, type PaneState } from './paneState'
+  import PaneStateCard from './PaneStateCard.svelte'
   import { leaves, MAX_PANES, type Pane, type Tab } from './tree'
 
   // One pane of a desk tab: a one-line header washed in the pane's colour (name, machine, folder, state and a menu) over
-  // either the terminal or a card that says what happened and offers one action. A pane never shows a blank terminal.
+  // either the terminal or a card that says what happened and offers its actions (PaneStateCard). A pane never shows a
+  // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
-  let { tab, pane, session, machine, ready, focused = true, failure, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [],
-    onfocus, onrename, oncolour, onclose, onactions, onsettled, onsplit, onzoom, onswap, onmovetab }: {
+  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [],
+    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -24,6 +26,12 @@
     ready: boolean
     focused?: boolean
     failure?: PaneFailure
+    /** A reopen, start or continue of this pane is in flight. */
+    busy?: boolean
+    /** The last refusal, in the route's words, when it has no state of its own. */
+    error?: string
+    /** The agent's own resume is on offer (the Sessions screen's `canContinue`). */
+    canContinue?: boolean
     /** False while another pane is zoomed (or a phone shows another pane): the terminal stays attached, unsized. */
     visible?: boolean
     /** A separator is being dragged: the terminal refits locally and tells its machine the size once, on release. */
@@ -39,6 +47,9 @@
     onrename: (name: string) => void
     oncolour: (colour: ProjectColour) => void
     onclose: () => void
+    /** A press on a card's action that starts a shell or changes where it starts: reopen, start, try again, continue,
+     *  choose a folder or a machine. */
+    onreopen?: (kind: PaneActionKind) => void
     /** The terminal's toolbar actions while it is mounted, undefined otherwise. */
     onactions?: (actions: TerminalActions | undefined) => void
     /** The attach this pane was admitted for has an answer (or will not start), so the next pane may start. */
@@ -56,7 +67,7 @@
   const attach = $derived({ conflict: connection === 'taken_over', down: connection === 'reconnecting' })
   const deskShell = $derived((machine?.capabilities as { deskShell?: boolean } | undefined)?.deskShell)
   const shown = $derived<PaneState>(paneState(pane, session, machine ? { online: machine.ready, deskShell } : undefined, attach, failure))
-  const mounted = $derived(!!session && (shown === 'live' || shown === 'reconnecting' || shown === 'elsewhere'))
+  const mounted = $derived(!!pane.session && isRunning(session) && (shown === 'live' || shown === 'reconnecting' || shown === 'elsewhere'))
   const attaching = $derived(mounted && admitted)
   let actions = $state<TerminalActions>()
   $effect(() => { onactions?.(attaching ? actions : undefined) })
@@ -76,12 +87,13 @@
   const host = $derived(machine?.host ?? '')
   const name = $derived(pane.name || session?.title || dirLabel(folder).split('/').pop() || 'Shell')
   const colour = $derived(pane.colour || tab.colour)
-  const copy = $derived(paneCopy(shown, pane, session, host, SESSIONS_PER_MACHINE))
-  const first = $derived(paneAction(shown, pane, session)[0])
+  const dir = $derived(dirLabel(pane.dir))
+  const card = $derived(paneCard(shown, { host, dir, agent: agentName(session?.tool), perMachine: SESSIONS_PER_MACHINE, perAccount: SESSIONS_PER_ACCOUNT, accountLimit: failure === 'accountLimit', canContinue }))
+  const note = $derived(paneNote(pane, shown, machine ? { deskShell } : undefined))
   const status = $derived(session && mounted ? sessionStatus(session) : undefined)
-  const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', folderGone: 'Folder gone', limit: 'At the limit', machineGone: 'Machine removed', empty: 'Not started', update: 'Update reet' }
+  const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', empty: 'Not started' }
   const word = $derived(shown === 'live' && status && !(status === 'working' && !session?.tool) ? statusLabel(status) : WORDS[shown])
-  const tone = $derived(shown === 'lost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'limit' || shown === 'update' ? 'warn' : shown === 'live' ? 'good' : '')
+  const tone = $derived(shown === 'lost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'folderUnavailable' || shown === 'limit' ? 'warn' : shown === 'live' ? 'good' : '')
 
   // Rename in place, from the menu or the terminal's own Manage menu.
   let editing = $state(false), draft = $state(''), input = $state<HTMLInputElement>()
@@ -105,11 +117,14 @@
   // A pane can move to another tab that has a pane to split and room for one more.
   const movable = $derived(tabs.filter(t => t.id !== tab.id && leaves(t.root).length > 0 && leaves(t.root).length < MAX_PANES))
   const paneName = (p: Pane) => p.name || 'Untitled'
-  function act(kind: string) {
+  function act(kind: PaneActionKind) {
     if (kind === 'takeover') terminal?.takeOver()
-    else if (kind === 'retry') terminal?.retryNow()
+    else if (kind === 'retry' && mounted) terminal?.retryNow()
+    // A machine that did not answer a reopen: Retry now asks again.
+    else if (kind === 'retry') onreopen?.('again')
+    else if (kind === 'close') onclose()
+    else onreopen?.(kind)
   }
-  const working = (kind: string) => kind === 'takeover' || kind === 'retry'
 </script>
 
 <section class="desk-pane" class:focused data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => onfocus?.()} onfocusin={() => onfocus?.()}>
@@ -134,16 +149,10 @@
       <TerminalPane bind:this={terminal} bind:actions chrome={false} {session} {host} user={machine?.capabilities?.osUser ?? ''} {visible} holdSize={hold}
         historySupported={machine?.capabilities?.commandHistory ?? false} uploadsSupported={machine?.capabilities?.uploads ?? false} uploadsOff={machine?.capabilities?.uploadsOff ?? false}
         onconnection={next => (connection = next)} />
-      {#if shown !== 'live'}
-        <div class="sbar" role="status"><span><b>{copy.title}</b> {copy.body}</span>{#if first}<button type="button" class="btn primary" onclick={() => act(first.kind)}>{first.label}</button>{/if}</div>
-      {/if}
-    {:else}
-      <div class="state" role="status">
-        <span class="tag">{WORDS[shown]}</span>
-        <h3>{copy.title}</h3>
-        {#if copy.body}<p>{copy.body}</p>{/if}
-        {#if first}<div class="row"><button type="button" class="btn primary" disabled={!working(first.kind)} title={working(first.kind) ? undefined : 'Coming in a later step'} onclick={() => act(first.kind)}>{first.label}</button></div>{/if}
-      </div>
+      {#if note}<p class="note">{note}</p>{/if}
+      {#if card}<PaneStateCard {card} {dir} overlay onaction={act} />{/if}
+    {:else if card}
+      <PaneStateCard {card} {dir} {busy} {error} onaction={act} />
     {/if}
   </div>
 </section>
@@ -197,13 +206,7 @@
   /* Below the last whole row the screen shows its own background, not xterm's default black viewport. */
   .body :global(.xterm .xterm-viewport) { background-color: transparent; }
   .waiting { margin: auto; color: var(--muted); }
-  .state { flex: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 16px 20px; overflow: auto; }
-  .state h3 { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
-  .state p { margin: 0; color: var(--muted); max-width: 52ch; }
-  .tag { font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .sbar { position: absolute; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--tint); border-bottom: 1px solid var(--line); font-size: 14px; }
-  .sbar span { flex: 1; min-width: 0; color: var(--muted); }
-  .sbar b { color: var(--ink); font-weight: 600; }
+  /* An older machine: one line under the header, the terminal still in reach. */
+  .note { flex: none; order: -1; margin: 0; padding: 4px 12px; font-size: 14px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); border-bottom: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (pointer: coarse) { .more { width: 44px; height: 44px; } }
 </style>

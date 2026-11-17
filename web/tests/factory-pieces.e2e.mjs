@@ -51,4 +51,18 @@ try{
   }finally{await w.context.close()}
  }
  console.log('ok - stage pipeline')
+ // A waiting item: its filled action and the way to the detail. Not run until the page mounts WaitingItem (Task 6).
+ {
+  const f=fixture(),w=await openWorkspace(browser,{width:1000,height:900,theme:'light',touch:false,routes:f.routes})
+  try{
+   const page=w.page
+   await page.goto(`${base}/factory`)
+   const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
+   await expect(waiting.getByRole('button',{name:'Move to next stage',exact:true})).toBeVisible()
+   await expect(waiting.getByRole('button',{name:/^Details and other actions/})).toBeVisible()
+   const working=page.getByRole('region',{name:'Working',exact:true})
+   await expect(working.locator('.btn.primary')).toHaveCount(0)
+  }finally{await w.context.close()}
+  console.log('ok - waiting item')
+ }
 }finally{await browser.close()}

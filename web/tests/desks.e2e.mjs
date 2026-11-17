@@ -949,6 +949,34 @@ try {
   await expect(page.locator('.desk-pane .terminal-toolbar, .desk-pane .pane > header, .desk-pane .pane > footer')).toHaveCount(0)
   console.log('ok - the toolbar acts on the focused pane')
 
+  // ── the toolbar stays where it is whichever pane is focused ──
+  // A long pane name does not push the tools along or bring a scroll bar: the name has a column of its own, and the
+  // labels follow the toolbar's width.
+  reset()
+  desks.get('desk-split').doc.tabs[0].panes['pane-b'].name = 'a pane with a long name of forty characters'
+  for (const width of [1360, 1600, 1745, 1920]) {
+    await page.setViewportSize({ width, height: 860 })
+    await openSplit()
+    await attached(['sess-a', 'sess-b', 'sess-c'])
+    const tools = page.locator('.desk-toolbar .tools')
+    const place = () => page.evaluate(() => {
+      const box = sel => { const r = document.querySelector(sel).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)] }
+      const t = document.querySelector('.desk-toolbar .tools')
+      return { who: box('.desk-toolbar .who'), first: box('.desk-toolbar .tools button'), tools: box('.desk-toolbar .tools'), fits: t.scrollWidth <= t.clientWidth, height: Math.round(t.getBoundingClientRect().height) }
+    })
+    await pane('pane-a').locator('.xterm').click()
+    await expect(page.getByRole('toolbar', { name: 'Terminal tools for alpha' })).toBeVisible()
+    const short = await place()
+    await pane('pane-b').locator('.xterm').click()
+    await expect(page.getByRole('toolbar', { name: 'Terminal tools for a pane with a long name of forty characters' })).toBeVisible()
+    const long = await place()
+    expect(long, `toolbar at ${width}`).toEqual(short)
+    expect(long.fits, `no scroll bar at ${width}`).toBe(true)
+    expect(await tools.evaluate(el => getComputedStyle(el).overflowX)).toBe('auto')
+  }
+  await page.setViewportSize({ width: 1360, height: 860 })
+  console.log('ok - the toolbar does not move with the pane name')
+
   // ── Earlier output toggles on the focused pane, and only on it ──
   reset()
   await openSplit()

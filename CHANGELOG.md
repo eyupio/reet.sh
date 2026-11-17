@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desks**: the terminal toolbar no longer shifts or grows a scroll bar when
+  the focused pane has a long name. The name has a fixed-width column, Attach
+  and Skills keep their place (switched off where they do not apply), and the
+  labels follow the toolbar's width.
 - **Desks**: on a tablet or phone whose on-screen keyboard overlays the page,
   an open desk now ends above the keyboard, so the terminal's last rows and
   its keys bar stay in view while you type. Before, the desk kept the

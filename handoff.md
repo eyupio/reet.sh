@@ -18,6 +18,21 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## DESKS-KEYBOARD-1: a desk under the on-screen keyboard (17 November 2026)
+
+The owner reported, from an Android tablet, that a desk's terminal did not adjust when the keyboard opened.
+
+- **Cause:** the desk screen sets `#app` to `100dvh`. Android Chrome's default (and iOS) overlays the keyboard: the
+  window keeps its height and only the visual viewport shrinks, so the bottom of the pane sat under the keyboard.
+  The session workspace already measures the visual viewport; the desk screen did not.
+- **Fix:** `fittedHeight` in `terminal/sizing.ts` gives the height above the keyboard (null when the page already
+  fits, when zoomed, or with no visual viewport). `DeskScreen` sets it as `--desk-fit` on the root, which `#app`
+  uses in place of `100dvh`, and scrolls back to the top if the browser panned the page.
+- **Checked:** unit test in `terminal-sizing.test.mjs`; `desks.e2e.mjs` stands in a visual viewport, shrinks it to
+  560 of 1000 and reads the desk's bottom edge; `desks-phone.e2e.mjs` still passes.
+- **Not checked:** a real tablet or phone. The site bar, desk bar, tab bar and toolbar still take about 260 px above
+  the pane with the keyboard open; nothing steps aside as the phone chrome does on the session screen.
+
 ## FACTORY-REALRUN-1: what the first real split run showed (17 November 2026)
 
 Run over MCP in project reet on PROD_Snicket (outcome `7a1c3e5f…`, OpenCode, ordinary approvals): plan (heavy),

@@ -124,6 +124,18 @@ export class ViewportTracker {
   }
 }
 
+/**
+ * The height, in CSS pixels, a page that fills the window should take instead, or null to leave it filling the window.
+ * A browser whose keyboard overlays the page (Android Chrome's default, and iOS) keeps the window's height and only
+ * shrinks the visual viewport, so a page sized to the window ends under the keyboard. Pinch zoom shrinks the visual
+ * viewport as well and is left alone.
+ */
+export function fittedHeight(usable: UsableViewport, reading: ViewportReading): number | null {
+  const visual = reading.visual
+  if (!visual || visual.scale > 1.05) return null
+  return reading.innerHeight - usable.height > 1 ? Math.round(usable.height) : null
+}
+
 /** An on-screen keyboard is open over the terminal: a narrow touch screen lost a quarter of its height while typing in the terminal, without zooming. */
 export function keyboardLikelyOpen(shrink: number, context: { coarse: boolean; narrow: boolean; editing: boolean; scale: number }): boolean {
   return context.coarse && context.narrow && context.editing && context.scale <= 1.05 && shrink >= 0.25

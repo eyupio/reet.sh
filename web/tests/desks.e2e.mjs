@@ -709,6 +709,35 @@ try {
   }
   console.log('ok - touch targets are 44 px on a touch screen')
 
+  // ── an on-screen keyboard that overlays the page ──
+  {
+    reset()
+    const touch = await browser.newContext({ viewport: { width: 834, height: 1000 }, hasTouch: true, isMobile: true })
+    const tp = await touch.newPage()
+    tp.on('pageerror', error => errors.push(error.message))
+    // The keyboard is stood in for by a visual viewport the test can shrink: the window keeps its height.
+    await tp.addInitScript(() => {
+      const fake = new EventTarget()
+      Object.assign(fake, { height: innerHeight, width: innerWidth, offsetTop: 0, offsetLeft: 0, pageTop: 0, pageLeft: 0, scale: 1 })
+      Object.defineProperty(window, 'visualViewport', { value: fake, configurable: true })
+      window.__keyboard = height => { fake.height = height; fake.dispatchEvent(new Event('resize')) }
+    })
+    await tp.route('**/api/**', api)
+    await tp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await tp.goto(`${base}/desks/desk-prod`)
+    await expect(tp.locator('.bar .tabs').getByRole('tab', { name: 'deploy', exact: true })).toBeVisible()
+    const bottom = () => tp.evaluate(() => Math.round(document.querySelector('.desk-screen').getBoundingClientRect().bottom))
+    expect(await bottom(), 'the desk fills the window').toBe(1000)
+    await tp.evaluate(() => window.__keyboard(560))
+    await expect.poll(bottom, 'the desk ends above the keyboard').toBeLessThanOrEqual(560)
+    expect(await tp.evaluate(() => document.querySelector('.area').getBoundingClientRect().height), 'the panes keep some room').toBeGreaterThan(120)
+    if (shots) await tp.screenshot({ path: `${shots}/desks-keyboard-834.png` })
+    await tp.evaluate(() => window.__keyboard(innerHeight))
+    await expect.poll(bottom, 'the desk fills the window again').toBe(1000)
+    await touch.close()
+  }
+  console.log('ok - the desk is fitted above an on-screen keyboard')
+
   // ── loading another page does not read the desks ──
   {
     reset()

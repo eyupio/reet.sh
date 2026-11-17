@@ -14,6 +14,7 @@
   import { createAutosave, type Autosave, type Change, type SaveState } from './autosave'
   import type { TerminalActions } from '../terminal/TerminalPane.svelte'
   import { isPhone, screenShortSide } from '../terminal/panelLayout'
+  import { browserViewport, fittedHeight, pageViewport } from '../terminal/sizing'
   import { shell } from '../dialogShell'
   import { layout as treeLayout, leaves, MAX_PANES, MAX_TABS, neighbour, newId, type Pane, type Split, type Tab } from './tree'
   import { DESK_KEYS, deskKey } from './keys'
@@ -130,7 +131,32 @@
     document.addEventListener('visibilitychange', visible)
     // The desk screen takes the window's height to the pixel, as the session workspace does.
     document.documentElement.toggleAttribute('data-desk-screen', true)
+    // An on-screen keyboard that overlays the page leaves the window's height as it was, so the screen is fitted to
+    // what is left above it and the terminals keep their last rows and their keys bar in view.
+    let fitFrame = 0
+    const fit = () => {
+      cancelAnimationFrame(fitFrame)
+      fitFrame = requestAnimationFrame(() => {
+        const reading = browserViewport(), height = fittedHeight(pageViewport.read(reading), reading)
+        const root = document.documentElement
+        if (height === null) root.style.removeProperty('--desk-fit')
+        else {
+          root.style.setProperty('--desk-fit', `${height}px`)
+          // The browser may have panned the page to bring the caret into view; the fitted page has nothing to pan.
+          if (reading.visual && reading.visual.offsetTop > 0) scrollTo(0, 0)
+        }
+      })
+    }
+    fit()
+    addEventListener('resize', fit)
+    visualViewport?.addEventListener('resize', fit)
+    visualViewport?.addEventListener('scroll', fit)
     return () => {
+      cancelAnimationFrame(fitFrame)
+      removeEventListener('resize', fit)
+      visualViewport?.removeEventListener('resize', fit)
+      visualViewport?.removeEventListener('scroll', fit)
+      document.documentElement.style.removeProperty('--desk-fit')
       removeEventListener('resize', measure)
       document.documentElement.removeAttribute('data-desk-theatre')
       removeEventListener('pagehide', leave)
@@ -1112,7 +1138,7 @@
   .gone p { margin: 0; color: var(--muted); }
   .gone .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .loading { color: var(--muted); }
-  :global(html[data-desk-screen] #app) { height: 100dvh; min-height: 0; }
+  :global(html[data-desk-screen] #app) { height: var(--desk-fit, 100dvh); min-height: 0; }
   :global(html[data-desk-screen] main#main-content) { min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
   @media (max-width: 700px) {
     .dhead { padding: 6px 10px; gap: 8px; }

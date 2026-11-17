@@ -244,3 +244,20 @@ test('overflow hints mark the edges that hide more controls', () => {
   assert.deepEqual(s.overflowEdges(211, 587, 376), { start: true, end: false })
   assert.deepEqual(s.overflowEdges(210.4, 587, 376), { start: true, end: false })
 })
+
+// Reported on a tablet: the desk screen took the window's height, so the on-screen keyboard covered the terminal.
+test('a page that fills the window is fitted above a keyboard that overlays it', () => {
+  const tracker = new s.ViewportTracker()
+  const closed = { innerWidth: 800, innerHeight: 1200, visual: { height: 1200, offsetTop: 0, scale: 1 } }
+  assert.equal(s.fittedHeight(tracker.read(closed), closed), null)
+  const open = { innerWidth: 800, innerHeight: 1200, visual: { height: 700, offsetTop: 0, scale: 1 } }
+  assert.equal(s.fittedHeight(tracker.read(open), open), 700)
+  // Pinch zoom shrinks the visual viewport too, and is not a keyboard.
+  const zoomed = { innerWidth: 800, innerHeight: 1200, visual: { height: 600, offsetTop: 100, scale: 2 } }
+  assert.equal(s.fittedHeight(tracker.read(zoomed), zoomed), null)
+  // A browser that resized the page itself needs nothing: the page's own height already fits.
+  const resized = { innerWidth: 800, innerHeight: 700, visual: { height: 700, offsetTop: 0, scale: 1 } }
+  assert.equal(s.fittedHeight(tracker.read(resized), resized), null)
+  // No visual viewport to read.
+  assert.equal(s.fittedHeight({ height: 1200, top: 0, shrink: 0 }, { innerWidth: 800, innerHeight: 1200, visual: null }), null)
+})

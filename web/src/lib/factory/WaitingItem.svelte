@@ -57,9 +57,13 @@
   {#if advised}<p class="why"><strong>Gaffer recommends: {advised.label.replace(/…$/, '')}.</strong> {advised.why}</p>
   {:else if item.why}<p class="why">{item.why}</p>{/if}
 {/snippet}
-{#snippet buttons()}
+{#snippet approval()}
+  <Approval {sessionId} approval={permission!} {onanswered} />
+{/snippet}
+<!-- In a row the approval sits in the text column, where its command has room; the buttons column then holds Details alone. -->
+{#snippet buttons(withApproval: boolean = true)}
   {#if item.kind === 'approval' && permission && !item.archived}
-    <Approval {sessionId} approval={permission} {onanswered} />
+    {#if withApproval}{@render approval()}{/if}
   {:else if filled}
     {#snippet fill()}<button type="button" class="btn primary" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(filled)}>{filled.label}{#if advised}<span class="sr-only">{' '}Recommended</span>{/if}</button>{/snippet}
     <!-- Marked as the detail's bar marks it: a caption above the button. -->
@@ -90,9 +94,10 @@
         <div class="text">
           <div class="what"><h3 class="title">{item.title}</h3>{" "}<span class="where">· Factory · {item.objective}</span></div>
           {@render why()}
+          {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
         </div>
         <div class="stagecell">{@render stages('dots')}</div>
-        <div class="buttons end">{@render buttons()}</div>
+        <div class="buttons end">{@render buttons(false)}</div>
       </article>
     {:else}
       {@render card(pipeline === 'dots' ? 'labelled' : pipeline)}

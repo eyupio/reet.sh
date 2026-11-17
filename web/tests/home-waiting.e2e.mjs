@@ -39,6 +39,14 @@ function fixture(){
  }
  return{routes,outcome,box,row}
 }
+// Sessions that need the person in other ways, so the rightmost button of each kind of row is measured.
+function withMore(f){
+ const base={agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
+ const approving={...base,id:'approve-session',title:'Release notes',state:'running',bellAt:now-90000,pendingPermission:{permissionId:'p1',title:'Run a command',command:'npm run build',path:'',truncated:false,queued:0}}
+ const finished={...base,id:'review-session',title:'Billing tidy-up',state:'exited',exitCode:0,bellAt:now-120000,worktreePath:'/work/billing-wt',worktreeRepo:'/work/billing',worktreeBranch:'tidy'}
+ const before=f.routes['/api/v2/terminal/sessions']
+ f.routes['/api/v2/terminal/sessions']=()=>({sessions:[...before().sessions,approving,finished]})
+}
 // A second session that asked the person a question, so Home has a session row beside the Factory rows.
 function withQuestion(f){
  const asking={id:'ask-session',agentId:'a1',title:'Portal sign-in copy',tool:'claude',model:'m',structured:true,state:'running',createdAt:now,updatedAt:now,bellAt:now-60000,exitCode:null,dir:'/work',pendingQuestion:{questionId:'q1',message:'Which wording for the expired-link page?',truncated:false,queued:0}}
@@ -46,7 +54,7 @@ function withQuestion(f){
  f.routes['/api/v2/terminal/sessions']=()=>({sessions:[...sessions.sessions,asking]})
 }
 async function open(width,theme){
- const f=fixture();withQuestion(f)
+ const f=fixture();withQuestion(f);withMore(f)
  const w=await openWorkspace(browser,{width,height:width<500?844:1000,theme,touch:width<1000,routes:f.routes})
  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  await w.page.goto(`${base}/`)
@@ -58,12 +66,16 @@ try{
   const w=await open(1440,theme),page=w.page
   try{
    const details=page.getByRole('button',{name:/^Details and other actions for /})
-   const seen=page.getByRole('button',{name:'Mark seen',exact:true})
    const answer=page.getByRole('link',{name:'Answer in chat',exact:true})
    await expect(answer).toBeVisible();await expect(details.first()).toBeVisible()
-   // The buttons' right edges are equal across a Factory row and a session row, within 1 px.
-   const edges=[await right(details.first())]
-   if(await seen.count())edges.push(await right(seen.first()))
+   // The buttons' right edges are equal across a Factory row and each kind of session row, within 1 px: the Factory
+   // row's Details, the question row's Answer in chat, and the rightmost button of the approval and review rows.
+   const edges=[await right(details.first()),await right(answer)]
+   for(const name of ['Release notes','Billing tidy-up']){
+    const article=page.locator('article',{hasText:name}).first()
+    await expect(article).toBeVisible()
+    edges.push(await right(article.locator('.btn').last()))
+   }
    const rowRight=await page.evaluate(()=>[...document.querySelectorAll('article')].map(a=>a.getBoundingClientRect().right))
    for(const edge of edges)expect(Math.abs(edge-edges[0])).toBeLessThanOrEqual(1)
    expect(Math.max(...rowRight)-Math.min(...rowRight)).toBeLessThanOrEqual(1)

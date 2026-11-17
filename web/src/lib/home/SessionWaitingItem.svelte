@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { NeedCard } from '../home'
   import Approval from '../shell/Approval.svelte'
   import { worktreeStatus } from '../terminal/api'
@@ -13,15 +14,22 @@
     onanswered?: () => void | Promise<void>
   } = $props()
 
+  const hasQuestion = $derived(!!card.question || card.reasons.includes('question'))
+  const hasApproval = $derived(!!card.approval || card.reasons.includes('approval'))
   const asking = $derived(!!card.question && !card.approval)
-  const chip = $derived(card.kind === 'failed' ? 'Failed' : card.kind === 'review' ? 'To review' : card.approval || card.reasons.includes('approval') ? 'Approval' : 'Question')
-  const tone = $derived(card.kind === 'failed' ? 'bad' : card.kind === 'review' ? 'plain' : 'you')
+  const chip = $derived(card.kind === 'failed' ? 'Failed' : card.kind === 'review' ? 'To review' : card.kind === 'finished' ? 'Finished' : hasApproval ? 'Approval' : hasQuestion ? 'Question' : 'Waiting')
+  // Only the kinds that ask something of the person use the accent tone.
+  const tone = $derived(card.kind === 'failed' ? 'bad' : hasApproval || hasQuestion ? 'you' : 'plain')
 
-  // For a worktree session that finished, ask the machine once how many files changed in the worktree.
+  // For a worktree session that finished, ask the machine once per (session, finish time) how many files changed. The
+  // effect depends on that key alone: the target is a fresh object on every poll, so it is read untracked, and the shown
+  // count stays while the key is unchanged.
+  const worktreeKey = $derived(card.kind === 'review' && card.worktreeTarget ? `${card.sessionId}:${card.at}` : '')
   let changed = $state<number>()
   $effect(() => {
-    const target = card.kind === 'review' ? card.worktreeTarget : null
+    const key = worktreeKey
     changed = undefined
+    const target = key ? untrack(() => card.worktreeTarget) : null
     if (!target) return
     let current = true
     void worktreeStatus(target).then(status => {
@@ -42,8 +50,9 @@
 
 {#snippet sentence()}
   {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />
-  {:else if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
-  {:else}<p class="said">{card.label} · {card.age}</p>{/if}
+  {/if}
+  {#if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
+  {:else if !card.approval}<p class="said">{card.label} · {card.age}</p>{/if}
   {#if card.reasons.includes('gaffer')}<p class="note">Gaffer’s goal also needs you</p>{/if}
 {/snippet}
 {#snippet buttons()}

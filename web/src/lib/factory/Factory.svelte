@@ -190,7 +190,11 @@
     } catch (e) { fail(e, 'That outcome was not changed.') }
     busy = false
     await load()
-    if (leaving && !byId.has(chosenId)) { chosenId = ''; pushed = false; address({ pipeline: null }, ''); void tick().then(focusFirst) }
+    if (leaving && !byId.has(chosenId)) {
+      // The detail was opened by a history entry: take that entry back, so one Back press leaves the page afterwards.
+      if (pushed) { addEventListener('popstate', () => void tick().then(focusFirst), { once: true }); history.back() }
+      else { chosenId = ''; address({ pipeline: null }, ''); void tick().then(focusFirst) }
+    }
   }
   const latest = (record: Outcome) => records.find(item => item.id === record.id) ?? record
   // What happened to an outcome's pipelines, read from the activity log when asked for. Each ask reads it again, so a
@@ -557,9 +561,6 @@
   {/if}
   {#if !board && !loading}{@render floorSection()}{/if}
   {#if !(board && !narrow) && !detailOpen}{@render foot()}{/if}
-  <!-- The floating Gaffer button's own strip: at the foot of the wide page, and kept at the foot of the screen over a
-       narrow list. Nothing else is put in it. A narrow detail keeps the strip in its bar instead. -->
-  {#if !detailOpen}<div class="rest" class:float={narrow} data-floating-clearance="dock" aria-hidden="true"></div>{/if}
 </div>
 
 </div>
@@ -574,10 +575,8 @@
 
 <style>
   /* The rail is the left column on a wide desktop: its saved width, or the 56 px strip while folded. Below that there is no rail. */
-  /* Room for the floating Gaffer button, where it is shown: its size, the strip it rests in and the width it keeps clear
-     at the end of a line. --foot is what covers the foot of the screen without it (a phone's tab bar). */
-  .factory-page{--launcher-size:0px;--launcher-strip:0px;--launcher-room:0px;--foot:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px))}
-  :global(html[data-gaffer-anchor]:not([data-gaffer-editing])) .factory-page{--launcher-size:56px;--launcher-strip:80px;--launcher-room:88px}
+  /* --foot is what covers the foot of the screen (a phone's tab bar), without the strip the app keeps for the floating button. */
+  .factory-page{--foot:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px))}
   .factory-page{--top:61px;display:grid;grid-template-columns:var(--rail-width,301px) minmax(0,1fr)}.factory-page.rail-collapsed{grid-template-columns:56px minmax(0,1fr)}
   .factory-page>:global(aside.rail){grid-column:1;grid-row:1;min-width:0}.factory-page>.factory{grid-column:2;grid-row:1}
   .factory-page :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)){border-color:transparent;border-radius:8px;background:transparent}.factory-page :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover){background:var(--line-soft)}
@@ -603,18 +602,10 @@
   /* In the list beside the detail the floor's filters wrap rather than scroll out of sight. */
   .split .floor :global(.filters){flex-wrap:wrap;overflow-x:visible}.foot{font-size:0.875rem}
   .factory.split{max-width:1440px;height:calc(100dvh - var(--top));display:flex;flex-direction:column;gap:16px;padding-bottom:20px}
-  .factory.split:has(.rest){padding-bottom:0}
   .split .board{flex:1 1 auto;min-height:420px;gap:16px;grid-template-columns:clamp(280px,32%,380px) minmax(0,1fr)}
   .split .list{min-height:0;overflow-y:auto;scrollbar-width:thin;padding:2px 10px 24px 2px;margin-left:-2px}
   .split .pane{min-height:0;overflow-y:auto;scrollbar-width:thin;box-sizing:border-box;padding:20px 24px 0;border:1px solid var(--line);border-radius:14px;background:var(--card);--detail-inset:24px}
   .pane.resting{display:grid;place-items:center;padding:24px;color:var(--muted);text-align:center}
-  /* The floating button's strip. On the wide page it is the last line of the page; over a narrow list it stays at the
-     foot of the screen (above a phone's tab bar) while the list scrolls under it. */
-  .rest{flex:none;height:var(--launcher-strip);pointer-events:auto}
-  .rest:not(.float){margin-top:-16px}
-  .rest.float{position:sticky;z-index:3;bottom:var(--foot);margin:-20px calc(-1 * var(--gutter)) 0;background:var(--bg)}
-  :global(html[data-gaffer-anchor]:not([data-gaffer-editing])) .rest.float{box-shadow:0 -1px 0 var(--line)}
-  .factory:has(.rest.float){padding-bottom:0}
   /* On a narrow screen the detail is the page, and its bar rests on whatever covers the foot of the screen: the phone's
      tab bar, else nothing. The strip the app keeps at the foot of every page for the floating button is in the bar. */
   .factory.reading{padding-bottom:0;min-height:calc(100dvh - var(--top) - var(--foot));box-sizing:border-box;display:flex;flex-direction:column}
@@ -622,7 +613,7 @@
   .reading .pane{flex:1 1 auto;display:flex;flex-direction:column;--detail-inset:var(--gutter);--detail-bottom:var(--foot)}
   /* A phone's body keeps the tab bar and that strip at its foot; this page keeps only the tab bar there. */
   @media (max-width:650px),(max-height:500px) and (pointer:coarse) and (orientation:landscape){
-    :global(html[data-bottom-tabs]) .factory:is(.reading,:has(.rest.float)){margin-bottom:calc(-1 * var(--gaffer-reserve,0px))}
+    :global(html[data-bottom-tabs]) .factory.reading{margin-bottom:calc(-1 * var(--gaffer-reserve,0px))}
   }
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

@@ -125,7 +125,7 @@ async function scene(options={}) {
   status:options.status, sync:sync(), inventory:{environments:[scope()],machines:sync().machines}, routes})
  await opened.page.addInitScript(() => { if (localStorage.getItem('reet.rail.collapsed') === null) localStorage.setItem('reet.rail.collapsed', '0') })
  // Home keeps Your machines in a folded section: open it as a person would.
- await opened.page.addInitScript(() => { setInterval(() => { for (const d of document.querySelectorAll('details.home-detail')) d.open = true }, 100) })
+ await opened.page.addInitScript(() => { setInterval(() => { for (const b of document.querySelectorAll('button[aria-expanded="false"]')) if ((b.textContent || '').trim().startsWith('Your machines')) b.click() }, 100) })
  await opened.page.exposeFunction('__sawBaseConfirm', () => { box.confirms++ })
  await opened.page.addInitScript(() => {
   const show = HTMLDialogElement.prototype.showModal

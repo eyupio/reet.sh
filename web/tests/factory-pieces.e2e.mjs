@@ -604,30 +604,93 @@ try{
    expect((await page.getByRole('button',{name:'Projects: all',exact:true}).boundingBox()).height).toBeGreaterThanOrEqual(44)
   }finally{await w.context.close()}
  })
- // F7: the floating Gaffer button covers no text, control, item or stage card where the captures are taken, and on a
- // narrow detail the bar rests on the foot of the screen (on the tab bar of a phone) with no band beneath it.
+ // F7: the floating Gaffer button covers no button or link in an item's button row, in an approval or in the detail's bar, at the top of the page and
+ // scrolled to the end, and on a narrow detail the bar rests on the foot of the screen (on the tab bar of a phone) with no
+ // band beneath it. The old strip kept for the button (class rest, data-floating-clearance="dock") is gone.
+ const controlsUnder=page=>page.evaluate(()=>{
+  const el=document.querySelector('.gaffer-launcher'),r=el.getBoundingClientRect(),hit=[]
+  for(const node of document.querySelectorAll('.factory .buttons :is(button,a[href]),.factory .bar :is(button,a[href]),.factory .approval button')){
+   const b=node.getBoundingClientRect()
+   if(b.width&&b.height&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top)hit.push(`${node.tagName.toLowerCase()}: ${(node.getAttribute('aria-label')||node.textContent).trim().replace(/\s+/g,' ').slice(0,40)}`)
+  }
+  return hit
+ })
  for(const [width,height] of [[1440,1000],[834,1112],[390,844]]){
-  await step(`the floating button covers nothing at ${width} px`,async()=>{
-   const {w,page}=await open(width,{height})
+  await step(`the floating button covers no control at ${width} px`,async()=>{
+   const {w,page}=await open(width,{height,tweak:approval})
    try{
+    await expect(page.locator('.rest,[data-floating-clearance="dock"],[data-floating-dock]')).toHaveCount(0)
     if(width<1100){
      await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
-     await settled(page);expect(await covered(page)).toEqual([])
+     await settled(page);expect(await controlsUnder(page)).toEqual([])
+     await page.screenshot({path:`${shots}/factory-list-${width}-top.png`})
+     await page.evaluate(()=>scrollTo(0,document.scrollingElement.scrollHeight));await settled(page)
+     expect(await controlsUnder(page)).toEqual([])
+     await page.screenshot({path:`${shots}/factory-list-${width}-end.png`})
+     // The last card can be scrolled fully into view above the tab bar (or the window's foot).
+     const gap=await page.evaluate(()=>{const cards=[...document.querySelectorAll('.factory .list .item')].filter(n=>n.getClientRects().length),last=cards[cards.length-1].getBoundingClientRect(),tabs=document.querySelector('nav.bottom-tabs'),floor=tabs&&tabs.getClientRects().length?tabs.getBoundingClientRect().top:innerHeight;return floor-last.bottom})
+     expect(gap).toBeGreaterThanOrEqual(0)
+     await page.evaluate(()=>scrollTo(0,0));await settled(page)
      await page.locator(`#pipeline-${oid}-a`).getByRole('button',{name:/^Details/}).click()
     }
     const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
     await expect(bar).toBeVisible();await settled(page)
-    expect(await covered(page)).toEqual([])
+    expect(await controlsUnder(page)).toEqual([])
     if(width<1100){
      const foot=()=>page.evaluate(()=>{const bar=document.querySelector('.detail .bar').getBoundingClientRect(),tabs=document.querySelector('nav.bottom-tabs');const floor=tabs&&tabs.getClientRects().length?tabs.getBoundingClientRect().top:innerHeight;return Math.round(floor-bar.bottom)})
      expect(Math.abs(await foot())).toBeLessThanOrEqual(1)
      await page.evaluate(()=>scrollTo(0,document.scrollingElement.scrollHeight));await settled(page)
-     expect(Math.abs(await foot())).toBeLessThanOrEqual(1);expect(await covered(page)).toEqual([])
+     expect(Math.abs(await foot())).toBeLessThanOrEqual(1);expect(await controlsUnder(page)).toEqual([])
     }
     await page.screenshot({path:`${shots}/launcher-${width}.png`})
    }finally{await w.context.close()}
   })
  }
+ // After archiving from a narrow detail, one Back press leaves the page: no second /factory entry is left in the history.
+ await step('one Back after archiving from the narrow detail leaves the page',async()=>{
+  const {w,page}=await open(834,{tweak:f=>{
+   twoProjects(f)
+   for(const piece of f.outcome.sessions){piece.state='done';piece.note='Every stage is done.';piece.stages=piece.stages.map(stage=>({...stage,state:'done'}));piece.stage=2}
+   f.routes[`/api/v2/gaffer/outcomes/${oid}/archive`]=()=>{f.outcome.archivedAt=now;f.outcome.revision++;return f.outcome}
+  }})
+  try{
+   await page.getByRole('button',{name:/^Working/}).click()
+   await page.getByRole('button',{name:/^Finished or stopped/}).click()
+   await page.locator(`#pipeline-${oid}-a`).getByRole('button',{name:/^Details/}).click()
+   await expect(page).toHaveURL(/[?&]pipeline=/)
+   await page.getByRole('button',{name:'More for this outcome',exact:true}).click()
+   await page.getByRole('button',{name:'Archive',exact:true}).click()
+   await expect(page.getByRole('region',{name:'Working',exact:true})).toBeVisible()
+   await expect.poll(()=>new URL(page.url()).searchParams.get('pipeline')).toBeNull()
+   await page.goBack()
+   await expect.poll(()=>new URL(page.url()).pathname).not.toBe('/factory')
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ })
+ // Allow once and Deny are full-size targets on a touch screen, wherever Approval is drawn (a card and the detail's bar).
+ await step('Allow once and Deny are at least 44 px tall on touch',async()=>{
+  const {w,page}=await open(390,{tweak:approval})
+  try{
+   const card=page.locator(`#pipeline-${oid}-a`)
+   await expect(card.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
+   for(const name of ['Allow once','Deny'])expect((await card.getByRole('button',{name,exact:true}).boundingBox()).height).toBeGreaterThanOrEqual(44)
+   await card.getByRole('button',{name:/^Details/}).click()
+   const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+   for(const name of ['Allow once','Deny'])expect((await bar.getByRole('button',{name,exact:true}).boundingBox()).height).toBeGreaterThanOrEqual(44)
+  }finally{await w.context.close()}
+ })
+ // A detail row left open closes when another pipeline is chosen.
+ await step('an open History row closes when another pipeline is chosen',async()=>{
+  const {w,page}=await open(1440,{tweak:f=>{f.routes[`/api/v2/gaffer/outcomes/${oid}/history`]=()=>({events:[]})}})
+  try{
+   const history=()=>page.locator('.detail details.row').filter({has:page.locator('summary .label').getByText('History',{exact:true})})
+   await history().locator('summary').click()
+   await expect(history()).toHaveJSProperty('open',true)
+   await page.locator('.list button.item',{hasText:'Export docs'}).first().click()
+   await expect(page.getByRole('heading',{name:'Export docs',level:2,exact:true})).toBeVisible()
+   await expect(history()).toHaveJSProperty('open',false)
+  }finally{await w.context.close()}
+ })
  // The five captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page,
  // so the fixed bars sit where they are). Saved only when REET_UI_SCREENSHOTS names a folder.
  if(process.env.REET_UI_SCREENSHOTS){

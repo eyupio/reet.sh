@@ -252,6 +252,34 @@ try{
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
+ // The floating Gaffer button covers no button or link of any waiting item (Open, Details, Allow once, Deny, Mark seen,
+ // Answer in chat, Approve the merge), at the top of the page and with the end of the list scrolled into view.
+ for(const width of [1440,834,390]){
+  const w=await open(width,'light',withMore),page=w.page
+  try{
+   await expect(entries(page)).toHaveCount(7)
+   const settled=()=>expect.poll(()=>page.evaluate(()=>new Promise(done=>{const el=document.querySelector('.gaffer-launcher');if(!el)return done(false);const a=el.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=el.getBoundingClientRect();done(el.style.getPropertyValue('--launcher-clearance')!==''&&a.top===b.top&&a.left===b.left)}))}))).toBe(true)
+   const under=()=>page.evaluate(()=>{
+    const r=document.querySelector('.gaffer-launcher').getBoundingClientRect(),hit=[]
+    for(const node of document.querySelectorAll('.waiting-list button,.waiting-list a[href]')){
+     const b=node.getBoundingClientRect()
+     if(b.width&&b.height&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top)hit.push((node.getAttribute('aria-label')||node.textContent).trim().replace(/\s+/g,' ').slice(0,40))
+    }
+    return {hit,onScreen:r.top>=0&&r.bottom<=innerHeight}
+   })
+   await page.evaluate(()=>scrollTo(0,0));await settled()
+   expect(await under()).toEqual({hit:[],onScreen:true})
+   await page.screenshot({path:`${shots}/home-launcher-${width}-top.png`})
+   const last=page.locator('.waiting-list > li').last()
+   await last.scrollIntoViewIfNeeded();await settled()
+   expect(await under()).toEqual({hit:[],onScreen:true})
+   await page.screenshot({path:`${shots}/home-launcher-${width}-list-end.png`})
+   await page.evaluate(()=>scrollTo(0,document.scrollingElement.scrollHeight));await settled()
+   expect(await under()).toEqual({hit:[],onScreen:true})
+   await page.screenshot({path:`${shots}/home-launcher-${width}-end.png`})
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
  // A new project starts the list at its first ten again.
  {
   const many=f=>{for(let i=0;i<12;i++)f.box.sessions.push({agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now-3*3600000,exitCode:2,dir:'/work',id:`many-${i}`,title:`Lost run ${i}`,state:'exited',updatedAt:now-(30+i)*MIN,projectId:'p2',attention:'failed',attentionSource:'terminal',changedSinceSeen:true})}

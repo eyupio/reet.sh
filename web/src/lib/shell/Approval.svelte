@@ -31,7 +31,7 @@
   const detail = $derived(approval.command || approval.path)
 </script>
 
-<div class="approval" class:compact>
+<div class="approval" class:compact data-floating-clearance="avoid">
   <span class="what">{approval.title}{approval.queued > 0 ? ` · ${approval.queued} more waiting` : ''}</span>
   {#if detail}<code class="cmd">{detail}</code>{/if}
   {#if approval.truncated}<span class="note">Too long to show here. Open the chat to read it all.</span>{/if}
@@ -63,6 +63,9 @@
   .status { font-size: 14px; color: var(--bad); min-height: 0; }
   .status:empty { display: none; }
   .compact .btn { min-height: 32px; font-size: 14px; padding: 0 10px; border-radius: 7px; }
+  @media (pointer: coarse) {
+    .btn, .compact .btn { min-height: 44px; }
+  }
   @media (pointer: coarse), (max-width: 1099px) {
     .btn { min-height: 48px; flex: 1 1 0; }
     .compact .btn { min-height: 44px; }

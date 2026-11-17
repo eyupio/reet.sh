@@ -79,14 +79,14 @@
           <div class="what"><h3 class="title">{card.title}</h3>{" "}<span class="where">· Session{where ? ` · ${where}` : ''}</span></div>
           {@render sentence()}
         </div>
-        <div class="buttons end">{@render buttons()}</div>
+        <div class="buttons end" data-floating-clearance="avoid">{@render buttons()}</div>
       </article>
     {:else}
       <article class="item card">
         <div class="line"><span class="chip {tone}">{chip}</span><h3 class="title">{card.title}</h3></div>
         <span class="where">Session{where ? ` · ${where}` : ''}</span>
         {@render sentence()}
-        <div class="buttons">{@render buttons()}</div>
+        <div class="buttons" data-floating-clearance="avoid">{@render buttons()}</div>
       </article>
     {/if}
   </div>
@@ -95,7 +95,7 @@
     <div class="line"><span class="chip {tone}">{chip}</span><h3 class="title">{card.title}</h3></div>
     <span class="where">Session{where ? ` · ${where}` : ''}</span>
     {@render sentence()}
-    <div class="buttons">{@render buttons()}</div>
+    <div class="buttons" data-floating-clearance="avoid">{@render buttons()}</div>
   </article>
 {/if}
 

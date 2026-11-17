@@ -81,7 +81,7 @@
     {@render why()}
     <!-- An approval's command and its Allow and Deny sit above the row of buttons, so Details never squeezes them. -->
     {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
-    <div class="buttons">{@render buttons(false)}</div>
+    <div class="buttons" data-floating-clearance="avoid">{@render buttons(false)}</div>
   </article>
 {/snippet}
 
@@ -102,7 +102,7 @@
           {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
         </div>
         <div class="stagecell">{@render stages('dots')}</div>
-        <div class="buttons end">{@render buttons(false)}</div>
+        <div class="buttons end" data-floating-clearance="avoid">{@render buttons(false)}</div>
       </article>
     {:else}
       {@render card(pipeline === 'dots' ? 'labelled' : pipeline)}

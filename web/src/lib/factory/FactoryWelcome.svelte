@@ -19,7 +19,7 @@
   ]
 </script>
 
-<section class="welcome" aria-labelledby={`${id}-heading`}>
+<div class="wrap"><section class="welcome" aria-labelledby={`${id}-heading`}>
   <div class="starter">
     <p class="eyebrow">Your AI foreman · No pipelines yet</p>
     <h2 id={`${id}-heading`}>Put Gaffer on the job.</h2>
@@ -36,7 +36,7 @@
     <ol>{#each steps as step, index}<li><span class="number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><div><h4>{step.title}</h4><p>{step.copy}</p></div></li>{/each}</ol>
     <p class="explanation">Gaffer is your AI foreman: it coordinates the work and flags when it needs you.</p>
   </aside>
-</section>
+</section></div>
 
 <style>
   .welcome{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;min-width:0;color:var(--ink)}
@@ -47,6 +47,8 @@
   form>.btn{justify-self:start;max-width:100%;min-height:44px;margin-top:6px}form>.btn :global(svg){flex:none}
   .sheet-heading{display:flex;align-items:center;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--line)}
   ol{display:grid;gap:24px;list-style:none;margin:24px 0;padding:0}li{display:flex;align-items:flex-start;gap:13px}li>div{min-width:0}.number{display:grid;place-items:center;flex:none;width:31px;height:31px;font:14px var(--mono);color:var(--accent-text);background:var(--card);border:1px solid var(--line);border-radius:8px}li p{margin-top:4px}.explanation{border-top:1px solid var(--line);padding-top:16px}
-  @container factory-lines (max-width:760px){.welcome{grid-template-columns:minmax(0,1fr)}}
+  /* Side by side only where each panel gets a readable width: the page's own width decides, with or without the rail. */
+  .wrap{container:factory-welcome/inline-size;min-width:0}
+  @container factory-welcome (max-width:760px){.welcome{grid-template-columns:minmax(0,1fr)}}
   @media(max-width:560px){.starter,.sheet{padding:20px}h2{font-size:24px}}
 </style>

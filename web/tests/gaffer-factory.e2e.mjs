@@ -535,6 +535,32 @@ try {
       expect(box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
+  // With no pipelines yet, a phone and a tablet get the starter and the job sheet one under the other, each the full width,
+  // never side by side in two thin columns; a wide screen keeps them side by side.
+  for (const [width,height,stacked] of [[390,844,true],[834,1112,false],[1280,900,false]]) {
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
+    const w=await openWorkspace(browser,{width,height,touch:width<1100,routes:{'/api/v2/gaffer/outcomes':{outcomes:[]}}})
+    watch(w,box)
+    try {
+      const page=w.page
+      await page.goto(base+'/factory')
+      await expect(page.getByRole('heading',{name:'Put Gaffer on the job.',exact:true})).toBeVisible()
+      const boxes=await page.evaluate(()=>{const r=s=>{const b=document.querySelector(s).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width}};return {starter:r('.welcome .starter'),sheet:r('.welcome .sheet'),page:r('.factory'),scroll:document.documentElement.scrollWidth,inner:innerWidth}})
+      expect(boxes.scroll).toBeLessThanOrEqual(boxes.inner)
+      if (stacked) {
+        expect(boxes.sheet.top).toBeGreaterThanOrEqual(boxes.starter.bottom)
+        expect(Math.abs(boxes.starter.left-boxes.sheet.left)).toBeLessThanOrEqual(1)
+        expect(boxes.starter.width).toBeGreaterThanOrEqual(boxes.inner-48)
+        expect(boxes.sheet.width).toBeGreaterThanOrEqual(boxes.inner-48)
+      } else {
+        expect(boxes.sheet.left).toBeGreaterThanOrEqual(boxes.starter.right)
+        expect(boxes.starter.width).toBeGreaterThanOrEqual(300)
+        expect(boxes.sheet.width).toBeGreaterThanOrEqual(300)
+      }
+      if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/factory-welcome-${width}.png`})
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[],crews:[]}

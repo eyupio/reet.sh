@@ -27,7 +27,7 @@
   import ListSection from './ListSection.svelte'
   import WaitingItem from './WaitingItem.svelte'
   import PipelineDetail, { type DetailActions, type DetailHelpers } from './PipelineDetail.svelte'
-  import PipelineChoices, { mergesByItself, sessionHref, short } from './PipelineChoices.svelte'
+  import PipelineChoices, { mergesByItself, sessionHref, short, usable } from './PipelineChoices.svelte'
   import { factoryItems, inSection, sectionSummary, type FactoryItem, type FactorySection } from './factoryList'
   import { readSections, writeSections } from './sectionMemory'
 
@@ -202,15 +202,6 @@
     catch (e) { timeline = { ...timeline, [record.id]: { events: [], error: e instanceof Error ? e.message : 'The history could not be read.', loading: false } } }
   }
   let expanded = $state<Record<string, boolean>>({})
-  // The choices a pipeline can actually take right now: no moving on without a stage in hand, no telling an agent that
-  // is not there, no opening a session that was removed.
-  const usable = (choice: NeedChoice, piece: GafferOutcomeSession) => {
-    const alive = piece.sessionState !== 'ended' && piece.sessionState !== 'gone'
-    if (choice.id === 'move') return piece.state === 'following' && !!piece.stages?.length && !!piece.conversationId
-    if (choice.id === 'tell') return !!piece.sessionId && !!piece.conversationId && alive
-    if (choice.id === 'open' || choice.id === 'answer') return !!piece.sessionId && piece.sessionState !== 'gone'
-    return true
-  }
   // Whether a started outcome's agents ask the person or act by themselves. Turning YOLO on is confirmed first.
   let yoloAsk = $state<Outcome | null>(null)
   async function setYolo(record: Outcome, on: boolean, confirmed = false) {

@@ -76,7 +76,9 @@
     {@render head(true)}
     {@render stages(size)}
     {@render why()}
-    <div class="buttons">{@render buttons()}</div>
+    <!-- An approval's command and its Allow and Deny sit above the row of buttons, so Details never squeezes them. -->
+    {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
+    <div class="buttons">{@render buttons(false)}</div>
   </article>
 {/snippet}
 
@@ -119,7 +121,8 @@
   .text{grid-area:text;display:grid;gap:4px;min-width:0}
   .stagecell{grid-area:stages;min-width:0}
   .row .buttons{grid-area:actions}
-  .buttons.end{justify-content:flex-end;align-items:flex-start}
+  /* Bottom-aligned, so Details sits level with a filled button that has Recommended above it. */
+  .buttons.end{justify-content:flex-end;align-items:flex-end}
   .what{min-width:0;overflow-wrap:anywhere;line-height:1.4}
   .what .title{display:inline}
   .where{color:var(--muted);font-size:0.875rem}
@@ -141,6 +144,8 @@
   .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .short{display:none}
+  /* A row's buttons column holds the filled button and Details side by side, so Details is its short name there. */
+  .row .long{display:none}.row .short{display:inline}
   @media (max-width:560px){.long{display:none}.short{display:inline}}
   @media (pointer: coarse){.item.compact{min-height:44px}}
 </style>

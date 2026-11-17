@@ -207,15 +207,17 @@ try {
       expect(f.box.writes).toHaveLength(6);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  // With nothing followed yet, Home still offers the floor in one click and says how many chats are waiting.
+  // With nothing followed yet, the floor is one click from Home through the tab bar's Factory; Home has no Gaffer pill.
   for(const width of [1280,390]){
     const f=fixture({active:0}),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})
     watch(w,f.box)
     try {
       await w.page.goto(base+'/')
-      const entry=w.page.getByRole('link',{name:'Gaffer: 2 running chats not followed',exact:true})
+      await expect(w.page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
+      await expect(w.page.getByRole('link',{name:/^Gaffer/})).toHaveCount(0)
+      const entry=w.page.getByRole('navigation').getByRole('link',{name:'Factory',exact:true}).filter({visible:true}).first()
       await expect(entry).toBeVisible()
-      expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(width<1000?44:24)
       await entry.click()
       await expect(w.page).toHaveURL(/\/factory$/)
       // The floor is the page's Other sessions section, closed until opened.

@@ -2,101 +2,236 @@ import {chromium,expect} from '@playwright/test'
 import {mkdir} from 'node:fs/promises'
 import {openWorkspace} from './helpers/workspace.mjs'
 
-// Home's waiting items. Run once Home mounts them (Task 4 of the Home rework): on a wide screen the Factory rows and the
-// session rows line up (chip, stages and buttons each in a fixed column), on a phone each is a card with no sideways scroll.
+// Home's one list of what is waiting: Factory pipelines and sessions together, oldest first, each with its action. On a
+// wide screen the Factory rows and the session rows line up (chip, stages and buttons each in a fixed column); on a tablet
+// and a phone each is a card with no sideways scroll, and the Projects button narrows the list.
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173',shots=process.env.REET_UI_SCREENSHOTS||'/tmp/reet-home-waiting'
 await mkdir(shots,{recursive:true})
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
-const sid='factory-session-alpha',cid='c'.repeat(32),pid='a'.repeat(32),oid='e'.repeat(32),now=Date.now()
+const MIN=60000,now=Date.now()
+const sid='factory-session-alpha',cid='c'.repeat(32),pid='a'.repeat(32),oid='e'.repeat(32)
+// The approval pipeline's session holds a permission: it is a session card too, and must show once, as the pipeline.
+const psid='factory-session-permit',pcid='f'.repeat(32)
+const sessionsKey='reet.home.sections.1'
 function fixture(){
  const provider={id:pid,revision:1,name:'Workshop Gaffer',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowStatus:false,allowSessions:true,allowCode:true,hasKey:true,createdAt:now,updatedAt:now}
- const session={id:sid,agentId:'a1',title:'Export API · code',tool:'opencode',model:'working-model',structured:true,state:'running',createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
- const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={moved:[],posted:[]}
- const goal={...pins,id:'1'.repeat(32),conversationId:cid,sessionId:sid,revision:3,text:'Outcome: x',state:'active',note:'Gaffer brought a question back.',maxReviews:12,usedReviews:3,expiresAt:now+20*3600000,createdAt:now-3600000,updatedAt:now,nextAt:now,lastSeq:42,summary:'Tests pass locally.',inputTokens:0,outputTokens:0,usageReported:true,advice:{choice:'move',why:'The review stage will catch the rest.'}}
- const row={goal,session:{id:sid,agentId:'a1',title:session.title,state:session.state},available:true,attention:true,reason:'Gaffer brought a question back.'}
+ const base={agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now-3*3600000,exitCode:null,dir:'/work'}
+ const sessions=[
+  {...base,id:sid,title:'Export API · code',tool:'opencode',model:'working-model',state:'running',updatedAt:now,projectId:'p1'},
+  {...base,id:psid,title:'Stages when collapsed · code',state:'running',updatedAt:now,projectId:'p1',attention:'waiting',attentionSource:'chat',changedSinceSeen:true,bellAt:now-30*MIN,pendingPermission:{permissionId:'perm-pipe00000001',title:'Run a command',command:'npm run check',path:'',truncated:false,queued:0}},
+  // A session that asked a question, one that finished and has not been seen, and one that failed.
+  {...base,id:'ask-session',title:'Portal sign-in copy',state:'running',updatedAt:now-10*MIN,projectId:'p2',attention:'waiting',attentionSource:'chat',changedSinceSeen:true,bellAt:now-10*MIN,pendingQuestion:{questionId:'q1',message:'Which wording for the expired-link page?',truncated:false,queued:0}},
+  {...base,id:'done-session',title:'Rename tunlx hosts',state:'running',updatedAt:now-15*MIN,projectId:'p2',attention:'finished',attentionSource:'chat',changedSinceSeen:true},
+  {...base,id:'failed-session',title:'Speed up the runner pool',state:'exited',exitCode:2,updatedAt:now-20*MIN,projectId:'p2',attention:'failed',attentionSource:'terminal',changedSinceSeen:true},
+ ]
+ const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={moved:[],posted:[],sessions}
+ const goal={...pins,id:'1'.repeat(32),conversationId:cid,sessionId:sid,revision:3,text:'Outcome: x',state:'active',note:'Gaffer brought a question back.',maxReviews:12,usedReviews:3,expiresAt:now+20*3600000,createdAt:now-3600000,updatedAt:now-40*MIN,nextAt:now,lastSeq:42,summary:'Tests pass locally.',inputTokens:0,outputTokens:0,usageReported:true,advice:{choice:'move',why:'The button and its tests are committed.'}}
+ const row={goal,session:{id:sid,agentId:'a1',title:sessions[0].title,state:'running'},available:true,attention:true,reason:'Gaffer brought a question back.'}
+ const permitGoal={...goal,id:'2'.repeat(32),conversationId:pcid,sessionId:psid,note:'The agent is waiting for your approval.',updatedAt:now-30*MIN,waitingOnWorker:true,advice:undefined}
+ const permitRow={goal:permitGoal,session:{id:psid,agentId:'a1',title:sessions[1].title,state:'running'},available:true,attention:true,reason:'The agent is waiting for your approval.'}
  const stage=(kind,state,s=sid,c=cid)=>({kind,tool:'opencode',model:'',state,requestId:'r',...(state==='running'?{sessionId:s,conversationId:c}:{})})
  const outcome={id:oid,revision:5,objective:'Ship CSV export for billing.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'billing',dir:'/work/billing',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now,sessions:[
   {key:'a',title:'Export API',prompt:'p',state:'following',sessionState:'running',note:'The code stage is under way.',sessionId:sid,conversationId:cid,updatedAt:now,stage:0,stages:[stage('code','running'),stage('review','pending'),stage('merge','pending')]},
   {key:'b',title:'Export button',prompt:'p',state:'following',sessionState:'running',note:'The review stage is under way.',sessionId:'s-b',conversationId:'b'.repeat(32),updatedAt:now,stage:1,stages:[stage('code','done'),stage('review','running','s-b','b'.repeat(32)),stage('merge','pending')]},
-  {key:'c',title:'Export docs',prompt:'p',state:'ready_to_merge',sessionState:'running',note:'Ready to merge. Nothing merges until you approve it.',sessionId:'s-c',conversationId:'d'.repeat(32),updatedAt:now,stage:2,stages:[stage('code','done'),stage('review','done'),stage('merge','pending')]}]}
+  {key:'c',title:'Export docs',prompt:'p',state:'ready_to_merge',sessionState:'running',note:'Ready to merge. Nothing merges until you approve it.',sessionId:'s-c',conversationId:'d'.repeat(32),updatedAt:now-50*MIN,stage:2,stages:[stage('code','done'),stage('review','done'),stage('merge','pending')]},
+  {key:'d',title:'Stages when collapsed',prompt:'p',state:'following',sessionState:'running',note:'The code stage is under way.',sessionId:psid,conversationId:pcid,updatedAt:now,stage:0,stages:[stage('code','running',psid,pcid),stage('review','pending'),stage('pr','pending')]}]}
  const view={conversation:{id:cid,sessionId:sid,providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[],messages:[]}
  const goalView=()=>({goal,pins,allowed:true,setupAllowed:true,providerName:'Workshop Gaffer',conversationRevision:1,requiresProviderAccess:false})
+ const project=(id,name,dir,position)=>({id,host:'a1',machine:'Workshop',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position,version:1,createdAt:now,updatedAt:now})
  const routes={
   '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
   '/api/v2/gaffer/conversations':()=>view,
   '/api/v2/gaffer/outcomes':()=>({outcomes:[outcome]}),
-  '/api/v2/gaffer/goals':()=>({goals:[row],readAt:now}),
+  '/api/v2/gaffer/goals':()=>({goals:[row,permitRow],readAt:Date.now()}),
   [`/api/v2/gaffer/conversations/${cid}/goal`]:()=>goalView(),
-  [`/api/v2/gaffer/outcomes/${oid}/automation`]:request=>{const input=request.postDataJSON();box.posted.push(input);outcome.automation=input.on;return outcome},
   // Moving Export API on: its code stage is done, review is in hand, and Gaffer is no longer waiting on the person.
   [`/api/v2/gaffer/outcomes/${oid}/sessions/a/advance`]:request=>{box.moved.push(request.postDataJSON());const piece=outcome.sessions[0];piece.stages[0].state='done';piece.stage=1;piece.stages[1]={...piece.stages[1],state:'running',sessionId:sid,conversationId:cid};piece.note='The review stage is under way.';row.attention=false;delete row.reason;delete goal.advice;outcome.revision++;return outcome},
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
-  '/api/v2/terminal/sessions':{sessions:[session]},
+  '/api/v2/terminal/sessions':()=>({sessions:box.sessions}),
   '/api/v2/terminal/machines':{machines:[{agentId:'a1',host:'Workshop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'test',terminalEnabled:true,terminalControl:true,readiness:'ready',acp:true,acpLiveControls:true,inspect:true}}]},
   '/api/v2/projects':{projects:[]},
-  '/api/v2/folder-projects':{projects:[{id:'p1',host:'a1',machine:'Workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now}],savedWaiting:0},
+  '/api/v2/folder-projects':{projects:[project('p1','billing','/work/billing',0),project('p2','portal','/work/portal',1)],savedWaiting:0},
   '/api/v2/settings/yolo':{allowed:false},
  }
  return{routes,outcome,box,row}
 }
 // Sessions that need the person in other ways, so the rightmost button of each kind of row is measured.
 function withMore(f){
- const base={agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
- const approving={...base,id:'approve-session',title:'Release notes',state:'running',bellAt:now-90000,pendingPermission:{permissionId:'p1',title:'Run a command',command:'npm run build',path:'',truncated:false,queued:0}}
- const finished={...base,id:'review-session',title:'Billing tidy-up',state:'exited',exitCode:0,bellAt:now-120000,worktreePath:'/work/billing-wt',worktreeRepo:'/work/billing',worktreeBranch:'tidy'}
- const before=f.routes['/api/v2/terminal/sessions']
- f.routes['/api/v2/terminal/sessions']=()=>({sessions:[...before().sessions,approving,finished]})
+ const base={agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now,exitCode:null,dir:'/work'}
+ f.box.sessions.push(
+  {...base,id:'approve-session',title:'Release notes',state:'running',updatedAt:now,attention:'waiting',attentionSource:'chat',changedSinceSeen:true,bellAt:now-90000,pendingPermission:{permissionId:'p1',title:'Run a command',command:'npm run build',path:'',truncated:false,queued:0}},
+  {...base,id:'review-session',title:'Billing tidy-up',state:'exited',exitCode:0,updatedAt:now-120000,attention:'finished',attentionSource:'terminal',changedSinceSeen:true,worktreePath:'/work/billing-wt',worktreeRepo:'/work/billing',worktreeBranch:'tidy'},
+ )
 }
-// A second session that asked the person a question, so Home has a session row beside the Factory rows.
-function withQuestion(f){
- const asking={id:'ask-session',agentId:'a1',title:'Portal sign-in copy',tool:'claude',model:'m',structured:true,state:'running',createdAt:now,updatedAt:now,bellAt:now-60000,exitCode:null,dir:'/work',pendingQuestion:{questionId:'q1',message:'Which wording for the expired-link page?',truncated:false,queued:0}}
- const sessions=f.routes['/api/v2/terminal/sessions']
- f.routes['/api/v2/terminal/sessions']=()=>({sessions:[...sessions.sessions,asking]})
+// Nothing waits anywhere: no outcomes and no session that needs the person.
+function quiet(f){
+ f.routes['/api/v2/gaffer/outcomes']=()=>({outcomes:[]})
+ f.routes['/api/v2/gaffer/goals']=()=>({goals:[],readAt:Date.now()})
+ f.box.sessions=f.box.sessions.filter(s=>s.id===sid).map(s=>({...s,projectId:'p1'}))
 }
-async function open(width,theme){
- const f=fixture();withQuestion(f);withMore(f)
- const w=await openWorkspace(browser,{width,height:width<500?844:1000,theme,touch:width<1000,routes:f.routes})
+async function open(width,theme='light',change=()=>{}){
+ const f=fixture();change(f)
+ const w=await openWorkspace(browser,{width,height:width<500?844:width<1000?1112:900,theme,touch:width<1000,routes:f.routes})
  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  await w.page.goto(`${base}/`)
- return w
+ return {...w,f}
 }
-const right=async locator=>(await locator.boundingBox()).x+(await locator.boundingBox()).width
+const section=(page,name)=>page.getByRole('region',{name,exact:true})
+// A section's header is its one button, named by the section's name first. (Your machines is no region of its own: the
+// strip inside it is the region.)
+const head=(page,name)=>page.getByRole('main').getByRole('button',{name:new RegExp(`^${name} `)}).first()
+const entries=page=>section(page,'Waiting for you').locator('.waiting-list > li')
+const right=async locator=>{const box=await locator.boundingBox();return box.x+box.width}
+const noSideways=page=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)
 try{
+ // The list: five entries, oldest first, its header saying what kinds wait; the finished session is not one of them.
+ {
+  const w=await open(1440),page=w.page
+  try{
+   const waiting=section(page,'Waiting for you')
+   await expect(entries(page)).toHaveCount(5)
+   await expect(entries(page).locator('h3')).toHaveText(['Export docs','Export API','Stages when collapsed','Speed up the runner pool','Portal sign-in copy'])
+   await expect(head(page,'Waiting for you')).toHaveAttribute('aria-expanded','true')
+   await expect(head(page,'Waiting for you')).toContainText('· 5')
+   await expect(head(page,'Waiting for you')).toContainText('1 decision, 1 approval, 1 merge, 1 question, 1 failed · oldest 50 min')
+   // A plainly finished session is not waiting; Continue working says it has not been seen.
+   await expect(waiting).not.toContainText('Rename tunlx hosts')
+   // The permission pipeline is listed once, as the pipeline, with Allow and Deny.
+   await expect(waiting.getByText('Stages when collapsed',{exact:true})).toHaveCount(1)
+   await expect(waiting.getByText('Stages when collapsed · code',{exact:true})).toHaveCount(0)
+   const permit=entries(page).filter({hasText:'Stages when collapsed'})
+   await expect(permit.getByRole('button',{name:'Allow once'})).toBeVisible()
+   await expect(permit.getByRole('button',{name:'Deny'})).toBeVisible()
+   await expect(permit).toContainText('npm run check')
+   // Every Factory item names its stages: the dots carry the caption.
+   for(const title of ['Export docs','Export API','Stages when collapsed'])await expect(entries(page).filter({hasText:title}).locator('.caption')).toBeVisible()
+   await expect(entries(page).filter({hasText:'Export API'}).locator('.caption')).toHaveText('Code · 1 of 3 · next Review')
+   // The bell and the title count the section.
+   await expect.poll(()=>page.title()).toBe('(5) Home · reet.sh')
+   await expect(page.getByRole('button',{name:'Needs you: 5',exact:true})).toBeVisible()
+   // The head says it in one line.
+   await expect(page.locator('.workspace-heading')).toContainText('5 waiting for you · 1 pipeline working · 4 sessions open')
+   // Details goes to the pipeline on the Factory page.
+   const details=entries(page).filter({hasText:'Export docs'}).getByRole('button',{name:'Details and other actions for Export docs'})
+   await expect(details).toBeVisible()
+   // Factory, working without you: closed the first time, naming the working pipeline; opened, it stays open after a reload.
+   const working=head(page,'Factory, working without you')
+   await expect(working).toHaveAttribute('aria-expanded','false')
+   await expect(working).toContainText('Export button')
+   await working.click()
+   await expect(working).toHaveAttribute('aria-expanded','true')
+   const line=section(page,'Factory, working without you').getByRole('link',{name:/Export button/})
+   await expect(line).toHaveAttribute('href',`/factory?pipeline=${oid}.b`)
+   await expect(section(page,'Factory, working without you').getByRole('link',{name:'Open the Factory',exact:true})).toHaveAttribute('href','/factory')
+   await page.reload()
+   await expect(head(page,'Factory, working without you')).toHaveAttribute('aria-expanded','true')
+   expect(JSON.parse(await page.evaluate(k=>localStorage.getItem(k),sessionsKey))).toMatchObject({waiting:true,working:true})
+   // Your machines is closed the first time.
+   await expect(head(page,'Your machines')).toHaveAttribute('aria-expanded','false')
+   // Both views still switch, and the choice survives a reload; Continue working marks the finished session not seen yet.
+   const views=page.getByRole('group',{name:'Home view',exact:true})
+   await views.getByRole('button',{name:'Continue working',exact:true}).click()
+   const resume=page.getByRole('region',{name:'Continue working',exact:true})
+   await expect(resume.locator('li',{hasText:'Rename tunlx hosts'})).toContainText('not seen yet')
+   await page.screenshot({path:`${shots}/home-waiting-1440-continue.png`,fullPage:true})
+   await page.reload()
+   await expect(views.getByRole('button',{name:'Continue working',exact:true})).toHaveAttribute('aria-pressed','true')
+   await views.getByRole('button',{name:'Planning board',exact:true}).click()
+   await expect(page.locator('.session-card',{hasText:'Rename tunlx hosts'}).locator('.unseen')).toHaveText('Not seen yet')
+   await page.reload()
+   await expect(views.getByRole('button',{name:'Planning board',exact:true})).toHaveAttribute('aria-pressed','true')
+   await details.click()
+   await expect(page).toHaveURL(new RegExp(`/factory\\?pipeline=${oid}\\.c$`))
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // Acting from Home: the decision's filled button opens the Factory page's confirmation, and confirming moves it on once.
+ {
+  const w=await open(1440),page=w.page
+  try{
+   const decision=entries(page).filter({hasText:'Export API'})
+   await decision.getByRole('button',{name:/^Move to next stage/}).click()
+   const confirm=page.getByRole('dialog',{name:'Move “Export API” on to review?'})
+   await expect(confirm).toBeVisible()
+   await confirm.getByRole('button',{name:'Move on',exact:true}).click()
+   await expect.poll(()=>w.f.box.moved.length).toBe(1)
+   await expect(entries(page)).toHaveCount(4)
+   await expect(section(page,'Waiting for you')).not.toContainText('Export API')
+   await expect.poll(()=>page.title()).toBe('(4) Home · reet.sh')
+   expect(w.f.box.moved).toHaveLength(1)
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // Nothing waiting: one line, and no Factory section.
+ {
+  const w=await open(1440,'light',quiet),page=w.page
+  try{
+   await expect(section(page,'Waiting for you')).toContainText('Nothing is waiting for you.')
+   await expect(head(page,'Waiting for you')).toHaveAttribute('aria-expanded','true')
+   await expect(section(page,'Factory, working without you')).toHaveCount(0)
+   await expect(page.locator('.workspace-heading')).toContainText('0 waiting for you · 1 session open')
+   await expect.poll(()=>page.title()).toBe('Home · reet.sh')
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // On a wide screen the rows line up: buttons share one right edge across Factory and session rows of every kind.
  for(const theme of ['light','dark']){
-  const w=await open(1440,theme),page=w.page
+  const w=await open(1440,theme,withMore),page=w.page
   try{
    const details=page.getByRole('button',{name:/^Details and other actions for /})
    const answer=page.getByRole('link',{name:'Answer in chat',exact:true})
    await expect(answer).toBeVisible();await expect(details.first()).toBeVisible()
-   // The buttons' right edges are equal across a Factory row and each kind of session row, within 1 px: the Factory
-   // row's Details, the question row's Answer in chat, and the rightmost button of the approval and review rows.
    const edges=[await right(details.first()),await right(answer)]
    for(const name of ['Release notes','Billing tidy-up']){
-    const article=page.locator('article',{hasText:name}).first()
+    const article=entries(page).filter({hasText:name}).locator('article')
     await expect(article).toBeVisible()
-    edges.push(await right(article.locator('.btn').last()))
+    edges.push(await right(article.locator('.buttons .btn').last()))
    }
-   const rowRight=await page.evaluate(()=>[...document.querySelectorAll('article')].map(a=>a.getBoundingClientRect().right))
    for(const edge of edges)expect(Math.abs(edge-edges[0])).toBeLessThanOrEqual(1)
-   expect(Math.max(...rowRight)-Math.min(...rowRight)).toBeLessThanOrEqual(1)
-   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+   // Every row is as wide as the list; the chips and the stages each start at one left edge.
+   const rows=await page.evaluate(()=>[...document.querySelectorAll('.waiting-list > li article')].map(a=>a.getBoundingClientRect().right))
+   expect(rows.length).toBe(7)
+   expect(Math.max(...rows)-Math.min(...rows)).toBeLessThanOrEqual(1)
+   const chips=await page.evaluate(()=>[...document.querySelectorAll('.waiting-list > li .chipcell')].map(c=>Math.round(c.getBoundingClientRect().left)))
+   expect(new Set(chips).size).toBe(1)
+   const stages=await page.evaluate(()=>[...document.querySelectorAll('.waiting-list > li .stagecell')].map(c=>Math.round(c.getBoundingClientRect().left)))
+   expect(stages.length).toBe(3);expect(new Set(stages).size).toBe(1)
+   expect(await noSideways(page)).toBe(true)
    await page.screenshot({path:`${shots}/home-waiting-1440-${theme}.png`,fullPage:true})
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
- for(const width of [390,320]){
+ // Tablet and phone: each item is a card, the Projects button narrows the list, and nothing scrolls sideways.
+ for(const width of [834,390,320]){
   const w=await open(width,'light'),page=w.page
   try{
    const answer=page.getByRole('link',{name:'Answer in chat',exact:true})
    await expect(answer).toBeVisible()
-   // Each item is a card: its content stacks, so the title sits above the buttons.
-   const cards=await page.evaluate(()=>[...document.querySelectorAll('article')].filter(a=>a.querySelector('.btn')).map(a=>getComputedStyle(a).borderTopWidth))
-   expect(cards.length).toBeGreaterThan(0);for(const border of cards)expect(border).toBe('1px')
-   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+   await expect(entries(page)).toHaveCount(5)
+   const borders=await page.evaluate(()=>[...document.querySelectorAll('.waiting-list > li article')].map(a=>[a.classList.contains('card'),getComputedStyle(a).borderTopWidth]))
+   expect(borders.length).toBe(5);for(const [card,border] of borders){expect(card).toBe(true);expect(border).toBe('1px')}
+   for(const title of ['Export docs','Export API','Stages when collapsed'])await expect(entries(page).filter({hasText:title}).locator('.stages')).toBeVisible()
+   expect(await noSideways(page)).toBe(true)
    expect(await answer.evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
    await page.screenshot({path:`${shots}/home-waiting-${width}.png`,fullPage:true})
+   // Closed, each header still says what is inside, on its own line on a phone.
+   await head(page,'Waiting for you').click()
+   await expect(head(page,'Waiting for you')).toHaveAttribute('aria-expanded','false')
+   await expect(head(page,'Waiting for you')).toContainText('1 decision, 1 approval, 1 merge, 1 question, 1 failed · oldest 50 min')
+   expect(await noSideways(page)).toBe(true)
+   await page.screenshot({path:`${shots}/home-waiting-${width}-closed.png`})
+   await head(page,'Waiting for you').click()
+   const picker=page.getByRole('button',{name:'Projects: all',exact:true})
+   expect((await picker.boundingBox()).height).toBeGreaterThanOrEqual(44)
+   await picker.click()
+   await page.getByRole('dialog',{name:'Projects'}).getByRole('button',{name:/^portal/}).click()
+   await expect(page.getByRole('button',{name:'Projects: portal',exact:true})).toBeVisible()
+   await expect(entries(page)).toHaveCount(2)
+   await expect(entries(page).locator('h3')).toHaveText(['Speed up the runner pool','Portal sign-in copy'])
+   await expect(section(page,'Factory, working without you')).toHaveCount(0)
+   expect(await noSideways(page)).toBe(true)
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
- console.log('Home waiting items: rows lined up at 1440 and cards at 390 and 320, ok')
+ console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, ok')
 }finally{await browser.close()}

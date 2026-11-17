@@ -183,7 +183,7 @@ try{
  await needs(pp,plain.box,0)
  await pp.goto(base+'/')
  await expect(pp.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
- await expect(pp.locator('#needs-you .card')).toHaveCount(0)
+ await expect(pp.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing is waiting for you.')
  await expect.poll(()=>pp.title()).toBe('Home · reet.sh')
  expect(plain.errors).toEqual([]);await plain.context.close()
  console.log('Session end and Gaffer entry: confirmed dismissal, neighbour selection, uncertain/pending holds, retained history, general-to-session follow-up and no implicit grants passed on desktop and phone; attention counts held at 0 across dismissal, holds and reopening, 1 for a lost connection, and a user-ended plain terminal raised no card.')

@@ -295,20 +295,6 @@ test('a stage the person moved on is marked, and the agent line says how long it
   assert.deepEqual(o.agentActivity(undefined, now), { text: '', quiet: false })
 })
 
-test('Home lists every pipeline with its outcome, stage and reason, the ones that need the person first', () => {
-  const records = [{ id: 'o1', objective: 'Ship CSV export', sessions: [
-    { key: 'a', title: 'Export API', state: 'following', note: 'The review stage is under way.', conversationId: 'c1', stage: 3, stages: [{ kind: 'plan' }, { kind: 'design' }, { kind: 'code' }, { kind: 'review' }] },
-    { key: 'b', title: 'Export button', state: 'following', note: 'The code stage is under way.', conversationId: 'c2', stage: 0, stages: [{ kind: 'code' }, { kind: 'pr' }] },
-    { key: 'c', title: 'Export docs', state: 'done', note: 'Every stage is done.' },
-  ] }]
-  const goals = new Map([['c2', { attention: true, reason: 'Gaffer brought a question back to you.', goal: { note: 'x' } }], ['c1', { attention: false, goal: { note: 'Waiting' } }]])
-  const rows = o.factoryRows(records, goals)
-  assert.deepEqual(rows.map(row => [row.title, row.label, row.stage]), [['Export button', 'Needs you', 'Code · 1 of 2'], ['Export API', 'Running', 'Review · 4 of 4'], ['Export docs', 'Done', '']])
-  assert.equal(rows[0].href, '/factory#pipeline-o1-b')
-  assert.equal(rows[0].why, 'Gaffer brought a question back to you.')
-  assert.equal(rows[1].why, 'The review stage is under way.')
-  assert.equal(rows[0].objective, 'Ship CSV export')
-})
 test('a pipeline that needs the person says why and offers what they can do, the likeliest first', () => {
   const ids = need => need.choices.map(choice => choice.id)
   const waiting = o.needsYou({ state: 'needs_user', note: 'n', waitingOnWorker: true }, undefined, false)
@@ -352,8 +338,6 @@ test('a pipeline whose session was ended needs the person, with choices that do 
   assert.equal(o.sessionLost({ ...ended, state: 'done' }), false)
   assert.deepEqual(o.pipelineStatus(ended, false), { label: 'Needs you', tone: 'you' })
   assert.deepEqual(o.factoryTally([{ sessions: [ended] }], new Set()), { running: 0, needYou: 1, ready: 0, done: 0 })
-  const rows = o.factoryRows([{ id: 'o1', objective: 'Ship it.', sessions: [ended] }], new Map())
-  assert.equal(rows[0].label, 'Needs you'); assert.match(rows[0].why, /session was ended/)
   const choices = o.sessionEndedChoices(false, false)
   assert.deepEqual(choices.choices.map(item => item.id), ['restart', 'move', 'stop', 'open']); assert.equal(choices.choices[0].primary, true)
   assert.deepEqual(o.sessionEndedChoices(true, true).choices.map(item => item.id), ['restart', 'move', 'stop'], 'a removed session cannot be read')

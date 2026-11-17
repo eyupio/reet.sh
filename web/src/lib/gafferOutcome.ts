@@ -604,26 +604,6 @@ export function contextLeft(stage: AgentStage | undefined): { text: string; low:
 /** The id of a pipeline's card on the Factory page, so Home and other pages can link straight to it. */
 export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
 
-export type FactoryRow = { id: string; href: string; title: string; objective: string; label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle'; stage: string; why: string }
-type RowPiece = { key: string; title: string; state: string; sessionState?: string; note?: string; conversationId?: string; stage?: number; stages?: { kind: string }[] }
-/** Every pipeline as one line for Home: what it is, where it stands and why, linking to its card on the Factory page.
- *  Pipelines that need the person come first, then the ones waiting for a merge decision, then the rest; finished ones last. */
-export function factoryRows(records: { id: string; objective: string; sessions: RowPiece[] }[], goals: ReadonlyMap<string, { attention: boolean; reason?: string; goal: { note: string } }>): FactoryRow[] {
-  const order = { you: 0, bad: 1, busy: 2, idle: 3, good: 4 }
-  const rows: FactoryRow[] = []
-  for (const record of records) for (const piece of record.sessions) {
-    const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
-    const status = pipelineStatus(piece, !!goal?.attention)
-    const stages = piece.stages ?? [], at = Math.min(piece.stage ?? 0, Math.max(0, stages.length - 1))
-    rows.push({
-      id: pipelineAnchor(record.id, piece.key), href: `/factory#${pipelineAnchor(record.id, piece.key)}`, title: piece.title, objective: record.objective,
-      label: status.label, tone: status.tone, stage: stages.length ? `${stageLabel(stages[at].kind)} · ${at + 1} of ${stages.length}` : '',
-      why: sessionLost(piece) ? SESSION_ENDED_WHY : status.label === 'Needs you' ? (goal?.reason || goal?.goal.note || '') : (piece.note ?? ''),
-    })
-  }
-  return rows.sort((a, b) => order[a.tone] - order[b.tone])
-}
-
 export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
 /** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
 export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }

@@ -84,14 +84,18 @@ try {
  const w=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true},terminalMachines:[machine],routes:{'/api/v2/terminal/sessions':{sessions:waiting},'/api/v2/session-backlog':{drafts:[]}}})
  try {
   await w.page.goto(base+'/')
-  const attention=w.page.locator('.attention-detail')
+  // Waiting for you counts all twelve and shows ten at first, ten more each time.
+  const attention=w.page.getByRole('region',{name:'Waiting for you',exact:true})
   await expect(w.page.getByRole('button',{name:'Needs you: 12',exact:true})).toBeVisible()
-  await expect(attention.locator('#needs-you > header .count')).toHaveText('12')
-  await expect(attention.getByRole('button',{name:'Allow once',exact:true})).toHaveCount(5)
+  await expect(attention.locator('.head .count')).toHaveText('· 12')
+  await expect(attention.getByRole('button',{name:'Allow once',exact:true})).toHaveCount(10)
+  await expect(attention.getByText('Showing 10 of 12',{exact:true})).toBeVisible()
   await attention.getByRole('button',{name:'View all 12',exact:true}).click()
   await expect(attention.getByRole('button',{name:'Allow once',exact:true})).toHaveCount(12)
   await attention.getByRole('button',{name:'Show fewer',exact:true}).click()
-  await expect(attention.getByRole('button',{name:'Allow once',exact:true})).toHaveCount(5)
+  await expect(attention.getByRole('button',{name:'Allow once',exact:true})).toHaveCount(10)
+  await attention.getByRole('button',{name:'Show 2 more',exact:true}).click()
+  await expect(attention.getByRole('button',{name:'Allow once',exact:true})).toHaveCount(12)
   expect(w.errors).toEqual([])
  } finally {await w.context.close()}
  console.log('Compact work: 200 records, six theme/width views, bounded columns and sixty-group Continue, disclosure hit targets, complete search, more/all/fewer, focus, preference persistence, full attention counts and approval access, zero implicit writes passed.')

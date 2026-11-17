@@ -1522,8 +1522,8 @@ try {
    }
    const hidden = await page.locator(target).nth(last - 1).evaluate(el => { const r = el.getBoundingClientRect(), f = document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect(); return el === document.activeElement ? r.bottom > f.top + 1 : 'not focused' })
    expect(hidden, `${width}px`).toBe(false)
-   // The session board's last card and Needs you, when shown, can be scrolled clear of the bar.
-   for (const [what, el] of [['Session board', page.locator('.session-card h4 a').last()], ['Needs you', page.getByRole('region',{name:'Needs you'})]]) {
+   // The session board's last card and Waiting for you's header can be scrolled clear of the bar.
+   for (const [what, el] of [['Session board', page.locator('.session-card h4 a').last()], ['Waiting for you', page.getByRole('region',{name:'Waiting for you',exact:true}).locator('.head')]]) {
     if (await el.count() === 0) continue
     await expect(el, `${width}px ${what}`).toBeAttached()
     await el.evaluate(e => e.scrollIntoView({block:'end'}))

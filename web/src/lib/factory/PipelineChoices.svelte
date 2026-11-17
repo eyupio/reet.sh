@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
+  import type { NeedChoice } from '../gafferOutcome'
 
   /** Where a pipeline's session is opened. */
   export const sessionHref = (record: Outcome, id: string) => `/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(id)}`
@@ -7,6 +8,15 @@
   export const mergesByItself = (record: Outcome, piece: GafferOutcomeSession) => !!piece.autoMerge && (!record.yolo || !!piece.yoloMergeOk)
   /** An objective can run to paragraphs; a title or a notice names it in a line. */
   export const short = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 80 ? `${line.slice(0, 79)}…` : line }
+  /** The choices a pipeline can actually take right now: no moving on without a stage in hand, no telling an agent that
+   *  is not there, no opening a session that was removed. */
+  export const usable = (choice: NeedChoice, piece: GafferOutcomeSession) => {
+    const alive = piece.sessionState !== 'ended' && piece.sessionState !== 'gone'
+    if (choice.id === 'move') return piece.state === 'following' && !!piece.stages?.length && !!piece.conversationId
+    if (choice.id === 'tell') return !!piece.sessionId && !!piece.conversationId && alive
+    if (choice.id === 'open' || choice.id === 'answer') return !!piece.sessionId && piece.sessionState !== 'gone'
+    return true
+  }
 </script>
 
 <script lang="ts">
@@ -14,7 +24,7 @@
   // stop following, and goal and limits. The Factory page mounts it once, and so does Home. It reads nothing by itself:
   // what changed is said through `onchanged`, and what happened through `onnotice`.
   import { approveGafferMerge, controlGafferGoal, getGafferGoal, moveGafferPipelineOn, retryGafferPipeline, stopFollowingGafferOutcome, tellGafferPipelineAgent, type GafferGoalOverview } from '../api'
-  import { stageLabel, type NeedChoice } from '../gafferOutcome'
+  import { stageLabel } from '../gafferOutcome'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferGoal from '../GafferGoal.svelte'

@@ -1,4 +1,4 @@
-// The attention contract in the browser: one rule for Home's Needs you, the bell, the tab title and the workspace sidebar.
+// The attention contract in the browser: one rule for Home's Waiting for you, the bell, the tab title and the workspace sidebar.
 // A blocked chat stays counted after it is opened, a seen terminal bell does not count and an opened bell clears, an answer
 // refreshes every surface at once (not on the next poll), and a failed list read keeps the last good count.
 // Synthetic API answers; nothing is started on a machine.
@@ -64,11 +64,11 @@ async function surfaces(page,n,title){
  if(n>0)await expect(bellButton(page,n).locator('.badge')).toHaveText(String(n))
  await expect.poll(()=>page.title()).toBe(n>0?`(${n}) ${title} · reet.sh`:`${title} · reet.sh`)
 }
+// Home's Waiting for you: its header's count and its items, one per thing that waits.
 async function homeCounts(page,n){
- const detail=page.locator('.attention-detail')
- await expect(detail.locator('summary > span')).toHaveText(String(n))
- await expect(detail.locator('#needs-you > header .count')).toHaveText(String(n))
- await expect(detail.locator('#needs-you .card')).toHaveCount(n)
+ const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
+ await expect(waiting.locator('.head .count')).toHaveText(`· ${n}`)
+ await expect(waiting.locator('.waiting-list > li')).toHaveCount(n)
  await surfaces(page,n,'Home')
 }
 const sidebar=page=>page.getByRole('complementary',{name:'Session navigation'})
@@ -84,8 +84,10 @@ try{
  // Home: the blocked chat (already opened) and the failed session count; the 25-hour-old finish and the seen bell do not.
  await page.goto(base+'/')
  await homeCounts(page,2)
- const cards=page.locator('.attention-detail #needs-you .card')
- await expect(cards.filter({hasText:'Fix the build'})).toContainText('Waiting for you')
+ const cards=page.getByRole('region',{name:'Waiting for you',exact:true}).locator('.waiting-list > li')
+ // The blocked chat holds an approval: its item says so with its chip and offers Allow once.
+ await expect(cards.filter({hasText:'Fix the build'}).locator('.chip')).toHaveText('Approval')
+ await expect(cards.filter({hasText:'Fix the build'}).getByRole('button',{name:'Allow once'})).toBeVisible()
  await expect(cards.filter({hasText:'Docs pass'})).toContainText('Exited with an error')
  await expect(cards.filter({hasText:'Old release notes'})).toHaveCount(0)
  await expect(cards.filter({hasText:'Tail the logs'})).toHaveCount(0)
@@ -95,7 +97,7 @@ try{
  await poll(page)
  await homeCounts(page,3)
  // Open in a new tab: Home stays, so what Home itself does on Open is what is seen here.
- const stay=()=>page.evaluate(()=>window.addEventListener('click',e=>{if(e.target.closest?.('a.btn.open'))e.preventDefault()},{once:true}))
+ const stay=()=>page.evaluate(()=>window.addEventListener('click',e=>{if(e.target.closest?.('a.btn[href^="/sessions?"]'))e.preventDefault()},{once:true}))
  await stay();await cards.filter({hasText:'Tail the logs'}).getByRole('link',{name:'Open',exact:true}).click()
  await expect.poll(()=>box.seen).toContain('contract-bell-0001')
  await homeCounts(page,2)
@@ -104,7 +106,7 @@ try{
  // read that follows the seen mark is held.
  await page.evaluate(()=>{
   window.__counts=[]
-  const record=()=>window.__counts.push([document.querySelector('.attention-detail #needs-you > header .count')?.textContent,document.title,document.querySelector('.bell-button')?.getAttribute('aria-label')].join('|'))
+  const record=()=>window.__counts.push([document.querySelector('section[aria-label="Waiting for you"] .head .count')?.textContent.replace('· ',''),document.title,document.querySelector('.bell-button')?.getAttribute('aria-label')].join('|'))
   new MutationObserver(record).observe(document,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label']})
   record()
  })

@@ -1,18 +1,15 @@
 <script lang="ts">
-  import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import FleetPlanMeters from '../FleetPlanMeters.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
-  import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factoryRows, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
-  import FactoryStatus from './FactoryStatus.svelte'
+  import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { hasPending } from '../attention'
-  import { announceWaiting, attentionCount, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession, type NeedCard } from '../home'
-  import { floorCandidates } from '../gafferFloor'
+  import { announceWaiting, approvalOf, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession, type NeedCard } from '../home'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -20,7 +17,16 @@
   import FleetStrip from './FleetStrip.svelte'
   import InFlight from './InFlight.svelte'
   import SessionBoard from './SessionBoard.svelte'
-  import NeedsYou from './NeedsYou.svelte'
+  import SessionWaitingItem from './SessionWaitingItem.svelte'
+  import ListSection from '../factory/ListSection.svelte'
+  import WaitingItem from '../factory/WaitingItem.svelte'
+  import StagePipeline from '../factory/StagePipeline.svelte'
+  import ProjectPicker from '../factory/ProjectPicker.svelte'
+  import PipelineChoices, { usable } from '../factory/PipelineChoices.svelte'
+  import { factoryItems, inSection, stageCaption, type FactoryItem } from '../factory/factoryList'
+  import { readSections, writeSections } from '../factory/sectionMemory'
+  import { homeWaiting, waitingSummary, workingSummary, type WaitingEntry } from './homeWaiting'
+  import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
   import LaunchDialog from './LaunchDialog.svelte'
@@ -44,7 +50,8 @@
     /** The saved Project id an old /projects/<id> address named: its folder project is looked up and chosen. */
     legacyProject?: string
     onsignedout: (e: unknown) => void
-    /** The Needs you count and cards, for the bell and document title. */
+    /** How many things wait for the person (Factory items and sessions) and the session cards among them, for the bell
+     *  and document title. */
     onattention?: (count: number, cards: NeedCard[], onseen: (sessionId: string) => Promise<void>, onanswered: () => Promise<void>) => void
   } = $props()
 
@@ -96,14 +103,11 @@
   let now = $state(Date.now())
   let problem = $state('')
   let followups = $state<GafferGoalOverviewView | undefined>()
-  let followupsFailed = $state(false)
   // Which sessions are part of a Factory pipeline. A helper only: a failed read leaves the cards without the marker.
   let factory = $state<Map<string, FactoryMember>>(new Map())
-  // The Factory's pipelines as Home lists them: what each is part of, where it stands, and a link to its card.
-  let factoryRecords = $state<Awaited<ReturnType<typeof listGafferOutcomes>>>([])
-  const factoryStatus = $derived(factoryRows(factoryRecords, new Map((followups?.goals ?? []).map(row => [row.goal.conversationId, row]))))
-  const factoryNeeds = $derived(factoryStatus.filter(row => row.tone === 'you').length)
-  const following = $derived(followups?.goals.filter(row => row.goal.state === 'active' && !row.attention).length ?? 0)
+  // The Factory's pipelines that are not archived: the ones waiting for the person join Home's list, the working ones
+  // have a section of their own.
+  let factoryRecords = $state<Outcome[]>([])
   let readOnce = false
   const life = new AbortController()
   const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(POLL_MS)])
@@ -114,16 +118,66 @@
   const running = $derived(projectRunning(sessions ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
-  let attentionLimit = $state(5)
-  // A Gaffer goal for a session that already has a card is that card's second reason; the rest are counted by the Gaffer button.
-  const folded = $derived(foldGafferGoals(needsYou(sessions ?? [], now, owners, health ?? []), followups?.goals))
-  const needs = $derived(folded.cards)
-  const followupsNeedReview = $derived(folded.unfolded)
-  // Goals that need review but sit on a Needs you card keep Home's entry to Followed sessions when nothing else would show it.
-  // Running chats nobody has asked Gaffer to look after: the factory floor's other half, offered only once the goals are read.
-  const unfollowed = $derived(followups && sessions ? floorCandidates(sessions, followups.goals.map(row => row.goal)).length : 0)
-  const attentionGoals = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
-  const foldedGoals = $derived(Math.max(0, attentionGoals - followupsNeedReview))
+  // A Gaffer goal for a session that already has a card is that card's second reason.
+  const needs = $derived(foldGafferGoals(needsYou(sessions ?? [], now, owners, health ?? []), followups?.goals).cards)
+
+  // The Factory as Home sees it: every pipeline as one item, as the Factory page lists it. A session holding a tool
+  // approval makes its pipeline an Approval item, answered from the item itself.
+  const byConversation = $derived(new Map((followups?.goals ?? []).map(row => [row.goal.conversationId, row])))
+  const held = $derived(new Map((sessions ?? []).flatMap(s => s.pendingPermission?.permissionId ? [[s.id, s.pendingPermission] as const] : [])))
+  const approvalFor = (sessionId: string | undefined) => { const p = sessionId ? held.get(sessionId) : undefined; return p ? approvalOf(p) : undefined }
+  const items = $derived(factoryItems(factoryRecords, byConversation, new Set(held.keys())))
+  const pairs = $derived(new Map<string, { record: Outcome; piece: GafferOutcomeSession }>(factoryRecords.flatMap(record => record.sessions.map(piece => [`${record.id}.${piece.key}`, { record, piece }] as const))))
+  // What waits for the person, Factory items and sessions together, oldest first. The bell and the title count all of it;
+  // the page shows what is in the chosen project or group.
+  const allWaiting = $derived(homeWaiting(items, needs))
+  const sessionProject = $derived(new Map((sessions ?? []).map(s => [s.id, s.projectId ?? ''])))
+  const projectOf = (entry: WaitingEntry) => entry.source === 'factory' ? entry.item.projectId : sessionProject.get(entry.card.sessionId) ?? ''
+  const inScope = (projectId: string) => scopedIds === undefined || scopedIds.includes(projectId)
+  const waiting = $derived(allWaiting.filter(entry => inScope(projectOf(entry))))
+  const working = $derived(inSection(items, 'working').filter(item => inScope(item.projectId)))
+  // The list shows ten at first and ten more each time.
+  const WAITING_PAGE = 10
+  let waitingLimit = $state(WAITING_PAGE)
+  // What waits and works in each project, whatever the page is narrowed to, for the Projects button of a narrow screen.
+  const projectCounts = $derived.by(() => {
+    const counts = new Map<string, { waiting: number; working: number }>()
+    const count = (id: string) => { const found = counts.get(id) ?? { waiting: 0, working: 0 }; counts.set(id, found); return found }
+    for (const entry of allWaiting) count(projectOf(entry)).waiting++
+    for (const item of inSection(items, 'working')) count(item.projectId).working++
+    return counts
+  })
+  const LIVE_STATES = new Set(['creating', 'running', 'end_requested'])
+  const openSessions = $derived((sessions ?? []).filter(s => LIVE_STATES.has(s.state) && inScope(s.projectId ?? '')).length)
+  const countsLine = $derived([
+    `${waiting.length} waiting for you`,
+    working.length ? `${working.length} ${working.length === 1 ? 'pipeline' : 'pipelines'} working` : '',
+    openSessions ? `${openSessions} ${openSessions === 1 ? 'session' : 'sessions'} open` : '',
+  ].filter(Boolean).join(' · '))
+  const connected = $derived(cards.filter(reporting))
+
+  // Which sections are open, remembered in this browser for this person. The first time, only Waiting for you is.
+  const SECTIONS_FIRST = { waiting: true }
+  const storage = () => { try { return localStorage } catch { return undefined } }
+  const sectionsKey = $derived(`reet.home.sections.${userId}`)
+  let opened = $state<Record<string, boolean>>({ ...SECTIONS_FIRST }), openedFor = ''
+  $effect.pre(() => { if (openedFor !== sectionsKey) { openedFor = sectionsKey; opened = readSections(storage(), sectionsKey, SECTIONS_FIRST) } })
+  function toggleSection(name: string) {
+    opened = { ...opened, [name]: !opened[name] }
+    writeSections(storage(), sectionsKey, opened)
+  }
+  // With nothing waiting the section stays open to say so, whatever was remembered. Closing it then holds for this visit.
+  let waitingShut = $state(false)
+  const waitingOpen = $derived(!!opened.waiting || (!waiting.length && !waitingShut))
+  function toggleWaiting() {
+    if (waitingOpen) { waitingShut = true; if (opened.waiting) toggleSection('waiting') }
+    else { waitingShut = false; toggleSection('waiting') }
+  }
+
+  // A pipeline's choices are carried out as on the Factory page, with the same dialogs; Details opens it there.
+  let choices = $state<PipelineChoices>(), busy = $state(false)
+  const latest = (record: Outcome) => factoryRecords.find(item => item.id === record.id) ?? record
+  const pipelineHref = (item: FactoryItem) => `/factory?pipeline=${encodeURIComponent(item.id)}`
 
   async function markSeen(sessionId: string) {
     sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' && !hasPending(s) ? 'working' : s.attention } : s)
@@ -138,7 +192,7 @@
 
   const answered = async () => { await load(true) }
 
-  $effect(() => { onattention?.(attentionCount(needs), needs, markSeen, answered) })
+  $effect(() => { onattention?.(allWaiting.length, allWaiting.flatMap(entry => entry.source === 'session' ? [entry.card] : []), markSeen, answered) })
 
   // Polite live region for transitions into Waiting for you, throttled to at most once per session per minute.
   let waitingNotice = $state('')
@@ -175,7 +229,7 @@
     loading = true
     const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
-      const [h, y, s, p, g, t, f] = await Promise.allSettled([
+      const [h, y, s, p, g, t, f, o] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
@@ -184,6 +238,9 @@
         // The launch bar's machines: readiness and launch capabilities change while Home stays open, so they are read with the rest.
         writer ? terminalMachines(bounded()) : Promise.resolve(undefined),
         writer && accounts ? listGafferGoals(bounded()) : Promise.resolve(undefined),
+        // The Factory's pipelines, read with the sessions so a pipeline's session is never shown twice while one is late.
+        // A helper only: a failed read keeps the last pipelines and is not a reason to say Home could not read.
+        writer && accounts ? listGafferOutcomes(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
       if ([h, y, s, p, g, t, f].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
@@ -197,9 +254,8 @@
       else failed = true
       if (writer) {
         if (accounts) {
-          if (f.status === 'fulfilled' && f.value) { followups = f.value; followupsFailed = false }
-          else followupsFailed = true
-          void listGafferOutcomes(bounded()).then(found => { if (!stale()) { const floor = found.filter(record => !record.archivedAt); factory = factoryMembers(floor); factoryRecords = floor } }).catch(() => {})
+          if (f.status === 'fulfilled' && f.value) followups = f.value
+          if (o.status === 'fulfilled' && o.value) { const floor = o.value.filter(record => !record.archivedAt); factory = factoryMembers(floor); factoryRecords = floor }
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
@@ -218,6 +274,9 @@
   // the board and the start modal there.
   const NARROW = '(max-width: 1099px)'
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
+  // Below 600 px a waiting card's stages are circles with a caption; from 600 px each stage is named.
+  const PHONE = '(max-width: 599px)'
+  let phone = $state(typeof matchMedia === 'function' && matchMedia(PHONE).matches)
 
   let homeView = $state<'board' | 'continue'>('board')
   let homeViewChosen = $state(false)
@@ -452,18 +511,29 @@
       .then(p => { if (!life.signal.aborted) { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault, defaultTool: p.profile.defaultTool, defaultModel: p.profile.defaultModel, defaultEffort: p.profile.defaultEffort }; removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) } }, () => {})
       .finally(() => { clearTimeout(giveUpTimer); if (!life.signal.aborted) profileRead = true })
     if (writer && legacyProject) void findLegacy(legacyProject)
-    const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
-    query.addEventListener('change', resized)
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
+    const query = matchMedia(NARROW), small = matchMedia(PHONE), resized = () => { narrow = query.matches; phone = small.matches }
+    query.addEventListener('change', resized); small.addEventListener('change', resized)
+    // The poll holds while a pipeline's goal or merge dialog is open, as the Factory page's does.
+    const timer = setInterval(() => { if (document.visibilityState === 'visible' && !choices?.holdsRefresh()) void load() }, POLL_MS)
     const shown = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', shown)
     // Back from the session the person just started: a page restored from the browser's cache shows lists as they were, so
     // it reads everything again. (The launch bar unlocks itself.)
     const restored = (e: PageTransitionEvent) => { if (e.persisted) void load(true) }
     window.addEventListener('pageshow', restored)
-    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); window.removeEventListener('hashchange', launchAtHash); window.removeEventListener(GAFFER_GOALS_CHANGED, goalsChanged); life.abort() }
+    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); small.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); window.removeEventListener('hashchange', launchAtHash); window.removeEventListener(GAFFER_GOALS_CHANGED, goalsChanged); life.abort() }
   })
 </script>
+
+<!-- One thing waiting: a Factory pipeline with its choices, or a session. A row on a wide screen, a card on a narrow one. -->
+{#snippet waitingEntry(entry: WaitingEntry)}
+  {#if entry.source === 'factory'}{@const pair = pairs.get(entry.id)}{#if pair}
+    <WaitingItem item={entry.item} layout={narrow ? 'card' : 'row'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} {busy}
+      permission={approvalFor(pair.piece.sessionId)} sessionId={pair.piece.sessionId ?? ''} usable={choice => usable(choice, pair.piece)}
+      onchoose={choice => choices?.choose(choice, pair.record, pair.piece)} ondetails={() => location.assign(pipelineHref(entry.item))} onanswered={answered}/>
+  {/if}
+  {:else}<SessionWaitingItem card={entry.card} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>{/if}
+{/snippet}
 
 <div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
 
@@ -483,27 +553,46 @@
     </ProjectRailHost>
   {/if}
   <div class="column">
-    <header class="workspace-heading">
-      <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
-      {#if writer}<div class="home-controls">{#if accounts}<a class="btn home-factory" href="/factory" title="Gaffer’s pipelines: hand over an outcome and watch it run">Factory</a>{/if}<button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => { notice = null; projectStart = { opener: event.currentTarget } }}>New session</button></div>{/if}
-      <div class="workspace-summary">{#if writer}<span class="plan-slot"><FleetPlanMeters machines={terminals} caption="Plans" max={3}/></span>{/if}<span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
-        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed || unfollowed)}<a class="followups" href="/factory"><GafferCompanionAvatar size={26}/><span class="followups-text">
-          {#if true}{#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'goal needs' : 'goals need'} you{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'goal is' : 'goals are'} in Needs you{:else if followupsFailed}Gaffer’s goals unavailable{:else if unfollowed}Gaffer: {unfollowed} running {unfollowed === 1 ? 'chat' : 'chats'} not followed{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}{/if}
-        </span></a>{/if}
-      </div>
+    <header class="workspace-heading" class:writer>
+      <h1>Home</h1>
+      {#if writer}
+        <p class="counts">{countsLine}</p>
+        <span class="break" aria-hidden="true"></span>
+        {#if narrow && (projects ?? []).length}<span class="picker"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} group={scope?.kind === 'group' ? scopeName : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></span>{/if}
+        <span class="plan-slot"><FleetPlanMeters machines={terminals} caption="Plans" max={3}/></span>
+        <div class="home-controls">
+          {#if accounts}<button type="button" class="btn home-outcome" onclick={event => { notice = null; factoryStart = { opener: event.currentTarget } }}>Give Gaffer an outcome</button>{/if}
+          <button type="button" class="btn primary home-start" onclick={event => { notice = null; projectStart = { opener: event.currentTarget } }}>New session</button>
+        </div>
+      {:else}
+        <p class="welcome-note">Your sessions and plans.</p>
+        <div class="workspace-summary"><span>{connected.length} {connected.length === 1 ? 'machine' : 'machines'} connected</span></div>
+      {/if}
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
-      {#if accounts && factoryStatus.length}
-        <details class="home-detail factory-detail" open><summary>Factory pipelines <span>{factoryStatus.length}</span>{#if factoryNeeds}<span class="factory-needs">{factoryNeeds} {factoryNeeds === 1 ? 'needs' : 'need'} you</span>{/if}</summary>
-          <FactoryStatus rows={factoryStatus}/>
+      <ListSection name="Waiting for you" count={waiting.length} summary={waitingSummary(waiting, now)} open={waitingOpen} ontoggle={toggleWaiting}>
+        {#if waiting.length}
+          <ul class="waiting-list" class:rows={!narrow} class:cards={narrow}>
+            {#each waiting.slice(0, waitingLimit) as entry (entry.id)}<li>{@render waitingEntry(entry)}</li>{/each}
+          </ul>
+          {#if waiting.length > WAITING_PAGE}<div class="attention-window"><span>Showing {Math.min(waitingLimit, waiting.length)} of {waiting.length}</span><button type="button" onclick={() => waitingLimit = waitingLimit < waiting.length ? waitingLimit + WAITING_PAGE : WAITING_PAGE}>{waitingLimit < waiting.length ? `Show ${Math.min(WAITING_PAGE, waiting.length - waitingLimit)} more` : 'Show fewer'}</button>{#if waitingLimit < waiting.length}<button type="button" onclick={async event => { const panel = event.currentTarget.parentElement; waitingLimit = waiting.length; await tick(); panel?.querySelector('button')?.focus() }}>View all {waiting.length}</button>{/if}</div>{/if}
+        {:else}<p class="none">Nothing is waiting for you.</p>{/if}
+      </ListSection>
+      {#if working.length}
+        <ListSection name="Factory, working without you" count={working.length} summary={workingSummary(working)} open={!!opened.working} ontoggle={() => toggleSection('working')}>
+          <ul class="working-list" class:rows={!narrow}>
+            {#each working as item (item.id)}{@const caption = stageCaption(item.nodes, item.at, 'dots')}
+              <li><a class="working-row" href={pipelineHref(item)} aria-label={`${item.title}, ${item.chip.toLowerCase()}${caption ? `: ${caption}` : ''}. For: ${item.objective}. Open it on the Factory page`}>
+                <span class="chipcell"><span class="chip" class:good={item.kind === 'running'}>{item.chip}</span></span>
+                <span class="text"><strong class="title">{item.title}</strong>{' '}<span class="where">· {item.objective}</span></span>
+                <span class="stagecell"><StagePipeline nodes={item.nodes} at={item.at} size="dots" label={`Stages of ${item.title}`}/></span>
+              </a></li>
+            {/each}
+          </ul>
           <p class="factory-foot"><a href="/factory">Open the Factory</a></p>
-        </details>
-      {/if}
-      {#if needs.length}
-        <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou calm totalCount={attentionCount(needs)} cards={needs.slice(0, attentionLimit)} onseen={markSeen} onanswered={answered} />
-          {#if needs.length > 5}<div class="attention-window"><span>Showing {Math.min(attentionLimit, needs.length)} of {needs.length}</span><button type="button" onclick={() => attentionLimit = attentionLimit < needs.length ? attentionLimit + 5 : 5}>{attentionLimit < needs.length ? `Show ${Math.min(5, needs.length - attentionLimit)} more` : 'Show fewer'}</button>{#if attentionLimit < needs.length}<button type="button" onclick={async event => { const panel = event.currentTarget.parentElement; attentionLimit = needs.length; await tick(); panel?.querySelector('button')?.focus() }}>View all {needs.length}</button>{/if}</div>{/if}</details>
+        </ListSection>
       {/if}
       <div class="home-views" role="group" aria-label="Home view">
         <button type="button" aria-pressed={homeView === 'continue'} onclick={() => chooseHomeView('continue')}>Continue working</button>
@@ -522,10 +611,11 @@
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
       {#if factoryStart && accounts}<GafferOutcome room={Math.max(0, 10 - (followups?.goals ?? []).filter(row => row.goal.state === 'active').length)} {userId} onstarted={() => load(true)} onclose={() => void closeFactoryStart()} />{/if}
-      <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
+      <ListSection name="Your machines" region={false} count={`${connected.length} of ${cards.length} connected`} summary={connected.map(card => card.name).join(', ')} open={!!opened.machines} ontoggle={() => toggleSection('machines')}>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={(card, opener) => void startTerminalOn(card.agentId, opener)} />
-      </details>
+      </ListSection>
+      <PipelineChoices bind:this={choices} bind:busy {userId} goals={byConversation} {latest} onchanged={() => load(true)} onnotice={(text, bad = false) => { notice = text ? { text, bad } : null }} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}/>
       {#if projectStart}
         <NewSessionChoice project={projectStart.project?.name ?? ''} machine={projectStart.project ? projectStart.project.machine || terminals?.find(m => m.agentId === projectStart?.project?.host)?.host || '' : projectStart.machine ?? ''} factory={accounts}
           onchoose={chooseProjectStart} onclose={() => { const opener = projectStart?.opener; projectStart = null; opener?.focus() }} />
@@ -558,31 +648,34 @@
 </div>
 
 <style>
+  /* The head: the title and one line of counts, then the plans and the two ways to start something. On a narrow screen
+     the title and the buttons share the first line and the Projects button, the plans and the counts the second. */
   .workspace-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 8px 0 12px; }
-  .home-identity { min-width: 0; }
-  .workspace-heading h1 { font: 600 24px/1.3 var(--sans); letter-spacing: -.025em; margin: 0; }
-  .welcome-note { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
-  .home-controls { display: flex; align-items: center; gap: 8px; }
-  /* The Factory button sits beside Projects on a desktop; a tablet or phone already has Factory in its tab bar. */
-  .home-factory { text-decoration: none; display: none; align-items: center; min-height: 44px; }
-  @media (min-width: 1100px) { .home-factory { display: inline-flex; } }
-  .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
-  @media (min-width: 1100px) { .home-projects { display: inline-flex; align-items: center; } }
-  .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
+  .workspace-heading.writer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .workspace-heading h1 { font: 500 2rem/1.2 var(--serif); margin: 0; }
+  .workspace-heading:not(.writer) h1 { grid-column: 1; }
+  .counts { flex: 1 1 240px; min-width: 0; margin: 0; color: var(--muted); font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+  .break { display: none; }
+  .picker { display: inline-flex; }
+  .welcome-note { grid-column: 1 / -1; color: var(--muted); font-size: 14px; margin: 0; }
+  .home-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .home-controls .btn { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
+  @media (max-width: 1099px) {
+    .workspace-heading.writer > h1 { order: 0; flex: 1 1 auto; }
+    .workspace-heading.writer > .home-controls { order: 1; }
+    .workspace-heading.writer > .break { order: 2; display: block; flex: 0 0 100%; height: 0; }
+    .workspace-heading.writer > .picker { order: 3; }
+    .workspace-heading.writer > .plan-slot { order: 4; }
+    /* Beside the Projects button, wrapping within its own room rather than taking a line of its own. */
+    .workspace-heading.writer > .counts { order: 5; flex: 1 1 160px; }
+  }
   .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 14px; color: var(--muted); }
   .attention-window button { min-height: 44px; padding: 4px 0; background: transparent; border: 0; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
   .attention-window button:focus-visible { outline: 2px solid var(--accent); }
   .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
-  .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
-  /* What is left of each agent's plan, first in the summary; nothing is drawn, and no gap kept, where there are no figures. */
-  .workspace-summary:has(.plan-slot :global(.plan-meters)) { align-items: center; }
-  .plan-slot { display: inline-flex; align-items: center; margin-left: -6px; }
-  .plan-slot:empty { display: none; }
-  /* Gaffer's line on Home is the way onto the factory floor, so it reads as a control and carries his face. */
-  .followups { min-height: 44px; padding: 0 14px 0 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-  .followups:hover { border-color: var(--line-strong); background: var(--tint); }
-  .followups-text { min-width: 0; overflow-wrap: anywhere; }
-  .followups:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  /* What is left of each agent's plan; nothing is drawn, and no gap kept, where there are no figures. */
+  .plan-slot { display: inline-flex; align-items: center; }
+  .plan-slot:empty, .plan-slot:not(:has(*)) { display: none; }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -618,13 +711,30 @@
   .home-views button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .continue-scope button { min-height: 44px; }
   .continue-scope { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); }
-  .home-detail { border-top: 1px solid var(--line); padding: 12px 0; }
-  .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
-  .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
-  .home-detail[open] > summary { margin-bottom: 12px; }
-  .home-detail > summary .factory-needs { color: var(--accent-text); font-weight: 600; }
-  .factory-foot { margin: 10px 0 0; font-size: 14px; }
-  .attention-detail > summary { color: var(--warn); }
+  /* What waits and what works, in one frame each on a wide screen: rows share their columns (chip, text, stages, buttons)
+     across Factory and session rows and across both lists, and the frame draws the lines between them. On a narrow
+     screen each item is a card of its own. */
+  .column { --col-chip: 124px; --col-stages: 180px; --col-actions: 248px; }
+  .waiting-list, .working-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+  .waiting-list.rows, .working-list.rows { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .waiting-list.rows > li + li, .working-list > li + li { border-top: 1px solid var(--line-soft); }
+  .waiting-list.cards { gap: 10px; }
+  .none { margin: 0; padding: 4px 4px 8px; color: var(--muted); }
+  .working-list:not(.rows) { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .working-row { display: grid; grid-template-columns: var(--col-chip) minmax(0, 1fr) var(--col-stages) var(--col-actions); column-gap: 16px; align-items: start; padding: 12px 16px; color: var(--ink); text-decoration: none; border-radius: 12px; }
+  .working-row:hover .title { text-decoration: underline; }
+  .working-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .working-row .chipcell { align-self: start; }
+  .working-row .text { min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+  .working-row .where { color: var(--muted); font-size: 0.875rem; }
+  .working-row .stagecell { min-width: 0; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+  .chip.good { border-color: var(--good); color: var(--good); }
+  .working-list:not(.rows) .working-row { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .working-list:not(.rows) .working-row .chipcell { justify-self: start; }
+  .factory-foot { margin: 0; padding: 0 4px; font-size: 14px; }
+  .factory-foot a { display: inline-flex; align-items: center; min-height: 36px; color: var(--accent-text); font-weight: 600; }
+  @media (pointer: coarse) { .factory-foot a { min-height: 44px; } }
   .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 14px var(--sans); cursor: pointer; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }

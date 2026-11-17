@@ -183,10 +183,10 @@ for (const [screen, def] of Object.entries(screens)) {
     const rings = await tabStops(page)
     if (rings.length) problems.push(`no visible focus: ${rings.join('; ')}`)
    }
-   // Home on a phone puts Needs you first, and has no project rail (it is on Sessions).
+   // Home on a phone puts Waiting for you above the views, and has no project rail (it is on Sessions).
    if (screen === 'home' && w.phone && !w.sideways) {
-    const order = await page.evaluate(() => { const n = document.querySelector('[aria-label="Needs you"], section[aria-labelledby] h2'); const need = [...document.querySelectorAll('section')].find(s => /Needs you/.test(s.querySelector('h2')?.textContent || '')); const fl = [...document.querySelectorAll('section')].find(s => /In flight/.test(s.querySelector('h2')?.textContent || '')); return need && fl ? need.getBoundingClientRect().top < fl.getBoundingClientRect().top : null })
-    if (order !== true) problems.push(`Needs you is not above In flight (${order})`)
+    const order = await page.evaluate(() => { const need = document.querySelector('section[aria-label="Waiting for you"]'); const views = document.querySelector('[role="group"][aria-label="Home view"]'); return need && views ? need.getBoundingClientRect().top < views.getBoundingClientRect().top : null })
+    if (order !== true) problems.push(`Waiting for you is not above the views (${order})`)
     if (await page.getByRole('complementary',{name:'Projects'}).count()) problems.push('project rail on phone Home')
    }
    // The keyboard up on a phone: the field stays above it and nothing scrolls sideways.

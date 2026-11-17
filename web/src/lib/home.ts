@@ -332,7 +332,7 @@ export function rowSubtitle(session: HomeSession, owner: SessionOwner | undefine
   return [owner?.name, machine?.host || session.agentId, session.worktreeBranch].filter(Boolean).join(' · ')
 }
 
-function approvalOf(p: NonNullable<TerminalSession['pendingPermission']>): NonNullable<NeedCard['approval']> {
+export function approvalOf(p: NonNullable<TerminalSession['pendingPermission']>): NonNullable<NeedCard['approval']> {
   return { permissionId: p.permissionId, title: p.title || 'A tool call', command: p.command ?? '', path: p.path ?? '', truncated: !!p.truncated, queued: p.queued ?? 0 }
 }
 

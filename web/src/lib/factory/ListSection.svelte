@@ -1,11 +1,12 @@
 <script lang="ts">
   // One collapsible block of a list: a single button header (arrow, name, count, one-line summary) and the rows
-  // beneath it while open. The page owns the open state and remembers it with sectionMemory.
+  // beneath it while open. The page owns the open state and remembers it with sectionMemory. `count` can be words
+  // ("2 of 3 connected"). `region` false leaves the block unnamed, for content that is a named region of its own.
   import type { Snippet } from 'svelte'
-  let { name, count, summary, open, ontoggle, children }: { name: string; count: number; summary: string; open: boolean; ontoggle: () => void; children?: Snippet } = $props()
+  let { name, count, summary, open, ontoggle, region = true, children }: { name: string; count: number | string; summary: string; open: boolean; ontoggle: () => void; region?: boolean; children?: Snippet } = $props()
 </script>
 
-<section class="sec" aria-label={name}>
+<svelte:element this={region ? 'section' : 'div'} class="sec" aria-label={region ? name : undefined}>
   <button type="button" class="head" aria-expanded={open} onclick={ontoggle}>
     <span class="arrow" class:open aria-hidden="true"></span>
     <span class="name">{name}</span>
@@ -13,7 +14,7 @@
     <span class="summary">{summary}</span>
   </button>
   {#if open}<div class="body">{@render children?.()}</div>{/if}
-</section>
+</svelte:element>
 
 <style>
   .sec{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
@@ -26,4 +27,6 @@
   .summary{flex:1 1 0;min-width:0;text-align:right;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .body{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
   @media(pointer:coarse){.head{min-height:44px}}
+  /* On a phone the summary takes a line of its own under the name, so a closed section still says what is inside. */
+  @media(max-width:599px){.head{flex-wrap:wrap;row-gap:2px}.summary{flex:1 1 100%;padding-left:15px;text-align:left;white-space:normal}.summary:empty{display:none}}
 </style>

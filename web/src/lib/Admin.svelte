@@ -1051,7 +1051,7 @@
   .ssorows dd.bad { color: var(--bad); }
   .ssoform { display: grid; gap: 14px; margin-top: 16px; max-width: 640px; }
   .ssoform .field { display: grid; gap: 4px; }
-  .ssoform small { font-size: 0.85rem; }
+  .ssoform small { font-size: 0.875rem; }
   .ssoswitch { display: grid; gap: 2px; }
   .admin { padding-top: 4px; }
   h3, #admin-overview, #admin-backups { scroll-margin-top: 24px; }

@@ -14,13 +14,14 @@ export type WaitingEntry =
 /** Pipelines waiting for the person, sessions needing them and Gaffer's goals that need review, oldest first. A finished
  *  session is not waiting. A session's card gives way to its pipeline's item only while that item waits and shows what
  *  the card asks: an approval the item does not carry keeps the card. A goal shows only on a session that has no card
- *  and no pipeline (a card already says the goal needs the person; a pipeline's goal is its item). */
+ *  in the list and no pipeline (a card already says the goal needs the person; a pipeline's goal is its item). */
 export function homeWaiting(items: FactoryItem[], cards: NeedCard[], goals: GoalNeed[] = []): WaitingEntry[] {
   const waiting = inSection(items, 'waiting').filter(item => !item.archived)
   const waitingBySession = new Map(waiting.filter(item => item.sessionId).map(item => [item.sessionId, item]))
   const shownByItem = (card: NeedCard) => { const item = waitingBySession.get(card.sessionId); return !!item && !(card.approval && item.kind !== 'approval') }
   const pipelineSessions = new Set(items.map(item => item.sessionId).filter(Boolean))
-  const carded = new Set(cards.map(card => card.sessionId))
+  // Only a card that is in the list can speak for its goal: a finished session's card is not.
+  const carded = new Set(cards.filter(card => card.kind !== 'finished').map(card => card.sessionId))
   const entries: WaitingEntry[] = [
     ...waiting.map((item): WaitingEntry => ({ source: 'factory', id: item.id, since: item.since, item })),
     ...cards.filter(card => card.kind !== 'finished' && !shownByItem(card)).map((card): WaitingEntry => ({ source: 'session', id: `session:${card.sessionId}`, since: card.at, card })),

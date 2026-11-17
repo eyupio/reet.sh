@@ -49,6 +49,12 @@ test('a Gaffer goal that needs review on a session with no card and no pipeline 
   assert.equal(w.waitingSummary(out, HOUR + 3), '1 failed, 1 Gaffer goal · oldest 1 h')
 })
 
+test('a goal that needs review on a finished session still shows: the finished card is not in the list to say so', () => {
+  const goal = (sessionId, since) => ({ id: `goal-${sessionId}`, sessionId, title: sessionId, where: '', href: `/sessions?session=${sessionId}`, reason: 'Review what it did.', since })
+  const out = w.homeWaiting([], [card('done', 'finished', 5), card('broke', 'failed', 6)], [goal('done', 7), goal('broke', 8)])
+  assert.deepEqual(out.map(e => e.id), ['session:broke', 'gaffer:goal-done'])
+})
+
 test('entries come oldest first across both sources', () => {
   const out = w.homeWaiting([item('o.a', 'decision', 'waiting', 100)], [card('x', 'failed', 300), card('y', 'failed', 200)])
   assert.deepEqual(out.map(e => e.since), [100, 200, 300])

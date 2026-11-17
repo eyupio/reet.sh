@@ -39,9 +39,9 @@ def check(site_dir, executable=None, screenshots=None):
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(base)
-            page.get_by_role("tab", name="03 Skills & sync").click()
+            page.get_by_role("tab", name="05 Skills & sync").click()
             expect(page.locator("#tour-skills")).to_be_visible()
-            page.get_by_role("tab", name="03 Skills & sync").press("ArrowRight")
+            page.get_by_role("tab", name="05 Skills & sync").press("ArrowRight")
             expect(page.locator("#tour-gaffer")).to_be_visible()
             # Input events include context-menu paste and touch/speech entry.
             page.get_by_role("button", name="Search documentation", exact=True).click()
@@ -113,7 +113,7 @@ def check(site_dir, executable=None, screenshots=None):
             nojs = browser.new_context(java_script_enabled=False, viewport={"width": 390, "height": 844})
             reader = nojs.new_page()
             reader.goto(base)
-            expect(reader.locator(".tour-panel:visible")).to_have_count(4)
+            expect(reader.locator(".tour-panel:visible")).to_have_count(6)
             reader.get_by_role("button", name="Open navigation", exact=True).click()
             expect(reader.locator("#__drawer")).to_be_checked()
             expect(reader.locator("#reet-navigation")).to_be_in_viewport(ratio=1)

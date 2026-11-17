@@ -9,10 +9,6 @@ A desk's terminals are ordinary sessions: they are listed in Sessions, they coun
 keep running when the desk is closed. Opening a desk never starts a shell. A shell starts only from **New tab**, a split,
 or a press on a pane (**Reopen**, **Start**, **Reopen all**, **Continue**).
 
-The page is `web/src/lib/desks/`; the record and its rules are `internal/desk` and `internal/store/store_desks.go`; the
-routes are `internal/api/desks.go`; what a machine does for a desk pane is `internal/terminalhost/desk_shell.go` and
-`live_dir.go`, under the `desk-shell-v1` feature.
-
 ## The Desks tab
 
 **Desks** is a top-bar tab on a desktop, after Sessions, for an account that can start sessions (accounts sign-in, not a
@@ -408,6 +404,12 @@ does not do: report the live folder (the pane keeps the folder it was opened in)
 This pane group), open a folder outside home, or remove a pane's history. A live shell pane on it says "Update reet on
 that machine to keep this pane's folder and history." A machine too old even for `shell-dir-v1` answers a reopen in a
 folder with the same words.
+
+## Where the code is
+
+For anyone changing desks: the page is `web/src/lib/desks/`; the record and its rules are `internal/desk` and
+`internal/store/store_desks.go`; the routes are `internal/api/desks.go`; what a machine does for a desk pane is
+`internal/terminalhost/desk_shell.go` and `live_dir.go`, under the `desk-shell-v1` feature.
 
 ## Routes
 

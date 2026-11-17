@@ -31,7 +31,7 @@
   const detail = $derived(approval.command || approval.path)
 </script>
 
-<div class="approval" class:compact>
+<div class="approval" class:compact data-floating-clearance="avoid">
   <span class="what">{approval.title}{approval.queued > 0 ? ` · ${approval.queued} more waiting` : ''}</span>
   {#if detail}<code class="cmd">{detail}</code>{/if}
   {#if approval.truncated}<span class="note">Too long to show here. Open the chat to read it all.</span>{/if}

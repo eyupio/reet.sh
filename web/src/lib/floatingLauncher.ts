@@ -1,8 +1,10 @@
 // Keep a floating entry point clear of growing composers and fixed action docks.
 // The regions opt in; navigation and streamed content can replace them at any time.
-// With `dock`, the entry point also rests in a region marked data-floating-clearance="dock" (Gaffer's launcher on the
-// Factory page); without it such a region is ignored, so another floating thing never takes the launcher's strip.
-export function keepLauncherClear(node: HTMLElement, options: { dock?: boolean } = {}) {
+// With `avoid`, the entry point also keeps off a region marked data-floating-clearance="avoid" (a row of buttons in a
+// list, an action bar): it stays where it rests unless it would cover such a region, and then moves to the nearest place
+// above that covers none. Without it such a region is ignored, so another floating thing (the sync dock) is not moved by
+// the rows of a list.
+export function keepLauncherClear(node: HTMLElement, options: { avoid?: boolean } = {}) {
   let frame = 0
   const regions = new Set<HTMLElement>()
   const size = new ResizeObserver(schedule)
@@ -18,21 +20,21 @@ export function keepLauncherClear(node: HTMLElement, options: { dock?: boolean }
     const viewTop = viewport && Math.abs(viewport.scale - 1) < .01 ? viewport.offsetTop : 0
     const viewBottom = viewport && Math.abs(viewport.scale - 1) < .01 ? Math.min(innerHeight, viewTop + viewport.height) : innerHeight
     let bottom = Math.max(innerHeight - box.bottom, innerHeight - viewBottom + 20)
-    // A region marked "dock" keeps a strip for the entry point: it rests there, centred on the region, rather than above
-    // it. The lowest dock in view and in its column wins, and the other regions are then not consulted.
-    let dock: DOMRect | undefined
     for (const region of regions) {
-      if (!options.dock || region.dataset.floatingClearance !== 'dock') continue
-      const r = region.getBoundingClientRect()
-      if (r.width && r.height && r.top >= viewTop && r.bottom <= viewBottom && r.left < box.right && r.right > box.left && (!dock || r.bottom > dock.bottom)) dock = r
-    }
-    if (dock) { node.style.setProperty('--launcher-clearance', `${innerHeight - dock.bottom + (dock.height - box.height) / 2}px`); return }
-    for (const region of regions) {
-      if (region.dataset.floatingClearance === 'dock') continue
+      if (region.dataset.floatingClearance === 'avoid') continue
       const r = region.getBoundingClientRect()
       if (r.width && r.height && r.bottom > viewTop && r.top < viewBottom && r.left < box.right && r.right > box.left) {
         bottom = Math.max(bottom, innerHeight - r.top + 12)
       }
+    }
+    if (options.avoid) {
+      const marked = [...regions].filter(region => region.dataset.floatingClearance === 'avoid')
+      const column = (r: DOMRect, gap: number) => r.width && r.height && r.left < box.right + gap && r.right > box.left - gap
+      bottom = clearOf(marked.map(region => region.getBoundingClientRect()).filter(r => column(r, 8)), 8, bottom, box.height, viewTop, true)
+      // No gap between the rows fits the button: keep it off the buttons themselves and let it cover text instead.
+      const controls = marked.flatMap(region => [...region.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea')])
+        .map(control => control.getBoundingClientRect()).filter(r => column(r, 4))
+      bottom = clearOf(controls, 4, bottom, box.height, viewTop, false)
     }
     node.style.setProperty('--launcher-clearance', `${bottom}px`)
   }
@@ -44,7 +46,7 @@ export function keepLauncherClear(node: HTMLElement, options: { dock?: boolean }
   window.visualViewport?.addEventListener('resize', schedule)
   window.visualViewport?.addEventListener('scroll', schedule)
   schedule()
-  return {update(next: { dock?: boolean } = {}) { options = next; schedule() }, destroy() {
+  return {update(next: { avoid?: boolean } = {}) { options = next; schedule() }, destroy() {
     changes.disconnect(); size.disconnect(); cancelAnimationFrame(frame)
     window.removeEventListener('resize', schedule)
     document.removeEventListener('scroll', schedule, true)
@@ -53,6 +55,26 @@ export function keepLauncherClear(node: HTMLElement, options: { dock?: boolean }
     window.visualViewport?.removeEventListener('scroll', schedule)
     node.style.removeProperty('--launcher-clearance')
   }}
+}
+
+// The nearest place (a distance from the foot of the screen, never lower than `rest`) where a button of this height keeps
+// `gap` px off every obstacle and stays on screen. The places tried are the resting one and the ones just above and just
+// below each obstacle. When there is none: with `exact` the resting place is returned unchanged for the next pass to
+// refine; otherwise the place that covers the least of them wins.
+function clearOf(obstacles: DOMRect[], gap: number, rest: number, height: number, viewTop: number, exact: boolean) {
+  if (!obstacles.length) return rest
+  const places = [rest]
+  for (const r of obstacles) places.push(innerHeight - r.top + gap, innerHeight - r.bottom - gap - height)
+  const covered = (place: number) => obstacles.reduce((sum, r) => {
+    const top = innerHeight - place - height, end = innerHeight - place
+    const across = Math.min(end + gap, r.bottom) - Math.max(top - gap, r.top)
+    return sum + (across > 0 ? across * Math.max(1, r.width) : 0)
+  }, 0)
+  const onScreen = places.filter(place => place >= rest && innerHeight - place - height >= viewTop + 8).sort((a, b) => a - b)
+  const free = onScreen.find(place => !covered(place))
+  if (free !== undefined) return free
+  if (exact) return rest
+  return onScreen.reduce((best, place) => covered(place) < covered(best) ? place : best, rest)
 }
 
 // Keep the desktop companion beside the conversation when the workspace is resized.

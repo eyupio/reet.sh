@@ -130,19 +130,9 @@ async function home(options={}) {
  // Existing project-management cases exercise an explicitly expanded rail.
  // The Continue matrix opts out to verify the new compact default and persistence.
  await opened.page.addInitScript(expanded=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed',expanded?'0':'1')}, options.railExpanded !== false)
- // #288 moved machines, Needs you and Quick launch into expandable sections; open them after each navigation.
- const openSections = async () => {
-  await opened.page.locator('details.home-detail > summary').first().waitFor({state:'attached', timeout:10000}).catch(() => {})
-  const summaries = opened.page.locator('details.home-detail > summary')
-  for (let i = 0; i < await summaries.count(); i++) {
-   const summary = summaries.nth(i), details = summary.locator('..')
-   if (!(await details.evaluate(el => el.open))) await summary.click()
-  }
- }
- const realGoto = opened.page.goto.bind(opened.page)
- opened.page.goto = async (...args) => { const result = await realGoto(...args); await openSections(); return result }
- const realReload = opened.page.reload.bind(opened.page)
- opened.page.reload = async (...args) => { const result = await realReload(...args); await openSections(); return result }
+ // Home's sections (Waiting for you, Factory working without you, Your machines) remember which are open in this browser;
+ // the tests read them as a person would after opening them all, so each page starts with all three open.
+ await opened.page.addInitScript(() => { if (localStorage.getItem('reet.home.sections.1') === null) localStorage.setItem('reet.home.sections.1', JSON.stringify({waiting:true, working:true, machines:true})) })
  opened.page.on('request', r => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/')) reads.push(`${r.method()} ${u.pathname}`) })
  await opened.page.exposeFunction('__recordStorage', (op, key, value) => { storage.push({op, key, value}) })
  await opened.page.addInitScript(() => {
@@ -151,9 +141,9 @@ async function home(options={}) {
    store.setItem = (k, v) => { window.__recordStorage(`${area}.set`, k, String(v)); return set(k, v) }
   }
  })
- // Home keeps Your machines, Needs you and Quick launch in folded sections now; tests read them as a person would after opening them.
+ // Quick launch, where a page still has it, is a folded section too.
  await opened.page.addInitScript(() => {
-  const open = () => { for (const d of document.querySelectorAll('details.quick-launch, details.home-detail')) d.open = true }
+  const open = () => { for (const d of document.querySelectorAll('details.quick-launch')) d.open = true }
   document.addEventListener('DOMContentLoaded', open)
   setInterval(open, 100)
  })
@@ -181,7 +171,10 @@ const strip = page => page.getByRole('region',{name:'Your machines',exact:true})
 const card = (page, host) => strip(page).getByRole('link',{name:new RegExp(`^${host}, `)})
 // The session board replaced In flight: its Active stage is where running and exited sessions live.
 const inFlight = page => page.getByRole('region',{name:'Active'})
-const needs = page => page.getByRole('region',{name:'Needs you'})
+// One list of what waits for the person, sessions and Factory pipelines together: each entry one item.
+const needs = page => page.getByRole('region',{name:'Waiting for you',exact:true})
+const waitingItems = page => needs(page).locator('.waiting-list > li')
+const waitingHead = page => needs(page).getByRole('button',{name:/^Waiting for you /})
 const rail = page => page.getByRole('complementary',{name:'Projects'})
 const groups = page => inFlight(page).locator('.group > h3').evaluateAll(els => els.map(e => e.textContent.replace(/\s+/g,' ').trim()))
 const noSideways = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
@@ -200,21 +193,25 @@ try {
    await expect(board).toHaveAttribute('aria-pressed','true')
    await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
    await expect(page.getByRole('button',{name:'New session',exact:true})).toHaveCount(1)
-   expect((await page.locator('.workspace-heading').boundingBox()).height).toBeLessThanOrEqual(130)
+   // The head stays compact: two lines at most from a tablet up. A phone's head also carries the Projects button and the
+   // counts, so there the check is that what waits for the person still starts on the first screen.
+   if(width>=651)expect((await page.locator('.workspace-heading').boundingBox()).height).toBeLessThanOrEqual(130)
+   else expect(await page.getByRole('region',{name:'Waiting for you',exact:true}).evaluate(el=>el.getBoundingClientRect().top+44<=innerHeight)).toBe(true)
    expect(await page.evaluate(()=>localStorage.getItem('reet.home.view.1'))).toBeNull()
+   // The head has no Projects button: the rail folds and unfolds with its own control.
+   await expect(page.locator('.workspace-heading').getByRole('button',{name:'Projects',exact:true})).toHaveCount(0)
    if(width>=1100){
-    // Projects folds the rail to its 56 px strip; the board keeps its own column.
-    const projects=page.locator('.workspace-heading').getByRole('button',{name:'Projects',exact:true}),projectRail=rail(page)
+    // The rail's own control folds it to its 56 px strip; the board keeps its own column.
+    const projectRail=rail(page),expand=projectRail.getByRole('button',{name:'Expand the project rail',exact:true}),fold=projectRail.getByRole('button',{name:'Fold the project rail',exact:true})
     await expect(page.locator('main aside.rail')).toHaveCount(1)
-    await expect(projects).toHaveAttribute('aria-expanded','false')
-    await expect(projectRail.getByRole('button',{name:'Expand the project rail',exact:true})).toBeVisible()
+    await expect(expand).toBeVisible()
     await expect(projectRail.locator('.full .card').first()).toBeHidden()
     expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('1')
-    await projects.click();await expect(projects).toHaveAttribute('aria-expanded','true')
+    await expand.click();await expect(fold).toBeVisible()
     expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('0')
     await expect(projectRail.locator('.full .card').first()).toBeVisible()
-    await page.reload();await expect(projects).toHaveAttribute('aria-expanded','true')
-    await projects.click();await expect(projects).toHaveAttribute('aria-expanded','false')
+    await page.reload();await expect(fold).toBeVisible()
+    await fold.click();await expect(expand).toBeVisible()
     expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('1')
     await expect(projectRail.locator('.full .card').first()).toBeHidden()
    }
@@ -456,15 +453,16 @@ try {
   await context.close()
  }
 
- // Nothing today signals that a session needs the person: no Needs you section and a bell without a badge.
+ // Nothing today signals that a session needs the person: Waiting for you says so in one line and the bell has no badge.
  if (run('Needs you says Nothing needs you and the bell shows no badge')) {
   const {context,page,errors} = await home()
   await page.goto(base)
   const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
   await expect(bell).toBeVisible()
   await expect(bell.locator('.badge')).toHaveCount(0)
-  // Home only draws the Needs you section when something does need the person.
-  await expect(needs(page)).toHaveCount(0)
+  // Waiting for you stays, open, and says nothing waits.
+  await expect(needs(page)).toContainText('Nothing is waiting for you.')
+  await expect(waitingItems(page)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -489,12 +487,13 @@ try {
   await expect(workingRow).toContainText('Working')
   const waitingRow = inFlight(page).locator('article').filter({hasText:'Refactor the store layer'})
   await expect(waitingRow).toContainText('Waiting for you')
-  await expect(needs(page).locator('.count')).toHaveText('3')
-  await expect(needs(page).locator('.card')).toHaveCount(3)
-  await expect(needs(page).locator('.card').nth(0)).toContainText('Waiting for you · 2m')
-  await expect(needs(page).locator('.card').nth(1)).toContainText('Ready to review · 10m')
-  await expect(needs(page).locator('.card').nth(1)).toContainText('3 files changed · Store rewrite · studio')
-  await expect(needs(page).locator('.card').nth(2)).toContainText('Exited with an error · 1h')
+  // Oldest first: the failed session, the worktree to review, then the waiting one.
+  await expect(waitingHead(page)).toContainText('· 3')
+  await expect(waitingItems(page)).toHaveCount(3)
+  await expect(waitingItems(page).nth(0)).toContainText('Exited with an error · 1h')
+  await expect(waitingItems(page).nth(1)).toContainText('Ready to review · 10m')
+  await expect(waitingItems(page).nth(1)).toContainText('3 files changed · Store rewrite · studio')
+  await expect(waitingItems(page).nth(2)).toContainText('Waiting for you · 2m')
   const bell = page.getByRole('button',{name:'Needs you: 3',exact:true})
   await expect(bell.locator('.badge')).toHaveText('3')
   await bell.click()
@@ -507,18 +506,18 @@ try {
   ])
   expect(popBottom).toBeLessThanOrEqual(viewBottom)
   await page.keyboard.press('Escape')
-  await needs(page).locator('.card').nth(1).getByRole('button',{name:'Mark seen'}).click()
+  await waitingItems(page).nth(1).getByRole('button',{name:/^Mark .+ as seen$/}).click()
   await expect.poll(() => box.writes.some(w => w.path === '/api/v2/terminal/sessions/s3/seen')).toBe(true)
-  await expect(needs(page).locator('.count')).toHaveText('2')
-  await expect(needs(page).locator('.card')).toHaveCount(2)
+  await expect(waitingHead(page)).toContainText('· 2')
+  await expect(waitingItems(page)).toHaveCount(2)
   await expect.poll(() => page.title()).toBe('(2) Home · reet.sh')
   await expect(page.getByRole('button',{name:'Needs you: 2',exact:true})).toBeVisible()
-  await needs(page).locator('.card').nth(1).getByRole('button',{name:'Mark seen'}).click()
-  await expect(needs(page).locator('.card')).toHaveCount(1)
+  await waitingItems(page).nth(0).getByRole('button',{name:/^Mark .+ as seen$/}).click()
+  await expect(waitingItems(page)).toHaveCount(1)
   box.sessions = []
   await page.reload()
   await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
-  await expect(needs(page)).toHaveCount(0)
+  await expect(needs(page)).toContainText('Nothing is waiting for you.')
   expect(errors).toEqual([])
   await context.close()
  }
@@ -541,12 +540,12 @@ try {
    session('c2','a1','Rewrite the docs','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-2*MIN,changedSinceSeen:true,pendingPermission:{permissionId:'perm-bbbb00000002',title:'cat',command:'cat big',truncated:true}}),
   ]
   await page.goto(base)
-  await expect(needs(page).locator('.card')).toHaveCount(2)
-  const first = needs(page).locator('.card',{hasText:'Fix the build'})
+  await expect(waitingItems(page)).toHaveCount(2)
+  const first = waitingItems(page).filter({hasText:'Fix the build'})
   await expect(first).toContainText('go test ./...')
   await expect(first).toContainText('1 more waiting')
   // A command that was cut short cannot be allowed here, but can be denied.
-  const cut = needs(page).locator('.card',{hasText:'Rewrite the docs'})
+  const cut = waitingItems(page).filter({hasText:'Rewrite the docs'})
   await expect(cut.getByRole('button',{name:'Allow once'})).toBeDisabled()
   await expect(cut.getByRole('button',{name:'Deny'})).toBeEnabled()
   await expect(cut).toContainText('Open the chat to read it all')
@@ -559,10 +558,10 @@ try {
   await page.keyboard.press('Escape')
   await first.getByRole('button',{name:'Allow once'}).click()
   await expect.poll(() => answers).toEqual([{session:'c1', permission:'perm-aaaa00000001', body:{allow:true}}])
-  await expect(needs(page).locator('.card')).toHaveCount(1)
+  await expect(waitingItems(page)).toHaveCount(1)
   await cut.getByRole('button',{name:'Deny'}).click()
   await expect.poll(() => answers.at(-1)).toEqual({session:'c2', permission:'perm-bbbb00000002', body:{allow:false}})
-  await expect(needs(page)).toHaveCount(0)
+  await expect(needs(page)).toContainText('Nothing is waiting for you.')
   expect(errors).toEqual([])
   await context.close()
   }
@@ -578,26 +577,26 @@ try {
    session('c3','a1','Run the tests','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-3*MIN,changedSinceSeen:true,pendingPermission:{permissionId:'perm-cccc00000003',title:'go test',command:'go test ./...'},pendingQuestion:{questionId:'question-cccc00000003',message:'And this one?'}}),
   ]
   await page.goto(base)
-  await expect(needs(page).locator('.card')).toHaveCount(3)
-  const first = needs(page).locator('.card',{hasText:'Fix the build'})
-  await expect(first).toContainText('Question for you')
+  await expect(waitingItems(page)).toHaveCount(3)
+  const first = waitingItems(page).filter({hasText:'Fix the build'})
+  await expect(first.locator('.chip')).toHaveText('Question')
   await expect(first).toContainText('Which approach should I take for the failing build?')
   await expect(first).toContainText('1 more waiting')
   await expect(first.getByRole('button',{name:'Allow once'})).toHaveCount(0)
-  const answer = first.getByRole('link',{name:'Answer in chat',exact:true})
+  const answer = first.getByRole('link',{name:'Answer in chat: Fix the build',exact:true})
   await expect(answer).toHaveAttribute('href',/session=q1/)
   // A long question is bounded so the card stays one card, not a page.
-  const long = needs(page).locator('.card',{hasText:'Rewrite the docs'})
-  expect((await long.locator('.ask').boundingBox()).height).toBeLessThan(120)
-  // When an approval waits too it is answered first, and the card says so by keeping its usual label and Open link.
-  const both = needs(page).locator('.card',{hasText:'Run the tests'})
-  await expect(both).toContainText('Waiting for you')
+  const long = waitingItems(page).filter({hasText:'Rewrite the docs'})
+  expect((await long.locator('.said').boundingBox()).height).toBeLessThan(120)
+  // When an approval waits too it is answered first, and the item says so with its Approval chip and Open link.
+  const both = waitingItems(page).filter({hasText:'Run the tests'})
+  await expect(both.locator('.chip')).toHaveText('Approval')
   await expect(both.getByRole('button',{name:'Allow once'})).toBeEnabled()
-  await expect(both.getByRole('link',{name:'Open',exact:true})).toBeVisible()
+  await expect(both.getByRole('link',{name:'Open Run the tests',exact:true})).toBeVisible()
   // The bell carries the same summaries.
   await page.getByRole('button',{name:'Needs you: 3',exact:true}).click()
   const pop = page.getByRole('banner').getByRole('region',{name:'Needs you'})
-  await expect(pop.getByRole('link',{name:'Answer in chat',exact:true})).toHaveCount(2)
+  await expect(pop.getByRole('link',{name:/^Answer in chat: /})).toHaveCount(2)
   await page.keyboard.press('Escape')
   await answer.click()
   await expect(page).toHaveURL(/session=q1/)
@@ -1364,7 +1363,7 @@ try {
     expect(new Set(dots).size, `${at}: online and offline dots differ in shape, not only colour`).toBe(2)
     for (const word of await inFlight(page).locator('.session-card .status').evaluateAll(els => els.map(e => [e.textContent.trim(), e.getClientRects().length > 0])))
      expect(word[1] && /^(Running|Starting|Ending|Waiting|Working|Exited \d+|Finished|Failed|Lost)/.test(word[0]), `${at}: card state "${word[0]}" in words`).toBe(true)
-    await expect(needs(page), at).toHaveCount(0)
+    await expect(needs(page), at).toContainText('Nothing is waiting for you.')
    }
    expect(backgrounds.size, `${width}px: light and dark differ`).toBe(2)
    // Focus: the first 30 tab stops each draw a ring (an outline or an inset shadow on the control, its label or its field box).

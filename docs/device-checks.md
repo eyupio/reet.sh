@@ -196,8 +196,8 @@ signed in:
 1. Start the agent's TUI in a terminal session from reet, in a scratch folder, with approvals on (not YOLO).
 2. Ask for something it must ask about first: "run `ls` and tell me what is there", or "create a file called
    `check.txt`".
-3. Go to Home without answering. Within a few seconds the session should count under **Needs you**, as a bell would
-   make it.
+3. Go to Home without answering. Within a few seconds the session should be in **Waiting for you**, as a bell would
+   count it.
 4. Open the session and answer. Ask again for something it must ask about; it should count again.
 5. While the agent is working or idle with no question, it should not count.
 

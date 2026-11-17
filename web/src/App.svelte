@@ -10,10 +10,12 @@
   import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
-  import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
+  import { sessionOwners, titleWithAttention } from './lib/home'
+  import { whatWaits } from './lib/home/whatWaits'
+  import type { WaitingEntry } from './lib/home/homeWaiting'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
-  import { audienceLabel } from './lib/api'
+  import { audienceLabel, listGafferGoals, listGafferOutcomes, type GafferGoalOverview, type GafferOutcome } from './lib/api'
   import { DOCS_URL } from './lib/links'
   import FenceStrip from './lib/shell/FenceStrip.svelte'
   import { onMount, setContext, tick } from 'svelte'
@@ -245,9 +247,10 @@
   // Sessions and Machines stay in view on a tablet or phone and the rest
   // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
   const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
-  // The bell's Needs you count and cards, as Home reads them.
-  let attention = $state(0)
-  let needsCards = $state<NeedCard[]>([])
+  // What waits for the person, by the one rule Home uses (whatWaits): the bell lists it, and its badge and the title
+  // count it, so the three always agree. Home reports its own reading; every other page reads it here.
+  let waitingEntries = $state<WaitingEntry[]>([])
+  const attention = $derived(waitingEntries.length)
   let onAnswered = $state<(() => void | Promise<void>) | undefined>(undefined)
   let onMarkSeen = $state<((sessionId: string) => void | Promise<void>) | undefined>(undefined)
   let workspaceTitle = $state('')
@@ -436,13 +439,20 @@
   }
 
   // A slow earlier load must not overwrite a newer one (an answer's refresh can overtake the poll's).
-  let attentionGeneration = 0
+  // The Factory's outcomes and Gaffer's goals as last read: a failed read of either keeps the last count, as a failed
+  // sessions read does.
+  let attentionGeneration = 0, lastOutcomes: GafferOutcome[] = [], lastGoals: GafferGoalOverview[] | undefined
   async function loadAttention() {
-    if (!authenticated || needsAuth || !sessionsAccess || isHome || isSessions) return
+    if (!authenticated || needsAuth || !sessionsAccess || isHome) return
     const mine = ++attentionGeneration
     try {
-      const sessions = await terminalSessions()
+      // A background read: like the terminal reads, it does not drive the progress bar.
+      const [read, outcomes, goals] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true)])
       if (mine !== attentionGeneration) return
+      if (read.status === 'rejected') return
+      const sessions = read.value
+      if (outcomes.status === 'fulfilled') lastOutcomes = outcomes.value
+      if (goals.status === 'fulfilled') lastGoals = goals.value.goals
       let projects: FolderProject[] = []
       const hosts = environments.map(e => ({ agentId: e.id, host: e.host }))
       if (sessions.length > 0) {
@@ -451,10 +461,8 @@
         if (p.status === 'fulfilled') projects = p.value
         if (m.status === 'fulfilled') for (const tm of m.value) hosts.push({ agentId: tm.agentId, host: tm.host })
       }
-      const cards = needsYou(sessions, Date.now(), sessionOwners(sessions, projects), hosts)
       if (mine !== attentionGeneration) return
-      attention = attentionCount(cards)
-      needsCards = cards
+      waitingEntries = whatWaits(sessions, Date.now(), sessionOwners(sessions, projects), hosts, lastOutcomes, lastGoals).entries
       onAnswered = () => loadAttention()
       onMarkSeen = async (sessionId: string) => {
         try {
@@ -1065,7 +1073,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
+    <AppShell {tabs} bar={barTabs} {more} waiting={waitingEntries} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -1198,7 +1206,7 @@
     {#await pages.Home()}
       <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} {timeZone} {dateFormat} onsignedout={fail} onattention={(entries, seen, answered) => { waitingEntries = entries; onMarkSeen = seen; onAnswered = answered }} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1222,7 +1230,7 @@
     {#await pages.SessionsPage()}
       <RouteSkeleton variant="rows" />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+      <Page userId={currentUser?.id ?? 0} onsignedout={fail} />
     {:catch}
       <PageLoadError />
     {/await}

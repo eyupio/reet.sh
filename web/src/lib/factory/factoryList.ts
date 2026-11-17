@@ -7,6 +7,8 @@ export type FactorySection = 'waiting' | 'working' | 'finished'
 export type ItemKind = 'decision' | 'approval' | 'merge' | 'stopped' | 'failed' | 'running' | 'queued' | 'done' | 'halted'
 export type FactoryItem = {
   id: string
+  /** The session the pipeline has in hand, '' when none. */
+  sessionId: string
   outcomeId: string; key: string; title: string; objective: string; projectId: string
   index: number; of: number
   section: FactorySection; kind: ItemKind; chip: string
@@ -52,7 +54,7 @@ export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, L
       else kind = 'running'
       const stages = piece.stages ?? []
       items.push({
-        id: `${record.id}.${piece.key}`, outcomeId: record.id, key: piece.key, title: piece.title, objective: record.objective, projectId: record.projectId,
+        id: `${record.id}.${piece.key}`, sessionId: piece.sessionId ?? '', outcomeId: record.id, key: piece.key, title: piece.title, objective: record.objective, projectId: record.projectId,
         index: index + 1, of: record.sessions.length, section: SECTIONS[kind], kind, chip: CHIPS[kind],
         why: decision ? decision.need.why : piece.note ?? '',
         ...(decision ? { need: decision.need } : {}),
@@ -83,7 +85,7 @@ export function stageCaption(nodes: TrackNode[], at: number, size: 'dots' | 'cir
   return [`${here} in hand`, done.length ? `${done.join(', ')} done` : place, last && nodes.length > 1 ? 'the last stage' : `next ${nodes[at + 1]?.label ?? ''}`].filter(part => part && part !== 'next ').join(' · ')
 }
 
-const waited = (ms: number): string => {
+export const waited = (ms: number): string => {
   const minutes = Math.max(0, Math.floor(ms / 60000))
   if (minutes < 1) return 'under a minute'
   if (minutes < 60) return `${minutes} min`

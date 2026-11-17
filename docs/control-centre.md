@@ -1,7 +1,7 @@
 # Reet as the central control unit
 
 The main user task is to reach machines, open remote terminals and return to
-ongoing work. **Home** sits at `/`: the fleet strip, In flight, Needs you and the
+ongoing work. **Home** sits at `/`: Waiting for you, the sessions below it, Your machines and the
 Project rail (see [Home and the tabs](terminal-workspace.md#home-and-the-tabs)).
 
 **Control is folded into Home and Machines** (R4 in the agents home design). Its

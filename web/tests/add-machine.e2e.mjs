@@ -63,6 +63,9 @@ await page.route('**/api/**',async route=>{
   if(tokenMode==='refuse')return route.fulfill({status:500,json:{error:'Tokens cannot be made right now.'}})
   data={id:1,name:body.name,token:SECRET,createdAt:Date.now()}
  }
+ // The bell reads the Factory's outcomes and Gaffer's goals on every page; this account has neither.
+ else if(path==='/api/v2/gaffer/outcomes'&&method==='GET')data={outcomes:[]}
+ else if(path==='/api/v2/gaffer/goals'&&method==='GET')data={goals:[]}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  await route.fulfill({json:data})
 })

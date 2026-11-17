@@ -109,7 +109,7 @@
                     <span class="where">{owner?.name || hostOf(s.agentId)}<span class="mobile-age"> · {shortAge(Math.max(0, now - s.updatedAt))} ago</span></span>
                   </span>
                   <span class="state">
-                    <span class="word">{word.word}{lastKnown(s) ? ' · last known' : ''}</span>
+                    <span class="word">{word.word}{status === 'finished' && s.changedSinceSeen ? ' · not seen yet' : ''}{lastKnown(s) ? ' · last known' : ''}</span>
                     <span class="source">{word.source}</span>
                   </span>
                   <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>

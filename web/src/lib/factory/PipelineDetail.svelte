@@ -344,17 +344,15 @@
     </details>
   </div>
 
-  <!-- On a narrow screen the floating Gaffer button rests at the end of the bar's first line ("dock"), where nothing else is;
-       with no bar, in a strip of its own at the foot. -->
-  {#if bar.length || asking}<div class="bar" role="group" aria-labelledby={`${uid}-ask`}>
-    <div class="ask-row" data-floating-clearance={narrow ? 'dock' : undefined}><p class="ask" id={`${uid}-ask`}>What do you want to do?</p></div>
+  {#if bar.length || asking}<div class="bar" role="group" data-floating-clearance="avoid" aria-labelledby={`${uid}-ask`}>
+    <p class="ask" id={`${uid}-ask`}>What do you want to do?</p>
     {#if asking && permission && piece.sessionId}<Approval sessionId={piece.sessionId} approval={permission} {onanswered} />{/if}
     {#if bar.length}<div class="choices">{#each bar as entry (entry.key)}
       {#snippet choice()}{#if entry.href}<a class="btn" class:primary={entry.primary} href={entry.href}>{entry.label}{#if entry.recommended}<span class="sr-only">{' '}Recommended</span>{/if}</a>
       {:else}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}<span class="sr-only">{' '}Recommended</span>{/if}</button>{/if}{/snippet}
       <!-- The recommended choice is marked by a caption above it, which widens nothing, so the choices keep one line. -->
       {#if entry.recommended}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render choice()}</span>{:else}{@render choice()}{/if}{/each}</div>{/if}
-  </div>{:else if narrow}<div class="rest" data-floating-clearance="dock" aria-hidden="true"></div>{/if}
+  </div>{/if}
 </section>
 
 <style>
@@ -423,11 +421,6 @@
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}
   .bar{position:sticky;bottom:var(--detail-bottom,0px);z-index:4;display:grid;gap:6px;margin:auto calc(-1 * var(--detail-inset,0px)) 0;padding:12px var(--detail-inset,0px) 16px;border-top:1px solid var(--line);background:var(--card)}
   .ask{font-size:0.875rem;color:var(--muted)}
-  /* The bar's first line keeps room at its end for the floating Gaffer button, which rests there on a narrow screen. */
-  .ask-row{display:flex;align-items:center;min-width:0}
-  .ask-row[data-floating-clearance]{min-height:var(--launcher-size,0px);padding-right:calc(var(--launcher-room,0px) - var(--detail-inset,0px))}
-  :global(html[data-gaffer-anchor=left]) .ask-row[data-floating-clearance]{padding-right:0;padding-left:calc(var(--launcher-room,0px) - var(--detail-inset,0px));justify-content:flex-end}
-  .rest{position:sticky;bottom:var(--detail-bottom,0px);height:var(--launcher-strip,0px);margin:auto calc(-1 * var(--detail-inset,0px)) 0;flex:none}
   .choices{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 6px}.choices .btn{min-height:44px;padding-inline:12px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
   .lead{display:grid;gap:2px;min-width:0}
   .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}

@@ -1,22 +1,39 @@
 <script lang="ts">
-  import type { NeedCard } from '../home'
+  import { tick } from 'svelte'
+  import type { WaitingEntry } from '../home/homeWaiting'
+  import { short } from '../gafferOutcome'
   import { needStatus } from '../sessionStatus'
+  import { keepFocusIn } from './keepFocus'
   import Approval from './Approval.svelte'
 
-  // The top bar's Needs you bell (spec: Information architecture and navigation).
-  // When nothing needs the person it carries no badge and stays in the muted chrome colour.
-  let { count, cards = [], onseen, onanswered }: {
-    count: number
-    cards?: NeedCard[]
+  // The top bar's Needs you bell (spec: Information architecture and navigation). It lists everything that waits for the
+  // person, by the same rule as Home's Waiting for you, and its badge is the number listed, so the two never disagree.
+  // A session is answered here as on Home; a Factory pipeline links to its detail on the Factory page (and an approval
+  // its agent holds is answered here too). When nothing needs the person it carries no badge and stays muted.
+  let { entries = [], onseen, onanswered }: {
+    entries?: WaitingEntry[]
     onseen?: (sessionId: string) => void | Promise<void>
     onanswered?: () => void | Promise<void>
   } = $props()
+  const count = $derived(entries.length)
+  // A Factory item's one sentence: Gaffer's recommendation and why when it advised, else what is waiting.
+  const sentence = (entry: Extract<WaitingEntry, { source: 'factory' }>) => {
+    const advised = entry.item.need?.recommend?.by === 'gaffer' ? entry.item.need.recommend : undefined
+    return advised ? `Gaffer recommends: ${advised.label.replace(/…$/, '')}. ${advised.why}` : entry.item.why
+  }
 
   let open = $state(false)
   let root = $state<HTMLDivElement>()
   let button = $state<HTMLButtonElement>()
   const panelId = $props.id()
   const badge = $derived(count > 99 ? '99+' : String(count))
+  let list = $state<HTMLUListElement>()
+
+  // An answer or Mark seen that takes its entry away leaves the focus on the next entry (else the previous one, else the
+  // bell), never on the page's body.
+  async function settled(index: number, action: (() => void | Promise<void>) | undefined) {
+    try { await action?.() } finally { await tick(); keepFocusIn(list, index, button) }
+  }
 
   function close(restoreFocus = false) {
     if (!open) return
@@ -54,26 +71,49 @@
   </button>
   <div class="panel" id={panelId} role="region" aria-label="Needs you" hidden={!open}>
     <p class="heading">Needs you</p>
-    {#if cards.length === 0}
+    {#if entries.length === 0}
       <p class="empty">Nothing needs you.</p>
     {:else}
-      <ul class="list">
-        {#each cards as card (card.sessionId)}
+      <ul class="list" bind:this={list}>
+        {#each entries as entry, index (entry.id)}
+          {#if entry.source === 'factory'}
+          <li class="item" data-status="waiting">
+            <span class="kind">{entry.item.chip}</span>
+            <span class="title">{entry.item.title}</span>
+            <span class="where" title={entry.item.objective}>Factory · {short(entry.item.objective)}</span>
+            {#if sentence(entry)}<span class="ask">{sentence(entry)}</span>{/if}
+            {#if entry.approval && entry.item.sessionId}<Approval sessionId={entry.item.sessionId} approval={entry.approval} onanswered={() => settled(index, onanswered)} compact />{/if}
+            <div class="actions">
+              <a class="btn open" href={`/factory?pipeline=${encodeURIComponent(entry.item.id)}`} aria-label={`Open ${entry.item.title} in the Factory`} onclick={() => close()}>Open in the Factory</a>
+            </div>
+          </li>
+          {:else if entry.source === 'gaffer'}
+          <li class="item" data-status="waiting">
+            <span class="kind">Gaffer</span>
+            <span class="title">{entry.goal.title}</span>
+            <span class="where">Session{entry.goal.where ? ` · ${entry.goal.where}` : ''}</span>
+            <span class="ask">Gaffer’s goal needs you.{#if entry.goal.reason}{' '}{entry.goal.reason}{/if}</span>
+            <div class="actions"><a class="btn open" href={entry.goal.href} aria-label={`Open ${entry.goal.title}`} onclick={() => close()}>Open</a></div>
+          </li>
+          {:else}
+          {@const card = entry.card}
+          {@const answers = !!card.question && !card.approval}
           <li class="item" data-status={needStatus(card.kind)}>
             <span class="kind">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
             {#if card.where}<span class="where">{card.where}</span>{/if}
-            {#if card.question && !card.approval}
+            {#if answers && card.question}
               <span class="ask">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</span>
             {/if}
-            {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} compact />{/if}
+            {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} onanswered={() => settled(index, onanswered)} compact />{/if}
             <div class="actions">
-              <a class="btn open" href={card.href} onclick={() => { close(); void onseen?.(card.sessionId) }}>{card.question && !card.approval ? 'Answer in chat' : 'Open'}</a>
+              <a class="btn open" href={card.href} aria-label={answers ? `Answer in chat: ${card.title}` : `Open ${card.title}`} onclick={() => { close(); void onseen?.(card.sessionId) }}>{answers ? 'Answer in chat' : 'Open'}</a>
               {#if card.markSeen}
-                <button type="button" class="btn seen" onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>
+                <button type="button" class="btn seen" aria-label={`Mark ${card.title} as seen`} onclick={() => void settled(index, () => onseen?.(card.sessionId))}>Mark seen</button>
               {/if}
             </div>
           </li>
+          {/if}
         {/each}
       </ul>
     {/if}

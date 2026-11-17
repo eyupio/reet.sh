@@ -5,6 +5,39 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Home**: Home now opens on **Waiting for you**, one list of everything that
+  needs you, Factory pipelines and sessions together, the one that has waited
+  longest at the top. Each entry says what it needs (a decision, an approval,
+  a merge, a question, a failure or work to review) and has its button on it,
+  so most things can be dealt with without opening anything: **Move to next
+  stage**, **Approve the merge**, **Allow once** and **Deny**, **Answer in
+  chat**. On a wide screen an entry is a row; on a tablet or phone it is a
+  card. A pipeline shows its stages and, when Gaffer advised, what it
+  recommends and why. **Details** opens the pipeline on the Factory page. A
+  session that has finished is no longer in the list; it is marked **not seen
+  yet** in Continue working and on the board until you have looked at it. A
+  Gaffer goal that needs your review on a session with no pipeline is in the
+  list too. **Factory, working without you** and **Your machines** sit under
+  it and start closed; each says what is inside when closed. Which sections are
+  open is remembered in your browser, and only **Waiting for you** is open the
+  first time. Continue working and the Planning board are as they were. On a
+  tablet or phone a **Projects** button narrows the list, as it does on the
+  Factory page. The bell now lists the Factory's items too, and its number and
+  the page title count by the same rule as the list on every page (with a
+  project chosen on Home, the list shows that project's entries while the bell
+  and the title count everything). A question a pipeline's agent asks stays in
+  the list beside a merge or a decision that does not answer it. When the
+  Factory or Gaffer's goals cannot be read, Home says so and keeps what it last
+  read instead of saying nothing is waiting. After an entry is answered, marked
+  seen or dealt with, the focus moves to the next entry rather than being lost.
+  The bell and the Factory page refresh each other at once after an action on
+  either. The Sessions list's **Needs you** filter now leaves out sessions that
+  only finished, as the bell does. Gaffer's floating button now
+  floats over Home and the Factory page and keeps off the buttons on an item.
+  The Factory page no longer reserves a strip at the foot of the page for it,
+  and after archiving a pipeline from a narrow screen's detail, one press of
+  Back leaves the page.
+
 - **Single sign-on**: the switches about your people are now settings the owner
   changes on **Admin, Users**, not environment variables you restart for: new
   people created automatically, linking by email, the role for a new person,
@@ -48,8 +81,7 @@ this file existed releases were described on their GitHub release pages.
   and **Other sessions** open and close, say what is inside when closed, and
   are remembered in your browser; only **Waiting for you** is open the first
   time, and **Other sessions** also opens by itself while a goal in it needs
-  you. Gaffer's floating button rests in a strip of its own and covers
-  nothing on the page. On a tablet or phone a pipeline opens as its own screen and
+  you. On a tablet or phone a pipeline opens as its own screen and
   the browser's Back button returns to the list. Projects stay in the left
   column on a wide screen, with how many of each project's pipelines are
   waiting and working; on a tablet or phone a **Projects** button opens the

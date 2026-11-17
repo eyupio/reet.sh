@@ -33,6 +33,9 @@ browser.
 
 ## The page
 
+What needs you from the Factory is also in [Home](session-board.md)'s **Waiting for you** list, mixed with your
+sessions, each with the same buttons; **Details** there opens the pipeline here. The bell counts the same things.
+
 The page is a list of pipelines from every outcome, and the detail of one pipeline. The line under the title counts
 what is **waiting for you**, **working** and **finished**. The list has four sections:
 

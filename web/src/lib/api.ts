@@ -198,7 +198,8 @@ export function clearToken() {
 }
 
 export async function getMachineHealth(signal?:AbortSignal):Promise<import('./terminal/api').HealthResponse> { return (await req('/api/v2/machines/health',{signal,cache:'no-store'})).json() }
-async function req(path: string, init: RequestInit = {}): Promise<Response> {
+/** `quiet` keeps a background read (the bell's poll) off the shell's progress bar, as the terminal reads are. */
+async function req(path: string, init: RequestInit = {}, quiet = false): Promise<Response> {
   const headers = new Headers(init.headers)
   // A form sets its own Content-Type, boundary included.
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
@@ -206,7 +207,7 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
   if (token) headers.set('X-Reet-Token', token)
   // The shell's progress bar watches this: every request counts from the moment it leaves until the headers are back,
   // whatever the answer. The body is read by the caller and is not waited on here.
-  const end = inflight.begin()
+  const end = quiet ? () => {} : inflight.begin()
   let res: Response
   try {
     res = await fetch(path, { ...init, headers })
@@ -318,7 +319,7 @@ export async function addGafferPipelines(o: Pick<GafferOutcome, 'id' | 'revision
 export async function reviewGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/review`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 /** The person approving the merge of a pipeline that is ready. Nothing merges without this or the pipeline's own auto-merge. */
 export async function approveGafferMerge(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/sessions/${encodeURIComponent(key)}/merge`, { method: 'POST', body: json({ revision: o.revision, confirmed: true }), signal })).json() }
-export async function listGafferOutcomes(signal?: AbortSignal): Promise<GafferOutcome[]> { return (await (await req('/api/v2/gaffer/outcomes', { signal, cache: 'no-store' })).json()).outcomes }
+export async function listGafferOutcomes(signal?: AbortSignal, quiet = false): Promise<GafferOutcome[]> { return (await (await req('/api/v2/gaffer/outcomes', { signal, cache: 'no-store' }, quiet)).json()).outcomes }
 /** What the person, Gaffer and the controller did to an outcome's pipelines, newest first, from the activity log. */
 export async function listGafferOutcomeHistory(id: string, signal?: AbortSignal): Promise<Event[]> { return (await (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}/history`, { signal, cache: 'no-store' })).json()).events }
 export async function getGafferOutcome(id: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`, { signal, cache: 'no-store' })).json() }
@@ -379,7 +380,7 @@ export type GafferGoalView={goal:GafferGoal|null;pins:GoalPins;allowed:boolean;r
 export async function setupGafferGoal(id:string,input:GoalPins&{revision:number;conversationRevision:number;confirmed:true;action:'start'|'resume';text?:string;maxReviews?:number;hours?:number},signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id)+'/setup',{method:'POST',body:JSON.stringify(input),signal})).json()}
 export type GafferGoalOverview={goal:GafferGoal;session?:{id:string;agentId:string;title:string;state:string};available:boolean;attention:boolean;reason?:string;delivery?:WorkerMessage}
 export type GafferGoalOverviewView={goals:GafferGoalOverview[];readAt:number}
-export async function listGafferGoals(signal?:AbortSignal):Promise<GafferGoalOverviewView>{return(await req('/api/v2/gaffer/goals',{signal,cache:'no-store'})).json()}
+export async function listGafferGoals(signal?:AbortSignal,quiet=false):Promise<GafferGoalOverviewView>{return(await req('/api/v2/gaffer/goals',{signal,cache:'no-store'},quiet)).json()}
 const goalPath=(id:string)=>`/api/v2/gaffer/conversations/${encodeURIComponent(id)}/goal`
 export async function getGafferGoal(id:string,signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{signal,cache:'no-store'})).json()}
 export async function saveGafferGoal(id:string,input:GoalPins&{revision:number;text:string;maxReviews:number;hours:number},signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{method:'PUT',body:JSON.stringify(input),signal})).json()}

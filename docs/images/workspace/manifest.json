@@ -1,13 +1,13 @@
 {
   "application": "standalone Reet workspace",
-  "sourceCommit": "8b0b9a1a0ef184c2f9f236cf2d1a467db5718086",
+  "sourceCommit": "58fbcdf019d89f6f3d20982c04d18645f700731f",
   "data": "Synthetic example data; no account, machine or provider connection.",
   "screenshots": {
     "home-desktop-light": {
-      "file": "home-desktop-light-992a1261390c.png",
+      "file": "home-desktop-light-fcbc5529e109.png",
       "width": 1440,
       "height": 1000,
-      "sha256": "992a1261390cdd2e2203edbb2912bfc03a95fd1bd90135c010ec2040b5705dbc"
+      "sha256": "fcbc5529e1095a1e50dbacac56d5825e0523bdb83e0c71ea7a7d06b5478606da"
     },
     "machines-desktop-light": {
       "file": "machines-desktop-light-811518861955.png",
@@ -22,10 +22,10 @@
       "sha256": "0d1e2f1704108a5b9dab784811e2328a4a290da61106d4b4d163fbbdefae1ae6"
     },
     "home-phone-light": {
-      "file": "home-phone-light-1e35a570d740.png",
+      "file": "home-phone-light-b6e0e0d6d5b1.png",
       "width": 390,
       "height": 844,
-      "sha256": "1e35a570d74041cb0754adc2138f0e59a815b7e6015caf9bb24e54509faf7c10"
+      "sha256": "b6e0e0d6d5b178e29b40541bfc02fd9c590f07a322bd059da5a80593e39a1853"
     },
     "machines-phone-light": {
       "file": "machines-phone-light-5865a05e5c32.png",
@@ -40,10 +40,10 @@
       "sha256": "1b8111dd9878f819d69dd8ca621c45649928c2da1badd2026749bb7fd2d3251c"
     },
     "home-desktop-dark": {
-      "file": "home-desktop-dark-f6a68f6000dd.png",
+      "file": "home-desktop-dark-5a1ac3708354.png",
       "width": 1440,
       "height": 1000,
-      "sha256": "f6a68f6000dd78bb7b5a8cd03284ca5137f0792dda2a14675f759c14827c4166"
+      "sha256": "5a1ac3708354831e4060203ca1c0de74f514be8fb0101b2274defb1594e1cb63"
     },
     "machines-desktop-dark": {
       "file": "machines-desktop-dark-4eb0c3f8a037.png",
@@ -58,10 +58,10 @@
       "sha256": "0f289a8cc13ea3bf777a01f96c73c905806d09ead96c2201e163218466f15218"
     },
     "home-phone-dark": {
-      "file": "home-phone-dark-4300d32caec3.png",
+      "file": "home-phone-dark-e6ab2f1d11e6.png",
       "width": 390,
       "height": 844,
-      "sha256": "4300d32caec3f0404a928f12f57f6cc078b5665c7fed92e86d46b97e2e1fd533"
+      "sha256": "e6ab2f1d11e69def273311b60c9a8168db72e260d5dc697c2bdbafa3fc5550d5"
     },
     "machines-phone-dark": {
       "file": "machines-phone-dark-8e65f0e4f64a.png",
@@ -88,16 +88,16 @@
       "sha256": "f41359b283a170183495df282c42ad445385d3791be663a043e5018abf51643b"
     },
     "factory-desktop-light": {
-      "file": "factory-desktop-light-6ff0acd316e7.png",
+      "file": "factory-desktop-light-17a16a27bd6d.png",
       "width": 1440,
       "height": 1100,
-      "sha256": "6ff0acd316e7ff17ca985900431cba739407deaf8209326db27d5a2c0dbd1b3c"
+      "sha256": "17a16a27bd6d591279f4b8a386b58ac5d55e7637f391e36f788be4a2c7f2c248"
     },
     "factory-desktop-dark": {
-      "file": "factory-desktop-dark-a714d1a4e32a.png",
+      "file": "factory-desktop-dark-20c9126cc1db.png",
       "width": 1440,
       "height": 1100,
-      "sha256": "a714d1a4e32af2d81f2c7c4379ea87351aae7760810f414f7a4c9ca0a1f90c4d"
+      "sha256": "20c9126cc1dbf82c8ff464c46f4cdf2181f461cc4e244a3c286855b93061dbb4"
     },
     "desks-desktop-light": {
       "file": "desks-desktop-light-857c431b3f5e.png",

@@ -1,4 +1,4 @@
-// The attention contract in the browser: one rule for Home's Needs you, the bell, the tab title and the workspace sidebar.
+// The attention contract in the browser: one rule for Home's Waiting for you, the bell, the tab title and the workspace sidebar.
 // A blocked chat stays counted after it is opened, a seen terminal bell does not count and an opened bell clears, an answer
 // refreshes every surface at once (not on the next poll), and a failed list read keeps the last good count.
 // Synthetic API answers; nothing is started on a machine.
@@ -64,11 +64,11 @@ async function surfaces(page,n,title){
  if(n>0)await expect(bellButton(page,n).locator('.badge')).toHaveText(String(n))
  await expect.poll(()=>page.title()).toBe(n>0?`(${n}) ${title} · reet.sh`:`${title} · reet.sh`)
 }
+// Home's Waiting for you: its header's count and its items, one per thing that waits.
 async function homeCounts(page,n){
- const detail=page.locator('.attention-detail')
- await expect(detail.locator('summary > span')).toHaveText(String(n))
- await expect(detail.locator('#needs-you > header .count')).toHaveText(String(n))
- await expect(detail.locator('#needs-you .card')).toHaveCount(n)
+ const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
+ await expect(waiting.locator('.head .count')).toHaveText(`· ${n}`)
+ await expect(waiting.locator('.waiting-list > li')).toHaveCount(n)
  await surfaces(page,n,'Home')
 }
 const sidebar=page=>page.getByRole('complementary',{name:'Session navigation'})
@@ -84,8 +84,10 @@ try{
  // Home: the blocked chat (already opened) and the failed session count; the 25-hour-old finish and the seen bell do not.
  await page.goto(base+'/')
  await homeCounts(page,2)
- const cards=page.locator('.attention-detail #needs-you .card')
- await expect(cards.filter({hasText:'Fix the build'})).toContainText('Waiting for you')
+ const cards=page.getByRole('region',{name:'Waiting for you',exact:true}).locator('.waiting-list > li')
+ // The blocked chat holds an approval: its item says so with its chip and offers Allow once.
+ await expect(cards.filter({hasText:'Fix the build'}).locator('.chip')).toHaveText('Approval')
+ await expect(cards.filter({hasText:'Fix the build'}).getByRole('button',{name:'Allow once'})).toBeVisible()
  await expect(cards.filter({hasText:'Docs pass'})).toContainText('Exited with an error')
  await expect(cards.filter({hasText:'Old release notes'})).toHaveCount(0)
  await expect(cards.filter({hasText:'Tail the logs'})).toHaveCount(0)
@@ -95,8 +97,8 @@ try{
  await poll(page)
  await homeCounts(page,3)
  // Open in a new tab: Home stays, so what Home itself does on Open is what is seen here.
- const stay=()=>page.evaluate(()=>window.addEventListener('click',e=>{if(e.target.closest?.('a.btn.open'))e.preventDefault()},{once:true}))
- await stay();await cards.filter({hasText:'Tail the logs'}).getByRole('link',{name:'Open',exact:true}).click()
+ const stay=()=>page.evaluate(()=>window.addEventListener('click',e=>{if(e.target.closest?.('a.btn[href^="/sessions?"]'))e.preventDefault()},{once:true}))
+ await stay();await cards.filter({hasText:'Tail the logs'}).getByRole('link',{name:'Open Tail the logs',exact:true}).click()
  await expect.poll(()=>box.seen).toContain('contract-bell-0001')
  await homeCounts(page,2)
 
@@ -104,13 +106,13 @@ try{
  // read that follows the seen mark is held.
  await page.evaluate(()=>{
   window.__counts=[]
-  const record=()=>window.__counts.push([document.querySelector('.attention-detail #needs-you > header .count')?.textContent,document.title,document.querySelector('.bell-button')?.getAttribute('aria-label')].join('|'))
+  const record=()=>window.__counts.push([document.querySelector('section[aria-label="Waiting for you"] .head .count')?.textContent.replace('· ',''),document.title,document.querySelector('.bell-button')?.getAttribute('aria-label')].join('|'))
   new MutationObserver(record).observe(document,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label']})
   record()
  })
  let release;box.hold=new Promise(r=>release=r)
  const readsBefore=box.reads
- await stay();await cards.filter({hasText:'Fix the build'}).getByRole('link',{name:'Open',exact:true}).click()
+ await stay();await cards.filter({hasText:'Fix the build'}).getByRole('link',{name:'Open Fix the build',exact:true}).click()
  await expect.poll(()=>box.seen).toContain('contract-chat-0001')
  await expect.poll(()=>box.reads).toBeGreaterThan(readsBefore)
  await page.waitForTimeout(300)
@@ -218,5 +220,91 @@ try{
  expect(box.reads-stuckReads).toBeLessThanOrEqual(8)
  expect(w.errors).toEqual([])
  await w.context.close()
- console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count.')
+ // One rule on every page, with a Factory decision as well as a failed session: Home, another page and the Sessions page
+ // all count 2, the title says (2), and the bell lists exactly what it counts, the pipeline with a link to its detail.
+ {
+  const oid='e'.repeat(32),cid='c'.repeat(32),pid='a'.repeat(32)
+  const pins={providerId:pid,providerRevision:1,model:'m',contextRevision:1,workerRevision:1}
+  const goal={...pins,id:'1'.repeat(32),conversationId:cid,sessionId:'factory-work-0001',revision:1,text:'x',state:'needs_user',note:'Gaffer brought a question back.',maxReviews:12,usedReviews:1,expiresAt:now+HOUR,createdAt:now-HOUR,updatedAt:now-20*MIN}
+  const outcome={id:oid,revision:1,objective:'Ship CSV export.',state:'settled',note:'',agentId:'a1',projectId:'',projectName:'',dir:'/work',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now-HOUR,updatedAt:now,sessions:[
+   {key:'a',title:'Export API',prompt:'p',state:'following',sessionState:'running',note:'',sessionId:'factory-work-0001',conversationId:cid,updatedAt:now,stage:0,stages:[{kind:'code',tool:'opencode',state:'running',sessionId:'factory-work-0001',conversationId:cid},{kind:'review',tool:'opencode',state:'pending'}]}]}
+  const routes={
+   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
+   '/api/v2/terminal/machines':{machines:[machine]},
+   '/api/v2/terminal/sessions':{sessions:[failed(),session('factory-work-0001','Export API · code',{structured:true,attention:'working',attentionSource:'chat'})]},
+   '/api/v2/gaffer/outcomes':{outcomes:[outcome]},
+   '/api/v2/gaffer/goals':{goals:[{goal,session:{id:'factory-work-0001',agentId:'a1',title:'Export API · code',state:'running'},available:true,attention:true,reason:'Gaffer brought a question back.'}],readAt:now},
+  }
+  const f=await openWorkspace(browser,{width:1440,height:950,terminalStatus:{configured:true,available:true},terminalMachines:[machine],routes})
+  try{
+   const page=f.page
+   for(const [path,title] of [['/','Home'],['/skills','Skills'],['/sessions','Sessions']]){
+    await page.goto(base+path)
+    await surfaces(page,2,title)
+    await bellButton(page,2).click()
+    const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+    await expect(pop.locator('.item'),`${title}: the bell lists what it counts`).toHaveCount(2)
+    await expect(pop.getByRole('link',{name:'Open Export API in the Factory',exact:true})).toHaveAttribute('href',`/factory?pipeline=${oid}.a`)
+    await expect(pop.locator('.item',{hasText:'Docs pass'})).toHaveCount(1)
+    await page.keyboard.press('Escape')
+   }
+   expect(f.errors).toEqual([])
+  }finally{await f.context.close()}
+ }
+ // The Factory page and the bell keep each other current. Every poll (the bell's 15 s, the page's 5 s list and 15 s
+ // sessions) runs only when the test says so, so what changes can only have come from the signal.
+ {
+  const oid='f'.repeat(32),cid='9'.repeat(32),pid='a'.repeat(32)
+  const pins={providerId:pid,providerRevision:1,model:'m',contextRevision:1,workerRevision:1}
+  const box={merges:[],answers:[],outcomeReads:0,goalAttention:true}
+  const stage=(kind,state,extra={})=>({kind,tool:'opencode',state,...extra})
+  const outcome={id:oid,revision:3,objective:'Ship CSV export.',state:'settled',note:'',agentId:'a1',projectId:'',projectName:'',dir:'/work',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now-2*HOUR,updatedAt:now,sessions:[
+   {key:'a',title:'Export docs',prompt:'p',state:'ready_to_merge',sessionState:'running',note:'Ready to merge.',sessionId:'factory-merge-0001',conversationId:'8'.repeat(32),updatedAt:now-50*MIN,stage:1,stages:[stage('code','done'),stage('merge','pending')]},
+   {key:'b',title:'Export API',prompt:'p',state:'following',sessionState:'running',note:'',sessionId:'factory-perm-0001',conversationId:cid,updatedAt:now,stage:0,stages:[stage('code','running',{sessionId:'factory-perm-0001',conversationId:cid}),stage('review','pending')]}]}
+  const goal=()=>({...pins,id:'1'.repeat(32),conversationId:cid,sessionId:'factory-perm-0001',revision:1,text:'x',state:'active',note:'The agent is waiting for your approval.',waitingOnWorker:box.goalAttention,maxReviews:12,usedReviews:1,expiresAt:now+HOUR,createdAt:now-HOUR,updatedAt:now-20*MIN})
+  let permission={permissionId:'perm-factory-0001',title:'Run a command',command:'npm run check'}
+  const routes={
+   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
+   '/api/v2/terminal/machines':{machines:[machine]},
+   '/api/v2/terminal/sessions':()=>({sessions:[session('factory-merge-0001','Export docs · merge',{structured:true,attention:'working',attentionSource:'chat'}),session('factory-perm-0001','Export API · code',{structured:true,attention:permission?'waiting':'working',attentionSource:'chat',changedSinceSeen:false,...(permission?{pendingPermission:permission}:{})})]}),
+   '/api/v2/gaffer/outcomes':()=>{box.outcomeReads++;return{outcomes:[outcome]}},
+   '/api/v2/gaffer/goals':()=>({goals:[{goal:goal(),session:{id:'factory-perm-0001',agentId:'a1',title:'Export API · code',state:'running'},available:true,attention:box.goalAttention,...(box.goalAttention?{reason:'The agent is waiting for your approval.'}:{})}],readAt:Date.now()}),
+   [`/api/v2/gaffer/outcomes/${oid}/sessions/a/merge`]:request=>{box.merges.push(request.postDataJSON());Object.assign(outcome.sessions[0],{state:'following',mergeApproved:true});outcome.revision++;return outcome},
+   '/api/v2/terminal/sessions/factory-perm-0001/chat/permissions/perm-factory-0001':request=>{box.answers.push(request.postDataJSON());permission=undefined;box.goalAttention=false;return{answered:true}},
+  }
+  const f=await openWorkspace(browser,{width:1440,height:950,terminalStatus:{configured:true,available:true},terminalMachines:[machine],routes})
+  await f.page.addInitScript(()=>{
+   const set=window.setInterval.bind(window),clear=window.clearInterval.bind(window),polls=new Map()
+   window.setInterval=(fn,d,...a)=>{if(d===15000||d===15_000||d===5000){const id=set(()=>{},2**30);polls.set(id,()=>fn(...a));return id}return set(fn,d,...a)}
+   window.clearInterval=id=>{polls.delete(id);clear(id)}
+   window.EventSource=class{constructor(){setTimeout(()=>this.onopen?.({}),0)}addEventListener(){}close(){}}
+  })
+  try{
+   const page=f.page
+   await page.goto(base+'/factory')
+   const main=page.getByRole('main')
+   await expect(main.getByRole('button',{name:'Approval: Export API',exact:true})).toBeVisible()
+   await expect(bellButton(page,2)).toBeVisible()
+   await expect.poll(()=>page.title()).toMatch(/^\(2\) /)
+   // Approving the merge on the page drops the bell and the title at once.
+   await main.getByRole('button',{name:/^Approve the merge/}).first().click()
+   const readsAfter=box.outcomeReads
+   await page.getByRole('dialog',{name:'Merge “Export docs”?'}).getByRole('button',{name:'Approve merge',exact:true}).click()
+   await expect.poll(()=>box.merges.length).toBe(1)
+   await expect(bellButton(page,1)).toBeVisible({timeout:2000})
+   await expect.poll(()=>page.title(),{timeout:2000}).toMatch(/^\(1\) /)
+   // Its own signal does not make the page read twice: the action's read, the bell's, and once each when the signal settles.
+   await page.waitForTimeout(1600)
+   expect(box.outcomeReads-readsAfter).toBeLessThanOrEqual(4)
+   // Answering the approval in the bell takes the page's Approval item away, without a poll.
+   await bellButton(page,1).click()
+   const panel=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+   await panel.locator('.item',{hasText:'Export API'}).getByRole('button',{name:'Allow once',exact:true}).click()
+   await expect.poll(()=>box.answers.length).toBe(1)
+   await expect(main.getByRole('button',{name:'Approval: Export API',exact:true})).toHaveCount(0,{timeout:2000})
+   await expect(bellButton(page,0)).toBeVisible({timeout:2000})
+   expect(f.errors).toEqual([])
+  }finally{await f.context.close()}
+ }
+ console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count; on the Factory page an approved merge drops the bell and title at once, and an approval answered in the bell leaves the page without a poll.')
 }finally{await browser.close()}

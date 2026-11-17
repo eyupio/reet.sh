@@ -22,8 +22,9 @@ function fixture() {
   }
   return {box,routes}
 }
-// Home's Gaffer entry is the way onto the Factory page: a link that says what is waiting there. Home itself reads the
-// goals and nothing else of Gaffer's; the page it leads to is where goals are reviewed and stopped.
+// Home reads Gaffer's goals and nothing else of Gaffer's, and makes no write by reading them. A goal that needs review on a
+// session with no card and no pipeline is an entry of Waiting for you (chip Gaffer, Open to the session); the Factory page
+// is where goals are reviewed and stopped.
 try {
   for (const theme of ['light','dark']) for (const width of [1440,390,320]) {
     const f=fixture(), w=await openWorkspace(browser,{width,height:900,theme,touch:width<1000,routes:f.routes})
@@ -31,22 +32,43 @@ try {
     w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/'))requests.push({path:new URL(r.url()).pathname,method:r.method()})})
     try {
       await w.page.goto(base+'/')
-      const entry=w.page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true})
-      await expect(entry).toBeVisible();await expect(entry).toHaveAttribute('href','/factory')
-      expect(await entry.evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+      // The head says what waits in one line; there is no Gaffer pill and no Factory or Projects button in it. The way to
+      // the Factory is the tab bar's.
+      const heading=w.page.locator('.workspace-heading'),waiting=w.page.getByRole('region',{name:'Waiting for you',exact:true})
+      // The goal that needs review is waiting for the person: one entry, counted in the head, the bell and the title.
+      await expect(heading.locator('.counts')).toHaveText('1 waiting for you')
+      const goal=waiting.locator('.waiting-list > li')
+      await expect(goal).toHaveCount(1)
+      await expect(goal.locator('.chip')).toHaveText('Gaffer')
+      await expect(goal).toContainText('Release review');await expect(goal).toContainText('Session')
+      await expect(goal).toContainText('Gaffer’s goal needs you.')
+      await expect(goal.getByRole('link',{name:'Open Release review',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=worker-1')
+      expect(await goal.getByRole('link',{name:'Open Release review',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+      await expect(w.page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
+      await expect(w.page).toHaveTitle(/^\(1\) /)
+      await expect(w.page.getByRole('link',{name:/^Gaffer/})).toHaveCount(0)
+      await expect(heading.getByRole('link',{name:'Factory',exact:true})).toHaveCount(0)
+      await expect(heading.getByRole('button',{name:'Projects',exact:true})).toHaveCount(0)
+      if(width>=1100)await expect(w.page.getByRole('navigation').getByRole('link',{name:'Factory',exact:true}).first()).toHaveAttribute('href','/factory')
+      await expect.poll(()=>f.box.reads).toBeGreaterThan(0)
       expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       if(width===1440||width===390)await w.page.screenshot({path:`${shots}/home-followups-${width}-${theme}.png`,fullPage:true})
-      // Refresh failures retain the last known count and explicitly label it as old.
+      // A failed refresh of the goals keeps the last read: the goal is still waiting.
       f.box.fail=true
+      const before=f.box.reads
       await w.page.evaluate(()=>window.dispatchEvent(new Event('reet:gaffer-goals-changed')))
-      await expect(w.page.getByRole('link',{name:'Gaffer: 1 goal needs you · last read',exact:true})).toBeVisible()
+      await expect.poll(()=>f.box.reads).toBeGreaterThan(before)
+      await expect(heading.locator('.counts')).toHaveText('1 waiting for you')
+      await expect(goal).toHaveCount(1)
+      // It says the read failed, rather than nothing.
+      await expect(w.page.locator('.problem')).toHaveText('The Factory could not be read; showing what was last read.')
       f.box.fail=false
-      // With nothing followed the line goes; Home's own Factory button is always there.
+      // Once nothing is followed, nothing waits.
       f.box.rows=[]
       await w.page.evaluate(()=>window.dispatchEvent(new Event('reet:gaffer-goals-changed')))
-      await expect(w.page.locator('.workspace-summary .followups')).toHaveCount(0)
-      await expect(w.page.locator('a.home-factory')).toHaveAttribute('href','/factory')
-      if(width>=1100)await expect(w.page.locator('a.home-factory')).toBeVisible()
+      await expect(heading.locator('.counts')).toHaveText('0 waiting for you')
+      await expect(waiting).toContainText('Nothing is waiting for you.')
+      await expect(w.page.locator('.problem')).toHaveCount(0)
       // Home read the goals and made no write, and never touched Gaffer's providers or conversations.
       expect(requests.filter(r=>r.method!=='GET')).toEqual([])
       expect(requests.some(r=>r.path==='/api/v2/gaffer/providers'||r.path==='/api/v2/gaffer/conversations')).toBe(false)
@@ -55,24 +77,39 @@ try {
   }
   for (const status of [{user:{...owner,role:'viewer'}},{mode:'none',user:null}]) {
     const f=fixture(),w=await openWorkspace(browser,{width:390,status,routes:f.routes})
-    try {await w.page.goto(base+'/');await expect(w.page.getByRole('heading',{name:'Home',exact:true})).toBeVisible();await expect(w.page.locator('.workspace-summary .followups')).toHaveCount(0);expect(f.box.reads).toBe(0)}
+    try {await w.page.goto(base+'/');await expect(w.page.getByRole('heading',{name:'Home',exact:true})).toBeVisible();await expect(w.page.getByRole('region',{name:'Waiting for you',exact:true})).toHaveCount(0);expect(f.box.reads).toBe(0)}
     finally {await w.context.close()}
   }
+  // Goals that cannot be read leave Home whole, and Home says so: it never claims nothing waits, and nothing throws.
   const failed=fixture();failed.box.fail=true
   const failedWorkspace=await openWorkspace(browser,{width:390,routes:failed.routes})
   try {
     await failedWorkspace.page.goto(base+'/')
-    await expect(failedWorkspace.page.getByRole('link',{name:'Gaffer’s goals unavailable',exact:true})).toHaveAttribute('href','/factory')
+    await expect(failedWorkspace.page.locator('.problem')).toHaveText('The Factory could not be read. Home tries again every 15 seconds.')
+    await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing that could be read is waiting for you.')
+    await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).not.toContainText('Nothing is waiting for you.')
+    expect(failedWorkspace.errors).toEqual([])
   } finally {await failedWorkspace.context.close()}
-  // The entry leads to the Factory page, where a goal is reviewed and stopped explicitly.
+  // An account without Gaffer (its reads refused or missing) is not told anything failed.
+  for (const status of [403,404]) {
+    const quiet=fixture()
+    quiet.routes['/api/v2/gaffer/goals']=()=>({status,json:{error:'no'}});quiet.routes['/api/v2/gaffer/outcomes']=()=>({status,json:{error:'no'}})
+    const q=await openWorkspace(browser,{width:390,routes:quiet.routes})
+    try {
+      await q.page.goto(base+'/')
+      await expect(q.page.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing is waiting for you.')
+      await expect(q.page.locator('.problem')).toHaveCount(0)
+      expect(q.errors).toEqual([])
+    } finally {await q.context.close()}
+  }
+  // The Factory page, reached from the tab bar, is where a goal is reviewed and stopped explicitly.
   for (const width of [1440,390]) {
     const f=fixture(),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})
     const writes=[]
     w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')writes.push(new URL(r.url()).pathname)})
     try {
       const page=w.page
-      await page.goto(base+'/');await page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true}).click()
-      await expect(page).toHaveURL(/\/factory$/)
+      await page.goto(base+'/factory')
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
       // Gaffer's other sessions are the page's Other sessions section. A goal in it needs the person, so it is open on
       // arrival, and its summary says so first.
@@ -97,8 +134,9 @@ try {
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  // A goal that needs review on a session which already has an approval card is that card's second reason: the card says so
-  // once, the Gaffer entry no longer counts it, and the card count (header, bell, title) stays the number of cards.
+  // The session holding the approval is one stage of a Factory pipeline that is working by itself (its goal does not say it
+  // waits on the agent). The approval is only on the session's card, so the card stays in Waiting for you, with Allow and
+  // Deny and the followed goal as its second reason, and the bell lists it; the pipeline is in Factory, working without you.
   const folded=fixture()
   folded.routes['/api/v2/terminal/sessions']={sessions:[{id:'worker-1',agentId:'a1',title:'Release review',state:'running',createdAt:now-7200000,updatedAt:now-720000,exitCode:null,structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-60000,changedSinceSeen:true,pendingPermission:{permissionId:'perm-aaaa00000001',title:'go test',command:'go test ./...',queued:0}}]}
   // The session is one stage of a Factory pipeline, and Home says so wherever it lists the session.
@@ -107,40 +145,41 @@ try {
   try {
     const page=foldedWorkspace.page
     await page.goto(base+'/')
-    // Home lists the Factory's pipelines with what each is part of and where it stands; a line opens its card on the Factory page.
-    const line=page.getByRole('list',{name:'Factory pipelines',exact:true}).getByRole('link')
-    await expect(line).toHaveCount(1)
-    await expect(line).toContainText('Release review');await expect(line).toContainText('Plan · 1 of 2');await expect(line).toContainText('For: Ship the release.')
-    await expect(line).toHaveAttribute('href','/factory#pipeline-'+'o'.repeat(32)+'-a')
-    const needs=page.locator('#needs-you')
-    await expect(needs.locator('.card')).toHaveCount(1)
+    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true}),item=waiting.locator('.waiting-list > li')
+    await expect(item).toHaveCount(1)
+    await expect(item).toContainText('Release review');await expect(item).toContainText('Session')
+    await expect(item.locator('.chip')).toHaveText('Approval')
+    await expect(item.getByRole('button',{name:'Allow once'})).toBeVisible();await expect(item.getByRole('button',{name:'Deny'})).toBeVisible()
+    await expect(item.getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
     await expect(page.getByText('Factory · Plan 1 of 2',{exact:true}).first()).toBeVisible()
-    const card=needs.locator('.card',{hasText:'Release review'})
-    await expect(card.getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
-    await expect(needs.locator('.count')).toHaveText('1')
+    await expect(waiting.getByRole('button',{name:/^Waiting for you /})).toContainText('· 1')
+    await expect(page.getByRole('button',{name:/^Factory, working without you /})).toContainText('Release review')
     await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
     await expect(page).toHaveTitle(/^\(1\) /)
-    await expect(page.getByRole('link',{name:'Gaffer: following 1 session',exact:true})).toBeVisible()
-    await expect(page.getByRole('link',{name:/goals? needs? you/})).toHaveCount(0)
+    await page.getByRole('button',{name:'Needs you: 1',exact:true}).click()
+    const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+    await expect(pop.locator('.item')).toHaveCount(1)
+    await expect(pop.getByRole('button',{name:'Allow once'})).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('link',{name:/^Gaffer/})).toHaveCount(0)
     expect(foldedWorkspace.errors).toEqual([]);expect(foldedWorkspace.state.unexpected).toEqual([])
   } finally {await foldedWorkspace.context.close()}
-  // The only goal that needs review is on a session with an approval card, with nothing else followed: it is folded into
-  // that card, and Home's entry says where the goal went.
+  // The only goal that needs review is on a session with an approval card and no pipeline: it is folded into that card,
+  // which says so once, and is counted once.
   const only=fixture();only.box.rows=only.box.rows.slice(0,1)
   only.routes['/api/v2/terminal/sessions']=folded.routes['/api/v2/terminal/sessions']
   const onlyWorkspace=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true,reason:''},routes:only.routes})
   try {
     const page=onlyWorkspace.page
     await page.goto(base+'/')
-    const needs=page.locator('#needs-you')
-    await expect(needs.locator('.card')).toHaveCount(1)
-    await expect(needs.locator('.card',{hasText:'Release review'}).getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
-    await expect(needs.locator('.count')).toHaveText('1')
+    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true}),item=waiting.locator('.waiting-list > li')
+    await expect(item).toHaveCount(1)
+    await expect(item.filter({hasText:'Release review'}).getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
+    await expect(waiting.getByRole('button',{name:/^Waiting for you /})).toContainText('· 1')
     await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
     await expect(page).toHaveTitle(/^\(1\) /)
-    await expect(page.getByRole('link',{name:'Gaffer: 1 goal is in Needs you',exact:true})).toHaveAttribute('href','/factory')
-    await expect(page.getByRole('link',{name:/goals? needs? you/})).toHaveCount(0)
+    await expect(page.getByRole('link',{name:/^Gaffer/})).toHaveCount(0)
     expect(onlyWorkspace.errors).toEqual([]);expect(onlyWorkspace.state.unexpected).toEqual([])
   } finally {await onlyWorkspace.context.close()}
-  console.log('Home follow-ups: six theme/width views, the entry as a link to the Factory with its wording, a goal folded into its session card (counted once, entry kept), no implicit writes or provider reads on Home, stale read, Home’s own Factory button, viewer/open-mode boundaries, and explicit review and stop on the Factory page passed.')
+  console.log('Home follow-ups: six theme/width views with the counts line and no Gaffer pill, a failed goals read leaving Home whole, a Gaffer goal waiting as its own entry (kept through a failed read), an approval on a working pipeline’s session kept in the list and the bell, a goal folded into its session card, no implicit writes or provider reads on Home, viewer/open-mode boundaries, and explicit review and stop on the Factory page passed.')
 } finally {await browser.close()}

@@ -406,7 +406,7 @@
                     <span class="age" title={new Date(item.createdAt).toLocaleString()}>Saved {shortAge(Math.max(0, now - item.createdAt))} ago</span>
                     <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => { baseOpener = e.currentTarget; if (draft.idea) void edit(draft, e.currentTarget, true); else void activate(draft) }}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
                   {:else if session && word}
-                    <span class="status" title={word.source}>{#if sessionStatus(session) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<i></i>{/if}{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span><span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
+                    <span class="status" title={word.source}>{#if sessionStatus(session) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<i></i>{/if}{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span>{#if sessionStatus(session) === 'finished' && session.changedSinceSeen}<span class="unseen">Not seen yet</span>{/if}<span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
                 </footer>
                 {#if draft && reason}<p class="start-note">{reason}</p>{:else if draft?.starting}<p class="start-note">Start was requested. Retry checks the same request.</p>{/if}
@@ -541,6 +541,11 @@
   .compact .session-card.expanded .card-top { padding-right: 88px; }
   .compact .session-card.expanded .card-tools { top: 4px; right: 4px; }
   .compact .session-card:not(.expanded) .status { font-size: 14px; }
+  /* A finished session nobody has opened since says so beside its state, as a whole phrase. */
+  .unseen { font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+  /* A long Factory badge goes under the project's name rather than over the state beside it. */
+  .compact .session-card:not(.expanded) .card-top { flex-wrap: wrap; row-gap: 4px; min-width: 0; }
+  .factory-badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .compact .session-card:not(.expanded) .session-age { font-size: 14px; }
   .empty { text-align: center; padding: 36px 12px; color: var(--muted); grid-column: 1/-1; }.empty-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 0 auto 16px; }.empty strong { font-size: 14px; color: var(--ink-soft); font-weight: 550; display: block; }.empty p { font-size: 14px; margin: 8px auto 16px; max-width: 240px; }.empty button { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); font-size: 14px; border: 0; background: transparent; cursor: pointer; }
   .board-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; font-size: 14px; color: var(--muted); }.board-foot span, .board-foot a { display: flex; gap: 6px; align-items: center; }.board-foot a { text-decoration: none; color: var(--muted); }.board-foot a:hover { color: var(--accent-text); }

@@ -332,7 +332,7 @@ export function rowSubtitle(session: HomeSession, owner: SessionOwner | undefine
   return [owner?.name, machine?.host || session.agentId, session.worktreeBranch].filter(Boolean).join(' · ')
 }
 
-function approvalOf(p: NonNullable<TerminalSession['pendingPermission']>): NonNullable<NeedCard['approval']> {
+export function approvalOf(p: NonNullable<TerminalSession['pendingPermission']>): NonNullable<NeedCard['approval']> {
   return { permissionId: p.permissionId, title: p.title || 'A tool call', command: p.command ?? '', path: p.path ?? '', truncated: !!p.truncated, queued: p.queued ?? 0 }
 }
 
@@ -432,6 +432,12 @@ export function needsYou(
   return out.sort((a, b) => b.at - a.at || a.sessionId.localeCompare(b.sessionId))
 }
 
+/** The sessions that need the person, as the bell and Home's Waiting for you count them: a session that only finished is
+ *  not one (it keeps its Finished state). Pages that filter by "Needs you" use this. */
+export function needingIds(cards: readonly Pick<NeedCard, 'kind' | 'sessionId'>[]): Set<string> {
+  return new Set(cards.filter(card => card.kind !== 'finished').map(card => card.sessionId))
+}
+
 export function attentionCount(cards: NeedCard[]): number {
   return cards.length
 }
@@ -447,7 +453,8 @@ export function foldGafferGoals(cards: NeedCard[], goals: readonly GafferGoalOve
   let unfolded = 0
   for (const row of goals) {
     if (!row.attention) continue
-    const id = row.session?.id
+    // A goal names its session in the overview, or only in the goal when the session was not read with it.
+    const id = row.session?.id || row.goal.sessionId
     if (id && carded.has(id)) folded.add(id)
     else unfolded++
   }

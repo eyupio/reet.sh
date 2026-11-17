@@ -20,6 +20,9 @@ export type Change =
   /** A pane moved to another tab, beside that tab's active pane, in one step: it never leaves one tab without reaching
    *  the other. The tab it leaves goes with it when it was that tab's last pane. */
   | { kind: 'movePaneToTab'; from: string; to: string; pane: string }
+  /** The panes of the other tabs (all of them, or the ones in `from`) brought into `tab` and laid out, in one step. Tabs
+   *  are taken whole, in tab order, while their panes fit; a tab that does not fit stays as it is. */
+  | { kind: 'gather'; tab: string; name: 'side' | 'stack' | 'grid'; from?: string[] }
   | { kind: 'reorderTabs'; ids: string[] }
   | { kind: 'preset'; tab: string; name: 'side' | 'stack' | 'grid' | 'main' | 'even' }
   | { kind: 'swap'; tab: string; a: string; b: string }
@@ -153,6 +156,20 @@ function applyChange(desk: Desk, c: Change): Desk | null {
       const last = leaves(from.root).length <= 1
       const tabs = doc.tabs.flatMap(t => t.id === to.id ? [moved] : t.id === from.id ? (last ? [] : [closePane(t, c.pane)]) : [t])
       return withDoc(tabs, to.id)
+    }
+    case 'gather': {
+      const into = doc.tabs[index(c.tab)]
+      if (!into || !into.root || !['side', 'stack', 'grid'].includes(c.name)) return null
+      let next = into
+      const taken = new Set<string>()
+      for (const t of doc.tabs) {
+        const ids = leaves(t.root)
+        if (t.id === into.id || (c.from && !c.from.includes(t.id)) || ids.length === 0 || Object.keys(next.panes).length + ids.length > MAX_PANES) continue
+        for (const pid of ids) next = splitPane(next, leaves(next.root).at(-1)!, 'right', t.panes[pid])
+        taken.add(t.id)
+      }
+      if (taken.size === 0) return null
+      return withDoc(doc.tabs.flatMap(t => t.id === into.id ? [{ ...preset(next, c.name), zoomed: '' }] : taken.has(t.id) ? [] : [t]), into.id)
     }
     case 'preset':
       return withTab(c.tab, t => preset(t, c.name))

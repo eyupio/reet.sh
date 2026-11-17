@@ -79,6 +79,13 @@ command…, Open in Sessions (when the pane has a session) and Close, with the c
 - **Separators** sit between panes. Drag one, or focus it and use the arrow keys (2% a press), Home and End (to 10% and
   90%); a double-click puts it back at half. A drag stops at the last place where every pane still has 20 × 8 cells. The
   terminals keep their size while you drag and are resized once, when you let go.
+- **Combining tabs.** Layout also brings the panes of other tabs into the current one. **Combine tabs…** opens a
+  dialog listing the other tabs, all that fit ticked; untick the ones to leave out, choose **Side by side**, **Stacked**
+  or **Grid**, and **Combine**. On a tab of one pane, which has nothing to arrange, the menu offers **Show all tabs
+  side by side**, **stacked** and **as a grid** instead of the layouts. A tab is taken whole, in tab order, and only
+  while the result stays within nine panes; one that does not fit stays as it is and the desk says so. Nothing is
+  restarted, the emptied tabs go, and **Move to tab…** in a pane's menu moves a pane back out. Layout is disabled only
+  when there is one pane and no other tab that fits.
 - **Layout** offers **Side by side**, **Stacked**, **Grid** (as many columns as the square root of the pane count,
   rounded up), **Main and stack** (the first pane on the left at 60%, the others stacked beside it) and **Even out**
   (the same shape, every pane an equal share). A layout rearranges the panes you have; it starts and ends nothing.

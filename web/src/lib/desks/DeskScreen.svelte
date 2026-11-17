@@ -20,6 +20,7 @@
   import { pasteNeedsReview } from '../terminal/paste'
   import { sendToAll, stopReason, STOP_CHANGED, type Mode, type Now } from './typeInAll'
   import ClosePaneDialog from './ClosePaneDialog.svelte'
+  import CombineTabsDialog from './CombineTabsDialog.svelte'
   import DeskMenu from './DeskMenu.svelte'
   import DeskPane from './DeskPane.svelte'
   import DeskTabs from './DeskTabs.svelte'
@@ -73,7 +74,7 @@
     // Nothing of the desk being left carries over: its dialogs, menus, offers, failures and notices go with it.
     desk = null; failure = ''; saveState = 'saved'; typeAll = null; askAll = false; localTab = readTab(deskId)
     offered = {}; failures = {}; closing = null; choosing = null; menu = null; reopenNotice = ''; notice = ''; reopening = {}
-    adding = null; agentStart = null; addingRunning = null
+    adding = null; agentStart = null; addingRunning = null; combining = null
     continueIds.clear(); attempts.clear()
     const mine = createAutosave({
       load: () => getDesk(deskId),
@@ -798,6 +799,25 @@
     closeMenu(true)
     if (activeTab) change({ kind: 'preset', tab: activeTab.id, name })
   }
+  // Combining tabs: the Layout menu brings the panes of other tabs into this one (all of them, or the ones ticked in
+  // Combine tabs…). A tab is taken whole, and only while its panes fit. On a tab of one pane, which has nothing to
+  // arrange, these are all the menu offers.
+  const GATHER: { name: 'side' | 'stack' | 'grid'; label: string }[] = [
+    { name: 'side', label: 'Show all tabs side by side' }, { name: 'stack', label: 'Show all tabs stacked' }, { name: 'grid', label: 'Show all tabs as a grid' },
+  ]
+  const otherTabs = $derived(activeTab ? tabs.filter(t => t.id !== activeTab.id && leaves(t.root).length > 0).map(t => ({ id: t.id, name: t.name || 'Untitled', panes: leaves(t.root).length })) : [])
+  const gatherable = $derived(otherTabs.some(t => ids.length + t.panes <= MAX_PANES))
+  let combining = $state<HTMLElement | null>(null)
+  function gather(name: (typeof GATHER)[number]['name'], from?: string[]) {
+    const t = activeTab
+    if (!t) return
+    const wanted = from ?? otherTabs.map(x => x.id)
+    change({ kind: 'gather', tab: t.id, name, from })
+    const left = wanted.filter(id => desk?.doc.tabs.some(x => x.id === id)).length
+    if (left === wanted.length) notice = 'Those tabs could not be brought into this one.'
+    else if (left > 0) notice = `${left === 1 ? 'One tab' : `${left} tabs`} did not fit: a tab holds at most ${MAX_PANES} panes.`
+  }
+  async function closeCombine() { const opener = combining; combining = null; await tick(); opener?.focus() }
   // The Layout button's picture: the tab's panes as a small grid of cells.
   const icon = $derived(zoomed || !activeTab?.root ? [{ x: 0, y: 0, w: 1, h: 1 }] : [...treeLayout(activeTab.root).values()])
 
@@ -865,7 +885,8 @@
         <button type="button" class="btn primary" disabled={reopeningAll} aria-busy={reopeningAll || undefined} onclick={() => void reopenAll()}>{reopeningAll ? 'Reopening…' : `Reopen all (${reopenList.length})`}</button>
       {/if}
       {#if !phone && activeTab}
-        <button type="button" class="btn lay" aria-haspopup="menu" aria-expanded={menu?.kind === 'layout'} disabled={ids.length < 2} onclick={event => openMenu('layout', event)}>
+        <button type="button" class="btn lay" aria-haspopup="menu" aria-expanded={menu?.kind === 'layout'} disabled={ids.length < 2 && !gatherable}
+          title={ids.length < 2 && !gatherable ? 'Layouts arrange the panes of a tab. Split this tab first.' : undefined} onclick={event => openMenu('layout', event)}>
           <span class="lay-icon" aria-hidden="true">{#each icon as r, i (i)}<i style={`left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%`}></i>{/each}</span>Layout
         </button>
         {#if !template}
@@ -977,7 +998,12 @@
   </DeskMenu>
 {:else if menu?.kind === 'layout' && desk}
   <DeskMenu x={menu.x} y={menu.y} label="Layout" opener={menu.opener} onclose={closeMenu}>
-    {#each PRESETS as item (item.name)}<button type="button" role="menuitem" onclick={() => applyPreset(item.name)}>{item.label}</button>{/each}
+    {#if ids.length >= 2}
+      {#each PRESETS as item (item.name)}<button type="button" role="menuitem" onclick={() => applyPreset(item.name)}>{item.label}</button>{/each}
+    {:else}
+      {#each GATHER as item (item.name)}<button type="button" role="menuitem" onclick={() => { closeMenu(true); gather(item.name) }}>{item.label}</button>{/each}
+    {/if}
+    {#if gatherable}<button type="button" role="menuitem" aria-haspopup="dialog" onclick={() => { const opener = menu?.opener ?? null; closeMenu(false); combining = opener }}>Combine tabs…</button>{/if}
   </DeskMenu>
 {:else if menu?.kind === 'desk' && desk}
   {@const current = desk}
@@ -1002,6 +1028,10 @@
   </dialog>
 {/if}
 
+{#if combining && activeTab}
+  <CombineTabsDialog name={activeTab.name || 'Untitled'} room={MAX_PANES - ids.length} limit={MAX_PANES} tabs={otherTabs}
+    oncombine={(from, layout) => { void closeCombine(); gather(layout, from) }} oncancel={() => void closeCombine()} />
+{/if}
 {#if closing}
   <ClosePaneDialog name={closing.name} host={closing.host} count={closing.live.length} removes={removeOnClose} onend={() => void endAndClose()} ontakeoff={takeOff} oncancel={() => (closing = null)} />
 {/if}

@@ -68,6 +68,8 @@ try {
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
     // Each run starts from the same record: the third pipeline is waiting for the merge decision.
     Object.assign(outcomes[0],{revision:5,state:'settled'});delete outcomes[0].report;outcomes[0].sessions.length=3;outcomes[1].revision=2;outcomes[1].sessions[1]={key:'b',title:'Importer docs',prompt:'p',state:'failed',note:'Not started: That agent isn’t installed on that machine.',updatedAt:now,stage:0,stages:[st('code','claude','','pending'),st('pr','claude','','pending')]};Object.assign(outcomes[0].sessions[2],{state:'ready_to_merge',mergeApproved:false,note:'Ready to merge. Nothing merges until you approve it.'});outcomes[0].sessions[2].stages[7].state='pending'
+    // …and the second is back in its code stage, which an earlier pass moved on from.
+    Object.assign(outcomes[0].sessions[1],{stage:2,stages:line(2,true),note:'The code stage is under way.'})
     const w=await openWorkspace(browser,{width,height:width<500?844:1100,theme,touch:width<1000,terminalMachines:machines,routes:routesFor(box)})
     watch(w,box)
     try {
@@ -254,10 +256,15 @@ try {
       await expect(floor.getByRole('heading',{name:'Login tokens',exact:true})).toBeVisible()
       await expect(floor.getByRole('group',{name:'Running chats not followed',exact:true}).getByRole('checkbox')).toHaveCount(1)
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
-      // The picture is of the page at rest: the notice from the decisions switch above is put away first.
-      {const notice=page.getByRole('button',{name:'Dismiss this message',exact:true});if(await notice.count()){await notice.click();await page.evaluate(()=>scrollTo(0,0))}}
+      // The picture is of the page at rest, as a person comes back to it: the notice from the decisions switch above is
+      // put away, only Waiting for you is open, and on a wide screen the pipeline waiting on a decision is beside the
+      // list with its rows closed, both scrolled to the top.
+      {const notice=page.getByRole('button',{name:'Dismiss this message',exact:true});if(await notice.count())await notice.click()}
+      await othersHead.click();await expect(othersHead).toHaveAttribute('aria-expanded','false')
+      for(const section of ['Working','Finished or stopped']){const head=page.getByRole('button',{name:new RegExp(`^${section}`)});if(await head.getAttribute('aria-expanded')==='true')await head.click();await expect(head).toHaveAttribute('aria-expanded','false')}
+      if(wide){const rest=await choose('Waiting for you','Export button','Decision'),opened=rest.locator('details.row[open] > summary');while(await opened.count())await opened.first().click()}
+      await page.evaluate(()=>{scrollTo(0,0);for(const el of document.querySelectorAll('.list,.pane'))el.scrollTop=0})
       await page.screenshot({path:`${shots}/gaffer-factory-${width}-${theme}.png`,fullPage:width<500})
-      await othersHead.click()
       expect(box.writes).toEqual([])
       // Merging is the person's decision: it is asked for plainly, can be backed out of, and is sent once.
       const merge=await choose('Waiting for you','Export docs','Ready to merge')

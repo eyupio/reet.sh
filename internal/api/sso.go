@@ -343,9 +343,10 @@ func (s *server) ssoLinkCallback(w http.ResponseWriter, r *http.Request, row sto
 }
 
 func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSOLogin, c oidc.Claims) {
-	// Read once, so an owner saving new settings mid-sign-in cannot give this
-	// person half of the old and half of the new.
-	beh := s.sso.Behaviour()
+	// The choices the claims were read under, carried through, so an owner
+	// saving new settings mid-sign-in cannot give this person claims read by
+	// the old names and roles mapped by the new.
+	beh := c.Read
 	issuer := s.sso.Issuer()
 	email := asciiLower(strings.TrimSpace(c.Email))
 	user, found, err := s.st.SSOIdentityUser(issuer, c.Subject)

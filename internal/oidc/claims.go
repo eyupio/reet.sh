@@ -19,6 +19,10 @@ type Claims struct {
 	Groups    []string
 	HasGroups bool
 	SessionID string
+	// Read is the choices these claims were read under. A sign-in uses it for
+	// everything that follows, so an owner saving new settings in between
+	// cannot pair claims read by one set of names with another set's roles.
+	Read Behaviour
 }
 
 func (p *Provider) claimsFrom(v *verified) (Claims, error) {
@@ -27,7 +31,7 @@ func (p *Provider) claimsFrom(v *verified) (Claims, error) {
 		return Claims{}, errors.New("the token has no usable subject")
 	}
 	b := p.snapshot()
-	c := Claims{Subject: sub, SessionID: v.str("sid")}
+	c := Claims{Subject: sub, SessionID: v.str("sid"), Read: b.normalised()}
 	c.Email = strings.TrimSpace(v.str(b.EmailClaimName()))
 	if raw, ok := v.claims["email_verified"]; ok {
 		var b bool

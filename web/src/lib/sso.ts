@@ -162,9 +162,14 @@ export type SsoSettings = {
   viewerGroups: string[]
 }
 
-/** Entries are separated by commas, spaces or new lines, as the environment variables always were. */
+/** Scopes are separated by spaces or commas; a scope never holds either. */
 export function parseList(text: string): string[] {
   return text.split(/[\s,]+/).filter(Boolean)
+}
+
+/** Group names are one to a line, because a name may hold spaces or commas ("Domain Admins") and must come back as it went in. */
+export function parseGroups(text: string): string[] {
+  return text.split(/\r?\n/).map(g => g.trim()).filter(Boolean)
 }
 
 export function ssoFormFrom(s: AdminSso): SsoForm {
@@ -178,9 +183,9 @@ export function ssoFormFrom(s: AdminSso): SsoForm {
     emailClaim: s.emailClaim ?? '',
     groupsClaim: s.groupsClaim ?? '',
     scopes: (s.scopes ?? ['openid']).join(' '),
-    adminGroups: (s.adminGroups ?? []).join(', '),
-    memberGroups: (s.memberGroups ?? []).join(', '),
-    viewerGroups: (s.viewerGroups ?? []).join(', '),
+    adminGroups: (s.adminGroups ?? []).join('\n'),
+    memberGroups: (s.memberGroups ?? []).join('\n'),
+    viewerGroups: (s.viewerGroups ?? []).join('\n'),
   }
 }
 
@@ -196,9 +201,9 @@ export function ssoBodyFrom(f: SsoForm): SsoSettings {
     emailClaim: f.emailClaim.trim(),
     groupsClaim: f.groupsClaim.trim(),
     scopes: parseList(f.scopes),
-    adminGroups: parseList(f.adminGroups),
-    memberGroups: parseList(f.memberGroups),
-    viewerGroups: parseList(f.viewerGroups),
+    adminGroups: parseGroups(f.adminGroups),
+    memberGroups: parseGroups(f.memberGroups),
+    viewerGroups: parseGroups(f.viewerGroups),
   }
 }
 
@@ -216,9 +221,9 @@ export const ssoHelp: Record<SsoField, string> = {
   emailClaim: 'Which claim carries the person’s email address. Empty means email.',
   groupsClaim: 'Which claim carries the person’s groups. Empty means groups.',
   scopes: 'What reet.sh asks the provider for, separated by spaces. It must include openid.',
-  adminGroups: 'Groups that give the administrator role, separated by commas. The highest match wins.',
-  memberGroups: 'Groups that give the member role, separated by commas.',
-  viewerGroups: 'Groups that give the viewer role, separated by commas.',
+  adminGroups: 'Groups that give the administrator role, one to a line, spelled as the provider spells them. The highest match wins.',
+  memberGroups: 'Groups that give the member role, one to a line. A name may contain spaces.',
+  viewerGroups: 'Groups that give the viewer role, one to a line.',
 }
 
 /** The field a refusal belongs to, when it is one of the twelve; anything else is shown on the form as a whole. */

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/eyupio/reet.sh/internal/store"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -401,5 +403,28 @@ func TestASaveCannotBeOvertakenBetweenBeingStoredAndTakingEffect(t *testing.T) {
 	}
 	if now := e.sso(t).Behaviour(); len(stored.Changed(now)) != 0 {
 		t.Fatalf("stored %+v but in force %+v", stored, now)
+	}
+}
+
+// A sign-in follows the choices its claims were read under, even if the owner
+// saves new ones before it finishes: here the claims were read while
+// auto-create was on and "staff" mapped to member, and the controller now says
+// neither.
+func TestASignInFollowsTheChoicesItsClaimsWereReadUnder(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	read := e.sso(t).Behaviour()
+	read.AutoCreate, read.MemberGroups = true, []string{"staff"}
+	if code, _ := e.body(e.ownerClient(), "PATCH", "/api/v2/admin/sso", settingsBody(t, map[string]any{"autoCreate": false})); code != 200 {
+		t.Fatal("could not save the newer settings")
+	}
+	claims := oidc.Claims{Subject: "sub-late", Email: "late@example.com", EmailVerified: true, Name: "Late", Groups: []string{"staff"}, HasGroups: true, Read: read}
+	w := httptest.NewRecorder()
+	e.srvr.ssoSignIn(w, httptest.NewRequest("GET", "/api/v2/auth/oidc/callback", nil), store.SSOLogin{Next: "/"}, claims)
+	if loc := w.Header().Get("Location"); loc != "/" {
+		t.Fatalf("the sign-in followed the newer choices: %q", loc)
+	}
+	u, ok, _ := e.st.SSOIdentityUser(e.idp.Issuer, "sub-late")
+	if !ok || u.Role != "member" {
+		t.Fatalf("created %+v, found %v; want a member from the old mapping", u, ok)
 	}
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure single sign-on helper without a browser or an extra test dependency.
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { signInChoices, ssoErrorMessage, ssoErrorFromSearch, withoutSsoError, ssoStartHref, ssoLinkHref, ssoNext, linkedLine, adminRows, parseList, ssoFormFrom, ssoBodyFrom, ssoHelp, ssoFieldNames, ssoRefusalField } = await import(`data:text/javascript;base64,${Buffer.from(compile('./sso.ts')).toString('base64')}`)
+const { signInChoices, ssoErrorMessage, ssoErrorFromSearch, withoutSsoError, ssoStartHref, ssoLinkHref, ssoNext, linkedLine, adminRows, parseList, parseGroups, ssoFormFrom, ssoBodyFrom, ssoHelp, ssoFieldNames, ssoRefusalField } = await import(`data:text/javascript;base64,${Buffer.from(compile('./sso.ts')).toString('base64')}`)
 
 test('with single sign-on off the sign-in page is exactly what it was', () => {
   for (const sso of [undefined, {}, { enabled: false }, { enabled: false, label: 'Sign in', passwordLogin: false }]) {
@@ -95,6 +95,7 @@ test('the admin panel reads the status without ever naming a secret', () => {
 })
 
 const status = { enabled: true, label: 'Sign in with Acme', labelSetting: 'Sign in with Acme', passwordLogin: false, autoCreate: true, linkByEmail: true, defaultRole: 'member', nameClaim: '', emailClaim: '', groupsClaim: 'roles', scopes: ['openid', 'email'], adminGroups: ['ops', 'root'], memberGroups: [], viewerGroups: ['guests'] }
+const spaced = { ...status, adminGroups: ['Domain Admins', 'ops, emea'], memberGroups: ['  odd  '] }
 
 test('lists are read the way the environment variables always were', () => {
   assert.deepEqual(parseList('ops, root  guests\nmore,,'), ['ops', 'root', 'guests', 'more'])
@@ -105,7 +106,7 @@ test('the form is filled from the stored settings, not from the resolved button 
   const f = ssoFormFrom({ ...status, label: 'Sign in with single sign-on', labelSetting: '' })
   assert.equal(f.label, '')
   assert.equal(f.passwordLogin, false)
-  assert.equal(f.adminGroups, 'ops, root')
+  assert.equal(f.adminGroups, 'ops\nroot')
   assert.equal(f.scopes, 'openid email')
 })
 
@@ -115,9 +116,9 @@ test('saving sends the whole set, every field present, lists never null', () => 
   assert.deepEqual(body.memberGroups, [])
   assert.deepEqual(body.scopes, ['openid', 'email'])
   assert.equal(body.passwordLogin, false)
-  const edited = ssoBodyFrom({ ...ssoFormFrom(status), label: '  Sign in with Acme  ', adminGroups: 'a b,c', defaultRole: 'viewer' })
+  const edited = ssoBodyFrom({ ...ssoFormFrom(status), label: '  Sign in with Acme  ', adminGroups: 'a b\nc', defaultRole: 'viewer' })
   assert.equal(edited.label, 'Sign in with Acme')
-  assert.deepEqual(edited.adminGroups, ['a', 'b', 'c'])
+  assert.deepEqual(edited.adminGroups, ['a b', 'c'])
 })
 
 test('every switch has one plain sentence, and link-by-email says what it will not do', () => {
@@ -137,4 +138,13 @@ test('the read-only rows show the claims and scopes in use, with the defaults na
   assert.equal(rows['Name claim'], 'name')
   assert.equal(rows['Groups claim'], 'roles')
   assert.equal(rows['Scopes asked for'], 'openid email')
+})
+
+test('a group name with spaces or a comma comes back exactly as it went in', () => {
+  const body = ssoBodyFrom(ssoFormFrom(spaced))
+  assert.deepEqual(body.adminGroups, ['Domain Admins', 'ops, emea'])
+  assert.deepEqual(body.memberGroups, ['odd'])
+  // Saving an unrelated field leaves the mapping alone.
+  assert.deepEqual(ssoBodyFrom({ ...ssoFormFrom(spaced), label: 'x' }).adminGroups, ['Domain Admins', 'ops, emea'])
+  assert.deepEqual(parseGroups('a\r\n\n b \n'), ['a', 'b'])
 })

@@ -638,10 +638,18 @@
               <small class="muted" id="sso-help-defaultRole">{ssoHelp.defaultRole}</small>
               {@render ssoMsg('defaultRole')}
             </label>
-            {#each [['nameClaim', 'Name claim', 'name'], ['emailClaim', 'Email claim', 'email'], ['groupsClaim', 'Groups claim', 'groups'], ['scopes', 'Scopes', 'openid profile email'], ['adminGroups', 'Administrator groups', ''], ['memberGroups', 'Member groups', ''], ['viewerGroups', 'Viewer groups', '']] as [key, text, hint] (key)}
+            {#each [['nameClaim', 'Name claim', 'name'], ['emailClaim', 'Email claim', 'email'], ['groupsClaim', 'Groups claim', 'groups'], ['scopes', 'Scopes', 'openid profile email']] as [key, text, hint] (key)}
               <label class="field">
                 <span>{text}</span>
-                <input id={`sso-${key}`} bind:value={ssoForm[key as 'nameClaim' | 'emailClaim' | 'groupsClaim' | 'scopes' | 'adminGroups' | 'memberGroups' | 'viewerGroups']} placeholder={hint} autocomplete="off" aria-describedby={`sso-help-${key}`} aria-invalid={ssoFieldError?.field === key} />
+                <input id={`sso-${key}`} bind:value={ssoForm[key as 'nameClaim' | 'emailClaim' | 'groupsClaim' | 'scopes']} placeholder={hint} autocomplete="off" aria-describedby={`sso-help-${key}`} aria-invalid={ssoFieldError?.field === key} />
+                <small class="muted" id={`sso-help-${key}`}>{ssoHelp[key as SsoField]}</small>
+                {@render ssoMsg(key as SsoField)}
+              </label>
+            {/each}
+            {#each [['adminGroups', 'Administrator groups'], ['memberGroups', 'Member groups'], ['viewerGroups', 'Viewer groups']] as [key, text] (key)}
+              <label class="field">
+                <span>{text}</span>
+                <textarea id={`sso-${key}`} rows="3" bind:value={ssoForm[key as 'adminGroups' | 'memberGroups' | 'viewerGroups']} autocomplete="off" spellcheck="false" aria-describedby={`sso-help-${key}`} aria-invalid={ssoFieldError?.field === key}></textarea>
                 <small class="muted" id={`sso-help-${key}`}>{ssoHelp[key as SsoField]}</small>
                 {@render ssoMsg(key as SsoField)}
               </label>

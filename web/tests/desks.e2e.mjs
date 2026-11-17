@@ -492,6 +492,46 @@ try {
   await expect(page.getByRole('button', { name: 'Ask Gaffer' })).toHaveCount(0)
   console.log("ok - the tab shown is the window's own, the tab list owns only tabs")
 
+  // ── Layout on a tab of one pane combines tabs: all of them, or the ones chosen ──
+  reset()
+  await openDesk()
+  await quiet(); patches = []
+  await page.getByRole('button', { name: 'Layout' }).click()
+  const layMenu = page.getByRole('menu', { name: 'Layout' })
+  await expect(layMenu.getByRole('menuitem')).toHaveText(['Show all tabs side by side', 'Show all tabs stacked', 'Show all tabs as a grid', 'Combine tabs…'])
+  await layMenu.getByRole('menuitem', { name: 'Combine tabs…' }).click()
+  const combine = page.getByRole('dialog', { name: 'Combine tabs into “deploy”' })
+  await expect(combine.getByRole('checkbox', { name: 'All tabs' })).toBeChecked()
+  await expect(combine.getByRole('checkbox', { name: /^logs/ })).toBeChecked()
+  await expect(combine.getByText('3 of 9 panes in this tab.')).toBeVisible()
+  await combine.getByRole('checkbox', { name: /^db/ }).uncheck()
+  if (shots) await page.screenshot({ path: `${shots}/desk-combine-tabs.png` })
+  await combine.getByRole('radio', { name: 'Stacked' }).check()
+  await combine.getByRole('button', { name: 'Combine 1 tab' }).click()
+  await expect(combine).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Layout' })).toBeFocused()
+  expect(await tabNames()).toEqual(['deploy', 'db'])
+  await expect(page.locator('.desk-pane')).toHaveCount(2)
+  await quiet()
+  expect(lastDoc().tabs.map(t => t.id)).toEqual(['tab-deploy', 'tab-db'])
+  expect(lastDoc().tabs[0].root).toEqual({ split: 'down', ratio: 0.5, a: { pane: 'pane-deploy' }, b: { pane: 'pane-logs' } })
+  await attached(['sess-deploy', 'sess-logs'])
+  // With two panes the menu is the layouts again, and still offers the tab that is left.
+  await page.getByRole('button', { name: 'Layout' }).click()
+  await expect(layMenu.getByRole('menuitem')).toHaveText(['Side by side', 'Stacked', 'Grid', 'Main and stack', 'Even out', 'Combine tabs…'])
+  await page.keyboard.press('Escape')
+  // All at once from the menu.
+  reset()
+  await openDesk()
+  await quiet(); patches = []
+  await page.getByRole('button', { name: 'Layout' }).click()
+  await layMenu.getByRole('menuitem', { name: 'Show all tabs side by side' }).click()
+  expect(await tabNames()).toEqual(['deploy'])
+  await expect(page.locator('.desk-pane')).toHaveCount(3)
+  await quiet()
+  expect(Object.keys(lastDoc().tabs[0].panes).sort()).toEqual(['pane-db', 'pane-deploy', 'pane-logs'])
+  console.log('ok - Layout combines tabs, all or chosen')
+
   // ── closing a live pane asks and Enter ends the shell ──
   reset()
   await openDesk()
@@ -2780,6 +2820,8 @@ try {
       for (const [tabId, name] of [['tab-three', '2plus1'], ['tab-four', 'grid4']]) {
         desks.get('desk-split').doc.active = tabId
         if (tabId === 'tab-four') desks.get('desk-split').doc.tabs[1].root = { split: 'right', ratio: 0.5, a: { split: 'down', ratio: 0.5, a: leaf('pane-d1'), b: leaf('pane-d2') }, b: { split: 'down', ratio: 0.5, a: leaf('pane-d3'), b: leaf('pane-d4') } }
+        // A window keeps its own tab for a desk; each shot opens the desk as a new window would.
+        await wp.evaluate(() => { try { sessionStorage.clear() } catch { /* no page yet */ } })
         await wp.goto(`${base}/desks/desk-split`)
         await wp.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
         await expect(wp.locator('.desk-pane .xterm-screen')).toHaveCount(tabId === 'tab-three' ? 3 : 4)

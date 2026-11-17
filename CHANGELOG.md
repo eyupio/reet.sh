@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desks**: **Layout** now works on a tab with one pane. It combines tabs:
+  all of them at once, or the ones you tick in **Combine tabs…**, laid out
+  side by side, stacked or as a grid. Nothing is restarted.
 - Factory, from the first real run of a split pipeline: a stage's handover
   now carries the plan, design or findings themselves, since the next stage
   starts in a session of its own that cannot read the last one. Gaffer's
@@ -18,7 +21,6 @@ this file existed releases were described on their GitHub release pages.
   way; a pipeline set to merge by itself waits for you again until you
   confirm that for YOLO. A session the Factory ended because its pipeline
   moved on no longer shows as newly finished with something for you to do.
-
 - **Desks**: the tab shown is now each window's own, so switching tab saves
   nothing and no longer moves another window on the same desk. **Move here**
   closes the pane the session left (a tab's only pane stays, empty). The

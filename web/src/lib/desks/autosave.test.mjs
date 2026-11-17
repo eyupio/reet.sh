@@ -406,6 +406,27 @@ test('a change made during a save whose response is lost is kept and nothing is 
   assert.equal(h.states.includes('stale'), false)
 })
 
+test('gather brings the other tabs into one, whole tabs only while they fit', () => {
+  const d = deskOf(1, [tabOf('t1', 'a'), tabOf('t2', 'b', 'c'), tabOf('t3', 'd')])
+  const out = apply(d, { kind: 'gather', tab: 't1', name: 'side' })
+  assert.deepEqual(out.doc.tabs.map(t => t.id), ['t1'])
+  assert.deepEqual(Object.keys(out.doc.tabs[0].panes).sort(), ['a', 'b', 'c', 'd'])
+  assert.equal(out.doc.active, 't1')
+  // Only the tabs named, in tab order; a tab that is gone is skipped.
+  const one = apply(d, { kind: 'gather', tab: 't1', name: 'stack', from: ['t3', 'gone'] })
+  assert.deepEqual(one.doc.tabs.map(t => t.id), ['t1', 't2'])
+  assert.deepEqual(one.doc.tabs[0].root, { split: 'down', ratio: 0.5, a: { pane: 'a' }, b: { pane: 'd' } })
+  assert.equal(apply(d, { kind: 'gather', tab: 't1', name: 'side', from: [] }), null)
+  // Nothing to bring in, or no such tab: refused.
+  assert.equal(apply(deskOf(1, [tabOf('t1', 'a')]), { kind: 'gather', tab: 't1', name: 'grid' }), null)
+  assert.equal(apply(d, { kind: 'gather', tab: 'nope', name: 'grid' }), null)
+  // A tab that would take it past nine panes stays as it is; a later one that fits is still taken.
+  const big = deskOf(1, [tabOf('t1', 'a'), tabOf('t2', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9'), tabOf('t3', 'd')])
+  const some = apply(big, { kind: 'gather', tab: 't1', name: 'grid' })
+  assert.deepEqual(some.doc.tabs.map(t => t.id), ['t1', 't2'])
+  assert.deepEqual(Object.keys(some.doc.tabs[0].panes).sort(), ['a', 'd'])
+})
+
 test('movePaneToTab moves a pane in one step, and takes the tab it leaves when it was the last', () => {
   const d = deskOf(1, [tabOf('t1', 'a', 'b'), tabOf('t2', 'c'), tabOf('t3', 'e')])
   d.doc.tabs[1].active = 'c'

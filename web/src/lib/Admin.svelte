@@ -7,8 +7,8 @@
   import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
-    cacheSoftwareMirror, createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getBranchPruneSetting, getRollup, getSoftwareMirror, getYoloSetting, listAdminUsers, resetUserPassword, revokeUserTokens,
-    saveAdminSettings, setBranchPruneSetting, setSoftwareMirror, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type BranchPruneSetting, type Event as AuditEvent, type Rollup, type RollupSkill, type SoftwareMirrorStatus, type UserMeta, type YoloSetting,
+    ApiError, cacheSoftwareMirror, createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getBranchPruneSetting, getRollup, getSoftwareMirror, getYoloSetting, listAdminUsers, resetUserPassword, revokeUserTokens,
+    saveAdminSettings, saveAdminSso, setBranchPruneSetting, setSoftwareMirror, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type BranchPruneSetting, type Event as AuditEvent, type Rollup, type RollupSkill, type SoftwareMirrorStatus, type UserMeta, type YoloSetting,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
   import AdminNotifications from './AdminNotifications.svelte'
@@ -19,7 +19,7 @@
   import CopyButton from './CopyButton.svelte'
   import { EVENT_CATEGORIES, eventCategory, eventLabel, eventTitle, type EventCategory } from './events'
   import { elapsed } from './time'
-  import { adminRows, type AdminSso } from './sso'
+  import { adminRows, ssoBodyFrom, ssoFormFrom, ssoHelp, ssoRefusalField, type AdminSso, type SsoField, type SsoForm } from './sso'
   import { bytes } from './terminal/health'
 
   let {
@@ -80,6 +80,11 @@
   const shownUsers = $derived(searchedUsers.filter(user => userScope === 'all' || user.role === userScope))
   const userCountLabel = $derived(usersLoading ? 'Reading people…' : adminUserCountLabel(shownUsers.length, users.length))
   let ssoStatus = $state<AdminSso | null>(null)
+  // The owner's form. A refused save keeps what was typed and puts the server's sentence beside its field.
+  let ssoForm = $state<SsoForm | null>(null)
+  let ssoFieldError = $state<{ field: SsoField | ''; message: string } | null>(null)
+  let ssoSaving = $state(false)
+  let ssoSaved = $state('')
   let inviteEmail = $state('')
   let inviteRole = $state('member')
   let inviteLink = $state('')
@@ -137,8 +142,29 @@
     if (!accounts) return
     try {
       ssoStatus = await getAdminSso()
+      if (isOwner && ssoStatus?.enabled) ssoForm = ssoFormFrom(ssoStatus)
     } catch {
       ssoStatus = null
+    }
+  }
+
+  async function saveSso(e: Event) {
+    e.preventDefault()
+    if (!ssoForm || ssoSaving) return
+    ssoSaving = true
+    ssoSaved = ''
+    ssoFieldError = null
+    try {
+      const answer = await saveAdminSso(ssoBodyFrom(ssoForm))
+      // Keep what the server did not send (reachability, linked people) and take what it stored.
+      ssoStatus = { ...(ssoStatus ?? {}), ...answer }
+      ssoForm = ssoFormFrom(ssoStatus)
+      ssoSaved = 'Saved. The next sign-in follows these settings.'
+    } catch (err) {
+      const field = err instanceof ApiError ? ssoRefusalField(err.field) : ''
+      ssoFieldError = { field, message: err instanceof Error ? err.message : 'Could not save.' }
+    } finally {
+      ssoSaving = false
     }
   }
 
@@ -578,12 +604,60 @@
     {#if accounts && section === 'users' && ssoStatus?.enabled}
       <section class="block" aria-labelledby="sso-title">
         <h2 id="sso-title">Single sign-on</h2>
-        <p class="muted">How people can sign in through your identity provider. This is set where the server is configured, so it is shown here and not changed here.</p>
-        <dl class="ssorows">
-          {#each adminRows(ssoStatus) as row (row.label)}
-            <div><dt>{row.label}</dt><dd class:bad={row.label === 'Provider' && !ssoStatus.reachable}>{row.value}</dd></div>
-          {/each}
-        </dl>
+        {#if isOwner && ssoForm}
+          <p class="muted">How people sign in through your identity provider. Only the owner changes these, and the next sign-in follows them: nothing restarts. The provider's address, client and secret stay in the server's environment.</p>
+          <dl class="ssorows">
+            {#each adminRows(ssoStatus).slice(0, 3) as row (row.label)}
+              <div><dt>{row.label}</dt><dd class:bad={row.label === 'Provider' && !ssoStatus.reachable}>{row.value}</dd></div>
+            {/each}
+            <div><dt>Linked people</dt><dd>{ssoStatus.linked ?? 0}</dd></div>
+          </dl>
+          <form class="ssoform" onsubmit={saveSso}>
+            {#snippet ssoMsg(f: SsoField)}
+              {#if ssoFieldError?.field === f}<p class="error" id={`sso-err-${f}`} role="alert">{ssoFieldError.message}</p>{/if}
+            {/snippet}
+            <label class="field">
+              <span>Button words</span>
+              <input id="sso-label" bind:value={ssoForm.label} placeholder="Sign in with single sign-on" maxlength="100" autocomplete="off" aria-describedby="sso-help-label" aria-invalid={ssoFieldError?.field === 'label'} />
+              <small class="muted" id="sso-help-label">{ssoHelp.label}</small>
+              {@render ssoMsg('label')}
+            </label>
+            {#each [['passwordLogin', 'Allow password sign-in for everyone'], ['autoCreate', 'Create accounts for new people'], ['linkByEmail', 'Link first sign-ins by email address']] as [key, text] (key)}
+              <div class="ssoswitch">
+                <label class="check"><input type="checkbox" bind:checked={ssoForm[key as 'passwordLogin' | 'autoCreate' | 'linkByEmail']} aria-describedby={`sso-help-${key}`} /> {text}</label>
+                <small class="muted" id={`sso-help-${key}`}>{ssoHelp[key as SsoField]}</small>
+                {@render ssoMsg(key as SsoField)}
+              </div>
+            {/each}
+            <label class="field">
+              <span>Role for new people</span>
+              <select id="sso-default-role" bind:value={ssoForm.defaultRole} aria-describedby="sso-help-defaultRole">
+                <option value="viewer">Viewer</option>
+                <option value="member">Member</option>
+              </select>
+              <small class="muted" id="sso-help-defaultRole">{ssoHelp.defaultRole}</small>
+              {@render ssoMsg('defaultRole')}
+            </label>
+            {#each [['nameClaim', 'Name claim', 'name'], ['emailClaim', 'Email claim', 'email'], ['groupsClaim', 'Groups claim', 'groups'], ['scopes', 'Scopes', 'openid profile email'], ['adminGroups', 'Administrator groups', ''], ['memberGroups', 'Member groups', ''], ['viewerGroups', 'Viewer groups', '']] as [key, text, hint] (key)}
+              <label class="field">
+                <span>{text}</span>
+                <input id={`sso-${key}`} bind:value={ssoForm[key as 'nameClaim' | 'emailClaim' | 'groupsClaim' | 'scopes' | 'adminGroups' | 'memberGroups' | 'viewerGroups']} placeholder={hint} autocomplete="off" aria-describedby={`sso-help-${key}`} aria-invalid={ssoFieldError?.field === key} />
+                <small class="muted" id={`sso-help-${key}`}>{ssoHelp[key as SsoField]}</small>
+                {@render ssoMsg(key as SsoField)}
+              </label>
+            {/each}
+            {#if ssoFieldError && !ssoFieldError.field}<p class="error" role="alert">{ssoFieldError.message}</p>{/if}
+            {#if ssoSaved}<p class="saved" role="status">{ssoSaved}</p>{/if}
+            <div><button type="submit" class="btn" disabled={ssoSaving}>{ssoSaving ? 'Saving…' : 'Save single sign-on settings'}</button></div>
+          </form>
+        {:else}
+          <p class="muted">How people can sign in through your identity provider. Only the owner changes these, so they are shown here and not changed here.</p>
+          <dl class="ssorows">
+            {#each adminRows(ssoStatus) as row (row.label)}
+              <div><dt>{row.label}</dt><dd class:bad={row.label === 'Provider' && !ssoStatus.reachable}>{row.value}</dd></div>
+            {/each}
+          </dl>
+        {/if}
       </section>
     {/if}
 
@@ -975,6 +1049,10 @@
   .ssorows dt { color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .ssorows dd { margin: 2px 0 0; overflow-wrap: anywhere; }
   .ssorows dd.bad { color: var(--bad); }
+  .ssoform { display: grid; gap: 14px; margin-top: 16px; max-width: 640px; }
+  .ssoform .field { display: grid; gap: 4px; }
+  .ssoform small { font-size: 0.85rem; }
+  .ssoswitch { display: grid; gap: 2px; }
   .admin { padding-top: 4px; }
   h3, #admin-overview, #admin-backups { scroll-margin-top: 24px; }
   .block h2 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }

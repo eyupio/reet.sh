@@ -10,11 +10,16 @@ export type AdminSso = {
   issuer?: string
   redirectUrl?: string
   label?: string
+  /** The button text as stored; empty means the default words. `label` is the text in use. */
+  labelSetting?: string
   passwordLogin?: boolean
   autoCreate?: boolean
   linkByEmail?: boolean
   defaultRole?: string
+  nameClaim?: string
+  emailClaim?: string
   groupsClaim?: string
+  scopes?: string[]
   adminGroups?: string[]
   memberGroups?: string[]
   viewerGroups?: string[]
@@ -108,15 +113,115 @@ export function adminRows(s: AdminSso): { label: string; value: string }[] {
     { label: 'Provider', value: s.reachable ? 'Reachable' : `Not reachable${s.problem ? `: ${s.problem}` : ''}` },
     { label: 'Issuer', value: s.issuer ?? '' },
     { label: 'Redirect address', value: s.redirectUrl ?? '' },
-    { label: 'Button', value: s.label ?? '' },
+    { label: 'Button', value: s.label ?? s.labelSetting ?? '' },
     { label: 'Password sign-in', value: s.passwordLogin === false ? 'Owner only' : 'Everyone' },
     { label: 'New people', value: s.autoCreate ? 'Created automatically' : 'Need an account first' },
     { label: 'Linking by email', value: s.linkByEmail ? 'On, for verified addresses' : 'Off' },
     { label: 'Default role', value: s.defaultRole ?? '' },
-    { label: 'Groups claim', value: s.groupsClaim ?? '' },
+    { label: 'Name claim', value: s.nameClaim || 'name' },
+    { label: 'Email claim', value: s.emailClaim || 'email' },
+    { label: 'Groups claim', value: s.groupsClaim || 'groups' },
+    { label: 'Scopes asked for', value: s.scopes && s.scopes.length ? s.scopes.join(' ') : 'openid' },
     { label: 'Admin groups', value: list(s.adminGroups) },
     { label: 'Member groups', value: list(s.memberGroups) },
     { label: 'Viewer groups', value: list(s.viewerGroups) },
     { label: 'Linked people', value: String(s.linked ?? 0) },
   ]
+}
+
+// The owner's form. The server takes the whole set at once, so the form keeps every field as text or a flag and turns
+// them into the body in one place, where a test can see it.
+
+export type SsoForm = {
+  label: string
+  passwordLogin: boolean
+  autoCreate: boolean
+  linkByEmail: boolean
+  defaultRole: 'member' | 'viewer'
+  nameClaim: string
+  emailClaim: string
+  groupsClaim: string
+  scopes: string
+  adminGroups: string
+  memberGroups: string
+  viewerGroups: string
+}
+
+export type SsoSettings = {
+  label: string
+  passwordLogin: boolean
+  autoCreate: boolean
+  linkByEmail: boolean
+  defaultRole: string
+  nameClaim: string
+  emailClaim: string
+  groupsClaim: string
+  scopes: string[]
+  adminGroups: string[]
+  memberGroups: string[]
+  viewerGroups: string[]
+}
+
+/** Entries are separated by commas, spaces or new lines, as the environment variables always were. */
+export function parseList(text: string): string[] {
+  return text.split(/[\s,]+/).filter(Boolean)
+}
+
+export function ssoFormFrom(s: AdminSso): SsoForm {
+  return {
+    label: s.labelSetting ?? '',
+    passwordLogin: s.passwordLogin !== false,
+    autoCreate: !!s.autoCreate,
+    linkByEmail: !!s.linkByEmail,
+    defaultRole: s.defaultRole === 'member' ? 'member' : 'viewer',
+    nameClaim: s.nameClaim ?? '',
+    emailClaim: s.emailClaim ?? '',
+    groupsClaim: s.groupsClaim ?? '',
+    scopes: (s.scopes ?? ['openid']).join(' '),
+    adminGroups: (s.adminGroups ?? []).join(', '),
+    memberGroups: (s.memberGroups ?? []).join(', '),
+    viewerGroups: (s.viewerGroups ?? []).join(', '),
+  }
+}
+
+/** The whole set, every field present, as the server insists. */
+export function ssoBodyFrom(f: SsoForm): SsoSettings {
+  return {
+    label: f.label.trim(),
+    passwordLogin: f.passwordLogin,
+    autoCreate: f.autoCreate,
+    linkByEmail: f.linkByEmail,
+    defaultRole: f.defaultRole,
+    nameClaim: f.nameClaim.trim(),
+    emailClaim: f.emailClaim.trim(),
+    groupsClaim: f.groupsClaim.trim(),
+    scopes: parseList(f.scopes),
+    adminGroups: parseList(f.adminGroups),
+    memberGroups: parseList(f.memberGroups),
+    viewerGroups: parseList(f.viewerGroups),
+  }
+}
+
+export const ssoFieldNames = ['label', 'passwordLogin', 'autoCreate', 'linkByEmail', 'defaultRole', 'nameClaim', 'emailClaim', 'groupsClaim', 'scopes', 'adminGroups', 'memberGroups', 'viewerGroups'] as const
+export type SsoField = (typeof ssoFieldNames)[number]
+
+/** One plain sentence for each switch. */
+export const ssoHelp: Record<SsoField, string> = {
+  label: 'The words on the sign-in button. Leave empty for the default.',
+  passwordLogin: 'Let everyone sign in with a password as well. Turned off, only the owner can use one, so the owner always has a way in.',
+  autoCreate: 'Make an account the first time someone the identity provider vouches for signs in. Off, they need an account here first.',
+  linkByEmail: 'Match a first sign-in to the existing account with the same email address. It never links an owner or an administrator, and it relies on the identity provider saying the address is verified.',
+  defaultRole: 'The role a new person gets when no group below matches.',
+  nameClaim: 'Which claim carries the person’s name. Empty means name.',
+  emailClaim: 'Which claim carries the person’s email address. Empty means email.',
+  groupsClaim: 'Which claim carries the person’s groups. Empty means groups.',
+  scopes: 'What reet.sh asks the provider for, separated by spaces. It must include openid.',
+  adminGroups: 'Groups that give the administrator role, separated by commas. The highest match wins.',
+  memberGroups: 'Groups that give the member role, separated by commas.',
+  viewerGroups: 'Groups that give the viewer role, separated by commas.',
+}
+
+/** The field a refusal belongs to, when it is one of the twelve; anything else is shown on the form as a whole. */
+export function ssoRefusalField(field: string): SsoField | '' {
+  return (ssoFieldNames as readonly string[]).includes(field) ? (field as SsoField) : ''
 }

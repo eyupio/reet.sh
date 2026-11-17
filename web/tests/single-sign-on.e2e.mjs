@@ -2,7 +2,7 @@
 // way a sign-in can fail, linking and unlinking on the account page, and the admin panel. The API is answered from
 // fixtures, so nothing here needs an identity provider.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace } from './helpers/workspace.mjs'
+import { openWorkspace, owner } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -134,12 +134,12 @@ try {
   await context.close()
  }
 
- // The admin page shows how it is set up, read-only, and never a secret.
+ // An administrator sees how it is set up, read-only, and never a secret.
  if (run('admin')) {
   const status = {enabled:true,issuer:'https://id.example.test',redirectUrl:'https://reet.example.test/api/v2/auth/oidc/callback',label:'Sign in with Acme',passwordLogin:false,autoCreate:true,linkByEmail:false,defaultRole:'viewer',groupsClaim:'groups',adminGroups:['ops'],memberGroups:[],viewerGroups:[],linked:3,reachable:false,problem:'dial tcp: connection refused'}
   const adminStatus = {version:'test',commit:'x',db:{path:'/data',size:1},counts:{all:0,used:0,liked:0,bookmarked:0},stages:{use:0,try:0,shelf:0},environments:[],events:[],skillsSh:true,metaLastOK:'',metaLastError:'',topics:{lastSynced:'',lastError:''},settings:{refreshEnabled:true,topicsEnabled:true,linkListsEnabled:false,rollupIndividual:true,pruneServerEnvironmentsDays:0,instanceName:''}}
   const routes = {'/api/admin/status':adminStatus,'/api/v2/admin/users':{users:[]},'/api/v2/admin/sso':status}
-  const {context,page,errors} = await open({width:1440,routes})
+  const {context,page,errors} = await open({width:1440,routes,status:{user:{...owner,role:'admin'}}})
   await page.goto(`${base}/admin/users`)
   const panel = page.locator('section[aria-labelledby="sso-title"]')
   await expect(panel.getByRole('heading',{name:'Single sign-on'})).toBeVisible()
@@ -151,5 +151,48 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Single sign-on: button, folded password form, plain errors, link and unlink, admin panel passed.')
+ // The owner changes the switches: the whole set goes in one request, and a refusal keeps what was typed and speaks beside its field.
+ if (run('owner')) {
+  const stored = {enabled:true,issuer:'https://id.example.test',redirectUrl:'https://reet.example.test/api/v2/auth/oidc/callback',label:'Sign in with single sign-on',labelSetting:'',passwordLogin:true,autoCreate:false,linkByEmail:false,defaultRole:'viewer',nameClaim:'',emailClaim:'',groupsClaim:'',scopes:['openid','profile','email'],adminGroups:[],memberGroups:[],viewerGroups:[],linked:3,reachable:true}
+  const adminStatus = {version:'test',commit:'x',db:{path:'/data',size:1},counts:{all:0,used:0,liked:0,bookmarked:0},stages:{use:0,try:0,shelf:0},environments:[],events:[],skillsSh:true,metaLastOK:'',metaLastError:'',topics:{lastSynced:'',lastError:''},settings:{refreshEnabled:true,topicsEnabled:true,linkListsEnabled:false,rollupIndividual:true,pruneServerEnvironmentsDays:0,instanceName:''}}
+  const saves = []
+  const routes = {'/api/admin/status':adminStatus,'/api/v2/admin/users':{users:[]},'/api/v2/admin/sso':req=>{
+   if(req.method()==='PATCH'){
+    const body = JSON.parse(req.postData())
+    saves.push(body)
+    if(!body.scopes.includes('openid'))return {status:400,json:{error:'scopes must include openid, or the provider will not send an identity',field:'scopes'}}
+    return {json:{...stored,...body,label:body.label||stored.label,labelSetting:body.label}}
+   }
+   return {json:stored}
+  }}
+  const {context,page,errors} = await open({width:1440,routes})
+  await page.goto(`${base}/admin/users`)
+  const panel = page.locator('section[aria-labelledby="sso-title"]')
+  await expect(panel.getByLabel('Create accounts for new people')).not.toBeChecked()
+  await expect(panel.getByText(/never links an owner or an administrator/)).toBeVisible()
+  await expect(panel.getByText(/secret/i).first()).toBeVisible() // the sentence that the secret stays in the environment
+  await expect(panel.locator('input[type=password]')).toHaveCount(0)
+  // A refused save keeps what was typed and puts the sentence beside the field.
+  await panel.getByLabel('Scopes').fill('profile email')
+  await panel.getByRole('button',{name:'Save single sign-on settings'}).click()
+  await expect(panel.getByRole('alert')).toHaveText(/must include openid/)
+  await expect(panel.getByLabel('Scopes')).toHaveValue('profile email')
+  await expect(panel.locator('#sso-help-scopes ~ [role=alert]')).toHaveCount(1)
+  // A good save sends every field, with lists as lists.
+  await panel.getByLabel('Scopes').fill('openid profile email')
+  await panel.getByLabel('Create accounts for new people').check()
+  await panel.getByLabel('Role for new people').selectOption('member')
+  await panel.getByLabel('Administrator groups').fill('ops, root')
+  await panel.getByRole('button',{name:'Save single sign-on settings'}).click()
+  await expect(panel.getByRole('status')).toHaveText(/Saved/)
+  const sent = saves.at(-1)
+  expect(Object.keys(sent).sort()).toEqual(['adminGroups','autoCreate','defaultRole','emailClaim','groupsClaim','label','linkByEmail','memberGroups','nameClaim','passwordLogin','scopes','viewerGroups'])
+  expect(sent.adminGroups).toEqual(['ops','root'])
+  expect(sent.autoCreate).toBe(true)
+  expect(sent.defaultRole).toBe('member')
+  expect(await fitsWidth(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ console.log('Single sign-on: button, folded password form, plain errors, link and unlink, admin panel and owner settings passed.')
 } finally {await browser.close()}

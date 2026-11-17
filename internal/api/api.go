@@ -78,6 +78,7 @@ type server struct {
 	releases       *agentupdate.Checker
 
 	sso                *oidc.Provider
+	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time
 	ssoLimiter         *auth.Limiter
 	logoutLimiter      *auth.Limiter
 	afterSessionsEnded func(ids []string) // a test seam: which sessions were just ended
@@ -343,6 +344,11 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.sso != nil {
+		// The environment seeds the owner's single sign-on settings once; after
+		// that the stored ones are the only ones used.
+		s.sso.UseStoredBehaviour(st, log.Printf)
 	}
 	s.gafferProviders = gaffer.New(st, s.gafferSealer)
 	if s.authMode == AuthToken || s.authMode == AuthNone {

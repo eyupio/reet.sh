@@ -23,6 +23,7 @@ type ssoEnv struct {
 	idp   *oidctest.Server
 	srv   *httptest.Server
 	st    *store.Store
+	srvr  *server
 	owner store.User
 	// ended collects the session ids a sign-out, disable or logout ended, as
 	// the terminal broker was told.
@@ -72,6 +73,7 @@ func newSSOEnv(t *testing.T, o ssoOpts) *ssoEnv {
 		opts = append(opts, WithOIDC(p))
 	}
 	s := newServer(st, deadFetcher(t), "bootstrap", opts...)
+	e.srvr = s
 	s.afterSessionsEnded = func(ids []string) { e.ended = append(e.ended, ids...) }
 	e.srv = httptest.NewServer(&Server{s: s, h: s.logRequests(s.auth(s.routes()))})
 	t.Cleanup(func() { e.srv.Close(); st.Close() })

@@ -29,7 +29,7 @@
 <div class="desk-toolbar" role="toolbar" aria-label={`Terminal tools for ${name}`}>
   <b class="who" title={name}>{name}</b>
   <div class="tools">
-    <button type="button" disabled={off} onclick={() => a?.earlierOutput()} aria-pressed={reading} aria-label="Earlier output" title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history" /><span class="tl">Earlier output</span></button>
+    <button type="button" disabled={off} onclick={() => a?.earlierOutput()} aria-pressed={reading} aria-label="Earlier output" title={reading ? "Back to live output" : "Scroll earlier terminal output · Shift+PageUp"}><TerminalIcon name="history" /><span class="tl">Earlier output</span></button>
     <button type="button" disabled={off || reading} onclick={() => a?.compose()} aria-haspopup="dialog" aria-label="Compose" title="Write or dictate a message, then send it as one paste"><TerminalIcon name="compose" /><span class="tl">Compose</span></button>
     <button type="button" disabled={off} onclick={() => a?.search()} aria-expanded={!!a?.searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search" /><span class="tl">Search</span></button>
     <button type="button" disabled={off} onclick={() => a?.copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy" /><span class="tl">Copy</span></button>

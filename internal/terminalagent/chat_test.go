@@ -970,6 +970,16 @@ func TestChosenModelStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
 	}
 }
 
+// The controller tells this refusal apart from the others under the same code
+// by its sentence alone, so the connector's sentence is pinned to the one the
+// controller looks for.
+func TestChosenEffortRefusalSaysTheSentenceTheControllerRecognises(t *testing.T) {
+	result := chatResult(acpagent.ErrControl)
+	if result.Code != terminalproto.ACPUnavailable || result.Detail != terminalproto.ACPEffortUnconfirmedDetail {
+		t.Fatalf("effort refusal: %+v", result)
+	}
+}
+
 func TestChosenEffortStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
 	h, proc, out := testChatHost(t)
 	t.Cleanup(h.sup.Close)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,6 +35,55 @@ func TestOutcomeStartCarriesTheSelectedEffortToTheMachine(t *testing.T) {
 	}
 	if sent := f.sent(); len(sent) != 1 || !sent[0].Structured || sent[0].Effort != "medium" || !sent[0].Trust {
 		t.Fatalf("sent: %+v", sent)
+	}
+}
+
+// A machine that refuses a start because the agent did not confirm the chosen
+// effort says so to the Factory as that refusal, with the machine's sentence
+// for the person; a refusal for the model is an ordinary one. A start asked
+// for afresh, without the effort, on a request of its own starts the session;
+// the refused request stays refused and starts nothing.
+func TestOutcomeStartSaysWhenTheAgentDidNotConfirmTheEffort(t *testing.T) {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions = true, true, true
+	caps.Tools = []string{"opencode"}
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5"}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	f.mu.Lock()
+	f.reply = func(op terminalproto.Create) terminalproto.Body {
+		switch {
+		case op.Effort != "":
+			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: terminalproto.ACPEffortUnconfirmedDetail}
+		case op.Model == "wrong/model":
+			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
+		}
+		return terminalproto.SessionChanged{State: terminalproto.Running}
+	}
+	f.mu.Unlock()
+	starter := outcomeStarter{f.srv.s}
+	launch := gaffer.OutcomeLaunch{AgentID: f.agent.ID, RequestID: terminalbroker.ID(), Title: "Export API", Tool: "opencode", Model: "asked/model", Effort: "high", Dir: "/tmp", Trust: true, Prompt: "Add the CSV export endpoint with tests."}
+	_, _, err := starter.StartOutcomeSession(t.Context(), f.uid, launch)
+	if !errors.Is(err, gaffer.ErrEffortNotOffered) || errors.Is(err, gaffer.ErrLaunchUnknown) || err.Error() != terminalproto.ACPEffortUnconfirmedDetail {
+		t.Fatalf("effort refusal: %v", err)
+	}
+	// The refused request is answered from its record: nothing is started for it.
+	if _, _, err = starter.StartOutcomeSession(t.Context(), f.uid, launch); err == nil {
+		t.Fatal("a refused request started a session when asked again")
+	}
+	again := launch
+	again.RequestID, again.Effort = terminalbroker.ID(), ""
+	session, _, err := starter.StartOutcomeSession(t.Context(), f.uid, again)
+	if err != nil || session == "" {
+		t.Fatalf("without the effort: %q %v", session, err)
+	}
+	if sent := f.sent(); len(sent) != 2 || sent[0].Effort != "high" || sent[1].Effort != "" || sent[1].Model != "asked/model" {
+		t.Fatalf("sent: %+v", sent)
+	}
+	wrong := again
+	wrong.RequestID, wrong.Model = terminalbroker.ID(), "wrong/model"
+	if _, _, err = starter.StartOutcomeSession(t.Context(), f.uid, wrong); err == nil || errors.Is(err, gaffer.ErrEffortNotOffered) || !strings.Contains(err.Error(), "chosen model") {
+		t.Fatalf("model refusal: %v", err)
 	}
 }
 

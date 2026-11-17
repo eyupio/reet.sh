@@ -12,6 +12,14 @@ const ACPLiveControlsFeature = "acp-live-controls-v1"
 // live controls alone still uses the older create validation contract.
 const ACPStartOptionsFeature = "acp-start-options-v1"
 
+// ACPEffortUnconfirmedDetail is the sentence a machine sends, under the
+// ACPUnavailable code, when the agent did not confirm a structured create's
+// effort for the model. The session was closed before any prompt was sent.
+// The protocol has no code of its own for this refusal, so the sentence is
+// how a controller tells it apart from the others under that code; a
+// connector test pins its own refusal to it.
+const ACPEffortUnconfirmedDetail = "The agent did not confirm the chosen effort for this model. Choose an offered effort or Agent default. No opening prompt was sent."
+
 // ACPModelCatalogueFeature negotiates a model selector that may carry the whole
 // catalogue an agent offers (Cline reports 307 ids) instead of the 16 values a
 // live control reply was sized for. Without it a connector sends at most 16, so

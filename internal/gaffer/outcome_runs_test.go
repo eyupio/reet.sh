@@ -44,6 +44,9 @@ type outcomeStarterFake struct {
 	// offline answers every launch as a machine that cannot be reached: the
 	// request says nothing about whether an earlier one started anything.
 	offline bool
+	// refusal, when set, is the machine's answer to the nth launch (from 0):
+	// a non-nil error refuses it and nothing starts.
+	refusal func(n int, in OutcomeLaunch) error
 }
 
 // sessions is how many sessions were really started.
@@ -68,8 +71,13 @@ func (f *outcomeStarterFake) OutcomeSessionChoice(_ context.Context, _ int64, se
 func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
 	f.mu.Lock()
 	f.launches = append(f.launches, in)
-	hold, refusal := f.hold, f.refuse[in.Title]
+	hold, refusal, answer, n := f.hold, f.refuse[in.Title], f.refusal, len(f.launches)-1
 	f.mu.Unlock()
+	if answer != nil {
+		if err := answer(n, in); err != nil {
+			return "", "", err
+		}
+	}
 	if f.entered != nil {
 		f.once.Do(func() { close(f.entered) })
 	}
@@ -94,7 +102,7 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 		return "", "", err
 	}
 	if row.State != terminalproto.Running {
-		if err = f.st.ObserveTerminalStateFor(uid, in.AgentID, row.ID, 1, terminalproto.Running, nil); err != nil {
+		if err = f.st.ObserveTerminalStateFor(uid, in.AgentID, row.ID, f.gen, terminalproto.Running, nil); err != nil {
 			return "", "", err
 		}
 	}
@@ -174,7 +182,7 @@ func outcomeFixture(t *testing.T) *outcomeRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caps, err := st.BeginRemoteConnectionFor(p.UserID, agent.ID, strings.Repeat("1", 32), terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready, ACP: true, ACPLiveControls: true})
+	caps, err := st.BeginRemoteConnectionFor(p.UserID, agent.ID, strings.Repeat("1", 32), terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready, ACP: true, ACPLiveControls: true, ACPStartOptions: true})
 	if err != nil {
 		t.Fatal(err)
 	}

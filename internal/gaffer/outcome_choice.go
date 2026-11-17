@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // Whether a stage's agent, model and effort were applied.
@@ -42,10 +43,25 @@ func stageChoiceCheck(stage store.GafferOutcomeStage, got SessionChoice) (check,
 	if stage.Effort != "" && got.Effort != stage.Effort {
 		say("effort", stage.Effort, got.Effort)
 	}
+	// An effort the agent does not offer was dropped before the start: the
+	// session is on the agent's default, which is what was asked of it then.
+	dropped := ""
+	if stage.Effort == "" && stage.EffortNotOffered != "" {
+		dropped = effortNotOfferedNote(stage.Tool, stage.EffortNotOffered)
+	}
 	if len(differs) == 0 {
-		return "applied", ""
+		return "applied", dropped
+	}
+	if dropped != "" {
+		differs = append(differs, dropped)
 	}
 	return "mismatch", strings.Join(differs, " ")
+}
+
+// effortNotOfferedNote says that the effort chosen for a stage was not
+// offered by its agent, so the session started on the agent's own default.
+func effortNotOfferedNote(tool, effort string) string {
+	return "You chose the effort " + effort + "; " + terminalproto.ToolName(tool) + " does not offer it for this model here, so the session is on the agent's default effort."
 }
 
 // checkStageChoice asks the machine what a stage's session is running and
@@ -70,6 +86,7 @@ func (s *Service) checkStageChoice(ctx context.Context, o store.GafferOutcome, k
 		got = SessionChoice{}
 		note = "reet could not read back what this session is running: " + clipBytes(outcomeReason(err), 300)
 	}
+	unread := note
 	var stage store.GafferOutcomeStage
 	wrote := false
 	_, stepErr := s.outcomeStep(o.OwnerID, o.ID, func(o *store.GafferOutcome) bool {
@@ -95,6 +112,8 @@ func (s *Service) checkStageChoice(ctx context.Context, o store.GafferOutcome, k
 			}
 			if err == nil {
 				check, note = stageChoiceCheck(row.Stages[at], got)
+			} else if dropped := row.Stages[at]; dropped.Effort == "" && dropped.EffortNotOffered != "" {
+				note = unread + " " + effortNotOfferedNote(dropped.Tool, dropped.EffortNotOffered)
 			}
 			row.Stages[at].AppliedTool, row.Stages[at].AppliedModel, row.Stages[at].AppliedEffort = got.Tool, got.Model, got.Effort
 			row.Stages[at].AppliedAt, row.Stages[at].ChoiceCheck, row.Stages[at].ChoiceNote = time.Now().UnixMilli(), check, note

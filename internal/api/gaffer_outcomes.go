@@ -606,6 +606,12 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 		if errors.Is(err, terminalbroker.ErrOffline) || errors.Is(err, terminalbroker.ErrNotSent) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return "", "", gaffer.LaunchUnknown(message)
 		}
+		// The agent did not confirm the chosen effort for the model: nothing
+		// runs and no prompt was sent, so the Factory may ask again without it.
+		var unavailable *terminalbroker.ACPUnavailableError
+		if in.Effort != "" && errors.As(err, &unavailable) && unavailable.EffortNotConfirmed() {
+			return "", "", gaffer.EffortNotOffered(message)
+		}
 		return "", "", errors.New(message)
 	}
 	// A later pipeline stage works in the folder its first stage was given and

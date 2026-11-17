@@ -73,6 +73,15 @@ type ACPUnavailableError struct{ Detail string }
 
 func (e *ACPUnavailableError) Error() string { return "the agent could not start the chat" }
 
+// EffortNotConfirmed reports whether the machine refused the chat because the
+// agent did not confirm the chosen effort for the model. Machines send that
+// refusal under the general ACPUnavailable code and say which it is only in
+// their sentence, so the sentence is compared whole; any other wording,
+// including a refusal for the model, is not taken for it.
+func (e *ACPUnavailableError) EffortNotConfirmed() bool {
+	return e != nil && e.Detail == terminalproto.ACPEffortUnconfirmedDetail
+}
+
 // ACPVersionError carries the connector's sentence naming the agent and the
 // version floor it refused, so the browser does not blame OpenCode for a Cline
 // or Claude version.

@@ -72,6 +72,21 @@ func (e launchUnknown) Is(target error) bool { return target == ErrLaunchUnknown
 // the machine. Its text is shown to the person as it is.
 func LaunchUnknown(message string) error { return launchUnknown{message} }
 
+// ErrEffortNotOffered marks a launch the machine refused because the agent
+// did not confirm the chosen effort for the model. Nothing was started and no
+// prompt was sent, so the launch may be asked for again without the effort.
+var ErrEffortNotOffered = errors.New("the agent did not confirm the chosen effort")
+
+type effortNotOffered struct{ message string }
+
+func (e effortNotOffered) Error() string        { return e.message }
+func (e effortNotOffered) Is(target error) bool { return target == ErrEffortNotOffered }
+
+// EffortNotOffered is the error a SessionStarter returns when the machine
+// refused the start because the agent did not confirm the chosen effort. Its
+// text is shown to the person as it is.
+func EffortNotOffered(message string) error { return effortNotOffered{message} }
+
 // SessionEnder ends a session the controller started for a pipeline, once
 // the pipeline has finished with it. The session's history is kept.
 type SessionEnder interface {
@@ -1256,6 +1271,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 							row.Stages[at].Tool, row.Stages[at].Model, row.Stages[at].Effort, row.Stages[at].Provider = next.Tool, next.Model, next.Effort, next.Provider
 							row.Stages[at].First, row.Stages[at].Balanced = next.First, next.Balanced
 							row.Stages[at].Rebalanced = row.Stages[at].Rebalanced || next.Rebalanced
+							row.Stages[at].EffortNotOffered = next.EffortNotOffered
 							return true
 						}
 					}
@@ -1269,6 +1285,11 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				if stage.Balanced != "" {
 					s.audit(uid, "gaffer-stage-balanced", map[string]any{"outcome": o.ID, "pipeline": item.Key, "stage": stage.Kind, "tool": stage.Tool, "reason": stage.Balanced})
 				}
+			}
+			// An effort the machine's last report says the agent does not offer
+			// is not asked for: the stage starts on the agent's default effort.
+			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Kind, launch, "", "reported") {
+				launch.Effort = ""
 			}
 		}
 	}
@@ -1335,6 +1356,19 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}
 		if unsure == "" {
 			started, workDir, err, unknown, late = ask(launch.RequestID)
+			// A start refused because the agent did not confirm the chosen
+			// effort started nothing and sent no prompt. It is asked for once
+			// more without the effort, on the agent's default, under a request
+			// of its own: the refused one stays refused on the machine, and is
+			// replaced on the stage before it is sent, so a restart sends the
+			// new request again and takes up what it started. A launch that
+			// asked for no effort is never asked for twice.
+			if err != nil && !unknown && staged && launch.Effort != "" && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
+				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Kind, launch, fresh, "refused") {
+					launch.RequestID, launch.Effort = fresh, ""
+					started, workDir, err, unknown, late = ask(launch.RequestID)
+				}
+			}
 			// Only a launch that ran out of time may have started something: a
 			// machine that could not be reached was never asked.
 			if late {

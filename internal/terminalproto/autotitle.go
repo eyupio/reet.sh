@@ -125,6 +125,15 @@ func PromptTitle(prompt string) string {
 	return ""
 }
 
+// ToolName is an agent's display name, as the browser's catalogue shows it,
+// or the tool's own id for an agent that has none.
+func ToolName(tool string) string {
+	if name := toolNames[tool]; name != "" {
+		return name
+	}
+	return tool
+}
+
 // AutoTitle is the name for a session that was started without one: the
 // prompt's own name when it has one, otherwise the agent (or "Terminal" for a
 // plain shell) and the last part of the folder, as "Claude Code · app".
@@ -134,9 +143,7 @@ func AutoTitle(tool, prompt, dir string) string {
 	}
 	name := "Terminal"
 	if tool != "" {
-		if name = toolNames[tool]; name == "" {
-			name = tool
-		}
+		name = ToolName(tool)
 	}
 	title := name
 	if last := lastFolder(dir); last != "" {

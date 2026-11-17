@@ -201,6 +201,9 @@
   }
   async function putAway(record: Outcome, mode: 'archive' | 'delete' | 'restore') {
     if (busy) return
+    // On a narrow screen a detail whose outcome goes away closes: back to the list, the address cleared, and the focus on
+    // the list's first item.
+    const leaving = mode !== 'restore' && narrow && chosenId.startsWith(`${record.id}.`)
     busy = true; notice = ''; bad = false; deleting = null
     try {
       const current = latest(record)
@@ -210,6 +213,7 @@
     } catch (e) { fail(e, 'That outcome was not changed.') }
     busy = false
     await load()
+    if (leaving && !byId.has(chosenId)) { chosenId = ''; pushed = false; address({ pipeline: null }, ''); void tick().then(focusFirst) }
   }
   const latest = (record: Outcome) => records.find(item => item.id === record.id) ?? record
   // A review of Gaffer's own that did not complete is tried again by resuming the goal under its current permissions.
@@ -284,10 +288,17 @@
     await load()
   }
   // A link from Home or elsewhere names one pipeline by its anchor (/factory#pipeline-…): it is chosen once the page has it.
+  // An address that names one (?pipeline=…) of an archived outcome shows archived outcomes, so a reload or a shared link
+  // finds it as the hash does.
   let sought = false
   $effect(() => {
     if (sought || loading || !records.length) return
     sought = true
+    const named = records.find(item => chosenId.startsWith(`${item.id}.`))
+    if (named?.archivedAt && named.sessions.some(piece => `${named.id}.${piece.key}` === chosenId)) {
+      showArchived = true
+      void tick().then(() => { const item = byId.get(chosenId); if (item && !opened[item.section]) opened = { ...opened, [item.section]: true } })
+    }
     const id = decodeURIComponent(location.hash.slice(1))
     if (!id.startsWith('pipeline-')) return
     const record = records.find(item => id.startsWith(`pipeline-${item.id}-`))
@@ -493,6 +504,12 @@
     void tick().then(() => scrollTo({ top: 0 }))
     focusTitle()
   }
+  // The list's first item takes the focus: its Details button, or with every section closed, the first section's head.
+  function focusFirst() {
+    const list = document.querySelector<HTMLElement>('.factory .list')
+    const first = list?.querySelector<HTMLElement>('.item button[aria-label^="Details"], button.item') ?? list?.querySelector<HTMLElement>('button[aria-expanded]')
+    first?.focus({ preventScroll: true }); first?.scrollIntoView({ block: 'nearest' })
+  }
   // Back to the list, at the item that was open, with the focus on its Details button.
   const returnTo = (item: FactoryItem | undefined) => {
     if (item) void tick().then(() => {
@@ -525,9 +542,18 @@
   const others = $derived.by(() => {
     const rows = goals.filter(row => !drawn.includes(row.goal.conversationId) && inScopeSession(row.goal.sessionId))
     const chats = floorCandidates(sessions ?? [], goals.map(row => row.goal)).filter(session => !drawnSessions.includes(session.id) && inScopeSession(session.id))
-    const needs = rows.filter(row => row.attention).length
-    return { count: rows.length + chats.length, summary: [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', rows.length ? `${rows.length} followed` : '', chats.length ? `${chats.length} not followed` : ''].filter(Boolean).join(' · ') }
+    // The floor's own words: a row that needs the person is not also counted as followed (GafferFollowedSessions).
+    const needs = rows.filter(row => row.attention).length, following = rows.filter(row => row.goal.state === 'active' && !row.attention).length
+    return { count: rows.length + chats.length, needs, summary: [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', following ? `${following} followed` : '', chats.length ? `${chats.length} not followed` : ''].filter(Boolean).join(' · ') }
   })
+  // Other sessions opens by itself while something in it needs the person, whatever was remembered. Closing it then
+  // holds for this visit only.
+  let othersShut = $state(false)
+  const othersOpen = $derived(!!opened.others || (others.needs > 0 && !othersShut))
+  function toggleOthers() {
+    if (othersOpen) { othersShut = true; if (opened.others) toggleSection('others') }
+    else { othersShut = false; toggleSection('others') }
+  }
 
   const actions: DetailActions = {
     choose, setDecisions, setYolo, mergeMode, report, loadHistory, stop, putAway, retry, pick,
@@ -552,7 +578,7 @@
 
 <!-- Sessions the person started themselves, which Gaffer looks after or could: a section of their own, closed at first. -->
 {#snippet floorSection()}
-  <ListSection name="Other sessions" count={others.count} summary={others.summary} open={!!opened.others} ontoggle={() => toggleSection('others')}>
+  <ListSection name="Other sessions" count={others.count} summary={others.summary} open={othersOpen} ontoggle={toggleOthers}>
     <div class="floor">
       <p class="hint">Sessions you started yourself: the ones Gaffer looks after, and the running chats it does not yet.{#if scope}{' '}Only those in {scopeName} are listed.{/if}</p>
       {#key floorKey}<GafferFollowedSessions inline hidden={drawn} hiddenSessions={drawnSessions} projectIds={scopedIds} {userId} {timeZone} {dateFormat} onerror={e => e instanceof Error ? e.message : 'The sessions could not be read.'} onchanged={load} onselect={() => {}} onhistory={() => {}} onclose={() => {}}/>{/key}
@@ -580,7 +606,7 @@
         {#if loading || error || records.length || scope}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>Give Gaffer an outcome</button>{/if}
       </div>
     </header>
-    {#if narrow && (projects ?? []).length}<div class="projects"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></div>{/if}
+    {#if narrow && (projects ?? []).length}<div class="projects"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} group={scope?.kind === 'group' ? scopeName : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></div>{/if}
     {#if scope}<p class="scope"><span>Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'}</span> <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
   {/if}
   {#if notice}<div class="notice" class:bad><p role={bad ? 'alert' : 'status'}>{notice}</p><button class="inline" type="button" aria-label="Dismiss this message" onclick={() => notice = ''}>Dismiss</button></div>{/if}
@@ -616,6 +642,7 @@
       {#if selected && selectedPair}{@const record = selectedPair.record}{@const piece = selectedPair.piece}<div class="pane" bind:this={pane}>
         {#key selected.id}<PipelineDetail {record} {piece} item={selected} goal={piece.conversationId ? byConversation.get(piece.conversationId) : undefined} goals={byConversation} {busy} {reporting} {clock} {planClock}
           timeline={timeline[record.id]} ticked={ticked(record)} bind:expanded {narrow} {removeMode} position={place >= 0 ? { at: place + 1, of: waitingItems.length } : undefined} {actions} {helpers}
+          permission={approvalFor(piece.sessionId)} onanswered={() => loadRail(true)}
           onback={back} onprev={() => step(-1)} onnext={() => step(1)}/>{/key}
       </div>
       {:else if !narrow}<div class="pane resting"><p>Nothing is waiting for you or working. Choose a pipeline in the list to see it here.</p></div>{/if}
@@ -623,6 +650,9 @@
   {/if}
   {#if !board && !loading}{@render floorSection()}{/if}
   {#if !(board && !narrow) && !detailOpen}{@render foot()}{/if}
+  <!-- The floating Gaffer button's own strip: at the foot of the wide page, and kept at the foot of the screen over a
+       narrow list. Nothing else is put in it. A narrow detail keeps the strip in its bar instead. -->
+  {#if !detailOpen}<div class="rest" class:float={narrow} data-floating-clearance="dock" aria-hidden="true"></div>{/if}
 </div>
 
 </div>
@@ -641,6 +671,10 @@
 
 <style>
   /* The rail is the left column on a wide desktop: its saved width, or the 56 px strip while folded. Below that there is no rail. */
+  /* Room for the floating Gaffer button, where it is shown: its size, the strip it rests in and the width it keeps clear
+     at the end of a line. --foot is what covers the foot of the screen without it (a phone's tab bar). */
+  .factory-page{--launcher-size:0px;--launcher-strip:0px;--launcher-room:0px;--foot:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px))}
+  :global(html[data-gaffer-anchor]:not([data-gaffer-editing])) .factory-page{--launcher-size:56px;--launcher-strip:80px;--launcher-room:88px}
   .factory-page{--top:61px;display:grid;grid-template-columns:var(--rail-width,301px) minmax(0,1fr)}.factory-page.rail-collapsed{grid-template-columns:56px minmax(0,1fr)}
   .factory-page>:global(aside.rail){grid-column:1;grid-row:1;min-width:0}.factory-page>.factory{grid-column:2;grid-row:1}
   .factory-page :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)){border-color:transparent;border-radius:8px;background:transparent}.factory-page :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover){background:var(--line-soft)}
@@ -666,14 +700,26 @@
   /* In the list beside the detail the floor's filters wrap rather than scroll out of sight. */
   .split .floor :global(.filters){flex-wrap:wrap;overflow-x:visible}.foot{font-size:0.875rem}
   .factory.split{max-width:1440px;height:calc(100dvh - var(--top));display:flex;flex-direction:column;gap:16px;padding-bottom:20px}
-  .split .board{flex:1 1 auto;min-height:420px;grid-template-columns:clamp(290px,34%,380px) minmax(0,1fr)}
+  .factory.split:has(.rest){padding-bottom:0}
+  .split .board{flex:1 1 auto;min-height:420px;gap:16px;grid-template-columns:clamp(280px,32%,380px) minmax(0,1fr)}
   .split .list{min-height:0;overflow-y:auto;scrollbar-width:thin;padding:2px 10px 24px 2px;margin-left:-2px}
   .split .pane{min-height:0;overflow-y:auto;scrollbar-width:thin;box-sizing:border-box;padding:20px 24px 0;border:1px solid var(--line);border-radius:14px;background:var(--card);--detail-inset:24px}
   .pane.resting{display:grid;place-items:center;padding:24px;color:var(--muted);text-align:center}
-  /* On a narrow screen the detail is the page, and its bar rests on whatever covers the foot of the screen. */
-  .factory.reading{padding-bottom:var(--bottom-chrome,0px);min-height:calc(100dvh - var(--top));box-sizing:border-box;display:flex;flex-direction:column}
+  /* The floating button's strip. On the wide page it is the last line of the page; over a narrow list it stays at the
+     foot of the screen (above a phone's tab bar) while the list scrolls under it. */
+  .rest{flex:none;height:var(--launcher-strip);pointer-events:auto}
+  .rest:not(.float){margin-top:-16px}
+  .rest.float{position:sticky;z-index:3;bottom:var(--foot);margin:-20px calc(-1 * var(--gutter)) 0;background:var(--bg)}
+  .factory:has(.rest.float){padding-bottom:0}
+  /* On a narrow screen the detail is the page, and its bar rests on whatever covers the foot of the screen: the phone's
+     tab bar, else nothing. The strip the app keeps at the foot of every page for the floating button is in the bar. */
+  .factory.reading{padding-bottom:0;min-height:calc(100dvh - var(--top) - var(--foot));box-sizing:border-box;display:flex;flex-direction:column}
   .reading .board{flex:1 1 auto;display:flex;flex-direction:column}
-  .reading .pane{flex:1 1 auto;display:flex;flex-direction:column;--detail-inset:var(--gutter);--detail-bottom:var(--bottom-chrome,0px)}
+  .reading .pane{flex:1 1 auto;display:flex;flex-direction:column;--detail-inset:var(--gutter);--detail-bottom:var(--foot)}
+  /* A phone's body keeps the tab bar and that strip at its foot; this page keeps only the tab bar there. */
+  @media (max-width:650px),(max-height:500px) and (pointer:coarse) and (orientation:landscape){
+    :global(html[data-bottom-tabs]) .factory:is(.reading,:has(.rest.float)){margin-bottom:calc(-1 * var(--gaffer-reserve,0px))}
+  }
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   @media(max-width:640px){.factory{--gutter:16px}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}

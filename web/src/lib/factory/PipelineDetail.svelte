@@ -2,6 +2,7 @@
   import type { Event as ActivityEvent, GafferGoalOverview, GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
   import type { NeedChoice } from '../gafferOutcome'
   import type { PlanEntry } from '../agentAccounts'
+  import type { NeedCard } from '../home'
 
   type Pair = { record: Outcome; piece: GafferOutcomeSession }
   /** What the detail asks the page to do. Each keeps the name of the page's own handler, or of the dialog it opens. */
@@ -50,10 +51,11 @@
   import { eventLabel } from '../events'
   import GafferProse from '../GafferProse.svelte'
   import PlanMeters from '../PlanMeters.svelte'
+  import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
   import type { FactoryItem } from './factoryList'
 
-  let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, removeMode = 'archive', position, actions, helpers, onback, onprev, onnext }: {
+  let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, removeMode = 'archive', position, permission, onanswered, actions, helpers, onback, onprev, onnext }: {
     record: Outcome
     piece: GafferOutcomeSession
     item: FactoryItem
@@ -70,6 +72,9 @@
     /** The account's default for putting a finished outcome away: that entry comes first in the menu. */
     removeMode?: 'archive' | 'delete'
     position?: { at: number; of: number }
+    /** The tool approval the pipeline's session holds, answered at the head of the bar as on the waiting card. */
+    permission?: NonNullable<NeedCard['approval']>
+    onanswered?: () => void | Promise<void>
     actions: DetailActions
     helpers: DetailHelpers
     onback?: () => void
@@ -83,6 +88,10 @@
   const lost = $derived(sessionLost(piece))
   const alive = $derived(piece.sessionState !== 'ended' && piece.sessionState !== 'gone')
   const finished = $derived(outcomeFinished(record))
+  // An archived outcome's pipelines are kept to be read: their only action is Restore, in the menu.
+  const archived = $derived(!!record.archivedAt)
+  // Allow once and Deny, when the item is an approval and the session holds one on record.
+  const asking = $derived(!archived && item.kind === 'approval' && !!permission && !!piece.sessionId)
   const taken = $derived(record.decisions ?? [])
   const inHand = $derived(piece.stages?.[piece.stage ?? 0])
   const last = $derived((piece.stage ?? 0) >= nodes.length - 1)
@@ -103,16 +112,19 @@
   const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' ? '' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : taken.some(d => d.failed && d.key === piece.key) && used > 0 ? 'Gaffer could not take this one. See what it decided, below.' : 'Gaffer is deciding this. You can still choose first.')
 
   // One bar: the choices of what waits, then the buttons a pipeline has today, each only once. A choice and a button
-  // that do the same thing share a key.
-  type Entry = { key: string; label: string; primary?: boolean; recommended?: boolean; run: () => void }
+  // that do the same thing share a key. Opening the session is a link (`href`).
+  type Entry = { key: string; label: string; primary?: boolean; recommended?: boolean; href?: string; run: () => void }
   const bar = $derived.by(() => {
     const out: Entry[] = [], does = new Set<string>()
+    if (archived) return out
     if (item.section === 'waiting' && item.need) for (const choice of item.need.choices) {
-      // Opening the session is in the head, and stopping the outcome in its menu.
-      if (choice.id === 'open' || choice.id === 'stop') continue
+      // Stopping the outcome is in its menu. Opening the session is in the head, and in the bar too only when it is the
+      // choice to take (Gaffer advised it, or it is the only one); with an approval on record, Allow and Deny answer instead.
+      if (choice.id === 'stop' || (choice.id === 'open' && !choice.primary) || (choice.id === 'answer' && asking)) continue
       if (lost ? choice.id === 'move' && !(nodes.length && piece.conversationId) : !helpers.usable(choice, piece)) continue
       does.add(choice.id)
-      out.push({ key: choice.id, label: choice.label, primary: choice.primary, recommended: choice.recommended, run: () => actions.choose(choice, record, piece, goal) })
+      const href = (choice.id === 'open' || choice.id === 'answer') && piece.sessionId ? helpers.sessionHref(record, piece.sessionId) : undefined
+      out.push({ key: choice.id, label: choice.label, primary: choice.primary, recommended: choice.recommended, href, run: () => actions.choose(choice, record, piece, goal) })
     }
     const add = (entry: Entry) => { if (!does.has(entry.key)) { does.add(entry.key); out.push(entry) } }
     if (piece.state === 'ready_to_merge') add({ key: 'merge', label: 'Approve merge', run: () => actions.merging({ record, piece }) })
@@ -123,7 +135,7 @@
     return out
   })
   // A goal's limits are opened from Usage and budget, unless the bar already offers a new budget.
-  const goalButton = $derived(!!goal && !bar.some(entry => entry.key === 'budget'))
+  const goalButton = $derived(!!goal && !archived && !bar.some(entry => entry.key === 'budget'))
 
   // The headlines the closed rows show.
   const proposals = $derived(record.report?.proposals ?? [])
@@ -136,8 +148,24 @@
   const totals = $derived(outcomeUsage(record.sessions.map(p => pipelineUsage(p, p.conversationId ? goals.get(p.conversationId)?.goal : undefined)), record.report))
   const agents = $derived(outcomeAgentUsage(record.sessions))
 
-  let menu = $state<HTMLDetailsElement>()
+  let menu = $state<HTMLDetailsElement>(), menuButton = $state<HTMLElement>()
   const fromMenu = (run: () => void) => { if (menu) menu.open = false; run() }
+  // The menu closes on Escape and on a press outside it, and the focus goes back to its button (unless the press was on
+  // something that takes the focus itself).
+  // After a press the browser moves the focus itself once the press is handled, so the focus is given back after that.
+  function closeMenu(refocus: boolean) { if (!menu?.open) return; menu.open = false; if (refocus) setTimeout(() => menuButton?.focus({ preventScroll: true })) }
+  $effect(() => {
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape' && menu?.open) { event.preventDefault(); closeMenu(true) } }
+    const press = (event: PointerEvent) => {
+      const target = event.target as Element | null
+      if (!menu?.open || !target || menu.contains(target)) return
+      closeMenu(!target.closest('a[href],button,input,select,textarea,summary,label'))
+    }
+    document.addEventListener('keydown', key); document.addEventListener('pointerdown', press, true)
+    return () => { document.removeEventListener('keydown', key); document.removeEventListener('pointerdown', press, true) }
+  })
+  // The objective is a sentence; before " · pipeline n of m" its closing full stop goes.
+  const objective = $derived(record.objective.trim().replace(/\.+$/, ''))
 </script>
 
 {#snippet review(text: string, key: string)}{@const whole = expanded[key]}
@@ -154,7 +182,7 @@
 
   <header class="head">
     <div class="title">
-      <p class="eyebrow">{record.objective} · pipeline {item.index} of {item.of}</p>
+      <p class="eyebrow">{objective} · pipeline {item.index} of {item.of}</p>
       <div class="name"><h2 id={`${uid}-title`} tabindex="-1">{piece.title}</h2><span class="chip {tone}">{item.chip}</span></div>
       <p class="meta">{record.projectName || 'Project'} · started {helpers.when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {helpers.when(record.archivedAt)}{/if}</p>
     </div>
@@ -163,7 +191,7 @@
       <details class="menu" bind:this={menu}>
         <!-- Said outright: not every reader of the page, a test runner among them, takes a summary to be a button. -->
         <!-- svelte-ignore a11y_no_redundant_roles -->
-        <summary class="btn quiet" role="button" aria-label="More for this outcome">⋯</summary>
+        <summary class="btn quiet" role="button" aria-label="More for this outcome" bind:this={menuButton}>⋯</summary>
         <ul>
           {#if record.archivedAt}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.putAway(record, 'restore'))}>Restore</button></li>
           {:else}
@@ -223,7 +251,7 @@
     {/if}
   </section>
 
-  <div class="rows" data-floating-clearance>
+  <div class="rows">
     <details class="row">
       <summary><span class="label">Gaffer’s report</span><span class="headline">{reportLine}</span></summary>
       <div class="body">
@@ -231,7 +259,12 @@
           <p class="eyebrow">Gaffer’s report · {helpers.when(record.report.at)}{record.report.auto ? ' · made by itself when a pipeline finished or stopped' : ''}</p>
           <div class="prose-clamp report-clamp" class:open={expanded[`report-${record.id}`]}><GafferProse text={record.report.text}/></div>
           {#if record.report.text.length > 400}<button class="inline" type="button" aria-expanded={!!expanded[`report-${record.id}`]} onclick={() => expanded = { ...expanded, [`report-${record.id}`]: !expanded[`report-${record.id}`] }}>{expanded[`report-${record.id}`] ? 'Show less' : 'Read all of it'}</button>{/if}
-          {#if proposals.length}
+          {#if proposals.length && archived}
+            <p class="hint">Gaffer suggested adding {proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Restore the outcome to add any.</p>
+            <ul class="proposals" aria-label="Proposed pipelines">
+              {#each proposals as proposal (proposal.title)}<li><span class="proposal"><strong>{proposal.title}</strong>{#if proposal.why}<span class="why">{proposal.why}</span>{/if}<span class="why">{(proposal.stages?.length ? proposal.stages : DEFAULT_STAGES).map(stageLabel).join(' → ')}</span></span></li>{/each}
+            </ul>
+          {:else if proposals.length}
             <p class="hint">Gaffer suggests adding {proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it, and you choose each one’s agent, model and effort then.</p>
             <ul class="proposals" aria-label="Proposed pipelines">
               {#each proposals as proposal (proposal.title)}<li><label><input type="checkbox" checked={ticked.includes(proposal.title)} onchange={event => actions.pick(record, proposal.title, event.currentTarget.checked)}/><span><strong>{proposal.title}</strong>{#if proposal.why}<span class="why">{proposal.why}</span>{/if}<span class="why">{(proposal.stages?.length ? proposal.stages : DEFAULT_STAGES).map(stageLabel).join(' → ')}</span></span></label></li>{/each}
@@ -239,7 +272,8 @@
             <div class="actions"><button class="btn primary" type="button" disabled={busy || !chosenCount} onclick={() => actions.adding(record)}>{chosenCount === 1 ? 'Add 1 pipeline' : `Add ${chosenCount} pipelines`}</button></div>
           {/if}
         {/if}
-        <div class="actions"><button class="btn" type="button" disabled={busy || !!reporting} onclick={() => actions.report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button></div>
+        {#if !record.report && archived}<p class="hint">No report was asked for.</p>{/if}
+        {#if !archived}<div class="actions"><button class="btn" type="button" disabled={busy || !!reporting} onclick={() => actions.report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button></div>{/if}
       </div>
     </details>
 
@@ -277,7 +311,8 @@
       </div>
     </details>
 
-    <details class="row" ontoggle={event => { if (event.currentTarget.open && (!timeline || timeline.error)) actions.loadHistory(record) }}>
+    <!-- Read afresh at every opening, so a move or a send-back since the last one is there. -->
+    <details class="row" ontoggle={event => { if (event.currentTarget.open) actions.loadHistory(record) }}>
       <summary><span class="label">History</span><span class="headline">{historyLine}</span></summary>
       <div class="body">
         {#if timeline}
@@ -294,7 +329,7 @@
       <summary><span class="label">Settings for this outcome</span><span class="headline">{settingsLine}</span></summary>
       <div class="body settings">
         <div class="setting"><p class="setting-name">Who decides when a stage stops</p>
-          {#if !finished}<div class="who" role="radiogroup" aria-label="Who decides when a stage stops">
+          {#if !finished && !archived}<div class="who" role="radiogroup" aria-label="Who decides when a stage stops">
             <label class:on={!record.automation}><input type="radio" name={`who-${record.id}`} checked={!record.automation} disabled={busy} onchange={() => actions.setDecisions(record, false)}/>You decide</label>
             <label class:on={!!record.automation}><input type="radio" name={`who-${record.id}`} checked={!!record.automation} disabled={busy} onchange={() => actions.setDecisions(record, true)}/>Gaffer decides</label>
           </div>{:else}<p>{record.automation ? 'Gaffer decides' : 'You decide'}</p>{/if}
@@ -302,17 +337,24 @@
         </div>
         <dl class="facts">
           <div><dt>Approvals</dt><dd><span class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</span>{#if !record.archivedAt && !finished}{' '}<button class="inline" type="button" disabled={busy} aria-label={record.yolo ? 'Make this outcome’s agents ask me' : 'Put this outcome on YOLO'} onclick={() => actions.setYolo(record, !record.yolo)}>{record.yolo ? 'Make them ask me' : 'Switch to YOLO…'}</button>{/if}</dd></div>
-          {#if hasMerge}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if piece.state !== 'done' && piece.state !== 'ready_to_merge' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => actions.mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
+          {#if hasMerge}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if !archived && !['done', 'ready_to_merge', 'unfollowed', 'cancelled', 'failed'].includes(piece.state) && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => actions.mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
           <div><dt>Reports</dt><dd>{record.autoReport ? 'By itself and on request' : 'On request'}</dd></div>
         </dl>
       </div>
     </details>
   </div>
 
-  {#if bar.length}<div class="bar" role="group" aria-labelledby={`${uid}-ask`} data-floating-clearance>
-    <p class="ask" id={`${uid}-ask`}>What do you want to do?</p>
-    <div class="choices">{#each bar as entry (entry.key)}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}</div>
-  </div>{/if}
+  <!-- On a narrow screen the floating Gaffer button rests at the end of the bar's first line ("dock"), where nothing else is;
+       with no bar, in a strip of its own at the foot. -->
+  {#if bar.length || asking}<div class="bar" role="group" aria-labelledby={`${uid}-ask`}>
+    <div class="ask-row" data-floating-clearance={narrow ? 'dock' : undefined}><p class="ask" id={`${uid}-ask`}>What do you want to do?</p></div>
+    {#if asking && permission && piece.sessionId}<Approval sessionId={piece.sessionId} approval={permission} {onanswered} />{/if}
+    {#if bar.length}<div class="choices">{#each bar as entry (entry.key)}
+      {#snippet choice()}{#if entry.href}<a class="btn" class:primary={entry.primary} href={entry.href}>{entry.label}{#if entry.recommended}<span class="sr-only"> Recommended</span>{/if}</a>
+      {:else}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}<span class="sr-only"> Recommended</span>{/if}</button>{/if}{/snippet}
+      <!-- The recommended choice is marked by a caption above it, which widens nothing, so the choices keep one line. -->
+      {#if entry.recommended}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render choice()}</span>{:else}{@render choice()}{/if}{/each}</div>{/if}
+  </div>{:else if narrow}<div class="rest" data-floating-clearance="dock" aria-hidden="true"></div>{/if}
 </section>
 
 <style>
@@ -367,7 +409,7 @@
   .proposals{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.proposals li+li{border-top:1px solid var(--line)}
   .proposals label{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;min-height:44px;cursor:pointer}
   .proposals input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--accent)}
-  .proposals label>span{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}
+  .proposals label>span,.proposals .proposal{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}.proposals .proposal{padding:10px 14px}
   .taken{list-style:none;margin:0;padding:0;display:grid;gap:8px}
   .taken li{display:grid;gap:4px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow-wrap:anywhere}.taken li.failed{border-style:dashed}
   .taken-head{display:flex;flex-wrap:wrap;gap:4px 10px;color:var(--muted)}.taken .about,.taken .said{color:var(--muted)}
@@ -381,9 +423,16 @@
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}
   .bar{position:sticky;bottom:var(--detail-bottom,0px);z-index:4;display:grid;gap:6px;margin:auto calc(-1 * var(--detail-inset,0px)) 0;padding:12px var(--detail-inset,0px) 16px;border-top:1px solid var(--line);background:var(--card)}
   .ask{font-size:0.875rem;color:var(--muted)}
-  .choices{display:flex;flex-wrap:wrap;gap:8px}.choices .btn{min-height:44px}
-  .rec{margin-left:4px;font-size:0.875rem;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid currentColor}
+  /* The bar's first line keeps room at its end for the floating Gaffer button, which rests there on a narrow screen. */
+  .ask-row{display:flex;align-items:center;min-width:0}
+  .ask-row[data-floating-clearance]{min-height:var(--launcher-size,0px);padding-right:calc(var(--launcher-room,0px) - var(--detail-inset,0px))}
+  :global(html[data-gaffer-anchor=left]) .ask-row[data-floating-clearance]{padding-right:0;padding-left:calc(var(--launcher-room,0px) - var(--detail-inset,0px));justify-content:flex-end}
+  .rest{position:sticky;bottom:var(--detail-bottom,0px);height:var(--launcher-strip,0px);margin:auto calc(-1 * var(--detail-inset,0px)) 0;flex:none}
+  .choices{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 6px}.choices .btn{min-height:44px;padding-inline:12px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+  .lead{display:grid;gap:2px;min-width:0}
+  .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media(max-width:560px){.choices .btn{flex:1 1 auto}.history li{grid-template-columns:minmax(0,1fr);gap:0}.row .headline{margin-left:24px;flex-basis:100%}}
+  @media(max-width:560px){.choices .btn,.choices .lead{flex:1 1 auto}.history li{grid-template-columns:minmax(0,1fr);gap:0}.row .headline{margin-left:24px;flex-basis:100%}}
   @media(pointer:coarse){.inline{min-height:44px}.menu ul button{min-height:44px}}
 </style>

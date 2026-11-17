@@ -3,11 +3,12 @@
   // them, each with what waits and works in it. It only chooses; adding, grouping and editing projects stay on Home.
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   type Count = { waiting: number; working: number }
-  let { projects, counts, chosen = '', onchoose }: { projects: { id: string; name: string }[]; counts: Map<string, Count>; chosen?: string; onchoose: (id: string) => void } = $props()
+  // `group` names a group the page is narrowed to from the wide rail, which this list cannot choose but still says.
+  let { projects, counts, chosen = '', group = '', onchoose }: { projects: { id: string; name: string }[]; counts: Map<string, Count>; chosen?: string; group?: string; onchoose: (id: string) => void } = $props()
   let open = $state(false), opener = $state<HTMLButtonElement>()
   const say = (count: Count | undefined) => `${count?.waiting ?? 0} waiting · ${count?.working ?? 0} working`
   const everything = $derived.by(() => { let waiting = 0, working = 0; for (const c of counts.values()) { waiting += c.waiting; working += c.working } return { waiting, working } })
-  const name = $derived(chosen ? projects.find(p => p.id === chosen)?.name ?? 'one project' : 'all')
+  const name = $derived(chosen ? projects.find(p => p.id === chosen)?.name ?? 'one project' : group || 'all')
   function choose(id: string) { open = false; onchoose(id); opener?.focus() }
   function close() { open = false; opener?.focus() }
 </script>
@@ -16,7 +17,7 @@
 {#if open}
   <WorkspaceDialog title="Projects" onclose={close}>
     <ul class="choices">
-      <li><button type="button" class="choice" aria-pressed={!chosen} onclick={() => choose('')}><span class="name">All projects</span><span class="says">{say(everything)}</span></button></li>
+      <li><button type="button" class="choice" aria-pressed={!chosen && !group} onclick={() => choose('')}><span class="name">All projects</span><span class="says">{say(everything)}</span></button></li>
       {#each projects as p (p.id)}
         <li><button type="button" class="choice" aria-pressed={chosen === p.id} onclick={() => choose(p.id)}><span class="name">{p.name}</span><span class="says">{say(counts.get(p.id))}</span></button></li>
       {/each}

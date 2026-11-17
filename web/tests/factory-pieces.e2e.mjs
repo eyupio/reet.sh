@@ -69,7 +69,7 @@ try{
   const {w,page}=await open(1000,{height:900})
   try{
    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
-   await expect(waiting.getByRole('button',{name:'Move to next stage',exact:true})).toBeVisible()
+   await expect(waiting.getByRole('button',{name:/^Move to next stage/})).toBeVisible()
    await expect(waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true})).toBeVisible()
    await page.getByRole('button',{name:/^Working/}).click()
    const working=page.getByRole('region',{name:'Working',exact:true})
@@ -284,20 +284,346 @@ try{
   }finally{await w.context.close()}
   console.log('ok - five pipelines of eight stages on a phone')
  }
- // The floating Gaffer button stays clear of the detail's action bar and its closed rows.
- {
+ // Each check below reports by itself, so one that fails does not hide the next; the run fails at the end if any did.
+ const failures=[]
+ const step=async(name,run)=>{try{await run();console.log(`ok - ${name}`)}catch(e){failures.push(name);console.log(`not ok - ${name}\n   ${String(e?.message??e).split('\n').filter(Boolean).slice(0,8).join('\n   ')}`)}}
+ const eight=['plan','design','code','review','test','pr','babysit','merge']
+ const stagesOf=(kinds,at,s=sid,c=cid)=>kinds.map((kind,n)=>({kind,tool:'opencode',model:'',state:n<at?'done':n===at?'running':'pending',requestId:'r',...(n===at?{sessionId:s,conversationId:c}:{})}))
+ // The agent of Export API holds a tool approval: its item is an Approval, answered with Allow once or Deny.
+ const approval=f=>{
+  f.box.answers=[];f.row.goal.waitingOnWorker=true;delete f.row.goal.advice
+  f.routes['/api/v2/terminal/sessions'].sessions[0].pendingPermission={permissionId:'perm-1',title:'Run a command',command:'npm run check',queued:0}
+  f.routes[`/api/v2/terminal/sessions/${sid}/chat/permissions/perm-1`]=request=>{f.box.answers.push(request.postDataJSON());return {}}
+ }
+ // The floating Gaffer button, once it has settled where it rests, and what it would cover there: the topmost thing under
+ // each of a grid of points across it that is text, a control, an item or the stage card.
+ const settled=async page=>{
+  await expect(page.locator('.gaffer-launcher')).toBeVisible()
+  await expect.poll(()=>page.evaluate(()=>new Promise(done=>{const el=document.querySelector('.gaffer-launcher');if(!el)return done(false);const a=el.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=el.getBoundingClientRect();done(el.style.getPropertyValue('--launcher-clearance')!==''&&a.top===b.top&&a.left===b.left)}))}))).toBe(true)
+ }
+ const covered=page=>page.evaluate(()=>{
+  const el=document.querySelector('.gaffer-launcher'),r=el.getBoundingClientRect(),hit=new Set()
+  const busy='button,a,summary,input,label,select,textarea,p,h1,h2,h3,dt,dd,code,li,.item,.stage,.waits,.rows,.caption,.name,.ask,.counts,.choices'
+  for(let i=0;i<=6;i++)for(let j=0;j<=6;j++){
+   const under=document.elementsFromPoint(r.left+1+(r.width-2)*i/6,r.top+1+(r.height-2)*j/6).find(node=>!el.contains(node))
+   const what=under?.closest(busy)
+   if(what)hit.add(`${what.tagName.toLowerCase()}${what.className?`.${String(what.className).trim().split(/\s+/).join('.')}`:''}: ${what.textContent.trim().replace(/\s+/g,' ').slice(0,40)}`)
+  }
+  return [...hit]
+ })
+
+ // F1: an approval is answered from the narrow card and from the detail on every width, and posts what Home posts.
+ for(const width of [1280,834]){
+  await step(`approval answered with Allow once at ${width} px`,async()=>{
+   const {f,w,page}=await open(width,{tweak:approval})
+   try{
+    if(width<1100){
+     const card=page.locator(`#pipeline-${oid}-a`)
+     await expect(card).toContainText('Approval')
+     await expect(card.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
+     await expect(card.getByRole('button',{name:'Deny',exact:true})).toBeVisible()
+     await card.getByRole('button',{name:'Details and other actions for Export API',exact:true}).click()
+    }
+    await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+    const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+    await expect(bar).toContainText('npm run check')
+    await expect(bar.getByRole('button',{name:'Deny',exact:true})).toBeVisible()
+    await bar.getByRole('button',{name:'Allow once',exact:true}).click()
+    await expect.poll(()=>f.box.answers).toEqual([{allow:true}])
+    expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
+   }finally{await w.context.close()}
+  })
+ }
+ // F4: the card says Gaffer's recommendation in the detail's words and marks the filled button; without advice it is as before.
+ await step('the waiting card says what Gaffer recommends',async()=>{
+  const {w,page}=await open(834)
+  try{
+   const card=page.locator(`#pipeline-${oid}-a`)
+   await expect(card.locator('.why')).toHaveText('Gaffer recommends: Move to next stage. The review stage will catch the rest.')
+   await expect(card.locator('.btn.primary')).toHaveAccessibleName('Move to next stage Recommended')
+   const docs=page.locator(`#pipeline-${oid}-c`)
+   await expect(docs.locator('.why')).toHaveText('Ready to merge. Nothing merges until you approve it.')
+   await expect(docs.locator('.btn.primary')).toHaveAccessibleName('Approve the merge')
+   await docs.getByRole('button',{name:/^Details/}).click()
+   await expect(page.getByRole('group',{name:'What do you want to do?',exact:true}).locator('.btn.primary')).toHaveAccessibleName(/^Approve the merge… Recommended$/)
+  }finally{await w.context.close()}
+ })
+ // F2: an archived outcome's pipelines offer nothing but Restore: no bar, a card with only Details, a read-only report and settings.
+ await step('an archived outcome offers no action',async()=>{
+  const {w,page}=await open(834,{tweak:f=>{
+   f.outcome.archivedAt=now;f.outcome.state='stopped'
+   f.outcome.report={text:'Two pipelines did not finish.',at:now,proposals:[{title:'Retry the importer',prompt:'p',why:'It failed to start.'}],inputTokens:1,outputTokens:1,usageReported:true}
+   Object.assign(f.outcome.sessions[0],{state:'failed',note:'Not started: the agent is missing.'})
+   Object.assign(f.outcome.sessions[1],{state:'unfollowed',note:'Stopped following.'})
+   Object.assign(f.outcome.sessions[2],{state:'done',note:'Every stage is done.'})
+  }})
+  try{
+   await page.getByRole('button',{name:'Show archived (1)',exact:true}).click()
+   const head=page.getByRole('button',{name:/^Finished or stopped/});if(await head.getAttribute('aria-expanded')!=='true')await head.click()
+   for(const key of ['a','b','c']){
+    const names=await page.locator(`#pipeline-${oid}-${key}`).getByRole('button').evaluateAll(list=>list.map(b=>b.getAttribute('aria-label')||b.textContent.trim()))
+    expect(names.length).toBe(1);expect(names[0]).toMatch(/^Details and other actions for /)
+   }
+   for(const [key,title] of [['a','Export API'],['b','Export button']]){
+    await page.locator(`#pipeline-${oid}-${key}`).getByRole('button',{name:/^Details/}).click()
+    await expect(page.getByRole('heading',{name:title,level:2,exact:true})).toBeVisible()
+    await expect(page.getByRole('group',{name:'What do you want to do?',exact:true})).toHaveCount(0)
+    for(const row of ['Gaffer’s report','Usage and budget','Settings for this outcome'])await page.locator('.detail summary').filter({hasText:row}).click()
+    const rows=page.locator('.detail .rows')
+    await expect(rows).toContainText('Two pipelines did not finish.');await expect(rows).toContainText('Retry the importer')
+    await expect(rows.getByRole('checkbox')).toHaveCount(0);await expect(rows.getByRole('radio')).toHaveCount(0)
+    await expect(rows.getByRole('button')).toHaveCount(0)
+    await page.getByRole('button',{name:'More for this outcome',exact:true}).click()
+    await expect(page.locator('.detail .menu ul button')).toHaveText(['Restore'])
+    await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
+   }
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ })
+ await step('a pipeline no longer followed has no merge switch',async()=>{
+  const {w,page}=await open(1440,{tweak:f=>{Object.assign(f.outcome.sessions[1],{state:'unfollowed',note:'Stopped following.'})}})
+  try{
+   await page.getByRole('button',{name:/^Finished or stopped/}).click()
+   await page.getByRole('button',{name:'Stopped: Export button',exact:true}).click()
+   await page.locator('.detail summary').filter({hasText:'Settings for this outcome'}).click()
+   await expect(page.locator('.detail .rows')).toContainText('Waits for you')
+   await expect(page.getByRole('button',{name:/merge by itself|wait for you before merging/})).toHaveCount(0)
+  }finally{await w.context.close()}
+ })
+ // F2: a read that fails after one that worked keeps the list and says so.
+ await step('a failed read keeps the last list and says so',async()=>{
+  const {w,page}=await open(1280,{tweak:f=>{let reads=0;const answer=f.routes['/api/v2/gaffer/outcomes'];f.routes['/api/v2/gaffer/outcomes']=request=>++reads>1?{status:503,json:{error:'The controller is restarting.'}}:answer(request)}})
+  try{
+   await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+   await expect(page.getByRole('alert').filter({hasText:'Showing the last successful read.'})).toBeVisible({timeout:15000})
+   await expect(page.getByRole('region',{name:'Waiting for you',exact:true}).getByRole('button',{name:'Decision: Export API',exact:true})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+  }finally{await w.context.close()}
+ })
+ // F3a: eight named stages on a phone: the detail never scrolls the page sideways and every stage is a full-size target.
+ await step('eight labelled stages in a phone detail',async()=>{
+  const {w,page}=await open(390,{tweak:f=>{Object.assign(f.outcome.sessions[0],{stage:5,stages:stagesOf(eight,5)})}})
+  try{
+   await page.locator(`#pipeline-${oid}-a`).getByRole('button',{name:/^Details/}).click()
+   const list=page.getByRole('list',{name:'Choose a stage of Export API',exact:true})
+   await expect(list.getByRole('button')).toHaveCount(8)
+   expect(await sideways(page)).toBeLessThanOrEqual(390)
+   const sizes=await list.getByRole('button').evaluateAll(l=>l.map(b=>{const r=b.getBoundingClientRect();return [r.width,r.height]}))
+   for(const [wide,high] of sizes){expect(wide).toBeGreaterThanOrEqual(44);expect(high).toBeGreaterThanOrEqual(44)}
+   // Each one-word name stays whole on one line: no stage is named "Desig n".
+   const lines=await list.locator('.name').evaluateAll(l=>l.map(n=>Math.round(n.getBoundingClientRect().height/parseFloat(getComputedStyle(n).lineHeight))))
+   expect(lines).toEqual([1,1,1,1,1,1,1,1])
+   // The stage in hand is in view inside the line's own box.
+   const seen=await list.evaluate(ol=>{const box=ol.parentElement.getBoundingClientRect(),here=ol.querySelector('[aria-current]').getBoundingClientRect();return here.left>=box.left-1&&here.right<=box.right+1})
+   expect(seen).toBe(true)
+   for(const [index,name] of [[0,'Plan'],[7,'Merge']]){await list.getByRole('button').nth(index).click();await expect(page.getByRole('region',{name:`${name} stage`,exact:true})).toBeVisible()}
+   expect(await sideways(page)).toBeLessThanOrEqual(390)
+   await page.screenshot({path:`${shots}/eight-stages-detail-390.png`})
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ })
+ // F3b: a pipeline with no stages lists, opens and offers its action, with no stage line.
+ for(const width of [1280,834]){
+  await step(`a pipeline with no stages at ${width} px`,async()=>{
+   const {w,page}=await open(width,{tweak:f=>{const piece=f.outcome.sessions[2];delete piece.stages;delete piece.stage;Object.assign(piece,{state:'failed',note:'Not started: that agent is not installed.'})}})
+   try{
+    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
+    if(width<1100){
+     const card=page.locator(`#pipeline-${oid}-c`)
+     await expect(card.getByRole('button',{name:'Try again',exact:true})).toBeVisible()
+     await card.getByRole('button',{name:/^Details/}).click()
+    }else await waiting.getByRole('button',{name:'Failed: Export docs',exact:true}).click()
+    await expect(page.getByRole('heading',{name:'Export docs',level:2,exact:true})).toBeVisible()
+    await expect(page.getByRole('list',{name:'Choose a stage of Export docs',exact:true})).toHaveCount(0)
+    await expect(page.getByRole('group',{name:'What do you want to do?',exact:true}).getByRole('button',{name:/^Try again/})).toBeVisible()
+    expect(w.errors).toEqual([])
+   }finally{await w.context.close()}
+  })
+ }
+ // F3c: a stage split in four parts with long names: the names wrap and no two circles overlap.
+ for(const width of [834,390]){
+  await step(`four long part names at ${width} px`,async()=>{
+   const parts=['Database migration and backfill','Billing export endpoint and its tests','Download button in the account page','Documentation for the export format']
+   const {w,page}=await open(width,{tweak:f=>{const stages=[{kind:'plan',tool:'opencode',model:'',state:'done',requestId:'r'},...parts.map((part,n)=>({kind:'code',part,tool:'opencode',model:'',state:n===0?'running':'pending',requestId:'r',...(n===0?{sessionId:sid,conversationId:cid}:{})})),{kind:'review',tool:'opencode',model:'',state:'pending',requestId:'r'}];Object.assign(f.outcome.sessions[0],{stage:1,stages})}})
+   try{
+    await page.locator(`#pipeline-${oid}-a`).getByRole('button',{name:/^Details/}).click()
+    const list=page.getByRole('list',{name:'Choose a stage of Export API',exact:true})
+    await expect(list.locator('.name')).toHaveCount(6)
+    const boxes=await list.evaluate(ol=>({dots:[...ol.querySelectorAll('.dot')].map(d=>{const r=d.getBoundingClientRect();return [r.left,r.right,r.top,r.bottom]}),names:[...ol.querySelectorAll('.name')].map(n=>{const r=n.getBoundingClientRect(),li=n.closest('li').getBoundingClientRect();return {lines:Math.round(r.height/parseFloat(getComputedStyle(n).lineHeight)),inside:r.left>=li.left-1&&r.right<=li.right+1}})}))
+    for(let i=0;i<boxes.dots.length;i++)for(let j=i+1;j<boxes.dots.length;j++){const [a,b]=[boxes.dots[i],boxes.dots[j]];expect(a[1]<=b[0]||b[1]<=a[0]||a[3]<=b[2]||b[3]<=a[2]).toBe(true)}
+    expect(boxes.names.every(n=>n.inside)).toBe(true);expect(boxes.names.some(n=>n.lines>1)).toBe(true)
+    // They wrap between words, never inside one.
+    const split=await list.evaluate(ol=>[...ol.querySelectorAll('.name')].flatMap(n=>{const text=n.firstChild,out=[];let at=0;for(const word of text.textContent.split(' ')){const range=document.createRange();range.setStart(text,at);range.setEnd(text,at+word.length);if(new Set([...range.getClientRects()].map(r=>Math.round(r.top))).size>1)out.push(word);at+=word.length+1}return out}))
+    expect(split).toEqual([])
+    expect(await sideways(page)).toBeLessThanOrEqual(width)
+    await page.screenshot({path:`${shots}/split-stage-detail-${width}.png`})
+   }finally{await w.context.close()}
+  })
+ }
+ // F3d: the YOLO confirmation and the merge-on-YOLO confirmation open from the Settings row and post what they did before.
+ await step('YOLO and merge confirmations from the Settings row',async()=>{
+  const {f,w,page}=await open(1440,{tweak:f=>{
+   f.box.yolo=[];f.box.modes=[]
+   f.routes[`/api/v2/gaffer/outcomes/${oid}/yolo`]=request=>{const input=request.postDataJSON();f.box.yolo.push(input);f.outcome.yolo=input.on;f.outcome.revision++;return {outcome:f.outcome,notSwitched:[]}}
+   f.routes[`/api/v2/gaffer/outcomes/${oid}/sessions/a/automerge`]=request=>{const input=request.postDataJSON();f.box.modes.push(input);f.outcome.sessions[0].autoMerge=input.on;f.outcome.sessions[0].yoloMergeOk=!!input.yoloConfirmed;f.outcome.revision++;return f.outcome}
+  }})
+  try{
+   await page.locator('.detail summary').filter({hasText:'Settings for this outcome'}).click()
+   await page.getByRole('button',{name:'Put this outcome on YOLO',exact:true}).click()
+   const yolo=page.getByRole('dialog',{name:'Put this outcome on YOLO?',exact:true})
+   await expect(yolo).toBeVisible();expect(f.box.yolo).toEqual([])
+   await yolo.getByRole('button',{name:'Switch to YOLO',exact:true}).click()
+   await expect.poll(()=>f.box.yolo).toEqual([{revision:5,on:true,confirmed:true}])
+   await page.getByRole('button',{name:'Let Export API merge by itself',exact:true}).click()
+   const merge=page.getByRole('dialog',{name:'Let “Export API” merge by itself on YOLO?',exact:true})
+   await expect(merge).toBeVisible();expect(f.box.modes).toEqual([])
+   await merge.getByRole('button',{name:'Let it merge by itself',exact:true}).click()
+   await expect.poll(()=>f.box.modes).toEqual([{on:true,yoloConfirmed:true}])
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ })
+ // X1: an address naming a pipeline of an archived outcome opens it, with archived outcomes shown.
+ for(const width of [1280,834]){
+  await step(`?pipeline= of an archived outcome at ${width} px`,async()=>{
+   const {w,page}=await open(width,{hash:`?pipeline=${oid}.c`,tweak:f=>{f.outcome.archivedAt=now}})
+   try{
+    await expect(page.getByRole('heading',{name:'Export docs',level:2,exact:true})).toBeVisible()
+    await expect(page.locator('section.detail')).toContainText('archived')
+    if(width<1100)await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
+    await expect(page.getByRole('button',{name:'Hide archived',exact:true})).toHaveAttribute('aria-pressed','true')
+   }finally{await w.context.close()}
+  })
+ }
+ // X2: History is read again each time its row is opened.
+ await step('History is read again on each opening',async()=>{
+  const event=(id,stage)=>({id,at:now-id*1000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:oid,pipeline:'a',stage,reason:'Under way.'})})
+  const {f,w,page}=await open(1440,{tweak:f=>{f.events=[event(2,'code')];f.routes[`/api/v2/gaffer/outcomes/${oid}/history`]=()=>({events:f.events})}})
+  try{
+   const row=page.locator('.detail details.row').filter({has:page.locator('summary .label').getByText('History',{exact:true})})
+   await row.locator('summary').click()
+   await expect(row.locator('.history li')).toHaveCount(1)
+   await row.locator('summary').click()
+   f.events=[event(1,'review'),...f.events]
+   await row.locator('summary').click()
+   await expect(row.locator('.history li')).toHaveCount(2)
+   await expect(row.locator('summary')).toContainText('2 events')
+  }finally{await w.context.close()}
+ })
+ // A1: four choices stay on one line at 1280 and wider.
+ for(const width of [1280,1440]){
+  await step(`the bar's four choices on one line at ${width} px`,async()=>{
+   const {w,page}=await open(width)
+   try{
+    const buttons=page.getByRole('group',{name:'What do you want to do?',exact:true}).getByRole('button')
+    await expect(buttons).toHaveCount(4)
+    const tops=await buttons.evaluateAll(l=>l.map(b=>Math.round(b.getBoundingClientRect().top)))
+    expect(new Set(tops).size).toBe(1)
+   }finally{await w.context.close()}
+  })
+ }
+ // A2, A3: the compact item's dots run edge to edge under its title; the detail's eyebrow has one full stop at most.
+ await step('compact dots edge to edge, and the eyebrow without a doubled stop',async()=>{
   const {w,page}=await open(1440)
   try{
-   await expect(page.locator('.gaffer-launcher')).toBeVisible()
-   await expect(page.getByText('Settings for this outcome',{exact:true})).toBeVisible()
-   await page.waitForTimeout(400)
-   await page.screenshot({path:`${shots}/launcher-1440.png`})
-   const lb=await page.evaluate(()=>{const r=document.querySelector('.gaffer-launcher')?.getBoundingClientRect();return r?{l:r.left,t:r.top,r:r.right,b:r.bottom}:null})
-   expect(lb).not.toBeNull()
-   const overlaps=await page.evaluate(box=>{const hit=[];for(const e of document.querySelectorAll('.detail .row summary, .detail .row .label, .detail .row .headline, .detail .bar button, .detail .bar .ask')){const r=e.getBoundingClientRect();if(r.width&&r.height&&r.left<box.r&&r.right>box.l&&r.top<box.b&&r.bottom>box.t)hit.push(e.textContent.trim().slice(0,40))}return hit},lb)
-   expect(overlaps).toEqual([])
+   const edges=await page.getByRole('button',{name:'Decision: Export API',exact:true}).evaluate(el=>{const s=getComputedStyle(el),box=el.getBoundingClientRect(),dots=[...el.querySelectorAll('.dot')].map(d=>d.getBoundingClientRect());return {left:box.left+parseFloat(s.paddingLeft)+parseFloat(s.borderLeftWidth),right:box.right-parseFloat(s.paddingRight)-parseFloat(s.borderRightWidth),first:dots[0].left,last:dots.at(-1).right}})
+   expect(Math.abs(edges.first-edges.left)).toBeLessThanOrEqual(1);expect(Math.abs(edges.last-edges.right)).toBeLessThanOrEqual(1)
+   await expect(page.locator('.detail .head .eyebrow')).toHaveText('Ship CSV export for billing · pipeline 1 of 3')
   }finally{await w.context.close()}
-  console.log('ok - the launcher stays clear of the detail')
+ })
+ // A4: when Gaffer advises opening the session, the bar's first choice is that, filled.
+ await step('advice to open the session fills it in the bar',async()=>{
+  const {w,page}=await open(1440,{tweak:f=>{f.row.goal.advice={choice:'open',why:'The agent wrote its question in the chat.'}}})
+  try{
+   const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+   const first=bar.locator('.choices .btn').first()
+   await expect(first).toHaveClass(/primary/);await expect(first).toHaveAccessibleName(/^Open the session/)
+   await expect(first).toHaveAttribute('href',`/sessions?agent=a1&session=${sid}`)
+  }finally{await w.context.close()}
+ })
+ // A5: the outcome menu closes on Escape and on a click outside it, and the focus goes back to its button.
+ await step('the outcome menu closes on Escape and outside',async()=>{
+  const {w,page}=await open(1440)
+  try{
+   const more=page.getByRole('button',{name:'More for this outcome',exact:true}),menu=page.locator('.detail details.menu')
+   await more.click();await expect(menu).toHaveAttribute('open','')
+   await page.keyboard.press('Escape');await expect(menu).not.toHaveAttribute('open','');await expect(more).toBeFocused()
+   await more.click();await expect(menu).toHaveAttribute('open','')
+   await page.getByRole('heading',{name:'Factory',level:1,exact:true}).click();await expect(menu).not.toHaveAttribute('open','');await expect(more).toBeFocused()
+  }finally{await w.context.close()}
+ })
+ // A6, A7: a card's title is a heading, and a failed stage is not the stage in hand.
+ await step('card headings, and a failed stage is not current',async()=>{
+  const {w,page}=await open(834,{tweak:f=>{Object.assign(f.outcome.sessions[1],{state:'failed',note:'Not started: the agent is missing.'})}})
+  try{
+   await expect(page.getByRole('heading',{name:'Export API',level:3,exact:true})).toBeVisible()
+   const stages=page.getByRole('list',{name:'Stages of Export button',exact:true}).getByRole('listitem')
+   await expect(stages.nth(1)).toHaveClass(/failed/)
+   expect(await stages.evaluateAll(l=>l.filter(li=>li.hasAttribute('aria-current')).length)).toBe(0)
+  }finally{await w.context.close()}
+ })
+ // A8: a group chosen on the wide rail is named on the Projects button once the window is narrowed.
+ await step('a group scope is named on the narrow Projects button',async()=>{
+  const {w,page}=await open(1440,{tweak:f=>{f.routes['/api/v2/folder-projects'].projects[0].groupId='g1';f.routes['/api/v2/project-groups']={groups:[{id:'g1',name:'Workshop group',colour:'',position:0,createdAt:now,updatedAt:now,version:1}]}}})
+  try{
+   await page.locator('aside.rail .group-name').filter({hasText:'Workshop group'}).click()
+   await expect(page.getByText('Showing Workshop group.')).toBeVisible()
+   await page.setViewportSize({width:834,height:1000})
+   await expect(page.getByRole('button',{name:'Projects: Workshop group',exact:true})).toBeVisible()
+  }finally{await w.context.close()}
+ })
+ // A9: archiving from the narrow detail's menu returns to the list, clears the address and focuses the list's first item.
+ await step('archiving from the narrow detail returns to the list',async()=>{
+  const {f,w,page}=await open(834,{tweak:f=>{
+   twoProjects(f)
+   for(const piece of f.outcome.sessions){piece.state='done';piece.note='Every stage is done.';piece.stages=piece.stages.map(stage=>({...stage,state:'done'}));piece.stage=2}
+   f.routes[`/api/v2/gaffer/outcomes/${oid}/archive`]=()=>{f.outcome.archivedAt=now;f.outcome.revision++;return f.outcome}
+  }})
+  try{
+   await page.getByRole('button',{name:/^Working/}).click()
+   await page.getByRole('button',{name:/^Finished or stopped/}).click()
+   await page.locator(`#pipeline-${oid}-a`).getByRole('button',{name:/^Details/}).click()
+   await expect(page).toHaveURL(/[?&]pipeline=/)
+   await page.getByRole('button',{name:'More for this outcome',exact:true}).click()
+   await page.getByRole('button',{name:'Archive',exact:true}).click()
+   await expect(page.getByRole('region',{name:'Working',exact:true})).toBeVisible()
+   expect(new URL(page.url()).searchParams.get('pipeline')).toBeNull()
+   await expect(page.getByRole('button',{name:'Details and other actions for Rail tidy',exact:true})).toBeFocused()
+  }finally{await w.context.close()}
+ })
+ // A10: on a phone every button of the first waiting card, and the Projects button, is a full-size target.
+ await step('touch sizes on a phone',async()=>{
+  const {w,page}=await open(390)
+  try{
+   const card=page.getByRole('region',{name:'Waiting for you',exact:true}).locator('.item').first()
+   await expect(card.getByRole('button',{name:/^Details/})).toBeVisible()
+   const heights=await card.getByRole('button').evaluateAll(l=>l.map(b=>b.getBoundingClientRect().height))
+   expect(heights.length).toBeGreaterThanOrEqual(2);for(const h of heights)expect(h).toBeGreaterThanOrEqual(44)
+   expect((await page.getByRole('button',{name:'Projects: all',exact:true}).boundingBox()).height).toBeGreaterThanOrEqual(44)
+  }finally{await w.context.close()}
+ })
+ // F7: the floating Gaffer button covers no text, control, item or stage card where the captures are taken, and on a
+ // narrow detail the bar rests on the foot of the screen (on the tab bar of a phone) with no band beneath it.
+ for(const [width,height] of [[1440,1000],[834,1112],[390,844]]){
+  await step(`the floating button covers nothing at ${width} px`,async()=>{
+   const {w,page}=await open(width,{height})
+   try{
+    if(width<1100){
+     await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
+     await settled(page);expect(await covered(page)).toEqual([])
+     await page.locator(`#pipeline-${oid}-a`).getByRole('button',{name:/^Details/}).click()
+    }
+    const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+    await expect(bar).toBeVisible();await settled(page)
+    expect(await covered(page)).toEqual([])
+    if(width<1100){
+     const foot=()=>page.evaluate(()=>{const bar=document.querySelector('.detail .bar').getBoundingClientRect(),tabs=document.querySelector('nav.bottom-tabs');const floor=tabs&&tabs.getClientRects().length?tabs.getBoundingClientRect().top:innerHeight;return Math.round(floor-bar.bottom)})
+     expect(Math.abs(await foot())).toBeLessThanOrEqual(1)
+     await page.evaluate(()=>scrollTo(0,document.scrollingElement.scrollHeight));await settled(page)
+     expect(Math.abs(await foot())).toBeLessThanOrEqual(1);expect(await covered(page)).toEqual([])
+    }
+    await page.screenshot({path:`${shots}/launcher-${width}.png`})
+   }finally{await w.context.close()}
+  })
  }
  // The five captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page,
  // so the fixed bars sit where they are). Saved only when REET_UI_SCREENSHOTS names a folder.
@@ -307,7 +633,7 @@ try{
    try{
     await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
     await expect(page.getByRole('group',{name:'What do you want to do?',exact:true})).toBeVisible()
-    await page.waitForTimeout(400)
+    await settled(page)
     await page.screenshot({path:`${shots}/factory-rework-${width}-${theme}.png`,fullPage:false})
    }finally{await w.context.close()}
   }
@@ -316,11 +642,11 @@ try{
    try{
     const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
     await expect(waiting).toBeVisible()
-    await page.waitForTimeout(400)
+    await settled(page)
     await page.screenshot({path:`${shots}/factory-rework-834-light-list.png`,fullPage:false})
     await waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true}).click()
     await expect(page.getByRole('group',{name:'What do you want to do?',exact:true})).toBeVisible()
-    await page.waitForTimeout(400)
+    await settled(page)
     await page.screenshot({path:`${shots}/factory-rework-834-light-detail.png`,fullPage:false})
    }finally{await w.context.close()}
   }
@@ -328,10 +654,11 @@ try{
    const {w,page}=await open(390,{theme:'dark',scale:2})
    try{
     await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
-    await page.waitForTimeout(400)
+    await settled(page)
     await page.screenshot({path:`${shots}/factory-rework-390-dark.png`,fullPage:false})
    }finally{await w.context.close()}
   }
   console.log('ok - captures saved')
  }
+ if(failures.length)throw new Error(`${failures.length} check(s) failed: ${failures.join('; ')}`)
 }finally{await browser.close()}

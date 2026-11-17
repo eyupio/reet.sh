@@ -23,18 +23,23 @@
     [key: string]: unknown
   } = $props()
 
+  // An archived outcome's pipeline offers nothing but its Details, whatever it was doing when it was put away.
   const filled = $derived.by((): NeedChoice | undefined => {
+    if (item.archived) return undefined
     if (item.kind === 'failed') return { id: 'restart', label: 'Try again' }
     // The filled button is the choice marked primary, without its trailing "…": the dialog that choice opens still asks first.
     const primary = item.need?.choices.find(choice => choice.primary && usable(choice))
     return primary && { ...primary, label: primary.label.replace(/…$/, '') }
   })
+  // With Gaffer's advice the card says it in the detail's words, and marks the filled button as the detail's bar does.
+  const advised = $derived(!item.archived && item.need?.recommend?.by === 'gaffer' ? item.need.recommend : undefined)
   const tone = $derived(item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
   const detailsLabel = $derived(`Details and other actions for ${item.title}`)
 </script>
 
-{#snippet head()}
-  <span class="line"><span class="chip {tone}">{item.chip}</span><strong class="title">{item.title}</strong></span>
+{#snippet head(heading: boolean)}
+  {#if heading}<div class="line"><span class="chip {tone}">{item.chip}</span><h3 class="title">{item.title}</h3></div>
+  {:else}<span class="line"><span class="chip {tone}">{item.chip}</span><strong class="title">{item.title}</strong></span>{/if}
   <span class="objective">For: {item.objective}</span>
 {/snippet}
 {#snippet stages()}
@@ -44,19 +49,22 @@
 {#if layout === 'compact'}
   <!-- Named by its chip and title: the stages inside would otherwise make a long name. -->
   <button type="button" class="item compact" class:selected aria-pressed={selected} aria-label={`${item.chip}: ${item.title}`} onclick={ondetails} {...rest}>
-    {@render head()}
+    {@render head(false)}
     {@render stages()}
   </button>
 {:else}
   <article class="item card" {...rest}>
-    {@render head()}
+    {@render head(true)}
     {@render stages()}
-    {#if item.why}<p class="why">{item.why}</p>{/if}
+    {#if advised}<p class="why"><strong>Gaffer recommends: {advised.label.replace(/…$/, '')}.</strong> {advised.why}</p>
+    {:else if item.why}<p class="why">{item.why}</p>{/if}
     <div class="buttons">
-      {#if item.kind === 'approval' && permission}
+      {#if item.kind === 'approval' && permission && !item.archived}
         <Approval {sessionId} approval={permission} {onanswered} />
       {:else if filled}
-        <button type="button" class="btn primary" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(filled)}>{filled.label}</button>
+        {#snippet fill()}<button type="button" class="btn primary" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(filled)}>{filled.label}{#if advised}<span class="sr-only"> Recommended</span>{/if}</button>{/snippet}
+        <!-- Marked as the detail's bar marks it: a caption above the button. -->
+        {#if advised}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render fill()}</span>{:else}{@render fill()}{/if}
       {/if}
       <button type="button" class="btn" aria-label={detailsLabel} onclick={ondetails}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></button>
     </div>
@@ -73,12 +81,15 @@
   .chip{flex:none;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:0.875rem;font-weight:600;white-space:nowrap}
   .chip.you{border-color:var(--accent);color:var(--accent-text)}
   .chip.good{border-color:var(--good);color:var(--good)}
-  .title{min-width:0;overflow-wrap:anywhere}
+  .title{min-width:0;margin:0;font:inherit;font-weight:700;overflow-wrap:anywhere}
   .objective,.why{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere}
   .objective{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
   .why{color:var(--ink)}
-  .buttons{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .buttons{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
   .buttons .btn{min-height:44px}
+  .lead{display:grid;gap:2px;min-width:0}
+  .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .short{display:none}
   @media (max-width:560px){.long{display:none}.short{display:inline}}
   @media (pointer: coarse){.item.compact{min-height:44px}}

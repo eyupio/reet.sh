@@ -4391,7 +4391,9 @@ the keyboard, the site bar, desk bar and tool row are gone and the tab bar stays
 The Factory page now has Waiting for you, Working, Finished or stopped and Other sessions as sections that open and
 close, and one detail for the chosen pipeline. Checked against a production build in `factory-pieces.e2e.mjs`, with
 `factory-decision`, `gaffer-factory-session`, `gaffer-factory`, `gaffer-outcome`, `gaffer-floor`, `gaffer-followed`,
-`home-followups`, `session-end-gaffer`, `workbench` and `gaffer-goal` updated to the new structure and passing.
+`home-followups`, `session-end-gaffer` and `workbench` updated to the new structure and passing, and `gaffer-goal`
+passing unchanged (it does not open the Factory page's list). `gaffer-settings`, `home`, `sessions`,
+`session-workspace` and `calm-session` pass too.
 
 - **1440 and 1280 (light and dark):** the list beside the detail, the first waiting pipeline open on arrival, the
   action bar resting at the foot of the detail, no sideways scroll, a link to a pipeline opening it, a section left
@@ -4402,10 +4404,22 @@ close, and one detail for the chosen pipeline. Checked against a production buil
   the page.
 - **390 (dark):** stages as circles with a caption, buttons at least 44 px high, no sideways scroll with five
   pipelines of eight stages, and the same Back behaviour.
-- **Looked at, by eye, at twice the pixel density:** every capture below. One thing was fixed from them: the detail now
-  fills the screen on a tablet, so its bar rests at the foot instead of following the last row. Left as it is:
-  the floating Gaffer button sits over the edge of a card or a line of text while the page scrolls under it, as it
-  does on every page. No text is below 14 px.
+- **Final fix pass (same day):** an approval is answered with Allow once and Deny on the 834 card and in the detail
+  at 1280 and 834, and posts what Home posts; an archived outcome's detail has no bar and its cards only Details; the
+  waiting card says Gaffer's recommendation; eight named stages on a 390 detail keep their words whole and scroll
+  inside their own box, every stage at least 44 px; four long part names wrap between words with no circle
+  overlapping another; a pipeline with no stages lists and opens; the YOLO and merge-on-YOLO confirmations open from
+  the Settings row; `?pipeline=` of an archived outcome shows it; History is read at every opening; the bar's four
+  choices stay on one line at 1280 and 1440; the outcome menu closes on Escape and outside; a group chosen on the wide
+  panel names the Projects button at 834; archiving from an 834 detail returns to the list.
+- **The floating Gaffer button:** checked at 1440, 834 and 390 once it has settled: at none of them is a line of text,
+  a control, a list item or the stage card under it (the test looks at what is on top under a grid of points across
+  it). On a narrow detail it rests at the end of the bar's first line, and the bar sits at the foot of the screen (on
+  the tab bar at 390) with no band under it, also when scrolled to the end. Over a narrow list it rests in a strip at
+  the foot of the screen that the list scrolls under; on the wide page, in the page's last line.
+- **Looked at, by eye, at twice the pixel density:** every capture below, retaken after the final fix pass. Nothing is
+  clipped, overlapping or cramped, there is no blank band under the bar, and the floating button is over no text or
+  control. No text is below 14 px.
 - **Not checked:** a real machine, a real tablet or phone, or a screen reader. These are automated browser checks.
 
 ![Factory, 1440 light](images/ui/factory-rework-1440-light.png)

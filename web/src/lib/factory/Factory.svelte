@@ -710,6 +710,7 @@
   .rest{flex:none;height:var(--launcher-strip);pointer-events:auto}
   .rest:not(.float){margin-top:-16px}
   .rest.float{position:sticky;z-index:3;bottom:var(--foot);margin:-20px calc(-1 * var(--gutter)) 0;background:var(--bg)}
+  :global(html[data-gaffer-anchor]:not([data-gaffer-editing])) .rest.float{box-shadow:0 -1px 0 var(--line)}
   .factory:has(.rest.float){padding-bottom:0}
   /* On a narrow screen the detail is the page, and its bar rests on whatever covers the foot of the screen: the phone's
      tab bar, else nothing. The strip the app keeps at the foot of every page for the floating button is in the bar. */

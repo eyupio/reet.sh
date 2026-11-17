@@ -1543,6 +1543,7 @@ recommended order, waiting decisions and the log's wording; `gaffer-factory`, `g
 
 The Factory page this handoff describes (outcome cards with every pipeline open, the tiles, Expand all) was replaced
 by a list of pipelines in sections and one detail for the pipeline chosen. The floor itself is unchanged, but it is
-now the closed section **Other sessions** at the foot of the list, so open it once before looking for the filters.
+now the section **Other sessions** at the foot of the list. It is closed at first, and opens by itself while a goal in
+it needs the person; otherwise open it once before looking for the filters.
 Gaffer's report, the totals, Goal and limits, the settings and the buttons moved into the detail. See
 [FACTORY-REWORK-1 in handoff.md](../../handoff.md) for where each thing went and the files.

@@ -14,6 +14,7 @@
   import { createAutosave, type Autosave, type Change, type SaveState } from './autosave'
   import type { TerminalActions } from '../terminal/TerminalPane.svelte'
   import { isPhone, screenShortSide } from '../terminal/panelLayout'
+  import { browserViewport, fittedHeight, pageViewport } from '../terminal/sizing'
   import { shell } from '../dialogShell'
   import { layout as treeLayout, leaves, MAX_PANES, MAX_TABS, neighbour, newId, type Pane, type Split, type Tab } from './tree'
   import { DESK_KEYS, deskKey } from './keys'
@@ -130,7 +131,39 @@
     document.addEventListener('visibilitychange', visible)
     // The desk screen takes the window's height to the pixel, as the session workspace does.
     document.documentElement.toggleAttribute('data-desk-screen', true)
+    // An on-screen keyboard that overlays the page leaves the window's height as it was, so the screen is fitted to
+    // what is left above it and the terminals keep their last rows and their keys bar in view.
+    let fitFrame = 0
+    const fit = () => {
+      cancelAnimationFrame(fitFrame)
+      fitFrame = requestAnimationFrame(() => {
+        const reading = browserViewport(), height = fittedHeight(pageViewport.read(reading), reading)
+        const root = document.documentElement
+        // Typing in a pane on a touch screen: only the tab bar stays above it, so the terminal gets the room.
+        typing = height !== null && matchMedia('(pointer: coarse)').matches && !!section?.querySelector('.area')?.contains(document.activeElement)
+        if (height === null) root.style.removeProperty('--desk-fit')
+        else {
+          root.style.setProperty('--desk-fit', `${height}px`)
+          // The browser may have panned the page to bring the caret into view; the fitted page has nothing to pan.
+          if (reading.visual && reading.visual.offsetTop > 0) scrollTo(0, 0)
+        }
+      })
+    }
+    fit()
+    addEventListener('resize', fit)
+    visualViewport?.addEventListener('resize', fit)
+    visualViewport?.addEventListener('scroll', fit)
+    document.addEventListener('focusin', fit)
+    document.addEventListener('focusout', fit)
     return () => {
+      cancelAnimationFrame(fitFrame)
+      document.removeEventListener('focusin', fit)
+      document.removeEventListener('focusout', fit)
+      typing = false
+      removeEventListener('resize', fit)
+      visualViewport?.removeEventListener('resize', fit)
+      visualViewport?.removeEventListener('scroll', fit)
+      document.documentElement.style.removeProperty('--desk-fit')
       removeEventListener('resize', measure)
       document.documentElement.removeAttribute('data-desk-theatre')
       removeEventListener('pagehide', leave)
@@ -824,6 +857,9 @@
   // Theatre view: the top bar and the desk header fold away, leaving the tab bar, the toolbar and the panes.
   let theatre = $state(false)
   $effect(() => { document.documentElement.toggleAttribute('data-desk-theatre', theatre) })
+  // An on-screen keyboard is open over a pane the person is typing in (set where the screen is fitted above it).
+  let typing = $state(false)
+  $effect(() => { document.documentElement.toggleAttribute('data-desk-typing', typing); return () => document.documentElement.removeAttribute('data-desk-typing') })
 
   // The Keys list.
   let keysOpen = $state(false), keysDialog = $state<HTMLDialogElement>()
@@ -868,7 +904,7 @@
 
 <svelte:window onkeydowncapture={onKey} />
 
-<section class="desk-screen" class:theatre bind:this={section} aria-label={desk ? `Desk ${desk.name}` : 'Desk'}>
+<section class="desk-screen" class:theatre class:typing bind:this={section} aria-label={desk ? `Desk ${desk.name}` : 'Desk'}>
   {#if failure}
     <div class="gone"><p role="alert">{failure}</p><div class="acts">{#if failure === READ_FAILED}<button type="button" class="btn primary" onclick={() => start(id)}>Try again</button>{/if}<button type="button" class="btn" onclick={onlist}>All desks</button></div></div>
   {:else if !desk}
@@ -934,7 +970,7 @@
         {/each}
       </div>
     {/if}
-    {#if activeTab && activePane}
+    {#if activeTab && activePane && !typing}
       <DeskToolbar name={paneName(activePane)} actions={actionsFor[activePaneId]} splits={!phone && !template} zoomed={!!zoomed} {theatre}
         canZoom={ids.length > 1} onsplit={dir => void splitPane(dir)} onzoom={() => zoom()} ontheatre={() => (theatre = !theatre)} />
     {/if}
@@ -1096,6 +1132,9 @@
   /* Theatre: the top bar (App's .site-header) and the desk header fold away; the tab bar, toolbar and panes stay. */
   .theatre .dhead { display: none; }
   :global(html[data-desk-theatre] .site-header) { display: none; }
+  /* Typing with an on-screen keyboard open: the same two fold away, and the toolbar is not shown, until the keyboard closes. */
+  .typing .dhead { display: none; }
+  :global(html[data-desk-typing] .site-header) { display: none; }
   .keys { max-width: min(460px, calc(100vw - 32px)); padding: 0; border: 0; background: transparent; color: var(--ink); }
   .keys::backdrop { background: var(--scrim); }
   .keys .box { padding: 24px; background: var(--card-raised); border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: var(--shadow); }
@@ -1112,7 +1151,7 @@
   .gone p { margin: 0; color: var(--muted); }
   .gone .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .loading { color: var(--muted); }
-  :global(html[data-desk-screen] #app) { height: 100dvh; min-height: 0; }
+  :global(html[data-desk-screen] #app) { height: var(--desk-fit, 100dvh); min-height: 0; }
   :global(html[data-desk-screen] main#main-content) { min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
   @media (max-width: 700px) {
     .dhead { padding: 6px 10px; gap: 8px; }

@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desks**: on a tablet or phone whose on-screen keyboard overlays the page,
+  an open desk now ends above the keyboard, so the terminal's last rows and
+  its keys bar stay in view while you type. Before, the desk kept the
+  window's full height and the keyboard covered the bottom of the pane.
+  While you type in a pane, the site bar, the desk bar and the tool row step
+  aside so the terminal gets the room; the tab bar stays, and everything
+  comes back when the keyboard closes.
+
 - **Desks**: **Layout** now works on a tab with one pane. It combines tabs:
   all of them at once, or the ones you tick in **Combine tabs…**, laid out
   side by side, stacked or as a grid. Nothing is restarted.

@@ -4375,3 +4375,13 @@ which pipelines' sessions in hand could not be switched. Checked at 1280 in `fac
 production build: the confirmation, the request (`revision`, `on`, `confirmed`), the note, and switching back.
 
 ![The YOLO switch beside Approvals](images/ui/factory-yolo-switch-1280.png)
+
+## A desk above the on-screen keyboard (17 November 2026)
+
+With a keyboard that overlays the page, an open desk ends above it. Checked at 834 wide in `desks.e2e.mjs` against
+a production build with a stand-in visual viewport of 560 of 1000 px: the desk's bottom edge is at or above 560,
+the panes keep more than 120 px, and the desk fills the window again when the keyboard closes. While a pane has
+the keyboard, the site bar, desk bar and tool row are gone and the tab bar stays, leaving the panes more than
+440 of the 560 px; a keyboard opened from the desk bar moves nothing aside.
+
+![A desk fitted above the keyboard](images/ui/desks-keyboard-834.png)

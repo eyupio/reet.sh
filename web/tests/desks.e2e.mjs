@@ -37,8 +37,10 @@ function splitDesk() {
   ], { position: 2 })
 }
 
-// What each session's command history answers (by session id), when the machine reads it.
+// What each session's command history answers (by session id), when the machine reads it; how many earlier-output
+// snapshots were read.
 let histories = new Map()
+let historyReads = 0
 // The fixture's state: reset() before each part.
 let profileTheme = 'light'
 let desks, sessions, patches, patched, ends, creates, staleNext, hidden, sockets, failing, ticketDelay, attachingNow, attachingMost
@@ -70,7 +72,7 @@ function reset({ empty = false } = {}) {
   patches = []; patched = []; ends = []; creates = []; staleNext = null; hidden = false
   sockets = new Map(); failing = new Set(); ticketDelay = 0; attachingNow = 0; attachingMost = 0
   reopens = []; reopenFail = new Map(); staleReopens = 0; reopenDelay = 0; reopenNow = 0; reopenMost = 0; conflicted = new Set()
-  posts = []; bracketed = new Set(); histories = new Map(); delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
+  posts = []; bracketed = new Set(); histories = new Map(); historyReads = 0; delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
   renames = []; folderProjects = []; createFail = []; patchFail = new Set(); deskReadFail = false
   projectsFail = false; renameFail = false; projectReads = 0
   profileRemove = false; deletes = []; deleteLeft = new Set(); endFail = new Set(); createDeskFail = null; docRefuse = new Map(); adjustDoc = null
@@ -144,6 +146,10 @@ const api = async route => {
     if (endFail.has(id)) return route.fulfill({ status: 503, json: { error: 'terminal machine is reconnecting; retry after it reconnects' } })
     // An end of a session that has already ended changes nothing in Sessions (the machine forgets the pane's history).
     sessions = sessions.map(s => s.id === id && !['ended', 'exited', 'lost'].includes(s.state) ? { ...s, state: 'ended' } : s)
+  }
+  else if (path.endsWith('/history')) {
+    historyReads++
+    return route.fulfill({ body: Array.from({ length: 400 }, (_, i) => `earlier output ${i}`).join('\n') })
   }
   else if (path.endsWith('/command-history')) {
     const id = path.split('/').at(-2)
@@ -897,6 +903,40 @@ try {
   await expect(page.getByRole('toolbar')).toHaveCount(1)
   await expect(page.locator('.desk-pane .terminal-toolbar, .desk-pane .pane > header, .desk-pane .pane > footer')).toHaveCount(0)
   console.log('ok - the toolbar acts on the focused pane')
+
+  // ── Earlier output toggles on the focused pane, and only on it ──
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await pane('pane-a').locator('.xterm').click()
+  await expect(page.getByRole('toolbar', { name: 'Terminal tools for alpha' })).toBeVisible()
+  {
+    const earlier = page.getByRole('toolbar', { name: 'Terminal tools for alpha' }).getByRole('button', { name: 'Earlier output' })
+    const snapshot = pane('pane-a').getByRole('region', { name: 'Earlier terminal output', exact: true })
+    const before = ['a', 'b', 'c'].map(x => sockets.get(`sess-${x}`).input.length)
+    await expect(earlier).toHaveAttribute('aria-pressed', 'false')
+    await earlier.click()
+    await expect(earlier).toHaveAttribute('aria-pressed', 'true')
+    await expect(pane('pane-a').getByRole('region', { name: 'Scrollable terminal output' })).toContainText('earlier output 399')
+    // The pane beside it keeps its live screen: the toggle is the focused pane's own.
+    await expect(pane('pane-b').getByRole('region', { name: 'Earlier terminal output' })).toHaveCount(0)
+    await earlier.click()
+    await expect(earlier).toHaveAttribute('aria-pressed', 'false')
+    await expect(snapshot).toHaveCount(0)
+    await expect(pane('pane-a').locator('.xterm')).toBeVisible()
+    // A third press opens it again cleanly: one read per opening, and one copy of the buffer.
+    const reads = historyReads
+    await earlier.click()
+    await expect(earlier).toHaveAttribute('aria-pressed', 'true')
+    await expect(snapshot).toContainText('earlier output 0')
+    await expect(snapshot.locator('pre')).toHaveCount(1)
+    expect(historyReads).toBe(reads + 1)
+    await earlier.click()
+    await expect(snapshot).toHaveCount(0)
+    // No pane's shell was typed into while the snapshot was open or closed.
+    expect(['a', 'b', 'c'].map(x => sockets.get(`sess-${x}`).input.length)).toEqual(before)
+  }
+  console.log('ok - Earlier output toggles on the focused pane only')
 
   // ── Alt+Shift+arrow moves focus ──
   reset()

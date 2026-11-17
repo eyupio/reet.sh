@@ -367,6 +367,27 @@ try{
  failHistory=false
  await page.getByRole('button',{name:'Back to live ↓',exact:true}).click()
  expect(inputs.length).toBe(beforeScroll);expect(historyReads).toBe(2)
+ // Earlier output is a toggle: a second press on the same control closes the overlay and returns the live screen, and a
+ // third press opens it again cleanly (one history read per opening, no duplicated output).
+ const earlier=page.getByRole('button',{name:'Earlier output',exact:true})
+ const snapshot=page.getByRole('region',{name:'Earlier terminal output',exact:true})
+ await expect(earlier).toHaveAttribute('aria-pressed','false')
+ await earlier.click()
+ await expect(earlier).toHaveAttribute('aria-pressed','true')
+ await expect(snapshot).toContainText('earlier output 399')
+ await earlier.click()
+ await expect(earlier).toHaveAttribute('aria-pressed','false')
+ await expect(snapshot).toHaveCount(0)
+ await expect(screen).toBeVisible()
+ const readsBeforeReopen=historyReads
+ await earlier.click()
+ await expect(earlier).toHaveAttribute('aria-pressed','true')
+ await expect(snapshot).toContainText('earlier output 399')
+ await expect(snapshot.locator('pre')).toHaveCount(1)
+ expect(historyReads).toBe(readsBeforeReopen+1)
+ await earlier.click()
+ await expect(snapshot).toHaveCount(0)
+ expect(inputs.length).toBe(beforeScroll)
  await page.getByRole('button',{name:'Focus terminal',exact:true}).click();await page.keyboard.press('Shift+PageUp')
  await expect(output).toBeVisible();await page.getByRole('button',{name:'Back to live ↓',exact:true}).click()
  expect(inputs.length).toBe(beforeScroll)

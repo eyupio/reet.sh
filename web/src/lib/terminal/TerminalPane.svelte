@@ -89,7 +89,10 @@
   let touch=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
   function openScrollback(){historyOpen=false;scrollbackOpen=true}
-  async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
+  async function closeScrollback(){scrollbackOpen=false;await tick();if(!scrollbackOpen)terminal?.focus()}
+  // The Earlier output control is a toggle: a press opens the read-only snapshot, a second press puts the live screen
+  // back and focuses it. Opening again builds a fresh snapshot, so nothing from the last one is kept.
+  function toggleScrollback(){if(scrollbackOpen)void closeScrollback();else openScrollback()}
   function openSelect(){
     if(scrollbackOpen){feedback='Return to live output before copying.';return}
     const buffer=terminal?.buffer.active
@@ -462,7 +465,7 @@
     actions={
       get live(){return live},get scrollback(){return scrollbackOpen},get searching(){return searching},
       get uploadsSupported(){return uploadsSupported},get uploadsOff(){return uploadsOff},get skills(){return !!session.tool},get skillsOff(){return skillsOff},
-      earlierOutput:openScrollback,compose:openCompose,
+      earlierOutput:toggleScrollback,compose:openCompose,
       search:()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching},
       copy:()=>void copy(),copyScreen:()=>void copyBuffer('screen'),selectText:openSelect,paste:()=>void readClipboard(),attach:chooseImages,interrupt,
       commands:()=>commandsOpen=true,prompts:opener=>{promptButton=opener;promptsOpen=true},openSkills,
@@ -583,7 +586,7 @@
   {#snippet toolbar()}{#if chrome}
     <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
-      <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Earlier output</span></button>
+      <button onclick={()=>toggleScrollback()} aria-label="Earlier output" aria-pressed={scrollbackOpen} title={scrollbackOpen?"Back to live output":"Scroll earlier terminal output · Shift+PageUp"}><TerminalIcon name="history"/><span>Earlier output</span></button>
       <button bind:this={composeButton} onclick={openCompose} disabled={scrollbackOpen} aria-haspopup="dialog" aria-label="Compose" title="Write or dictate a message, then send it as one paste"><TerminalIcon name="compose"/><span class="tool-label">Compose</span></button>
       <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
       <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>

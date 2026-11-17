@@ -69,9 +69,9 @@ function quiet(f){
  f.routes['/api/v2/gaffer/goals']=()=>({goals:[],readAt:Date.now()})
  f.box.sessions=f.box.sessions.filter(s=>s.id===sid).map(s=>({...s,projectId:'p1'}))
 }
-async function open(width,theme='light',change=()=>{}){
+async function open(width,theme='light',change=()=>{},height){
  const f=fixture();change(f)
- const w=await openWorkspace(browser,{width,height:width<500?844:width<1000?1112:900,theme,touch:width<1000,routes:f.routes})
+ const w=await openWorkspace(browser,{width,height:height||(width<500?844:width<1000?1112:900),theme,touch:width<1000,routes:f.routes})
  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  await w.page.goto(`${base}/`)
  return {...w,f}
@@ -254,14 +254,19 @@ try{
  }
  // The floating Gaffer button covers no button or link of any waiting item (Open, Details, Allow once, Deny, Mark seen,
  // Answer in chat, Approve the merge), at the top of the page and with the end of the list scrolled into view.
- for(const width of [1440,834,390]){
-  const w=await open(width,'light',withMore),page=w.page
+ // At 1180 the rows are wide and the gaps between them are narrower than the button, so a second pass adds eight more
+ // failed sessions (ten rows, each with its buttons at the right) and the button is checked at every scroll position.
+ const crowded=f=>{withMore(f);for(let i=0;i<8;i++)f.box.sessions.push({agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now-3*3600000,exitCode:2,dir:'/work',id:`crowd-${i}`,title:`Lost run ${i}`,state:'exited',updatedAt:now-(30+i)*MIN,projectId:'p2',attention:'failed',attentionSource:'terminal',changedSinceSeen:true})}
+ for(const [width,height,many] of [[1440],[1180,800],[1180,800,true],[1250,800,true],[834],[390]]){
+  const w=await open(width,'light',many?crowded:withMore,height),page=w.page
   try{
-   await expect(entries(page)).toHaveCount(7)
+   await expect(entries(page)).toHaveCount(many?10:7)
    const settled=()=>expect.poll(()=>page.evaluate(()=>new Promise(done=>{const el=document.querySelector('.gaffer-launcher');if(!el)return done(false);const a=el.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=el.getBoundingClientRect();done(el.style.getPropertyValue('--launcher-clearance')!==''&&a.top===b.top&&a.left===b.left)}))}))).toBe(true)
    const under=()=>page.evaluate(()=>{
     const r=document.querySelector('.gaffer-launcher').getBoundingClientRect(),hit=[]
-    for(const node of document.querySelectorAll('.waiting-list button,.waiting-list a[href]')){
+    const controls=[...document.querySelectorAll('.waiting-list button,.waiting-list a[href]')]
+    if(!controls.length)return {hit:['no controls were checked'],onScreen:false}
+    for(const node of controls){
      const b=node.getBoundingClientRect()
      if(b.width&&b.height&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top)hit.push((node.getAttribute('aria-label')||node.textContent).trim().replace(/\s+/g,' ').slice(0,40))
     }
@@ -269,14 +274,29 @@ try{
    })
    await page.evaluate(()=>scrollTo(0,0));await settled()
    expect(await under()).toEqual({hit:[],onScreen:true})
-   await page.screenshot({path:`${shots}/home-launcher-${width}-top.png`})
+   await page.screenshot({path:`${shots}/home-launcher-${width}${many?'-crowded':''}-top.png`})
+   // Scrolled part-way through ten rows spaced closer than the button is tall there is no gap anywhere in view, and then
+   // the button may cover only a sliver of a button's corner, never its label (a quarter of it at most).
+   if(many)for(let y=70;y<=2100;y+=70){
+    await page.evaluate(y=>scrollTo(0,y),y);await settled()
+    const worst=await page.evaluate(()=>{
+     const r=document.querySelector('.gaffer-launcher').getBoundingClientRect();let most=0
+     for(const node of document.querySelectorAll('.waiting-list button,.waiting-list a[href]')){
+      const b=node.getBoundingClientRect(),w=Math.min(b.right,r.right)-Math.max(b.left,r.left),h=Math.min(b.bottom,r.bottom)-Math.max(b.top,r.top)
+      if(w>0&&h>0)most=Math.max(most,w*h/(b.width*b.height))
+     }
+     return {most,onScreen:r.top>=0&&r.bottom<=innerHeight}
+    })
+    expect(worst.onScreen,`scrolled to ${y}`).toBe(true);expect(worst.most,`scrolled to ${y}`).toBeLessThanOrEqual(.25)
+   }
+   await page.evaluate(()=>scrollTo(0,0));await settled()
    const last=page.locator('.waiting-list > li').last()
    await last.scrollIntoViewIfNeeded();await settled()
    expect(await under()).toEqual({hit:[],onScreen:true})
-   await page.screenshot({path:`${shots}/home-launcher-${width}-list-end.png`})
+   await page.screenshot({path:`${shots}/home-launcher-${width}${many?'-crowded':''}-list-end.png`})
    await page.evaluate(()=>scrollTo(0,document.scrollingElement.scrollHeight));await settled()
    expect(await under()).toEqual({hit:[],onScreen:true})
-   await page.screenshot({path:`${shots}/home-launcher-${width}-end.png`})
+   await page.screenshot({path:`${shots}/home-launcher-${width}${many?'-crowded':''}-end.png`})
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }

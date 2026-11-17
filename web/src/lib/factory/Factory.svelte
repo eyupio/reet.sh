@@ -607,7 +607,7 @@
   .split .pane{min-height:0;overflow-y:auto;scrollbar-width:thin;box-sizing:border-box;padding:20px 24px 0;border:1px solid var(--line);border-radius:14px;background:var(--card);--detail-inset:24px}
   .pane.resting{display:grid;place-items:center;padding:24px;color:var(--muted);text-align:center}
   /* On a narrow screen the detail is the page, and its bar rests on whatever covers the foot of the screen: the phone's
-     tab bar, else nothing. The strip the app keeps at the foot of every page for the floating button is in the bar. */
+     tab bar, else nothing. The floating button is not given a strip: it keeps off the bar's buttons by itself. */
   .factory.reading{padding-bottom:0;min-height:calc(100dvh - var(--top) - var(--foot));box-sizing:border-box;display:flex;flex-direction:column}
   .reading .board{flex:1 1 auto;display:flex;flex-direction:column}
   .reading .pane{flex:1 1 auto;display:flex;flex-direction:column;--detail-inset:var(--gutter);--detail-bottom:var(--foot)}

@@ -301,16 +301,6 @@ try{
   await expect(page.locator('.gaffer-launcher')).toBeVisible()
   await expect.poll(()=>page.evaluate(()=>new Promise(done=>{const el=document.querySelector('.gaffer-launcher');if(!el)return done(false);const a=el.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=el.getBoundingClientRect();done(el.style.getPropertyValue('--launcher-clearance')!==''&&a.top===b.top&&a.left===b.left)}))}))).toBe(true)
  }
- const covered=page=>page.evaluate(()=>{
-  const el=document.querySelector('.gaffer-launcher'),r=el.getBoundingClientRect(),hit=new Set()
-  const busy='button,a,summary,input,label,select,textarea,p,h1,h2,h3,dt,dd,code,li,.item,.stage,.waits,.rows,.caption,.name,.ask,.counts,.choices'
-  for(let i=0;i<=6;i++)for(let j=0;j<=6;j++){
-   const under=document.elementsFromPoint(r.left+1+(r.width-2)*i/6,r.top+1+(r.height-2)*j/6).find(node=>!el.contains(node))
-   const what=under?.closest(busy)
-   if(what)hit.add(`${what.tagName.toLowerCase()}${what.className?`.${String(what.className).trim().split(/\s+/).join('.')}`:''}: ${what.textContent.trim().replace(/\s+/g,' ').slice(0,40)}`)
-  }
-  return [...hit]
- })
 
  // F1: an approval is answered from the narrow card and from the detail on every width, and posts what Home posts.
  for(const width of [1280,834]){
@@ -609,7 +599,9 @@ try{
  // band beneath it. The old strip kept for the button (class rest, data-floating-clearance="dock") is gone.
  const controlsUnder=page=>page.evaluate(()=>{
   const el=document.querySelector('.gaffer-launcher'),r=el.getBoundingClientRect(),hit=[]
-  for(const node of document.querySelectorAll('.factory .buttons :is(button,a[href]),.factory .bar :is(button,a[href]),.factory .approval button')){
+  const controls=[...document.querySelectorAll('.factory .buttons :is(button,a[href]),.factory .bar :is(button,a[href]),.factory .approval button')]
+  if(!controls.length)return ['no controls were checked']
+  for(const node of controls){
    const b=node.getBoundingClientRect()
    if(b.width&&b.height&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top)hit.push(`${node.tagName.toLowerCase()}: ${(node.getAttribute('aria-label')||node.textContent).trim().replace(/\s+/g,' ').slice(0,40)}`)
   }

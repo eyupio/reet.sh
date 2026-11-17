@@ -63,9 +63,6 @@
   .status { font-size: 14px; color: var(--bad); min-height: 0; }
   .status:empty { display: none; }
   .compact .btn { min-height: 32px; font-size: 14px; padding: 0 10px; border-radius: 7px; }
-  @media (pointer: coarse) {
-    .btn, .compact .btn { min-height: 44px; }
-  }
   @media (pointer: coarse), (max-width: 1099px) {
     .btn { min-height: 48px; flex: 1 1 0; }
     .compact .btn { min-height: 44px; }

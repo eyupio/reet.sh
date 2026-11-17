@@ -205,6 +205,9 @@ await page.route('**/api/**',async route=>{
   return route.fulfill({json:breakdowns[rev]()}).catch(()=>{})
  }
  else if(path==='/api/v2/folder-projects')data={projects:[],savedWaiting:0}
+ // The bell reads the Factory's outcomes and Gaffer's goals on every page; this account has neither.
+ else if(path==='/api/v2/gaffer/outcomes'&&method==='GET')data={outcomes:[]}
+ else if(path==='/api/v2/gaffer/goals'&&method==='GET')data={goals:[]}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  // A reply that never arrives: the server has kept the write, the browser sees the connection fail.
  if(dropNextSave&&method==='POST'&&path==='/api/v2/skill-content-targets'){dropNextSave=false;return route.abort('failed')}

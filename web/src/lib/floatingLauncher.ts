@@ -1,6 +1,8 @@
 // Keep a floating entry point clear of growing composers and fixed action docks.
 // The regions opt in; navigation and streamed content can replace them at any time.
-export function keepLauncherClear(node: HTMLElement) {
+// With `dock`, the entry point also rests in a region marked data-floating-clearance="dock" (Gaffer's launcher on the
+// Factory page); without it such a region is ignored, so another floating thing never takes the launcher's strip.
+export function keepLauncherClear(node: HTMLElement, options: { dock?: boolean } = {}) {
   let frame = 0
   const regions = new Set<HTMLElement>()
   const size = new ResizeObserver(schedule)
@@ -16,7 +18,17 @@ export function keepLauncherClear(node: HTMLElement) {
     const viewTop = viewport && Math.abs(viewport.scale - 1) < .01 ? viewport.offsetTop : 0
     const viewBottom = viewport && Math.abs(viewport.scale - 1) < .01 ? Math.min(innerHeight, viewTop + viewport.height) : innerHeight
     let bottom = Math.max(innerHeight - box.bottom, innerHeight - viewBottom + 20)
+    // A region marked "dock" keeps a strip for the entry point: it rests there, centred on the region, rather than above
+    // it. The lowest dock in view and in its column wins, and the other regions are then not consulted.
+    let dock: DOMRect | undefined
     for (const region of regions) {
+      if (!options.dock || region.dataset.floatingClearance !== 'dock') continue
+      const r = region.getBoundingClientRect()
+      if (r.width && r.height && r.top >= viewTop && r.bottom <= viewBottom && r.left < box.right && r.right > box.left && (!dock || r.bottom > dock.bottom)) dock = r
+    }
+    if (dock) { node.style.setProperty('--launcher-clearance', `${innerHeight - dock.bottom + (dock.height - box.height) / 2}px`); return }
+    for (const region of regions) {
+      if (region.dataset.floatingClearance === 'dock') continue
       const r = region.getBoundingClientRect()
       if (r.width && r.height && r.bottom > viewTop && r.top < viewBottom && r.left < box.right && r.right > box.left) {
         bottom = Math.max(bottom, innerHeight - r.top + 12)
@@ -32,7 +44,7 @@ export function keepLauncherClear(node: HTMLElement) {
   window.visualViewport?.addEventListener('resize', schedule)
   window.visualViewport?.addEventListener('scroll', schedule)
   schedule()
-  return {destroy() {
+  return {update(next: { dock?: boolean } = {}) { options = next; schedule() }, destroy() {
     changes.disconnect(); size.disconnect(); cancelAnimationFrame(frame)
     window.removeEventListener('resize', schedule)
     document.removeEventListener('scroll', schedule, true)

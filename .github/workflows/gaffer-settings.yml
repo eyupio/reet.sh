@@ -59,6 +59,7 @@ jobs:
           node web/tests/gaffer-factory.e2e.mjs
           node web/tests/gaffer-factory-session.e2e.mjs
           node web/tests/factory-decision.e2e.mjs
+          node web/tests/factory-pieces.e2e.mjs
           node web/tests/home-followups.e2e.mjs
           node web/tests/gaffer-widget-ux.e2e.mjs
       - uses: actions/upload-artifact@v4

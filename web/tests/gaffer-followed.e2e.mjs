@@ -100,7 +100,7 @@ try {
         await w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByRole('button',{name:'Chat options',exact:true}).click()
         await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Factory floor',exact:true}).click()
         floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
-      } else { await w.page.goto(base+'/factory');floor=w.page.locator('[data-floor]') }
+      } else { await w.page.goto(base+'/factory');const others=w.page.getByRole('button',{name:/^Other sessions/});if(await others.getAttribute('aria-expanded')!=='true')await others.click();floor=w.page.locator('[data-floor]') }
       const card=floor.getByRole('listitem').filter({has:w.page.getByRole('heading',{name:'Archived session',exact:true})})
       // The Factory page has no chat history to open, so it offers only the removal.
       await expect(card.getByRole('button',{name:'Conversation history',exact:true})).toHaveCount(where==='dialog'?1:0)

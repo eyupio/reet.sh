@@ -233,39 +233,43 @@ carries the brief into the existing composer, where you choose the project and
 review the plan before work starts. Setup guidance stays visible if a machine,
 project or Gaffer provider is missing.
 
-Once outcomes exist, the top of the page shows four numbers: pipelines that **need you**, are **ready to
-merge**, are **running** and are **done**. Below, each outcome lists its pipelines.
-A pipeline is one piece of the work, drawn as a production line:
+Once outcomes exist, one line under the title counts what is **waiting for
+you**, **working** and **finished**. The page lists every pipeline in sections:
+**Waiting for you**, **Working**, **Finished or stopped** and **Other sessions**,
+with one pipeline's detail beside the list on a wide screen or as a screen of its
+own on a tablet or phone. A pipeline is one piece of the work, drawn as a
+production line ([the page](factory.md#the-page) describes the rest):
 
 - **Stages.** Plan, design, code, review, test, pull request, babysit and merge, or
   the ones you chose for it. Done stages are filled, the one in hand is ringed, the
   rest are to come.
-- **What is happening.** One line from the controller, Gaffer's latest report, and a
-  highlighted line when Gaffer has brought something back to you.
-- **The numbers.** Which agent and model is doing this stage, reviews left of the
-  stage's budget, time left, the last review, what Gaffer's own model has used on
-  the pipeline so far, and how the merge is decided.
-- **Actions.** Open session, Review goal, **Approve merge** when it is ready, and
-  **Try again** for a pipeline that did not start or stopped part-way.
-
-Each outcome also shows its own figures: pipelines, Gaffer's reviews and tokens
-across all of them, and the budget each stage gets.
+- **What is happening.** One line from the controller, Gaffer's latest review, and
+  what is waiting when Gaffer has brought something back to you.
+- **The numbers.** In the detail: which agent and model is doing this stage, and,
+  under **Usage and budget**, reviews left of the stage's budget, time left, the
+  last review and what Gaffer's own model has used on the pipeline and the outcome
+  so far. How the merge is decided is under **Settings for this outcome**.
+- **Actions.** Open session, Review goal, **Approve the merge** when it is ready,
+  and **Try again** for a pipeline that did not start or stopped part-way, in the
+  detail's bar.
 
 ### Approvals, YOLO and models
 
 When you approve a plan you choose how its agents run:
 
 - **Ask me** (the default). Agents ask before running commands or changing
-  files. While one is asking, its pipeline shows **Needs you** with the reason.
-  Answer it in the session and the pipeline carries on by itself: Gaffer reviews
-  the work already there. Gaffer never answers an approval for you.
+  files. While one is asking, its pipeline waits under **Waiting for you** with
+  the reason, marked **Approval** when reet holds the request, which **Allow once**
+  and **Deny** then answer on the page. Answer it there or in the session and the
+  pipeline carries on by itself: Gaffer reviews the work already there. Gaffer never answers an approval for you.
 - **YOLO**. Every session of the outcome starts without approvals. It is offered
   only when your account allows YOLO, the machine accepts it and every agent in
   the crew has a YOLO option, and only after a confirmation that lists those
   checks. It is never remembered, no plan and no model can ask for it, and the
   controller checks again at every start and records each one. On YOLO the agents
   also act on what Gaffer asks them without waiting for you, so keep the goal and
-  the stages you chose in mind. The outcome shows **Approvals: YOLO**.
+  the stages you chose in mind. **Settings for this outcome** shows **Approvals:
+  YOLO**.
 
 The **Model** list beside each agent holds what that agent really offers on the
 project's machine, your favourites and reet's suggestions; **Other…** takes a
@@ -289,8 +293,9 @@ in its list and the session's header, with a link to the Factory.
 You run the line. On any pipeline with a stage in hand, **Move to next stage**
 closes that stage as it stands and starts the next, without waiting for Gaffer
 to find it done; Gaffer's last review goes along as the handover. The **Merge**
-line on each pipeline has a switch between merging by itself and waiting for
-you, which you can change at any time before the pipeline is done.
+line in each pipeline's **Settings for this outcome** has a switch between
+merging by itself and waiting for you, which you can change at any time before
+the pipeline is done.
 
 **Tell the agent…** on a pipeline sends your own words to its working agent for
 its next turn, without opening the session. **Send back…** has the stage in hand,
@@ -339,9 +344,9 @@ its budget stops and waits for you.
 
 ### When a pipeline needs you
 
-A card marked **Needs you** says why in one sentence, shows Gaffer's latest
-review, and asks **What do you want to do?** with a button for each thing you
-can do:
+A pipeline under **Waiting for you** says why in one sentence. Its detail shows
+Gaffer's latest review and asks **What do you want to do?** with a button for
+each thing you can do:
 
 - **Have Gaffer look again** resumes the goal, so Gaffer reviews the work
   that is there now.
@@ -349,33 +354,31 @@ can do:
 - **Move to next stage** (or **Finish this stage**) closes the stage on your
   word.
 - **Open the session** takes you to the agent, to read or answer it. When the
-  agent is waiting for your approval this is the only choice, and Gaffer
-  carries on by itself once you have answered.
+  agent is waiting for your answer or approval it reads **Open the session to
+  answer**. When the session holds an approval, **Allow once** and **Deny**
+  answer it on the page: on the item on a tablet or phone, and in the detail at
+  every width. Gaffer carries on by itself once you have answered.
 - **Try the review again** appears when Gaffer's own review failed.
 - **Give it a new budget** appears when the stage ran out of reviews or time.
 
 The choice to take unless you know better comes first and is marked
 **Recommended**. When Gaffer's review brought the stage back, the
-recommendation is Gaffer's own: the card says **Gaffer recommends** with its
+recommendation is Gaffer's own: the detail says **Gaffer recommends** with its
 reason and, if it would tell the agent something, the words it would use.
 Choosing **Tell the agent…** then starts from those words, which are yours to
 change. Otherwise the recommended choice is the usual one for that kind of stop.
 A recommendation is advice: nothing happens until you choose.
 
-The same decisions are in two more places, with the same buttons:
-
-- **At the head of the outcome's card**, under **N decisions waiting for
-  you**: every decision the outcome is waiting on, one block for each
-  pipeline, including a merge that waits for your approval.
-- **In the pipeline's session**, under its header, for the session doing the
-  stage in hand. There you can have Gaffer look again, tell the agent, move on
-  or run the stage again without leaving the session. A merge, a new budget
-  and stopping the outcome take you to the pipeline's card.
+The same decisions are in the pipeline's session, under its header, for the
+session doing the stage in hand, with the same buttons. There you can have
+Gaffer look again, tell the agent, move on or run the stage again without
+leaving the session. A merge, a new budget and stopping the outcome take you to
+the pipeline on the Factory page.
 
 #### Let Gaffer take the decisions
 
-Each outcome has **You decide** and **Gaffer decides** at the head of its
-card, and **Decisions: Ask me / Gaffer decides** when you approve its plan. It
+Each outcome has **You decide** and **Gaffer decides** in its **Settings for
+this outcome**, and **Decisions: Ask me / Gaffer decides** when you approve its plan. It
 is **You decide** unless you choose otherwise, and you can switch at any time.
 
 With **Gaffer decides**, when a stage stops Gaffer chooses one of that stage's
@@ -398,46 +401,41 @@ Gaffer never decides a merge (that stays with **Ready to merge** and the merge
 setting), never answers an approval to run a command or change a file (that
 stays with **Ask me** or YOLO), never answers a question while an approval is
 waiting beside it, and never stops an outcome. It takes at most three decisions on one stage; after that the
-stage is yours and the card says so. A decision Gaffer could not make or carry
+stage is yours and the detail says so. A decision Gaffer could not make or carry
 out is left with you, with the reason. You can always choose first: the
 buttons stay.
 
-**What Gaffer decided**, at the head of the card, lists every decision with
-its time, pipeline and stage, what had stopped the stage, what Gaffer did and
-why, newest first. A stage Gaffer moved on from reads **Done: Gaffer decided
-to move on** under **Who did each stage**. Each decision is also in the
-outcome's **History**.
+**What Gaffer decided**, a row of the pipeline's detail, lists every decision
+with its time, pipeline and stage, what had stopped the stage, what Gaffer did
+and why, newest first. A stage Gaffer moved on from reads **Done: Gaffer decided
+to move on** when you pick it in the detail's stages. Each decision is also in
+the outcome's **History**.
 
-If Gaffer reviewed the stage and simply chose no next step, the card says that
-rather than asking for a decision. The **Need you** and **Ready to merge**
-numbers at the top of the page go to the first such pipeline, and Home's
-**Factory pipelines** list links to each pipeline's card.
+If Gaffer reviewed the stage and simply chose no next step, the detail says that
+rather than asking for a decision. Home's **Factory pipelines** list links to
+each pipeline, which the Factory page then opens.
 
-### What the pipeline card tells you
+### What a pipeline's detail tells you
 
-- A pipeline always shows its title, stage ("Review · 4 of 8"), status, stage
-  track and one line of why, folded or not. **Show details** adds the rest,
-  such as who does the stage, usage and budget, and the actions. Pipelines that
-  need you, are ready to merge or have stopped start open. **Expand all** opens
-  every one.
-- An outcome itself folds with **Hide details** / **Show details**, even while
-  it is still moving. Folded, its line says how many pipelines it has and
-  whether they are in progress, finished or all done.
-- On the stage track a **green tick** is a finished stage, a **pulsing green
-  ring** is the stage running now, **amber with "!"** is waiting for you, and
+- A pipeline in the list shows its status, title, the outcome it is for and
+  its stages with a caption ("Review · 4 of 8 · next Test"). Its detail adds
+  the rest: the stage's facts, what is waiting, rows for Gaffer's report, usage
+  and budget, Gaffer's decisions, the history and the outcome's settings, and
+  one bar of actions.
+- In the detail's stages a **green tick** is a finished stage, a **green ring**
+  is the stage in hand, a **filled circle with "!"** is waiting for you, and
   **red with "×"** has stopped. Each state also has its own mark and words, so
-  it does not rely on colour alone, and the pulse stops if your system asks
-  for reduced motion.
+  it does not rely on colour alone. Pick a stage to see its facts.
 
 - **In this stage** is how long the stage in hand has been running.
-- **Agent** is what its session last reported (working, waiting for you, idle)
-  and how long ago it was last active. It turns amber for an idle agent, and
-  for one that says it is working but has shown nothing for fifteen minutes.
-- A stage dot with **»** instead of a tick was moved on by you (the button, or
+- **Doing now** is what its session last reported (working, waiting for you,
+  idle) and how long ago it was last active. It turns amber for an idle agent,
+  and for one that says it is working but has shown nothing for fifteen minutes.
+- A stage with **»** instead of a tick was moved on by you (the button, or
   telling Gaffer in the chat), not handed over by Gaffer after a review.
-- **History**, on the outcome, lists what happened to its pipelines, newest
-  first, from the activity log.
-- **Try the review again** appears when Gaffer's own review failed. The card
+- **History**, a row of the detail, lists what happened to the outcome's
+  pipelines, newest first, from the activity log.
+- **Try the review again** appears when Gaffer's own review failed. The detail
   shows the provider's reason; the button resumes the goal, which reviews the
   work already there.
 
@@ -449,8 +447,9 @@ in the session can be read in full enough to hand over.
 
 A pipeline whose agent runs on YOLO acts without asking you. Letting it merge
 by itself as well would leave nothing stopping for you between the code and
-the merge, so it takes a separate confirmation: on the pipeline's card, **Let
-it merge by itself** asks you to confirm for a YOLO pipeline. Until you do,
+the merge, so it takes a separate confirmation: on the **Merge** line of
+**Settings for this outcome**, **Let it merge by itself** asks you to confirm for
+a YOLO pipeline. Until you do,
 the pipeline stops at **Ready to merge** and its Merge line reads "Waits for
 you (YOLO)", whatever was ticked when the outcome was approved.
 
@@ -459,8 +458,8 @@ you (YOLO)", whatever was ticked when the outcome was approved.
 The agent, model and effort you choose for a stage go to the machine as a
 request. Once the stage's session is running, the controller asks the machine
 what the session is actually on and keeps the answer with the stage. The
-pipeline's card shows it on an **Applied** line, and "Who did each stage"
-shows it for every stage that has been checked:
+pipeline's detail shows it on the stage in hand's **Applied** line, and on every
+finished stage that has been checked when you pick it:
 
 - **Confirmed.** The session is on what you chose. Where you left the model or
   the effort to the agent, the line names what the agent picked.
@@ -530,7 +529,7 @@ as it happens.
 
 ### Ask Gaffer about the whole outcome
 
-**Ask Gaffer for a report** on an outcome is one model request to that outcome's
+**Ask Gaffer for a report**, in a pipeline's **Gaffer's report** row, is one model request to that outcome's
 own provider. It is sent the outcome, each pipeline's state, the handovers and
 Gaffer's latest saved reviews, nothing newer, and only while that provider is
 still allowed session text. The report says what is done, in hand, stuck or
@@ -538,7 +537,8 @@ waiting on you, and whether the pipelines together will meet the outcome.
 
 Gaffer may also **propose pipelines** to add: work nothing covers, or a
 replacement for one that stopped. Each shows why and the stages it would run.
-Tick the ones you want and choose **Add pipelines**. The approval lists each one
+Tick the ones you want and choose **Add 1 pipeline** (or **Add 2 pipelines**, and
+so on). The approval lists each one
 with its own **Agent**, **Model** and **Effort**, starting from the outcome's:
 change them to put a stronger model on a hard job or a cheaper one on a chore.
 Added pipelines never merge by themselves. Nothing is added or started unless you approve it,
@@ -574,9 +574,9 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    left in its tightest window (the figure is yours to change, from 5 to 90,
    under **Switch to a backup below**, and is saved with the crew), the stage starts on the backup instead, if the
    backup's plan has more left (or the backup is signed in with a key, which
-   has no plan to run low). It switches by itself and says so: the pipeline's
-   card shows **Balanced** with the reason, **Who did each stage** keeps it,
-   and the outcome's History records it. A stage with no backup never moves.
+   has no plan to run low). It switches by itself and says so: the stage's facts
+   in the pipeline's detail show **Balanced** with the reason, a finished stage
+   keeps it, and the outcome's History records it. A stage with no backup never moves.
    A tier can have up to three backups, tried in the order you give them:
    the first with more of its plan left does the stage. A Cline backup can be
    given its own billing source.
@@ -584,7 +584,7 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    A working agent is never interrupted. If a stage's agent stops, or its
    session ends, and its plan is by then below your figure, the stage is run
    again on its backup in a new session, in the same folder and branch, once
-   for a stage. The card and the History say so.
+   for a stage. The detail and the History say so.
    A limit that covers one model counts only for stages on that model, so a
    cheaper model of the same agent can be the backup. Balancing uses the plan
    figures the machine last read ([plan limits](agent-accounts.md)), no more
@@ -615,8 +615,8 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    the agent, model and effort that tier means. A stage Gaffer moved off its usual
    tier is marked **Gaffer's assessment** with its reason and a **Use Standard**
    (or Heavy, or Light) button that puts it back; a tier you change is marked
-   **Your choice**. On the Factory, **Who did each stage** names each stage's tier
-   and keeps Gaffer's reason. A stage Gaffer split is shown as its parts, in the
+   **Your choice**. On the Factory, picking a stage in a pipeline's detail names
+   its tier and keeps Gaffer's reason. A stage Gaffer split is shown as its parts, in the
    order they run. You can rename a part, rewrite its brief, change its tier,
    remove it, add one (up to four), or choose **Do as one stage** to undo the
    split. **Split into parts** on a stage splits it by hand; every part then
@@ -677,8 +677,9 @@ source it starts on; left empty, Cline uses its own.
 
 ### Other sessions
 
-Under the pipelines the Factory lists the sessions you started yourself: the ones
-Gaffer looks after, and the running chats it does not yet. With two or more
+**Other sessions**, the list's last section, holds the sessions you started
+yourself: the ones Gaffer looks after, and the running chats it does not yet. It
+is closed at first and opens by itself while one of them needs you. With two or more
 followed sessions in view, **Pause all following** and **Stop all goals** act on
 every one shown, one goal at a time; stopping asks first, and the working models
 keep running either way. Resuming is done one session at a time.

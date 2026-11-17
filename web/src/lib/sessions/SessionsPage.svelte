@@ -6,7 +6,7 @@
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
-  import { GROUP_CHOICES, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
+  import { GROUP_CHOICES, needingIds, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
@@ -107,7 +107,8 @@
   const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, places.get(s.id)?.colour, projects ?? [])
   const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
   const cards = $derived(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines))
-  const needing = $derived(new Set(cards.map(c => c.sessionId)))
+  // By the bell's rule: a session that only finished is not "Needs you".
+  const needing = $derived(needingIds(cards))
 
   const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))

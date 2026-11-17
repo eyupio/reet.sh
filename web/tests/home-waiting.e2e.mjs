@@ -163,6 +163,41 @@ try{
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
+ // When an entry leaves (Allow once, Mark seen, a confirmed choice) the focus goes to the entry now in its place, else the
+ // one before it; never to the page's body.
+ {
+  const answering=f=>{
+   withMore(f)
+   const goals=f.routes['/api/v2/gaffer/goals'],box=f.box
+   box.answered=new Set()
+   f.routes['/api/v2/gaffer/goals']=()=>{const v=goals();v.goals=v.goals.map(r=>box.answered.has(r.goal.sessionId)?{...r,attention:false,reason:undefined,goal:{...r.goal,waitingOnWorker:false}}:r);return v}
+   for(const [id,perm] of [[psid,'perm-pipe00000001'],['approve-session','p1']])f.routes[`/api/v2/terminal/sessions/${id}/chat/permissions/${perm}`]=()=>{box.answered.add(id);box.sessions=box.sessions.map(s=>s.id===id?{...s,pendingPermission:undefined,attention:'working',changedSinceSeen:false}:s);return{answered:true}}
+   f.routes['/api/v2/terminal/sessions/review-session/seen']=()=>{box.sessions=box.sessions.map(s=>s.id==='review-session'?{...s,changedSinceSeen:false}:s);return{seenAt:Date.now()}}
+  }
+  const w=await open(1440,'light',answering),page=w.page
+  const focused=()=>page.evaluate(()=>document.activeElement?.closest('.waiting-list > li')?.querySelector('h3')?.textContent??document.activeElement?.tagName)
+  try{
+   await expect(entries(page).locator('h3')).toHaveText(['Export docs','Export API','Stages when collapsed','Speed up the runner pool','Portal sign-in copy','Billing tidy-up','Release notes'])
+   // Allow once on the pipeline's approval: the next entry takes the focus.
+   await entries(page).filter({hasText:'Stages when collapsed'}).getByRole('button',{name:'Allow once'}).click()
+   await expect(entries(page)).toHaveCount(6)
+   await expect.poll(focused).toBe('Speed up the runner pool')
+   // Mark seen: the next entry.
+   await entries(page).filter({hasText:'Billing tidy-up'}).getByRole('button',{name:'Mark Billing tidy-up as seen',exact:true}).click()
+   await expect(entries(page)).toHaveCount(5)
+   await expect.poll(focused).toBe('Release notes')
+   // The last entry answered: the one before it.
+   await entries(page).filter({hasText:'Release notes'}).getByRole('button',{name:'Allow once'}).click()
+   await expect(entries(page)).toHaveCount(4)
+   await expect.poll(focused).toBe('Portal sign-in copy')
+   // A confirmed choice that moves a pipeline on: the next entry.
+   await entries(page).filter({hasText:'Export API'}).getByRole('button',{name:/^Move to next stage/}).click()
+   await page.getByRole('dialog',{name:'Move “Export API” on to review?'}).getByRole('button',{name:'Move on',exact:true}).click()
+   await expect(entries(page)).toHaveCount(3)
+   await expect.poll(focused).toBe('Speed up the runner pool')
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
  // Nothing waiting: one line, and no Factory section.
  {
   const w=await open(1440,'light',quiet),page=w.page
@@ -180,7 +215,7 @@ try{
   const w=await open(1440,theme,withMore),page=w.page
   try{
    const details=page.getByRole('link',{name:/^Details and other actions for /})
-   const answer=page.getByRole('link',{name:'Answer in chat',exact:true})
+   const answer=page.getByRole('link',{name:/^Answer in chat: /})
    await expect(answer).toBeVisible();await expect(details.first()).toBeVisible()
    const edges=[await right(details.first()),await right(answer)]
    for(const name of ['Release notes','Billing tidy-up']){
@@ -193,8 +228,8 @@ try{
    await page.getByRole('button',{name:'Needs you: 7',exact:true}).click()
    const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
    await expect(pop.locator('.item')).toHaveCount(7)
-   await expect(pop.getByRole('link',{name:'Open in the Factory',exact:true})).toHaveCount(3)
-   await expect(pop.locator('.item',{hasText:'Export docs'}).getByRole('link',{name:'Open in the Factory',exact:true})).toHaveAttribute('href',`/factory?pipeline=${oid}.c`)
+   await expect(pop.getByRole('link',{name:/^Open .+ in the Factory$/})).toHaveCount(3)
+   await expect(pop.locator('.item',{hasText:'Export docs'}).getByRole('link',{name:'Open Export docs in the Factory',exact:true})).toHaveAttribute('href',`/factory?pipeline=${oid}.c`)
    await expect(pop.locator('.item',{hasText:'Stages when collapsed'}).getByRole('button',{name:'Allow once'})).toBeVisible()
    await page.screenshot({path:`${shots}/home-bell-1440-${theme}.png`})
    await page.keyboard.press('Escape')
@@ -215,7 +250,7 @@ try{
  for(const width of [834,390,320]){
   const w=await open(width,'light'),page=w.page
   try{
-   const answer=page.getByRole('link',{name:'Answer in chat',exact:true})
+   const answer=page.getByRole('link',{name:/^Answer in chat: /})
    await expect(answer).toBeVisible()
    await expect(entries(page)).toHaveCount(5)
    const borders=await page.evaluate(()=>[...document.querySelectorAll('.waiting-list > li article')].map(a=>[a.classList.contains('card'),getComputedStyle(a).borderTopWidth]))
@@ -228,7 +263,7 @@ try{
     await page.getByRole('button',{name:'Needs you: 5',exact:true}).click()
     const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
     await expect(pop.locator('.item')).toHaveCount(5)
-    await expect(pop.getByRole('link',{name:'Open in the Factory',exact:true})).toHaveCount(3)
+    await expect(pop.getByRole('link',{name:/^Open .+ in the Factory$/})).toHaveCount(3)
     expect(await noSideways(page)).toBe(true)
     await page.screenshot({path:`${shots}/home-bell-390.png`})
     await page.keyboard.press('Escape')

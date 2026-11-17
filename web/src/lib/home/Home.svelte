@@ -2,7 +2,7 @@
   import FleetPlanMeters from '../FleetPlanMeters.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
-  import { getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
+  import { ApiError, getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
   import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
@@ -27,6 +27,8 @@
   import { readSections, writeSections } from '../factory/sectionMemory'
   import { waitingSummary, workingSummary, type WaitingEntry } from './homeWaiting'
   import { whatWaits } from './whatWaits'
+  import { keepFocusIn } from '../shell/keepFocus'
+  import { short } from '../gafferOutcome'
   import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
@@ -38,8 +40,11 @@
   // the launch bar opens in a modal for Select and an address that hands over projects.
   // SessionBoard owns backlog reads; these loaders supply sessions and the fleet.
   // Both refresh every 15 seconds and retain the last successful read on failure.
-  let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', onsignedout, onattention }: {
+  let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', timeZone = '', dateFormat = 'locale', onsignedout, onattention }: {
     userId: number
+    /** The person's time zone and date format, for the dates in a pipeline's Goal and limits dialog. */
+    timeZone?: string
+    dateFormat?: string
     name?: string
     /** A writer in accounts mode: the full Home. Otherwise the read-only Home. */
     writer: boolean
@@ -102,8 +107,10 @@
   let backlogCount = $state<number | undefined>()
   let now = $state(Date.now())
   let problem = $state('')
+  // The last read of the Factory or of Gaffer's goals failed: the list may lack what waits there, and says so.
+  let factoryFailed = $state(false)
   let followups = $state<GafferGoalOverviewView | undefined>()
-  // Which sessions are part of a Factory pipeline. A helper only: a failed read leaves the cards without the marker.
+  // Which sessions are part of a Factory pipeline, from the same read as the pipelines below.
   let factory = $state<Map<string, FactoryMember>>(new Map())
   // The Factory's pipelines that are not archived: the ones waiting for the person join Home's list, the working ones
   // have a section of their own.
@@ -177,18 +184,34 @@
   const latest = (record: Outcome) => factoryRecords.find(item => item.id === record.id) ?? record
   const pipelineHref = (item: FactoryItem) => `/factory?pipeline=${encodeURIComponent(item.id)}`
 
+  // The entry of Waiting for you that last held the focus. When an answer, Mark seen or a choice takes it away, the focus
+  // goes to the entry now in its place, else the one before, else the section's head (keepFocusIn), never to the body.
+  let waitingList = $state<HTMLUListElement>(), focusedAt = -1
+  // Focus anywhere else (the bell, a dialog) forgets it: what is done there keeps the focus there.
+  const noteFocus = (event: FocusEvent) => {
+    const item = event.target instanceof Element && waitingList?.contains(event.target) ? event.target.closest('.waiting-list > li') : null
+    focusedAt = item?.parentElement ? [...item.parentElement.children].indexOf(item) : -1
+  }
+  async function keepWaitingFocus() {
+    await tick()
+    if (focusedAt >= 0) keepFocusIn(waitingList, focusedAt, document.querySelector<HTMLElement>('section[aria-label="Waiting for you"] button[aria-expanded]'))
+  }
+
   async function markSeen(sessionId: string) {
     sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' && !hasPending(s) ? 'working' : s.attention } : s)
+    // The entry leaves at once; the focus does not fall to the body meanwhile.
+    void keepWaitingFocus()
     try {
       await markSessionSeen(sessionId, bounded())
       signalAttentionChanged()
-      void load(true)
+      await load(true)
+      await keepWaitingFocus()
     } catch (e) {
       if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()) }
     }
   }
 
-  const answered = async () => { await load(true) }
+  const answered = async () => { await load(true); await keepWaitingFocus() }
 
   $effect(() => { onattention?.(allWaiting, markSeen, answered) })
 
@@ -237,13 +260,16 @@
         writer ? terminalMachines(bounded()) : Promise.resolve(undefined),
         writer && accounts ? listGafferGoals(bounded()) : Promise.resolve(undefined),
         // The Factory's pipelines, read with the sessions so a pipeline's session is never shown twice while one is late.
-        // A helper only: a failed read keeps the last pipelines and is not a reason to say Home could not read.
+        // A failed read keeps the last pipelines and says so; 403 and 404 are an account without Gaffer, and stay quiet.
         writer && accounts ? listGafferOutcomes(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
-      if ([h, y, s, p, g, t, f].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
+      if ([h, y, s, p, g, t, f, o].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
       const at = Date.now()
       let failed = false
+      factoryFailed = false
+      // An account without Gaffer is refused (403) or has no such read (404): nothing went wrong.
+      const missed = (r: PromiseSettledResult<unknown>) => r.status === 'rejected' && !(r.reason instanceof ApiError && (r.reason.status === 403 || r.reason.status === 404))
       if (y.status === 'fulfilled') sync = y.value; else failed = true
       if (h.status === 'rejected' && h.reason instanceof TerminalError && h.reason.status === 403 && health === undefined) healthReadable = false
       if (h.status === 'fulfilled' && h.value) health = h.value.machines ?? []
@@ -254,6 +280,7 @@
         if (accounts) {
           if (f.status === 'fulfilled' && f.value) followups = f.value
           if (o.status === 'fulfilled' && o.value) { const floor = o.value.filter(record => !record.archivedAt); factory = factoryMembers(floor); factoryRecords = floor }
+          factoryFailed = missed(f) || missed(o)
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
@@ -261,7 +288,8 @@
         if (t.status === 'fulfilled' && t.value) terminals = t.value; else failed = true
       }
       now = at
-      problem = !failed ? '' : readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds."
+      problem = failed ? (readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds.")
+        : factoryFailed ? 'The Factory could not be read; showing what was last read.' : ''
       readOnce = true
     } finally {
       if (mine === generation) loading = false
@@ -523,6 +551,8 @@
   })
 </script>
 
+<svelte:window onfocusin={noteFocus} />
+
 <!-- One thing waiting: a Factory pipeline with its choices, or a session. A row on a wide screen, a card on a narrow one. -->
 {#snippet waitingEntry(entry: WaitingEntry)}
   {#if entry.source === 'factory'}{@const pair = pairs.get(entry.id)}{#if pair}
@@ -573,11 +603,11 @@
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <ListSection name="Waiting for you" count={waiting.length} summary={waitingSummary(waiting, now)} open={waitingOpen} ontoggle={toggleWaiting}>
         {#if waiting.length}
-          <ul class="waiting-list" class:rows={!narrow} class:cards={narrow}>
+          <ul class="waiting-list" class:rows={!narrow} class:cards={narrow} bind:this={waitingList}>
             {#each waiting.slice(0, waitingLimit) as entry (entry.id)}<li>{@render waitingEntry(entry)}</li>{/each}
           </ul>
           {#if waiting.length > WAITING_PAGE}<div class="attention-window"><span>Showing {Math.min(waitingLimit, waiting.length)} of {waiting.length}</span><button type="button" onclick={() => waitingLimit = waitingLimit < waiting.length ? waitingLimit + WAITING_PAGE : WAITING_PAGE}>{waitingLimit < waiting.length ? `Show ${Math.min(WAITING_PAGE, waiting.length - waitingLimit)} more` : 'Show fewer'}</button>{#if waitingLimit < waiting.length}<button type="button" onclick={async event => { const panel = event.currentTarget.parentElement; waitingLimit = waiting.length; await tick(); panel?.querySelector('button')?.focus() }}>View all {waiting.length}</button>{/if}</div>{/if}
-        {:else}<p class="none">Nothing is waiting for you.</p>{/if}
+        {:else}<p class="none">{factoryFailed ? 'Nothing that could be read is waiting for you.' : 'Nothing is waiting for you.'}</p>{/if}
       </ListSection>
       {#if working.length}
         <ListSection name="Factory, working without you" count={working.length} summary={workingSummary(working)} open={!!opened.working} ontoggle={() => toggleSection('working')}>
@@ -585,7 +615,7 @@
             {#each working as item (item.id)}{@const caption = stageCaption(item.nodes, item.at, 'dots')}
               <li><a class="working-row" href={pipelineHref(item)} aria-label={`${item.title}, ${item.chip.toLowerCase()}${caption ? `: ${caption}` : ''}. For: ${item.objective}. Open it on the Factory page`}>
                 <span class="chipcell"><span class="chip" class:good={item.kind === 'running'}>{item.chip}</span></span>
-                <span class="text"><strong class="title">{item.title}</strong>{' '}<span class="where">· {item.objective}</span></span>
+                <span class="text"><strong class="title">{item.title}</strong>{' '}<span class="where" title={item.objective}>· {short(item.objective)}</span></span>
                 <span class="stagecell"><StagePipeline nodes={item.nodes} at={item.at} size="dots" label={`Stages of ${item.title}`}/></span>
               </a></li>
             {/each}
@@ -614,7 +644,7 @@
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={(card, opener) => void startTerminalOn(card.agentId, opener)} />
       </ListSection>
-      <PipelineChoices bind:this={choices} bind:busy {userId} goals={byConversation} {latest} onchanged={() => load(true)} onnotice={(text, bad = false) => { notice = text ? { text, bad } : null }} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}/>
+      <PipelineChoices bind:this={choices} bind:busy {userId} {timeZone} {dateFormat} goals={byConversation} {latest} onchanged={async () => { await load(true); await keepWaitingFocus() }} onnotice={(text, bad = false) => { notice = text ? { text, bad } : null }} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}/>
       {#if projectStart}
         <NewSessionChoice project={projectStart.project?.name ?? ''} machine={projectStart.project ? projectStart.project.machine || terminals?.find(m => m.agentId === projectStart?.project?.host)?.host || '' : projectStart.machine ?? ''} factory={accounts}
           onchoose={chooseProjectStart} onclose={() => { const opener = projectStart?.opener; projectStart = null; opener?.focus() }} />

@@ -85,7 +85,7 @@ try {
   const panel = page.getByRole('banner').getByRole('region',{name:'Needs you'})
   await expect(panel.getByText('Refactor the store layer',{exact:true})).toBeVisible()
   await expect(panel.getByText('Store rewrite · studio',{exact:true})).toBeVisible()
-  await panel.getByRole('button',{name:'Mark seen'}).click()
+  await panel.getByRole('button',{name:'Mark Refactor the store layer as seen',exact:true}).click()
   await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Skills · reet.sh')
   await page.keyboard.press('Escape')

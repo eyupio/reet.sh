@@ -10,6 +10,7 @@
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
+  import { onAttentionChanged, signalAttentionChanged } from '../attentionSignal'
   import { pipelineAnchor, stageLabel, type NeedChoice } from '../gafferOutcome'
   import { sourceLabel } from '../clineSource'
   import { planEntries, type MachineAccounts } from '../agentAccounts'
@@ -47,6 +48,9 @@
   // Asking Gaffer for a report on an outcome, and approving pipelines it proposed. `picked` holds the ticked proposals per outcome.
   let reporting = $state(''), picked = $state<Record<string, string[]>>({}), adding = $state<Outcome | null>(null), clock = $state(Date.now())
   let controller: AbortController | undefined, epoch = 0
+  // An approval answered on this page signals, and the signal reads the sessions again; the item's own refresh is then not needed.
+  let heard = false
+  const answered = async () => { if (!heard) await loadRail(true); heard = false }
 
   const byConversation = $derived(new Map(goals.map(row => [row.goal.conversationId, row])))
   // Outcomes put away leave the floor and the tallies; they stay in the record and can be shown and restored.
@@ -160,7 +164,10 @@
     const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !choices?.holdsRefresh() && !adding && !reporting) void load() }, 5000)
     const changed = () => void load()
     window.addEventListener(GAFFER_GOALS_CHANGED, changed)
-    return () => { epoch++; controller?.abort(); life.abort(); clearInterval(timer); clearInterval(railTimer); query.removeEventListener('change', resized); small.removeEventListener('change', resized); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
+    // Something was answered or done elsewhere (the bell, another surface): the list and the sessions' approvals are read
+    // again at once. A signal this page sent itself while busy is skipped: the action reads again when it ends.
+    const offAttention = onAttentionChanged(() => { if (busy) return; heard = true; void load(); void loadRail(true) })
+    return () => { offAttention(); epoch++; controller?.abort(); life.abort(); clearInterval(timer); clearInterval(railTimer); query.removeEventListener('change', resized); small.removeEventListener('change', resized); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
   })
   async function closeOutcome() {
     outcomeOpen = false; floorKey++
@@ -171,7 +178,7 @@
   async function stop(record: Outcome) {
     if (busy) return
     busy = true; notice = ''; bad = false
-    try { await stopGafferOutcome(latest(record)); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
+    try { await stopGafferOutcome(latest(record)); signalAttentionChanged(); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
     catch (e) { fail(e, 'The outcome was not stopped.') }
     busy = false
     await load()
@@ -187,6 +194,7 @@
       if (mode === 'delete') { await deleteGafferOutcome(current); notice = `Deleted “${short(record.objective)}”. Its sessions and pull requests were not touched.` }
       else if (mode === 'archive') { await archiveGafferOutcome(current); notice = `Archived “${short(record.objective)}”. Show archived outcomes to bring it back.` }
       else { await restoreGafferOutcome(current); notice = `Restored “${short(record.objective)}”.` }
+      signalAttentionChanged()
     } catch (e) { fail(e, 'That outcome was not changed.') }
     busy = false
     await load()
@@ -215,6 +223,7 @@
     busy = true; notice = ''; bad = false
     try {
       const { notSwitched } = await setGafferOutcomeYolo(latest(record), on)
+      signalAttentionChanged()
       const still = notSwitched.length ? ` The session in hand for ${notSwitched.map(title => `“${title}”`).join(', ')} could not be switched and keeps its own setting; change it in that session, or it changes with the next stage.` : ''
       notice = (on ? 'This outcome is on YOLO: its agents act without asking you, in the sessions in hand and in every stage still to start. A pipeline set to merge by itself waits for you again until you confirm that for YOLO.' : 'This outcome’s agents ask you again before they act.') + still
     }
@@ -226,7 +235,7 @@
   async function setDecisions(record: Outcome, on: boolean) {
     if (busy || !!record.automation === on) return
     busy = true; notice = ''; bad = false
-    try { await setGafferOutcomeAutomation(latest(record), on); notice = on ? 'Gaffer takes this outcome’s decisions from now on, and records each one here. Merges, approvals and questions that need your own words still come to you.' : 'You take this outcome’s decisions again.' }
+    try { await setGafferOutcomeAutomation(latest(record), on); signalAttentionChanged(); notice = on ? 'Gaffer takes this outcome’s decisions from now on, and records each one here. Merges, approvals and questions that need your own words still come to you.' : 'You take this outcome’s decisions again.' }
     catch (e) { fail(e, 'That was not changed.') }
     busy = false
     await load()
@@ -266,7 +275,7 @@
     if (!sending || busy) return
     const { record, piece } = sending
     busy = true; notice = ''; bad = false; dialogError = ''
-    try { await sendGafferPipelineBack(record, piece.key, stage, reason); notice = `Sent “${piece.title}” back to ${stageLabel(stage).toLowerCase()}. The controller is starting that stage again.`; sending = null }
+    try { await sendGafferPipelineBack(record, piece.key, stage, reason); signalAttentionChanged(); notice = `Sent “${piece.title}” back to ${stageLabel(stage).toLowerCase()}. The controller is starting that stage again.`; sending = null }
     catch (e) { dialogError = e instanceof Error ? e.message : 'That pipeline was not sent back.' }
     busy = false
     await load()
@@ -278,7 +287,7 @@
     if (on && record.yolo && !yoloConfirmed) { yoloMerge = { record, piece }; return }
     yoloMerge = null
     busy = true; notice = ''; bad = false
-    try { await setGafferPipelineAutoMerge(record, piece.key, on, yoloConfirmed); notice = on ? `“${piece.title}” will merge by itself once every check passes.` : `“${piece.title}” will stop at Ready to merge and wait for you.` }
+    try { await setGafferPipelineAutoMerge(record, piece.key, on, yoloConfirmed); signalAttentionChanged(); notice = on ? `“${piece.title}” will merge by itself once every check passes.` : `“${piece.title}” will stop at Ready to merge and wait for you.` }
     catch (e) { fail(e, 'The merge setting was not changed.') }
     busy = false
     await load()
@@ -307,6 +316,7 @@
     busy = true; notice = ''; bad = false; dialogError = ''
     try {
       await addGafferPipelines(latest(record), chosen)
+      signalAttentionChanged()
       adding = null
       notice = chosen.length === 1 ? `Added “${chosen[0].title}”. The controller is starting it.` : `Added ${chosen.length} pipelines. The controller is starting them.`
     } catch (e) { dialogError = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
@@ -478,7 +488,7 @@
 {#snippet entry(item: FactoryItem)}{@const pair = pairs.get(item.id)}{#if pair}{@const record = pair.record}{@const piece = pair.piece}
   <WaitingItem {item} layout={narrow ? 'card' : 'compact'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} selected={!narrow && item.id === selectedId} {busy}
     permission={approvalFor(piece.sessionId)} sessionId={piece.sessionId ?? ''} usable={choice => usable(choice, piece)} onchoose={choice => choose(choice, record, piece)}
-    ondetails={() => open(item.id)} onanswered={() => loadRail(true)} id={pipelineAnchor(record.id, piece.key)}/>
+    ondetails={() => open(item.id)} onanswered={answered} id={pipelineAnchor(record.id, piece.key)}/>
 {/if}{/snippet}
 
 {#snippet section(key: FactorySection, name: string, none: string)}{@const own = inSection(items, key)}
@@ -553,7 +563,7 @@
       {#if selected && selectedPair}{@const record = selectedPair.record}{@const piece = selectedPair.piece}<div class="pane" bind:this={pane}>
         {#key selected.id}<PipelineDetail {record} {piece} item={selected} goal={piece.conversationId ? byConversation.get(piece.conversationId) : undefined} goals={byConversation} {busy} {reporting} {clock} {planClock}
           timeline={timeline[record.id]} ticked={ticked(record)} bind:expanded {narrow} {removeMode} position={place >= 0 ? { at: place + 1, of: waitingItems.length } : undefined} {actions} {helpers}
-          permission={approvalFor(piece.sessionId)} onanswered={() => loadRail(true)}
+          permission={approvalFor(piece.sessionId)} onanswered={answered}
           onback={back} onprev={() => step(-1)} onnext={() => step(1)}/>{/key}
       </div>
       {:else if !narrow}<div class="pane resting"><p>Nothing is waiting for you or working. Choose a pipeline in the list to see it here.</p></div>{/if}

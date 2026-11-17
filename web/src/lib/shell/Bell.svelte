@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import type { WaitingEntry } from '../home/homeWaiting'
+  import { short } from '../gafferOutcome'
   import { needStatus } from '../sessionStatus'
+  import { keepFocusIn } from './keepFocus'
   import Approval from './Approval.svelte'
 
   // The top bar's Needs you bell (spec: Information architecture and navigation). It lists everything that waits for the
@@ -24,6 +27,13 @@
   let button = $state<HTMLButtonElement>()
   const panelId = $props.id()
   const badge = $derived(count > 99 ? '99+' : String(count))
+  let list = $state<HTMLUListElement>()
+
+  // An answer or Mark seen that takes its entry away leaves the focus on the next entry (else the previous one, else the
+  // bell), never on the page's body.
+  async function settled(index: number, action: (() => void | Promise<void>) | undefined) {
+    try { await action?.() } finally { await tick(); keepFocusIn(list, index, button) }
+  }
 
   function close(restoreFocus = false) {
     if (!open) return
@@ -64,17 +74,17 @@
     {#if entries.length === 0}
       <p class="empty">Nothing needs you.</p>
     {:else}
-      <ul class="list">
-        {#each entries as entry (entry.id)}
+      <ul class="list" bind:this={list}>
+        {#each entries as entry, index (entry.id)}
           {#if entry.source === 'factory'}
           <li class="item" data-status="waiting">
             <span class="kind">{entry.item.chip}</span>
             <span class="title">{entry.item.title}</span>
-            <span class="where">Factory · {entry.item.objective}</span>
+            <span class="where" title={entry.item.objective}>Factory · {short(entry.item.objective)}</span>
             {#if sentence(entry)}<span class="ask">{sentence(entry)}</span>{/if}
-            {#if entry.approval && entry.item.sessionId}<Approval sessionId={entry.item.sessionId} approval={entry.approval} {onanswered} compact />{/if}
+            {#if entry.approval && entry.item.sessionId}<Approval sessionId={entry.item.sessionId} approval={entry.approval} onanswered={() => settled(index, onanswered)} compact />{/if}
             <div class="actions">
-              <a class="btn open" href={`/factory?pipeline=${encodeURIComponent(entry.item.id)}`} onclick={() => close()}>Open in the Factory</a>
+              <a class="btn open" href={`/factory?pipeline=${encodeURIComponent(entry.item.id)}`} aria-label={`Open ${entry.item.title} in the Factory`} onclick={() => close()}>Open in the Factory</a>
             </div>
           </li>
           {:else if entry.source === 'gaffer'}
@@ -83,22 +93,23 @@
             <span class="title">{entry.goal.title}</span>
             <span class="where">Session{entry.goal.where ? ` · ${entry.goal.where}` : ''}</span>
             <span class="ask">Gaffer’s goal needs you.{#if entry.goal.reason}{' '}{entry.goal.reason}{/if}</span>
-            <div class="actions"><a class="btn open" href={entry.goal.href} onclick={() => close()}>Open</a></div>
+            <div class="actions"><a class="btn open" href={entry.goal.href} aria-label={`Open ${entry.goal.title}`} onclick={() => close()}>Open</a></div>
           </li>
           {:else}
           {@const card = entry.card}
+          {@const answers = !!card.question && !card.approval}
           <li class="item" data-status={needStatus(card.kind)}>
             <span class="kind">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
             {#if card.where}<span class="where">{card.where}</span>{/if}
-            {#if card.question && !card.approval}
+            {#if answers && card.question}
               <span class="ask">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</span>
             {/if}
-            {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} compact />{/if}
+            {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} onanswered={() => settled(index, onanswered)} compact />{/if}
             <div class="actions">
-              <a class="btn open" href={card.href} onclick={() => { close(); void onseen?.(card.sessionId) }}>{card.question && !card.approval ? 'Answer in chat' : 'Open'}</a>
+              <a class="btn open" href={card.href} aria-label={answers ? `Answer in chat: ${card.title}` : `Open ${card.title}`} onclick={() => { close(); void onseen?.(card.sessionId) }}>{answers ? 'Answer in chat' : 'Open'}</a>
               {#if card.markSeen}
-                <button type="button" class="btn seen" onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>
+                <button type="button" class="btn seen" aria-label={`Mark ${card.title} as seen`} onclick={() => void settled(index, () => onseen?.(card.sessionId))}>Mark seen</button>
               {/if}
             </div>
           </li>

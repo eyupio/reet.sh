@@ -446,7 +446,8 @@
     if (!authenticated || needsAuth || !sessionsAccess || isHome) return
     const mine = ++attentionGeneration
     try {
-      const [read, outcomes, goals] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(), listGafferGoals()])
+      // A background read: like the terminal reads, it does not drive the progress bar.
+      const [read, outcomes, goals] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true)])
       if (mine !== attentionGeneration) return
       if (read.status === 'rejected') return
       const sessions = read.value
@@ -1205,7 +1206,7 @@
     {#await pages.Home()}
       <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(entries, seen, answered) => { waitingEntries = entries; onMarkSeen = seen; onAnswered = answered }} />
+      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} {timeZone} {dateFormat} onsignedout={fail} onattention={(entries, seen, answered) => { waitingEntries = entries; onMarkSeen = seen; onAnswered = answered }} />
     {:catch}
       <PageLoadError />
     {/await}

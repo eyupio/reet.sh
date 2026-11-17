@@ -476,3 +476,11 @@ test('a tier’s backups are sent in order, without repeats, and a Cline backup 
   assert.deepEqual([plan[1].backup, plan[1].moreBackups], [{ tool: 'codex' }, undefined])
   assert.equal(o.MAX_BACKUPS, 3)
 })
+
+test('an objective of paragraphs is named in one short line', () => {
+  assert.equal(o.short('Ship CSV export.'), 'Ship CSV export.')
+  const long = o.short(`First paragraph ${'word '.repeat(30)}\n\nSecond paragraph.`)
+  assert.equal(long.length, 80)
+  assert.ok(long.endsWith('…'))
+  assert.ok(!long.includes('\n'))
+})

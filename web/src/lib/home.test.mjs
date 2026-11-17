@@ -522,3 +522,13 @@ test('grouping by attention puts what needs the person first, then problems, the
   assert.deepEqual(groups[0].sessions.map(s => s.id), ['bell', 'asks'])
   assert.equal(h.GROUP_CHOICES[0].value, 'attention')
 })
+
+test('a session needs the person as the bell counts it: a plain finish is not counted, a failure and a review are', () => {
+  const cards = needsYou([
+    session('w', 'a1', 'running', { attention: 'waiting', changedSinceSeen: true }),
+    session('f', 'a1', 'exited', { attention: 'finished', changedSinceSeen: true }),
+    session('x', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true }),
+    session('r', 'a1', 'exited', { attention: 'finished', changedSinceSeen: true, ...tree('r') }),
+  ], NOW)
+  assert.deepEqual([...h.needingIds(cards)].sort(), ['r', 'w', 'x'])
+})

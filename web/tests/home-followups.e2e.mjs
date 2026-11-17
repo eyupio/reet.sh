@@ -42,8 +42,8 @@ try {
       await expect(goal.locator('.chip')).toHaveText('Gaffer')
       await expect(goal).toContainText('Release review');await expect(goal).toContainText('Session')
       await expect(goal).toContainText('Gaffer’s goal needs you.')
-      await expect(goal.getByRole('link',{name:'Open',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=worker-1')
-      expect(await goal.getByRole('link',{name:'Open',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+      await expect(goal.getByRole('link',{name:'Open Release review',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=worker-1')
+      expect(await goal.getByRole('link',{name:'Open Release review',exact:true}).evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
       await expect(w.page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
       await expect(w.page).toHaveTitle(/^\(1\) /)
       await expect(w.page.getByRole('link',{name:/^Gaffer/})).toHaveCount(0)
@@ -60,12 +60,15 @@ try {
       await expect.poll(()=>f.box.reads).toBeGreaterThan(before)
       await expect(heading.locator('.counts')).toHaveText('1 waiting for you')
       await expect(goal).toHaveCount(1)
+      // It says the read failed, rather than nothing.
+      await expect(w.page.locator('.problem')).toHaveText('The Factory could not be read; showing what was last read.')
       f.box.fail=false
       // Once nothing is followed, nothing waits.
       f.box.rows=[]
       await w.page.evaluate(()=>window.dispatchEvent(new Event('reet:gaffer-goals-changed')))
       await expect(heading.locator('.counts')).toHaveText('0 waiting for you')
       await expect(waiting).toContainText('Nothing is waiting for you.')
+      await expect(w.page.locator('.problem')).toHaveCount(0)
       // Home read the goals and made no write, and never touched Gaffer's providers or conversations.
       expect(requests.filter(r=>r.method!=='GET')).toEqual([])
       expect(requests.some(r=>r.path==='/api/v2/gaffer/providers'||r.path==='/api/v2/gaffer/conversations')).toBe(false)
@@ -77,14 +80,28 @@ try {
     try {await w.page.goto(base+'/');await expect(w.page.getByRole('heading',{name:'Home',exact:true})).toBeVisible();await expect(w.page.getByRole('region',{name:'Waiting for you',exact:true})).toHaveCount(0);expect(f.box.reads).toBe(0)}
     finally {await w.context.close()}
   }
-  // Goals that cannot be read leave Home whole: Waiting for you still says what waits, and nothing throws.
+  // Goals that cannot be read leave Home whole, and Home says so: it never claims nothing waits, and nothing throws.
   const failed=fixture();failed.box.fail=true
   const failedWorkspace=await openWorkspace(browser,{width:390,routes:failed.routes})
   try {
     await failedWorkspace.page.goto(base+'/')
-    await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing is waiting for you.')
+    await expect(failedWorkspace.page.locator('.problem')).toHaveText('The Factory could not be read; showing what was last read.')
+    await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing that could be read is waiting for you.')
+    await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).not.toContainText('Nothing is waiting for you.')
     expect(failedWorkspace.errors).toEqual([])
   } finally {await failedWorkspace.context.close()}
+  // An account without Gaffer (its reads refused or missing) is not told anything failed.
+  for (const status of [403,404]) {
+    const quiet=fixture()
+    quiet.routes['/api/v2/gaffer/goals']=()=>({status,json:{error:'no'}});quiet.routes['/api/v2/gaffer/outcomes']=()=>({status,json:{error:'no'}})
+    const q=await openWorkspace(browser,{width:390,routes:quiet.routes})
+    try {
+      await q.page.goto(base+'/')
+      await expect(q.page.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing is waiting for you.')
+      await expect(q.page.locator('.problem')).toHaveCount(0)
+      expect(q.errors).toEqual([])
+    } finally {await q.context.close()}
+  }
   // The Factory page, reached from the tab bar, is where a goal is reviewed and stopped explicitly.
   for (const width of [1440,390]) {
     const f=fixture(),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})

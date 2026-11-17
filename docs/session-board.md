@@ -23,7 +23,13 @@ advised, what it recommends. **Details** opens the pipeline on the Factory page.
 session that has simply finished is not in this list; it is marked **not seen yet** in
 Continue working and on the board until you have looked. A Gaffer goal that needs
 your review on a session with no pipeline is an entry too. The bell, the number in
-the page title and this list always agree, on every page.
+the page title and this list count by the same rule on every page; with a project
+chosen, this list shows that project's entries while the bell and the title still
+count everything. A question the agent of a pipeline asks stays in the list beside
+the pipeline's merge or decision unless that decision is the one that answers it. If
+the Factory or Gaffer's goals cannot be read, Home says so and keeps what it last
+read. When an entry leaves after you answer it or mark it seen, the focus moves to
+the next entry (or the one before it).
 
 Two more sections sit under it and start closed: **Factory, working without you**
 (the pipelines that are running by themselves, each a link to its place on the

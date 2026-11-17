@@ -66,8 +66,8 @@
 {/snippet}
 {#snippet buttons()}
   {@const filled = !!goal || card.kind !== 'waiting' || asking}
-  <a class="btn" class:primary={filled} href={card.href} onclick={() => void onseen?.(card.sessionId)}>{asking ? 'Answer in chat' : 'Open'}</a>
-  {#if card.markSeen}<button type="button" class="btn" onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>{/if}
+  <a class="btn" class:primary={filled} href={card.href} aria-label={asking ? `Answer in chat: ${card.title}` : `Open ${card.title}`} onclick={() => void onseen?.(card.sessionId)}>{asking ? 'Answer in chat' : 'Open'}</a>
+  {#if card.markSeen}<button type="button" class="btn" aria-label={`Mark ${card.title} as seen`} onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>{/if}
 {/snippet}
 
 {#if layout === 'row'}

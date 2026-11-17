@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { NeedChoice } from '../gafferOutcome'
+  import { short, type NeedChoice } from '../gafferOutcome'
   import type { NeedCard } from '../home'
   import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
@@ -97,7 +97,7 @@
       <article class="row" {...rest}>
         <span class="chipcell"><span class="chip {tone}">{item.chip}</span></span>
         <div class="text">
-          <div class="what"><h3 class="title">{item.title}</h3>{" "}<span class="where">· Factory · {item.objective}</span></div>
+          <div class="what"><h3 class="title">{item.title}</h3>{" "}<span class="where" title={item.objective}>· Factory · {short(item.objective)}</span></div>
           {@render why()}
           {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
         </div>

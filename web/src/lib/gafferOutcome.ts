@@ -601,6 +601,9 @@ export function contextLeft(stage: AgentStage | undefined): { text: string; low:
   return { text: `${percent}% · ${compact(left)} of ${compact(size)}`, low: percent <= 15 }
 }
 
+/** An objective can run to paragraphs; a title, a notice or a list row names it in a line. */
+export const short = (text: string): string => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 80 ? `${line.slice(0, 79)}…` : line }
+
 /** The id of a pipeline's card on the Factory page, so Home and other pages can link straight to it. */
 export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
 

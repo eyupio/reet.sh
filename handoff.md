@@ -37,8 +37,10 @@ Continue working and on the board. The head is the title, one line of counts, th
 outcome** and **New session**. A narrow screen gets a **Projects** picker, as on the Factory page.
 
 **One rule for what waits** (`web/src/lib/home/whatWaits.ts`, with `homeWaiting.ts`). Home's list, the bell and the page
-title all take their entries from it, so the three agree on every page. The bell now lists Factory items too, with a
-link to each pipeline. A Gaffer goal that needs review on a session with no pipeline is an entry too.
+title all take their entries from it, so the three count by the same rule on every page (with a project chosen on
+Home, the section shows that project's entries while the bell and the title count everything). The bell now lists
+Factory items too, with a link to each pipeline. A Gaffer goal that needs review on a session with no pipeline is an
+entry too.
 
 **Where things from the old Home went.**
 - "Needs you" (`NeedsYou.svelte`, deleted): the session entries of Waiting for you (`SessionWaitingItem.svelte`).
@@ -90,12 +92,32 @@ green. No deploy.
   poll. Accepted.
 - A Gaffer goal entry has no **Mark seen**; it leaves when the goal no longer needs review.
 
+**What the whole-branch review found, and what changed.**
+- A question a pipeline's agent asks keeps its session entry beside the pipeline's item unless the item is a decision
+  whose choices include answering it (`homeWaiting.ts`); before, a Ready to merge pipeline hid the question.
+- A failed read of the Factory or of Gaffer's goals (anything but 403 or 404) shows "The Factory could not be read;
+  showing what was last read." and the list keeps what was last read; its empty line no longer says "Nothing is
+  waiting for you." then. 403 and 404 (an account without Gaffer) stay silent.
+- The Factory page and the bell refresh each other: every action in `PipelineChoices` and on the Factory page signals
+  `signalAttentionChanged`, and the Factory page listens to it and reads its list and sessions again. Its own signal,
+  sent while `busy`, is skipped, so it does not read twice (`attention-contract` counts the reads).
+- After an entry leaves (Allow once, Deny, Mark seen, a confirmed choice), the focus goes to the next entry's first
+  control, else the previous one's, else the section head (Home) or the bell button (`shell/keepFocus.ts`).
+- A plain waiting session counts as "waiting" in the summary; the bell's and rows' links are named with the title
+  ("Open <title> in the Factory", "Open <title>", "Mark <title> as seen"); the objective in a row or the bell is one
+  short line (`short`, moved to `gafferOutcome.ts`) with the whole of it as a tooltip; the bell's background reads of
+  outcomes and goals no longer drive the progress bar (`req(..., quiet)`); Home passes the time zone and date format
+  to the Goal and limits dialog; the Sessions list's Needs you filter leaves out sessions that only finished
+  (`needingIds`); a goal that names its session only in the goal folds into that session's card, and an archived
+  pipeline's goals are never a stray Gaffer entry (`whatWaits.ts`, now unit-tested); each list section's head is an
+  h2.
+
 **Not done.**
 - The bell panel is short: about one and a half entries are visible before it scrolls.
 - On a phone the Gaffer button can cover card text (a long sentence on a card); it keeps off controls, not text. The
   captures were taken where it covers none.
 - Small things found in review and left: no test pairs an empty-string item session with an empty-string card;
-  `labelOf` is called twice per entry; an unknown card kind falls through to "question"; the moved dialogs now mount
+  `labelOf` is called twice per entry; an unknown card kind falls through to "waiting"; the moved dialogs now mount
   before the delete, add, send-back and YOLO dialogs; `WaitingItem` and `SessionWaitingItem` repeat some row CSS;
   `moveOn` posts with the record captured at the click (the same on the Factory page).
 - Home's pictures in the docs (`docs/images/workspace/home-*`) are drawn from the docs script's example data, to which

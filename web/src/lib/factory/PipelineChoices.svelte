@@ -1,13 +1,13 @@
 <script lang="ts" module>
   import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
-  import type { NeedChoice } from '../gafferOutcome'
+  import { short as shortObjective, type NeedChoice } from '../gafferOutcome'
 
   /** Where a pipeline's session is opened. */
   export const sessionHref = (record: Outcome, id: string) => `/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(id)}`
   /** Whether a pipeline merges by itself: a YOLO pipeline only once that was confirmed for YOLO. */
   export const mergesByItself = (record: Outcome, piece: GafferOutcomeSession) => !!piece.autoMerge && (!record.yolo || !!piece.yoloMergeOk)
   /** An objective can run to paragraphs; a title or a notice names it in a line. */
-  export const short = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 80 ? `${line.slice(0, 79)}…` : line }
+  export const short = shortObjective
   /** The choices a pipeline can actually take right now: no moving on without a stage in hand, no telling an agent that
    *  is not there, no opening a session that was removed. */
   export const usable = (choice: NeedChoice, piece: GafferOutcomeSession) => {
@@ -22,9 +22,12 @@
 <script lang="ts">
   // Carries out a pipeline's choice, and holds the dialogs those choices open: move on, tell the agent, approve merge,
   // stop following, and goal and limits. The Factory page mounts it once, and so does Home. It reads nothing by itself:
-  // what changed is said through `onchanged`, and what happened through `onnotice`.
+  // what changed is said through `onchanged`, and what happened through `onnotice`. A choice that was carried out also
+  // tells the app's attention read (the bell, the title), while `busy` is still set, so a page that listens and shares
+  // `busy` can leave that signal to its own `onchanged`.
   import { approveGafferMerge, controlGafferGoal, getGafferGoal, moveGafferPipelineOn, retryGafferPipeline, stopFollowingGafferOutcome, tellGafferPipelineAgent, type GafferGoalOverview } from '../api'
   import { stageLabel } from '../gafferOutcome'
+  import { signalAttentionChanged } from '../attentionSignal'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferGoal from '../GafferGoal.svelte'
@@ -90,6 +93,7 @@
       if (!view.goal) throw new Error('That goal is no longer there.')
       if (!view.allowed) throw new Error(view.reason || 'Review this goal’s permissions before trying again.')
       await controlGafferGoal(piece.conversationId, view.goal.revision, 'resume', view.pins, true)
+      signalAttentionChanged()
       onnotice(`Gaffer is reviewing “${piece.title}” again.`)
     } catch (e) { fail(e, 'The review was not tried again.') }
     busy = false
@@ -98,7 +102,7 @@
   async function retry(record: Outcome, piece: GafferOutcomeSession) {
     if (busy) return
     busy = true; onnotice('')
-    try { await retryGafferPipeline(latest(record), piece.key); onnotice(`Trying “${piece.title}” again.`) }
+    try { await retryGafferPipeline(latest(record), piece.key); signalAttentionChanged(); onnotice(`Trying “${piece.title}” again.`) }
     catch (e) { fail(e, 'That pipeline was not tried again.') }
     busy = false
     await onchanged()
@@ -107,7 +111,7 @@
     if (!moving || busy) return
     const { record, piece } = moving
     busy = true; onnotice(''); moving = null
-    try { await moveGafferPipelineOn(record, piece.key, piece.stages?.[piece.stage ?? 0]?.kind ?? ''); onnotice(`Moved “${piece.title}” on. The controller is starting its next stage.`) }
+    try { await moveGafferPipelineOn(record, piece.key, piece.stages?.[piece.stage ?? 0]?.kind ?? ''); signalAttentionChanged(); onnotice(`Moved “${piece.title}” on. The controller is starting its next stage.`) }
     catch (e) { fail(e, 'That pipeline was not moved on.') }
     busy = false
     await onchanged()
@@ -118,6 +122,7 @@
     busy = true; onnotice(''); dialogError = ''
     try {
       const sent = await tellGafferPipelineAgent(record, piece.key, tellRequest, text)
+      signalAttentionChanged()
       onnotice(sent.message.state === 'sent' || sent.message.state === 'queued' || sent.message.state === 'sending' ? `Your instruction is with the agent of “${piece.title}” for its next turn.` : `The instruction for “${piece.title}” was not delivered: ${sent.message.note || sent.message.state}.`)
       telling = null
     } catch (e) { dialogError = e instanceof Error ? e.message : 'The instruction was not sent.' }
@@ -130,6 +135,7 @@
     busy = true; onnotice('')
     try {
       await approveGafferMerge(latest(record), piece.key)
+      signalAttentionChanged()
       onnotice(`Merge approved for “${piece.title}”. Its agent merges once every check passes, no review thread is open and there are no conflicts.`)
     } catch (e) { fail(e, 'The merge was not approved.') }
     busy = false; merging = null
@@ -139,7 +145,7 @@
   async function stopFollowing(record: Outcome) {
     if (busy) return
     busy = true; onnotice(''); releasing = null
-    try { await stopFollowingGafferOutcome(latest(record)); onnotice(`Stopped following “${short(record.objective)}”. Sessions that still exist keep running. You can now archive or delete it.`) }
+    try { await stopFollowingGafferOutcome(latest(record)); signalAttentionChanged(); onnotice(`Stopped following “${short(record.objective)}”. Sessions that still exist keep running. You can now archive or delete it.`) }
     catch (e) { fail(e, 'The outcome was not stopped.') }
     busy = false
     await onchanged()

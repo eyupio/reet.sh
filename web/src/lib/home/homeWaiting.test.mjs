@@ -89,3 +89,24 @@ test('the working summary names the pipelines', () => {
   assert.equal(w.workingSummary(items), 'T o.a, T o.b, T o.c and 2 more')
   assert.equal(w.workingSummary([item('o.z', 'decision', 'waiting', 1)]), '')
 })
+
+test('a question the pipeline’s item does not offer to answer keeps the session’s card', () => {
+  const question = { questionId: 'q', message: 'Which branch?', truncated: false, queued: 0 }
+  const asks = sessionId => card(sessionId, 'waiting', 90, { question, reasons: ['question'] })
+  const answer = { why: 'w', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
+  const review = { why: 'w', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'open', label: 'Open the session' }] }
+  // Ready to merge: the item offers the merge, not the question.
+  const merge = w.homeWaiting([item('o.m', 'merge', 'waiting', 100, { sessionId: 's1' })], [asks('s1')])
+  assert.deepEqual(merge.map(e => e.id), ['session:s1', 'o.m'])
+  // A decision not waiting on the worker does not answer it either.
+  const decision = w.homeWaiting([item('o.d', 'decision', 'waiting', 100, { sessionId: 's2', need: review })], [asks('s2')])
+  assert.deepEqual(decision.map(e => e.id), ['session:s2', 'o.d'])
+  // A decision whose choices include answering it speaks for the card.
+  const answered = w.homeWaiting([item('o.a', 'decision', 'waiting', 100, { sessionId: 's3', need: answer })], [asks('s3')])
+  assert.deepEqual(answered.map(e => e.id), ['o.a'])
+})
+
+test('a plain waiting session is counted as waiting, as its chip says', () => {
+  const out = w.homeWaiting([], [card('s1', 'waiting', 0), card('s2', 'waiting', 10, { reasons: ['question'], question: { questionId: 'q', message: 'm', truncated: false, queued: 0 } }), card('s3', 'failed', 20)])
+  assert.equal(w.waitingSummary(out, HOUR), '1 question, 1 waiting, 1 failed · oldest 1 h')
+})

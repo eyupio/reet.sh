@@ -25,8 +25,9 @@ export function whatWaits(
   const byConversation = new Map((goals ?? []).map(row => [row.goal.conversationId, row]))
   const held = new Map(sessions.flatMap(s => s.pendingPermission?.permissionId ? [[s.id, s.pendingPermission] as const] : []))
   const items = factoryItems(floor, byConversation, new Set(held.keys()))
-  // A pipeline's own goals (each stage's conversation, and the ones it retired) are its item, never a goal entry.
-  const piped = new Set(floor.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId), ...(piece.retired ?? [])])).filter((id): id is string => !!id))
+  // A pipeline's own goals (each stage's conversation, and the ones it retired) are its item, never a goal entry; an
+  // archived pipeline's goals are not entries either.
+  const piped = new Set(outcomes.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId), ...(piece.retired ?? [])])).filter((id): id is string => !!id))
   const host = (agentId: string) => machines.find(m => m.agentId === agentId)?.host ?? ''
   const needs: GoalNeed[] = (goals ?? []).flatMap(row => {
     const id = row.session?.id || row.goal.sessionId

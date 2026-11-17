@@ -7,17 +7,19 @@
 </script>
 
 <svelte:element this={region ? 'section' : 'div'} class="sec" aria-label={region ? name : undefined}>
-  <button type="button" class="head" aria-expanded={open} onclick={ontoggle}>
+  <!-- A heading of the page's outline (the page's title is its h1); the button inside it opens and closes the block. -->
+  <h2 class="heading"><button type="button" class="head" aria-expanded={open} onclick={ontoggle}>
     <span class="arrow" class:open aria-hidden="true"></span>
     <span class="name">{name}</span>
     <span class="count">· {count}</span>
     <span class="summary">{summary}</span>
-  </button>
+  </button></h2>
   {#if open}<div class="body">{@render children?.()}</div>{/if}
 </svelte:element>
 
 <style>
   .sec{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+  .heading{margin:0;font:inherit;min-width:0}
   .head{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 4px;border:0;background:none;font:inherit;font-size:14px;color:var(--ink);cursor:pointer;text-align:left;border-bottom:1px solid var(--line-soft)}
   .head:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .arrow{flex:none;width:0;height:0;border-style:solid;border-color:transparent;border-left-color:var(--muted);border-width:5px 0 5px 7px}

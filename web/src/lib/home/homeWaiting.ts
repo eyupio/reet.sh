@@ -13,12 +13,17 @@ export type WaitingEntry =
 
 /** Pipelines waiting for the person, sessions needing them and Gaffer's goals that need review, oldest first. A finished
  *  session is not waiting. A session's card gives way to its pipeline's item only while that item waits and shows what
- *  the card asks: an approval the item does not carry keeps the card. A goal shows only on a session that has no card
+ *  the card asks: an approval the item does not carry keeps the card, and so does a question the item does not offer to
+ *  answer (only a decision whose choices include answering it does). A goal shows only on a session that has no card
  *  in the list and no pipeline (a card already says the goal needs the person; a pipeline's goal is its item). */
 export function homeWaiting(items: FactoryItem[], cards: NeedCard[], goals: GoalNeed[] = []): WaitingEntry[] {
   const waiting = inSection(items, 'waiting').filter(item => !item.archived)
   const waitingBySession = new Map(waiting.filter(item => item.sessionId).map(item => [item.sessionId, item]))
-  const shownByItem = (card: NeedCard) => { const item = waitingBySession.get(card.sessionId); return !!item && !(card.approval && item.kind !== 'approval') }
+  const answers = (item: FactoryItem) => item.kind === 'decision' && !!item.need?.choices.some(choice => choice.id === 'answer')
+  const shownByItem = (card: NeedCard) => {
+    const item = waitingBySession.get(card.sessionId)
+    return !!item && !(card.approval && item.kind !== 'approval') && !(card.question && !answers(item))
+  }
   const pipelineSessions = new Set(items.map(item => item.sessionId).filter(Boolean))
   // Only a card that is in the list can speak for its goal: a finished session's card is not.
   const carded = new Set(cards.filter(card => card.kind !== 'finished').map(card => card.sessionId))
@@ -30,10 +35,10 @@ export function homeWaiting(items: FactoryItem[], cards: NeedCard[], goals: Goal
   return entries.sort((a, b) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }
 
-type Label = 'decision' | 'approval' | 'merge' | 'question' | 'stopped' | 'failed' | 'review' | 'gaffer'
-const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'stopped', 'failed', 'review', 'gaffer']
+type Label = 'decision' | 'approval' | 'merge' | 'question' | 'waiting' | 'stopped' | 'failed' | 'review' | 'gaffer'
+const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'waiting', 'stopped', 'failed', 'review', 'gaffer']
 const WORDS: Record<Label, [string, string]> = {
-  decision: ['decision', 'decisions'], approval: ['approval', 'approvals'], merge: ['merge', 'merges'], question: ['question', 'questions'],
+  decision: ['decision', 'decisions'], approval: ['approval', 'approvals'], merge: ['merge', 'merges'], question: ['question', 'questions'], waiting: ['waiting', 'waiting'],
   stopped: ['stopped', 'stopped'], failed: ['failed', 'failed'], review: ['to review', 'to review'], gaffer: ['Gaffer goal', 'Gaffer goals'],
 }
 
@@ -46,7 +51,9 @@ function labelOf(entry: WaitingEntry): Label {
   const { card } = entry
   if (card.kind === 'failed') return 'failed'
   if (card.kind === 'review') return 'review'
-  return card.approval || card.reasons.includes('approval') ? 'approval' : 'question'
+  // As the chip names it: an approval, else a question, else only waiting.
+  if (card.approval || card.reasons.includes('approval')) return 'approval'
+  return card.question || card.reasons.includes('question') ? 'question' : 'waiting'
 }
 
 /** "1 decision, 2 approvals · oldest 1 h": how many of each kind wait, and for how long the oldest has. */

@@ -22,8 +22,17 @@ this file existed releases were described on their GitHub release pages.
   open is remembered in your browser, and only **Waiting for you** is open the
   first time. Continue working and the Planning board are as they were. On a
   tablet or phone a **Projects** button narrows the list, as it does on the
-  Factory page. The bell now lists the Factory's items too, and its number, the
-  page title and the list agree on every page. Gaffer's floating button now
+  Factory page. The bell now lists the Factory's items too, and its number and
+  the page title count by the same rule as the list on every page (with a
+  project chosen on Home, the list shows that project's entries while the bell
+  and the title count everything). A question a pipeline's agent asks stays in
+  the list beside a merge or a decision that does not answer it. When the
+  Factory or Gaffer's goals cannot be read, Home says so and keeps what it last
+  read instead of saying nothing is waiting. After an entry is answered, marked
+  seen or dealt with, the focus moves to the next entry rather than being lost.
+  The bell and the Factory page refresh each other at once after an action on
+  either. The Sessions list's **Needs you** filter now leaves out sessions that
+  only finished, as the bell does. Gaffer's floating button now
   floats over Home and the Factory page and keeps off the buttons on an item.
   The Factory page no longer reserves a strip at the foot of the page for it,
   and after archiving a pipeline from a narrow screen's detail, one press of

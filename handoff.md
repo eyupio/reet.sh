@@ -30,8 +30,11 @@ The owner reported, from an Android tablet, that a desk's terminal did not adjus
   uses in place of `100dvh`, and scrolls back to the top if the browser panned the page.
 - **Checked:** unit test in `terminal-sizing.test.mjs`; `desks.e2e.mjs` stands in a visual viewport, shrinks it to
   560 of 1000 and reads the desk's bottom edge; `desks-phone.e2e.mjs` still passes.
-- **Not checked:** a real tablet or phone. The site bar, desk bar, tab bar and toolbar still take about 260 px above
-  the pane with the keyboard open; nothing steps aside as the phone chrome does on the session screen.
+- **Bars step aside (the owner's choice: tabs only).** While the screen is fitted, the pointer is coarse and focus is
+  inside `.area`, `typing` is true: the site header and `.dhead` are hidden (as in theatre) and `DeskToolbar` is not
+  rendered. The tab bar, the phone's pane chips, the pane header and its keys bar stay. A keyboard opened by a
+  field outside the panes (the desk's name, a dialog) moves nothing.
+- **Not checked:** a real tablet or phone; the keyboard is a stand-in visual viewport.
 
 ## FACTORY-REALRUN-1: what the first real split run showed (17 November 2026)
 

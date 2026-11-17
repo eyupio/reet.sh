@@ -20,7 +20,10 @@ this file existed releases were described on their GitHub release pages.
   model no longer stops: it starts on the agent's default effort and says so on
   the stage ("agent's default effort (high is not offered)"), on its **Applied**
   line and in the activity log. A model the agent does not offer still stops the
-  stage. Every backup of a stage, not only the first, now drops an effort its
+  stage. **Try again** and **Send back** ask for the chosen effort again, so a
+  machine that has since been updated gets it. A machine whose reet is too old
+  to set an effort at all is still refused, with the line telling you to update
+  it. Every backup of a stage, not only the first, now drops an effort its
   machine does not report before it is started.
 - **Home**: Home now opens on **Waiting for you**, one list of everything that
   needs you, Factory pipelines and sessions together, the one that has waited

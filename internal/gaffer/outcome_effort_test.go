@@ -17,7 +17,7 @@ var effortRefusal = EffortNotOffered("The agent did not confirm the chosen effor
 const highNotOffered = "You chose the effort high; OpenCode does not offer it for this model here, so the session was started on the agent's default effort."
 
 // highDropped is the activity log's reason, written before the start is answered.
-const highDropped = "OpenCode does not offer the effort high for this model here, so the stage is started without it."
+const highDropped = "OpenCode does not offer it for this model here."
 
 func effortInput(r *outcomeRig) OutcomeInput {
 	in := r.in
@@ -273,6 +273,26 @@ func TestAStageWithNoEffortIsNotAskedForTwice(t *testing.T) {
 	piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
 	time.Sleep(50 * time.Millisecond)
 	if asked := r.starter.asked(); len(asked) != 1 || piece.Stages[0].EffortNotOffered != "" || !strings.Contains(piece.Note, "did not confirm the chosen effort") {
+		t.Fatalf("launches %+v pipeline %+v", asked, piece)
+	}
+}
+
+// A refusal that is not the typed effort refusal is not taken for an effort
+// the agent does not offer, even when its words are the same: the stage stops
+// as before, after exactly one start, and keeps its effort.
+func TestAStageRefusedForAnotherReasonIsNotAskedForAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	r.starter.refusal = func(int, OutcomeLaunch) error {
+		return errors.New("The agent did not confirm the chosen effort for this model.")
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, effortInput(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	time.Sleep(50 * time.Millisecond)
+	if asked := r.starter.asked(); len(asked) != 1 || piece.Stages[0].Effort != "high" || piece.Stages[0].EffortNotOffered != "" {
 		t.Fatalf("launches %+v pipeline %+v", asked, piece)
 	}
 }

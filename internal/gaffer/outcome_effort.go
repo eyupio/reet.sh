@@ -105,7 +105,7 @@ func (s *Service) dropStageEffort(o store.GafferOutcome, key string, at int, kin
 	s.audit(o.OwnerID, "gaffer-stage-effort-not-offered", map[string]any{
 		"outcome": o.ID, "pipeline": key, "stage": kind,
 		"agent": launch.Tool, "model": launch.Model, "effort": effort, "how": how,
-		"reason": terminalproto.ToolName(launch.Tool) + " does not offer the effort " + effort + " for this model here, so the stage is started without it.",
+		"reason": terminalproto.ToolName(launch.Tool) + " does not offer it for this model here.",
 	})
 	return true
 }

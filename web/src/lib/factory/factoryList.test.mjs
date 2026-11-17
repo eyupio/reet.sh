@@ -24,6 +24,7 @@ test('each pipeline is in exactly one section', () => {
   assert.deepEqual(items.map(i => i.kind), ['decision', 'merge', 'running', 'queued', 'done', 'halted', 'failed'])
   assert.deepEqual(items.map(i => i.chip), ['Decision', 'Ready to merge', 'Running', 'Waiting its turn', 'Finished', 'Stopped', 'Failed'])
   assert.equal(items[0].id, 'o1.a')
+  assert.equal(items[0].sessionId, 's-a')
   assert.equal(items[0].index, 1)
   assert.equal(items[6].of, 7)
   assert.ok(items[0].need && items[1].need)

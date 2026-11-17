@@ -64,9 +64,29 @@ test('a tier’s effort choices come from the machines, keep a saved level they 
   assert.deepEqual(c.crewEffortChoices({ offered: [], saved: 'high' }), {
     options: [{ value: '', label: 'Default effort' }, { value: 'high', label: 'High (not offered by your machines)' }], disabled: false, unoffered: true,
   })
-  // The machines could not be read: the saved level and the default, with no claim about either.
-  assert.deepEqual(c.crewEffortChoices({ offered: null, saved: 'high' }), {
+  // The machines are still being read: the saved level and the default, with no claim about either.
+  assert.deepEqual(c.crewEffortChoices({ offered: undefined, saved: 'high' }), {
     options: [{ value: '', label: 'Default effort' }, { value: 'high', label: 'High' }], disabled: false, unoffered: false,
   })
-  assert.deepEqual(c.crewEffortChoices({ offered: null, saved: '' }), { options: [{ value: '', label: 'Default effort' }], disabled: false, unoffered: false })
+  assert.deepEqual(c.crewEffortChoices({ offered: undefined, saved: '' }), { options: [{ value: '', label: 'Default effort' }], disabled: false, unoffered: false })
+})
+
+test('with nothing known for an agent, the start levels are offered with the hint, never "No effort setting"', () => {
+  // No machine runs the agent, the account has no machines, or the read failed: a crew must still be settable.
+  const start = [{ value: '', label: 'Default effort' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]
+  assert.deepEqual(c.crewEffortChoices({ offered: null, saved: '' }), { options: start, disabled: false, unoffered: true })
+  assert.deepEqual(c.crewEffortChoices({ offered: null, saved: 'high' }), { options: start, disabled: false, unoffered: true })
+  // A saved level outside the start levels stays, with no claim about it.
+  assert.deepEqual(c.crewEffortChoices({ offered: null, saved: 'max' }), { options: [...start, { value: 'max', label: 'Max' }], disabled: false, unoffered: true })
+})
+
+test('the line under a model no list has waits for the list, and says when no machine has listed the agent’s models', () => {
+  // Still being read: nothing is said yet.
+  assert.equal(c.crewModelNote({ failed: false, read: false, listed: false }), null)
+  // Read, with entries: the model is checked against them.
+  assert.equal(c.crewModelNote({ failed: false, read: true, listed: true }), 'None of your machines lists this model. If the agent does not offer it, the stage stops when it starts.')
+  // Read, and no machine has listed any model for this agent: the name is not checked.
+  assert.equal(c.crewModelNote({ failed: false, read: true, listed: false }), 'Your machines have not listed this agent’s models, so this name is not checked.')
+  // The read failed.
+  assert.equal(c.crewModelNote({ failed: true, read: false, listed: false }), 'Your machines’ models could not be read. If the agent does not offer this model, the stage stops when it starts.')
 })

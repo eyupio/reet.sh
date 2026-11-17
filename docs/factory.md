@@ -122,7 +122,9 @@ Nothing is stopped by a difference.
 
 An effort the stage's agent does not offer for its model does not stop the stage: it starts on the agent's default
 effort instead, its facts say "agent's default effort (high is not offered)" and its **Applied** line is **Confirmed**
-with the reason. A model the agent does not offer still stops it.
+with the reason. A model the agent does not offer still stops it. **Try again** and **Send back** ask for the effort
+again, except while an earlier start of that stage is still unanswered; so do Gaffer's own decision to run a stage again
+and the restart of a stage on its backup.
 
 ## Your Factory crew
 
@@ -159,9 +161,10 @@ In Gaffer settings the choices are those of every machine on your account, since
 - **Agent**: every agent; one none of your machines can run says "(not on your machines)".
 - **Model**: every model your machines list for the agent, with **Agent's default model** and **Other…**. A saved
   model none of them lists stays, with a line saying the stage stops if the agent does not offer it.
-- **Effort**: every level your machines report for the agent, and **Default effort**. An agent with none, such as
-  OpenCode, shows **No effort setting**. A saved level none of them offers stays, marked "(not offered by your
-  machines)": the stage then starts on the agent's default effort.
+- **Effort**: every level your machines report for the agent, and **Default effort**. An agent a machine runs that has
+  none, such as OpenCode, shows **No effort setting**. An agent none of your machines runs, or any agent when you have
+  no machines, offers **Default effort**, low, medium and high. A saved level none of them offers stays, marked "(not
+  offered by your machines)": the stage then starts on the agent's default effort.
 
 Changing a row's agent clears its model and effort. If your machines cannot be read the form says so and still saves.
 

@@ -47,19 +47,35 @@ export const agentOptionLabel = (name: string, onMachines: boolean | null): stri
 
 export type EffortChoice = { value: string; label: string }
 
-/** A tier's effort select. `offered` is what the machines report for the agent, or null when they could not be read.
- *  A saved level no machine offers stays, labelled; `unoffered` asks for the hint that the stage then starts on the
- *  agent's default effort. With nothing reported and nothing saved there is nothing to choose. */
-export function crewEffortChoices({ offered, saved }: { offered: readonly string[] | null; saved: string }): { options: EffortChoice[]; disabled: boolean; unoffered: boolean } {
+/** A tier's effort select. `offered` is what the machines report for the agent: undefined while they are being read,
+ *  null when nothing is known for it (no machine runs it, the account has no machines, or the read failed). With
+ *  nothing known the start levels (low, medium and high, as `START_EFFORTS` in terminal/launchOptions.ts) are offered,
+ *  since a crew must be settable before a machine connects; the controller starts a stage on the agent's default effort
+ *  when its effort is not offered. A saved level no machine offers stays, labelled. `unoffered` asks for the hint that
+ *  the stage then starts on the agent's default effort. An agent a machine runs and reports no level for has nothing to
+ *  choose. */
+export function crewEffortChoices({ offered, saved }: { offered: readonly string[] | null | undefined; saved: string }): { options: EffortChoice[]; disabled: boolean; unoffered: boolean } {
   const level = saved.trim()
-  if (offered === null) return { options: [{ value: '', label: 'Default effort' }, ...(level ? [{ value: level, label: effortLabel(level) }] : [])], disabled: false, unoffered: false }
+  const fallback = { value: '', label: 'Default effort' }
+  if (offered === undefined) return { options: [fallback, ...(level ? [{ value: level, label: effortLabel(level) }] : [])], disabled: false, unoffered: false }
+  if (offered === null) {
+    return { options: [fallback, ...ORDER.map(one => ({ value: one, label: effortLabel(one) })), ...(level && !ORDER.includes(level) ? [{ value: level, label: effortLabel(level) }] : [])], disabled: false, unoffered: true }
+  }
   const unoffered = !!level && !offered.includes(level)
   if (!offered.length && !level) return { options: [{ value: '', label: 'No effort setting' }], disabled: true, unoffered: false }
   return {
     options: [
-      { value: '', label: 'Default effort' }, ...offered.map(one => ({ value: one, label: effortLabel(one) })),
+      fallback, ...offered.map(one => ({ value: one, label: effortLabel(one) })),
       ...(unoffered ? [{ value: level, label: `${effortLabel(level)} (not offered by your machines)` }] : []),
     ],
     disabled: false, unoffered,
   }
+}
+
+/** The line under a crew model that no list has. Null while the agent's models are still being read: nothing is said
+ *  until there is something to check against. */
+export function crewModelNote({ failed, read, listed }: { failed: boolean; read: boolean; listed: boolean }): string | null {
+  if (failed) return 'Your machines’ models could not be read. If the agent does not offer this model, the stage stops when it starts.'
+  if (!read) return null
+  return listed ? 'None of your machines lists this model. If the agent does not offer it, the stage stops when it starts.' : 'Your machines have not listed this agent’s models, so this name is not checked.'
 }

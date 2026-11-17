@@ -34,8 +34,11 @@ request, without it (`dropStageEffort`). Either way the stage keeps the effort c
 the reason, MCP's stage carries `effort_not_offered` (`internal/api/gaffer_factory_mcp.go`), and the Factory page's
 stage facts say "agent's default effort (high is not offered)". A wrong model still stops the stage. Backups and
 balancing treat a dropped effort as the one asked for. Trying a pipeline again or sending it back asks for the dropped
-effort again, so a machine that offers it by then gets it; a machine whose reet takes no start options keeps its own
-refusal, which says to update it.
+effort again, so a machine that offers it by then gets it, except while an earlier start of that stage is still
+unanswered (`UnsureRequest`: that start was asked without it and is taken up as it is); Gaffer's own decision to run a
+stage again and the restart on a backup ask again too. A machine whose reet takes no start options keeps its own
+refusal, which says to update it. The activity log's `reason` is short ("OpenCode does not offer it for this model
+here."), since the line already names the stage and the effort.
 
 **How the refusal is recognised.** The machine refuses an unconfirmed effort with the generic code
 `ACPUnavailable`, which also covers other refusals. The controller tells this one apart by the machine's exact
@@ -54,18 +57,29 @@ a result code of its own from the machine, so nothing hangs on wording.
   model. If the agent does not offer it, the stage stops when it starts." Favourites are read as the outcome dialog
   reads them.
 - **Effort** is a select of `effortUnion` over every machine's `reportedEfforts` (low, medium, high, then the rest as
-  reported), with **Default effort** first; `crewEffortChoices` gives **No effort setting**, disabled, when no machine
-  reports a level and none is saved, and keeps a saved level none offers as "High (not offered by your machines)"
-  with the hint "If the agent does not offer this effort, the stage starts on the agent's default effort."
+  reported), with **Default effort** first; `crewEffortChoices` gives **No effort setting**, disabled (described to a
+  screen reader as "OpenCode has no effort setting"), only when a machine runs the agent and reports no level and none
+  is saved, and keeps a saved level none offers as "High (not offered by your machines)" with the hint "If the agent
+  does not offer this effort, the stage starts on the agent's default effort." When nothing is known for the agent (no
+  machine runs it, the account has none, or the read failed) it offers Default, low, medium and high, the start levels
+  of `launchOptions.ts`, with the same hint. The hint and the model's note are tied to their selects
+  (`aria-describedby`); the failed-read line is a polite live region.
 - **Agent** keeps the fixed list (a crew may be set before a machine connects); one no machine runs as a chat
   (`structuredAgent`) reads "(not on your machines)". Changing a row's agent clears its model, effort and Cline source.
 - Reads: the crew, the machines and the favourites once on mount; each agent's models once, when it is first in the
   crew. No polling. A failed read is one line ("Your machines could not be read…"), the model select falls back to the
-  agent's default, favourites, suggestions and **Other…**, the effort to the saved level and the default, and saving
-  is never blocked.
+  agent's default, favourites, suggestions and **Other…**, the effort to the start levels, and saving is never blocked.
+- The model note (`crewModelNote`) waits until the agent's list is read; when no machine has listed any model for the
+  agent it says "Your machines have not listed this agent's models, so this name is not checked." **Other…** on a
+  saved model no list has (the "Current" group) keeps it in the box, at most 100 bytes (`terminalproto.MaxModelBytes`);
+  on a listed value it still starts from an empty box. Further backups are keyed by a per-row id, so removing one
+  leaves the next as it was.
 - The outcome dialog and **Add pipelines** now drop an unreported effort from every backup, further backups included
   (`withReportedEfforts` in `gafferOutcome.ts`); before, the dialog dropped only the first backup's and Add pipelines
-  dropped none.
+  dropped none. When the machine or its capabilities are not known (not read yet, the read failed, or the outcome's
+  machine is gone) nothing is dropped and the plan goes as chosen (`withReportedEfforts(plan, null)`): the controller
+  drops an unoffered effort itself, and stripping on a guess only lost the person's choice. Add pipelines then offers
+  the start levels; the outcome dialog cannot be approved without a machine, and clears nothing until it has one.
 
 **Tests.** Unit: `crewChoices.test.mjs` (new, in `npm run test`), `models.test.mjs` (`everywhere`),
 `gafferOutcome.test.mjs` (every backup's effort). Browser: `gaffer-settings.e2e.mjs` has the crew checks (options from
@@ -77,10 +91,31 @@ and the saved values they led to were replaced). `tests/helpers/workspace.mjs` a
 **Not covered.**
 - Efforts are reported per agent, not per model, so the form (and the outcome dialog) may offer a level a particular
   model lacks; the stage then starts on the default effort.
-- A machine that reports nothing about its agents' options costs one refused start before the retry.
-- Each refused start leaves one "lost" row in Sessions history.
+- On a machine that reports nothing about its agents' options, every start of a stage with an unoffered effort, each
+  **Try again** and **Send back** included, costs one refused start before the retry, and each refused start leaves one
+  "lost" row in Sessions history.
 - If the controller stops between the refusal and saving the retry, the stage reads as failed, and **Try again** goes
   the same way.
+
+**Known and left.** `SendPipelineBack` (`internal/gaffer/outcome_manage.go`, around lines 647-670) rebuilds the stages
+from the target on but does not clear the pipeline's `UnsureRequest`. Sending a pipeline back while a later stage's
+start is still unanswered can therefore make the earlier stage take up, or ask again under, that old request. Found by
+reading only; not changed here.
+
+**The Factory's empty page.** With no pipelines the Factory is now one line, **No pipelines yet.**, and the **Give
+Gaffer an outcome** button, on every screen size: no brief, example outcomes or job sheet. The owner asked for "just the
+button" after seeing the old two-panel page squeezed side by side on a phone, a regression from the page's rebuild,
+which removed the container it stacked on. Checked at 390, 834 and 1280 in `web/tests/gaffer-factory.e2e.mjs`
+(one button, no text box or list, under 200 px tall, a 44 px button, no sideways scroll, focus back on the button
+after the dialog closes). No docs picture showed the old empty page.
+
+**Tests added in the review fix wave.** `gafferOutcome.test.mjs` (efforts sent as chosen when unknown),
+`crewChoices.test.mjs` (start levels for an unknown agent, the model note), `gaffer-factory.e2e.mjs` (Add pipelines with
+the machines read failing keeps the crew's efforts, backups included), `gaffer-settings.e2e.mjs` (an agent no machine
+runs and an account with no machines offer the start levels, the descriptions, Other… keeping a kept model at 100
+bytes, removing a middle backup, the note waiting for the list, saving untouched sends what was loaded, and no
+unmocked request on the page), `outcome_effort_test.go` (`TestAStageRefusedForAnotherReasonIsNotAskedForAgain`: an
+untyped error with the same words starts once).
 
 **Not checked.** No real machine or agent: every refusal, model list and capability report is a fixture or a unit
 test. Widths are emulated. No screen reader. The captures are in [docs/ui-verification.md](docs/ui-verification.md).

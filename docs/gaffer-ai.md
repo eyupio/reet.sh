@@ -294,6 +294,12 @@ line is **Confirmed** with the reason, and the activity log records
 `gaffer-stage-effort-not-offered`. A model the agent does not offer still
 stops the stage.
 
+**Try again** and **Send back** ask for the chosen effort again, so a machine
+that offers it by then gets it, except while an earlier start of that stage is
+still unanswered: that start was asked for without the effort and is taken up
+as it is. Gaffer's own decision to run a stage again, and the restart of a stage
+on its backup, ask for it again too.
+
 A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, and on the Sessions page,
 in its list and the session's header, with a link to the Factory.
@@ -516,7 +522,7 @@ reason in the controller's own words:
 | --- | --- |
 | `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
 | `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
-| `gaffer-stage-effort-not-offered` | The effort chosen for a stage (`effort`) is not offered by its agent for the model on that machine, so the stage is started without it, on the agent's default effort. Written before that start is answered; `reason` says why. Trying the pipeline again or sending it back asks for the effort again. |
+| `gaffer-stage-effort-not-offered` | The effort chosen for a stage (`effort`) is not offered by its agent for the model on that machine, so the stage is started without it, on the agent's default effort. Written before that start is answered; `reason` says why ("OpenCode does not offer it for this model here."). Trying the pipeline again or sending it back asks for the effort again, except while an earlier start of that stage is still unanswered; Gaffer's own decision to run a stage again and the restart on a backup ask again too. |
 | `gaffer-stage-started` | The controller started the next stage, in a session of its own. |
 | `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
 | `gaffer-pipeline-done` | Every stage is done. |
@@ -682,16 +688,20 @@ are those of every machine on your account:
   lists stays chosen, with a line under it: if the agent does not offer it, the
   stage stops when it starts.
 - **Effort** lists every level your machines report for that agent, low,
-  medium and high first, and **Default effort**. An agent no machine reports a
-  level for (OpenCode and Cline, for example) shows **No effort setting** and
-  saves none. A saved level none of your machines offers stays, marked "(not
-  offered by your machines)", with a line under it: the stage then starts on
-  the agent's default effort.
+  medium and high first, and **Default effort**. An agent a machine runs and
+  reports no level for (OpenCode and Cline, for example) shows **No effort
+  setting** and saves none. An agent none of your machines runs, or any agent
+  when you have no machines, offers **Default effort**, low, medium and high,
+  with the line under it. A saved level none of your machines offers stays,
+  marked "(not offered by your machines)", with a line under it: the stage then
+  starts on the agent's default effort.
 
 Changing a row's agent clears its model and effort. When your machines or their
 model lists cannot be read, the form says so in one line and still saves: a
-model can be typed with **Other…**, and an effort shows what you saved and the
-default. The outcome dialog checks every choice again against the project's
+model can be typed with **Other…**, and an effort offers the default, low,
+medium and high. **Other…** on a saved model no list has puts that name in the
+box, to be corrected rather than typed again. A typed name no machine can check,
+because none has listed that agent's models, says so. The outcome dialog checks every choice again against the project's
 machine. A Cline tier or backup there has a field for the billing source it
 starts on; left empty, Cline uses its own.
 

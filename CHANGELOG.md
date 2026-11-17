@@ -9,10 +9,10 @@ this file existed releases were described on their GitHub release pages.
   choices instead of boxes to type in. **Model** lists the models your machines
   have listed for the chosen agent, with **Agent's default model** and
   **Other…** for a name of your own; **Effort** lists the levels your machines
-  report for that agent, and shows **No effort setting** for an agent that has
-  none, such as OpenCode. An agent none of your machines can run is marked "(not
-  on your machines)" but can still be chosen, so a crew can be set before a
-  machine connects. A saved model or effort that none of your machines offers is
+  report for that agent, and shows **No effort setting** for an agent a machine
+  runs that has none, such as OpenCode. An agent none of your machines can run
+  is marked "(not on your machines)" but can still be chosen, with low, medium
+  and high offered for it, so a crew can be set before a machine connects. A saved model or effort that none of your machines offers is
   kept and marked, with a line saying what happens at the start. Changing a
   row's agent clears its model and effort. If your machines cannot be read, the
   form says so and still saves.
@@ -21,10 +21,13 @@ this file existed releases were described on their GitHub release pages.
   the stage ("agent's default effort (high is not offered)"), on its **Applied**
   line and in the activity log. A model the agent does not offer still stops the
   stage. **Try again** and **Send back** ask for the chosen effort again, so a
-  machine that has since been updated gets it. A machine whose reet is too old
-  to set an effort at all is still refused, with the line telling you to update
-  it. Every backup of a stage, not only the first, now drops an effort its
-  machine does not report before it is started.
+  machine that has since been updated gets it, except while an earlier start of
+  that stage is still unanswered; so do Gaffer's own decision to run a stage
+  again and the restart of a stage on its backup. A machine whose reet is too
+  old to set an effort at all is still refused, with the line telling you to
+  update it. Every backup of a stage, not only the first, now drops an effort
+  its machine does not report before it is started; when what the machine
+  offers could not be read, every effort is sent as chosen.
 - **Factory**: with no pipelines yet, the page is one line, **No pipelines
   yet.**, and the **Give Gaffer an outcome** button, on every screen size. The
   brief to fill in, the example outcomes and the job sheet are gone (on a phone

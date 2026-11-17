@@ -49,8 +49,12 @@
   let reporting = $state(''), picked = $state<Record<string, string[]>>({}), adding = $state<Outcome | null>(null), clock = $state(Date.now())
   let controller: AbortController | undefined, epoch = 0
   // An approval answered on this page signals, and the signal reads the sessions again; the item's own refresh is then not needed.
-  let heard = false
-  const answered = async () => { if (!heard) await loadRail(true); heard = false }
+  // `heard` holds only for the instant between an answer's signal and its `onanswered`, so a later answer that sent no
+  // signal (it failed) still reads the sessions again. A signal that arrives during one of the page's own actions is
+  // remembered and acted on when the action ends.
+  let heard = false, missed = false
+  const answered = async () => { if (!heard) await loadRail(true) }
+  $effect(() => { if (!busy && missed) { missed = false; void loadRail(true) } })
 
   const byConversation = $derived(new Map(goals.map(row => [row.goal.conversationId, row])))
   // Outcomes put away leave the floor and the tallies; they stay in the record and can be shown and restored.
@@ -166,7 +170,7 @@
     window.addEventListener(GAFFER_GOALS_CHANGED, changed)
     // Something was answered or done elsewhere (the bell, another surface): the list and the sessions' approvals are read
     // again at once. A signal this page sent itself while busy is skipped: the action reads again when it ends.
-    const offAttention = onAttentionChanged(() => { if (busy) return; heard = true; void load(); void loadRail(true) })
+    const offAttention = onAttentionChanged(() => { if (busy) { missed = true; return } heard = true; queueMicrotask(() => { heard = false }); void load(); void loadRail(true) })
     return () => { offAttention(); epoch++; controller?.abort(); life.abort(); clearInterval(timer); clearInterval(railTimer); query.removeEventListener('change', resized); small.removeEventListener('change', resized); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
   })
   async function closeOutcome() {

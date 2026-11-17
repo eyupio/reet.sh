@@ -85,7 +85,7 @@ try {
   const failedWorkspace=await openWorkspace(browser,{width:390,routes:failed.routes})
   try {
     await failedWorkspace.page.goto(base+'/')
-    await expect(failedWorkspace.page.locator('.problem')).toHaveText('The Factory could not be read; showing what was last read.')
+    await expect(failedWorkspace.page.locator('.problem')).toHaveText('The Factory could not be read. Home tries again every 15 seconds.')
     await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).toContainText('Nothing that could be read is waiting for you.')
     await expect(failedWorkspace.page.getByRole('region',{name:'Waiting for you',exact:true})).not.toContainText('Nothing is waiting for you.')
     expect(failedWorkspace.errors).toEqual([])

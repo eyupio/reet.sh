@@ -289,7 +289,7 @@
       }
       now = at
       problem = failed ? (readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds.")
-        : factoryFailed ? 'The Factory could not be read; showing what was last read.' : ''
+        : factoryFailed ? (readOnce ? 'The Factory could not be read; showing what was last read.' : 'The Factory could not be read. Home tries again every 15 seconds.') : ''
       readOnce = true
     } finally {
       if (mine === generation) loading = false

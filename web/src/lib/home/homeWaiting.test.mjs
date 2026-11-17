@@ -90,6 +90,16 @@ test('the working summary names the pipelines', () => {
   assert.equal(w.workingSummary([item('o.z', 'decision', 'waiting', 1)]), '')
 })
 
+test('a session holding an approval and a question shows once, as its approval item', () => {
+  const question = { questionId: 'q', message: 'Which branch?', truncated: false, queued: 0 }
+  const approval = { permissionId: 'p', title: 'Run a command', command: 'npm test' }
+  const both = card('s5', 'waiting', 90, { approval, question, reasons: ['approval', 'question'] })
+  // The approval is answered first; the item then becomes a decision that offers to answer the question.
+  assert.deepEqual(w.homeWaiting([item('o.p', 'approval', 'waiting', 100, { sessionId: 's5' })], [both]).map(e => e.id), ['o.p'])
+  // A merge item carries neither, so the card stays.
+  assert.deepEqual(w.homeWaiting([item('o.m', 'merge', 'waiting', 100, { sessionId: 's5' })], [both]).map(e => e.id), ['session:s5', 'o.m'])
+})
+
 test('a question the pipeline’s item does not offer to answer keeps the session’s card', () => {
   const question = { questionId: 'q', message: 'Which branch?', truncated: false, queued: 0 }
   const asks = sessionId => card(sessionId, 'waiting', 90, { question, reasons: ['question'] })

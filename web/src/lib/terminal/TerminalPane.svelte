@@ -89,7 +89,7 @@
   let touch=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
   function openScrollback(){historyOpen=false;scrollbackOpen=true}
-  async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
+  async function closeScrollback(){scrollbackOpen=false;await tick();if(!scrollbackOpen)terminal?.focus()}
   // The Earlier output control is a toggle: a press opens the read-only snapshot, a second press puts the live screen
   // back and focuses it. Opening again builds a fresh snapshot, so nothing from the last one is kept.
   function toggleScrollback(){if(scrollbackOpen)void closeScrollback();else openScrollback()}

@@ -11,7 +11,8 @@
     setYolo: (record: Outcome, on: boolean) => void
     mergeMode: (record: Outcome, piece: GafferOutcomeSession, on: boolean) => void
     report: (record: Outcome) => void
-    toggleHistory: (record: Outcome) => void
+    /** Reads the outcome's history afresh, a failed read included. Never takes the entry away. */
+    loadHistory: (record: Outcome) => void
     stop: (record: Outcome) => void
     putAway: (record: Outcome, mode: 'archive' | 'delete' | 'restore') => void
     retry: (record: Outcome, piece: GafferOutcomeSession) => void
@@ -101,24 +102,26 @@
 
   // One bar: the choices of what waits, then the buttons a pipeline has today, each only once. A choice and a button
   // that do the same thing share a key.
-  type Entry = { key: string; label: string; primary?: boolean; recommended?: boolean; free?: boolean; run: () => void }
+  type Entry = { key: string; label: string; primary?: boolean; recommended?: boolean; run: () => void }
   const bar = $derived.by(() => {
     const out: Entry[] = [], does = new Set<string>()
     if (item.section === 'waiting' && item.need) for (const choice of item.need.choices) {
-      if (choice.id === 'open') continue
+      // Opening the session is in the head, and stopping the outcome in its menu.
+      if (choice.id === 'open' || choice.id === 'stop') continue
       if (lost ? choice.id === 'move' && !(nodes.length && piece.conversationId) : !helpers.usable(choice, piece)) continue
       does.add(choice.id)
       out.push({ key: choice.id, label: choice.label, primary: choice.primary, recommended: choice.recommended, run: () => actions.choose(choice, record, piece, goal) })
     }
     const add = (entry: Entry) => { if (!does.has(entry.key)) { does.add(entry.key); out.push(entry) } }
     if (piece.state === 'ready_to_merge') add({ key: 'merge', label: 'Approve merge', run: () => actions.merging({ record, piece }) })
-    if (piece.sessionId && piece.conversationId && alive && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)) add({ key: 'tell', label: 'Tell the agent…', run: () => actions.telling({ record, piece }) })
+    if (piece.sessionId && piece.conversationId && alive && !goal?.goal.waitingOnWorker && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)) add({ key: 'tell', label: 'Tell the agent…', run: () => actions.telling({ record, piece }) })
     if (nodes.length && !lost && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)) add({ key: 'send', label: 'Send back…', run: () => actions.sending({ record, piece }) })
     if (piece.state === 'following' && nodes.length && piece.conversationId) add({ key: 'move', label: last ? 'Finish this stage' : 'Move to next stage', run: () => actions.moving({ record, piece }) })
-    if (goal) { const g = goal; add({ key: 'budget', label: lost || status.label === 'Needs you' ? 'Goal and limits' : 'Review goal', free: true, run: () => actions.managing(g) }) }
-    if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) add({ key: 'restart', label: 'Try again', run: () => actions.retry(record, piece) })
+    if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) add({ key: 'restart', label: 'Try again', primary: item.kind === 'failed', run: () => actions.retry(record, piece) })
     return out
   })
+  // A goal's limits are opened from Usage and budget, unless the bar already offers a new budget.
+  const goalButton = $derived(!!goal && !bar.some(entry => entry.key === 'budget'))
 
   // The headlines the closed rows show.
   const proposals = $derived(record.report?.proposals ?? [])
@@ -252,6 +255,7 @@
           <div><dt>Agent tokens</dt><dd>{agentTokensText(agents.total)}{#if agents.byAgent.length > 1}{' '}<span class="split">({agents.byAgent.map(entry => `${chatToolName(entry.tool)} ${agentTokensText({ tokens: entry.tokens, cached: 0, reported: true })}`).join(', ')})</span>{/if}</dd></div>
           <div><dt>Budget per stage</dt><dd>{record.maxReviews} {record.maxReviews === 1 ? 'review' : 'reviews'} · {record.hours} h</dd></div>
         </dl>
+        {#if goal && goalButton}{@const g = goal}<div class="actions"><button class="btn" type="button" onclick={() => actions.managing(g)}>{lost || status.label === 'Needs you' ? 'Goal and limits' : 'Review goal'}</button></div>{/if}
       </div>
     </details>
 
@@ -267,7 +271,7 @@
       </div>
     </details>
 
-    <details class="row" ontoggle={event => { if (event.currentTarget.open && !timeline) actions.toggleHistory(record) }}>
+    <details class="row" ontoggle={event => { if (event.currentTarget.open && (!timeline || timeline.error)) actions.loadHistory(record) }}>
       <summary><span class="label">History</span><span class="headline">{historyLine}</span></summary>
       <div class="body">
         {#if timeline}
@@ -301,7 +305,7 @@
 
   {#if bar.length}<div class="bar" role="group" aria-labelledby={`${uid}-ask`}>
     <p class="ask" id={`${uid}-ask`}>What do you want to do?</p>
-    <div class="choices" data-floating-clearance>{#each bar as entry (entry.key)}<button class="btn" class:primary={entry.primary} type="button" disabled={busy && !entry.free} onclick={entry.run}>{entry.label}{#if entry.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}</div>
+    <div class="choices" data-floating-clearance>{#each bar as entry (entry.key)}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}</div>
   </div>{/if}
 </section>
 

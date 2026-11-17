@@ -25,7 +25,7 @@
   let { projects, groups = undefined, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
     selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onsettlegroups, onwaiting, onmachines, onnotice, onreload, onsignedout,
     variant = 'home', selectAction, rail = true, embedded = false, userId = 0, scope = null, onscope, startWord = undefined, collapsed = false, oncollapsed,
-    width = RAIL_DEFAULT, onwidth, onwidthcommit, onpick }: {
+    width = RAIL_DEFAULT, onwidth, onwidthcommit, onpick, detail = undefined }: {
     projects: FolderProject[] | undefined
     /** The account's project groups, in rail order. */
     groups?: ProjectGroup[] | undefined
@@ -35,6 +35,8 @@
     sessionsFailed?: boolean
     reporting: Map<string, boolean>
     running: Map<string, number>
+    /** Optional short text per project id for its card; Home and Sessions pass none. */
+    detail?: Map<string, string>
     known: boolean
     worktrees: Map<string, number>
     chosen?: string
@@ -443,7 +445,7 @@
   }
 </script>
 
-{#if rail}<ProjectRail {projects} {groups} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
+{#if rail}<ProjectRail {projects} {groups} {failed} {reporting} {running} {detail} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
   {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction} {embedded} {userId} {scope} {onscope} {collapsed} {oncollapsed}
   {width} {onwidth} {onwidthcommit}
   {onnew} {startWord} onadd={(opener) => void openAdd(opener)} onmanage={(opener) => void openManage(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}

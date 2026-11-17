@@ -87,12 +87,17 @@ try{
   await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing this stage again.')
   await expect(decision).toHaveCount(0)
  }finally{await w.context.close()}
- // A started outcome can be put on YOLO from its card, after a confirmation, and taken off again.
+ // A started outcome can be put on YOLO from the pipeline's detail, in Settings for this outcome, after a confirmation,
+ // and taken off again. The pipeline waits on the person, so it is the one open beside the list.
  const y=fixture(),yw=await openWorkspace(browser,{width:1280,height:900,routes:y.routes})
  await yw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  try{
   const page=yw.page
   await page.goto(`${base}/factory`)
+  await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+  const settings=page.getByText('Settings for this outcome',{exact:true})
+  await expect(page.getByText('You decide · Ask me · merge waits for you',{exact:true})).toBeVisible()
+  await settings.click()
   await page.getByRole('button',{name:'Put this outcome on YOLO',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'Put this outcome on YOLO?'})
   await expect(dialog).toContainText('act without asking you')
@@ -102,6 +107,7 @@ try{
   await expect(page.getByRole('status').filter({hasText:'on YOLO'})).toContainText('The session in hand for “Export API” could not be switched')
   await page.getByRole('button',{name:'Make this outcome’s agents ask me',exact:true}).click()
   await expect.poll(()=>y.box.yolo.at(-1)).toEqual({revision:6,on:false})
+  await expect(page.getByText('You decide · Ask me · merge waits for you',{exact:true})).toBeVisible()
   await page.screenshot({path:`${shots}/factory-yolo-switch-1280.png`})
  }finally{await yw.context.close()}
  console.log('factory yolo switch: ok')

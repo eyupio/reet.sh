@@ -362,7 +362,7 @@
 
 <div class="gaffer-anchor-space" data-gaffer-space aria-hidden="true"></div>
 {#if !open&&!keyboardEditing&&!phoneChat}
-  <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} use:keepLauncherClear aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
+  <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} use:keepLauncherClear={{dock:true}} aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
     <GafferCompanionAvatar size={56}/>
   </button>
 {/if}

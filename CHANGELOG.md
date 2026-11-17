@@ -21,6 +21,30 @@ this file existed releases were described on their GitHub release pages.
   is used` (naming the variable, never its value). `PATCH /api/v2/admin/sso`
   (owner only) takes the whole set, and `/api/version` lists `sso-settings`
   under `features`. See [single sign-on](docs/single-sign-on.md).
+
+- **Factory**: the page now opens on what is waiting for you, in a list beside
+  one pipeline's detail. On a wide screen each item in the list shows its
+  stages as dots with a caption, and its action is in the detail beside it. On
+  a tablet each item names its stages and carries the action it needs (for
+  example **Move to next stage**, **Approve the merge** or **Try again**); on a
+  phone the stages are circles with a caption and the action is on the item
+  too, so most things can be dealt with without opening anything. When Gaffer
+  advised, the item says what it recommends and why. A tool approval is
+  answered with **Allow once** or **Deny** on the item (tablet and phone) and
+  in the detail (every width). **Details** opens one pipeline with one bar of
+  actions at the bottom and one **Settings for this outcome** row for who
+  decides, approvals and merge. An archived outcome's pipelines can be read
+  and restored, and offer nothing else. **Working**, **Finished or stopped**
+  and **Other sessions** open and close, say what is inside when closed, and
+  are remembered in your browser; only **Waiting for you** is open the first
+  time, and **Other sessions** also opens by itself while a goal in it needs
+  you. Gaffer's floating button rests in a strip of its own and covers
+  nothing on the page. On a tablet or phone a pipeline opens as its own screen and
+  the browser's Back button returns to the list. Projects stay in the left
+  column on a wide screen, with how many of each project's pipelines are
+  waiting and working; on a tablet or phone a **Projects** button opens the
+  same choice.
+
 - **Desks**: on a tablet or phone whose on-screen keyboard overlays the page,
   an open desk now ends above the keyboard, so the terminal's last rows and
   its keys bar stay in view while you type. Before, the desk kept the

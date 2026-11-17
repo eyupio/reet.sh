@@ -1,6 +1,6 @@
 {
   "application": "standalone Reet workspace",
-  "sourceCommit": "c88728025de229faa4cc5e9968473e8bbf87b600",
+  "sourceCommit": "8b0b9a1a0ef184c2f9f236cf2d1a467db5718086",
   "data": "Synthetic example data; no account, machine or provider connection.",
   "screenshots": {
     "home-desktop-light": {
@@ -88,16 +88,16 @@
       "sha256": "f41359b283a170183495df282c42ad445385d3791be663a043e5018abf51643b"
     },
     "factory-desktop-light": {
-      "file": "factory-desktop-light-ee8215f558f9.png",
+      "file": "factory-desktop-light-6ff0acd316e7.png",
       "width": 1440,
       "height": 1100,
-      "sha256": "ee8215f558f903c5e9f1b889ffdd4cffede9018a641c316220a1304e631393d8"
+      "sha256": "6ff0acd316e7ff17ca985900431cba739407deaf8209326db27d5a2c0dbd1b3c"
     },
     "factory-desktop-dark": {
-      "file": "factory-desktop-dark-4296ad94898a.png",
+      "file": "factory-desktop-dark-a714d1a4e32a.png",
       "width": 1440,
       "height": 1100,
-      "sha256": "4296ad94898a02e351db682ef552fe2df32d8311878ec88b0b247817b8d7c886"
+      "sha256": "a714d1a4e32af2d81f2c7c4379ea87351aae7760810f414f7a4c9ca0a1f90c4d"
     },
     "desks-desktop-light": {
       "file": "desks-desktop-light-857c431b3f5e.png",

@@ -565,7 +565,7 @@ try {
  }
 
  if (run('ninth tab drops the oldest')) {
-  const nine = Array.from({length:9}, (_, i) => session(`n${i+1}`,'a1',`Task ${i+1}`,(i+1)*MIN))
+  const nine = Array.from({length:9}, (_, i) => session(`n${i+1}`,'a1',`Task ${i+1}`,(i+1)*MIN,{tool:'claude'}))
   const {context,page,errors} = await open({sessions:nine})
   await page.goto(`${base}/sessions?agent=a1&session=n1`)
   await expect(screen(page).getByRole('heading',{name:'Task 1',level:2})).toBeVisible()
@@ -1241,7 +1241,7 @@ try {
  }
 
  if (run('tab strip on touch')) {
-  const many = Array.from({length:8}, (_, i) => session(`n${i+1}`,'a1',`Long task number ${i+1}`,(i+1)*MIN))
+  const many = Array.from({length:8}, (_, i) => session(`n${i+1}`,'a1',`Long task number ${i+1}`,(i+1)*MIN,{tool:'claude'}))
   const {context,page,errors} = await open({sessions:many, width:834, height:1112, touch:true})
   await page.goto(`${base}/sessions?agent=a1&session=n1`)
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')

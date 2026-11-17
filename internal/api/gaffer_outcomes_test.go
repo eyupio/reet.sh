@@ -180,6 +180,16 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", base+"/automation", `{"revision":1,"on":true}`); code != 404 {
 		t.Fatalf("automation on an unknown outcome: %d", code)
 	}
+	// Putting a started outcome on YOLO needs the person's confirmation and the account's Allow YOLO setting.
+	if code, _ := gafferClient(t, owner, srv, "POST", base+"/yolo", `{"revision":1,"on":true}`); code != 400 {
+		t.Fatalf("YOLO without confirmation: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "POST", base+"/yolo", `{"revision":1,"on":true,"confirmed":true}`); code != 403 {
+		t.Fatalf("YOLO while the account does not allow it: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "POST", base+"/yolo", `{"revision":1,"on":false}`); code != 404 {
+		t.Fatalf("taking an unknown outcome off YOLO: %d", code)
+	}
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{}`); code != 400 {
 		t.Fatalf("stop without a revision: %d", code)
 	}
@@ -191,6 +201,7 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 		base + "/sessions/a/tell":      `{"requestId":"` + strings.Repeat("c", 32) + `","text":"Carry on."}`,
 		base + "/stop-following":       `{"revision":1}`,
 		base + "/automation":           `{"revision":1,"on":true}`,
+		base + "/yolo":                 `{"revision":1,"on":false}`,
 	} {
 		if code, _ := doClient(t, owner, srv, "POST", path, body, "Origin", "https://different.example"); code != 403 {
 			t.Fatalf("foreign origin %s: %d", path, code)

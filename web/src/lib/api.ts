@@ -324,6 +324,8 @@ export async function stopFollowingGafferOutcome(o: Pick<GafferOutcome, 'id' | '
 /** Puts a finished outcome away. Its record and report are kept, and it can be restored. */
 /** Gives Gaffer an outcome's decisions, or takes them back. */
 export async function setGafferOutcomeAutomation(o: Pick<GafferOutcome, 'id' | 'revision'>, on: boolean, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/automation`, { method: 'POST', body: json({ revision: o.revision, on }), signal })).json() }
+/** Puts a started outcome on YOLO, or takes it off. `notSwitched` names pipelines whose session in hand still asks. */
+export async function setGafferOutcomeYolo(o: Pick<GafferOutcome, 'id' | 'revision'>, on: boolean, signal?: AbortSignal): Promise<{ outcome: GafferOutcome; notSwitched: string[] }> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/yolo`, { method: 'POST', body: json(on ? { revision: o.revision, on, confirmed: true } : { revision: o.revision, on }), signal })).json() }
 export async function archiveGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/archive`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 export async function restoreGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/restore`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 /** Erases a finished outcome's record for good. Its sessions and pull requests are left alone. */

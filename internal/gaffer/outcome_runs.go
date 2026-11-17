@@ -78,6 +78,15 @@ type SessionEnder interface {
 	EndOutcomeSession(ctx context.Context, uid int64, sessionID string) error
 }
 
+// leftBehind marks a session the controller ended for a pipeline as seen. The
+// pipeline carries on elsewhere and its card says where it stands, so the
+// session is not shown to the person as newly finished with something for
+// them to do. The time is a little ahead because the machine's own report
+// that the session ended can arrive after the request returns.
+func (s *Service) leftBehind(uid int64, sessionID string) {
+	_ = s.store.MarkSessionSeenFor(uid, sessionID, time.Now().Add(10*time.Minute).UnixMilli())
+}
+
 func (s *Service) SetSessionStarter(starter SessionStarter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1197,6 +1206,7 @@ func (s *Service) endFinishedSession(ctx context.Context, o store.GafferOutcome,
 	if err := ender.EndOutcomeSession(endCtx, o.OwnerID, sessionID); err != nil {
 		return
 	}
+	s.leftBehind(o.OwnerID, sessionID)
 	s.audit(o.OwnerID, "gaffer-session-ended", map[string]any{"outcome": o.ID, "pipeline": key, "session": sessionID, "reason": reason})
 }
 
@@ -1360,8 +1370,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		// the session is kept on the record, so it can be found and tried
 		// again, and nothing follows it.
 		kept, left := false, false
+		// The person may have put the outcome on YOLO, or taken it off, while
+		// this launch was in flight: the session then started on the old choice.
+		yoloNow := launch.Yolo
 		after, err := s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
 			kept, left = false, false
+			yoloNow = o.Yolo
 			for i := range o.Sessions {
 				row := &o.Sessions[i]
 				if row.Key != item.Key {
@@ -1392,6 +1406,18 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		})
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return false
+		}
+		if (kept || left) && yoloNow != launch.Yolo {
+			s.mu.Lock()
+			setter, _ := s.starter.(SessionYolo)
+			s.mu.Unlock()
+			switched := false
+			if setter != nil {
+				setCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+				switched = setter.SetOutcomeSessionYolo(setCtx, uid, sessionID, yoloNow) == nil
+				cancel()
+			}
+			s.audit(uid, "gaffer-session-yolo", map[string]any{"outcome": o.ID, "pipeline": item.Key, "session": sessionID, "on": yoloNow, "switched": switched, "reason": "The outcome's approvals were changed while this session was starting."})
 		}
 		if left {
 			s.auditPipeline(after, item.Key)

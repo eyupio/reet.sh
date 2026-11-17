@@ -194,6 +194,7 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 				if err != nil {
 					continue
 				}
+				s.leftBehind(o.OwnerID, piece.SessionID)
 				s.audit(o.OwnerID, "gaffer-session-ended", map[string]any{"outcome": o.ID, "pipeline": key, "session": piece.SessionID, "reason": "Its agent stopped with its plan running low, so the stage is run again on its backup."})
 			}
 			if _, err := s.RetryPipeline(o.OwnerID, o.ID, key, after.Revision); err != nil {

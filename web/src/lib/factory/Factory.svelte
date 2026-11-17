@@ -3,7 +3,7 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, setGafferOutcomeAutomation, stopGafferOutcome, stopFollowingGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, setGafferOutcomeAutomation, setGafferOutcomeYolo, stopGafferOutcome, stopFollowingGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, folderProjectList, listFolderProjects, listProjectGroups, machineHealth, terminalMachines, terminalSessions, TerminalError, type FolderProject, type ProjectGroup, type TerminalSession } from '../terminal/api'
   import { UnauthorizedError } from '../api'
   import { projectRunning, projectWorktrees } from '../home'
@@ -257,6 +257,22 @@
     if (choice.id === 'open' || choice.id === 'answer') return !!piece.sessionId && piece.sessionState !== 'gone'
     return true
   }
+  // Whether a started outcome's agents ask the person or act by themselves. Turning YOLO on is confirmed first.
+  let yoloAsk = $state<Outcome | null>(null)
+  async function setYolo(record: Outcome, on: boolean, confirmed = false) {
+    if (busy || !!record.yolo === on) return
+    if (on && !confirmed) { yoloAsk = record; return }
+    yoloAsk = null
+    busy = true; notice = ''; bad = false
+    try {
+      const { notSwitched } = await setGafferOutcomeYolo(latest(record), on)
+      const still = notSwitched.length ? ` The session in hand for ${notSwitched.map(title => `“${title}”`).join(', ')} could not be switched and keeps its own setting; change it in that session, or it changes with the next stage.` : ''
+      notice = (on ? 'This outcome is on YOLO: its agents act without asking you, in the sessions in hand and in every stage still to start. A pipeline set to merge by itself waits for you again until you confirm that for YOLO.' : 'This outcome’s agents ask you again before they act.') + still
+    }
+    catch (e) { fail(e, 'That was not changed.') }
+    busy = false
+    await load()
+  }
   // What Gaffer would say to the agent, as the words the Tell dialog starts from.
   let tellStart = $state('')
   // Who takes an outcome's decisions when a stage stops: the person, or Gaffer for them.
@@ -502,7 +518,7 @@
           <div><dt>Gaffer tokens</dt><dd>{tokensText(usage)}</dd></div>
           {#if true}{@const agents = outcomeAgentUsage(record.sessions)}<div><dt>Agent tokens</dt><dd>{agentTokensText(agents.total)}{#if agents.byAgent.length > 1}{' '}<span class="split">({agents.byAgent.map(item => `${chatToolName(item.tool)} ${agentTokensText({ tokens: item.tokens, cached: 0, reported: true })}`).join(', ')})</span>{/if}</dd></div>{/if}
           <div><dt>Budget per stage</dt><dd>{record.maxReviews} {record.maxReviews === 1 ? 'review' : 'reviews'} · {record.hours} h</dd></div>
-          <div><dt>Approvals</dt><dd class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</dd></div>
+          <div><dt>Approvals</dt><dd><span class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</span>{#if !record.archivedAt && !finished}{' '}<button class="inline" type="button" disabled={busy} aria-label={record.yolo ? 'Make this outcome’s agents ask me' : 'Put this outcome on YOLO'} onclick={() => void setYolo(record, !record.yolo)}>{record.yolo ? 'Make them ask me' : 'Switch to YOLO…'}</button>{/if}</dd></div>
           <div><dt>Reports</dt><dd>{record.autoReport ? 'By itself and on request' : 'On request'}</dd></div>
         </dl>
         {#if timeline[record.id]}{@const log = timeline[record.id]}<section class="outcome-history" aria-label="History of this outcome">
@@ -613,6 +629,7 @@
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
 {#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}
 {#if sending}{@const upTo = Math.min(sending.piece.stage ?? 0, (sending.piece.stages?.length ?? 1) - 1)}<PipelineNote title={`Send “${sending.piece.title}” back`} intro="The stage you choose, and every stage after it, is done again in a fresh agent session in the same folder and branch. The agent is told your reason. Nothing already committed is undone." label="Why it is going back" placeholder="The review found the export leaks other tenants’ rows." confirmLabel="Send back" stages={[...new Set((sending.piece.stages ?? []).slice(0, upTo + 1).map(item => item.kind))].map(kind => ({ kind, label: stageLabel(kind) }))} {busy} error={dialogError} oncancel={() => sending = null} onconfirm={(text, stage) => void sendBack(text, stage)}/>{/if}
+{#if yoloAsk}<ConfirmDialog title="Put this outcome on YOLO?" body="Its agents will act without asking you: in the session each pipeline has in hand now, and in every stage still to start. Commands run and files change with no approval from you. Each pipeline still stops at Ready to merge unless you have separately let it merge by itself on YOLO. You can switch back at any time." confirmLabel="Switch to YOLO" oncancel={() => yoloAsk = null} onconfirm={() => { const record = yoloAsk!; void setYolo(record, true, true) }}/>{/if}
 {#if yoloMerge}<ConfirmDialog title={`Let “${yoloMerge.piece.title}” merge by itself on YOLO?`} body="This pipeline’s agent runs on YOLO: it acts without asking you. If it may also merge by itself, nothing stops for you between the code and the merge. It still merges only once every check passes, no review thread is open and there are no conflicts. A merge cannot be undone from here." confirmLabel="Let it merge by itself" oncancel={() => yoloMerge = null} onconfirm={() => { const { record, piece } = yoloMerge!; void mergeMode(record, piece, true, true) }}/>{/if}
 {#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} sessionId={managing.goal.sessionId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
@@ -675,7 +692,7 @@
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   .stages{list-style:none;margin:0;padding:0;display:grid;gap:8px}.stages li{display:grid;grid-template-columns:minmax(0,7rem) minmax(0,1fr) auto;gap:2px 12px;align-items:baseline}.stages .handover{grid-column:2 / -1;color:var(--muted);font-size:.875rem}@media(max-width:560px){.stages li{grid-template-columns:minmax(0,1fr)}.stages .handover{grid-column:1}}
   .facts dd.low,.stages .handover.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
-  .facts dd.yolo{color:var(--warn);font-weight:600}
+  .facts dd .yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.875rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}
   .floor{display:grid;gap:10px;min-width:0;border-top:1px solid var(--line);padding-top:20px}.foot{font-size:0.875rem}

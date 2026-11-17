@@ -11,7 +11,7 @@ const sid='factory-session-alpha',cid='c'.repeat(32),pid='a'.repeat(32),oid='e'.
 function fixture(){
  const provider={id:pid,revision:1,name:'Workshop Gaffer',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowStatus:false,allowSessions:true,allowCode:true,hasKey:true,createdAt:now,updatedAt:now}
  const session={id:sid,agentId:'a1',title:'Export API · code',tool:'opencode',model:'working-model',structured:true,state:'running',createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
- const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={controls:[],moved:[],told:[]}
+ const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={controls:[],moved:[],told:[],yolo:[]}
  const goal={...pins,id:'1'.repeat(32),conversationId:cid,sessionId:sid,revision:3,text:'Outcome: x',state:'needs_user',note:'Gaffer needs your decision. Read its latest review.',maxReviews:12,usedReviews:3,expiresAt:now+20*3600000,createdAt:now-3600000,updatedAt:now,nextAt:now,lastSeq:42,summary:'The endpoint and its tests are committed.',inputTokens:0,outputTokens:0,usageReported:true,
   advice:{choice:'move',why:'The endpoint and its tests are committed; the review stage will catch the rest.'}}
  const stage=(kind,state)=>({kind,tool:'opencode',model:'',state,requestId:'r',...(state==='running'?{sessionId:sid,conversationId:cid}:{})})
@@ -27,6 +27,7 @@ function fixture(){
   [`/api/v2/gaffer/conversations/${cid}/goal`]:()=>goalView(),
   [`/api/v2/gaffer/conversations/${cid}/goal/control`]:request=>{const input=request.postDataJSON();box.controls.push(input);goal.state='active';goal.revision++;delete goal.advice;return goalView()},
   [`/api/v2/gaffer/outcomes/${oid}/sessions/a/advance`]:request=>{box.moved.push(request.postDataJSON());const piece=outcome.sessions[0];piece.stages[0].state='done';piece.stage=1;piece.stages[1].state='running';piece.sessionId='next-session';outcome.revision++;return outcome},
+  [`/api/v2/gaffer/outcomes/${oid}/yolo`]:request=>{const body=request.postDataJSON();box.yolo.push(body);outcome.yolo=body.on;outcome.revision++;return {outcome,notSwitched:body.on?['Export API']:[]}},
   [`/api/v2/gaffer/outcomes/${oid}/sessions/a/tell`]:request=>{box.told.push(request.postDataJSON().text);return {message:{id:'m1',state:'queued'}}},
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/sessions':{sessions:[session]},
@@ -86,5 +87,23 @@ try{
   await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing this stage again.')
   await expect(decision).toHaveCount(0)
  }finally{await w.context.close()}
+ // A started outcome can be put on YOLO from its card, after a confirmation, and taken off again.
+ const y=fixture(),yw=await openWorkspace(browser,{width:1280,height:900,routes:y.routes})
+ await yw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+ try{
+  const page=yw.page
+  await page.goto(`${base}/factory`)
+  await page.getByRole('button',{name:'Put this outcome on YOLO',exact:true}).click()
+  const dialog=page.getByRole('dialog',{name:'Put this outcome on YOLO?'})
+  await expect(dialog).toContainText('act without asking you')
+  expect(y.box.yolo).toEqual([])
+  await dialog.getByRole('button',{name:'Switch to YOLO',exact:true}).click()
+  await expect.poll(()=>y.box.yolo).toEqual([{revision:5,on:true,confirmed:true}])
+  await expect(page.getByRole('status').filter({hasText:'on YOLO'})).toContainText('The session in hand for “Export API” could not be switched')
+  await page.getByRole('button',{name:'Make this outcome’s agents ask me',exact:true}).click()
+  await expect.poll(()=>y.box.yolo.at(-1)).toEqual({revision:6,on:false})
+  await page.screenshot({path:`${shots}/factory-yolo-switch-1280.png`})
+ }finally{await yw.context.close()}
+ console.log('factory yolo switch: ok')
  console.log('factory decision in a session: ok')
 }finally{await browser.close()}

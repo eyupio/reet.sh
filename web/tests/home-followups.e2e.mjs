@@ -74,6 +74,8 @@ try {
       await page.goto(base+'/');await page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true}).click()
       await expect(page).toHaveURL(/\/factory$/)
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
+      // Gaffer's other sessions are the page's Other sessions section, closed until opened.
+      const others=page.getByRole('button',{name:/^Other sessions/});if(await others.getAttribute('aria-expanded')!=='true')await others.click()
       const floor=page.locator('[data-floor]')
       await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true}).getByRole('listitem')).toHaveCount(2)
       await expect(floor.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1')

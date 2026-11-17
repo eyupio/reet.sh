@@ -68,6 +68,8 @@ try{
   // General chat leads to the Factory page. Both Open actions land on the session itself: no Gaffer panel opens.
   await chat.getByRole('link',{name:'Factory',exact:true}).click()
   await expect(p).toHaveURL(/\/factory$/)
+  // The floor is the page's Other sessions section, closed until opened; the page remembers it open.
+  const others=p.getByRole('button',{name:/^Other sessions/});if(await others.getAttribute('aria-expanded')!=='true')await others.click()
   const picker=p.locator('[data-floor]')
   await expect(picker).toContainText('Ticking shares nothing and starts nothing')
   const followed=picker.getByRole('link',{name:'Open session',exact:true})
@@ -78,6 +80,7 @@ try{
   await expect(p.getByRole('dialog',{name:'Gaffer',exact:true})).toHaveCount(0)
   // The not-looked-after list opens its session the same way.
   await p.goto(base+'/factory')
+  await expect(p.getByRole('button',{name:/^Other sessions/})).toHaveAttribute('aria-expanded','true')
   const open=picker.getByRole('link',{name:'Open First worker',exact:true})
   await expect(open).toHaveAttribute('href','/sessions?agent=a1&session=regression-session-001')
   await open.click()

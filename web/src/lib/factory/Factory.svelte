@@ -475,7 +475,7 @@
     const rows = goals.filter(row => !drawn.includes(row.goal.conversationId) && inScopeSession(row.goal.sessionId))
     const chats = floorCandidates(sessions ?? [], goals.map(row => row.goal)).filter(session => !drawnSessions.includes(session.id) && inScopeSession(session.id))
     const needs = rows.filter(row => row.attention).length
-    return { count: rows.length + chats.length, summary: [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', rows.length ? `${rows.length} looked after` : '', chats.length ? `${chats.length} not looked after` : ''].filter(Boolean).join(' · ') }
+    return { count: rows.length + chats.length, summary: [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', rows.length ? `${rows.length} followed` : '', chats.length ? `${chats.length} not followed` : ''].filter(Boolean).join(' · ') }
   })
 
   const actions: DetailActions = {
@@ -563,7 +563,7 @@
       </div>{/if}
       {#if selected && selectedPair}{@const record = selectedPair.record}{@const piece = selectedPair.piece}<div class="pane" bind:this={pane}>
         {#key selected.id}<PipelineDetail {record} {piece} item={selected} goal={piece.conversationId ? byConversation.get(piece.conversationId) : undefined} goals={byConversation} {busy} {reporting} {clock} {planClock}
-          timeline={timeline[record.id]} ticked={ticked(record)} bind:expanded {narrow} position={place >= 0 ? { at: place + 1, of: waitingItems.length } : undefined} {actions} {helpers}
+          timeline={timeline[record.id]} ticked={ticked(record)} bind:expanded {narrow} {removeMode} position={place >= 0 ? { at: place + 1, of: waitingItems.length } : undefined} {actions} {helpers}
           onback={back} onprev={() => step(-1)} onnext={() => step(1)}/>{/key}
       </div>
       {:else if !narrow}<div class="pane resting"><p>Nothing is waiting for you or working. Choose a pipeline in the list to see it here.</p></div>{/if}
@@ -609,7 +609,9 @@
   .board{display:grid;gap:20px;min-width:0}
   .list{display:grid;gap:20px;align-content:start;min-width:0}
   .none{padding:4px 4px 8px;color:var(--muted)}
-  .floor{display:grid;gap:10px;min-width:0}.foot{font-size:0.875rem}
+  .floor{display:grid;gap:10px;min-width:0}
+  /* In the list beside the detail the floor's filters wrap rather than scroll out of sight. */
+  .split .floor :global(.filters){flex-wrap:wrap;overflow-x:visible}.foot{font-size:0.875rem}
   .factory.split{max-width:1440px;height:calc(100dvh - var(--top));display:flex;flex-direction:column;gap:16px;padding-bottom:20px}
   .split .board{flex:1 1 auto;min-height:420px;grid-template-columns:clamp(290px,34%,380px) minmax(0,1fr)}
   .split .list{min-height:0;overflow-y:auto;scrollbar-width:thin;padding:2px 10px 24px 2px;margin-left:-2px}

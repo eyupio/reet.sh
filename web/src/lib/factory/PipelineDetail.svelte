@@ -53,7 +53,7 @@
   import StagePipeline from './StagePipeline.svelte'
   import type { FactoryItem } from './factoryList'
 
-  let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, position, actions, helpers, onback, onprev, onnext }: {
+  let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, removeMode = 'archive', position, actions, helpers, onback, onprev, onnext }: {
     record: Outcome
     piece: GafferOutcomeSession
     item: FactoryItem
@@ -67,6 +67,8 @@
     ticked: string[]
     expanded: Record<string, boolean>
     narrow?: boolean
+    /** The account's default for putting a finished outcome away: that entry comes first in the menu. */
+    removeMode?: 'archive' | 'delete'
     position?: { at: number; of: number }
     actions: DetailActions
     helpers: DetailHelpers
@@ -167,8 +169,9 @@
           {:else}
             {#if record.state === 'starting'}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.stop(record))}>Stop starting sessions</button></li>{/if}
             {#if !finished}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.releasing(record))}>Stop following</button></li>
-            {:else}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.putAway(record, 'archive'))}>Archive</button></li>
-              <li><button class="danger" type="button" disabled={busy} onclick={() => fromMenu(() => actions.deleting(record))}>Delete</button></li>{/if}
+            {:else}{#snippet archive()}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.putAway(record, 'archive'))}>Archive</button></li>{/snippet}
+              {#snippet remove()}<li><button class="danger" type="button" disabled={busy} onclick={() => fromMenu(() => actions.deleting(record))}>Delete</button></li>{/snippet}
+              {#if removeMode === 'delete'}{@render remove()}{@render archive()}{:else}{@render archive()}{@render remove()}{/if}{/if}
           {/if}
         </ul>
       </details>

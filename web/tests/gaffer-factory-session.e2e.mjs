@@ -2,7 +2,7 @@ import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { openWorkspace } from './helpers/workspace.mjs'
 
-// A Factory pipeline whose session the person ended. The card says so and offers what can actually be done: run the
+// A Factory pipeline whose session the person ended. Its detail says so and offers what can actually be done: run the
 // stage again in a new session, move on, or stop following. It never offers to tell an agent that is no longer there.
 // A pipeline whose session was removed has no session to open, and a failed first read is not shown as an empty floor.
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
@@ -36,36 +36,57 @@ try {
     try {
       const page=w.page
       await page.goto(base+'/factory')
-      const tiles=page.getByRole('list',{name:'Factory at a glance',exact:true}).getByRole('listitem')
-      // An ended session wants the person, whatever its goal says.
-      await expect(tiles.nth(0)).toContainText('1');await expect(tiles.nth(0)).toContainText('Need you')
-      const pipes=page.getByRole('list',{name:'Pipelines of this outcome',exact:true}).locator(':scope > li')
-      const ended=pipes.nth(0),gone=pipes.nth(1),ready=pipes.nth(2)
-      await expect(ended).toContainText('Needs you')
-      const decide=ended.getByRole('region',{name:'What Export API needs from you',exact:true})
-      await expect(decide).toContainText('This stage’s session was ended, so nothing is working on it.')
-      await expect(decide.getByRole('button')).toHaveText(['Run this stage again in a new session Recommended','Move to next stage','Stop following this outcome','Read the ended session'])
-      // Nothing that needs a live agent is offered, and Gaffer's last review is still there to read.
-      await expect(ended.getByRole('button',{name:'Tell the agent…',exact:true})).toHaveCount(0)
-      await expect(ended.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
-      await expect(ended.getByRole('button',{name:'Send back…',exact:true})).toHaveCount(0)
-      await expect(ended).toContainText('The endpoint is committed; tests are half written.')
+      // An ended session wants the person, whatever its goal says: it waits for them, as does the merge decision.
+      await expect(page.getByText('2 waiting for you · 0 working · 1 finished',{exact:true})).toBeVisible()
+      const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
+      const endedItem=waiting.locator(`#pipeline-${oid}-a`)
+      await expect(endedItem).toContainText('Agent stopped')
+      const open=async(section,title,chip)=>{
+        if(width<1100){const back=page.getByRole('button',{name:'‹ Factory',exact:true});if(await back.count())await back.click()}
+        const region=page.getByRole('region',{name:section,exact:true})
+        if(!(await region.locator('.body').count()))await page.getByRole('button',{name:new RegExp(`^${section}`)}).click()
+        if(width<1100)await region.getByRole('button',{name:`Details and other actions for ${title}`,exact:true}).click()
+        else await region.getByRole('button',{name:`${chip}: ${title}`,exact:true}).click()
+        await expect(page.getByRole('heading',{name:title,level:2,exact:true})).toBeVisible()
+      }
       // A removed session cannot be opened or told; the pipeline can be tried again.
-      if(!(await gone.getByRole('button',{name:/^Hide details/}).count()))await gone.getByRole('button',{name:/^Show details/}).click()
-      await expect(gone.getByRole('link',{name:/session/i})).toHaveCount(0)
-      await expect(gone.getByRole('button',{name:'Tell the agent…',exact:true})).toHaveCount(0)
-      await expect(gone.getByRole('button',{name:'Try again',exact:true})).toBeVisible()
+      await open('Finished or stopped','Export docs','Stopped')
+      await expect(page.getByRole('region',{name:'Export docs',exact:true}).getByRole('link',{name:/session/i})).toHaveCount(0)
+      const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+      await expect(bar.getByRole('button',{name:'Tell the agent…',exact:true})).toHaveCount(0)
+      await expect(bar.getByRole('button',{name:'Try again',exact:true})).toBeVisible()
       // A pipeline waiting for the merge decision is asked for that decision, not for a setting that would do nothing now.
-      await expect(ready.getByRole('button',{name:'Approve merge',exact:true})).toBeVisible()
-      await expect(ready.getByRole('button',{name:/merge by itself/})).toHaveCount(0)
-      await page.screenshot({path:`${shots}/gaffer-factory-session-${width}-${theme}.png`,fullPage:width<500})
+      await open('Waiting for you','Export button','Ready to merge')
+      await expect(bar.getByRole('button',{name:/^Approve the merge…/})).toBeVisible()
+      await page.getByText('Settings for this outcome',{exact:true}).click()
+      await expect(page.getByRole('button',{name:/merge by itself/})).toHaveCount(0)
+      await expect(page.getByText('Waits for you',{exact:true})).toBeVisible()
+      // The ended one says so in its detail and offers what can actually be done: run the stage again or move on in the
+      // bar, read the ended session from the head, stop following from the outcome's menu.
+      await open('Waiting for you','Export API','Agent stopped')
+      const decide=page.getByRole('region',{name:'What is waiting',exact:true})
+      await expect(decide).toContainText('This stage’s session was ended, so nothing is working on it.')
+      await expect(bar.getByRole('button')).toHaveText(['Run this stage again in a new session Recommended','Move to next stage'])
+      await expect(page.getByRole('link',{name:'Read the ended session',exact:true})).toBeVisible()
+      await page.getByRole('button',{name:'More for this outcome',exact:true}).click()
+      await expect(page.getByRole('button',{name:'Stop following',exact:true})).toBeVisible()
+      await page.getByRole('button',{name:'More for this outcome',exact:true}).click()
+      // Nothing that needs a live agent is offered, and Gaffer's last review is still there to read.
+      await expect(page.getByRole('button',{name:'Tell the agent…',exact:true})).toHaveCount(0)
+      await expect(page.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
+      await expect(page.getByRole('button',{name:'Send back…',exact:true})).toHaveCount(0)
+      await expect(page.getByRole('region',{name:'Code stage',exact:true})).toContainText('The endpoint is committed; tests are half written.')
+      await page.screenshot({path:`${shots}/gaffer-factory-session-${width}-${theme}.png`})
       if(width<500){
-        // A long line on a phone names the stage in hand and leaves the rest as their marks, so no two names collide.
-        const names=ended.getByRole('list',{name:'Stages of Export API',exact:true}).locator('.name')
-        const boxes=await names.evaluateAll(list=>list.map(el=>el.getBoundingClientRect()).filter(r=>r.width>2).map(r=>[r.left,r.right]))
-        expect(boxes.length).toBe(1)
+        // A long line on a phone is circles without names, and one line says the stage in hand, what is done and what is next.
+        await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
+        const stages=waiting.getByRole('list',{name:'Stages of Export API',exact:true})
+        await expect(stages.getByRole('listitem')).toHaveCount(8);await expect(stages.locator('.name')).toHaveCount(0)
+        await expect(endedItem).toContainText('Code in hand · Plan, Design done · next Review')
+        await page.screenshot({path:`${shots}/gaffer-factory-session-list-${width}-${theme}.png`,fullPage:true})
+        await waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true}).click()
         // Gaffer's launcher does not sit over the choices: with them in view it rides above them.
-        await decide.getByRole('button',{name:'Stop following this outcome',exact:true}).scrollIntoViewIfNeeded()
+        await bar.getByRole('button',{name:'Move to next stage',exact:true}).scrollIntoViewIfNeeded()
         await expect.poll(async()=>page.evaluate(()=>{
           const launcher=document.querySelector('.gaffer-launcher'),choices=document.querySelector('[data-floating-clearance]')
           if(!launcher||!choices)return 'missing'
@@ -74,14 +95,15 @@ try {
         })).toBe('clear')
       }
       // Moving on names the stage the person was shown.
-      await decide.getByRole('button',{name:'Move to next stage',exact:true}).click()
+      await bar.getByRole('button',{name:'Move to next stage',exact:true}).click()
       await page.getByRole('dialog').getByRole('button',{name:'Move on',exact:true}).click()
       await expect.poll(()=>box.moved).toEqual([{confirmed:true,stage:'code'}])
-      // The stage is run again on request, once.
-      await decide.getByRole('button',{name:'Run this stage again in a new session Recommended',exact:true}).click()
+      // The stage is run again on request, once; the detail stays on the pipeline, which no longer waits.
+      await bar.getByRole('button',{name:'Run this stage again in a new session Recommended',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Trying'})).toHaveText('Trying “Export API” again.')
       expect(box.retries).toEqual([{revision:7}])
       await expect(decide).toHaveCount(0)
+      await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
       expect(w.errors).toEqual([])
       // A first read that fails is said to have failed; it is not shown as an empty factory.
       box.fail=true
@@ -90,8 +112,8 @@ try {
       await expect(page.getByText('No pipelines yet.')).toHaveCount(0)
       box.fail=false
       await page.getByRole('button',{name:'Try again now',exact:true}).click()
-      await expect(page.getByRole('article',{name:/^Outcome: Ship CSV export/})).toBeVisible()
+      await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
     } finally { await w.context.close() }
   }
-  console.log('Factory and sessions: an ended session asks the person with choices that work, a removed session offers no dead link, a merge decision is not offered a setting that does nothing, a phone line names one stage, moving on names the stage seen, and a failed first read is not an empty factory, passed on desktop and phone.')
+  console.log('Factory and sessions: an ended session asks the person with choices that work, a removed session offers no dead link, a merge decision is not offered a setting that does nothing, a phone line is circles with a caption, moving on names the stage seen, and a failed first read is not an empty factory, passed on desktop and phone.')
 } finally { await browser.close() }

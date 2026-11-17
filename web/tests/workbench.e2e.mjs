@@ -25,7 +25,7 @@ async function open({ width = 1440, theme = 'dark', routes = {}, status } = {}) 
   return { ...w, writes }
 }
 
-const workbench = page => page.getByRole('region', { name: 'How would you like to work?', exact: true })
+const workbench = page => page.getByRole('region', { name: 'Nothing in flight.', exact: true })
 const noSideways = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
 
 try {
@@ -36,14 +36,18 @@ try {
       await page.goto(base)
       const start = workbench(page)
       await expect(start).toBeVisible()
-      await expect(start.getByRole('article').getByRole('heading')).toHaveText(['Start Factory work', 'Start an agent session', 'Open a terminal'])
-      const buttons = start.locator('.choice .btn')
-      await expect(buttons).toHaveCount(3)
-      const styles = await buttons.evaluateAll(elements => elements.map(el => { const css = getComputedStyle(el); return { background: css.backgroundColor, color: css.color, radius: css.borderRadius, padding: css.padding } }))
+      // One line and the ways to start: no cards, pictures or explanations.
+      await expect(start.getByRole('article')).toHaveCount(0)
+      await expect(start.getByRole('img')).toHaveCount(0)
+      await expect(start.getByRole('heading')).toHaveText(['Nothing in flight.'])
+      const buttons = start.locator('.choices .btn')
+      await expect(buttons).toHaveText(['Give Gaffer an outcome', 'Start a session', 'Open terminal'])
+      const styles = await buttons.evaluateAll(elements => elements.map(el => { const css = getComputedStyle(el), box = el.getBoundingClientRect(); return { background: css.backgroundColor, color: css.color, radius: css.borderRadius, padding: css.padding, height: box.height } }))
       expect(styles[1]).toEqual(styles[0]); expect(styles[2]).toEqual(styles[0])
-      // A short label keeps its natural width; making every action fill its card is a regression.
-      expect(await start.getByRole('button', { name: 'Open terminal', exact: true }).evaluate(el => { const parent = el.parentElement, css = getComputedStyle(parent); return el.getBoundingClientRect().width < parent.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) - 2 })).toBe(true)
-      expect(await start.getByRole('heading', { name: 'How would you like to work?', exact: true }).evaluate(el => getComputedStyle(el).color === getComputedStyle(document.body).color)).toBe(true)
+      expect(styles[0].height).toBeGreaterThanOrEqual(44)
+      expect((await start.getByRole('button', { name: 'Plan a session', exact: true }).boundingBox()).height).toBeGreaterThanOrEqual(44)
+      // The whole block is short: it is a prompt to start, not a page of its own.
+      expect((await start.boundingBox()).height).toBeLessThanOrEqual(width < 500 ? 320 : 200)
       expect(await noSideways(page)).toBe(true)
       expect(await page.evaluate(() => localStorage.getItem('reet.home.view.1'))).toBeNull()
       expect(w.writes).toEqual([])

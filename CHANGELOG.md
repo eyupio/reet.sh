@@ -28,6 +28,10 @@ this file existed releases were described on their GitHub release pages.
   update it. Every backup of a stage, not only the first, now drops an effort
   its machine does not report before it is started; when what the machine
   offers could not be read, every effort is sent as chosen.
+- **Home**: with nothing in flight, Home says **Nothing in flight.** and has
+  three buttons in a row, **Give Gaffer an outcome**, **Start a session** and
+  **Open terminal**, with **Plan a session** under them. The illustrated cards
+  and their explanations are gone.
 - **Factory**: with no pipelines yet, the page is one line, **No pipelines
   yet.**, and the **Give Gaffer an outcome** button, on every screen size. The
   brief to fill in, the example outcomes and the job sheet are gone (on a phone

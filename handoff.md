@@ -109,6 +109,11 @@ which removed the container it stacked on. Checked at 390, 834 and 1280 in `web/
 (one button, no text box or list, under 200 px tall, a 44 px button, no sideways scroll, focus back on the button
 after the dialog closes). No docs picture showed the old empty page.
 
+**Home with nothing in flight** was simplified the same way at the owner's request: "Nothing in flight.", three
+buttons in a row (Give Gaffer an outcome, Start a session, Open terminal) and Plan a session under them. The
+illustrated cards, their explanations and `LaunchPreview.svelte` are gone (`StartWorkbench.svelte`; `workbench.e2e.mjs`
+checks it at 320, 390, 960 and 1440 in both themes).
+
 **Tests added in the review fix wave.** `gafferOutcome.test.mjs` (efforts sent as chosen when unknown),
 `crewChoices.test.mjs` (start levels for an unknown agent, the model note), `gaffer-factory.e2e.mjs` (Add pipelines with
 the machines read failing keeps the crew's efforts, backups included), `gaffer-settings.e2e.mjs` (an agent no machine

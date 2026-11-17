@@ -315,5 +315,28 @@ try{
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
+ // The four captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page).
+ // Saved only when REET_UI_SCREENSHOTS names a folder.
+ if(process.env.REET_UI_SCREENSHOTS){
+  const shoot=async(width,theme,name,prepare,tall)=>{
+   const f=fixture()
+   const w=await openWorkspace(browser,{width,height:tall||(width<500?844:width<1000?1112:900),theme,touch:width<1000,scale:2,routes:f.routes}),page=w.page
+   try{
+    await page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+    await page.goto(`${base}/`)
+    await expect(entries(page)).toHaveCount(5)
+    await prepare(page)
+    await page.evaluate(()=>document.fonts.ready)
+    await page.waitForTimeout(600)
+    await page.screenshot({path:`${shots}/home-rework-${name}.png`,fullPage:false})
+   }finally{await w.context.close()}
+  }
+  const view=(page,name)=>page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name,exact:true}).click()
+  await shoot(1440,'light','1440-light',async page=>{await view(page,'Continue working')},1000)
+  await shoot(1440,'dark','1440-dark',async page=>{await view(page,'Planning board');await head(page,'Waiting for you').click();await expect(head(page,'Waiting for you')).toHaveAttribute('aria-expanded','false')},1000)
+  await shoot(834,'light','834-light',async()=>{})
+  await shoot(390,'dark','390-dark',async()=>{},812)
+  console.log('ok - Home captures saved')
+ }
  console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, Details a link, the bell listing what it counts with links to the Factory, paging back to ten on a new project, ok')
 }finally{await browser.close()}

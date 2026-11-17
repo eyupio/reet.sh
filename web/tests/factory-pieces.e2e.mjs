@@ -687,7 +687,7 @@ try{
  // so the fixed bars sit where they are). Saved only when REET_UI_SCREENSHOTS names a folder.
  if(process.env.REET_UI_SCREENSHOTS){
   for(const [width,theme] of [[1440,'light'],[1440,'dark']]){
-   const {w,page}=await open(width,{theme,scale:2})
+   const {w,page}=await open(width,{theme,scale:2,height:1120})
    try{
     await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
     await expect(page.getByRole('group',{name:'What do you want to do?',exact:true})).toBeVisible()
@@ -709,7 +709,7 @@ try{
    }finally{await w.context.close()}
   }
   {
-   const {w,page}=await open(390,{theme:'dark',scale:2})
+   const {w,page}=await open(390,{theme:'dark',scale:2,height:780})
    try{
     await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
     await settled(page)

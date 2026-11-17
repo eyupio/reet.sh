@@ -4428,3 +4428,51 @@ passing unchanged (it does not open the Factory page's list). `gaffer-settings`,
 ![Factory detail, 834 light](images/ui/factory-rework-834-light-detail.png)
 ![Factory list, 390 dark](images/ui/factory-rework-390-dark.png)
 
+(Retaken on 17 November 2026, after Home was reworked: the strip the Gaffer button used to rest in is gone, and the
+button now floats over the page.)
+
+
+## Home as one list of what waits (17 November 2026)
+
+Home now opens on **Waiting for you**: Factory pipelines and sessions in one list, oldest first, each with its action,
+then **Factory, working without you** and **Your machines** as closed sections, then the unchanged **Continue working**
+and **Planning board** views. Checked against a production build in `home-waiting.e2e.mjs` (new), with `home`,
+`home-followups`, `attention-contract`, `factory-pieces`, `factory-decision`, `gaffer-factory`,
+`gaffer-factory-session`, `gaffer-outcome`, `shell-fidelity`, `phone-layout` and `navigation` passing, and
+`npm run check` ending with 0 errors.
+
+- **1440 (light and dark):** five entries oldest first (a merge, a decision with Gaffer's advice, a pipeline whose
+  session holds a tool approval, a failed session and a session with a question); the header says "1 decision,
+  1 approval, 1 merge, 1 question, 1 failed · oldest 50 min"; a finished session is not in the list and reads "not seen
+  yet" in Continue working and on the board; the pipeline with an approval is listed once, as the pipeline, with Allow
+  once and Deny; every Factory entry names its stage; the title reads "(5) Home · reet.sh" and the bell 5, and the bell
+  lists the same seven entries (with an extra approval and a review) with a link to each pipeline; chips and stages
+  start at one left edge and every row's buttons end at one right edge, within a pixel, whichever kind of entry; no
+  sideways scroll.
+- **Acting from Home:** the decision's filled button opens the Factory page's confirmation, and confirming moves the
+  pipeline on once and the entry leaves the list; **Details** is a link to the pipeline on the Factory page; nothing
+  waiting reads "Nothing is waiting for you." and has no Factory section.
+- **Sections:** Waiting for you is open the first time and the others are closed; opening Factory, working without you
+  keeps it open after a reload; both views switch and the choice survives a reload; paging shows ten, then more, and
+  starts again at ten when the project changes.
+- **834 (light), 390 and 320:** each entry is a bordered card with its buttons, **Answer in chat** at least 44 px high,
+  no sideways scroll at any of them; **Projects** is at least 44 px high and narrows the list to a project's
+  entries; a closed section still says what is inside, on its own line on a phone.
+- **The floating Gaffer button:** over no button or link of any waiting item (Open, Details, Allow once, Deny, Mark
+  seen, Answer in chat, Approve the merge) at 1440, 1250 and 1180 (with ten rows, where the gaps between rows are
+  narrower than the button), 834 and 390, at the top of the page, with the end of the list in view and at the end of
+  the page. On the Factory page the strip it used to rest in is gone, and `factory-pieces` checks the same over a
+  grid of controls at 1440, 834 and 390; after archiving from a narrow detail one press of Back leaves the page.
+- **Looked at, by eye, at twice the pixel density:** every capture below. Where the floating button sat on a line of
+  text the capture was retaken at a window height where it does not, so the captures show no text covered. On a
+  phone the button can still rest over card text (a long sentence on a card is the usual case); the tests check
+  controls, not text. No text is below 14 px.
+- **Not checked:** a real tablet or phone (widths are emulated), a real controller (every pipeline and session in the
+  tests is a fixture), or a screen reader.
+
+![Home, 1440 light: Waiting for you open, then Continue working](images/ui/home-rework-1440-light.png)
+![Home, 1440 dark: the Planning board with every section closed](images/ui/home-rework-1440-dark.png)
+![Home, 834 light](images/ui/home-rework-834-light.png)
+![Home, 390 dark](images/ui/home-rework-390-dark.png)
+
+The Factory page's five captures above were retaken in the same pass, now that its reserved strip is gone.

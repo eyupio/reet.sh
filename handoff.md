@@ -18,6 +18,101 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## HOME-REWORK-1: Home rebuilt around one list of what waits (17 November 2026)
+
+The owner asked for Home next, by the same method as the Factory page and in its own pull request, on the branch
+`ccr-93f68fda-ippwiu` (restarted from main after #825 merged). The design is the Home section of
+[2026-11-17-factory-home-rework-design.md](docs/superpowers/specs/2026-11-17-factory-home-rework-design.md), the plan
+[2026-11-17-home-rework.md](docs/superpowers/plans/2026-11-17-home-rework.md). Web only: no controller, API, MCP or
+stored-field change.
+
+**What was built.** Home (for an account that can start sessions) opens on **Waiting for you**: one list that mixes
+Factory pipelines and sessions, oldest first, each with its action. On a wide screen an entry is a row (chip, stages,
+buttons each in a fixed column, so rows of every kind line up); on a tablet or phone it is a card. Under it are
+**Factory, working without you** (one link per running pipeline) and **Your machines**, closed sections that say what
+is inside when closed. Which sections are open is remembered per browser (`reet.home.sections.<user>`); the first time
+only Waiting for you is open, and it opens by itself when it is empty. The view tabs (**Continue working**, **Planning
+board**) and their remembered choice are kept. A finished session is not in the list; it is marked **not seen yet** in
+Continue working and on the board. The head is the title, one line of counts, the plan meters, **Give Gaffer an
+outcome** and **New session**. A narrow screen gets a **Projects** picker, as on the Factory page.
+
+**One rule for what waits** (`web/src/lib/home/whatWaits.ts`, with `homeWaiting.ts`). Home's list, the bell and the page
+title all take their entries from it, so the three agree on every page. The bell now lists Factory items too, with a
+link to each pipeline. A Gaffer goal that needs review on a session with no pipeline is an entry too.
+
+**Where things from the old Home went.**
+- "Needs you" (`NeedsYou.svelte`, deleted): the session entries of Waiting for you (`SessionWaitingItem.svelte`).
+- "Factory pipelines" (`FactoryStatus.svelte` and `factoryRows`, deleted): pipelines that need you are entries of
+  Waiting for you; the ones that run by themselves are under Factory, working without you.
+- The summary strip, the Gaffer pill and the Factory and Projects head buttons: gone; the counts are one line in the
+  head, Projects is the rail (wide) or the picker (narrow), and the Factory is a tab.
+- Your machines and the plan meters, New session, Give Gaffer an outcome, the Projects panel on a wide screen, both
+  views and every dialog: kept. An account that cannot start sessions sees what it saw.
+
+**Files.**
+- `web/src/lib/home/`: `Home.svelte` (recomposed), `homeWaiting.ts` (the entries, `waitingSummary`, `workingSummary`),
+  `whatWaits.ts` (the one rule), `SessionWaitingItem.svelte`; `SessionBoard.svelte` and `InFlight.svelte` show not seen
+  yet.
+- `web/src/lib/factory/`: `PipelineChoices.svelte` (new: carries out a pipeline's choice, the dialogs included, for the
+  Factory page and for Home, so a choice does the same thing in both), `WaitingItem.svelte` (gained the `row` layout),
+  `ListSection.svelte`, `factoryList.ts` (an item knows its `sessionId`).
+- `web/src/lib/shell/Bell.svelte`, `web/src/App.svelte`, `AppShell.svelte`, `SessionsPage.svelte`: the bell and the
+  counts take the one rule.
+- `web/src/lib/floatingLauncher.ts`, `GafferChatWidget.svelte`: the Gaffer button, below.
+
+**The Gaffer button.** It floats over Home and the Factory page and keeps off item buttons: an item's button row, an
+approval's command, Allow once and Deny, and the detail's bar are marked `data-floating-clearance="avoid"`, and the
+launcher climbs to the lowest spot that covers none of them (the sync dock ignores this value). The strip the Factory
+page reserved for it, the `dock` case and the room in the detail's bar are gone. After archiving a pipeline from a
+narrow detail, one press of Back leaves the page (the pushed history entry is taken back).
+
+**Decisions the owner made.** Rework Home next, by the same method, in its own pull request. The Gaffer button floats
+on both pages. Finished sessions are not in Waiting for you. Sections open and close, with only Waiting for you open
+the first time, and are remembered. The Projects panel and both Home views are kept. Merge the pull request when it is
+green. No deploy.
+
+**Rulings made while building.**
+- Task 3 wrote the home-waiting assertions but did not run them or add the suite to CI; Task 4 did, because nothing
+  mounts the items before Home does.
+- `PipelineChoices` also exports `release`, `manage` and `holdsRefresh`; its `onsignedout` is accepted and unused.
+- In the row layout an approval sits in the text column for both kinds of entry, and the actions column holds Details
+  or Open only (the mock had Allow and Deny in the actions column; the approval draws its own command and needs the
+  room).
+- The unrequested 720 to 899 px band, where the stages sit under the text, is kept.
+- The bell lists Factory entries too and every page counts by the same rule as Home's Waiting for you, because the
+  design says the bell and the page title count what is in that section.
+- A Gaffer goal needing review on a session with no card is an entry in Waiting for you (it asks something of the
+  person); running chats Gaffer does not follow are not shown on Home.
+- Accepted as built: outcomes are read in the same batch as sessions; Factory rows use the short name "Details"; on a
+  card an approval's command and buttons sit above the button row; the phone's section summary wraps onto its own line;
+  the head style for an account that cannot start sessions.
+- Every page but Home now reads outcomes and goals with sessions each 15 seconds, for the bell: two more reads per
+  poll. Accepted.
+- A Gaffer goal entry has no **Mark seen**; it leaves when the goal no longer needs review.
+
+**Not done.**
+- The bell panel is short: about one and a half entries are visible before it scrolls.
+- On a phone the Gaffer button can cover card text (a long sentence on a card); it keeps off controls, not text. The
+  captures were taken where it covers none.
+- Small things found in review and left: no test pairs an empty-string item session with an empty-string card;
+  `labelOf` is called twice per entry; an unknown card kind falls through to "question"; the moved dialogs now mount
+  before the delete, add, send-back and YOLO dialogs; `WaitingItem` and `SessionWaitingItem` repeat some row CSS;
+  `moveOn` posts with the record captured at the click (the same on the Factory page).
+- Home's pictures in the docs (`docs/images/workspace/home-*`) are drawn from the docs script's example data, to which
+  two sessions that need you were added so the list is not empty. The script's Skills check was stale (it looked for a
+  "Shelf layout" group that no longer exists) and now only checks the page's heading; the Skills and Machines pictures
+  were not retaken.
+
+**Checked.** `npm run check` with 0 errors; on one production build `home-waiting` (new), `home`, `home-followups`,
+`attention-contract`, `factory-pieces`, `factory-decision`, `gaffer-factory`, `gaffer-factory-session`,
+`gaffer-outcome`, `shell-fidelity`, `phone-layout` and `navigation`. Before this, a full local run of the 88 suites CI
+runs found two (add a machine, skill content) that forbid requests the bell now makes; both were taught the reads.
+`home-waiting` runs at 1440 (light and dark), 1250, 1180, 834, 390 and 320. The captures are in
+[docs/ui-verification.md](docs/ui-verification.md), and `docs/images/ui/factory-rework-*` were retaken.
+
+**Not checked.** No real tablet or phone: widths are emulated. No real controller: every pipeline and session in the
+tests is a fixture. No screen reader.
+
 ## FACTORY-REWORK-1: the Factory page rebuilt as a list and one detail (17 November 2026)
 
 The owner found the Factory page overwhelming with several items on it, and its buttons and settings in too many
@@ -97,8 +192,7 @@ first item; Other sessions opens by itself while a goal in it needs the person, 
 a goal as followed too.
 
 **Not done.**
-- Home is the next piece and still shows the old two lists ("Factory pipelines" and "Needs you"). The `row` layout of
-  `WaitingItem` and the Home sections are in the next plan. The bell count has not changed.
+- Home was the next piece: done, see HOME-REWORK-1 above.
 - F5 in part: `gaffer-floor` (the "running chats not followed" link) and `session-end-gaffer` (the chat's Factory
   link) still open Other sessions by hand. Their fixtures hold no goal that needs the person, so by the rule asked for
   (open while something in it needs you) the section rightly stays closed there; opening it in those cases would be a

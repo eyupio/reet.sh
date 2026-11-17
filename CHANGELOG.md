@@ -5,6 +5,30 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Home**: Home now opens on **Waiting for you**, one list of everything that
+  needs you, Factory pipelines and sessions together, the one that has waited
+  longest at the top. Each entry says what it needs (a decision, an approval,
+  a merge, a question, a failure or work to review) and has its button on it,
+  so most things can be dealt with without opening anything: **Move to next
+  stage**, **Approve the merge**, **Allow once** and **Deny**, **Answer in
+  chat**. On a wide screen an entry is a row; on a tablet or phone it is a
+  card. A pipeline shows its stages and, when Gaffer advised, what it
+  recommends and why. **Details** opens the pipeline on the Factory page. A
+  session that has finished is no longer in the list; it is marked **not seen
+  yet** in Continue working and on the board until you have looked at it. A
+  Gaffer goal that needs your review on a session with no pipeline is in the
+  list too. **Factory, working without you** and **Your machines** sit under
+  it and start closed; each says what is inside when closed. Which sections are
+  open is remembered in your browser, and only **Waiting for you** is open the
+  first time. Continue working and the Planning board are as they were. On a
+  tablet or phone a **Projects** button narrows the list, as it does on the
+  Factory page. The bell now lists the Factory's items too, and its number, the
+  page title and the list agree on every page. Gaffer's floating button now
+  floats over Home and the Factory page and keeps off the buttons on an item.
+  The Factory page no longer reserves a strip at the foot of the page for it,
+  and after archiving a pipeline from a narrow screen's detail, one press of
+  Back leaves the page.
+
 - **Factory**: the page now opens on what is waiting for you, in a list beside
   one pipeline's detail. On a wide screen each item in the list shows its
   stages as dots with a caption, and its action is in the detail beside it. On
@@ -21,8 +45,7 @@ this file existed releases were described on their GitHub release pages.
   and **Other sessions** open and close, say what is inside when closed, and
   are remembered in your browser; only **Waiting for you** is open the first
   time, and **Other sessions** also opens by itself while a goal in it needs
-  you. Gaffer's floating button rests in a strip of its own and covers
-  nothing on the page. On a tablet or phone a pipeline opens as its own screen and
+  you. On a tablet or phone a pipeline opens as its own screen and
   the browser's Back button returns to the list. Projects stay in the left
   column on a wide screen, with how many of each project's pipelines are
   waiting and working; on a tablet or phone a **Projects** button opens the

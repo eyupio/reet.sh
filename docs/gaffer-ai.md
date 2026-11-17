@@ -220,9 +220,9 @@ report progress. Unsupported channels and providers remain visible limitations.
 ## The Factory
 
 **Factory** is its own page, in the main navigation beside Home. It is where you
-hand Gaffer an outcome and watch it run. Home has a **Factory** button, a direct
-**Give Gaffer an outcome** action when nothing is in flight, and a line
-with Gaffer's face whenever something there is waiting; an empty Gaffer chat
+hand Gaffer an outcome and watch it run. Home has **Give Gaffer an outcome**,
+and what the Factory needs from you is in Home's **Waiting for you** list,
+among your sessions; an empty Gaffer chat
 offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
 nothing and makes no model request.
 
@@ -412,8 +412,9 @@ to move on** when you pick it in the detail's stages. Each decision is also in
 the outcome's **History**.
 
 If Gaffer reviewed the stage and simply chose no next step, the detail says that
-rather than asking for a decision. Home's **Factory pipelines** list links to
-each pipeline, which the Factory page then opens.
+rather than asking for a decision. On Home, **Details** on a pipeline, and the
+pipelines under **Factory, working without you**, open that pipeline on the
+Factory page.
 
 ### What a pipeline's detail tells you
 

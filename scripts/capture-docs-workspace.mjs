@@ -149,12 +149,36 @@ const session = (id, title, over = {}) => ({
   ...over,
 });
 const sessions = [
-  session("picker", "Build a faster project picker"),
+  // Two of them need the person, so Home's "Waiting for you" list has something in it.
+  session("picker", "Build a faster project picker", {
+    attention: "waiting",
+    attentionSource: "chat",
+    changedSinceSeen: true,
+    bellAt: now - 12 * minute,
+    pendingPermission: {
+      permissionId: "perm-picker0001",
+      title: "Run a command",
+      command: "npm run check",
+      path: "",
+      truncated: false,
+      queued: 0,
+    },
+  }),
   session("checkout", "Review the checkout changes", {
     tool: "claude",
     model: "sonnet",
     projectId: "storefront",
     dir: "/home/sam/storefront",
+    attention: "waiting",
+    attentionSource: "chat",
+    changedSinceSeen: true,
+    bellAt: now - 5 * minute,
+    pendingQuestion: {
+      questionId: "q-checkout",
+      message: "Show prices with or without VAT?",
+      truncated: false,
+      queued: 0,
+    },
   }),
   session("keyboard", "Tidy up the keyboard shortcuts", {
     state: "exited",
@@ -354,9 +378,10 @@ try {
         if (name === "machines")
           await expect(app.page.locator("article.machine")).toHaveCount(2);
         if (name === "skills")
-          await expect(
-            app.page.getByRole("group", { name: "Shelf layout" }),
-          ).toBeVisible();
+          await expect(app.page.locator("main h1").first()).toContainText(
+            "skills",
+            { ignoreCase: true },
+          );
         await app.page.waitForLoadState("networkidle");
         await app.page.evaluate(() => document.fonts.ready);
         expect(

@@ -1,19 +1,39 @@
 # Session board
 
-![Home session board with Backlog, Active and Finished columns](images/workspace/home-desktop-light-992a1261390c.png){ .screen-light width="1100" }
+![Home: what is waiting for you in one list, then the session board with Backlog, Active and Finished columns](images/workspace/home-desktop-light-fcbc5529e109.png){ .screen-light width="1100" }
 
-![Home session board in the dark theme](images/workspace/home-desktop-dark-f6a68f6000dd.png){ .screen-dark width="1100" }
+![Home in the dark theme: what is waiting for you, then the session board](images/workspace/home-desktop-dark-5a1ac3708354.png){ .screen-dark width="1100" }
 
 <details markdown="1">
 <summary>Phone view</summary>
 
-![Home on a phone, with an idea and saved prompts in the Backlog](images/workspace/home-phone-light-1e35a570d740.png){ .screen-light width="390" height="844" }
+![Home on a phone: what is waiting for you, each as a card with its buttons](images/workspace/home-phone-light-b6e0e0d6d5b1.png){ .screen-light width="390" height="844" }
 
-![Home on a phone in the dark theme](images/workspace/home-phone-dark-4300d32caec3.png){ .screen-dark width="390" height="844" }
+![Home on a phone in the dark theme](images/workspace/home-phone-dark-e6ab2f1d11e6.png){ .screen-dark width="390" height="844" }
 
 </details>
 
-Home organises session work into **Backlog**, **Active**, and **Finished**. Use
+Home opens on **Waiting for you**: one list of everything that needs you, whether it
+is a [Factory](factory.md) pipeline or a session, with the one that has waited longest
+at the top. Each entry says what it needs (a decision, an approval, a merge, a
+question, a failure or work to review) and carries the button that deals with it, so
+most things can be answered without opening anything. On a wide screen an entry is a
+row; on a tablet or phone it is a card. A pipeline shows its stages and, when Gaffer
+advised, what it recommends. **Details** opens the pipeline on the Factory page. A
+session that has simply finished is not in this list; it is marked **not seen yet** in
+Continue working and on the board until you have looked. A Gaffer goal that needs
+your review on a session with no pipeline is an entry too. The bell, the number in
+the page title and this list always agree, on every page.
+
+Two more sections sit under it and start closed: **Factory, working without you**
+(the pipelines that are running by themselves, each a link to its place on the
+Factory page) and **Your machines**. Every section says what is inside when it is
+closed, and your browser remembers which are open; only **Waiting for you** is open
+the first time. **Projects** narrows the list: the rail on a wide screen, a
+**Projects** button on a tablet or phone.
+
+Under those, the **Continue working** and **Planning board** views are as they were.
+The planning board organises session work into **Backlog**, **Active**, and **Finished**. Use
 Board to see all three columns, or choose a stage to focus on that stage alone.
 View, sort order, and compact cards are remembered in this browser per account.
 **New session** starts now and opens the standard **Start an agent** dialog, the
@@ -109,8 +129,8 @@ Quick launch remains available in an expandable section. New session links from
 Sessions and project handoffs open it automatically, and while open it docks to the foot of the
 viewport so its prompt and Start stay visible however long the board above it is. Launch links focus
 the prompt.
-Machine health and Needs you remain accessible below the board and through the
-existing bell.
+Machine health is in **Your machines**, and what needs you is in **Waiting for you**
+and through the bell.
 Home refreshes visible data every 15 seconds and keeps the last successful read
 when a refresh fails.
 

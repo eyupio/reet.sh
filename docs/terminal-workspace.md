@@ -18,7 +18,10 @@ the phone keyboard is up for Jump, the bottom bar steps aside, and Jump's result
 the bell are for a writer in accounts mode only. Jump lists sessions, folder projects, shelf skills and machines; a
 skill row carries its saved sync intent, and choosing it brings that card into view on the shelf.
 
-**What Home shows today.**
+**What Home shows today.** Home was reworked on 17 November 2026: it opens on **Waiting for you**, one list of the
+Factory pipelines and sessions that need you (see [the session board](session-board.md)), and the old Needs you part is
+now that list, with the fleet strip folded into the closed **Your machines** section. The table below describes the
+parts as first built; where it says Needs you, read Waiting for you.
 
 | Part | What it shows, and from where | Arrives with |
 | --- | --- | --- |
@@ -27,14 +30,14 @@ skill row carries its saved sync intent, and choosing it brings that card into v
 | Needs you | Sessions that are waiting for you (a terminal bell, a question an agent has put on its terminal screen, or a pending Gaffer permission since you last opened or marked the session seen), finished cleanly ("Ready to review", with changed-file count when the session ran in a worktree) or exited with an error, newest first, with **Open** and **Mark seen** (`POST /api/v2/terminal/sessions/{id}/seen`). Empty state: "Nothing needs you." | Inline Allow once / Deny cards on Home: a later slice |
 | Project rail | Your folder projects ([Projects](projects.md)), Home's own resizable left column on a desktop (301 px by default, 240–460 px, or a 56 px strip when folded; from 1100 to 1239 px it is always the strip). The primary tabs live in the top bar, not in this panel. Each compact card has two lines: its repository diamond or folder icon and name, then its machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
 | Launch bar | Opens in a modal from Home's Select and from an address that hands over projects: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode, Cline or AGY on a machine offering its Gaffer integration reads "Run \<agent\> in Gaffer…" by default; the **Gaffer** word switches it to **\<agent\> TUI**. A project's **+** opens the Start an agent dialog, as it does on Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
-| Bell | The Needs you count across your machines, with a popover listing the same cards as Needs you. The page title prefixes `(N)` when `N > 0`, and a polite live region announces transitions into Waiting at most once per session per minute. | |
+| Bell | The Needs you count across your machines and the Factory, with a popover listing the same entries as Waiting for you. The page title prefixes `(N)` when `N > 0`, and a polite live region announces transitions into Waiting at most once per session per minute. | |
 
 Viewers, single-token and open sign-ins get the fleet strip only. Those sign-ins cannot read sessions, so the cards
 show no session count rather than a false 0. Home refreshes every 15 seconds while the tab is visible. If a refresh
 fails, it keeps what it last read and says so. The only value it stores in the browser is the Group by choice, under
 `reet.home.groupBy.<account>`.
 
-On a tablet and a phone the page is one column: machines, then Needs you, then In flight; the project rail is on the
+On a tablet and a phone the page is one column: Waiting for you, then the views, then Your machines; the project rail is on the
 Sessions screen. Every target there is at least 44 px. In flight's rows open the session screen and say the state with
 the words its header pill uses. The phone's launch bar has a one-line prompt, a round 48 px Start and one summary line with
 **Change**; the tablet's has the shorter sentence with its own Change. Checks:

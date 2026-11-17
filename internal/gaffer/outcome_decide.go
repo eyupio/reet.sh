@@ -492,10 +492,16 @@ func (s *Service) SetOutcomeYolo(ctx context.Context, uid int64, id string, revi
 	setter, _ := s.starter.(SessionYolo)
 	s.mu.Unlock()
 	var left []string
+	seen := map[string]bool{}
 	for _, row := range o.Sessions {
-		if row.SessionID == "" || row.State != "following" && row.State != "starting" && row.State != "advancing" {
+		// Every live session a pipeline still holds, whatever the pipeline's
+		// state: one waiting at Ready to merge can still be told to do more.
+		// A launch in flight has no session yet; it is put right when its
+		// session is taken up.
+		if row.SessionID == "" || seen[row.SessionID] || !s.sessionRunning(uid, row.SessionID) {
 			continue
 		}
+		seen[row.SessionID] = true
 		if setter == nil || setter.SetOutcomeSessionYolo(ctx, uid, row.SessionID, on) != nil {
 			left = append(left, row.Title)
 		}

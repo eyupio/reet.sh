@@ -23,7 +23,7 @@
   .arrow.open{border-left-color:transparent;border-top-color:var(--muted);border-width:7px 5px 0 5px}
   .name{flex:none;font-weight:700}
   .count{flex:none;color:var(--muted);font-weight:600}
-  .summary{flex:1 1 0;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .summary{flex:1 1 0;min-width:0;text-align:right;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .body{display:grid;gap:8px}
   @media(pointer:coarse){.head{min-height:44px}}
 </style>

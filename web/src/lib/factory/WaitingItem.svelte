@@ -25,15 +25,16 @@
 
   const filled = $derived.by((): NeedChoice | undefined => {
     if (item.kind === 'failed') return { id: 'restart', label: 'Try again' }
-    return item.need?.choices.find(choice => choice.primary && !choice.label.endsWith('…') && usable(choice))
+    // The filled button is the choice marked primary, without its trailing "…": the dialog that choice opens still asks first.
+    const primary = item.need?.choices.find(choice => choice.primary && usable(choice))
+    return primary && { ...primary, label: primary.label.replace(/…$/, '') }
   })
   const tone = $derived(item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
   const detailsLabel = $derived(`Details and other actions for ${item.title}`)
 </script>
 
 {#snippet head()}
-  <span class="chip {tone}">{item.chip}</span>
-  <strong class="title">{item.title}</strong>
+  <span class="line"><span class="chip {tone}">{item.chip}</span><strong class="title">{item.title}</strong></span>
   <span class="objective">For: {item.objective}</span>
 {/snippet}
 {#snippet stages()}
@@ -41,7 +42,8 @@
 {/snippet}
 
 {#if layout === 'compact'}
-  <button type="button" class="item compact" class:selected aria-pressed={selected} onclick={ondetails} {...rest}>
+  <!-- Named by its chip and title: the stages inside would otherwise make a long name. -->
+  <button type="button" class="item compact" class:selected aria-pressed={selected} aria-label={`${item.chip}: ${item.title}`} onclick={ondetails} {...rest}>
     {@render head()}
     {@render stages()}
   </button>
@@ -67,10 +69,11 @@
   .item.compact:hover{border-color:var(--line-strong)}
   .item.compact.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
   .item.compact:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .chip{justify-self:start;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:0.875rem;font-weight:600;white-space:nowrap}
+  .line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
+  .chip{flex:none;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:0.875rem;font-weight:600;white-space:nowrap}
   .chip.you{border-color:var(--accent);color:var(--accent-text)}
   .chip.good{border-color:var(--good);color:var(--good)}
-  .title{overflow-wrap:anywhere}
+  .title{min-width:0;overflow-wrap:anywhere}
   .objective,.why{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere}
   .objective{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
   .why{color:var(--ink)}

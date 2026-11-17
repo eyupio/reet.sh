@@ -310,7 +310,9 @@
 </section>
 
 <style>
-  .detail{display:grid;gap:16px;align-content:start;min-width:0;font-size:14px;line-height:1.5}
+  /* A column that fills the pane it is put in, so the bar can rest at the foot of it. The page sets --detail-inset (the
+     pane's side padding, which the bar runs across) and --detail-bottom (what covers the foot of the screen). */
+  .detail{display:flex;flex-direction:column;gap:16px;min-width:0;min-height:100%;box-sizing:border-box;font-size:14px;line-height:1.5}
   p{margin:0;overflow-wrap:anywhere}
   h2{font:500 1.35rem var(--serif);margin:0;overflow-wrap:anywhere;min-width:0}
   .eyebrow,.meta,.hint,.why{font-size:0.875rem;color:var(--muted)}
@@ -369,11 +371,11 @@
   .who label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;font-weight:600;cursor:pointer;color:var(--muted)}
   .who label+label{border-left:1px solid var(--line)}.who label.on{color:var(--ink);background:var(--tint)}.who input{accent-color:var(--accent)}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}
-  .bar{position:sticky;bottom:0;z-index:4;display:grid;gap:6px;padding:12px 0;border-top:1px solid var(--line);background:var(--card)}
+  .bar{position:sticky;bottom:var(--detail-bottom,0px);z-index:4;display:grid;gap:6px;margin:auto calc(-1 * var(--detail-inset,0px)) 0;padding:12px var(--detail-inset,0px) 16px;border-top:1px solid var(--line);background:var(--card)}
   .ask{font-size:0.875rem;color:var(--muted)}
   .choices{display:flex;flex-wrap:wrap;gap:8px}.choices .btn{min-height:44px}
   .rec{margin-left:4px;font-size:0.875rem;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid currentColor}
   a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media(max-width:560px){.choices .btn{flex:1 1 100%}.history li{grid-template-columns:minmax(0,1fr);gap:0}.row .headline{margin-left:24px;flex-basis:100%}}
+  @media(max-width:560px){.choices .btn{flex:1 1 auto}.history li{grid-template-columns:minmax(0,1fr);gap:0}.row .headline{margin-left:24px;flex-basis:100%}}
   @media(pointer:coarse){.inline{min-height:44px}.menu ul button{min-height:44px}}
 </style>

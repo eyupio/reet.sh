@@ -45,16 +45,16 @@
   ol{list-style:none;margin:0;padding:2px 0 0;display:grid;gap:0;min-width:0}
   li{position:relative;min-width:0;color:var(--muted);font-size:0.875rem;text-align:center}
   /* The line runs from the middle of the circle before to the middle of this one, behind both. */
-  li+li::before{content:"";position:absolute;top:var(--rail);right:50%;width:100%;height:2px;background:var(--line);z-index:0}
+  li+li::before{content:"";position:absolute;top:calc(var(--size) / 2 - 1px);right:50%;width:100%;height:2px;background:var(--line);z-index:0}
   li.done+li::before{background:var(--good)}
   .cell,button{position:relative;z-index:1;display:grid;justify-items:center;align-content:start;gap:4px;width:100%;min-width:0;padding:0 4px 2px;box-sizing:border-box;border:0;background:none;color:inherit;font:inherit;text-align:center}
   button{cursor:pointer;border-radius:8px}
   button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .name{min-width:0;max-width:100%;overflow-wrap:anywhere;text-align:center}
   .dot{position:relative;z-index:1;display:inline-grid;place-items:center;width:var(--size);height:var(--size);box-sizing:border-box;border-radius:50%;border:2px solid var(--line-strong);background:var(--card);font-size:0.875rem;font-weight:600;font-variant-numeric:tabular-nums}
-  .labelled{--size:28px;--rail:15px}
-  .circles{--size:24px;--rail:13px}
-  .dots{--size:12px;--rail:7px}
+  .labelled{--size:28px}
+  .circles{--size:24px}
+  .dots{--size:12px}
   .dots .cell{padding:0 2px 2px}
   li.done{color:var(--ink)}li.done .dot{background:var(--good);border-color:var(--good);color:var(--bg)}li.done .dot.moved{background:var(--card);color:var(--good)}
   li.here,li.running{color:var(--ink);font-weight:600}li.here .dot,li.running .dot{border-color:var(--good);box-shadow:0 0 0 2px var(--good);color:var(--good)}

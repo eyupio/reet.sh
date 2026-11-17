@@ -546,12 +546,14 @@
     const needs = rows.filter(row => row.attention).length, following = rows.filter(row => row.goal.state === 'active' && !row.attention).length
     return { count: rows.length + chats.length, needs, summary: [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', following ? `${following} followed` : '', chats.length ? `${chats.length} not followed` : ''].filter(Boolean).join(' · ') }
   })
-  // Other sessions opens by itself while something in it needs the person, whatever was remembered. Closing it then
-  // holds for this visit only.
-  let othersShut = $state(false)
-  const othersOpen = $derived(!!opened.others || (others.needs > 0 && !othersShut))
+  // Other sessions opens by itself when something in it needs the person, whatever was remembered, and then stays
+  // open for the visit: answering the last thing that needed them must not close the section under their hands, nor
+  // take the dialog they answered it in (Look after this session) with it. Closing it holds for this visit only.
+  let othersShut = $state(false), othersCalled = $state(false)
+  $effect(() => { if (others.needs > 0) othersCalled = true })
+  const othersOpen = $derived(!!opened.others || ((others.needs > 0 || othersCalled) && !othersShut))
   function toggleOthers() {
-    if (othersOpen) { othersShut = true; if (opened.others) toggleSection('others') }
+    if (othersOpen) { othersShut = true; othersCalled = false; if (opened.others) toggleSection('others') }
     else { othersShut = false; toggleSection('others') }
   }
 

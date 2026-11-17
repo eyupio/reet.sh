@@ -36,12 +36,13 @@
     <button type="button" disabled={off || reading} onclick={() => a?.copyScreen()} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen" /><span class="tl wide">Screen</span></button>
     <button type="button" disabled={off || reading} onclick={() => a?.selectText()} aria-label="Select text" title="Select terminal text"><TerminalIcon name="select" /><span class="tl wide">Select text</span></button>
     <button type="button" disabled={off || !a?.live || reading} onclick={() => a?.paste()} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste" /><span class="tl">Paste</span></button>
-    {#if a?.uploadsSupported || a?.uploadsOff}<button type="button" disabled={a.uploadsOff} onclick={() => a?.attach()} aria-label="Attach image" title={a.uploadsOff ? 'Image uploads are off on this machine.' : 'Attach a PNG, JPEG, GIF or WebP image'}><TerminalIcon name="image" /><span class="tl">Attach</span></button>{/if}
+    <!-- Attach and Skills are for some panes only; they keep their place, switched off, on the others, so the buttons after them do not move. -->
+    <button type="button" disabled={off || !a?.uploadsSupported || !!a?.uploadsOff} onclick={() => a?.attach()} aria-label="Attach image" title={a?.uploadsOff ? 'Image uploads are off on this machine.' : a?.uploadsSupported ? 'Attach a PNG, JPEG, GIF or WebP image' : 'This pane cannot take an image.'}><TerminalIcon name="image" /><span class="tl">Attach</span></button>
     <span class="div" aria-hidden="true"></span>
     <button type="button" disabled={off || !a?.live || reading} onclick={() => a?.interrupt()} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt" /><span class="tl wide">Interrupt</span></button>
     <button type="button" disabled={off} onclick={() => a?.commands()} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands" /><span class="tl">Commands</span></button>
     <button type="button" disabled={off} onclick={event => a?.prompts(event.currentTarget)} aria-haspopup="dialog" aria-label="Prompts" title="Insert one of your saved prompts"><span>Prompts</span></button>
-    {#if a?.skills}<button type="button" disabled={!!a.skillsOff} onclick={() => a?.openSkills()} aria-haspopup="dialog" aria-label="Skills" title={a.skillsOff || 'Insert a skill into the agent'}><span>Skills</span></button>{/if}
+    <button type="button" disabled={off || !a?.skills || !!a?.skillsOff} onclick={() => a?.openSkills()} aria-haspopup="dialog" aria-label="Skills" title={!a?.skills ? 'Skills are for an agent’s pane.' : a.skillsOff || 'Insert a skill into the agent'}><span>Skills</span></button>
     <button type="button" disabled={off} onclick={() => a?.history()} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history" /><span class="tl">History</span></button>
     <button type="button" disabled={off} onclick={() => a?.appearance()} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance" /><span class="tl wide">Appearance</span></button>
     <span class="space"></span>
@@ -55,8 +56,11 @@
 </div>
 
 <style>
-  .desk-toolbar { flex: none; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 3px 8px 3px 14px; border-bottom: 1px solid var(--line-soft); background: var(--bg); font-size: 14px; }
-  .who { flex: 0 1 auto; max-width: 22ch; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); font-weight: 600; }
+  /* The toolbar does not move when the focused pane changes: the name has a column of a fixed width, and how much of
+     each button's label shows follows the toolbar's own width (not the pane, its name or which buttons it has), with
+     room for the buttons only some panes have (Attach, Skills). So nothing shifts and no scroll bar comes and goes. */
+  .desk-toolbar { container: desk-toolbar / inline-size; flex: none; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 3px 8px 3px 14px; border-bottom: 1px solid var(--line-soft); background: var(--bg); font-size: 14px; }
+  .who { flex: 0 0 20ch; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); font-weight: 600; }
   .tools { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
   button { flex: none; display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; white-space: nowrap; cursor: pointer; }
   button:hover:not(:disabled) { color: var(--ink); background: var(--card); border-color: var(--line); }
@@ -66,11 +70,15 @@
   .div { width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--line); }
   .space { flex: 1; min-width: 8px; }
   /* Labels go first, then nothing else changes: every button keeps its name for a screen reader through aria-label. */
-  @media (max-width: 1599px) { .wide { display: none; } }
-  @media (max-width: 1280px) { .tl { display: none; } button { padding: 6px; min-width: 32px; justify-content: center; } }
-  /* On a tablet the tools wrap onto a second line rather than hide their last controls (Zoom, Theatre) off the end; a
-     phone keeps one line that scrolls, to leave its height to the terminal. */
-  @media (min-width: 701px) and (max-width: 1280px) { .tools { flex-wrap: wrap; row-gap: 2px; } }
+  @container desk-toolbar (max-width: 1829px) { .wide { display: none; } }
+  /* With icons only, the tools wrap onto a second line when they must rather than hide their last controls (Zoom,
+     Theatre) off the end. */
+  @container desk-toolbar (max-width: 1559px) {
+    .tl { display: none; }
+    button { padding: 6px; min-width: 32px; justify-content: center; }
+    .tools { flex-wrap: wrap; row-gap: 2px; }
+  }
   @media (pointer: coarse) { button { min-width: 44px; min-height: 44px; } }
-  @media (max-width: 700px) { .desk-toolbar { padding: 0 4px 0 10px; gap: 6px; } .space { display: none; } }
+  /* A phone keeps one line that scrolls, to leave its height to the terminal, and a name only as wide as it is. */
+  @media (max-width: 700px) { .desk-toolbar { padding: 0 4px 0 10px; gap: 6px; } .space { display: none; } .tools { flex-wrap: nowrap; } .who { flex: 0 1 auto; max-width: 22ch; } }
 </style>

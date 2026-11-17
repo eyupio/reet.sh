@@ -149,8 +149,14 @@ instead.
 
 One terminal toolbar sits above the panes and acts on the focused pane, so nine panes do not carry nine toolbars: Earlier
 output, Compose, Search, Copy, Screen, Select text, Paste, Attach (where the machine takes images), Interrupt, Commands,
-Prompts, Skills (in an agent's pane), History and Appearance, then Split right, Split down, Zoom and Theatre view. The
+Prompts, Skills (for an agent's pane), History and Appearance, then Split right, Split down, Zoom and Theatre view. The
 toolbar names the pane it acts on. A pane with no live terminal leaves the terminal's buttons off.
+
+The toolbar holds still as the focus moves between panes. The pane's name has a column of a fixed width and is cut short
+with an ellipsis when it is longer (the whole name is in its tooltip and on the pane's own header). Attach and Skills
+keep their place on a pane they do not apply to, switched off, with the reason in their tooltip. How much of each
+button's label shows follows the toolbar's width alone: every label on a very wide window, the main ones on a wide one,
+icons only below that, where the buttons wrap onto a second line if they must. On a desktop it never scrolls sideways.
 
 ## Saving
 

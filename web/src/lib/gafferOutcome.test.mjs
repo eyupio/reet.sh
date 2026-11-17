@@ -257,6 +257,23 @@ test('a stage never carries an effort its machine does not report', () => {
   assert.equal(o.withReportedEfforts(clean, efforts)[0], clean[0])
 })
 
+test('every backup of a stage, not only the first, drops an effort its machine does not report', () => {
+  const efforts = tool => tool === 'claude' ? ['', 'low', 'high'] : ['']
+  const plan = [{
+    kind: 'code', tool: 'claude', model: '', effort: 'high',
+    backup: { tool: 'opencode', model: 'm1', effort: 'high' },
+    moreBackups: [{ tool: 'claude', effort: 'medium' }, { tool: 'claude', effort: 'low' }, { tool: 'codex', model: 'm2', effort: 'high' }],
+  }]
+  assert.deepEqual(o.withReportedEfforts(plan, efforts), [{
+    kind: 'code', tool: 'claude', model: '', effort: 'high',
+    backup: { tool: 'opencode', model: 'm1' },
+    moreBackups: [{ tool: 'claude' }, { tool: 'claude', effort: 'low' }, { tool: 'codex', model: 'm2' }],
+  }])
+  // Backups with nothing to drop leave the stage as it is.
+  const clean = [{ kind: 'code', tool: 'claude', model: '', backup: { tool: 'claude', effort: 'low' }, moreBackups: [{ tool: 'opencode' }] }]
+  assert.equal(o.withReportedEfforts(clean, efforts)[0], clean[0])
+})
+
 test('a Cline tier carries its billing source', () => {
   const crew = { heavy: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, standard: { tool: 'cline', model: '' }, light: { tool: 'codex', model: '' } }
   assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [

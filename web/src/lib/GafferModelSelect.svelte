@@ -4,13 +4,15 @@
   import { modelOptions, type MachineModels, type ModelFavourite } from './models'
   import { modelSuggestions } from './agentLaunch'
 
-  let { tool, value = $bindable(''), machine = null, favourites = [], host = '', label, disabled = false, onchange }: {
+  // `everywhere` says the list is every machine on the account merged (Gaffer settings), not one machine's; `note`
+  // replaces the line under a model no list has.
+  let { tool, value = $bindable(''), machine = null, favourites = [], host = '', everywhere = false, note = '', label, disabled = false, onchange }: {
     tool: string; value?: string; machine?: MachineModels | null; favourites?: ModelFavourite[]; host?: string
-    label: string; disabled?: boolean; onchange?: (value: string) => void
+    everywhere?: boolean; note?: string; label: string; disabled?: boolean; onchange?: (value: string) => void
   } = $props()
   const OTHER = '\u0000other'
   let other = $state(false)
-  const options = $derived(tool ? modelOptions({ tool, current: '', machine, favourites, recent: [], suggestions: modelSuggestions(tool), selectedModel: other ? '' : value, host }) : [])
+  const options = $derived(tool ? modelOptions({ tool, current: '', machine, favourites, recent: [], suggestions: modelSuggestions(tool), selectedModel: other ? '' : value, host, everywhere }) : [])
   const groups = $derived([...new Set(options.filter(option => option.value).map(option => option.group))])
   const listed = $derived(options.some(option => option.value === value))
   // A name the machine did not list cannot be checked here: the agent confirms it at launch and refuses one it does not offer.
@@ -33,7 +35,7 @@
     </optgroup>{/each}
     <option value={OTHER}>Other…</option>
   </select>
-  {#if unchecked}<span class="unchecked">Not checked against this machine. If the agent does not offer this model, the stage stops when it starts.</span>{/if}
+  {#if unchecked}<span class="unchecked">{note || (everywhere ? 'None of your machines lists this model. If the agent does not offer it, the stage stops when it starts.' : 'Not checked against this machine. If the agent does not offer this model, the stage stops when it starts.')}</span>{/if}
   {#if other}<input aria-label={`${label} name`} {value} maxlength="200" placeholder="Model name" {disabled} oninput={event => set((event.currentTarget as HTMLInputElement).value)}/>{/if}
 </span>
 

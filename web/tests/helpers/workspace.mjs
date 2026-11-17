@@ -47,6 +47,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/profile/model-favourites')return json(modelFavourites())
   if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path))return json(modelList({state:'unsupported', models:[]}))
   if(/^\/api\/v2\/machines\/[^/]+\/models\/refresh$/.test(path))return json(modelList({state:'unsupported', models:[]}))
+  // Every machine's kept model list for one agent (Gaffer settings' crew): none unless a test answers the route itself.
+  if(path==='/api/v2/models')return json({machines:[]})
   if(path==='/api/v2/terminal/status')return json(terminalStatus)
   if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})

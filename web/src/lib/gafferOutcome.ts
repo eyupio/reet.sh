@@ -365,14 +365,20 @@ export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported =
   })
 }
 
-/** A plan with every effort the machine does not report left to the agent's default. A stage starts with nobody
- *  watching, so a level the agent would refuse is never sent. */
-export function withReportedEfforts<T extends { tool: string; effort?: string }>(plan: T[], efforts: (tool: string) => string[]): T[] {
-  return plan.map(stage => {
-    if (!stage.effort || efforts(stage.tool).includes(stage.effort)) return stage
-    const copy = { ...stage }
+/** A plan with every effort the machine does not report left to the agent's default, on each stage and on each of its
+ *  backups alike. A stage starts with nobody watching, so a level the agent would refuse is never sent. */
+export function withReportedEfforts<T extends { tool: string; effort?: string; backup?: SentSpare; moreBackups?: SentSpare[] }>(plan: T[], efforts: (tool: string) => string[]): T[] {
+  const keeps = (one: { tool: string; effort?: string }) => !one.effort || efforts(one.tool).includes(one.effort)
+  const strip = <S extends { tool: string; effort?: string }>(one: S): S => {
+    if (keeps(one)) return one
+    const copy = { ...one }
     delete copy.effort
     return copy
+  }
+  return plan.map(stage => {
+    if (keeps(stage) && (!stage.backup || keeps(stage.backup)) && (stage.moreBackups ?? []).every(keeps)) return stage
+    const copy = strip(stage)
+    return { ...copy, ...(stage.backup ? { backup: strip(stage.backup) } : {}), ...(stage.moreBackups ? { moreBackups: stage.moreBackups.map(strip) } : {}) }
   })
 }
 

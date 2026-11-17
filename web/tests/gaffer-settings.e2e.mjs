@@ -52,6 +52,30 @@ function state(seed = false) {
   return {box,routes}
 }
 
+// The crew's choices come from the account's machines: Claude Code on both (their efforts differ), OpenCode on one with
+// no effort setting, Codex on neither. Model lists are what the controller kept for each machine.
+const effortOf=values=>[{id:'effort',category:'thought_level',values:['default',...values]}]
+const crewMachine=(agentId,host,agents)=>({agentId,host,ready:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,healthEnabled:false,readiness:'ready',acp:true,acpStartOptions:true,acpAgents:agents}})
+const crewMachines=[
+  crewMachine('m1','studio',[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:effortOf(['high','low','max'])},{tool:'opencode',adapter:'opencode',state:'available'}]),
+  crewMachine('m2','laptop',[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:effortOf(['medium','high'])}]),
+]
+const kept=(agentId,host,ids)=>({agentId,host,state:'listed',models:ids.map(id=>({id,provider:id.includes('/')?id.slice(0,id.indexOf('/')):''})),more:false,source:'list',version:'1',fetchedAt:now,checkedAt:now,reason:'',sentence:''})
+const crewModels={claude:[kept('m1','studio',['model-strong','model-quick']),kept('m2','laptop',['model-quick','model-deep'])],opencode:[kept('m1','studio',['zen/model-a','zen/model-b'])]}
+// Heavy is saved with a backup on OpenCode and a further backup on a model no machine lists, at an effort none offers.
+const savedCrew={heavy:{tool:'claude',model:'model-strong',effort:'high',backup:{tool:'opencode',model:'',effort:''},moreBackups:[{tool:'claude',model:'retired-model',effort:'ultra'}]},standard:{},light:{},balanceBelow:20,gafferDecides:false,updatedAt:now}
+function crewRoutes(box,{failMachines=false,failModels=false}={}){
+  return {
+    '/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.saves.push(request.postDataJSON());return {crew:{...box.saves.at(-1),updatedAt:now},saved:true,tiers:[],defaults:{}}}return {crew:box.crew,saved:true,tiers:[],defaults:{}}},
+    '/api/v2/terminal/machines':()=>failMachines?{status:500,json:{error:'machines unavailable'}}:{machines:crewMachines},
+    '/api/v2/models':request=>{const tool=new URL(request.url()).searchParams.get('tool');box.modelReads.push(tool);return failModels?{status:500,json:{error:'models unavailable'}}:{machines:crewModels[tool]??[]}},
+  }
+}
+const crewShots=process.env.REET_CREW_SCREENSHOTS||captures
+const docImages=process.env.REET_DOC_IMAGES||''
+// The tab bar and the Gaffer button float over the page: they are left out of a capture of the crew alone.
+const clean={style:'.bottom-tabs,.gaffer-launcher{visibility:hidden}'}
+
 try {
   const fixture=state()
   const {context,page,errors}=await openWorkspace(browser,{width:1440,routes:fixture.routes})
@@ -139,6 +163,125 @@ try {
   expect(viewer.state.unexpected).toEqual([])
   await viewer.context.close()
 
+  // The crew's model, effort and agent are chosen from what the account's machines report, not typed.
+  {
+    const box={crew:structuredClone(savedCrew),saves:[],modelReads:[]}
+    const w=await openWorkspace(browser,{width:1440,height:1400,routes:crewRoutes(box)})
+    try {
+      const page=w.page
+      await page.goto(`${base}/account/gaffer`)
+      const crew=page.getByRole('region',{name:'Your Factory crew',exact:true}),heavy=crew.getByRole('group',{name:'Heavy tier',exact:true})
+      const field=name=>crew.getByRole('combobox',{name,exact:true})
+      await expect(field('Heavy agent')).toHaveValue('claude')
+      // Agents: every one is listed, and one no machine runs says so.
+      await expect(field('Heavy agent').getByRole('option')).toHaveText(['The outcome’s own agent','Claude Code','Codex (not on your machines)','OpenCode','Cline (not on your machines)','Google Antigravity (AGY) (not on your machines)'])
+      // Models: every machine's list merged, each model once, with the agent's default and Other…
+      await expect(field('Heavy model')).toHaveValue('model-strong')
+      await expect(field('Heavy model').locator('optgroup[label="On your machines"] option')).toHaveText(['model-strong','model-quick','model-deep'])
+      await expect(field('Heavy model').getByRole('option').first()).toHaveText('Agent’s default model')
+      await expect(field('Heavy model').getByRole('option').last()).toHaveText('Other…')
+      // Efforts: every machine's levels for the agent, low to high first.
+      await expect(field('Heavy effort')).toHaveValue('high')
+      await expect(field('Heavy effort').getByRole('option')).toHaveText(['Default effort','Low','Medium','High','Max'])
+      // OpenCode reports no effort setting: nothing to choose.
+      await expect(field('Heavy backup effort')).toBeDisabled()
+      await expect(field('Heavy backup effort')).toHaveValue('')
+      await expect(field('Heavy backup effort').getByRole('option')).toHaveText(['No effort setting'])
+      await expect(field('Heavy backup model').locator('optgroup[label="On your machines · zen"] option')).toHaveText(['zen/model-a','zen/model-b'])
+      // A saved model no machine lists, and an effort none offers, are kept and said so.
+      await expect(field('Heavy backup 2 model')).toHaveValue('retired-model')
+      await expect(heavy).toContainText('None of your machines lists this model. If the agent does not offer it, the stage stops when it starts.')
+      await expect(field('Heavy backup 2 effort')).toHaveValue('ultra')
+      await expect(field('Heavy backup 2 effort').getByRole('option',{name:'Ultra (not offered by your machines)',exact:true})).toHaveCount(1)
+      await expect(heavy).toContainText('If the agent does not offer this effort, the stage starts on the agent’s default effort.')
+      // Each agent's models were read once, and only for agents in the crew.
+      expect([...box.modelReads].sort()).toEqual(['claude','opencode'])
+      expect(await crew.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      for (const name of ['Heavy agent','Heavy model','Heavy effort','Heavy backup effort']) expect((await field(name).boundingBox()).height,name).toBeGreaterThanOrEqual(44)
+      // The model and effort selects line up with the agent select on their row.
+      const tops=await Promise.all(['Heavy agent','Heavy model','Heavy effort'].map(async name=>(await field(name).boundingBox()).y))
+      expect(Math.max(...tops)-Math.min(...tops)).toBeLessThanOrEqual(1)
+      await crew.screenshot({path:`${crewShots}/crew-choices-1440-light.png`,...clean})
+      // Changing a row's agent clears its model and effort; choosing an agent not yet read reads its models once.
+      const light=crew.getByRole('group',{name:'Light tier',exact:true})
+      await field('Light agent').selectOption('claude')
+      await field('Light model').selectOption('model-deep');await field('Light effort').selectOption('medium')
+      await field('Light agent').selectOption('opencode')
+      await expect(field('Light model')).toHaveValue('');await expect(field('Light effort')).toHaveValue('');await expect(field('Light effort')).toBeDisabled()
+      await field('Light agent').selectOption('codex')
+      await expect.poll(()=>box.modelReads.filter(tool=>tool==='codex').length).toBe(1)
+      await expect(field('Light effort')).toHaveText('No effort setting')
+      await field('Light model').selectOption({label:'Other…'});await light.getByRole('textbox',{name:'Light model name',exact:true}).fill('model-typed')
+      // Choose from the selects: Standard on Claude Code at low effort on a model one machine lists.
+      await field('Standard agent').selectOption('claude');await field('Standard model').selectOption('model-quick');await field('Standard effort').selectOption('low')
+      await field('Heavy effort').selectOption('max')
+      await crew.getByRole('button',{name:'Save crew',exact:true}).click()
+      await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
+      // What is sent is exactly what was chosen, the kept model and effort included.
+      expect(box.saves).toEqual([{heavy:{tool:'claude',model:'model-strong',effort:'max',backup:{tool:'opencode',model:'',effort:''},moreBackups:[{tool:'claude',model:'retired-model',effort:'ultra'}]},standard:{tool:'claude',model:'model-quick',effort:'low'},light:{tool:'codex',model:'model-typed',effort:''},balanceBelow:20,gafferDecides:false}])
+      expect([...new Set(box.modelReads)].sort()).toEqual(['claude','codex','opencode']);expect(box.modelReads.length).toBe(3)
+      expect(w.errors).toEqual([]);expect(w.state.unexpected.filter(path=>/models|machines|crew|favourites/.test(path))).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // The machines and their models cannot be read: the form says so in one line and the crew can still be saved.
+  {
+    const box={crew:{heavy:{tool:'claude',model:'',effort:'high'},standard:{},light:{},balanceBelow:20,gafferDecides:false,updatedAt:now},saves:[],modelReads:[]}
+    const w=await openWorkspace(browser,{width:1440,routes:crewRoutes(box,{failMachines:true,failModels:true})})
+    try {
+      const page=w.page
+      await page.goto(`${base}/account/gaffer`)
+      const crew=page.getByRole('region',{name:'Your Factory crew',exact:true})
+      const field=name=>crew.getByRole('combobox',{name,exact:true})
+      await expect(crew).toContainText('Your machines and their models could not be read: efforts show only what you saved, and Other… takes a model’s name. You can still save your crew.')
+      // Nothing is claimed about agents when the machines are not known.
+      await expect(field('Heavy agent').getByRole('option',{name:/not on your machines/})).toHaveCount(0)
+      await expect(field('Heavy effort').getByRole('option')).toHaveText(['Default effort','High'])
+      await expect(field('Heavy effort')).toHaveValue('high')
+      await expect(field('Heavy model').getByRole('option').first()).toHaveText('Agent’s default model')
+      await field('Heavy model').selectOption({label:'Other…'});await crew.getByRole('textbox',{name:'Heavy model name',exact:true}).fill('model-typed')
+      await expect(crew).toContainText('Your machines’ models could not be read. If the agent does not offer this model, the stage stops when it starts.')
+      await crew.getByRole('button',{name:'Save crew',exact:true}).click()
+      await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
+      expect(box.saves).toEqual([{heavy:{tool:'claude',model:'model-typed',effort:'high'},standard:{},light:{},balanceBelow:20,gafferDecides:false}])
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // The crew in dark and on a phone, where each row stacks.
+  for (const [width,theme] of [[1440,'dark'],[390,'dark'],[390,'light']]) {
+    const box={crew:structuredClone(savedCrew),saves:[],modelReads:[]}
+    const w=await openWorkspace(browser,{width,height:width<500?844:1400,theme,touch:width<650,routes:crewRoutes(box)})
+    try {
+      const page=w.page
+      await page.goto(`${base}/account/gaffer`)
+      const crew=page.getByRole('region',{name:'Your Factory crew',exact:true})
+      const field=name=>crew.getByRole('combobox',{name,exact:true})
+      await expect(field('Heavy model')).toHaveValue('model-strong')
+      await expect(field('Heavy backup effort')).toHaveText('No effort setting')
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${width} ${theme} page width`).toBe(true)
+      expect(await crew.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      if (width<500) {
+        // Rows stack: the agent, model and effort of a row are one above the other, each the row's full width.
+        const [agent,model,effort]=await Promise.all(['Heavy agent','Heavy model','Heavy effort'].map(name=>field(name).boundingBox()))
+        expect(model.y).toBeGreaterThan(agent.y+agent.height-1);expect(effort.y).toBeGreaterThan(model.y+model.height-1)
+        expect(Math.abs(model.width-agent.width)).toBeLessThanOrEqual(1)
+        for (const box of [agent,model,effort]) expect(box.height).toBeGreaterThanOrEqual(44)
+      }
+      await crew.screenshot({path:`${crewShots}/crew-choices-${width}-${theme}.png`,...clean})
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // The captures for the docs, at twice the pixels.
+  if (docImages) for (const [width,theme] of [[1440,'light'],[390,'dark']]) {
+    const box={crew:structuredClone(savedCrew),saves:[],modelReads:[]}
+    const w=await openWorkspace(browser,{width,height:width<500?844:1400,theme,touch:width<650,scale:2,routes:crewRoutes(box)})
+    try {
+      await w.page.goto(`${base}/account/gaffer`)
+      const crew=w.page.getByRole('region',{name:'Your Factory crew',exact:true})
+      await expect(crew.getByRole('combobox',{name:'Heavy model',exact:true})).toHaveValue('model-strong')
+      await crew.screenshot({path:`${docImages}/crew-choices-${width}-${theme}.png`,...clean})
+    } finally { await w.context.close() }
+  }
+
   for (const width of [1440,390,320]) for (const theme of ['light','dark']) {
     const fixture=state(true)
     const view=await openWorkspace(browser,{width,theme,touch:width<650,routes:fixture.routes})
@@ -167,4 +310,4 @@ try {
     await view.context.close()
   }
 } finally { await browser.close() }
-console.log('Gaffer settings: model selection, stale discovery, CRUD, key privacy, failure recovery, permissions, and desktop/phone themes passed.')
+console.log('Gaffer settings: the crew chosen from the machines’ reports, model selection, stale discovery, CRUD, key privacy, failure recovery, permissions, and desktop/phone themes passed.')

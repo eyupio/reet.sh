@@ -538,7 +538,10 @@ try {
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[],crews:[]}
-    const w=await openWorkspace(browser,{width:1280,height:1000,routes:{...routesFor(box),'/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crews.push(request.postDataJSON());return {crew:{...box.crews.at(-1),updatedAt:now},saved:true,tiers:[],defaults:{}}}return {crew:{light:{},standard:{},heavy:{}},saved:false,tiers:[],defaults:{}}}}})
+    // The crew's models are what the controller kept of the machine's lists; its efforts are what the machine reports.
+    const kept=ids=>({machines:[{agentId:'a1',host:'workshop',state:'listed',models:ids.map(id=>({id,provider:''})),more:false,source:'list',version:'1',fetchedAt:now,checkedAt:now,reason:'',sentence:''}]})
+    const lists={claude:kept(['model-strong']),codex:kept(['model-backup'])}
+    const w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:{...routesFor(box),'/api/v2/models':request=>lists[new URL(request.url()).searchParams.get('tool')]??{machines:[]},'/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crews.push(request.postDataJSON());return {crew:{...box.crews.at(-1),updatedAt:now},saved:true,tiers:[],defaults:{}}}return {crew:{light:{},standard:{},heavy:{}},saved:false,tiers:[],defaults:{}}}}})
     try {
       const page=w.page
       await page.goto(base+'/account/gaffer')
@@ -554,10 +557,10 @@ try {
       await expect(heavy.getByRole('combobox',{name:'Heavy agent',exact:true})).toHaveValue('')
       await expect(heavy.getByRole('textbox')).toHaveCount(0);await expect(heavy).toContainText('Stages of this tier run on whichever agent the outcome is given.')
       await heavy.getByRole('combobox',{name:'Heavy agent',exact:true}).selectOption('claude')
-      await heavy.getByRole('textbox',{name:'Heavy model',exact:true}).fill('opus');await heavy.getByRole('textbox',{name:'Heavy effort',exact:true}).fill('high')
+      await heavy.getByRole('combobox',{name:'Heavy model',exact:true}).selectOption('model-strong');await heavy.getByRole('combobox',{name:'Heavy effort',exact:true}).selectOption('high')
       await expect(heavy).toContainText('Stages stay on the first choice.')
       await heavy.getByRole('combobox',{name:'Heavy backup agent',exact:true}).selectOption('codex')
-      await heavy.getByRole('textbox',{name:'Heavy backup model',exact:true}).fill('gpt-strong')
+      await heavy.getByRole('combobox',{name:'Heavy backup model',exact:true}).selectOption('model-backup')
       const below=crew.getByRole('group',{name:'When a backup takes over',exact:true}).getByRole('spinbutton')
       await expect(below).toHaveValue('20');await below.fill('3');await below.blur();await expect(below).toHaveValue('5');await below.fill('30')
       const who=crew.getByRole('radiogroup',{name:'Who decides by default',exact:true})
@@ -575,7 +578,7 @@ try {
       await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
       await crew.getByRole('button',{name:'Save crew',exact:true}).click()
       await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
-      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
+      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'model-strong',effort:'high',backup:{tool:'codex',model:'model-backup',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

@@ -5,14 +5,33 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Single sign-on**: the switches about your people are now settings the owner
+  changes on **Admin, Users**, not environment variables you restart for: new
+  people created automatically, linking by email, the role for a new person,
+  password sign-in, the button words, the claim names, the scopes and the
+  admin, member and viewer groups. A saved change applies to the next
+  sign-in, with no restart. Only the owner can save them; administrators see
+  them read-only. Linking by email still never links an owner or an
+  administrator. The provider's address, client id, secret and redirect
+  address, and `REET_OIDC` itself, stay in the environment.
+  **Upgrading:** the first start after this reads the `REET_OIDC_*` switches
+  once and stores them; from then on the stored values are used. If a variable
+  you left set differs from what is stored, the log says `single sign-on:
+  REET_OIDC_… is set and differs from the stored setting; the stored setting
+  is used` (naming the variable, never its value). `PATCH /api/v2/admin/sso`
+  (owner only) takes the whole set, and `/api/version` lists `sso-settings`
+  under `features`. See [single sign-on](docs/single-sign-on.md).
+
 - **Factory**: **Other sessions**, once it has opened by itself because a
   session needs you, stays open for the visit. Stopping or answering the last
   such goal no longer closes the section and takes the dialog you were in
   with it.
+
 - **Desks**: the terminal toolbar no longer shifts or grows a scroll bar when
   the focused pane has a long name. The name has a fixed-width column, Attach
   and Skills keep their place (switched off where they do not apply), and the
   labels follow the toolbar's width.
+
 - **Factory**: the page now opens on what is waiting for you, in a list beside
   one pipeline's detail. On a wide screen each item in the list shows its
   stages as dots with a caption, and its action is in the detail beside it. On

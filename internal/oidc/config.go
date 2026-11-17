@@ -7,6 +7,7 @@
 package oidc
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -147,7 +148,23 @@ func FromEnv(getenv func(string) string) (*Provider, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("single sign-on: %w", err)
 	}
-	return newProvider(cfg), nil
+	// The same rules an owner's later changes pass through, so what is seeded
+	// can always be stored and read back.
+	if err := behaviourFromConfig(cfg).Validate(); err != nil {
+		var fe *FieldError
+		if errors.As(err, &fe) {
+			return nil, fmt.Errorf("single sign-on: %s: %s (set by %s)", fe.Field, fe.Msg, envVarFor(fe.Field))
+		}
+		return nil, fmt.Errorf("single sign-on: %w", err)
+	}
+	p := newProvider(cfg)
+	p.envSet = map[string]bool{}
+	for _, v := range envBehaviourVars {
+		if val, _ := lookup(getenv, v.variable); val != "" {
+			p.envSet[v.variable] = true
+		}
+	}
+	return p, nil
 }
 
 func (c *Config) validate() error {
@@ -184,15 +201,8 @@ func (c *Config) validate() error {
 	if !hasOpenID {
 		c.Scopes = append([]string{"openid"}, c.Scopes...)
 	}
-	if c.NameClaim == "" {
-		c.NameClaim = "name"
-	}
-	if c.EmailClaim == "" {
-		c.EmailClaim = "email"
-	}
-	if c.GroupsClaim == "" {
-		c.GroupsClaim = "groups"
-	}
+	// Empty claim names stay empty: they mean the defaults, resolved where
+	// they are read, so a stored choice of "default" survives as one.
 	if len(errs) > 0 {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
@@ -218,4 +228,13 @@ func checkURL(raw, name string) error {
 		}
 	}
 	return fmt.Errorf("%s must be an https URL (http is allowed only for localhost)", name)
+}
+
+func envVarFor(field string) string {
+	for _, v := range envBehaviourVars {
+		if v.field == field {
+			return v.variable
+		}
+	}
+	return field
 }

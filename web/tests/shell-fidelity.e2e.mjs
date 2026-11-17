@@ -30,8 +30,10 @@ try {
    await expect(page.getByRole('heading',{name:'Active',exact:true})).toBeVisible()
    await expect(page.locator('.stage.active .session-card').first()).toBeVisible()
    // The fleet strip lives in the collapsed Your machines section; open it to read the machine drawings.
-   const machinesSection = page.locator('details.home-detail').filter({hasText:'Your machines'})
-   await machinesSection.locator('summary').click()
+   const machinesHead = page.getByRole('button',{name:/^Your machines/})
+   await expect(machinesHead).toHaveAttribute('aria-expanded','false')
+   await machinesHead.click()
+   await expect(machinesHead).toHaveAttribute('aria-expanded','true')
    await page.evaluate(()=>document.fonts.ready)
    if(width===1440) await expect(page.locator('.fleet .os').first()).toHaveText('Linux 6.1')
    const values = await page.evaluate(()=>{

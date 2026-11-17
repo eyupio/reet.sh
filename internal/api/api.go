@@ -79,6 +79,7 @@ type server struct {
 
 	sso                *oidc.Provider
 	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time
+	afterSSOStore      func()     // tests only: runs after a save is stored and before it takes effect
 	ssoLimiter         *auth.Limiter
 	logoutLimiter      *auth.Limiter
 	afterSessionsEnded func(ids []string) // a test seam: which sessions were just ended

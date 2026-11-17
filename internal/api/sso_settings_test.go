@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/oidc"
 )
@@ -189,6 +190,8 @@ func TestARefusedSaveStoresNothingAndNamesTheField(t *testing.T) {
 		{"a claim with a space", settingsBody(t, map[string]any{"groupsClaim": "my groups"}), "groupsClaim"},
 		{"an empty group", settingsBody(t, map[string]any{"viewerGroups": []string{"ok", ""}}), "viewerGroups"},
 		{"a body over the limit", `{"label":"` + strings.Repeat("x", ssoSettingsLimit) + `"}`, ""},
+		// Valid in every field, so only its size can refuse it.
+		{"a whole set padded past the limit", settingsBody(t, map[string]any{"autoCreate": true}) + strings.Repeat(" ", ssoSettingsLimit), ""},
 	}
 	for _, c := range cases {
 		code, body := e.body(oc, "PATCH", "/api/v2/admin/sso", c.body)
@@ -198,6 +201,9 @@ func TestARefusedSaveStoresNothingAndNamesTheField(t *testing.T) {
 		}
 		var out map[string]string
 		_ = json.Unmarshal([]byte(body), &out)
+		if c.name == "a partial body" && !strings.Contains(out["error"], "missing") {
+			t.Errorf("a partial body is refused for the wrong reason: %s", body)
+		}
 		if out["error"] == "" || (c.field != "" && out["field"] != c.field) {
 			t.Errorf("%s: answer %s, want an error beside %q", c.name, body, c.field)
 		}
@@ -215,9 +221,10 @@ func TestTwoOverlappingSavesLeaveOneWholeSet(t *testing.T) {
 	oc := e.ownerClient()
 	a := settingsBody(t, map[string]any{"autoCreate": true, "linkByEmail": true, "defaultRole": "member", "label": "A", "adminGroups": []string{"a1", "a2"}})
 	b := settingsBody(t, map[string]any{"autoCreate": false, "linkByEmail": false, "defaultRole": "viewer", "label": "B", "adminGroups": []string{"b1"}})
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 60; i++ {
 		var wg sync.WaitGroup
-		for _, body := range []string{a, b} {
+		for n := 0; n < 8; n++ {
+			body := []string{a, b}[n%2]
 			wg.Add(1)
 			go func(body string) {
 				defer wg.Done()
@@ -353,4 +360,46 @@ func TestVersionReportsTheSettingsRoute(t *testing.T) {
 func (e *ssoEnv) sso(t *testing.T) *oidc.Provider {
 	t.Helper()
 	return e.srvr.sso
+}
+
+// Without the lock, one save can be stored, another stored and applied, and the
+// first applied last: the database says one thing and the controller does
+// another until the next restart. The hook holds the first save between its
+// store and its effect so the second can overtake it, if it is allowed to.
+func TestASaveCannotBeOvertakenBetweenBeingStoredAndTakingEffect(t *testing.T) {
+	e := newSSOEnv(t, ssoOpts{})
+	oc := e.ownerClient()
+	var mu sync.Mutex
+	calls := 0
+	secondStored := make(chan struct{})
+	e.srvr.afterSSOStore = func() {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 2 {
+			close(secondStored)
+			return
+		}
+		select {
+		case <-secondStored:
+			time.Sleep(100 * time.Millisecond) // let the overtaking save take effect first
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+	a := settingsBody(t, map[string]any{"label": "A", "autoCreate": true})
+	b := settingsBody(t, map[string]any{"label": "B"})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); e.body(oc, "PATCH", "/api/v2/admin/sso", a) }()
+	time.Sleep(100 * time.Millisecond) // the first save is the one held
+	go func() { defer wg.Done(); e.body(oc, "PATCH", "/api/v2/admin/sso", b) }()
+	wg.Wait()
+	stored, err := oidc.DecodeBehaviour(e.storedSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if now := e.sso(t).Behaviour(); len(stored.Changed(now)) != 0 {
+		t.Fatalf("stored %+v but in force %+v", stored, now)
+	}
 }

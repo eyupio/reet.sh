@@ -131,6 +131,9 @@ func (s *server) ssoSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "could not save the settings")
 		return
 	}
+	if s.afterSSOStore != nil {
+		s.afterSSOStore()
+	}
 	if err := s.sso.SetBehaviour(b); err != nil {
 		// Validated above, so this is a programming error; the stored value is
 		// put back rather than left to be read at the next start.

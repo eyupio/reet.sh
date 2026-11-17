@@ -1,0 +1,107 @@
+<script lang="ts">
+  import type { NeedCard } from '../home'
+  import Approval from '../shell/Approval.svelte'
+  import { worktreeStatus } from '../terminal/api'
+
+  // One session waiting for the person, in Home's "Waiting for you" list: the same parts as a Factory item (chip, title,
+  // where, one sentence, buttons). `row` is one line on a wide screen, in the columns WaitingItem uses (the stages
+  // column stays empty), and a row narrower than ROW_MIN of its own width is drawn as a card.
+  let { card, layout, onseen, onanswered }: {
+    card: NeedCard
+    layout: 'card' | 'row'
+    onseen?: (sessionId: string) => void | Promise<void>
+    onanswered?: () => void | Promise<void>
+  } = $props()
+
+  const asking = $derived(!!card.question && !card.approval)
+  const chip = $derived(card.kind === 'failed' ? 'Failed' : card.kind === 'review' ? 'To review' : card.approval || card.reasons.includes('approval') ? 'Approval' : 'Question')
+  const tone = $derived(card.kind === 'failed' ? 'bad' : card.kind === 'review' ? 'plain' : 'you')
+
+  // For a worktree session that finished, ask the machine once how many files changed in the worktree.
+  let changed = $state<number>()
+  $effect(() => {
+    const target = card.kind === 'review' ? card.worktreeTarget : null
+    changed = undefined
+    if (!target) return
+    let current = true
+    void worktreeStatus(target).then(status => {
+      if (current && typeof status?.changed === 'number') changed = status.changed
+    }).catch(() => { /* keep the place alone when the machine cannot answer */ })
+    return () => { current = false }
+  })
+  const where = $derived.by(() => {
+    if (typeof changed !== 'number') return card.where
+    const files = `${changed} ${changed === 1 ? 'file' : 'files'} changed`
+    return card.where ? `${files} · ${card.where}` : files
+  })
+
+  const ROW_MIN = 720
+  let holderWidth = $state(0)
+  const wide = $derived(holderWidth === 0 || holderWidth >= ROW_MIN)
+</script>
+
+{#snippet sentence()}
+  {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />
+  {:else if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
+  {:else}<p class="said">{card.label} · {card.age}</p>{/if}
+  {#if card.reasons.includes('gaffer')}<p class="note">Gaffer’s goal also needs you</p>{/if}
+{/snippet}
+{#snippet buttons()}
+  {@const filled = card.kind !== 'waiting' || asking}
+  <a class="btn" class:primary={filled} href={card.href} onclick={() => void onseen?.(card.sessionId)}>{asking ? 'Answer in chat' : 'Open'}</a>
+  {#if card.markSeen}<button type="button" class="btn" onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>{/if}
+{/snippet}
+
+{#if layout === 'row'}
+  <div class="holder" bind:clientWidth={holderWidth}>
+    {#if wide}
+      <article class="row">
+        <span class="chipcell"><span class="chip {tone}">{chip}</span></span>
+        <div class="text">
+          <div class="what"><h3 class="title">{card.title}</h3>{#if where}{" "}<span class="where">· Session · {where}</span>{/if}</div>
+          {@render sentence()}
+        </div>
+        <div class="buttons end">{@render buttons()}</div>
+      </article>
+    {:else}
+      <article class="item card">
+        <div class="line"><span class="chip {tone}">{chip}</span><h3 class="title">{card.title}</h3></div>
+        {#if where}<span class="where">Session · {where}</span>{/if}
+        {@render sentence()}
+        <div class="buttons">{@render buttons()}</div>
+      </article>
+    {/if}
+  </div>
+{:else}
+  <article class="item card">
+    <div class="line"><span class="chip {tone}">{chip}</span><h3 class="title">{card.title}</h3></div>
+    {#if where}<span class="where">Session · {where}</span>{/if}
+    {@render sentence()}
+    <div class="buttons">{@render buttons()}</div>
+  </article>
+{/if}
+
+<style>
+  .item{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0;box-sizing:border-box;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;text-align:left}
+  .holder{container-type:inline-size;min-width:0}
+  .row{display:grid;grid-template-columns:var(--col-chip,124px) minmax(0,1fr) var(--col-stages,180px) var(--col-actions,248px);grid-template-areas:'chip text stages actions';column-gap:16px;align-items:start;min-width:0;box-sizing:border-box;padding:14px 16px;color:var(--ink);text-align:left}
+  .chipcell{grid-area:chip;align-self:start}
+  .text{grid-area:text;display:grid;gap:4px;min-width:0}
+  .row .buttons{grid-area:actions}
+  .buttons.end{justify-content:flex-end;align-items:flex-start}
+  @container (max-width:899px){
+    .row{grid-template-columns:var(--col-chip,124px) minmax(0,1fr) var(--col-actions,248px);grid-template-areas:'chip text actions'}
+  }
+  .line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
+  .chip{flex:none;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:0.875rem;font-weight:600;white-space:nowrap}
+  .chip.you{border-color:var(--accent);color:var(--accent-text)}
+  .chip.bad{border-color:var(--bad);color:var(--bad)}
+  .title{min-width:0;margin:0;font:inherit;font-weight:700;overflow-wrap:anywhere}
+  .what{min-width:0;overflow-wrap:anywhere;line-height:1.4}
+  .what .title{display:inline}
+  .where,.note{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere}
+  .said{min-width:0;margin:0;color:var(--ink);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere;white-space:pre-wrap;max-height:6.5em;overflow:hidden}
+  .said .more{color:var(--muted)}
+  .buttons{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+  .buttons .btn{min-height:44px;text-decoration:none}
+</style>

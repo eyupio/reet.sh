@@ -22,6 +22,11 @@ this file existed releases were described on their GitHub release pages.
   (owner only) takes the whole set, and `/api/version` lists `sso-settings`
   under `features`. See [single sign-on](docs/single-sign-on.md).
 
+- **Desks**: the terminal toolbar no longer shifts or grows a scroll bar when
+  the focused pane has a long name. The name has a fixed-width column, Attach
+  and Skills keep their place (switched off where they do not apply), and the
+  labels follow the toolbar's width.
+
 - **Factory**: the page now opens on what is waiting for you, in a list beside
   one pipeline's detail. On a wide screen each item in the list shows its
   stages as dots with a caption, and its action is in the detail beside it. On
@@ -44,7 +49,6 @@ this file existed releases were described on their GitHub release pages.
   column on a wide screen, with how many of each project's pipelines are
   waiting and working; on a tablet or phone a **Projects** button opens the
   same choice.
-
 - **Desks**: on a tablet or phone whose on-screen keyboard overlays the page,
   an open desk now ends above the keyboard, so the terminal's last rows and
   its keys bar stay in view while you type. Before, the desk kept the

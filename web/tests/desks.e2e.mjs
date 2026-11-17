@@ -260,11 +260,15 @@ await page.route('**/api/**', api)
 await page.routeWebSocket('**/api/v2/terminal/socket', socketStub)
 
 const nav = page.getByRole('navigation', { name: 'Main navigation' })
-const tablist = page.getByRole('tablist', { name: 'Tabs' })
+// The tab list claims its tabs with aria-owns; they sit in the bar beside it, with each tab's ⋮ button.
+const tablist = page.locator('.bar .tabs')
 const tab = name => tablist.getByRole('tab', { name, exact: true })
 const tabNames = () => tablist.getByRole('tab').evaluateAll(els => els.map(el => el.querySelector('.name')?.textContent))
 const quiet = () => page.waitForTimeout(700)
+const newWindow = () => page.evaluate(() => { try { sessionStorage.clear() } catch { /* no page yet */ } })
 async function openDesk() {
+  // A window keeps its own tab for a desk; this opens the desk as a new window would.
+  await newWindow()
   await page.goto(`${base}/desks/desk-prod`)
   await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
   await expect(tab('deploy')).toHaveAttribute('aria-selected', 'true')
@@ -276,6 +280,7 @@ const attached = ids => expect.poll(() => ids.every(id => sockets.get(id) && !so
 /** Opens the split desk on a tab (the 2 + 1 unless named). */
 async function openSplit(tabId = 'tab-three') {
   desks.get('desk-split').doc.active = tabId
+  await newWindow()
   await page.goto(`${base}/desks/desk-split`)
   await expect(page.getByRole('heading', { name: 'split desk', level: 1 })).toBeVisible()
   await expect(page.locator(`[data-tab="${tabId}"] [role=tab]`)).toHaveAttribute('aria-selected', 'true')
@@ -436,6 +441,57 @@ try {
   await expect(tab('deploy')).toBeFocused()
   console.log('ok - colours a tab')
 
+  // ── the tab shown is this window's own ──
+  reset()
+  await openDesk()
+  await quiet(); patches = []
+  await tab('logs').click()
+  await expect(tab('logs')).toHaveAttribute('aria-selected', 'true')
+  await quiet()
+  // Switching tab saves nothing, so no other window is moved.
+  expect(patches).toEqual([])
+  expect(desks.get('desk-prod').doc.active).toBe('tab-deploy')
+  // The window keeps its tab across a reload; a new window opens on the tab the desk was last worked in.
+  await page.reload()
+  await expect(tab('logs')).toHaveAttribute('aria-selected', 'true')
+  // Working in the tab (its one pane was already its focused pane) records it as the tab the desk was last worked in.
+  await pane('pane-logs').locator('.xterm').click()
+  await expect.poll(() => desks.get('desk-prod').doc.active).toBe('tab-logs')
+  // A new window now opens on it.
+  await newWindow()
+  await page.reload()
+  await expect(tab('logs')).toHaveAttribute('aria-selected', 'true')
+  await quiet()
+  reset()
+  await openDesk()
+  // Work in another tab in a second window does not move this one, which opened on deploy.
+  {
+    const other = await context.newPage()
+    other.on('pageerror', error => errors.push(error.message))
+    await other.route('**/api/**', api)
+    await other.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await other.goto(`${base}/desks/desk-prod`)
+    await other.locator('.bar .tabs').getByRole('tab', { name: 'logs', exact: true }).click()
+    await other.locator('.desk-pane[data-pane="pane-logs"] .xterm').click()
+    await expect.poll(() => desks.get('desk-prod').doc.active).toBe('tab-logs')
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('reet-desk-tab:desk-prod'))).toBe('tab-deploy')
+    await page.reload()
+    await expect(tab('deploy')).toHaveAttribute('aria-selected', 'true')
+    await other.close()
+    await quiet()
+    reset()
+    await openDesk()
+  }
+  // The tab list holds the tabs and nothing else: each tab's ⋮ button sits outside it.
+  const owned = await page.getByRole('tablist', { name: 'Tabs' }).getAttribute('aria-owns')
+  expect(owned.split(' ')).toEqual(['desk-tab-tab-deploy', 'desk-tab-tab-logs', 'desk-tab-tab-db'])
+  expect(await page.getByRole('tablist', { name: 'Tabs' }).locator('button').count()).toBe(0)
+  const tree = await page.locator('.bar').ariaSnapshot()
+  expect(tree).toMatch(/- tablist "Tabs":\n\s+- tab "deploy" \[selected\]\n\s+- tab "logs"\n\s+- tab "db"\n/)
+  // Nothing floats over a terminal: the Gaffer button is not on an open desk.
+  await expect(page.getByRole('button', { name: 'Ask Gaffer' })).toHaveCount(0)
+  console.log("ok - the tab shown is the window's own, the tab list owns only tabs")
+
   // ── closing a live pane asks and Enter ends the shell ──
   reset()
   await openDesk()
@@ -586,7 +642,7 @@ try {
     await tp.route('**/api/**', api)
     await tp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
     await tp.goto(`${base}/desks/desk-prod`)
-    const ttabs = tp.getByRole('tablist', { name: 'Tabs' })
+    const ttabs = tp.locator('.bar .tabs')
     await expect(ttabs.getByRole('tab', { name: 'deploy', exact: true })).toBeVisible()
     const heights = async locator => (await locator.boundingBox()).height
     for (const [what, locator] of [
@@ -2122,7 +2178,9 @@ try {
     await expect(dialog).toHaveCount(0)
     await expect(tab('a')).toHaveAttribute('aria-selected', 'true')
     expect(patched).toEqual(['desk-split', 'desk-prod'])
-    expect(desks.get('desk-split').doc.tabs[0].panes['pane-a'].session).toBe('')
+    // The pane it left is closed and its neighbour takes the space: a move leaves no hole.
+    expect(desks.get('desk-split').doc.tabs[0].panes['pane-a']).toBeUndefined()
+    expect(desks.get('desk-split').doc.tabs[0].root).toEqual({ split: 'down', ratio: 0.5, a: leaf('pane-b'), b: leaf('pane-c') })
     expect(creates).toEqual([])
     console.log('ok - Add a running session puts one in a new tab, and moves one from another desk')
   }
@@ -2422,7 +2480,7 @@ try {
     await kp.goto(`${base}/desks/desk-prod`)
     await expect(kp.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
     await kp.waitForTimeout(700); patches = []
-    await kp.getByRole('tablist', { name: 'Tabs' }).getByRole('tab', { name: 'db', exact: true }).focus()
+    await kp.locator('.bar .tabs').getByRole('tab', { name: 'db', exact: true }).focus()
     await kp.keyboard.press('F2')
     await kp.getByRole('textbox', { name: 'Tab name' }).fill('database')
     // Enter and the page going, within autosave's pause: the save is sent at once, with keepalive.

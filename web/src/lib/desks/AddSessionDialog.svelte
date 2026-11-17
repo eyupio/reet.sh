@@ -64,7 +64,7 @@
             <span class="txt"><span class="title">{s.title}</span><small>{hostOf(s)}{#if other}{` · on “${other.name}”`}{/if}</small></span></label>
         {/each}
       </fieldset>
-      {#if from}<p class="move">It is on “{from.name}” now. Moving it takes it off that desk; the pane there stays, empty.</p>{/if}
+      {#if from}<p class="move">It is on “{from.name}” now. Moving it closes its pane on that desk; a tab’s only pane stays, empty.</p>{/if}
     {/if}
     {#if error}<p class="bad" role="alert">{error}</p>{/if}
     <div class="actions" data-shell-foot>

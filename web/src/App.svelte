@@ -1563,7 +1563,7 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
-{#if authMode === 'accounts' && currentUser && canWrite && !needsAuth && !isMCPConsent && !isPublicList && !isCommunity && !isJoin && !isReset && !setupRequired}
+{#if authMode === 'accounts' && currentUser && canWrite && !needsAuth && !isMCPConsent && !isPublicList && !isCommunity && !isJoin && !isReset && !setupRequired && !deskScreen}
   {#key currentUser.id}<GafferChatWidget userId={currentUser.id} onerror={fail} {timeZone} {dateFormat} />{/key}
 {/if}
 {#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}

@@ -123,7 +123,7 @@ try {
     for (const name of ['Split right', 'Split down', 'Zoom', 'Swap with…', 'Move to tab…']) await expect(menu.getByRole('menuitem', { name })).toHaveCount(0)
     await page.keyboard.press('Escape')
     // The tab bar scrolls sideways; the page itself never does.
-    const bar = page.getByRole('tablist', { name: 'Tabs' })
+    const bar = page.locator('.bar .tabs')
     expect(await bar.evaluate(el => el.scrollWidth > el.clientWidth && getComputedStyle(el).overflowX === 'auto')).toBe(true)
     await bar.getByRole('tab', { name: 'mail', exact: true }).tap()
     await expect(bar.getByRole('tab', { name: 'mail', exact: true })).toHaveAttribute('aria-selected', 'true')

@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory**: **Other sessions**, once it has opened by itself because a
+  session needs you, stays open for the visit. Stopping or answering the last
+  such goal no longer closes the section and takes the dialog you were in
+  with it.
 - **Desks**: the terminal toolbar no longer shifts or grows a scroll bar when
   the focused pane has a long name. The name has a fixed-width column, Attach
   and Skills keep their place (switched off where they do not apply), and the

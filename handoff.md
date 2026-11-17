@@ -111,6 +111,11 @@ green. No deploy.
   (`needingIds`); a goal that names its session only in the goal folds into that session's card, and an archived
   pipeline's goals are never a stray Gaffer entry (`whatWaits.ts`, now unit-tested); each list section's head is an
   h2.
+- From the re-check of those fixes: a session that holds both an approval and a question shows once, as its
+  approval item (the approval is answered first; the item then offers the question); on the Factory page a signal
+  that arrives during one of the page's own actions is acted on when the action ends, and a failed answer reads the
+  sessions again; when the Factory cannot be read the first time, Home says it will try again every 15 seconds.
+- After main was merged in (17 November), all 88 browser suites in CI were run locally on one build: all pass.
 
 **Not done.**
 - The bell panel is short: about one and a half entries are visible before it scrolls.

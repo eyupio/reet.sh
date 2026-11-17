@@ -108,14 +108,18 @@ try {
         await expect(asking.getByLabel('Project',{exact:true})).toHaveValue('p1')
         await asking.getByRole('button',{name:'Close Give Gaffer an outcome',exact:true}).click()
       } else await expect(projectRail).toHaveCount(0)
-      // A running pipeline is one line until opened; the ones that want the person start open. Then everything is opened for the rest of the run.
+      // A running pipeline shows its stages whether it is folded or open; the ones that want the person start open. Opening a pipeline adds its details, not its stages.
       const lines=page.getByRole('list',{name:'Pipelines of this outcome',exact:true}).first().locator(':scope > li')
       await expect(lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true})).toHaveAttribute('aria-expanded','false')
-      await expect(lines.nth(0)).toContainText('Review · 4 of 8');await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})).toHaveCount(0)
+      await expect(lines.nth(0)).toContainText('Review · 4 of 8')
+      const foldedStages=lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})
+      await expect(foldedStages).toBeVisible();await expect(foldedStages.getByRole('listitem')).toHaveCount(8)
+      await expect(foldedStages.getByRole('listitem')).toContainText(['Plan','Design','Code','Review','Test','PR','Babysit','Merge'])
       await expect(lines.nth(1).getByRole('button',{name:'Hide details of Export button',exact:true})).toHaveAttribute('aria-expanded','true')
       await expect(lines.nth(2).getByRole('button',{name:'Hide details of Export docs',exact:true})).toBeVisible()
       await lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true}).click()
       await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})).toBeVisible()
+      await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')).toHaveCount(8)
       await page.getByRole('button',{name:'Expand all',exact:true}).click()
       await expect(page.getByRole('button',{name:'Collapse all',exact:true})).toHaveAttribute('aria-pressed','true')
       // The headline numbers say who has to act.

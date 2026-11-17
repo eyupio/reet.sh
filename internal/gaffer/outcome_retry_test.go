@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -133,7 +134,19 @@ func TestRetryingOnePipelineOfAStoppedOutcomeStartsOnlyThatOne(t *testing.T) {
 	if err != nil || o.Sessions[1].State != "cancelled" || o.Sessions[2].State != "cancelled" {
 		t.Fatalf("stopped outcome: %+v %v", o, err)
 	}
-	if _, err := r.s.RetryPipeline(r.p.UserID, created.ID, "b", o.Revision); err != nil {
+	// The first pipeline's start is still being recorded in the background,
+	// which moves the outcome on. A revision read a moment ago can be stale by
+	// the time it is used, so reload and ask again, as the page does, until the
+	// answer is about the pipeline and not about the revision.
+	retryBy := time.Now().Add(15 * time.Second)
+	for {
+		_, err = r.s.RetryPipeline(r.p.UserID, created.ID, "b", mustOutcome(t, r, created.ID).Revision)
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || time.Now().After(retryBy) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
 		t.Fatalf("a pipeline shown as not started must be retryable: %v", err)
 	}
 	deadline := time.Now().Add(15 * time.Second)

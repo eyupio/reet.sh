@@ -1,6 +1,6 @@
 ---
-title: "Choosing AI agent tools — Reet, skills.sh, Open WebUI and LibreChat"
-description: "Choose the right tool for agent sessions, skill discovery or model conversations. See where Reet fits alongside skills.sh, Open WebUI and LibreChat."
+title: "Choosing AI agent tools — Reet, skills.sh, Open WebUI, LibreChat and GOAT"
+description: "Choose the right tool for agent sessions, skill discovery or model conversations. See where Reet fits alongside skills.sh, Open WebUI, LibreChat and GOAT."
 layout: compare
 ---
 

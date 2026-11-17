@@ -127,6 +127,7 @@ def on_page_context(context, page, config, nav, **kwargs):
     context["guide_pages"] = pages_for(config["extra"].get("field_guides", []))
     context["compare_pages"] = pages_for([
         "compare-skills-sh.md", "compare-open-webui.md", "compare-librechat.md",
+        "compare-goat.md",
     ])
     context["related_pages"] = pages_for(page.meta.get("related", []))
     base = config["site_url"]

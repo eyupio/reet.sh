@@ -29,7 +29,7 @@ A control room provides one place to reach those environments and return to thei
 | Coding agent | Read the project, propose changes and run its tools | Claude Code, Codex or OpenCode on the machine where the work runs. |
 | Control room | Connect machines, start sessions and organise reusable skills | Your self-hosted Reet controller and its machine connectors. |
 
-A browser chat interface is another useful layer. If your primary need is conversations with models and shared knowledge, read the [Open WebUI](compare-open-webui.md) or [LibreChat](compare-librechat.md) comparison before deciding that you need a machine control room.
+A browser chat interface is another useful layer. If your primary need is conversations with models and shared knowledge, read the [Open WebUI](compare-open-webui.md) or [LibreChat](compare-librechat.md) comparison before deciding that you need a machine control room. If you mainly want a desktop or phone app to drive agents, read the [GOAT](compare-goat.md) comparison.
 
 ## What Reet brings together
 

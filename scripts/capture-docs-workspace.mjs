@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { startHarness } from "../web/tests/helpers/harness.mjs";
 import {
   active,
@@ -254,6 +254,15 @@ async function save(name, buffer) {
   };
 }
 
+// `--only=desks,factory` refreshes just those pictures and keeps every other entry of the manifest as it is.
+const only = process.argv
+  .find((arg) => arg.startsWith("--only="))
+  ?.slice(7)
+  .split(",");
+const wanted = (group) => !only || only.includes(group);
+if (only) Object.assign(manifest.screenshots, previous?.screenshots ?? {});
+const chromiumPath =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || "/usr/bin/chromium";
 const harness = await startHarness();
 const browser = await chromium.launch({
   headless: true,
@@ -263,7 +272,7 @@ const browser = await chromium.launch({
 });
 try {
   await mkdir(output, { recursive: true });
-  for (const theme of ["light", "dark"]) {
+  for (const theme of wanted("workspace") ? ["light", "dark"] : []) {
     for (const width of [1440, 390]) {
       const profile = {
         theme,
@@ -367,8 +376,54 @@ try {
   }
 } finally {
   await browser.close();
-  await harness.close();
+  if (!wanted("factory")) await harness.close();
 }
+// The Factory page comes from its own browser test, which already draws it with example outcomes.
+if (wanted("factory")) {
+  try {
+    // Not spawnSync: the test reads its pages from the server this process is running.
+    const factory = await new Promise((resolve) =>
+      spawn(
+        process.execPath,
+        [fileURLToPath(new URL("../web/tests/gaffer-factory.e2e.mjs", import.meta.url))],
+        {
+          env: {
+            ...process.env,
+            REET_UI_URL: harness.url,
+            REET_UI_SCREENSHOTS: temporary,
+            PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: chromiumPath,
+          },
+          stdio: "inherit",
+        },
+      ).on("exit", (status) => resolve({ status })),
+    );
+    if (factory.status !== 0) throw new Error("Factory screenshots did not finish");
+  } finally {
+    await harness.close();
+  }
+  for (const theme of ["light", "dark"])
+    await save(
+      `factory-desktop-${theme}`,
+      await readFile(join(temporary, `gaffer-factory-1440-${theme}.png`)),
+    );
+}
+if (wanted("desks")) {
+  const desks = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("./capture-docs-desks.mjs", import.meta.url))],
+    {
+      env: { ...process.env, REET_DOCS_SCREENSHOT_DIR: temporary },
+      stdio: "inherit",
+    },
+  );
+  if (desks.status !== 0) throw new Error("Desk screenshots did not finish");
+  for (const theme of ["light", "dark"])
+    await save(
+      `desks-desktop-${theme}`,
+      await readFile(join(temporary, `desks-showcase-${theme}.png`)),
+    );
+}
+if (wanted("gaffer")) {
 const gaffer = spawnSync(
   process.execPath,
   [fileURLToPath(new URL("./capture-docs-gaffer.mjs", import.meta.url))],
@@ -383,6 +438,7 @@ for (const theme of ["light", "dark"])
     `gaffer-desktop-${theme}`,
     await readFile(join(temporary, `gaffer-showcase-${theme}.png`)),
   );
+}
 // Keep references together with their newly captured assets, including README
 // images. Previous image URLs stay available to cached pages and external links.
 for (const relative of [

@@ -168,6 +168,7 @@ nav:
   - Work:
     - Projects: projects.md
     - Session board: session-board.md
+    - Factory: factory.md
   - Operations:
     - Backups: backups.md
     - Single sign-on: single-sign-on.md
@@ -199,3 +200,4 @@ nav:
   - skills.sh: compare-skills-sh.md
   - Open WebUI: compare-open-webui.md
   - LibreChat: compare-librechat.md
+  - GOAT: compare-goat.md

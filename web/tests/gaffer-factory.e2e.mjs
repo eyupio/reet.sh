@@ -254,7 +254,8 @@ try {
       await expect(floor.getByRole('heading',{name:'Login tokens',exact:true})).toBeVisible()
       await expect(floor.getByRole('group',{name:'Running chats not followed',exact:true}).getByRole('checkbox')).toHaveCount(1)
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
-      await floor.getByRole('heading',{name:'Login tokens',exact:true}).scrollIntoViewIfNeeded()
+      // The picture is of the page at rest: the notice from the decisions switch above is put away first.
+      {const notice=page.getByRole('button',{name:'Dismiss this message',exact:true});if(await notice.count()){await notice.click();await page.evaluate(()=>scrollTo(0,0))}}
       await page.screenshot({path:`${shots}/gaffer-factory-${width}-${theme}.png`,fullPage:width<500})
       await othersHead.click()
       expect(box.writes).toEqual([])

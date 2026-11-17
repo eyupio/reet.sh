@@ -2820,6 +2820,8 @@ try {
       for (const [tabId, name] of [['tab-three', '2plus1'], ['tab-four', 'grid4']]) {
         desks.get('desk-split').doc.active = tabId
         if (tabId === 'tab-four') desks.get('desk-split').doc.tabs[1].root = { split: 'right', ratio: 0.5, a: { split: 'down', ratio: 0.5, a: leaf('pane-d1'), b: leaf('pane-d2') }, b: { split: 'down', ratio: 0.5, a: leaf('pane-d3'), b: leaf('pane-d4') } }
+        // A window keeps its own tab for a desk; each shot opens the desk as a new window would.
+        await wp.evaluate(() => { try { sessionStorage.clear() } catch { /* no page yet */ } })
         await wp.goto(`${base}/desks/desk-split`)
         await wp.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
         await expect(wp.locator('.desk-pane .xterm-screen')).toHaveCount(tabId === 'tab-three' ? 3 : 4)

@@ -134,8 +134,10 @@ try {
       await expect(waits.nth(1)).toContainText('Ready to merge');await expect(waits.nth(1)).toContainText('Export docs')
       await expect(waits.nth(2)).toContainText('Failed');await expect(waits.nth(2)).toContainText('Importer docs')
       if(!wide){
-        // A card's filled button is the choice marked first, and the merge decision says what it waits for.
-        await expect(waits.nth(0).locator('.btn.primary')).toHaveText('Tell the agent')
+        // A card's filled button is the choice marked first, Gaffer's advice is said in the detail's words and marks it,
+        // and the merge decision says what it waits for.
+        await expect(waits.nth(0).locator('.btn.primary')).toHaveText('Tell the agent Recommended')
+        await expect(waits.nth(0)).toContainText('Gaffer recommends: Tell the agent. The design already names the empty state; the agent only needs telling which.')
         await expect(waits.nth(1)).toContainText('Nothing merges until you approve it.');await expect(waits.nth(1).locator('.btn.primary')).toHaveText('Approve the merge')
       }
       // Waits until either the list or a detail is on screen, then goes back to the list if a detail is.
@@ -168,7 +170,7 @@ try {
       if(wide){button=page.getByRole('region',{name:'Export button',exact:true});await expect(waiting.getByRole('button',{name:'Decision: Export button',exact:true})).toHaveAttribute('aria-pressed','true')}
       else button=await choose('Waiting for you','Export button','Decision')
       await expect(button.getByRole('heading',{name:'Export button',level:2,exact:true})).toBeVisible()
-      await expect(button).toContainText('Ship CSV export for billing: an endpoint, a button and tests. · pipeline 2 of 3')
+      await expect(button).toContainText('Ship CSV export for billing: an endpoint, a button and tests · pipeline 2 of 3')
       // It says what it needs and offers what to do: the choice Gaffer's review recommended comes first, marked, with its reason.
       const needy=button.getByRole('region',{name:'What is waiting',exact:true})
       await expect(needy).toContainText('Gaffer brought a question back to you.')
@@ -464,9 +466,23 @@ try {
       await expect(page.getByRole('status').filter({hasText:'Archived'})).toContainText('Show archived outcomes to bring it back.')
       await expect(page.getByRole('heading',{name:'Nothing on the floor.',exact:true})).toBeVisible()
       await page.getByRole('button',{name:'Show archived (1)',exact:true}).click()
-      // The pipeline that was open comes back with its outcome.
+      // On a wide screen the pipeline that was open comes back with its outcome. On a narrow one archiving went back to
+      // the list and cleared the address, so it is opened from the list.
+      if(!wide){expect(new URL(page.url()).searchParams.get('pipeline')).toBeNull();await open()}
       await expect(card.getByRole('heading',{name:'Importer logs',level:2,exact:true})).toBeVisible()
       await expect(card).toContainText('archived');if(wide)await expect(page.getByText('0 waiting for you · 0 working · 0 finished',{exact:true})).toBeVisible()
+      // An archived outcome's pipeline offers no action: no bar in its detail, no request for a report, and in the list
+      // only its Details.
+      await expect(card.getByRole('group',{name:'What do you want to do?',exact:true})).toHaveCount(0)
+      await expect(card.getByRole('button',{name:/^Ask Gaffer/})).toHaveCount(0)
+      if(!wide){
+        await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
+        if(await head.getAttribute('aria-expanded')!=='true')await head.click()
+        const item=page.locator(`#pipeline-${'c'.repeat(32)}-a`)
+        await expect(item.getByRole('button',{name:'Details and other actions for Importer logs',exact:true})).toBeVisible();await expect(item.getByRole('button')).toHaveCount(1)
+        await item.getByRole('button',{name:'Details and other actions for Importer logs',exact:true}).click()
+        await expect(card.getByRole('heading',{name:'Importer logs',level:2,exact:true})).toBeVisible()
+      }
       await menu.click();await expect(card.locator('.menu ul button')).toHaveText(['Restore'])
       await card.getByRole('button',{name:'Restore',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Restored'})).toBeVisible()

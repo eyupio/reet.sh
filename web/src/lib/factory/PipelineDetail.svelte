@@ -350,8 +350,8 @@
     <div class="ask-row" data-floating-clearance={narrow ? 'dock' : undefined}><p class="ask" id={`${uid}-ask`}>What do you want to do?</p></div>
     {#if asking && permission && piece.sessionId}<Approval sessionId={piece.sessionId} approval={permission} {onanswered} />{/if}
     {#if bar.length}<div class="choices">{#each bar as entry (entry.key)}
-      {#snippet choice()}{#if entry.href}<a class="btn" class:primary={entry.primary} href={entry.href}>{entry.label}{#if entry.recommended}<span class="sr-only"> Recommended</span>{/if}</a>
-      {:else}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}<span class="sr-only"> Recommended</span>{/if}</button>{/if}{/snippet}
+      {#snippet choice()}{#if entry.href}<a class="btn" class:primary={entry.primary} href={entry.href}>{entry.label}{#if entry.recommended}<span class="sr-only">{' '}Recommended</span>{/if}</a>
+      {:else}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}<span class="sr-only">{' '}Recommended</span>{/if}</button>{/if}{/snippet}
       <!-- The recommended choice is marked by a caption above it, which widens nothing, so the choices keep one line. -->
       {#if entry.recommended}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render choice()}</span>{:else}{@render choice()}{/if}{/each}</div>{/if}
   </div>{:else if narrow}<div class="rest" data-floating-clearance="dock" aria-hidden="true"></div>{/if}

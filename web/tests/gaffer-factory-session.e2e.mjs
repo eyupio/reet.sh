@@ -92,13 +92,16 @@ try {
         await expect(endedItem).toContainText('Code in hand · Plan, Design done · next Review')
         await page.screenshot({path:`${shots}/gaffer-factory-session-list-${width}-${theme}.png`,fullPage:true})
         await waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true}).click()
-        // Gaffer's launcher does not sit over the choices: with them in view it rides above them.
+        // Gaffer's launcher does not sit over the choices or the bar's question: it rests at the end of the bar's first
+        // line, in the room kept for it there.
         await bar.getByRole('button',{name:'Move to next stage',exact:true}).scrollIntoViewIfNeeded()
         await expect.poll(async()=>page.evaluate(()=>{
-          const launcher=document.querySelector('.gaffer-launcher'),choices=document.querySelector('[data-floating-clearance]')
-          if(!launcher||!choices)return 'missing'
-          const a=launcher.getBoundingClientRect(),b=choices.getBoundingClientRect()
-          return a.bottom<=b.top||a.top>=b.bottom||a.right<=b.left||a.left>=b.right?'clear':'over'
+          const launcher=document.querySelector('.gaffer-launcher'),bar=document.querySelector('section.detail .bar')
+          if(!launcher||!bar)return 'missing'
+          const a=launcher.getBoundingClientRect(),own=bar.getBoundingClientRect()
+          const apart=b=>a.bottom<=b.top||a.top>=b.bottom||a.right<=b.left||a.left>=b.right
+          if(a.top<own.top||a.bottom>own.bottom)return 'outside the bar'
+          return [...bar.querySelectorAll('.ask, button, a')].every(n=>apart(n.getBoundingClientRect()))?'clear':'over'
         })).toBe('clear')
       }
       // Moving on names the stage the person was shown.

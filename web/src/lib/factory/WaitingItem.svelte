@@ -62,7 +62,7 @@
       {#if item.kind === 'approval' && permission && !item.archived}
         <Approval {sessionId} approval={permission} {onanswered} />
       {:else if filled}
-        {#snippet fill()}<button type="button" class="btn primary" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(filled)}>{filled.label}{#if advised}<span class="sr-only"> Recommended</span>{/if}</button>{/snippet}
+        {#snippet fill()}<button type="button" class="btn primary" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(filled)}>{filled.label}{#if advised}<span class="sr-only">{' '}Recommended</span>{/if}</button>{/snippet}
         <!-- Marked as the detail's bar marks it: a caption above the button. -->
         {#if advised}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render fill()}</span>{:else}{@render fill()}{/if}
       {/if}

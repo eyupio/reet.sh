@@ -445,3 +445,60 @@ func (s *Service) SetOutcomeAutomation(uid int64, id string, revision int64, on 
 	}
 	return outcomeView(o), nil
 }
+
+// SessionYolo switches a live session of a pipeline between asking the
+// person and answering every permission itself.
+type SessionYolo interface {
+	SetOutcomeSessionYolo(ctx context.Context, uid int64, sessionID string, on bool) error
+}
+
+// SetOutcomeYolo puts a started outcome on YOLO, or takes it off: the stages
+// still to start take the new choice, and the session each pipeline has in
+// hand is switched now. It is the person's own choice, as at approval; the
+// account's Allow YOLO setting is the caller's to check. A pipeline set to
+// merge by itself waits for the person again until they confirm that
+// separately for YOLO. It returns the titles of pipelines whose session in
+// hand could not be switched and so still asks.
+func (s *Service) SetOutcomeYolo(ctx context.Context, uid int64, id string, revision int64, on bool) (store.GafferOutcome, []string, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, nil, err
+	}
+	archived, refused := false, false
+	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		if archived = o.ArchivedAt > 0; archived || o.Yolo == on {
+			return false
+		}
+		if refused = on && !outcomeTakesYolo(o.Tool, o.Sessions); refused {
+			return false
+		}
+		o.Yolo = on
+		for i := range o.Sessions {
+			// A yes given for an earlier spell on YOLO is not carried into this one.
+			o.Sessions[i].YoloMergeOK = false
+		}
+		return true
+	})
+	if err != nil {
+		return outcomeView(o), nil, err
+	}
+	if archived {
+		return outcomeView(o), nil, errOutcomeArchived
+	}
+	if refused {
+		return outcomeView(o), nil, invalid("yolo", "One of this outcome's agents has no YOLO option reet can use.")
+	}
+	s.audit(uid, "gaffer-outcome-yolo", map[string]any{"outcome": id, "on": on})
+	s.mu.Lock()
+	setter, _ := s.starter.(SessionYolo)
+	s.mu.Unlock()
+	var left []string
+	for _, row := range o.Sessions {
+		if row.SessionID == "" || row.State != "following" && row.State != "starting" && row.State != "advancing" {
+			continue
+		}
+		if setter == nil || setter.SetOutcomeSessionYolo(ctx, uid, row.SessionID, on) != nil {
+			left = append(left, row.Title)
+		}
+	}
+	return outcomeView(o), left, nil
+}

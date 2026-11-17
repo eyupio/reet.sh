@@ -35,6 +35,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/archive", access(s.gafferOutcomeArchive(true)))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/restore", access(s.gafferOutcomeArchive(false)))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/automation", access(s.gafferOutcomeAutomation))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/yolo", access(s.gafferOutcomeYolo))
 	mux.HandleFunc("DELETE /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcomeDelete))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
@@ -195,6 +196,46 @@ func (s *server) gafferOutcomeAutomation(w http.ResponseWriter, r *http.Request)
 	s.eventRequest(r, "gaffer-outcome-decisions", "", map[string]any{"outcome": o.ID, "gaffer": o.Automation})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeYolo puts a started outcome on YOLO or takes it off. Turning
+// it on is the person's own confirmed choice and needs the account's Allow
+// YOLO setting, exactly as approving an outcome on YOLO does. The answer says
+// which pipelines' sessions in hand could not be switched and still ask.
+func (s *server) gafferOutcomeYolo(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision  int64 `json:"revision"`
+		On        *bool `json:"on"`
+		Confirmed bool  `json:"confirmed"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+		return
+	}
+	if in.Revision < 1 || in.On == nil {
+		writeErr(w, 400, "Reload this outcome before changing it.")
+		return
+	}
+	if *in.On {
+		if !in.Confirmed {
+			writeErr(w, 400, "Confirm that this outcome's agents may act without asking you.")
+			return
+		}
+		if setting, err := s.yoloSetting(); err != nil || !setting.Allowed {
+			writeErrCode(w, http.StatusForbidden, "yolo_not_allowed", "", sentenceYoloNotAllowed, "")
+			return
+		}
+	}
+	o, left, err := s.gafferProviders.SetOutcomeYolo(r.Context(), s.uid(r), r.PathValue("id"), in.Revision, *in.On)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	if left == nil {
+		left = []string{}
+	}
+	s.eventRequest(r, "gaffer-outcome-yolo", "", map[string]any{"outcome": o.ID, "yolo": o.Yolo, "sessionsNotSwitched": len(left)})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"outcome": o, "notSwitched": left})
 }
 
 func (s *server) gafferOutcomeArchive(archive bool) http.HandlerFunc {
@@ -467,6 +508,15 @@ type replyCapture struct {
 func (c *replyCapture) Header() http.Header         { return c.header }
 func (c *replyCapture) Write(b []byte) (int, error) { return c.body.Write(b) }
 func (c *replyCapture) WriteHeader(int)             {}
+
+// SetOutcomeSessionYolo switches a pipeline's live session between asking and
+// YOLO, through the same gates as the person's own switch in the chat.
+func (o outcomeStarter) SetOutcomeSessionYolo(ctx context.Context, uid int64, sessionID string, on bool) error {
+	if o.s.terminals == nil {
+		return errors.New("Remote sessions are disabled on this controller.")
+	}
+	return o.s.terminals.SetChatYolo(ctx, uid, sessionID, on)
+}
 
 // EndOutcomeSession ends a session a pipeline has finished with, the way the
 // person's own End does with its history kept: the worktree is left alone.

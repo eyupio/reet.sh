@@ -32,6 +32,14 @@ code in two parts (standard, light), review, test, pr. Stopped by hand during th
   ellipsis, which Gaffer reported as a brief that "ends mid-sentence": `evidenceBrief` shows 2,400 and says in
   words when it shortened. (3) the evidence named a part's stage only by kind: it now gives the part's name and,
   until the part is done, its brief.
+- **Also fixed, from the owner watching the run:** (4) nothing could put a started outcome on YOLO.
+  `SetOutcomeYolo` (`POST /api/v2/gaffer/outcomes/{id}/yolo`, browser only, confirmed, needs Allow YOLO) sets the
+  outcome's choice, switches each session in hand through `Broker.SetChatYolo`, clears every `YoloMergeOK`, and
+  returns the pipelines whose session could not be switched. Not offered over MCP. (5) a session the controller
+  ended for a pipeline (`endFinishedSession`, `rebalanceStopped`) showed as newly finished: `leftBehind` marks it
+  seen, ten minutes ahead because the machine's ended report can land after the request returns.
+- **Seen, not changed:** the ended chat's banner says "You ended this … chat" for a session the Factory ended. The
+  web cannot tell who ended a session; the audit row `gaffer-session-ended` can.
 - **Not exercised:** balancing (backups are fixed when an outcome starts, and the backup was saved after), a
   decision by Gaffer at a stopped stage, Gaffer answering a multiple-choice question, and any stage after the first
   code part. With ordinary approvals each new session stopped at once on a permission prompt, which only the person

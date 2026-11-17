@@ -78,6 +78,15 @@ type SessionEnder interface {
 	EndOutcomeSession(ctx context.Context, uid int64, sessionID string) error
 }
 
+// leftBehind marks a session the controller ended for a pipeline as seen. The
+// pipeline carries on elsewhere and its card says where it stands, so the
+// session is not shown to the person as newly finished with something for
+// them to do. The time is a little ahead because the machine's own report
+// that the session ended can arrive after the request returns.
+func (s *Service) leftBehind(uid int64, sessionID string) {
+	_ = s.store.MarkSessionSeenFor(uid, sessionID, time.Now().Add(10*time.Minute).UnixMilli())
+}
+
 func (s *Service) SetSessionStarter(starter SessionStarter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1197,6 +1206,7 @@ func (s *Service) endFinishedSession(ctx context.Context, o store.GafferOutcome,
 	if err := ender.EndOutcomeSession(endCtx, o.OwnerID, sessionID); err != nil {
 		return
 	}
+	s.leftBehind(o.OwnerID, sessionID)
 	s.audit(o.OwnerID, "gaffer-session-ended", map[string]any{"outcome": o.ID, "pipeline": key, "session": sessionID, "reason": reason})
 }
 

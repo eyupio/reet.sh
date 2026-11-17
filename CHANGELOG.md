@@ -12,6 +12,12 @@ this file existed releases were described on their GitHub release pages.
   characters, and told in words when it is longer) and each part's name and
   brief, instead of calling a clipped brief unfinished and a split stage
   unexplained.
+  A started outcome can now be put on YOLO, or taken off, from its card
+  (**Switch to YOLO…** beside Approvals, after a confirmation): the session
+  each pipeline has in hand is switched and every later stage starts that
+  way; a pipeline set to merge by itself waits for you again until you
+  confirm that for YOLO. A session the Factory ended because its pipeline
+  moved on no longer shows as newly finished with something for you to do.
 
 - **Desks**: the tab shown is now each window's own, so switching tab saves
   nothing and no longer moves another window on the same desk. **Move here**

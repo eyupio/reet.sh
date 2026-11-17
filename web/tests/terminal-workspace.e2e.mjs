@@ -9,7 +9,7 @@ page.on('pageerror',error=>errors.push(error.message))
 await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let failHistory=false,historyReads=0,failSessions=false,denied=false,viewer=false,websockets=0
-const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null}]
+const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'}]
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
 await page.addInitScript(()=>{
  window.__nativeClipboard=navigator.clipboard
@@ -465,7 +465,7 @@ try{
  // header badge equals the panel count with no machine selected (3 sessions on 2 machines): both count the account's live
  // sessions, not only the selected machine's. Finished sessions the panel also lists are named apart: 3 live + 1 exited +
  // 1 lost reads "Your sessions 3 · 2 finished", and the badge 3.
- sessions.push({id:'session-notes00000000001',agentId:agentB,title:'Release notes',state:'running',createdAt:now,updatedAt:now,exitCode:null})
+ sessions.push({id:'session-notes00000000001',agentId:agentB,title:'Release notes',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'})
  await page.goto(`${base}/sessions?view=terminal`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  const sessionsToggle=page.locator('.workspace-actions button[aria-controls="terminal-sessions"]')
@@ -473,7 +473,7 @@ try{
  const panelHead=page.locator('#terminal-sessions header strong')
  await expect(panelHead).toHaveText(/^Your sessions\s*3$/)
  await expect(sessionsToggle.locator('.count')).toHaveText('3')
- sessions.push({id:'session-exited0000000001',agentId:agentA,title:'Old build',state:'exited',createdAt:now,updatedAt:now,exitCode:0},{id:'session-lost000000000001',agentId:agentB,title:'Lost shell',state:'lost',createdAt:now,updatedAt:now,exitCode:null})
+ sessions.push({id:'session-exited0000000001',agentId:agentA,title:'Old build',state:'exited',createdAt:now,updatedAt:now,exitCode:0,tool:'claude'},{id:'session-lost000000000001',agentId:agentB,title:'Lost shell',state:'lost',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'})
  await page.goto(`${base}/sessions?view=terminal`)
  if(await sessionsToggle.getAttribute('aria-expanded')!=='true')await sessionsToggle.click()
  await expect(panelHead).toHaveText(/^Your sessions\s*3\s*· 2 finished$/)

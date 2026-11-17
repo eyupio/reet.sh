@@ -11,7 +11,7 @@ const now=Date.now(),a='organisation-machine00001',b='organisation-machine00002'
 const creations=new Map();let failCreateOnce=true
 const machines=[{agentId:a,host:'Laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}},{agentId:b,host:'Builder',ready:false,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}}]
 machines.push({agentId:c,host:'New machine',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,commandHistory:true,readiness:'ready'}})
-const sessions=[{id:'organisation-session0001',agentId:a,title:'Alpha shell',state:'running',createdAt:now-4,updatedAt:now,exitCode:null},{id:'organisation-session0002',agentId:b,title:'Build shell',state:'running',createdAt:now-3,updatedAt:now,exitCode:null},{id:'organisation-session0003',agentId:a,title:'Closed shell',state:'ended',createdAt:now-2,updatedAt:now,exitCode:null},{id:'organisation-session0004',agentId:a,title:'Zulu shell',state:'running',createdAt:now-1,updatedAt:now,exitCode:null}]
+const sessions=[{id:'organisation-session0001',agentId:a,title:'Alpha shell',state:'running',createdAt:now-4,updatedAt:now,exitCode:null,tool:'claude'},{id:'organisation-session0002',agentId:b,title:'Build shell',state:'running',createdAt:now-3,updatedAt:now,exitCode:null,tool:'claude'},{id:'organisation-session0003',agentId:a,title:'Closed shell',state:'ended',createdAt:now-2,updatedAt:now,exitCode:null,tool:'claude'},{id:'organisation-session0004',agentId:a,title:'Zulu shell',state:'running',createdAt:now-1,updatedAt:now,exitCode:null,tool:'claude'}]
 const project=(id,name,dir,over={})=>({id,host:a,machine:'Laptop',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
 const projects=[project('organisation-project01','reet','/home/developer/reet')]
 page.on('pageerror',e=>errors.push(e.message))
@@ -30,7 +30,7 @@ await context.route('**/api/**',async route=>{
  else if(path==='/api/v2/terminal/machines')data={machines}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[],history:[]}
  else if(path==='/api/v2/terminal/sessions'){
-  if(method==='GET')data={sessions};else{const body=r.postDataJSON();mutations.push({kind:'create',...body});let item=creations.get(body.requestId);if(!item){item={id:`organisation-quick-session${creations.size}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null};creations.set(body.requestId,item);sessions.push(item)}if(failCreateOnce){failCreateOnce=false;return route.fulfill({status:503,json:{error:'Creation unconfirmed'}})}data=item}
+  if(method==='GET')data={sessions};else{const body=r.postDataJSON();mutations.push({kind:'create',...body});let item=creations.get(body.requestId);if(!item){item={id:`organisation-quick-session${creations.size}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null,tool:body.tool??'claude'};creations.set(body.requestId,item);sessions.push(item)}if(failCreateOnce){failCreateOnce=false;return route.fulfill({status:503,json:{error:'Creation unconfirmed'}})}data=item}
  }
  else if(path==='/api/v2/folder-projects'){
   if(method==='POST'){const body=r.postDataJSON();const item=project(`organisation-project0${projects.length+1}`,body.name||body.dir.split('/').pop(),body.dir,{host:body.host,position:projects.length});projects.push(item);mutations.push({kind:'project',...body});data=item}
@@ -314,7 +314,7 @@ try{
  await expect(sidebar.locator('li.needs')).toHaveCount(0)
  await expect(sidebar.locator('.need-badge')).toHaveCount(0)
  // An unseen failed session within the day counts in the badge too, as on the bell; once seen it does not.
- const failedShell={id:'organisation-session0009',agentId:a,title:'Failed shell',state:'exited',exitCode:2,attention:'failed',attentionSource:'terminal',changedSinceSeen:true,createdAt:now-5,updatedAt:Date.now()-60*60_000}
+ const failedShell={id:'organisation-session0009',agentId:a,title:'Failed shell',state:'exited',exitCode:2,attention:'failed',attentionSource:'terminal',tool:'claude',changedSinceSeen:true,createdAt:now-5,updatedAt:Date.now()-60*60_000}
  sessions.push(failedShell)
  await page.reload();await live();await showSidebar()
  await expect(sidebar.locator('header .need-badge')).toHaveText('1')
@@ -332,6 +332,7 @@ try{
  await page.route('**/api/v2/terminal/sessions/*/skills',route=>route.fulfill({status:200,json:{skills:skillRows,machineSeen:Date.now()-5*60_000,host:'Laptop'}}))
  const toolbar=page.locator('.terminal-toolbar'),skillsButton=toolbar.getByRole('button',{name:'Skills',exact:true})
  const skillPicker=page.getByRole('dialog',{name:'Skills',exact:true}),skillFilter=skillPicker.getByRole('searchbox',{name:'Filter skills'})
+ delete sessions[0].tool;await page.reload();await live()
  await expect(toolbar.getByRole('button',{name:'Saved commands',exact:true})).toBeVisible()
  await expect(skillsButton).toHaveCount(0)
  sessions[0].tool='claude'

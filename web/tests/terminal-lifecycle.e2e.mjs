@@ -11,7 +11,7 @@ const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builde
 let denied=false
 // Plain terminals carry attention as the server lists it: quiet and seen needs nothing.
 const quiet={attention:'quiet',attentionSource:'terminal',changedSinceSeen:false}
-const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null,...quiet},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null,...quiet}]
+const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude',...quiet},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude',...quiet}]
 // A user-ended plain terminal as the server reports it: ended with no exit code (the machine kills the shell, see
 // internal/terminalhost/manager.go), no attention word for an ended session (internal/store/store_attention.go), and
 // updated_at past the seen time. It must raise no card.
@@ -22,7 +22,7 @@ const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,
 const operations=[],receipts=new Map(),mutations=[],archived=new Set(),archiveRequests=[]
 let failArchive=false
 let sequence=0,failFirstCreate=true,claimed=false,listReads=0,pendingList=null,pendingMutation=null
-const makeSession=(agentId,title)=>({id:`new-session-${String(++sequence).padStart(24,'0')}`,agentId,title,state:'running',createdAt:now,updatedAt:now,exitCode:null,...quiet})
+const makeSession=(agentId,title)=>({id:`new-session-${String(++sequence).padStart(24,'0')}`,agentId,title,state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude',...quiet})
 machines.push({agentId:'connector-offline00000001',host:'offline workstation',ready:false,serverEnabled:true,capabilities:{osUser:'offline-user',terminalEnabled:true,terminalControl:true,readiness:'ready'}})
 function hold(which){let entered,release;const gate={entered:new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`No ${which} request reached the gate`)),10000);entered=()=>{clearTimeout(timer);resolve()}}),wait:new Promise(resolve=>release=resolve),release:()=>release(),mark:()=>entered(),reads:listReads};if(which==='list')pendingList=gate;else pendingMutation=gate;return gate}
 const holdNextList=()=>hold('list'),holdNextMutation=()=>hold('mutation')

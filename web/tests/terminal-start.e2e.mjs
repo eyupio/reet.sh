@@ -8,7 +8,7 @@ const page=await context.newPage(),errors=[],inputs=[],tickets=[],ticketSizes=[]
 page.on('pageerror',error=>errors.push(error.message))
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let failHistory=false,historyReads=0,failSessions=false,denied=false,viewer=false,websockets=0
-const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null}]
+const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'}]
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
 await page.addInitScript(()=>{
  window.__nativeClipboard=navigator.clipboard
@@ -102,7 +102,7 @@ try {
   if(route.request().method()==='GET')return route.fallback()
   const body=route.request().postDataJSON();configuredCreates.push(body)
   if(uncertain){uncertain=false;return route.fulfill({status:503,json:{error:'Reply unavailable'}})}
-  const created={id:'configured-terminal0000001',agentId:body.agentId,title:body.title,dir:body.dir,state:'running',createdAt:now,updatedAt:now,exitCode:null}
+  const created={id:'configured-terminal0000001',agentId:body.agentId,title:body.title,dir:body.dir,state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'}
   sessions.push(created)
   return route.fulfill({json:created})
  }
@@ -139,7 +139,7 @@ try {
  const machineRoute=async route=>{
   if(route.request().method()==='GET')return route.fallback()
   const body=route.request().postDataJSON();machineCreates.push(body)
-  const created={id:`machine-shell-${machineCreates.length}0000001`,agentId:body.agentId,title:body.title,state:'running',createdAt:now,updatedAt:now,exitCode:null}
+  const created={id:`machine-shell-${machineCreates.length}0000001`,agentId:body.agentId,title:body.title,state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'}
   sessions.push(created)
   return route.fulfill({json:created})
  }

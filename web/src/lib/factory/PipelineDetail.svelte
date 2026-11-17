@@ -104,7 +104,7 @@
   const selected = $derived(chosen?.id === item.id ? chosen.index : item.at)
   const node = $derived(selected >= 0 ? nodes[selected] : undefined)
   const here = $derived(!node || (selected === item.at && node.state !== 'done'))
-  const agentLine = (n: NonNullable<typeof node>) => `${chatToolName(n.tool)}${n.model ? ` · ${n.model}` : ''}${n.source ? ` · ${sourceLabel(n.source)}` : ''}${n.effort ? ` · ${n.effort} effort` : ''}`
+  const agentLine = (n: NonNullable<typeof node>) => `${chatToolName(n.tool)}${n.model ? ` · ${n.model}` : ''}${n.source ? ` · ${sourceLabel(n.source)}` : ''}${n.effort ? ` · ${n.effort} effort` : ''}${n.effortNotOffered && !n.effort ? ` · agent's default effort (${n.effortNotOffered} is not offered)` : ''}`
 
   // Gaffer's latest review sits with what waits when it is why the pipeline waits, and with the stage otherwise.
   const reviewWaits = $derived(item.section === 'waiting' && !lost && status.label === 'Needs you' && !!goal)

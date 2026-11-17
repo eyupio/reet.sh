@@ -37,6 +37,8 @@ Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentSta
 // What each stage's session was read back to be on: the code stage ran as chosen (its model left to the agent), and the
 // review stage in hand is on a lower effort than the one chosen for it.
 Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTool:'codex',appliedModel:'gpt-coder',appliedEffort:'medium',appliedAt:now-90*60000})
+// The design stage's chosen effort was not offered by its agent for the model, so it ran on the agent's default.
+Object.assign(outcomes[0].sessions[0].stages[1],{effortNotOffered:'high',choiceCheck:'applied',appliedTool:'claude',appliedModel:'opus',appliedEffort:'medium',appliedAt:now-100*60000,choiceNote:"You chose the effort high; Claude Code does not offer it for this model here, so the session is on the agent's default effort."})
 Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
 // A decision Gaffer took earlier, while it had this outcome's decisions.
 outcomes[0].decisions=[{at:now-50*60000,key:'a',title:'Export API',stage:'code',about:'question',choice:'move',why:'The endpoint and its tests are in the handover; nothing more belongs in this stage.',model:'gaffer-model'},
@@ -381,6 +383,12 @@ try {
       await expect(review).toContainText('high effort')
       await lineStages.nth(2).getByRole('button').click()
       await expect(line.getByRole('region',{name:'Code stage',exact:true})).toContainText('Confirmed. The session is on gpt-coder · medium effort. The model and effort were left to the agent.')
+      // A stage whose chosen effort its agent did not offer ran on the agent's default: confirmed, with the reason.
+      await lineStages.nth(1).getByRole('button').click()
+      const design=line.getByRole('region',{name:'Design stage',exact:true})
+      await expect(design).toContainText("Confirmed. You chose the effort high; Claude Code does not offer it for this model here, so the session is on the agent's default effort. The session reports opus · medium effort.")
+      await expect(design).toContainText("Claude Code · opus · agent's default effort (high is not offered)")
+      await expect(design).not.toContainText('Not as chosen')
       await lineStages.nth(3).getByRole('button').click()
       // What is left of the plan of the agent doing the stage in hand: every window, marked when one is nearly spent.
       // (An agent with no plan to read shows no line: agentAccounts.test.mjs.)

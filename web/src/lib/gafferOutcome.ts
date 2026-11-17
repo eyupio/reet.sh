@@ -381,8 +381,8 @@ export function sessionCount(plan: unknown[]): number {
   return plan.length
 }
 
-export type TrackNode = { /** Unique in the pipeline: a split stage has one node for each part. */ key: string; kind: string; /** The part's name, for one part of a split stage. */ part: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; /** Why the stage ran on its backup instead of its first choice; empty when it did not. */ balanced: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
-type ChosenStage = { tool: string; model?: string; effort?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
+export type TrackNode = { /** Unique in the pipeline: a split stage has one node for each part. */ key: string; kind: string; /** The part's name, for one part of a split stage. */ part: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; /** Why the stage ran on its backup instead of its first choice; empty when it did not. */ balanced: string; /** The effort chosen for the stage when its agent did not offer it, so it started on the agent's default; empty when nothing was dropped. */ effortNotOffered: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
+type ChosenStage = { tool: string; model?: string; effort?: string; effortNotOffered?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
 type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; part?: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
 
 /** Whether a stage's agent, model and effort were applied, as the controller read it back from the machine. */
@@ -395,6 +395,11 @@ export function stageChoice(stage: ChosenStage | undefined): StageChoice | null 
   if (stage.choiceCheck === 'mismatch') return { tone: 'bad', label: 'Not as chosen', text: stage.choiceNote || 'The session is not on what was chosen for this stage.' }
   if (stage.choiceCheck === 'unchecked') return { tone: 'idle', label: 'Not checked', text: stage.choiceNote || 'reet could not read back what this session is running.' }
   const on = [stage.appliedModel || 'model not reported', stage.appliedEffort ? `${stage.appliedEffort} effort` : ''].filter(Boolean).join(' · ')
+  // The effort chosen was not offered by the agent, so the stage started on the agent's default: that is as asked, and says why.
+  if (stage.effortNotOffered && !stage.effort) {
+    const why = stage.choiceNote || `You chose the effort ${stage.effortNotOffered}; the agent does not offer it for this model here, so the session is on the agent's default effort.`
+    return { tone: 'good', label: 'Confirmed', text: `${why} The session reports ${on}.` }
+  }
   // A model or effort left to the agent has nothing to be compared with, so what it turned out to be is the news.
   const left = [!stage.model && 'model', !stage.effort && stage.appliedEffort && 'effort'].filter(Boolean).join(' and ')
   return { tone: 'good', label: 'Confirmed', text: left ? `The session is on ${on}. The ${left} ${left.includes(' and ') ? 'were' : 'was'} left to the agent.` : `The session is on ${on}, as chosen.` }
@@ -410,7 +415,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { key: `${stage.kind}:${index}`, kind: stage.kind, part: stage.part ?? '', label: stage.part ? `${stageLabel(stage.kind)}: ${stage.part}` : stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', balanced: stage.balanced ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
+    return { key: `${stage.kind}:${index}`, kind: stage.kind, part: stage.part ?? '', label: stage.part ? `${stageLabel(stage.kind)}: ${stage.part}` : stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', balanced: stage.balanced ?? '', effortNotOffered: stage.effortNotOffered ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
   })
 }
 

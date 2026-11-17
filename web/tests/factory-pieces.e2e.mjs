@@ -41,8 +41,9 @@ function fixture(){
  }
  return{routes,outcome,box,row}
 }
-async function open(width,{theme='light',height,hash=''}={}){
- const f=fixture(),w=await openWorkspace(browser,{width,height:height??(width<500?844:1000),theme,touch:width<1000,routes:f.routes})
+async function open(width,{theme='light',height,hash='',tweak}={}){
+ const f=fixture();tweak?.(f)
+ const w=await openWorkspace(browser,{width,height:height??(width<500?844:1000),theme,touch:width<1000,routes:f.routes})
  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  await w.page.goto(`${base}/factory${hash}`)
  return{f,w,page:w.page}
@@ -214,4 +215,88 @@ try{
   }finally{await w.context.close()}
  }
  console.log('ok - the page on a tablet and a phone')
+
+ // The Projects picker: a second project with one running pipeline, so the counts and the narrowing have something to say.
+ const twoProjects=f=>{
+  const stage=(kind,state)=>({kind,tool:'opencode',model:'',state,requestId:'r'})
+  const other={id:'f'.repeat(32),revision:1,objective:'Tidy the rail.',state:'settled',note:'',agentId:'a1',projectId:'p2',projectName:'reet',dir:'/work/reet',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now,sessions:[
+   {key:'z',title:'Rail tidy',prompt:'p',state:'following',sessionState:'running',note:'The code stage is under way.',sessionId:'s-z',conversationId:'9'.repeat(32),updatedAt:now,stage:0,stages:[stage('code','running'),stage('merge','pending')]}]}
+  f.routes['/api/v2/gaffer/outcomes']=()=>({outcomes:[f.outcome,other]})
+  const folder=f.routes['/api/v2/folder-projects'];f.routes['/api/v2/folder-projects']={projects:[folder.projects[0],{...folder.projects[0],id:'p2',dir:'/work/reet',name:'reet',position:1}],savedWaiting:0}
+ }
+ for(const width of [834,390]){
+  const {w,page}=await open(width,{tweak:twoProjects})
+  try{
+   const pick=page.getByRole('button',{name:'Projects: all',exact:true})
+   await expect(pick).toBeVisible()
+   await expect(page.getByText('Export API',{exact:true}).first()).toBeVisible()
+   await page.screenshot({path:`${shots}/picker-closed-${width}.png`})
+   await pick.click()
+   const dialog=page.getByRole('dialog')
+   await expect(dialog).toBeVisible()
+   await expect(dialog.getByRole('button',{name:/^All projects/})).toHaveAttribute('aria-pressed','true')
+   await expect(dialog.getByRole('button',{name:/^billing/})).toContainText('2 waiting · 1 working')
+   await expect(dialog.getByRole('button',{name:/^reet/})).toContainText('0 waiting · 1 working')
+   await page.screenshot({path:`${shots}/picker-open-${width}.png`})
+   await dialog.getByRole('button',{name:/^billing/}).click()
+   await expect(dialog).toHaveCount(0)
+   await expect(page.getByRole('button',{name:'Projects: billing',exact:true})).toBeVisible()
+   await expect(page.getByText('Rail tidy',{exact:true})).toHaveCount(0)
+   await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
+   await page.getByRole('button',{name:'Projects: billing',exact:true}).click()
+   await expect(page.getByRole('dialog').getByRole('button',{name:/^billing/})).toHaveAttribute('aria-pressed','true')
+   await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0)
+   await page.getByRole('button',{name:'Projects: billing',exact:true}).click()
+   await page.getByRole('dialog').getByRole('button',{name:/^All projects/}).click()
+   await expect(page.getByRole('button',{name:'Projects: all',exact:true})).toBeVisible()
+   expect(await sideways(page)).toBeLessThanOrEqual(width)
+   expect(w.state.unexpected).toEqual([])
+  }finally{await w.context.close()}
+ }
+ console.log('ok - projects picker on a tablet and a phone')
+ // The wide Projects panel says how many of each project's pipelines wait and work, and has no picker button.
+ {
+  const {w,page}=await open(1440,{tweak:twoProjects})
+  try{
+   await expect(page.getByRole('button',{name:/^Projects: /})).toHaveCount(0)
+   await expect(page.getByRole('button',{name:/^billing.*2 waiting · 1 working/})).toBeVisible()
+   await expect(page.getByRole('button',{name:/^reet.*0 waiting · 1 working/})).toBeVisible()
+   await expect(page.locator('aside.rail')).toContainText('2 waiting · 1 working')
+   await page.screenshot({path:`${shots}/projects-panel-1440.png`})
+  }finally{await w.context.close()}
+  console.log('ok - projects panel counts')
+ }
+ // A phone with five pipelines of eight stages: no sideways scroll, big touch targets, and the caption under the circles.
+ {
+  const eight=['plan','design','code','review','test','pr','babysit','merge']
+  const {w,page}=await open(390,{tweak:f=>{
+   f.outcome.sessions=['a','b','c','d','e'].map((key,i)=>({key,title:`Pipeline ${i+1}`,prompt:'p',state:'following',sessionState:'running',note:'The code stage is under way.',sessionId:`s-${key}`,conversationId:String(i+1).repeat(32),updatedAt:now,stage:2,stages:eight.map((kind,n)=>({kind,tool:'opencode',model:'',state:n<2?'done':n===2?'running':'pending',requestId:'r'}))}))
+  }})
+  try{
+   await page.getByRole('button',{name:/^Working/}).click()
+   const card=page.locator(`#pipeline-${oid}-a`)
+   await expect(card).toContainText('Code in hand · Plan, Design done · next Review')
+   const heights=await card.getByRole('button').evaluateAll(list=>list.map(b=>b.getBoundingClientRect().height))
+   expect(heights.length).toBeGreaterThan(0);for(const h of heights)expect(h).toBeGreaterThanOrEqual(44)
+   await page.screenshot({path:`${shots}/five-pipelines-390.png`})
+   expect(await sideways(page)).toBeLessThanOrEqual(390)
+   expect(w.state.unexpected).toEqual([])
+  }finally{await w.context.close()}
+  console.log('ok - five pipelines of eight stages on a phone')
+ }
+ // The floating Gaffer button stays clear of the detail's action bar and its closed rows.
+ {
+  const {w,page}=await open(1440)
+  try{
+   await expect(page.locator('.gaffer-launcher')).toBeVisible()
+   await expect(page.getByText('Settings for this outcome',{exact:true})).toBeVisible()
+   await page.waitForTimeout(400)
+   await page.screenshot({path:`${shots}/launcher-1440.png`})
+   const lb=await page.evaluate(()=>{const r=document.querySelector('.gaffer-launcher')?.getBoundingClientRect();return r?{l:r.left,t:r.top,r:r.right,b:r.bottom}:null})
+   expect(lb).not.toBeNull()
+   const overlaps=await page.evaluate(box=>{const hit=[];for(const e of document.querySelectorAll('.detail .row summary, .detail .row .label, .detail .row .headline, .detail .bar button, .detail .bar .ask')){const r=e.getBoundingClientRect();if(r.width&&r.height&&r.left<box.r&&r.right>box.l&&r.top<box.b&&r.bottom>box.t)hit.push(e.textContent.trim().slice(0,40))}return hit},lb)
+   expect(overlaps).toEqual([])
+  }finally{await w.context.close()}
+  console.log('ok - the launcher stays clear of the detail')
+ }
 }finally{await browser.close()}

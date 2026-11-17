@@ -16,7 +16,7 @@
 </section>
 
 <style>
-  .sec{display:grid;gap:8px}
+  .sec{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
   .head{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 4px;border:0;background:none;font:inherit;font-size:14px;color:var(--ink);cursor:pointer;text-align:left;border-bottom:1px solid var(--line-soft)}
   .head:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .arrow{flex:none;width:0;height:0;border-style:solid;border-color:transparent;border-left-color:var(--muted);border-width:5px 0 5px 7px}
@@ -24,6 +24,6 @@
   .name{flex:none;font-weight:700}
   .count{flex:none;color:var(--muted);font-weight:600}
   .summary{flex:1 1 0;min-width:0;text-align:right;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .body{display:grid;gap:8px}
+  .body{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
   @media(pointer:coarse){.head{min-height:44px}}
 </style>

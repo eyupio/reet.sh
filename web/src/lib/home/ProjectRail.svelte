@@ -17,7 +17,7 @@
   // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, groups = undefined, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
     selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope, startWord = 'New session',
-    collapsed = false, oncollapsed,
+    collapsed = false, oncollapsed, detail = undefined,
     width = RAIL_DEFAULT, onwidth, onwidthcommit,
     onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onkeep, onmanage,
     onarrange, ongroupadd, ongroupedit, ongroupremove, ongroupmove, ongroupcolour, ongroupmovebusy = false, onmovetogroup }: {
@@ -29,6 +29,8 @@
     /** Whether each machine (by enrollment id) is reporting now; a machine not in it is not called offline. */
     reporting: Map<string, boolean>
     running: Map<string, number>
+    /** Optional short text per project id, shown on its card (the Factory page says what waits and works). Home and Sessions pass none. */
+    detail?: Map<string, string>
     /** False while the sessions have not been read: no card then says how many run, "idle" or worktrees in use. */
     known?: boolean
     worktrees: Map<string, number>
@@ -104,7 +106,7 @@
   function label(p: FolderProject): string {
     const wt = worktrees.get(p.id) ?? 0
     const colour = PROJECT_COLOURS.find(c => c.id === projectColour(p.colour))?.name
-    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), projectSource(p), p.temporary ? 'temporary' : '', p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
+    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), projectSource(p), p.temporary ? 'temporary' : '', p.baseBranch, stateOf(p)?.text, detail?.get(p.id), wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
   /** The most projects one start takes (the controller's limit). */
@@ -425,6 +427,7 @@
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
+      {#if detail?.get(p.id)}<span class="detail">{detail.get(p.id)}</span>{/if}
       {#if p.origin}<span class="origin" title={`Cloned from github.com/${p.origin}`}>{p.origin}{#if p.temporary}<span class="temporary">{' · temporary'}</span>{/if}</span>
       {:else if p.remote}<span class="origin" title={`Pushes to github.com/${p.remote}`}>{p.remote}</span>{/if}
       {#if p.temporary && p.keptBecause}<span class="kept">{p.keptBecause}</span>{/if}
@@ -721,6 +724,7 @@
   .temporary { font-family: var(--sans); }
   .origin { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 14px; color: var(--muted); }
   .state { flex: none; }
+  .detail { display: block; min-width: 0; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .state.good { color: var(--good); }
   .state.warn { color: var(--warn); }
   .wt { margin-left: auto; flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }

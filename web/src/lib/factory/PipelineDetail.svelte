@@ -223,7 +223,7 @@
     {/if}
   </section>
 
-  <div class="rows">
+  <div class="rows" data-floating-clearance>
     <details class="row">
       <summary><span class="label">Gaffer’s report</span><span class="headline">{reportLine}</span></summary>
       <div class="body">
@@ -309,9 +309,9 @@
     </details>
   </div>
 
-  {#if bar.length}<div class="bar" role="group" aria-labelledby={`${uid}-ask`}>
+  {#if bar.length}<div class="bar" role="group" aria-labelledby={`${uid}-ask`} data-floating-clearance>
     <p class="ask" id={`${uid}-ask`}>What do you want to do?</p>
-    <div class="choices" data-floating-clearance>{#each bar as entry (entry.key)}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}</div>
+    <div class="choices">{#each bar as entry (entry.key)}<button class="btn" class:primary={entry.primary} type="button" disabled={busy} onclick={entry.run}>{entry.label}{#if entry.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}</div>
   </div>{/if}
 </section>
 

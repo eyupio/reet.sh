@@ -64,7 +64,7 @@
 {/if}
 
 <style>
-  .item{display:grid;gap:8px;min-width:0;box-sizing:border-box;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;text-align:left}
+  .item{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0;box-sizing:border-box;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;text-align:left}
   .item.compact{width:100%;cursor:pointer;padding:12px 14px}
   .item.compact:hover{border-color:var(--line-strong)}
   .item.compact.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}

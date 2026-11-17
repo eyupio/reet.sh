@@ -24,6 +24,7 @@
   import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
   import PipelineNote from './PipelineNote.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
+  import ProjectPicker from './ProjectPicker.svelte'
   import FactoryWelcome from './FactoryWelcome.svelte'
   import ListSection from './ListSection.svelte'
   import WaitingItem from './WaitingItem.svelte'
@@ -425,6 +426,17 @@
     const p = sessionId ? held.get(sessionId) : undefined
     return p ? { permissionId: p.permissionId, title: p.title || 'A tool call', command: p.command ?? '', path: p.path ?? '', truncated: !!p.truncated, queued: p.queued ?? 0 } : undefined
   }
+  // What waits and works in each project, whatever the page is narrowed to: the picker and the wide rail both say it.
+  const projectCounts = $derived.by(() => {
+    const counts = new Map<string, { waiting: number; working: number }>()
+    for (const item of factoryItems(floor, byConversation, new Set(held.keys()))) {
+      const count = counts.get(item.projectId) ?? { waiting: 0, working: 0 }
+      if (item.section === 'waiting') count.waiting++; else if (item.section === 'working') count.working++
+      counts.set(item.projectId, count)
+    }
+    return counts
+  })
+  const railDetail = $derived(new Map((projects ?? []).map(p => [p.id, `${projectCounts.get(p.id)?.waiting ?? 0} waiting · ${projectCounts.get(p.id)?.working ?? 0} working`] as const)))
   const items = $derived(factoryItems(listed, byConversation, new Set(held.keys())).map((item): FactoryItem => item.archived ? { ...item, section: 'finished' } : item))
   const pairs = $derived(new Map<string, { record: Outcome; piece: GafferOutcomeSession }>(listed.flatMap(record => record.sessions.map(piece => [`${record.id}.${piece.key}`, { record, piece }] as const))))
   const byId = $derived(new Map(items.map(item => [item.id, item])))
@@ -553,7 +565,7 @@
 <div class="factory-page" class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
 <!-- On a desktop the project list is the page's left column, as on Home. A tablet or phone has no rail here: the outcome
      dialog asks for the project instead. -->
-<ProjectRailHost rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+<ProjectRailHost rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} detail={railDetail} known={sessions !== undefined} {worktrees}
   chosen={scope?.kind === 'project' ? scope.id : ''} {scope} onscope={next => (scope = next)} onchoose={() => {}} onnew={project => openOutcome(project.id)} startWord="New outcome"
   collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId} width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
   signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={n => (savedWaiting = n)} onnotice={n => (notice = n?.text ?? '')} onreload={() => void loadRail(true)}
@@ -568,6 +580,7 @@
         {#if loading || error || records.length || scope}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>Give Gaffer an outcome</button>{/if}
       </div>
     </header>
+    {#if narrow && (projects ?? []).length}<div class="projects"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></div>{/if}
     {#if scope}<p class="scope"><span>Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'}</span> <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
   {/if}
   {#if notice}<div class="notice" class:bad><p role={bad ? 'alert' : 'status'}>{notice}</p><button class="inline" type="button" aria-label="Dismiss this message" onclick={() => notice = ''}>Dismiss</button></div>{/if}
@@ -634,6 +647,7 @@
   .factory-page :global(aside.rail .strip){height:calc(100dvh - var(--top));min-height:0;overflow-y:auto;scrollbar-width:thin}.factory-page :global(aside.rail .strip>button){flex-shrink:0}
   @media(max-width:1099px){.factory-page{grid-template-columns:minmax(0,1fr)}.factory-page>.factory{grid-column:1}}
   .factory{--gutter:24px;display:grid;gap:20px;align-content:start;min-width:0;width:100%;max-width:1148px;box-sizing:border-box;margin:0 auto;padding:20px var(--gutter) calc(56px + var(--bottom-chrome,0px));font-size:14px;line-height:1.5}
+  .projects{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
   .scope{display:flex;align-items:center;flex-wrap:wrap;gap:10px;color:var(--muted)}.scope strong{color:var(--ink)}.scope .btn{min-height:44px}
   p{margin:0;overflow-wrap:anywhere}h1{font:500 2rem var(--serif);margin:0}h2{font:500 1.35rem var(--serif);margin:0;overflow-wrap:anywhere}
   .hint,.foot,.counts{color:var(--muted)}.warning{color:var(--bad)}
@@ -646,7 +660,7 @@
   /* The list, and beside it on a wide screen the chosen pipeline. Each scrolls by itself within the window, so the
      detail and its bar of actions stay in view while the list is read. */
   .board{display:grid;gap:20px;min-width:0}
-  .list{display:grid;gap:20px;align-content:start;min-width:0}
+  .list{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;min-width:0}
   .none{padding:4px 4px 8px;color:var(--muted)}
   .floor{display:grid;gap:10px;min-width:0}
   /* In the list beside the detail the floor's filters wrap rather than scroll out of sight. */

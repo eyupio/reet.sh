@@ -3,7 +3,7 @@
   // and what is finished, beside the detail of the one chosen (on a narrow screen, the detail is a screen of its own).
   // Reading the page starts nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, setGafferOutcomeAutomation, setGafferOutcomeYolo, stopGafferOutcome, stopFollowingGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, listGafferOutcomeHistory, type Event as ActivityEvent, sendGafferPipelineBack, setGafferPipelineAutoMerge, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, reviewGafferOutcome, setGafferOutcomeAutomation, setGafferOutcomeYolo, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, folderProjectList, listFolderProjects, listProjectGroups, machineHealth, terminalMachines, terminalSessions, TerminalError, type FolderProject, type ProjectGroup, type TerminalSession } from '../terminal/api'
   import { UnauthorizedError } from '../api'
   import { projectRunning, projectWorktrees } from '../home'
@@ -19,16 +19,15 @@
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import GafferOutcome from '../GafferOutcome.svelte'
   import GafferFollowedSessions from '../GafferFollowedSessions.svelte'
-  import GafferGoal from '../GafferGoal.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
   import PipelineNote from './PipelineNote.svelte'
-  import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import ProjectPicker from './ProjectPicker.svelte'
   import FactoryWelcome from './FactoryWelcome.svelte'
   import ListSection from './ListSection.svelte'
   import WaitingItem from './WaitingItem.svelte'
   import PipelineDetail, { type DetailActions, type DetailHelpers } from './PipelineDetail.svelte'
+  import PipelineChoices, { mergesByItself, sessionHref, short } from './PipelineChoices.svelte'
   import { factoryItems, inSection, sectionSummary, type FactoryItem, type FactorySection } from './factoryList'
   import { readSections, writeSections } from './sectionMemory'
 
@@ -38,14 +37,13 @@
   let setup = $state<{ provider: boolean; machine: boolean; project: boolean } | null>(null)
   let outcomeOpen = $state(false), outcomeButton = $state<HTMLButtonElement>(), outcomeObjective = $state('')
   let welcome = $state<FactoryWelcome>()
-  let merging = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), managing = $state<GafferGoalOverview | null>(null)
+  // Carries out a pipeline's choice, and holds the dialogs those choices open.
+  let choices = $state<PipelineChoices>()
   let busy = $state(false), notice = $state(''), bad = $state(false), floorKey = $state(0)
   // Why a dialog's last attempt was refused, shown inside that dialog rather than behind it.
   let dialogError = $state('')
   // What went wrong is said where the person is, in the colour of a problem, and announced.
   const fail = (e: unknown, fallback: string) => { notice = e instanceof Error ? e.message : fallback; bad = true }
-  // An objective can run to paragraphs; a title or a notice names it in a line.
-  const short = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 80 ? `${line.slice(0, 79)}…` : line }
   // Asking Gaffer for a report on an outcome, and approving pipelines it proposed. `picked` holds the ticked proposals per outcome.
   let reporting = $state(''), picked = $state<Record<string, string[]>>({}), adding = $state<Outcome | null>(null), clock = $state(Date.now())
   let controller: AbortController | undefined, epoch = 0
@@ -54,7 +52,7 @@
   // Outcomes put away leave the floor and the tallies; they stay in the record and can be shown and restored.
   const floor = $derived(records.filter(record => !record.archivedAt))
   const shelved = $derived(records.filter(record => record.archivedAt))
-  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null), releasing = $state<Outcome | null>(null)
+  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null)
   // The project rail, as on Home: the same projects and groups, the same fold and width (kept in this browser). Choosing a
   // project or group narrows the page to its outcomes, and a project is also where the next outcome starts.
   let projects = $state<FolderProject[] | undefined>(), groups = $state<ProjectGroup[] | undefined>(), sessions = $state<TerminalSession[] | undefined>()
@@ -159,7 +157,7 @@
     void getProfile().then(p => { removeMode = p.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive' }).catch(() => { /* archiving is the safe default */ })
     // A page opened to give Gaffer an outcome (from Home or the chat) starts with that dialog up.
     if (new URLSearchParams(location.search).get('outcome') === '1') openOutcome(wanted)
-    const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !managing && !merging && !adding && !reporting) void load() }, 5000)
+    const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !choices?.holdsRefresh() && !adding && !reporting) void load() }, 5000)
     const changed = () => void load()
     window.addEventListener(GAFFER_GOALS_CHANGED, changed)
     return () => { epoch++; controller?.abort(); life.abort(); clearInterval(timer); clearInterval(railTimer); query.removeEventListener('change', resized); small.removeEventListener('change', resized); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
@@ -170,31 +168,10 @@
     await Promise.all([load(), loadSetup(), loadRail(true)]); await tick()
     if (outcomeButton?.isConnected) outcomeButton.focus({ preventScroll: true }); else welcome?.focus()
   }
-  async function approve() {
-    if (!merging || busy) return
-    const { record, piece } = merging
-    busy = true; notice = ''; bad = false
-    try {
-      const fresh = records.find(item => item.id === record.id) ?? record
-      await approveGafferMerge(fresh, piece.key)
-      notice = `Merge approved for “${piece.title}”. Its agent merges once every check passes, no review thread is open and there are no conflicts.`
-    } catch (e) { fail(e, 'The merge was not approved.') }
-    busy = false; merging = null
-    await load()
-  }
   async function stop(record: Outcome) {
     if (busy) return
     busy = true; notice = ''; bad = false
     try { await stopGafferOutcome(latest(record)); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
-    catch (e) { fail(e, 'The outcome was not stopped.') }
-    busy = false
-    await load()
-  }
-  // Ends an outcome that is not finished (a session was lost or removed, or the work is no longer wanted) so it can be archived or deleted.
-  async function stopFollowing(record: Outcome) {
-    if (busy) return
-    busy = true; notice = ''; bad = false; releasing = null
-    try { await stopFollowingGafferOutcome(latest(record)); notice = `Stopped following “${short(record.objective)}”. Sessions that still exist keep running. You can now archive or delete it.` }
     catch (e) { fail(e, 'The outcome was not stopped.') }
     busy = false
     await load()
@@ -216,20 +193,6 @@
     if (leaving && !byId.has(chosenId)) { chosenId = ''; pushed = false; address({ pipeline: null }, ''); void tick().then(focusFirst) }
   }
   const latest = (record: Outcome) => records.find(item => item.id === record.id) ?? record
-  // A review of Gaffer's own that did not complete is tried again by resuming the goal under its current permissions.
-  async function reviewAgain(piece: GafferOutcomeSession) {
-    if (busy || !piece.conversationId) return
-    busy = true; notice = ''; bad = false
-    try {
-      const view = await getGafferGoal(piece.conversationId)
-      if (!view.goal) throw new Error('That goal is no longer there.')
-      if (!view.allowed) throw new Error(view.reason || 'Review this goal’s permissions before trying again.')
-      await controlGafferGoal(piece.conversationId, view.goal.revision, 'resume', view.pins, true)
-      notice = `Gaffer is reviewing “${piece.title}” again.`
-    } catch (e) { fail(e, 'The review was not tried again.') }
-    busy = false
-    await load()
-  }
   // What happened to an outcome's pipelines, read from the activity log when asked for. Each ask reads it again, so a
   // read that failed can be tried again by opening the row once more.
   let timeline = $state<Record<string, { events: ActivityEvent[]; error: string; loading: boolean }>>({})
@@ -238,19 +201,7 @@
     try { timeline = { ...timeline, [record.id]: { events: await listGafferOutcomeHistory(record.id), error: '', loading: false } } }
     catch (e) { timeline = { ...timeline, [record.id]: { events: [], error: e instanceof Error ? e.message : 'The history could not be read.', loading: false } } }
   }
-  // One choice from an item or the detail. Each does what its button says and nothing else; "restart" is also a failed
-  // pipeline's Try again, which has no goal.
   let expanded = $state<Record<string, boolean>>({})
-  function choose(choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession, goal: GafferGoalOverview | undefined) {
-    if (choice.id === 'answer' || choice.id === 'open') { if (piece.sessionId) location.href = sessionHref(record, piece.sessionId) }
-    else if (choice.id === 'retry' || choice.id === 'again') void reviewAgain(piece)
-    else if (choice.id === 'tell') { tellStart = choice.recommended && goal?.goal.advice?.choice === 'tell' ? goal.goal.advice.text ?? '' : ''; telling = { record, piece } }
-    else if (choice.id === 'merge') merging = { record, piece }
-    else if (choice.id === 'move') moving = { record, piece }
-    else if (choice.id === 'budget') { if (goal) managing = goal }
-    else if (choice.id === 'restart') void retry(record, piece)
-    else if (choice.id === 'stop') releasing = record
-  }
   // The choices a pipeline can actually take right now: no moving on without a stage in hand, no telling an agent that
   // is not there, no opening a session that was removed.
   const usable = (choice: NeedChoice, piece: GafferOutcomeSession) => {
@@ -276,8 +227,6 @@
     busy = false
     await load()
   }
-  // What Gaffer would say to the agent, as the words the Tell dialog starts from.
-  let tellStart = $state('')
   // Who takes an outcome's decisions when a stage stops: the person, or Gaffer for them.
   async function setDecisions(record: Outcome, on: boolean) {
     if (busy || !!record.automation === on) return
@@ -315,36 +264,9 @@
     focusTitle()
   })
   const pipelineOf = (event: ActivityEvent) => { try { return String(JSON.parse(event.detail || '{}').pipeline ?? '') } catch { return '' } }
-  // The person's own controls over a pipeline: move it on from the stage in hand, and how its merge is decided.
-  let moving = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
-  async function moveOn() {
-    if (!moving || busy) return
-    const { record, piece } = moving
-    busy = true; notice = ''; bad = false; moving = null
-    try { await moveGafferPipelineOn(record, piece.key, piece.stages?.[piece.stage ?? 0]?.kind ?? ''); notice = `Moved “${piece.title}” on. The controller is starting its next stage.` }
-    catch (e) { fail(e, 'That pipeline was not moved on.') }
-    busy = false
-    await load()
-  }
-  // Telling the working agent what to do next, and sending a pipeline back to a stage to be done again.
-  let telling = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), sending = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
-  const requestId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
-  // One request ID for each opening of the dialog: a second press after a lost answer reads the first's receipt instead of telling the agent twice.
-  let tellRequest = ''
-  $effect(() => { if (telling) tellRequest = requestId(); dialogError = '' })
+  // Sending a pipeline back to a stage to be done again.
+  let sending = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
   $effect(() => { if (sending || adding) dialogError = '' })
-  async function tell(text: string) {
-    if (!telling || busy) return
-    const { record, piece } = telling
-    busy = true; notice = ''; bad = false; dialogError = ''
-    try {
-      const sent = await tellGafferPipelineAgent(record, piece.key, tellRequest, text)
-      notice = sent.message.state === 'sent' || sent.message.state === 'queued' || sent.message.state === 'sending' ? `Your instruction is with the agent of “${piece.title}” for its next turn.` : `The instruction for “${piece.title}” was not delivered: ${sent.message.note || sent.message.state}.`
-      telling = null
-    } catch (e) { dialogError = e instanceof Error ? e.message : 'The instruction was not sent.' }
-    busy = false
-    await load()
-  }
   async function sendBack(reason: string, stage: string) {
     if (!sending || busy) return
     const { record, piece } = sending
@@ -354,9 +276,8 @@
     busy = false
     await load()
   }
-  // A YOLO pipeline acts without approvals, so letting it merge by itself as well is asked for separately.
+  // How a pipeline's merge is decided. A YOLO pipeline acts without approvals, so letting it merge by itself as well is asked for separately.
   let yoloMerge = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
-  const mergesByItself = (record: Outcome, piece: GafferOutcomeSession) => !!piece.autoMerge && (!record.yolo || !!piece.yoloMergeOk)
   async function mergeMode(record: Outcome, piece: GafferOutcomeSession, on: boolean, yoloConfirmed = false) {
     if (busy) return
     if (on && record.yolo && !yoloConfirmed) { yoloMerge = { record, piece }; return }
@@ -364,14 +285,6 @@
     busy = true; notice = ''; bad = false
     try { await setGafferPipelineAutoMerge(record, piece.key, on, yoloConfirmed); notice = on ? `“${piece.title}” will merge by itself once every check passes.` : `“${piece.title}” will stop at Ready to merge and wait for you.` }
     catch (e) { fail(e, 'The merge setting was not changed.') }
-    busy = false
-    await load()
-  }
-  async function retry(record: Outcome, piece: GafferOutcomeSession) {
-    if (busy) return
-    busy = true; notice = ''; bad = false
-    try { await retryGafferPipeline(latest(record), piece.key); notice = `Trying “${piece.title}” again.` }
-    catch (e) { fail(e, 'That pipeline was not tried again.') }
     busy = false
     await load()
   }
@@ -405,7 +318,6 @@
     busy = false
     await load()
   }
-  const sessionHref = (record: Outcome, id: string) => `/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(id)}`
   const when = (at: number) => formatWhen(at, timeZone, dateFormat)
   // What is left of the plan of the agent doing a pipeline's stage in hand, where the outcome's machine reads sign-ins
   // and the account has plan limits on. The same figures as the machine's settings; nothing is asked of the machine.
@@ -555,18 +467,22 @@
     else { othersShut = false; toggleSection('others') }
   }
 
+  // Every choice goes through PipelineChoices. The detail's own buttons that do what a choice does are that choice.
+  const choose = (choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession) => choices?.choose(choice, record, piece)
   const actions: DetailActions = {
-    choose, setDecisions, setYolo, mergeMode, report, loadHistory, stop, putAway, retry, pick,
-    releasing: record => { releasing = record }, deleting: record => { deleting = record }, adding: record => { adding = record },
-    moving: pair => { moving = pair }, telling: pair => { tellStart = ''; telling = pair }, sending: pair => { sending = pair },
-    merging: pair => { merging = pair }, managing: goal => { managing = goal },
+    choose, setDecisions, setYolo, mergeMode, report, loadHistory, stop, putAway, pick,
+    retry: (record, piece) => choose({ id: 'restart', label: 'Try again' }, record, piece),
+    releasing: record => choices?.release(record), deleting: record => { deleting = record }, adding: record => { adding = record },
+    moving: ({ record, piece }) => choose({ id: 'move', label: 'Move on' }, record, piece),
+    telling: ({ record, piece }) => choose({ id: 'tell', label: 'Tell the agent…' }, record, piece), sending: pair => { sending = pair },
+    merging: ({ record, piece }) => choose({ id: 'merge', label: 'Approve merge' }, record, piece), managing: goal => choices?.manage(goal),
   }
   const helpers: DetailHelpers = { crew, planFor, sessionHref, when, usable, mergesByItself, pipelineOf }
 </script>
 
-{#snippet entry(item: FactoryItem)}{@const pair = pairs.get(item.id)}{#if pair}{@const record = pair.record}{@const piece = pair.piece}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}
+{#snippet entry(item: FactoryItem)}{@const pair = pairs.get(item.id)}{#if pair}{@const record = pair.record}{@const piece = pair.piece}
   <WaitingItem {item} layout={narrow ? 'card' : 'compact'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} selected={!narrow && item.id === selectedId} {busy}
-    permission={approvalFor(piece.sessionId)} sessionId={piece.sessionId ?? ''} usable={choice => usable(choice, piece)} onchoose={choice => choose(choice, record, piece, goal)}
+    permission={approvalFor(piece.sessionId)} sessionId={piece.sessionId ?? ''} usable={choice => usable(choice, piece)} onchoose={choice => choose(choice, record, piece)}
     ondetails={() => open(item.id)} onanswered={() => loadRail(true)} id={pipelineAnchor(record.id, piece.key)}/>
 {/if}{/snippet}
 
@@ -658,16 +574,12 @@
 </div>
 
 {#if outcomeOpen}<GafferOutcome projectId={outcomeProject} initialObjective={outcomeObjective} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
-{#if releasing}<ConfirmDialog title={`Stop following “${short(releasing.objective)}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
+<PipelineChoices bind:this={choices} bind:busy {userId} {timeZone} {dateFormat} goals={byConversation} {latest} onchanged={load} onnotice={(text, failed = false) => { notice = text; bad = failed }} {onsignedout}/>
 {#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
-{#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
-{#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}
 {#if sending}{@const upTo = Math.min(sending.piece.stage ?? 0, (sending.piece.stages?.length ?? 1) - 1)}<PipelineNote title={`Send “${sending.piece.title}” back`} intro="The stage you choose, and every stage after it, is done again in a fresh agent session in the same folder and branch. The agent is told your reason. Nothing already committed is undone." label="Why it is going back" placeholder="The review found the export leaks other tenants’ rows." confirmLabel="Send back" stages={[...new Set((sending.piece.stages ?? []).slice(0, upTo + 1).map(item => item.kind))].map(kind => ({ kind, label: stageLabel(kind) }))} {busy} error={dialogError} oncancel={() => sending = null} onconfirm={(text, stage) => void sendBack(text, stage)}/>{/if}
 {#if yoloAsk}<ConfirmDialog title="Put this outcome on YOLO?" body="Its agents will act without asking you: in the session each pipeline has in hand now, and in every stage still to start. Commands run and files change with no approval from you. Each pipeline still stops at Ready to merge unless you have separately let it merge by itself on YOLO. You can switch back at any time." confirmLabel="Switch to YOLO" oncancel={() => yoloAsk = null} onconfirm={() => { const record = yoloAsk!; void setYolo(record, true, true) }}/>{/if}
 {#if yoloMerge}<ConfirmDialog title={`Let “${yoloMerge.piece.title}” merge by itself on YOLO?`} body="This pipeline’s agent runs on YOLO: it acts without asking you. If it may also merge by itself, nothing stops for you between the code and the merge. It still merges only once every check passes, no review thread is open and there are no conflicts. A merge cannot be undone from here." confirmLabel="Let it merge by itself" oncancel={() => yoloMerge = null} onconfirm={() => { const { record, piece } = yoloMerge!; void mergeMode(record, piece, true, true) }}/>{/if}
-{#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
-{#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} sessionId={managing.goal.sessionId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
 
 <style>
   /* The rail is the left column on a wide desktop: its saved width, or the 56 px strip while folded. Below that there is no rail. */

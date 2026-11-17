@@ -123,6 +123,11 @@ touch sizes, eight stages, long part names and the floating button); `gaffer-fac
 `gaffer-factory` (the archived pass), and the YOLO and merge-on-YOLO confirmations from the Settings row by
 `factory-pieces`. The captures are in [docs/ui-verification.md](docs/ui-verification.md).
 
+**After merging main.** Main added [docs/factory.md](docs/factory.md) and its two pictures (`factory-desktop-*` in
+`docs/images/workspace/`) for the old page; both were brought up to date for this one (the pictures retaken with
+`scripts/capture-docs-workspace.mjs --only=factory`, the old files removed), along with the Factory section of
+[docs/gaffer-ai.md](docs/gaffer-ai.md).
+
 **Not checked.** No real machine: every pipeline in the tests is a fixture, so a real run has not shown the page. No
 real tablet or phone: widths are emulated, and the owner's Android tablet has not been tried. The keyboard is not
 involved here.

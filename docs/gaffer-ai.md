@@ -415,9 +415,10 @@ numbers at the top of the page go to the first such pipeline, and Home's
 
 ### What the pipeline card tells you
 
-- A pipeline is one line until you open it with **Show details**: its title,
-  stage ("Review · 4 of 8"), status and one line of why. Pipelines that need
-  you, are ready to merge or have stopped start open. **Expand all** opens
+- A pipeline always shows its title, stage ("Review · 4 of 8"), status, stage
+  track and one line of why, folded or not. **Show details** adds the rest,
+  such as who does the stage, usage and budget, and the actions. Pipelines that
+  need you, are ready to merge or have stopped start open. **Expand all** opens
   every one.
 - An outcome itself folds with **Hide details** / **Show details**, even while
   it is still moving. Folded, its line says how many pipelines it has and

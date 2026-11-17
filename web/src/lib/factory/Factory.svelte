@@ -232,8 +232,8 @@
     try { timeline = { ...timeline, [record.id]: { events: await listGafferOutcomeHistory(record.id), error: '', loading: false } } }
     catch (e) { timeline = { ...timeline, [record.id]: { events: [], error: e instanceof Error ? e.message : 'The history could not be read.', loading: false } } }
   }
-  // A pipeline is one line until it is opened. The ones that want the person, or have stopped, start open; the person's
-  // own choice for a pipeline, or for all of them, wins after that.
+  // A pipeline shows its stage track whether it is folded or open; opening it adds the rest of its details. The ones that
+  // want the person, or have stopped, start open; the person's own choice for a pipeline, or for all of them, wins after that.
   let folds = $state<Record<string, boolean>>({}), allOpen = $state<boolean | null>(null)
   const shown = (id: string, tone: string) => folds[id] ?? allOpen ?? (tone === 'you' || tone === 'bad' || arrived === id)
   // One choice from a card that needs the person. Each does what its button says and nothing else.
@@ -544,12 +544,12 @@
           {#each record.sessions as piece (piece.key)}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}{@const status = pipelineStatus(piece, !!goal?.attention)}{@const nodes = track(piece)}{@const id = pipelineAnchor(record.id, piece.key)}{@const open = shown(id, status.tone)}{@const lost = sessionLost(piece)}{@const alive = piece.sessionState !== 'ended' && piece.sessionState !== 'gone'}<li class="pipe" id={pipelineAnchor(record.id, piece.key)} tabindex="-1" class:arrived={arrived === pipelineAnchor(record.id, piece.key)} class:you={status.tone === 'you'} class:bad={status.tone === 'bad'}>
             <div class="pipe-head"><h3>{piece.title}</h3>{#if nodes.length}<span class="where">{stageLabel(nodes[Math.min(piece.stage ?? 0, nodes.length - 1)].kind)} · {Math.min((piece.stage ?? 0) + 1, nodes.length)} of {nodes.length}</span>{/if}<span class="badge {status.tone}">{status.label}</span>
               <button class="fold" type="button" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} details of ${piece.title}`} onclick={() => folds = { ...folds, [id]: !open }}>{open ? 'Hide details' : 'Show details'}</button></div>
-            {#if !open}<p class="now brief">{lost ? 'Its session was ended. Open this to choose what happens next.' : status.label === 'Needs you' && goal ? (goal.reason || goal.goal.note) : piece.note}</p>{:else}
             {#if nodes.length}<ol class="track" aria-label={`Stages of ${piece.title}`}>
               {#each nodes as node, index (node.key)}{@const look = node.state === 'running' && status.label === 'Needs you' ? 'waiting' : node.state}<li class={look} aria-current={look === 'running' || look === 'waiting' ? 'step' : undefined} title={`${node.label}: ${chatToolName(node.tool)}${node.model ? ` · ${node.model}` : ''}${node.source ? ` · ${sourceLabel(node.source)}` : ''}${node.moved ? ' · moved on by you' : ''}${node.summary ? ` — ${node.summary}` : ''}`}>
                 <span class="dot" class:moved={node.moved} aria-hidden="true">{node.moved ? '»' : look === 'done' ? '✓' : look === 'waiting' ? '!' : look === 'failed' ? '×' : index + 1}</span><span class="name">{node.label}</span><span class="sr-only">{node.moved ? 'moved on by you, not handed over by Gaffer' : look === 'done' ? 'done' : look === 'running' ? 'running now' : look === 'waiting' ? 'waiting for you' : look === 'failed' ? 'stopped' : 'to come'}</span>
               </li>{/each}
             </ol>{/if}
+            {#if !open}<p class="now brief">{lost ? 'Its session was ended. Open this to choose what happens next.' : status.label === 'Needs you' && goal ? (goal.reason || goal.goal.note) : piece.note}</p>{:else}
             {#if lost}{@const need = sessionEndedChoices((piece.stage ?? 0) >= nodes.length - 1, piece.sessionState === 'gone')}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
               <p class="decide-why">{need.why}</p>
               <p class="decide-ask">What do you want to do?</p>

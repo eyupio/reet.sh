@@ -342,11 +342,18 @@ func (s *Service) outcomeEvidence(o store.GafferOutcome) string {
 	var b strings.Builder
 	b.WriteString("Outcome:\n" + o.Objective + "\n\nProject: " + o.ProjectName + "\n")
 	for i, row := range o.Sessions {
-		b.WriteString("\nPipeline " + strconv.Itoa(i+1) + ": " + row.Title + "\nState: " + row.State + ". " + row.Note + "\nBrief: " + clipBytes(row.Prompt, 600) + "\n")
+		b.WriteString("\nPipeline " + strconv.Itoa(i+1) + ": " + row.Title + "\nState: " + row.State + ". " + row.Note + "\nBrief: " + evidenceBrief(row.Prompt) + "\n")
 		for j, stage := range row.Stages {
-			line := "- " + stage.Kind + ": " + stage.State
+			line := "- " + stage.Kind
+			if stage.Part != "" {
+				line += ", part " + strconv.Quote(stage.Part)
+			}
+			line += ": " + stage.State
 			if j == row.Stage && stage.State != "done" {
 				line += " (in hand)"
+			}
+			if stage.Part != "" && stage.Brief != "" && stage.State != "done" {
+				line += ". Part brief: " + clipBytes(stage.Brief, 300)
 			}
 			if stage.Summary != "" {
 				line += ". Handover: " + clipBytes(stage.Summary, 500)
@@ -368,6 +375,17 @@ func (s *Service) outcomeEvidence(o store.GafferOutcome) string {
 		text = text[:cut] + "\n[Trimmed to fit.]"
 	}
 	return text
+}
+
+// evidenceBrief is a pipeline's brief as Gaffer is shown it. A brief too long
+// to show whole says so in words: a bare ellipsis read to the model as a brief
+// that was itself cut off, and it reported that as a fault in the brief.
+func evidenceBrief(prompt string) string {
+	const limit = 2400
+	if text := strings.Join(strings.Fields(prompt), " "); len(text) <= limit {
+		return text
+	}
+	return clipBytes(prompt, limit) + " [Brief shortened here; the agent has all of it.]"
 }
 
 // outcomeReport accepts one complete report. A proposal is a title, a brief

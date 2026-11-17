@@ -18,6 +18,26 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-REALRUN-1: what the first real split run showed (17 November 2026)
+
+Run over MCP in project reet on PROD_Snicket (outcome `7a1c3e5f…`, OpenCode, ordinary approvals): plan (heavy),
+code in two parts (standard, light), review, test, pr. Stopped by hand during the first code part.
+
+- **Seen working:** tiers and parts accepted over MCP and shown per stage; each stage's agent and model read back
+  as applied; the owner's Gaffer-decides switch recorded (`gaffer-outcome-automation`); Gaffer closed the plan stage
+  after one review; the first code part started in a session of its own and the plan session was ended.
+- **Fixed here:** (1) the plan's handover described the plan instead of carrying it, so the code part was asked to
+  fix numbered items it was never shown: `stageHandoverRule` in `worker_tools.go` and the `hand_over` description
+  now say the handover is all the next stage gets. (2) `outcomeEvidence` clipped a brief at 600 bytes with a bare
+  ellipsis, which Gaffer reported as a brief that "ends mid-sentence": `evidenceBrief` shows 2,400 and says in
+  words when it shortened. (3) the evidence named a part's stage only by kind: it now gives the part's name and,
+  until the part is done, its brief.
+- **Not exercised:** balancing (backups are fixed when an outcome starts, and the backup was saved after), a
+  decision by Gaffer at a stopped stage, Gaffer answering a multiple-choice question, and any stage after the first
+  code part. With ordinary approvals each new session stopped at once on a permission prompt, which only the person
+  answers.
+- **Not checked:** whether a real model now writes a fuller handover. The rule is wording; only a run shows it.
+
 ## DESKS-1: saved sets of terminal tabs with splits and restore (16 November 2026)
 
 The owner runs several terminals at once for one job and did it outside reet. They asked for that working set to be a

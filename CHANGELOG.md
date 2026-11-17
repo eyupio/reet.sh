@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory, from the first real run of a split pipeline: a stage's handover
+  now carries the plan, design or findings themselves, since the next stage
+  starts in a session of its own that cannot read the last one. Gaffer's
+  report and decisions are shown a pipeline's whole brief (up to 2,400
+  characters, and told in words when it is longer) and each part's name and
+  brief, instead of calling a clipped brief unfinished and a split stage
+  unexplained.
+
 - **Desks**: the tab shown is now each window's own, so switching tab saves
   nothing and no longer moves another window on the same desk. **Move here**
   closes the pane the session left (a tab's only pane stays, empty). The

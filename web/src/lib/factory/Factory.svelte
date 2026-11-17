@@ -232,8 +232,8 @@
     try { timeline = { ...timeline, [record.id]: { events: await listGafferOutcomeHistory(record.id), error: '', loading: false } } }
     catch (e) { timeline = { ...timeline, [record.id]: { events: [], error: e instanceof Error ? e.message : 'The history could not be read.', loading: false } } }
   }
-  // A pipeline is one line until it is opened. The ones that want the person, or have stopped, start open; the person's
-  // own choice for a pipeline, or for all of them, wins after that.
+  // A pipeline shows its stage track whether it is folded or open; opening it adds the rest of its details. The ones that
+  // want the person, or have stopped, start open; the person's own choice for a pipeline, or for all of them, wins after that.
   let folds = $state<Record<string, boolean>>({}), allOpen = $state<boolean | null>(null)
   const shown = (id: string, tone: string) => folds[id] ?? allOpen ?? (tone === 'you' || tone === 'bad' || arrived === id)
   // One choice from a card that needs the person. Each does what its button says and nothing else.

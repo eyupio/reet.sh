@@ -5,6 +5,20 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory**: the page now opens on what is waiting for you. Each item in
+  **Waiting for you** shows its stages by name and carries the action it needs
+  (for example **Move to next stage**, **Approve the merge** or **Try again**),
+  so most things can be dealt with without opening anything. **Details** opens
+  one pipeline with one bar of actions at the bottom and one **Settings for this
+  outcome** row for who decides, approvals and merge. **Working**, **Finished
+  or stopped** and **Other sessions** open and close, say what is inside when
+  closed, and are remembered in your browser; only **Waiting for you** is open
+  the first time. On a tablet or phone a pipeline opens as its own screen and
+  the browser's Back button returns to the list. Projects stay in the left
+  column on a wide screen, with how many of each project's pipelines are
+  waiting and working; on a tablet or phone a **Projects** button opens the
+  same choice.
+
 - **Desks**: on a tablet or phone whose on-screen keyboard overlays the page,
   an open desk now ends above the keyboard, so the terminal's last rows and
   its keys bar stay in view while you type. Before, the desk kept the

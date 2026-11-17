@@ -18,6 +18,85 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-REWORK-1: the Factory page rebuilt as a list and one detail (17 November 2026)
+
+The owner found the Factory page overwhelming with several items on it, and its buttons and settings in too many
+places. Spec [2026-11-17-factory-home-rework-design.md](docs/superpowers/specs/2026-11-17-factory-home-rework-design.md),
+plan [2026-11-17-factory-page-rework.md](docs/superpowers/plans/2026-11-17-factory-page-rework.md), PR
+[#825](https://github.com/eyupio/reet.sh/pull/825) on `ccr-93f68fda-ippwiu`. Web only: no controller, API, MCP or
+stored-field change.
+
+**What was built.** The page is a list of pipelines in sections plus one detail for the pipeline chosen. On a wide
+screen (1100 px and over) the Projects panel, the list and the detail sit side by side, the list and the detail each
+scrolling alone, and the first waiting pipeline is open on arrival. On a tablet or phone the list is the page and
+**Details** opens the pipeline as a screen of its own with a way back and previous / next through what is waiting.
+
+**Where things from the old page went.**
+- The tiles and the Expand all / Collapse all buttons: one line of counts under the title.
+- Each outcome card with every pipeline expanded: an item in a section (Waiting for you, Working, Finished or
+  stopped), its stages drawn by name.
+- The Decision cards and the buttons in the card head, the decisions block and the facts row: the item's own filled
+  button and **Details**, then the detail's one bar at the foot (the recommended choice first and filled, then the
+  stage's other choices, Tell the agent, Send back, Move to next stage, Review goal).
+- Who decides, approvals, merge for this pipeline, and Switch to YOLO: the **Settings for this outcome** row. Reports
+  is shown there as a fact, since nothing changes it after an outcome starts.
+- Gaffer's report, What Gaffer decided, History, and the totals with Goal and limits: closed rows in the detail that
+  show their headline without being opened (Goal and limits is inside Usage and budget).
+- "Who did each stage": pick a stage in the detail and its facts show.
+- Add pipelines, Stop starting sessions, Stop following, Archive, Delete and Restore: one menu on the detail head.
+- Other sessions Gaffer follows: a fourth section of the list, closed at first.
+- The Projects panel: kept on a wide screen, each project saying how many pipelines wait and work. On a tablet or
+  phone a **Projects** button opens a short picker that narrows the page.
+
+**Files** (all under `web/src/lib/factory/`).
+- `factoryList.ts`: turns outcomes, goals and sessions into items, puts each in exactly one section, orders them,
+  and writes the stage caption (`stageCaption`).
+- `StagePipeline.svelte`: the stages in three sizes (labelled, circles with a caption, dots with a caption).
+- `ListSection.svelte` and `sectionMemory.ts`: a section that opens and closes, and the per-browser memory of which
+  are open (`reet.factory.sections.<user>`).
+- `WaitingItem.svelte`: one item, with its chip, stages, sentence and actions (Allow and Deny use the existing
+  `Approval`).
+- `PipelineDetail.svelte`: the detail, its rows, its action bar and its outcome menu.
+- `ProjectPicker.svelte`: the Projects button and dialog on a narrow screen. The wide panel is `ProjectRail`, which
+  gained one optional `detail` prop for the counts.
+- `Factory.svelte`: loaders, handlers and dialogs as before; the template is replaced. The chosen pipeline is carried
+  as `?pipeline=` in the address, so a reload and a shared link reopen it, and `/factory#<anchor>`, `?project=` and
+  `?outcome=1` still work.
+
+**Decisions the owner made.** A queue and a detail (not a table or a board). The stage names are shown, in today's
+circles-and-line style. Sections open and close and are remembered, with only Waiting for you open the first time.
+The Projects panel is kept. The page is replaced outright, with no classic view; going back is reverting the PR. The
+filled button is always the choice the code already marks primary, so without Gaffer's advice it may be "Have Gaffer
+look again" and not "Move to next stage". Failed pipelines count as waiting for you.
+
+**On a narrow screen**, opening a pipeline adds a history entry, so the browser's Back button returns to the list.
+Previous / next and a wide screen change the address without adding one.
+
+**Not done.**
+- Home is the next piece and still shows the old two lists ("Factory pipelines" and "Needs you"). The `row` layout of
+  `WaitingItem` and the Home sections are in the next plan. The bell count has not changed.
+- Small things found in review and left: `factoryList.ts` casts a read-only map for `waitingDecisions`, and its
+  record types copy fields of the outcome types so they could drift; the finished-section summary, minutes and days
+  in "waiting", and ordering by a goal's last change have no unit test; the circles caption calls every earlier stage
+  "done" whatever its state; a failed stage is marked as the current one; a section has no `aria-controls`; the
+  compact item is a button holding block elements; the outcome menu does not close on an outside click or Escape;
+  Other sessions' summary can count a session twice; the approval mapping is copied from `home.ts`; the counts line
+  and the section count disagree while archived pipelines are shown; on a wide screen Back can move focus to a
+  Details button though no detail closed; a section opened by a link is not saved; a group scope set on the wide
+  panel and then narrowed reads "Projects: all"; the Gaffer launcher can sit over the edge of a card, and over
+  text on a phone, since it floats above the page everywhere; and the floor's filter row scrolls sideways on a phone
+  (its own old design).
+- Tests do not cover the YOLO or merge confirmation from the new Settings row beyond `factory-decision`, nor Restore.
+
+**Checked.** `npm run check` with 0 errors; `factory-pieces` (new), `factory-decision`, `gaffer-factory-session`,
+`gaffer-factory`, `gaffer-outcome`, `gaffer-floor`, `gaffer-followed`, `home-followups`, `session-end-gaffer`,
+`workbench` and `gaffer-goal` on one production build, in the browser at 1440, 1280, 834 and 390 in both themes. The
+captures are in [docs/ui-verification.md](docs/ui-verification.md).
+
+**Not checked.** No real machine: every pipeline in the tests is a fixture, so a real run has not shown the page. No
+real tablet or phone: widths are emulated, and the owner's Android tablet has not been tried. The keyboard is not
+involved here.
+
 ## DESKS-KEYBOARD-1: a desk under the on-screen keyboard (17 November 2026)
 
 The owner reported, from an Android tablet, that a desk's terminal did not adjust when the keyboard opened.

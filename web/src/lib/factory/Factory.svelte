@@ -671,8 +671,9 @@
   .split .pane{min-height:0;overflow-y:auto;scrollbar-width:thin;box-sizing:border-box;padding:20px 24px 0;border:1px solid var(--line);border-radius:14px;background:var(--card);--detail-inset:24px}
   .pane.resting{display:grid;place-items:center;padding:24px;color:var(--muted);text-align:center}
   /* On a narrow screen the detail is the page, and its bar rests on whatever covers the foot of the screen. */
-  .factory.reading{padding-bottom:var(--bottom-chrome,0px)}
-  .reading .pane{--detail-inset:var(--gutter);--detail-bottom:var(--bottom-chrome,0px)}
+  .factory.reading{padding-bottom:var(--bottom-chrome,0px);min-height:calc(100dvh - var(--top));box-sizing:border-box;display:flex;flex-direction:column}
+  .reading .board{flex:1 1 auto;display:flex;flex-direction:column}
+  .reading .pane{flex:1 1 auto;display:flex;flex-direction:column;--detail-inset:var(--gutter);--detail-bottom:var(--bottom-chrome,0px)}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   @media(max-width:640px){.factory{--gutter:16px}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}

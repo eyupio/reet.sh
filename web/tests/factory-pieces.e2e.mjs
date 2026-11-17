@@ -41,9 +41,9 @@ function fixture(){
  }
  return{routes,outcome,box,row}
 }
-async function open(width,{theme='light',height,hash='',tweak}={}){
+async function open(width,{theme='light',height,hash='',tweak,scale}={}){
  const f=fixture();tweak?.(f)
- const w=await openWorkspace(browser,{width,height:height??(width<500?844:1000),theme,touch:width<1000,routes:f.routes})
+ const w=await openWorkspace(browser,{width,height:height??(width<500?844:1000),theme,touch:width<1000,routes:f.routes,scale})
  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  await w.page.goto(`${base}/factory${hash}`)
  return{f,w,page:w.page}
@@ -298,5 +298,40 @@ try{
    expect(overlaps).toEqual([])
   }finally{await w.context.close()}
   console.log('ok - the launcher stays clear of the detail')
+ }
+ // The five captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page,
+ // so the fixed bars sit where they are). Saved only when REET_UI_SCREENSHOTS names a folder.
+ if(process.env.REET_UI_SCREENSHOTS){
+  for(const [width,theme] of [[1440,'light'],[1440,'dark']]){
+   const {w,page}=await open(width,{theme,scale:2})
+   try{
+    await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+    await expect(page.getByRole('group',{name:'What do you want to do?',exact:true})).toBeVisible()
+    await page.waitForTimeout(400)
+    await page.screenshot({path:`${shots}/factory-rework-${width}-${theme}.png`,fullPage:false})
+   }finally{await w.context.close()}
+  }
+  {
+   const {w,page}=await open(834,{scale:2,height:1112})
+   try{
+    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
+    await expect(waiting).toBeVisible()
+    await page.waitForTimeout(400)
+    await page.screenshot({path:`${shots}/factory-rework-834-light-list.png`,fullPage:false})
+    await waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true}).click()
+    await expect(page.getByRole('group',{name:'What do you want to do?',exact:true})).toBeVisible()
+    await page.waitForTimeout(400)
+    await page.screenshot({path:`${shots}/factory-rework-834-light-detail.png`,fullPage:false})
+   }finally{await w.context.close()}
+  }
+  {
+   const {w,page}=await open(390,{theme:'dark',scale:2})
+   try{
+    await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
+    await page.waitForTimeout(400)
+    await page.screenshot({path:`${shots}/factory-rework-390-dark.png`,fullPage:false})
+   }finally{await w.context.close()}
+  }
+  console.log('ok - captures saved')
  }
 }finally{await browser.close()}

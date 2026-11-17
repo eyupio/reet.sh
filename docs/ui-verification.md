@@ -4385,3 +4385,32 @@ the keyboard, the site bar, desk bar and tool row are gone and the tab bar stays
 440 of the 560 px; a keyboard opened from the desk bar moves nothing aside.
 
 ![A desk fitted above the keyboard](images/ui/desks-keyboard-834.png)
+
+## The Factory page as a list and one detail (17 November 2026)
+
+The Factory page now has Waiting for you, Working, Finished or stopped and Other sessions as sections that open and
+close, and one detail for the chosen pipeline. Checked against a production build in `factory-pieces.e2e.mjs`, with
+`factory-decision`, `gaffer-factory-session`, `gaffer-factory`, `gaffer-outcome`, `gaffer-floor`, `gaffer-followed`,
+`home-followups`, `session-end-gaffer`, `workbench` and `gaffer-goal` updated to the new structure and passing.
+
+- **1440 and 1280 (light and dark):** the list beside the detail, the first waiting pipeline open on arrival, the
+  action bar resting at the foot of the detail, no sideways scroll, a link to a pipeline opening it, a section left
+  open staying open after a reload, and the Projects panel saying how many pipelines wait and work.
+- **834 (light):** the list with Waiting for you open, stage names under each item; Details opening the pipeline as
+  its own screen, the focus moving to its title, the bar at the foot of the screen, previous and next stepping
+  through what is waiting, and the browser's Back and Forward closing and reopening it. The Projects button narrows
+  the page.
+- **390 (dark):** stages as circles with a caption, buttons at least 44 px high, no sideways scroll with five
+  pipelines of eight stages, and the same Back behaviour.
+- **Looked at, by eye, at twice the pixel density:** every capture below. One thing was fixed from them: the detail now
+  fills the screen on a tablet, so its bar rests at the foot instead of following the last row. Left as it is:
+  the floating Gaffer button sits over the edge of a card or a line of text while the page scrolls under it, as it
+  does on every page. No text is below 14 px.
+- **Not checked:** a real machine, a real tablet or phone, or a screen reader. These are automated browser checks.
+
+![Factory, 1440 light](images/ui/factory-rework-1440-light.png)
+![Factory, 1440 dark](images/ui/factory-rework-1440-dark.png)
+![Factory list, 834 light](images/ui/factory-rework-834-light-list.png)
+![Factory detail, 834 light](images/ui/factory-rework-834-light-detail.png)
+![Factory list, 390 dark](images/ui/factory-rework-390-dark.png)
+

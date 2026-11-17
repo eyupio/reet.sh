@@ -153,8 +153,11 @@ export class ApiError extends Error {
   status: number
   /** The refusal's stable name, when the server gave it one; a caller branches on this, never on the sentence. */
   code: string
-  constructor(message: string, status: number, code = '') {
+  /** The name of the field a refusal is about, when the server gave one. */
+  field: string
+  constructor(message: string, status: number, code = '', field = '') {
     super(message)
+    this.field = field
     this.name = 'ApiError'
     this.status = status
     this.code = code
@@ -223,15 +226,17 @@ async function req(path: string, init: RequestInit = {}, quiet = false): Promise
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`
     let code = ''
+    let field = ''
     try {
       const body = await res.json()
       msg = body.error ?? msg
       if (typeof body.code === 'string') code = body.code
+      if (typeof body.field === 'string') field = body.field
       refusalListener?.(res.status, body)
     } catch {
       /* keep status text */
     }
-    throw new ApiError(msg, res.status, code)
+    throw new ApiError(msg, res.status, code, field)
   }
   return res
 }
@@ -440,6 +445,10 @@ export async function unlinkSsoIdentity(): Promise<void> {
 }
 export async function getAdminSso(): Promise<import('./sso').AdminSso> {
   return (await req('/api/v2/admin/sso')).json()
+}
+/** The owner saves the whole set of single sign-on switches; a refusal's `field` says which one. */
+export async function saveAdminSso(settings: import('./sso').SsoSettings): Promise<import('./sso').AdminSso> {
+  return (await req('/api/v2/admin/sso', { method: 'PATCH', body: json(settings) })).json()
 }
 export async function signOutAccount(): Promise<void> {
   await req('/api/v2/auth/sign-out', { method: 'POST', body: json({}) })

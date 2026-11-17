@@ -9,8 +9,9 @@ package api
 // and never before: "fence", "copy-origin", "restore-public-url",
 // "copy-password-request", "fence-address" (the address can be changed while
 // fenced) and "fence-machines" (the fence reports which machines have
-// followed) are the names the contract reserves.
-var builtFeatures = []string{"copy-origin", "fence", "restore-public-url", "copy-password-request", "fence-address", "fence-machines"}
+// followed) and "sso-settings" (the owner changes the single sign-on switches
+// with PATCH /api/v2/admin/sso) are the names the contract reserves.
+var builtFeatures = []string{"copy-origin", "fence", "restore-public-url", "copy-password-request", "fence-address", "fence-machines", "sso-settings"}
 
 // featureList is what the version document reports: the built parts, or nil
 // when there are none so the field is left out rather than sent empty.

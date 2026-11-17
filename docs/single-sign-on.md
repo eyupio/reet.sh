@@ -11,10 +11,10 @@ backups) works as before.
 
 ## In the interface
 
-- **Sign-in page.** A button, worded by `REET_OIDC_BUTTON_LABEL`, leads to the identity provider and
+- **Sign-in page.** A button, worded by the button setting, leads to the identity provider and
   brings the person back to the page they started from (a deep link, or the connect-an-agent consent
   page). Where password sign-in is on, the password form stays below it. With
-  `REET_OIDC_PASSWORD_LOGIN=off` the form is folded under "Sign in with a password" with a note that
+  password sign-in off the form is folded under "Sign in with a password" with a note that
   only the owner can use it, so the owner always has a way in. With single sign-on off the page is
   exactly what it was.
 - **When a sign-in cannot finish** the person lands on the sign-in page (or, if already signed in, on the
@@ -24,9 +24,11 @@ backups) works as before.
 - **Account, Single sign-on.** Shown only when it is on. It says when the identity was linked and last used,
   links one (`Link your identity`, which comes back to the same page), and unlinks it with a confirmation.
   Unlinking is disabled, with the reason, while it would leave no way to sign in.
-- **Admin, Users.** A read-only panel with the issuer, the redirect address, whether the provider can be
-  reached right now, how new people and linking by email are handled, the group mappings and how many people
-  are linked. It never shows, and the server never sends, the client secret.
+- **Admin, Users.** The panel shows the issuer, the redirect address, whether the provider can be reached right
+  now, how many people are linked, and the twelve switches listed under [Settings](#settings). The owner
+  edits the switches there and saves them as one set; an administrator sees them read-only. A refused save
+  puts one plain sentence beside the field and keeps what was typed. It never shows, and the server never
+  sends, the client secret.
 
 ## What you need from the provider
 
@@ -49,33 +51,76 @@ back-channel logout address (optional):
 
 ## Settings
 
+Single sign-on has two kinds of setting, and they live in different places.
+
+**What stays in the environment.** These are a trust relationship and a secret, so they are read at
+start-up and are not shown or changed in the interface:
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `REET_OIDC` | empty | `off` switches single sign-on off without removing the rest of the settings. |
 | `REET_OIDC_ISSUER` | empty | The provider's issuer address, exactly as its discovery document names it. Setting it turns single sign-on on. |
 | `REET_OIDC_CLIENT_ID` | empty | The client id registered at the provider. |
 | `REET_OIDC_CLIENT_SECRET` or `_FILE` | empty | The client secret, or a file that holds it. Setting both is refused. |
 | `REET_OIDC_REDIRECT_URL` | `REET_PUBLIC_URL` + `/api/v2/auth/oidc/callback` | The address the provider sends people back to. |
-| `REET_OIDC_SCOPES` | `openid profile email` | Scopes asked for. `openid` is always included. |
-| `REET_OIDC_NAME_CLAIM`, `_EMAIL_CLAIM`, `_GROUPS_CLAIM` | `name`, `email`, `groups` | Which claims carry the person's name, email address and groups. |
-| `REET_OIDC_ADMIN_GROUPS`, `_MEMBER_GROUPS`, `_VIEWER_GROUPS` | empty | Group names (comma or space separated) that give the admin, member or viewer role. The highest match wins. |
-| `REET_OIDC_DEFAULT_ROLE` | `viewer` | `member` or `viewer`: the role of a new person who matches no group. |
-| `REET_OIDC_AUTO_CREATE` | `off` | `on` to create an account for a person reet.sh has not met. |
-| `REET_OIDC_LINK_BY_EMAIL` | `off` | `on` to link a first sign-in to the existing account with the same, verified email. |
-| `REET_OIDC_PASSWORD_LOGIN` | `on` | `off` to refuse password sign-in for everyone except the owner. |
-| `REET_OIDC_BUTTON_LABEL` | `Sign in with single sign-on` | Text on the sign-in button. |
-| `REET_OIDC` | empty | `off` switches single sign-on off without removing the rest of the settings. |
 
-A half-set configuration stops the server from starting and says what to fix, rather than starting
-up looking like single sign-on is off. Single sign-on needs `REET_AUTH=accounts`.
+**What the owner changes on the admin page.** These are choices about the people you run the controller
+for: who is matched or made at a first sign-in, which role they get and whether passwords still work. Only
+the owner can save them (an administrator sees them read-only), and the next sign-in follows a saved change
+with no restart.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Button words (`label`) | `Sign in with single sign-on` | Text on the sign-in button. Empty means the default. |
+| Password sign-in (`passwordLogin`) | on | Off refuses password sign-in for everyone except the owner. |
+| New people (`autoCreate`) | off | On creates an account for a person reet.sh has not met, for a verified address. |
+| Linking by email (`linkByEmail`) | off | On links a first sign-in to the existing account with the same address, if the provider says the address is verified. It never links an owner or an administrator. |
+| Role for new people (`defaultRole`) | `viewer` | `member` or `viewer`: the role of a new person who matches no group. |
+| Claims (`nameClaim`, `emailClaim`, `groupsClaim`) | `name`, `email`, `groups` | Which claims carry the person's name, email address and groups. Empty means the default. |
+| Scopes (`scopes`) | `openid profile email` | What reet.sh asks the provider for. Must include `openid`. |
+| Groups (`adminGroups`, `memberGroups`, `viewerGroups`) | empty | Group names that give each role. The highest match wins. |
+
+### The environment seeds once, then the database wins
+
+The `REET_OIDC_*` variables for those twelve (`REET_OIDC_BUTTON_LABEL`, `_PASSWORD_LOGIN`, `_AUTO_CREATE`,
+`_LINK_BY_EMAIL`, `_DEFAULT_ROLE`, `_NAME_CLAIM`, `_EMAIL_CLAIM`, `_GROUPS_CLAIM`, `_SCOPES`, `_ADMIN_GROUPS`,
+`_MEMBER_GROUPS` and `_VIEWER_GROUPS`) still work, but only once. On the first start with nothing stored,
+reet.sh reads them, checks them as it always has (a bad value stops the server with what to fix) and stores
+the result. From then on the stored values are the only ones used, and the variables are ignored. If a later
+start finds a variable that is still set and differs from what is stored, it logs one line naming the
+variable, never its value, and uses the stored one:
+
+```
+single sign-on: REET_OIDC_AUTO_CREATE is set and differs from the stored setting; the stored setting is used
+```
+
+The first start logs `single sign-on: settings stored from the environment`. You can remove the variables once
+you have seen that line. If the stored value cannot be read back, reet.sh says so, uses the environment's values
+and leaves the stored value alone until the owner saves new ones.
+
+### Changing them over the API
+
+`GET /api/v2/admin/sso` (administrators and the owner) answers with the five read-only fields (`issuer`,
+`redirectUrl`, `linked`, `reachable`, `problem`) and the twelve settings under the names above. `label` is
+the text in use and `labelSetting` is the stored one. `PATCH /api/v2/admin/sso` (owner only) takes the whole set
+of twelve in one JSON body, every field present, and answers `200` with what is now stored. A missing or unknown
+field, a wrong type, an invalid value or a body over 32 KB is a `400` with `{"error": "…", "field": "…"}`,
+and nothing is stored. Where single sign-on is not enabled it answers `404`; a token that is not the owner's
+is always `403`. Each change that alters something is recorded in the activity log as `sso-settings`, with the
+names of the fields that changed and their new values. `GET /api/version` lists `sso-settings` under `features`
+on a build that has the route.
+
+Single sign-on needs `REET_AUTH=accounts`. A half-set configuration stops the server from starting and says
+what to fix, rather than starting up looking like single sign-on is off.
 
 ## How a person is recognised
 
 1. The provider's subject (`sub`) under this issuer is the identity. A person who has signed in
    before, or who linked their account, is found by it.
-2. A person reet.sh has not met is matched by email only if `REET_OIDC_LINK_BY_EMAIL=on` **and** the
+2. A person reet.sh has not met is matched by email only if linking by email is on **and** the
    provider says the address is verified (`email_verified`). The owner and admin accounts are never
    linked by email: a matching address must not hand over the keys.
-3. Otherwise, with `REET_OIDC_AUTO_CREATE=on` a member account is created, again only for a verified
+3. Otherwise, with new-person accounts on, an account is created, again only for a verified
    address. It has no password. Without it the person is told no account is available.
 4. A person who is signed in can link their own identity (`GET /api/v2/auth/oidc/start?intent=link`;
    the Account page offers it), and unlink it again
@@ -88,7 +133,7 @@ transfer. Before setup is done, single sign-on signs nobody in.
 ## Roles
 
 When any of the group settings is used, the provider decides the role at each sign-in: the highest of
-admin, member and viewer that a group matches, and `REET_OIDC_DEFAULT_ROLE` when groups are sent but
+admin, member and viewer that a group matches, and the default role when groups are sent but
 none matches (a typo gives read-only, never more). A token with no groups claim at all changes nobody's
 role. The owner's role is never changed by the provider. With no group settings, roles are set by an
 admin as usual, and a new person gets the default role.
@@ -136,4 +181,5 @@ anything the provider said:
 - The provider's discovery document and key set are fetched with a timeout, a size cap and no
   redirects, and never from a link-local address.
 - `GET /api/v2/auth/status` gains `sso: {enabled, label, passwordLogin}`. `GET /api/v2/admin/sso`
-  (admins) shows how it is set up and whether the provider can be reached. Neither shows the secret.
+  (admins) shows how it is set up and whether the provider can be reached, and `PATCH` (owner) changes the
+  twelve settings. Neither shows the secret.

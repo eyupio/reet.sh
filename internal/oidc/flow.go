@@ -42,7 +42,7 @@ func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string) (
 	q.Set("response_type", "code")
 	q.Set("client_id", p.cfg.ClientID)
 	q.Set("redirect_uri", p.cfg.RedirectURL)
-	q.Set("scope", strings.Join(p.cfg.Scopes, " "))
+	q.Set("scope", strings.Join(p.snapshot().Scopes, " "))
 	q.Set("state", state)
 	q.Set("nonce", nonce)
 	q.Set("code_challenge", Challenge(verifier))

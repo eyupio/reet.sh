@@ -40,6 +40,7 @@ func (s *server) registerSSORoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/auth/oidc/identity", s.ssoIdentity)
 	mux.HandleFunc("DELETE /api/v2/auth/oidc/identity", s.ssoUnlink)
 	mux.HandleFunc("GET /api/v2/admin/sso", s.requireAdmin(s.ssoAdminStatus))
+	mux.HandleFunc("PATCH /api/v2/admin/sso", s.requireOwner(s.ssoSettingsUpdate))
 }
 
 // ssoStatus is the part of auth/status that tells the sign-in page what to offer.
@@ -47,7 +48,8 @@ func (s *server) ssoStatus() map[string]any {
 	if !s.ssoOn() {
 		return map[string]any{"enabled": false}
 	}
-	return map[string]any{"enabled": true, "label": s.sso.Label(), "passwordLogin": s.sso.PasswordLogin()}
+	beh := s.sso.Behaviour()
+	return map[string]any{"enabled": true, "label": beh.ResolvedLabel(), "passwordLogin": beh.PasswordLogin}
 }
 
 // safeNext is where a sign-in resumes: a path on this site, and nothing a
@@ -341,6 +343,10 @@ func (s *server) ssoLinkCallback(w http.ResponseWriter, r *http.Request, row sto
 }
 
 func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSOLogin, c oidc.Claims) {
+	// The choices the claims were read under, carried through, so an owner
+	// saving new settings mid-sign-in cannot give this person claims read by
+	// the old names and roles mapped by the new.
+	beh := c.Read
 	issuer := s.sso.Issuer()
 	email := asciiLower(strings.TrimSpace(c.Email))
 	user, found, err := s.st.SSOIdentityUser(issuer, c.Subject)
@@ -374,7 +380,7 @@ func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSO
 			return
 		}
 		switch {
-		case exists && !s.sso.LinkByEmail():
+		case exists && !beh.LinkByEmail:
 			s.ssoFail(w, r, "/", "exists")
 			return
 		case exists && existing.Email != email:
@@ -407,11 +413,11 @@ func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSO
 			}
 			user = existing
 			s.event(user.ID, "ui", "sso-link", "", map[string]any{"name": user.Name, "email": user.Email, "by": "email"})
-		case !s.sso.AutoCreate():
+		case !beh.AutoCreate:
 			s.ssoFail(w, r, "/", "no_account")
 			return
 		default:
-			role, _ := s.sso.RoleFor(c.Groups)
+			role, _ := beh.RoleFor(c.Groups)
 			user, err = s.st.CreateSSOUser(issuer, c.Subject, email, c.Name, role)
 			if err != nil {
 				log.Printf("single sign-on: create account: %v", err)
@@ -429,7 +435,7 @@ func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSO
 	if nonOwner && c.HasGroups {
 		// Where groups are mapped the provider decides the role at each
 		// sign-in. A token with no groups claim at all changes nothing.
-		if role, mapped := s.sso.RoleFor(c.Groups); mapped && role != user.Role {
+		if role, mapped := beh.RoleFor(c.Groups); mapped && role != user.Role {
 			if err := s.st.UpdateUserRole(user.ID, role); err == nil {
 				s.event(user.ID, "ui", "user-role", "", map[string]any{"name": user.Name, "email": user.Email, "role": role, "by": "single sign-on"})
 				user.Role = role
@@ -566,8 +572,8 @@ func (s *server) ssoUnlink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ssoAdminStatus shows an admin how single sign-on is set up. It is read-only
-// and never carries the client secret.
+// ssoAdminStatus shows an admin how single sign-on is set up. It never
+// carries the client secret.
 func (s *server) ssoAdminStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.ssoOn() {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
@@ -575,13 +581,8 @@ func (s *server) ssoAdminStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := s.sso.Config()
 	linked, _ := s.st.SSOIdentityCount(cfg.Issuer)
-	out := map[string]any{
-		"enabled": true, "issuer": cfg.Issuer, "redirectUrl": cfg.RedirectURL, "label": s.sso.Label(),
-		"passwordLogin": cfg.PasswordLogin, "autoCreate": cfg.AutoCreate, "linkByEmail": cfg.LinkByEmail,
-		"defaultRole": cfg.DefaultRole, "groupsClaim": cfg.GroupsClaim,
-		"adminGroups": nonNil(cfg.AdminGroups), "memberGroups": nonNil(cfg.MemberGroups), "viewerGroups": nonNil(cfg.ViewerGroups),
-		"linked": linked,
-	}
+	out := ssoSettingsView(s.sso.Behaviour())
+	out["enabled"], out["issuer"], out["redirectUrl"], out["linked"] = true, cfg.Issuer, cfg.RedirectURL, linked
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := s.sso.Check(ctx); err != nil {

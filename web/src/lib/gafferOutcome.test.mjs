@@ -274,6 +274,22 @@ test('every backup of a stage, not only the first, drops an effort its machine d
   assert.equal(o.withReportedEfforts(clean, efforts)[0], clean[0])
 })
 
+test('when what the machine offers is not known, every effort is sent as chosen, backups included', () => {
+  const plan = [{
+    kind: 'code', tool: 'claude', model: '', effort: 'high',
+    backup: { tool: 'opencode', model: 'm1', effort: 'high' },
+    moreBackups: [{ tool: 'codex', effort: 'medium' }],
+  }]
+  // The machine was not read, its read failed or it is gone: the controller drops an unoffered effort itself, so
+  // nothing is stripped here on a guess.
+  assert.equal(o.withReportedEfforts(plan, null), plan)
+  assert.deepEqual(o.withReportedEfforts(plan, null), [{
+    kind: 'code', tool: 'claude', model: '', effort: 'high',
+    backup: { tool: 'opencode', model: 'm1', effort: 'high' },
+    moreBackups: [{ tool: 'codex', effort: 'medium' }],
+  }])
+})
+
 test('a Cline tier carries its billing source', () => {
   const crew = { heavy: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, standard: { tool: 'cline', model: '' }, light: { tool: 'codex', model: '' } }
   assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [

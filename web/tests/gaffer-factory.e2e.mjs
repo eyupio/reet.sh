@@ -436,6 +436,37 @@ try {
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
+  // When the machine's capabilities could not be read, Add pipelines sends every effort as chosen, the saved crew's
+  // backups included: the controller starts a stage on the agent's default effort by itself when it is not offered, so
+  // nothing is stripped on a guess.
+  {
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
+    const oe='e'.repeat(32),lone={...structuredClone(outcomes[0]),revision:9,report:{text:'Nothing covers the changelog.',at:now,model:'gaffer-model',inputTokens:1,outputTokens:1,usageReported:true,proposals:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',why:'No pipeline covers it.',stages:['code','pr']}]}}
+    lone.sessions.length=3
+    const crewWithEfforts={...savedCrew,crew:{heavy:{},standard:{},light:{tool:'claude',effort:'high',backup:{tool:'claude',model:'model-backup',effort:'high'}},updatedAt:now}}
+    const routes={...routesFor(box),'/api/v2/gaffer/crew':crewWithEfforts,'/api/v2/gaffer/outcomes':{outcomes:[lone]},
+      '/api/v2/terminal/machines':{status:503,json:{error:'The machines could not be read.'}},
+      [`/api/v2/gaffer/outcomes/${oe}/sessions`]:request=>{box.added.push(request.postDataJSON());lone.revision++;lone.report.proposals=[];return lone}}
+    const w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes})
+    watch(w,box)
+    try {
+      const page=w.page
+      await page.goto(base+'/factory')
+      const detail=page.getByRole('region',{name:'Export button',exact:true})
+      await expect(detail.getByRole('heading',{name:'Export button',level:2,exact:true})).toBeVisible()
+      const report=detail.locator('details.row').filter({has:page.locator('summary .label').getByText('Gaffer’s report',{exact:true})})
+      if(await report.getAttribute('open')===null)await report.locator('summary').click()
+      await report.getByRole('button',{name:'Add 1 pipeline',exact:true}).click()
+      const add=page.getByRole('dialog',{name:'Add “Changelog entry”?',exact:true})
+      // Nothing is known of the machine, so the start levels are offered rather than none.
+      const effort=add.getByRole('combobox',{name:'Effort for Changelog entry',exact:true})
+      await expect(effort).toBeEnabled()
+      await effort.selectOption('high')
+      await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
+      expect(box.added).toEqual([{revision:9,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',stages:[{kind:'code',tool:'claude',model:'',effort:'high',tier:'standard'},{kind:'pr',tool:'claude',model:'',effort:'high',tier:'light',backup:{tool:'claude',model:'model-backup',effort:'high'}}]}]}])
+    } finally { await w.context.close() }
+  }
   // A finished outcome's pipelines sit in Finished or stopped, and the outcome can be archived (kept, hidden, restorable) or deleted (after a confirmation); the account's default only picks which comes first.
   for(const [width,mode] of [[1280,'archive'],[390,'delete']]){
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
@@ -607,7 +638,7 @@ try {
       expect(await crew.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
       await crew.getByRole('button',{name:'Save crew',exact:true}).click()
-      await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
+      await expect(crew.getByRole('status').filter({hasText:'Saved.'})).toHaveText('Saved. New outcomes start from this crew.')
       expect(box.crews).toEqual([{heavy:{tool:'claude',model:'model-strong',effort:'high',backup:{tool:'codex',model:'model-backup',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }

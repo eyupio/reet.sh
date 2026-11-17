@@ -366,8 +366,11 @@ export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported =
 }
 
 /** A plan with every effort the machine does not report left to the agent's default, on each stage and on each of its
- *  backups alike. A stage starts with nobody watching, so a level the agent would refuse is never sent. */
-export function withReportedEfforts<T extends { tool: string; effort?: string; backup?: SentSpare; moreBackups?: SentSpare[] }>(plan: T[], efforts: (tool: string) => string[]): T[] {
+ *  backups alike. `efforts` is null when what the machine offers is not known (it was not read, the read failed or the
+ *  machine is gone): the plan is then sent as chosen, since the controller starts a stage on the agent's default effort
+ *  by itself when its effort is not offered, and stripping on a guess would only lose the person's choice. */
+export function withReportedEfforts<T extends { tool: string; effort?: string; backup?: SentSpare; moreBackups?: SentSpare[] }>(plan: T[], efforts: ((tool: string) => string[]) | null): T[] {
+  if (!efforts) return plan
   const keeps = (one: { tool: string; effort?: string }) => !one.effort || efforts(one.tool).includes(one.effort)
   const strip = <S extends { tool: string; effort?: string }>(one: S): S => {
     if (keeps(one)) return one

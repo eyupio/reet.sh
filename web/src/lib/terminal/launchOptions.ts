@@ -5,7 +5,7 @@ import { structuredAgent, type Capabilities } from './api'
  * measured against its default model and may omit a level the live session reports, so its
  * silence is not proof that the agent has none; the agent still confirms the choice before
  * any prompt. These are the start levels the connector already maps, not a new vocabulary. */
-const START_EFFORTS = ['low', 'medium', 'high']
+export const START_EFFORTS = ['low', 'medium', 'high']
 
 /** Launch suggestions are installation evidence. The running agent must still
  * confirm that the chosen model accepts an effort before any prompt is sent.

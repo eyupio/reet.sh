@@ -4367,3 +4367,11 @@ physical-device or screen-reader assessment.
 
 [Phone light](images/ui/backups-overview-phone-light.png) ·
 [Phone dark](images/ui/backups-overview-phone-dark.png)
+
+## Putting a started outcome on YOLO (17 November 2026)
+
+**Switch to YOLO…** sits beside Approvals in an outcome's facts, opens a confirmation, and after it the note says
+which pipelines' sessions in hand could not be switched. Checked at 1280 in `factory-decision.e2e.mjs` against a
+production build: the confirmation, the request (`revision`, `on`, `confirmed`), the note, and switching back.
+
+![The YOLO switch beside Approvals](images/ui/factory-yolo-switch-1280.png)

@@ -152,7 +152,7 @@ func TestFactoryMCPSaysWhichEffortWasNotOffered(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("owner: %v %v", ok, err)
 	}
-	note := "You chose the effort high; OpenCode does not offer it for this model here, so the session is on the agent's default effort."
+	note := "You chose the effort high; OpenCode does not offer it for this model here, so the session was started on the agent's default effort."
 	o, err := st.CreateGafferOutcomeFor(user.ID, store.GafferOutcome{ID: strings.Repeat("b", 32), Objective: "Ship it.", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it.", RequestID: strings.Repeat("8", 32), Stages: []store.GafferOutcomeStage{
 		{Kind: "code", Tool: "opencode", Model: "cheap/coder", EffortNotOffered: "high", AppliedTool: "opencode", AppliedModel: "cheap/coder", AppliedEffort: "medium", ChoiceCheck: "applied", ChoiceNote: note, RequestID: strings.Repeat("8", 32)},
 		{Kind: "review", Tool: "opencode", Effort: "low", RequestID: strings.Repeat("9", 32)},

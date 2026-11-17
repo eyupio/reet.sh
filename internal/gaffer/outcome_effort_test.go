@@ -14,7 +14,10 @@ import (
 // launch path hands it to the controller.
 var effortRefusal = EffortNotOffered("The agent did not confirm the chosen effort for this model. Choose an offered effort or Agent default. No opening prompt was sent.")
 
-const highNotOffered = "You chose the effort high; OpenCode does not offer it for this model here, so the session is on the agent's default effort."
+const highNotOffered = "You chose the effort high; OpenCode does not offer it for this model here, so the session was started on the agent's default effort."
+
+// highDropped is the activity log's reason, written before the start is answered.
+const highDropped = "OpenCode does not offer the effort high for this model here, so the stage is started without it."
 
 func effortInput(r *outcomeRig) OutcomeInput {
 	in := r.in
@@ -47,7 +50,7 @@ func effortCaps(startOptions bool, options ...terminalproto.ACPAgentOption) term
 
 func effortLogged(log *auditLog, how string) bool {
 	for _, row := range log.all() {
-		if row.action == "gaffer-stage-effort-not-offered" && row.detail["stage"] == "code" && row.detail["effort"] == "high" && row.detail["agent"] == "opencode" && row.detail["how"] == how && row.detail["reason"] == highNotOffered {
+		if row.action == "gaffer-stage-effort-not-offered" && row.detail["stage"] == "code" && row.detail["effort"] == "high" && row.detail["agent"] == "opencode" && row.detail["how"] == how && row.detail["reason"] == highDropped {
 			return true
 		}
 	}
@@ -62,7 +65,9 @@ func TestAStageStartsWithoutAnEffortItsMachineSaysIsNotOffered(t *testing.T) {
 		caps    terminalproto.Capabilities
 		dropped bool
 	}{
-		"no start options":     {effortCaps(false, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), true},
+		// A machine whose reet takes no start options is too old: its own
+		// refusal, which says to update it, stands.
+		"no start options":     {effortCaps(false, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), false},
 		"no effort option":     {effortCaps(true, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), true},
 		"effort not listed":    {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium"}}), true},
 		"effort listed":        {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "high"}}), false},
@@ -171,15 +176,16 @@ func TestAStageRefusedForItsEffortStartsOnTheAgentsDefault(t *testing.T) {
 	if got := review.Stages[1]; got.EffortNotOffered != "" || len(r.starter.asked()) != 3 {
 		t.Fatalf("review stage: %+v", got)
 	}
-	// Sent back, the code stage is done again on the agent's default effort, and still says why.
+	// Sent back, the code stage asks for its effort again, so a machine that now offers it gets it; this one still
+	// does not, so it is dropped again with exactly one more start.
 	if _, err = r.s.SendPipelineBack(r.p.UserID, created.ID, "a", "code", "The export misses a header row."); err != nil {
 		t.Fatal(err)
 	}
 	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
 		return p.Stage == 0 && p.State == "following" && p.Stages[0].SessionID != "" && p.Stages[0].SessionID != stage.SessionID
 	})
-	if asked := r.starter.asked(); len(asked) != 4 || asked[3].Effort != "" || again.Stages[0].EffortNotOffered != "high" || again.Stages[0].Effort != "" {
-		t.Fatalf("sent back: %+v %+v", asked[len(asked)-1], again.Stages[0])
+	if asked := r.starter.asked(); len(asked) != 5 || asked[3].Effort != "high" || asked[4].Effort != "" || asked[4].RequestID == asked[3].RequestID || again.Stages[0].EffortNotOffered != "high" || again.Stages[0].Effort != "" {
+		t.Fatalf("sent back: %+v %+v", asked[3:], again.Stages[0])
 	}
 }
 
@@ -220,16 +226,33 @@ func TestAStageRefusedAgainWithoutItsEffortStops(t *testing.T) {
 			if stage := piece.Stages[0]; stage.Effort != "" || stage.EffortNotOffered != "high" || stage.RequestID != r.starter.asked()[1].RequestID {
 				t.Fatalf("stage: %+v", stage)
 			}
-			// Tried again, the stage starts on the agent's default effort.
+			// Tried again, the stage asks for its effort again: the machine may
+			// have been updated. "wrong model": it now takes the effort, and the
+			// record goes. "effort again": still refused, so it is dropped again
+			// with exactly one more start.
+			updated := name == "wrong model"
 			r.starter.mu.Lock()
 			refusing = false
+			r.starter.refusal = func(_ int, in OutcomeLaunch) error {
+				if in.Effort != "" && !updated {
+					return effortRefusal
+				}
+				return nil
+			}
 			r.starter.mu.Unlock()
 			if _, err = r.s.RetryPipeline(r.p.UserID, created.ID, "a", mustOutcome(t, r, created.ID).Revision); err != nil {
 				t.Fatal(err)
 			}
 			stage := r.checked(t, created.ID, 0)
-			if asked := r.starter.asked(); len(asked) != 3 || asked[2].Effort != "" || stage.ChoiceCheck != "applied" || stage.ChoiceNote != highNotOffered {
-				t.Fatalf("tried again: %+v %+v", asked, stage)
+			asked := r.starter.asked()
+			if updated {
+				if len(asked) != 3 || asked[2].Effort != "high" || stage.Effort != "high" || stage.EffortNotOffered != "" || stage.ChoiceCheck != "applied" || stage.ChoiceNote != "" {
+					t.Fatalf("tried again on an updated machine: %+v %+v", asked[2:], stage)
+				}
+				return
+			}
+			if len(asked) != 4 || asked[2].Effort != "high" || asked[3].Effort != "" || asked[3].RequestID == asked[2].RequestID || stage.Effort != "" || stage.EffortNotOffered != "high" || stage.ChoiceNote != highNotOffered {
+				t.Fatalf("tried again: %+v %+v", asked[2:], stage)
 			}
 		})
 	}
@@ -250,25 +273,6 @@ func TestAStageWithNoEffortIsNotAskedForTwice(t *testing.T) {
 	piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
 	time.Sleep(50 * time.Millisecond)
 	if asked := r.starter.asked(); len(asked) != 1 || piece.Stages[0].EffortNotOffered != "" || !strings.Contains(piece.Note, "did not confirm the chosen effort") {
-		t.Fatalf("launches %+v pipeline %+v", asked, piece)
-	}
-}
-
-// A refusal for any other reason is not taken for an effort the agent does
-// not offer: the stage stops as before, after one start.
-func TestAStageRefusedForAnotherReasonIsNotAskedForAgain(t *testing.T) {
-	r := outcomeFixture(t)
-	r.starter.refusal = func(int, OutcomeLaunch) error {
-		return errors.New("The agent did not confirm the chosen effort for this model.")
-	}
-	r.s.StartGoalSupervisor()
-	created, err := r.s.CreateOutcome(r.p.UserID, effortInput(r))
-	if err != nil {
-		t.Fatal(err)
-	}
-	piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
-	time.Sleep(50 * time.Millisecond)
-	if asked := r.starter.asked(); len(asked) != 1 || piece.Stages[0].Effort != "high" || piece.Stages[0].EffortNotOffered != "" {
 		t.Fatalf("launches %+v pipeline %+v", asked, piece)
 	}
 }
@@ -346,6 +350,111 @@ func TestBalancingTreatsADroppedEffortAsTheOneAskedFor(t *testing.T) {
 	if !changed || moved.Model != "other/coder" || moved.First == nil || moved.First.Effort != "high" || moved.EffortNotOffered != "" {
 		t.Fatalf("moved to the backup: %v %+v", changed, moved)
 	}
+	// Already on its backup, whose effort was dropped, with the plan figures
+	// moved on since: the sentence about them is no reason to ask for the
+	// backup's effort, and be refused it, again.
+	onBackup := store.GafferOutcomeStage{Kind: "code", Tool: "opencode", Model: "other/coder", EffortNotOffered: "low", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "other/coder", Effort: "low"},
+		First: &store.GafferStageAgent{Tool: "opencode", Model: "cheap/coder", Effort: "high"}, Balanced: "OpenCode (cheap/coder)’s plan had 15% left, so this stage runs on OpenCode (other/coder), which had 85% left."}
+	if again, changed := r.s.balanceStage(o, onBackup); changed {
+		t.Fatalf("a stage on its backup was changed for its plan figures alone: %+v", again)
+	}
+}
+
+// (M10) A machine that says nothing either way keeps the effort: nothing is
+// stored for it, it has no chats, it does not list the agent as a chat, it
+// lists no agents, or its reet takes no start options at all.
+func TestAnEffortIsKeptWhenTheMachineDoesNotSay(t *testing.T) {
+	thought := terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low"}}
+	r := outcomeFixture(t)
+	if r.s.effortNotReported(r.p.UserID, strings.Repeat("9", 48), "opencode", "high") {
+		t.Error("a machine with nothing stored")
+	}
+	if r.s.effortNotReported(r.p.UserID, r.project.Host, "opencode", "") {
+		t.Error("no effort asked for")
+	}
+	noChats := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready}
+	noAgents := effortCaps(true)
+	noAgents.ACPAgents = nil
+	for name, c := range map[string]struct {
+		caps terminalproto.Capabilities
+		tool string
+	}{
+		"no chats":          {noChats, "opencode"},
+		"agent not a chat":  {effortCaps(true, thought), "claude"},
+		"no agent list":     {noAgents, "opencode"},
+		"no start options":  {effortCaps(false, thought), "opencode"},
+		"options not given": {effortCaps(true), "opencode"},
+	} {
+		r.reconnect(t, c.caps)
+		if r.s.effortNotReported(r.p.UserID, r.project.Host, c.tool, "high") {
+			t.Errorf("%s: the effort was dropped", name)
+		}
+	}
+	r.reconnect(t, effortCaps(true, thought))
+	if !r.s.effortNotReported(r.p.UserID, r.project.Host, "opencode", "high") {
+		t.Error("a listed thought level without this one did not drop it")
+	}
+}
+
+// (M4) A stage whose effort was already dropped can be answered with the
+// refusal recorded for its old request. It is asked for once more on a request
+// of its own, and starts.
+func TestAStageWithADroppedEffortRefusedOnItsOldRequestStartsOnANewOne(t *testing.T) {
+	r := outcomeFixture(t)
+	r.reconnect(t, effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low"}}))
+	r.starter.refusal = func(n int, _ OutcomeLaunch) error {
+		if n == 0 {
+			return effortRefusal
+		}
+		return nil
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, effortInput(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := r.checked(t, created.ID, 0)
+	asked := r.starter.asked()
+	if len(asked) != 2 || asked[0].Effort != "" || asked[1].Effort != "" || asked[0].RequestID == asked[1].RequestID || stage.RequestID != asked[1].RequestID || stage.EffortNotOffered != "high" {
+		t.Fatalf("launches %+v stage %+v", asked, stage)
+	}
+}
+
+// (M10) The start without the effort can go unanswered in time. Its request
+// is then the one kept as unsure, and trying again takes up the session it
+// started instead of starting another.
+func TestALateAnswerToTheStartWithoutTheEffortIsTakenUp(t *testing.T) {
+	wait := outcomeStartWait
+	outcomeStartWait = 150 * time.Millisecond
+	t.Cleanup(func() { outcomeStartWait = wait })
+	r := outcomeFixture(t)
+	r.starter.late = "Export API · code"
+	r.starter.refusal = func(_ int, in OutcomeLaunch) error {
+		if in.Effort != "" {
+			return effortRefusal
+		}
+		return nil
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, effortInput(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	asked := r.starter.asked()
+	if len(asked) != 2 || failed.UnsureRequest != asked[1].RequestID || r.starter.sessions() != 1 {
+		t.Fatalf("after the late answer: %+v %+v", asked, failed)
+	}
+	o := r.settle(t, created.ID)
+	outcomeStartWait = wait
+	if _, err = r.s.RetryPipeline(r.p.UserID, created.ID, "a", o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	asked = r.starter.asked()
+	if r.starter.sessions() != 1 || len(asked) != 3 || asked[2].RequestID != asked[1].RequestID || again.UnsureRequest != "" || again.Stages[0].EffortNotOffered != "high" {
+		t.Fatalf("tried again: %d sessions, %+v %+v", r.starter.sessions(), asked, again)
+	}
 }
 
 func TestStageChoiceCheckSaysWhenTheEffortWasNotOffered(t *testing.T) {
@@ -359,7 +468,7 @@ func TestStageChoiceCheckSaysWhenTheEffortWasNotOffered(t *testing.T) {
 	if check, note := stageChoiceCheck(stage, SessionChoice{Tool: "claude", Model: "cheap/coder"}); check != "mismatch" || !strings.HasSuffix(note, highNotOffered) || !strings.Contains(note, "agent opencode") {
 		t.Fatalf("another agent: %s %q", check, note)
 	}
-	if got := effortNotOfferedNote("claude", "max"); got != "You chose the effort max; Claude Code does not offer it for this model here, so the session is on the agent's default effort." {
+	if got := effortNotOfferedNote("claude", "max"); got != "You chose the effort max; Claude Code does not offer it for this model here, so the session was started on the agent's default effort." {
 		t.Fatal(got)
 	}
 }

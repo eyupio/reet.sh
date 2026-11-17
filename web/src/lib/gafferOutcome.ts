@@ -397,8 +397,9 @@ export function stageChoice(stage: ChosenStage | undefined): StageChoice | null 
   const on = [stage.appliedModel || 'model not reported', stage.appliedEffort ? `${stage.appliedEffort} effort` : ''].filter(Boolean).join(' · ')
   // The effort chosen was not offered by the agent, so the stage started on the agent's default: that is as asked, and says why.
   if (stage.effortNotOffered && !stage.effort) {
-    const why = stage.choiceNote || `You chose the effort ${stage.effortNotOffered}; the agent does not offer it for this model here, so the session is on the agent's default effort.`
-    return { tone: 'good', label: 'Confirmed', text: `${why} The session reports ${on}.` }
+    const why = stage.choiceNote || `You chose the effort ${stage.effortNotOffered}; the agent does not offer it for this model here, so the session was started on the agent's default effort.`
+    const reported = [stage.appliedModel, stage.appliedEffort ? `${stage.appliedEffort} effort` : ''].filter(Boolean).join(' · ')
+    return { tone: 'good', label: 'Confirmed', text: [why, reported && `The session reports ${reported}.`, !stage.model && 'The model was left to the agent.'].filter(Boolean).join(' ') }
   }
   // A model or effort left to the agent has nothing to be compared with, so what it turned out to be is the news.
   const left = [!stage.model && 'model', !stage.effort && stage.appliedEffort && 'effort'].filter(Boolean).join(' and ')

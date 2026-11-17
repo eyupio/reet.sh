@@ -53,8 +53,10 @@ func TestOutcomeStartSaysWhenTheAgentDidNotConfirmTheEffort(t *testing.T) {
 	f.mu.Lock()
 	f.reply = func(op terminalproto.Create) terminalproto.Body {
 		switch {
-		case op.Effort != "":
+		case op.Effort != "" || op.Model == "replayed/model":
 			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: terminalproto.ACPEffortUnconfirmedDetail}
+		case op.Model == "shortened/model":
+			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm the chosen effort for this model."}
 		case op.Model == "wrong/model":
 			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
 		}
@@ -84,6 +86,23 @@ func TestOutcomeStartSaysWhenTheAgentDidNotConfirmTheEffort(t *testing.T) {
 	wrong.RequestID, wrong.Model = terminalbroker.ID(), "wrong/model"
 	if _, _, err = starter.StartOutcomeSession(t.Context(), f.uid, wrong); err == nil || errors.Is(err, gaffer.ErrEffortNotOffered) || !strings.Contains(err.Error(), "chosen model") {
 		t.Fatalf("model refusal: %v", err)
+	}
+	// The same refusal for a launch that carried no effort, as a refusal
+	// recorded for an earlier request is answered again, is still that refusal.
+	replayed := again
+	replayed.RequestID, replayed.Model = terminalbroker.ID(), "replayed/model"
+	if _, _, err = starter.StartOutcomeSession(t.Context(), f.uid, replayed); !errors.Is(err, gaffer.ErrEffortNotOffered) {
+		t.Fatalf("effort refusal without an effort: %v", err)
+	}
+	// Any other sentence under the same code is an ordinary refusal: the
+	// Factory stops the stage on it and does not ask again. (This is where a
+	// refusal for another reason is told apart; the Factory sees only the
+	// typed error.)
+	shortened := launch
+	shortened.RequestID, shortened.Model = terminalbroker.ID(), "shortened/model"
+	shortened.Effort = ""
+	if _, _, err = starter.StartOutcomeSession(t.Context(), f.uid, shortened); err == nil || errors.Is(err, gaffer.ErrEffortNotOffered) {
+		t.Fatalf("another sentence: %v", err)
 	}
 }
 

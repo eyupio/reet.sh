@@ -131,7 +131,10 @@ func (s *Service) balanceStage(o store.GafferOutcome, stage store.GafferOutcomeS
 			}
 		}
 	}
-	changed := out.Tool != stage.Tool || out.Model != stage.Model || out.Effort != asked || out.Provider != stage.Provider || out.Balanced != stage.Balanced || (out.First == nil) != (stage.First == nil)
+	// Only what the launch is made of decides: the sentence in Balanced holds
+	// plan figures that move between starts, and a stage already on its backup
+	// is not rewritten, its dropped effort asked for again, for those alone.
+	changed := out.Tool != stage.Tool || out.Model != stage.Model || out.Effort != asked || out.Provider != stage.Provider || (out.First == nil) != (stage.First == nil)
 	if changed {
 		// The record of a dropped effort was made for the agent the stage is
 		// leaving; the one it moves to is asked for its own effort afresh.

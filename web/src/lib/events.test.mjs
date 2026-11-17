@@ -113,7 +113,8 @@ test('YOLO approvals read as one counted line per turn, and Gaffer\'s own action
   assert.equal(eventLabel(event('gaffer-goal-needs-you', { stage: 'review', reason: 'Gaffer needs your decision. Read its latest review.' })), 'A goal needs you (review stage): Gaffer needs your decision. Read its latest review.')
   assert.equal(eventLabel(event('gaffer-goal-held', { stage: 'code' })), 'Gaffer is waiting at the code stage while the agent waits for your answer')
   assert.equal(eventLabel(event('gaffer-pipeline-waiting-merge', {})), 'A pipeline is ready and waits for your merge decision')
-  assert.equal(eventLabel(event('gaffer-stage-effort-not-offered', { stage: 'code', reason: "You chose the effort high; OpenCode does not offer it for this model here, so the session is on the agent's default effort." })), "A pipeline's code stage started on the agent's default effort: You chose the effort high; OpenCode does not offer it for this model here, so the session is on the agent's default effort.")
+  assert.equal(eventLabel(event('gaffer-stage-effort-not-offered', { stage: 'code', effort: 'high', reason: 'OpenCode does not offer the effort high for this model here, so the stage is started without it.' })), "A pipeline's code stage is started without the effort high: OpenCode does not offer the effort high for this model here, so the stage is started without it.")
+  assert.equal(eventLabel(event('gaffer-stage-effort-not-offered', { stage: 'code' })), "A pipeline's code stage is started without its chosen effort")
   for (const action of ['gaffer-stage-handed-over', 'gaffer-pipeline-stopped', 'gaffer-goal-released', 'gaffer-goal-limit', 'gaffer-stage-effort-not-offered']) assert.equal(eventCategory(event(action)), 'agents')
 })
 test('a profile edit that names a default reads as a default change line', () => {

@@ -61,7 +61,7 @@ func stageChoiceCheck(stage store.GafferOutcomeStage, got SessionChoice) (check,
 // effortNotOfferedNote says that the effort chosen for a stage was not
 // offered by its agent, so the session started on the agent's own default.
 func effortNotOfferedNote(tool, effort string) string {
-	return "You chose the effort " + effort + "; " + terminalproto.ToolName(tool) + " does not offer it for this model here, so the session is on the agent's default effort."
+	return "You chose the effort " + effort + "; " + terminalproto.ToolName(tool) + " does not offer it for this model here, so the session was started on the agent's default effort."
 }
 
 // checkStageChoice asks the machine what a stage's session is running and

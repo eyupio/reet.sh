@@ -160,10 +160,14 @@ test('a pipeline track shows what is done, in hand, waiting on the person or fai
   assert.equal(o.track({ state: 'following', stage: 1, stages: stages.map((s, i) => i === 1 ? { ...s, effort: 'high', choiceCheck: 'mismatch', choiceNote: 'x' } : s) })[1].choice.tone, 'bad')
   assert.equal(o.track({ state: 'following', stage: 1, stages })[1].choice, null)
   // An effort the agent does not offer was dropped before the start: the stage is confirmed, with the reason, and never shown as not applied.
-  const reason = "You chose the effort high; Claude Code does not offer it for this model here, so the session is on the agent's default effort."
+  const reason = "You chose the effort high; Claude Code does not offer it for this model here, so the session was started on the agent's default effort."
   const dropped = { tool: 'claude', model: 'opus', effortNotOffered: 'high', choiceCheck: 'applied', appliedModel: 'opus', appliedEffort: 'medium', choiceNote: reason }
   assert.deepEqual(o.stageChoice(dropped), { tone: 'good', label: 'Confirmed', text: `${reason} The session reports opus · medium effort.` })
-  assert.equal(o.stageChoice({ ...dropped, appliedEffort: undefined, choiceNote: undefined }).text, "You chose the effort high; the agent does not offer it for this model here, so the session is on the agent's default effort. The session reports opus.")
+  assert.equal(o.stageChoice({ ...dropped, appliedEffort: undefined, choiceNote: undefined }).text, "You chose the effort high; the agent does not offer it for this model here, so the session was started on the agent's default effort. The session reports opus.")
+  // A model left to the agent is still said to be; a model the session did not report is not named as one.
+  assert.equal(o.stageChoice({ ...dropped, model: undefined }).text, `${reason} The session reports opus · medium effort. The model was left to the agent.`)
+  assert.equal(o.stageChoice({ ...dropped, model: undefined, appliedModel: undefined }).text, `${reason} The session reports medium effort. The model was left to the agent.`)
+  assert.equal(o.stageChoice({ ...dropped, appliedModel: undefined, appliedEffort: undefined }).text, reason)
   const node = o.track({ state: 'following', stage: 1, stages: stages.map((s, i) => i === 1 ? { ...s, ...dropped } : s) })[1]
   assert.deepEqual([node.effort, node.effortNotOffered, node.choice.tone, node.choice.text.startsWith(reason)], ['', 'high', 'good', true])
   assert.equal(o.track({ state: 'following', stage: 1, stages })[1].effortNotOffered, '')

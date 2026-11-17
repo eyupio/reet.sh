@@ -608,8 +608,10 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 		}
 		// The agent did not confirm the chosen effort for the model: nothing
 		// runs and no prompt was sent, so the Factory may ask again without it.
+		// A launch that carries no effort gets this answer when its request is
+		// one already refused for an effort, so it is classed the same way.
 		var unavailable *terminalbroker.ACPUnavailableError
-		if in.Effort != "" && errors.As(err, &unavailable) && unavailable.EffortNotConfirmed() {
+		if errors.As(err, &unavailable) && unavailable.EffortNotConfirmed() {
 			return "", "", gaffer.EffortNotOffered(message)
 		}
 		return "", "", errors.New(message)

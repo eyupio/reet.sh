@@ -1241,6 +1241,9 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
+	// droppedEffort is whether the stage in hand starts without an effort its
+	// agent was found not to offer.
+	droppedEffort := false
 	if staged {
 		stage := item.Stages[item.Stage]
 		launch.RequestID, launch.Tool, launch.Model, launch.Provider, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stage.Provider, stagePrompt(o, item, item.Stage)
@@ -1289,8 +1292,9 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// An effort the machine's last report says the agent does not offer
 			// is not asked for: the stage starts on the agent's default effort.
 			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Kind, launch, "", "reported") {
-				launch.Effort = ""
+				launch.Effort, stage.EffortNotOffered = "", launch.Effort
 			}
+			droppedEffort = launch.Effort == "" && stage.EffortNotOffered != ""
 		}
 	}
 	if item.WorkDir != "" {
@@ -1362,8 +1366,10 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// of its own: the refused one stays refused on the machine, and is
 			// replaced on the stage before it is sent, so a restart sends the
 			// new request again and takes up what it started. A launch that
-			// asked for no effort is never asked for twice.
-			if err != nil && !unknown && staged && launch.Effort != "" && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
+			// asked for no effort is never asked for twice, unless its stage's
+			// effort was dropped already: the refusal is then the one recorded
+			// for its old request, answered again.
+			if err != nil && !unknown && staged && (launch.Effort != "" || droppedEffort) && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
 				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Kind, launch, fresh, "refused") {
 					launch.RequestID, launch.Effort = fresh, ""
 					started, workDir, err, unknown, late = ask(launch.RequestID)

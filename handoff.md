@@ -33,7 +33,9 @@ request, without it (`dropStageEffort`). Either way the stage keeps the effort c
 `Effort` empty, the activity log records `gaffer-stage-effort-not-offered`, the choice check reads **Confirmed** with
 the reason, MCP's stage carries `effort_not_offered` (`internal/api/gaffer_factory_mcp.go`), and the Factory page's
 stage facts say "agent's default effort (high is not offered)". A wrong model still stops the stage. Backups and
-balancing treat a dropped effort as the one asked for.
+balancing treat a dropped effort as the one asked for. Trying a pipeline again or sending it back asks for the dropped
+effort again, so a machine that offers it by then gets it; a machine whose reet takes no start options keeps its own
+refusal, which says to update it.
 
 **How the refusal is recognised.** The machine refuses an unconfirmed effort with the generic code
 `ACPUnavailable`, which also covers other refusals. The controller tells this one apart by the machine's exact

@@ -57,6 +57,12 @@ type GafferOutcomeStage struct {
 	AppliedAt     int64  `json:"appliedAt,omitempty"`
 	ChoiceCheck   string `json:"choiceCheck,omitempty"`
 	ChoiceNote    string `json:"choiceNote,omitempty"`
+	// EffortNotOffered is the effort that was chosen for the stage when its
+	// agent turned out not to offer it for the model on that machine: the
+	// machine's report said so, or it refused the start for it. The stage then
+	// started on the agent's default effort and Effort is empty, so a later
+	// start does not ask for it again. Empty when nothing was dropped.
+	EffortNotOffered string `json:"effortNotOffered,omitempty"`
 	// What the stage's working agent reported using, from its own figures: kept
 	// when the stage is handed over, and read live for the stage in hand.
 	// ContextUsed and ContextSize are the agent's context window, live only.

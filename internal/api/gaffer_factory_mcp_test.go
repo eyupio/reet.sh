@@ -130,3 +130,47 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 		t.Fatalf("defined Factory tools: %d", seen)
 	}
 }
+
+// A client reads, beside what a stage's session is on, the effort that was
+// chosen for it when its agent did not offer that effort for the model: the
+// stage started on the agent's default, its choice confirmed with the reason.
+func TestFactoryMCPSaysWhichEffortWasNotOffered(t *testing.T) {
+	t.Parallel()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seal, _ := sealed.NewSealer(strings.Repeat("gaffer-test-", 8), "test")
+	h := New(st, meta.Fetcher{}, "bootstrap", WithAuthMode(AuthAccounts), WithPublicURL("http://localhost:8080"), WithGafferProviders(seal))
+	srv := httptest.NewServer(h)
+	t.Cleanup(func() { srv.Close(); h.Close(); st.Close() })
+	owner := &http.Client{Jar: mustJar(t)}
+	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.test","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
+		t.Fatalf("setup %d", code)
+	}
+	user, ok, err := st.UserByEmail("owner@example.test")
+	if err != nil || !ok {
+		t.Fatalf("owner: %v %v", ok, err)
+	}
+	note := "You chose the effort high; OpenCode does not offer it for this model here, so the session was started on the agent's default effort."
+	o, err := st.CreateGafferOutcomeFor(user.ID, store.GafferOutcome{ID: strings.Repeat("b", 32), Objective: "Ship it.", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it.", RequestID: strings.Repeat("8", 32), Stages: []store.GafferOutcomeStage{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder", EffortNotOffered: "high", AppliedTool: "opencode", AppliedModel: "cheap/coder", AppliedEffort: "medium", ChoiceCheck: "applied", ChoiceNote: note, RequestID: strings.Repeat("8", 32)},
+		{Kind: "review", Tool: "opencode", Effort: "low", RequestID: strings.Repeat("9", 32)},
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := mcpAccess{User: user, Connection: store.MCPConnection{ID: 1, Name: "reader", Scope: "read"}}
+	out, err := h.s.executeMCPFactory(context.Background(), read, "reet_get_factory_outcome", map[string]any{"outcome_id": o.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages := out["outcome"].(map[string]any)["pipelines"].([]map[string]any)[0]["stages"].([]map[string]any)
+	code, review := stages[0], stages[1]
+	if code["effort_not_offered"] != "high" || code["effort"] != nil || code["choice"] != "applied" || code["applied_effort"] != "medium" || code["choice_note"] != note {
+		t.Fatalf("code stage: %v", code)
+	}
+	if _, ok := review["effort_not_offered"]; ok || review["effort"] != "low" {
+		t.Fatalf("review stage: %v", review)
+	}
+}

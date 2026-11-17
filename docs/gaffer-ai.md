@@ -226,11 +226,9 @@ among your sessions; an empty Gaffer chat
 offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
 nothing and makes no model request.
 
-Before the first outcome, the Factory offers a brief to fill in, example outcomes,
-and a job sheet explaining the path from outcome to plan, work and pull request.
-Choosing an example fills the brief without sending it. **Give Gaffer an outcome**
-carries the brief into the existing composer, where you choose the project and
-review the plan before work starts. Setup guidance stays visible if a machine,
+Before the first outcome, the Factory says **No pipelines yet.** and has one
+button, **Give Gaffer an outcome**. It opens the composer, where you describe the
+outcome, choose the project and review the plan before work starts. Setup guidance stays visible if a machine,
 project or Gaffer provider is missing.
 
 Once outcomes exist, one line under the title counts what is **waiting for
@@ -285,6 +283,22 @@ within ten minutes of the last. It only reports and proposes.
 outcome beside the main agent, or per crew tier, so heavy stages can run
 at high effort while light ones run at low. Every stage runs in a session of
 its own, so each stage's agent, model and effort are its own too.
+
+An effort the agent does not offer does not stop a stage. Machines report
+efforts per agent, not per model, so a level can still be one the chosen model
+lacks; the machine then refuses the start, and the controller starts the stage
+again at once on the agent's default effort. A level the machine's last report
+says the agent lacks is not asked for at all. Either way the stage says so:
+its facts read "agent's default effort (high is not offered)", its **Applied**
+line is **Confirmed** with the reason, and the activity log records
+`gaffer-stage-effort-not-offered`. A model the agent does not offer still
+stops the stage.
+
+**Try again** and **Send back** ask for the chosen effort again, so a machine
+that offers it by then gets it, except while an earlier start of that stage is
+still unanswered: that start was asked for without the effort and is taken up
+as it is. Gaffer's own decision to run a stage again, and the restart of a stage
+on its backup, ask for it again too.
 
 A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, and on the Sessions page,
@@ -467,6 +481,8 @@ finished stage that has been checked when you pick it:
 - **Not as chosen.** The session is on something else, and the line says what
   you chose and what it is on. Nothing is stopped: send the stage back, change
   it in the session's chat, or carry on. It is also in the activity log.
+  A stage started on the agent's default effort because the effort you chose
+  was not offered is not this: it reads **Confirmed**, and says why.
 - **Not checked.** The machine could not be asked, and the line says why. This
   is never shown as confirmed.
 
@@ -506,6 +522,7 @@ reason in the controller's own words:
 | --- | --- |
 | `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
 | `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
+| `gaffer-stage-effort-not-offered` | The effort chosen for a stage (`effort`) is not offered by its agent for the model on that machine, so the stage is started without it, on the agent's default effort. Written before that start is answered; `reason` says why ("OpenCode does not offer it for this model here."). Trying the pipeline again or sending it back asks for the effort again, except while an earlier start of that stage is still unanswered; Gaffer's own decision to run a stage again and the restart on a backup ask again too. |
 | `gaffer-stage-started` | The controller started the next stage, in a session of its own. |
 | `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
 | `gaffer-pipeline-done` | Every stage is done. |
@@ -660,10 +677,33 @@ under which a backup takes over, and whether the outcome dialog starts on
 **Ask me** or **Gaffer decides**. Every outcome starts from it and can still
 be changed when you approve one. The default for who decides only sets where
 the dialog starts: an outcome started any other way, such as over MCP, is
-never given to Gaffer by it. Model and effort are typed there, because no one
-machine is in view to list them; the outcome dialog checks them against the
-project's machine. A Cline tier or backup there has a field for the billing
-source it starts on; left empty, Cline uses its own.
+never given to Gaffer by it. No one machine is in view there, so its choices
+are those of every machine on your account:
+
+- **Agent** lists every agent, so a crew can be set before a machine connects;
+  one that none of your machines can run says "(not on your machines)".
+- **Model** lists every model your machines have listed for that agent, each
+  once, with your favourites, reet's suggestions, **Agent's default model** and
+  **Other…** for a name none of them has. A saved model none of your machines
+  lists stays chosen, with a line under it: if the agent does not offer it, the
+  stage stops when it starts.
+- **Effort** lists every level your machines report for that agent, low,
+  medium and high first, and **Default effort**. An agent a machine runs and
+  reports no level for (OpenCode and Cline, for example) shows **No effort
+  setting** and saves none. An agent none of your machines runs, or any agent
+  when you have no machines, offers **Default effort**, low, medium and high,
+  with the line under it. A saved level none of your machines offers stays,
+  marked "(not offered by your machines)", with a line under it: the stage then
+  starts on the agent's default effort.
+
+Changing a row's agent clears its model and effort. When your machines or their
+model lists cannot be read, the form says so in one line and still saves: a
+model can be typed with **Other…**, and an effort offers the default, low,
+medium and high. **Other…** on a saved model no list has puts that name in the
+box, to be corrected rather than typed again. A typed name no machine can check,
+because none has listed that agent's models, says so. The outcome dialog checks every choice again against the project's
+machine. A Cline tier or backup there has a field for the billing source it
+starts on; left empty, Cline uses its own.
 
 **Account → Gaffer AI → How Gaffer works** has two choices:
 

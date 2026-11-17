@@ -348,7 +348,7 @@
     const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
     // A stage's own empty source is Cline's own choice; the outcome's source is only the fallback when a piece has no stage.
     const source = stage ? stage.provider ?? '' : record.provider ?? ''
-    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${source ? ` · ${sourceLabel(source)}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}`
+    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${source ? ` · ${sourceLabel(source)}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}${stage?.effortNotOffered && !stage.effort ? ` · agent's default effort (${stage.effortNotOffered} is not offered)` : ''}`
   }
 
   // The list: one item per pipeline. A session holding a tool approval makes its pipeline an Approval item, answered
@@ -556,7 +556,7 @@
   {:else if error && !records.length}<div class="empty"><h2>The factory could not be read.</h2><p>Nothing is shown because nothing was read, not because there is nothing. The page tries again by itself every few seconds.</p><button class="btn" type="button" onclick={() => { loading = true; void load() }}>Try again now</button></div>
   {:else if scope && !listed.length}<div class="empty"><h2>Nothing in {scopeName} yet.</h2><p>{scope.kind === 'project' ? 'Give Gaffer an outcome and its pipelines for this project appear here.' : 'No outcome has been started in this group’s projects.'}</p>{#if scope.kind === 'project'}<button class="btn primary" type="button" onclick={() => openOutcome()}>Give Gaffer an outcome in {scopeName}</button>{/if}</div>
   {:else if !listed.length && shelved.length}<div class="empty"><h2>Nothing on the floor.</h2><p>Every outcome is archived. Show archived to look at them or bring one back.</p></div>
-  {:else if !records.length}<FactoryWelcome bind:this={welcome} onstart={objective => openOutcome(undefined, objective)} />
+  {:else if !records.length}<FactoryWelcome bind:this={welcome} onstart={() => openOutcome()} />
   {:else}
     <div class="board">
       {#if !detailOpen}<div class="list">

@@ -47,12 +47,12 @@ same one the project rail, the machine cards, Machines and Sessions use; a
 session to plan instead is added from the Backlog column's **+** or
 **Plan a session**.
 
-When **Continue working** has no sessions to show, Home offers **Factory**, an
-**agent session**, and a plain **terminal**, in that order. Give Gaffer an outcome
-to coordinate, work alongside an agent, or take direct control. Factory's outcome
-composer opens on Home; opening it starts no work and makes no model request.
-**Plan a session** sits below these choices and opens the existing planning
-composer on the board. Closing it returns keyboard focus to **Planning board**.
+When **Continue working** has no sessions to show, Home says **Nothing in
+flight.** and offers three buttons in one row, **Give Gaffer an outcome**,
+**Start a session** and **Open terminal**, with **Plan a session** under them.
+Each opens its usual dialog on Home; opening one starts no work and makes no model
+request. **Plan a session** opens the planning composer on the board, and closing
+it returns keyboard focus to **Planning board**.
 
 An account with nothing in flight or saved in the backlog opens this starting view unless you
 have already chosen a Home view in this browser. Existing backlog work, chosen

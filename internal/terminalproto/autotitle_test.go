@@ -98,6 +98,9 @@ func TestEveryLaunchToolHasADisplayName(t *testing.T) {
 			t.Errorf("tool %q has no display name in toolNames", id)
 		}
 	}
+	if ToolName("opencode") != "OpenCode" || ToolName("claude") != "Claude Code" || ToolName("unknown-agent") != "unknown-agent" {
+		t.Errorf("display names: %q %q %q", ToolName("opencode"), ToolName("claude"), ToolName("unknown-agent"))
+	}
 }
 
 // The references the upload API inserts are not named in the fixture by hand:

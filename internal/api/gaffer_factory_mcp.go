@@ -184,6 +184,12 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 					item["choice_note"] = stage.ChoiceNote
 				}
 			}
+			// The effort chosen for the stage, when its agent did not offer it
+			// for the model on that machine: the stage then started on the
+			// agent's default effort, and effort above is empty.
+			if stage.EffortNotOffered != "" {
+				item["effort_not_offered"] = stage.EffortNotOffered
+			}
 			if i == piece.Stage && stage.State != "done" {
 				item["in_hand"] = true
 				row["stage_in_hand"] = stage.Kind

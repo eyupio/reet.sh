@@ -35,6 +35,8 @@ export type ModelOptionsInput = {
   selectedModel?: string | null
   host?: string
   agentName?: string
+  /** The list is every machine on the account merged, not one machine's: it is named "your machines". */
+  everywhere?: boolean
 }
 export type LaunchDefaultSource = {
   defaultTool?: string
@@ -92,7 +94,7 @@ export function recentModels(sessions: readonly RecentSession[], tool: string, l
 
 export function modelOptions({
   tool, current = '', machine = null, favourites, recent, suggestions,
-  selectedModel = null, host = '', agentName = '',
+  selectedModel = null, host = '', agentName = '', everywhere = false,
 }: ModelOptionsInput): ModelOption[] {
   const out: ModelOption[] = []
   const seen = new Set<string>()
@@ -103,11 +105,11 @@ export function modelOptions({
   }
 
   const agent = agentName || agentNameOf(tool)
-  const machineName = host || 'this machine'
-  const missingDetail = `not in ${machineName}’s list`
+  const machineName = everywhere ? 'your machines' : host || 'this machine'
+  const missingDetail = everywhere ? 'not on your machines' : `not in ${machineName}’s list`
   add({
     value: '', label: 'Agent default',
-    detail: host ? `${host}’s ${agent} decides` : 'the agent decides',
+    detail: host && !everywhere ? `${host}’s ${agent} decides` : 'the agent decides',
     group: 'Agent default',
   })
 

@@ -80,6 +80,12 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 					// Nothing is running for this step, so it is asked for afresh.
 					if staged {
 						row.Stages[row.Stage].RequestID, row.Stages[row.Stage].State = fresh, "pending"
+						// Asked for afresh, a dropped effort is asked for again: the
+						// machine may offer it now. A launch still unanswered was
+						// asked without it, and is taken up as it is.
+						if stage := &row.Stages[row.Stage]; stage.EffortNotOffered != "" && row.UnsureRequest == "" {
+							stage.Effort, stage.EffortNotOffered = stage.EffortNotOffered, ""
+						}
 					}
 					if !staged || row.Stage == 0 {
 						row.RequestID = fresh
@@ -655,7 +661,7 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: askedEffort(row.Stages[j]), Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
 			row.Stage, row.MergeApproved = target, false
@@ -703,4 +709,14 @@ func (s *Service) TellPipelineAgent(ctx context.Context, uid int64, id, key, req
 		return s.WorkerMessage(ctx, uid, "gaffer", piece.ConversationID, piece.SessionID, request, "", text)
 	}
 	return store.WorkerMessage{}, invalid("tell", "That pipeline is not part of this outcome.")
+}
+
+// askedEffort is the effort a stage asks for when it is done again: the one
+// chosen, including one that was dropped because the agent did not offer it,
+// so a machine that offers it now gets it.
+func askedEffort(stage store.GafferOutcomeStage) string {
+	if stage.Effort == "" {
+		return stage.EffortNotOffered
+	}
+	return stage.Effort
 }

@@ -120,6 +120,12 @@ Once a stage's session is running, the controller asks the machine what it is on
 **Applied** line: **Confirmed**, **Not as chosen** (naming what differs) or **Not checked**. A finished stage keeps it.
 Nothing is stopped by a difference.
 
+An effort the stage's agent does not offer for its model does not stop the stage: it starts on the agent's default
+effort instead, its facts say "agent's default effort (high is not offered)" and its **Applied** line is **Confirmed**
+with the reason. A model the agent does not offer still stops it. **Try again** and **Send back** ask for the effort
+again, except while an earlier start of that stage is still unanswered; so do Gaffer's own decision to run a stage again
+and the restart of a stage on its backup.
+
 ## Your Factory crew
 
 The crew says which agent does a stage. It has three tiers, named for how demanding a stage is:
@@ -147,6 +153,20 @@ Each tier can have a **Backup**: a second agent, model and effort.
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer
 settings holds the same, and every later outcome starts from it, including one started over MCP.
+
+![Your Factory crew in Gaffer settings, with a backup on OpenCode and a saved model no machine lists](images/ui/crew-choices-1440-light.png)
+
+In Gaffer settings the choices are those of every machine on your account, since no one machine is in view:
+
+- **Agent**: every agent; one none of your machines can run says "(not on your machines)".
+- **Model**: every model your machines list for the agent, with **Agent's default model** and **Other…**. A saved
+  model none of them lists stays, with a line saying the stage stops if the agent does not offer it.
+- **Effort**: every level your machines report for the agent, and **Default effort**. An agent a machine runs that has
+  none, such as OpenCode, shows **No effort setting**. An agent none of your machines runs, or any agent when you have
+  no machines, offers **Default effort**, low, medium and high. A saved level none of them offers stays, marked "(not
+  offered by your machines)": the stage then starts on the agent's default effort.
+
+Changing a row's agent clears its model and effort. If your machines cannot be read the form says so and still saves.
 
 ## Decisions that wait for you
 

@@ -1,5 +1,25 @@
 # UI verification — 4 November 2026
 
+## Your Factory crew: choices from the machines (17 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (CREW-CHOICES-1) and the [changelog](../CHANGELOG.md); what a person
+sees is in [Gaffer AI](gaffer-ai.md#settings-for-the-whole-account) and [Factory](factory.md#your-factory-crew).
+
+The fixture in `web/tests/gaffer-settings.e2e.mjs`: two machines, Claude Code on both with different efforts, OpenCode
+on one with none, Codex and the others on neither. Heavy is saved on Claude Code with a model and an effort the
+machines offer, a backup on OpenCode, and a further backup on a model no machine lists at an effort none offers.
+
+Checked at 1440 in light and dark and at 390 in light and dark (emulated, a touch phone at 390): the agent, model and
+effort selects of a row are 44 px high and line up (within 1 px) at 1440, and stack at 390 at the row's full width;
+neither the page nor the crew scrolls sideways; the model note and the effort hint sit under their own select. Seen
+and fixed while looking: the model select had the outcome dialog's field colours, not this form's, so a row read as
+two kinds of field (it now takes the form's); the effort hint ran across the model's column under the model's note
+(it now sits under the effort select); and on a phone the tab bar and the Gaffer button covered the bottom of a
+capture of the crew (they are hidden for the capture only).
+
+![Your Factory crew at 1440, light](images/ui/crew-choices-1440-light.png)
+![Your Factory crew at 390, dark](images/ui/crew-choices-390-dark.png)
+
 ## Desks (16 November 2026)
 
 What changed is in [handoff.md](../handoff.md) (DESKS-1) and the [changelog](../CHANGELOG.md); what a person sees is

@@ -37,6 +37,8 @@ Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentSta
 // What each stage's session was read back to be on: the code stage ran as chosen (its model left to the agent), and the
 // review stage in hand is on a lower effort than the one chosen for it.
 Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTool:'codex',appliedModel:'gpt-coder',appliedEffort:'medium',appliedAt:now-90*60000})
+// The design stage's chosen effort was not offered by its agent for the model, so it ran on the agent's default.
+Object.assign(outcomes[0].sessions[0].stages[1],{effortNotOffered:'high',choiceCheck:'applied',appliedTool:'claude',appliedModel:'opus',appliedEffort:'medium',appliedAt:now-100*60000,choiceNote:"You chose the effort high; Claude Code does not offer it for this model here, so the session was started on the agent's default effort."})
 Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
 // A decision Gaffer took earlier, while it had this outcome's decisions.
 outcomes[0].decisions=[{at:now-50*60000,key:'a',title:'Export API',stage:'code',about:'question',choice:'move',why:'The endpoint and its tests are in the handover; nothing more belongs in this stage.',model:'gaffer-model'},
@@ -381,6 +383,12 @@ try {
       await expect(review).toContainText('high effort')
       await lineStages.nth(2).getByRole('button').click()
       await expect(line.getByRole('region',{name:'Code stage',exact:true})).toContainText('Confirmed. The session is on gpt-coder · medium effort. The model and effort were left to the agent.')
+      // A stage whose chosen effort its agent did not offer ran on the agent's default: confirmed, with the reason.
+      await lineStages.nth(1).getByRole('button').click()
+      const design=line.getByRole('region',{name:'Design stage',exact:true})
+      await expect(design).toContainText("Confirmed. You chose the effort high; Claude Code does not offer it for this model here, so the session was started on the agent's default effort. The session reports opus · medium effort.")
+      await expect(design).toContainText("Claude Code · opus · agent's default effort (high is not offered)")
+      await expect(design).not.toContainText('Not as chosen')
       await lineStages.nth(3).getByRole('button').click()
       // What is left of the plan of the agent doing the stage in hand: every window, marked when one is nearly spent.
       // (An agent with no plan to read shows no line: agentAccounts.test.mjs.)
@@ -426,6 +434,37 @@ try {
       // The fixture is shared with the passes that follow: the stage is one again for them.
       piece.stages.splice(at,2,whole);piece.stage--
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // When the machine's capabilities could not be read, Add pipelines sends every effort as chosen, the saved crew's
+  // backups included: the controller starts a stage on the agent's default effort by itself when it is not offered, so
+  // nothing is stripped on a guess.
+  {
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
+    const oe='e'.repeat(32),lone={...structuredClone(outcomes[0]),revision:9,report:{text:'Nothing covers the changelog.',at:now,model:'gaffer-model',inputTokens:1,outputTokens:1,usageReported:true,proposals:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',why:'No pipeline covers it.',stages:['code','pr']}]}}
+    lone.sessions.length=3
+    const crewWithEfforts={...savedCrew,crew:{heavy:{},standard:{},light:{tool:'claude',effort:'high',backup:{tool:'claude',model:'model-backup',effort:'high'}},updatedAt:now}}
+    const routes={...routesFor(box),'/api/v2/gaffer/crew':crewWithEfforts,'/api/v2/gaffer/outcomes':{outcomes:[lone]},
+      '/api/v2/terminal/machines':{status:503,json:{error:'The machines could not be read.'}},
+      [`/api/v2/gaffer/outcomes/${oe}/sessions`]:request=>{box.added.push(request.postDataJSON());lone.revision++;lone.report.proposals=[];return lone}}
+    const w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes})
+    watch(w,box)
+    try {
+      const page=w.page
+      await page.goto(base+'/factory')
+      const detail=page.getByRole('region',{name:'Export button',exact:true})
+      await expect(detail.getByRole('heading',{name:'Export button',level:2,exact:true})).toBeVisible()
+      const report=detail.locator('details.row').filter({has:page.locator('summary .label').getByText('Gaffer’s report',{exact:true})})
+      if(await report.getAttribute('open')===null)await report.locator('summary').click()
+      await report.getByRole('button',{name:'Add 1 pipeline',exact:true}).click()
+      const add=page.getByRole('dialog',{name:'Add “Changelog entry”?',exact:true})
+      // Nothing is known of the machine, so the start levels are offered rather than none.
+      const effort=add.getByRole('combobox',{name:'Effort for Changelog entry',exact:true})
+      await expect(effort).toBeEnabled()
+      await effort.selectOption('high')
+      await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
+      expect(box.added).toEqual([{revision:9,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',stages:[{kind:'code',tool:'claude',model:'',effort:'high',tier:'standard'},{kind:'pr',tool:'claude',model:'',effort:'high',tier:'light',backup:{tool:'claude',model:'model-backup',effort:'high'}}]}]}])
     } finally { await w.context.close() }
   }
   // A finished outcome's pipelines sit in Finished or stopped, and the outcome can be archived (kept, hidden, restorable) or deleted (after a confirmation); the account's default only picks which comes first.
@@ -504,7 +543,7 @@ try {
       await page.getByRole('dialog',{name:'Delete “Tidy the importer logs.”?',exact:true}).getByRole('button',{name:'Delete outcome',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Deleted'})).toBeVisible()
       expect(box.deleted).toBe('?revision=5')
-      await expect(page.getByRole('heading',{name:'Put Gaffer on the job.',exact:true})).toBeVisible()
+      await expect(page.getByRole('heading',{name:'No pipelines yet.',exact:true})).toBeVisible()
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
@@ -522,15 +561,48 @@ try {
       await expect(setup.getByRole('link',{name:'Add a project on Home',exact:true})).toHaveAttribute('href','/')
       await expect(setup.getByRole('link',{name:'Open Gaffer settings',exact:true})).toHaveAttribute('href','/account/gaffer')
       await expect(setup).toContainText('switched on by default')
-      await expect(page.getByRole('heading',{name:'Put Gaffer on the job.',exact:true})).toBeVisible()
+      await expect(page.getByRole('heading',{name:'No pipelines yet.',exact:true})).toBeVisible()
       await expect(page.locator('.counts')).toHaveCount(0)
+      expect(box.writes).toEqual([]);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // With no pipelines yet the page is one line and the button, at every width: no starter form, no job sheet. The button
+  // opens the outcome dialog, and closing it puts the focus back on the button.
+  for (const [width,height] of [[390,844],[834,1112],[1280,900]]) {
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
+    const w=await openWorkspace(browser,{width,height,touch:width<1100,routes:{'/api/v2/gaffer/outcomes':{outcomes:[]}}})
+    watch(w,box)
+    try {
+      const page=w.page
+      await page.goto(base+'/factory')
+      const empty=page.getByRole('region',{name:'No pipelines yet.',exact:true})
+      await expect(empty).toBeVisible()
+      await expect(empty.getByRole('button')).toHaveCount(1)
+      await expect(empty.getByRole('textbox')).toHaveCount(0)
+      await expect(empty.getByRole('listitem')).toHaveCount(0)
+      await expect(page.getByRole('main').getByRole('button',{name:'Give Gaffer an outcome',exact:true})).toHaveCount(1)
+      const start=empty.getByRole('button',{name:'Give Gaffer an outcome',exact:true})
+      const shape=await page.evaluate(()=>{const e=document.querySelector('.welcome').getBoundingClientRect(),b=document.querySelector('.welcome .btn').getBoundingClientRect();return {height:e.height,button:b.height,left:e.left,right:e.right,scroll:document.documentElement.scrollWidth,inner:innerWidth}})
+      expect(shape.height).toBeLessThanOrEqual(200)
+      expect(shape.button).toBeGreaterThanOrEqual(44)
+      expect(shape.scroll).toBeLessThanOrEqual(shape.inner)
+      if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/factory-empty-${width}.png`})
+      await start.click()
+      const dialog=page.getByRole('dialog',{name:'Give Gaffer an outcome'})
+      await expect(dialog).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+      await expect(start).toBeFocused()
       expect(box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[],crews:[]}
-    const w=await openWorkspace(browser,{width:1280,height:1000,routes:{...routesFor(box),'/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crews.push(request.postDataJSON());return {crew:{...box.crews.at(-1),updatedAt:now},saved:true,tiers:[],defaults:{}}}return {crew:{light:{},standard:{},heavy:{}},saved:false,tiers:[],defaults:{}}}}})
+    // The crew's models are what the controller kept of the machine's lists; its efforts are what the machine reports.
+    const kept=ids=>({machines:[{agentId:'a1',host:'workshop',state:'listed',models:ids.map(id=>({id,provider:''})),more:false,source:'list',version:'1',fetchedAt:now,checkedAt:now,reason:'',sentence:''}]})
+    const lists={claude:kept(['model-strong']),codex:kept(['model-backup'])}
+    const w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:{...routesFor(box),'/api/v2/models':request=>lists[new URL(request.url()).searchParams.get('tool')]??{machines:[]},'/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crews.push(request.postDataJSON());return {crew:{...box.crews.at(-1),updatedAt:now},saved:true,tiers:[],defaults:{}}}return {crew:{light:{},standard:{},heavy:{}},saved:false,tiers:[],defaults:{}}}}})
     try {
       const page=w.page
       await page.goto(base+'/account/gaffer')
@@ -546,10 +618,10 @@ try {
       await expect(heavy.getByRole('combobox',{name:'Heavy agent',exact:true})).toHaveValue('')
       await expect(heavy.getByRole('textbox')).toHaveCount(0);await expect(heavy).toContainText('Stages of this tier run on whichever agent the outcome is given.')
       await heavy.getByRole('combobox',{name:'Heavy agent',exact:true}).selectOption('claude')
-      await heavy.getByRole('textbox',{name:'Heavy model',exact:true}).fill('opus');await heavy.getByRole('textbox',{name:'Heavy effort',exact:true}).fill('high')
+      await heavy.getByRole('combobox',{name:'Heavy model',exact:true}).selectOption('model-strong');await heavy.getByRole('combobox',{name:'Heavy effort',exact:true}).selectOption('high')
       await expect(heavy).toContainText('Stages stay on the first choice.')
       await heavy.getByRole('combobox',{name:'Heavy backup agent',exact:true}).selectOption('codex')
-      await heavy.getByRole('textbox',{name:'Heavy backup model',exact:true}).fill('gpt-strong')
+      await heavy.getByRole('combobox',{name:'Heavy backup model',exact:true}).selectOption('model-backup')
       const below=crew.getByRole('group',{name:'When a backup takes over',exact:true}).getByRole('spinbutton')
       await expect(below).toHaveValue('20');await below.fill('3');await below.blur();await expect(below).toHaveValue('5');await below.fill('30')
       const who=crew.getByRole('radiogroup',{name:'Who decides by default',exact:true})
@@ -566,8 +638,8 @@ try {
       expect(await crew.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
       await crew.getByRole('button',{name:'Save crew',exact:true}).click()
-      await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
-      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
+      await expect(crew.getByRole('status').filter({hasText:'Saved.'})).toHaveText('Saved. New outcomes start from this crew.')
+      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'model-strong',effort:'high',backup:{tool:'codex',model:'model-backup',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

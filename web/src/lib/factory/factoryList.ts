@@ -25,7 +25,7 @@ export type ListRecord = {
   sessions: {
     key: string; title: string; state: string; sessionState?: string; sessionId?: string; conversationId?: string
     stage?: number; updatedAt: number; note?: string
-    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
+    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
   }[]
 }
 /** The parts of a goal overview the list reads. A `GafferGoalOverview` is one. */

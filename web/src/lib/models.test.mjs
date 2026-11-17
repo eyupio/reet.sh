@@ -160,6 +160,18 @@ test('model options keep the documented group order and deduplicate across group
   assert.deepEqual(options.filter(o => o.group === 'Current').map(o => o.value), ['current-model'])
 })
 
+test('model options for every machine at once name the account’s machines, not one', () => {
+  const merged = { ...machine, models: [{ id: 'acme/model-a', provider: 'acme' }, { id: 'local-model', provider: '' }] }
+  const options = modelOptions({
+    tool: 'opencode', machine: merged, favourites: [{ tool: 'opencode', model: 'fav-missing', agentDefault: false }],
+    recent: [], suggestions: ['suggest-a'], everywhere: true,
+  })
+  assert.equal(options[0].detail, 'the agent decides')
+  assert.deepEqual([...new Set(options.map(o => o.group))], ['Agent default', 'Favourites', 'On your machines · acme', 'On your machines', 'reet’s suggestions'])
+  assert.equal(options.find(o => o.value === 'fav-missing').detail, 'not on your machines')
+  assert.equal(options.find(o => o.value === 'suggest-a').detail, 'not on your machines')
+})
+
 test('a whole agent catalogue reaches the picker instead of the first sixteen', () => {
   const suggestions = Array.from({ length: 307 }, (_, index) => `cline-pass/model-${String(index).padStart(3, '0')}`)
   const options = modelOptions({ tool: 'cline', current: suggestions[0], suggestions, favourites: [], recent: [] })

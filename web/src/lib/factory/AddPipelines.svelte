@@ -9,7 +9,7 @@
   import { CREW_TIERS, DEFAULT_STAGES, STAGES, defaultTier, partsBlocker, stagePlan, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
   import StageParts from './StageParts.svelte'
   import type { MachineModels, ModelFavourite } from '../models'
-  import { reportedEfforts } from '../terminal/launchOptions'
+  import { START_EFFORTS, reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
   export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string; tier?: string; backup?: { tool: string; model?: string; effort?: string } }[] }
@@ -54,7 +54,13 @@
   const whoWords = (title: string, tier: keyof Crew) => { const one = crewOf(title)[tier]; return `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }
   const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))))
   const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
-  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
+  // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
+  // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
+  // starts a stage on the agent's default effort by itself when its effort is not offered.
+  const known = $derived(!!machine?.capabilities)
+  const efforts = (id: string) => known ? reportedEfforts(id, machine?.capabilities) : ['', ...START_EFFORTS]
+  // The levels a select shows: a chosen level is kept in view while nothing is known about it.
+  const shown = (id: string, chosen: string | undefined) => !known && chosen && !efforts(id).includes(chosen) ? [...efforts(id), chosen] : efforts(id)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
   const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
@@ -68,7 +74,7 @@
   // Once this machine's agents are known, a level one of them does not report goes back to the agent's default, so what
   // is shown is what will be sent. An unattended stage the agent refuses fails the whole launch.
   $effect(() => {
-    if (!capabilitiesRead) return
+    if (!capabilitiesRead || !known) return
     for (const item of proposals) {
       const top = main[item.title]
       if (top?.effort && !efforts(top.tool).includes(top.effort)) main[item.title] = { ...top, effort: '' }
@@ -93,7 +99,7 @@
   })
   function approve() {
     onconfirm(proposals.map(item => {
-      const plan = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), efforts)
+      const plan = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null)
       // Left as the outcome's own agent and model, the stages name no one and the controller fills them in.
       const untouched = plan.every(stage => stage.tool === record.tool && stage.model === (record.model ?? '') && !stage.effort)
       // A Cline stage keeps the outcome's billing source: a stage that names its agent is otherwise started on Cline's own.
@@ -115,7 +121,7 @@
           </select></label>
           <label>Model<GafferModelSelect label={`Model for ${item.title}`} tool={who.tool} value={who.model} machine={offered[who.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setMain(item.title, { ...choice(item.title), model: next })}/></label>
           <label>Effort<select aria-label={`Effort for ${item.title}`} value={who.effort} disabled={busy || efforts(who.tool).length < 2} onchange={event => setMain(item.title, { ...choice(item.title), effort: event.currentTarget.value })}>
-            {#each efforts(who.tool) as level (level)}<option value={level}>{effortLabel(who.tool, level)}</option>{/each}
+            {#each shown(who.tool, who.effort) as level (level)}<option value={level}>{effortLabel(who.tool, level)}</option>{/each}
           </select></label>
         </div>
         <details class="crew"><summary>{split(item.title) ? 'A crew does the stages' : 'One agent does every stage'} <span>Choose who does what</span></summary>
@@ -124,7 +130,7 @@
               <div class="crew-role"><strong>{part.label}</strong><span>{part.does}</span></div>
               <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
               <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.tier, { model: next })}/>
-              <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(role.tool) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
+              <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each shown(role.tool, role.effort) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
               {#if true}{@const chosen = spareChoice(item.title, part.tier)}{@const own = picked[spareKey(item.title, part.tier)]}
               <div class="crew-spare" role="group" aria-label={`${part.label} backup for ${item.title}`}>
                 <span class="spare-name">Backup</span>
@@ -135,7 +141,7 @@
                 </select>
                 {#if own && chosen && chosen !== 'crew'}
                   <GafferModelSelect label={`${part.label} backup model for ${item.title}`} tool={chosen} value={own.model} machine={offered[chosen] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => pickSpare(item.title, part.tier, { model: next })}/>
-                  <select aria-label={`${part.label} backup effort for ${item.title}`} value={own.effort} disabled={busy || efforts(chosen).length < 2} onchange={event => pickSpare(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(chosen) as level (level)}<option value={level}>{effortLabel(chosen, level)}</option>{/each}</select>
+                  <select aria-label={`${part.label} backup effort for ${item.title}`} value={own.effort} disabled={busy || efforts(chosen).length < 2} onchange={event => pickSpare(item.title, part.tier, { effort: event.currentTarget.value })}>{#each shown(chosen, own.effort) as level (level)}<option value={level}>{effortLabel(chosen, level)}</option>{/each}</select>
                 {/if}
               </div>{/if}
             </div>{/each}

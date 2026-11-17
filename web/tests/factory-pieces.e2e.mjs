@@ -579,7 +579,8 @@ try{
    await page.getByRole('button',{name:'More for this outcome',exact:true}).click()
    await page.getByRole('button',{name:'Archive',exact:true}).click()
    await expect(page.getByRole('region',{name:'Working',exact:true})).toBeVisible()
-   expect(new URL(page.url()).searchParams.get('pipeline')).toBeNull()
+   // Leaving the detail steps back in the history, which lands a moment after the list is drawn.
+   await expect(page).not.toHaveURL(/[?&]pipeline=/)
    await expect(page.getByRole('button',{name:'Details and other actions for Rail tidy',exact:true})).toBeFocused()
   }finally{await w.context.close()}
  })

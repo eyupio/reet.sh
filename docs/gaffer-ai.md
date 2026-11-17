@@ -226,11 +226,9 @@ among your sessions; an empty Gaffer chat
 offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
 nothing and makes no model request.
 
-Before the first outcome, the Factory offers a brief to fill in, example outcomes,
-and a job sheet explaining the path from outcome to plan, work and pull request.
-Choosing an example fills the brief without sending it. **Give Gaffer an outcome**
-carries the brief into the existing composer, where you choose the project and
-review the plan before work starts. Setup guidance stays visible if a machine,
+Before the first outcome, the Factory says **No pipelines yet.** and has one
+button, **Give Gaffer an outcome**. It opens the composer, where you describe the
+outcome, choose the project and review the plan before work starts. Setup guidance stays visible if a machine,
 project or Gaffer provider is missing.
 
 Once outcomes exist, one line under the title counts what is **waiting for

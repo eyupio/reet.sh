@@ -25,6 +25,11 @@ this file existed releases were described on their GitHub release pages.
   to set an effort at all is still refused, with the line telling you to update
   it. Every backup of a stage, not only the first, now drops an effort its
   machine does not report before it is started.
+- **Factory**: with no pipelines yet, the page is one line, **No pipelines
+  yet.**, and the **Give Gaffer an outcome** button, on every screen size. The
+  brief to fill in, the example outcomes and the job sheet are gone (on a phone
+  they had been squeezed into two thin columns side by side); the outcome
+  dialog asks for everything.
 - **Home**: Home now opens on **Waiting for you**, one list of everything that
   needs you, Factory pipelines and sessions together, the one that has waited
   longest at the top. Each entry says what it needs (a decision, an approval,

@@ -1,17 +1,17 @@
 <script lang="ts">
   import { projectRepo, projectSource } from '../githubRepo'
   import { onMount, tick } from 'svelte'
-  import { signalAttentionChanged } from '../attentionSignal'
+  import { onAttentionChanged } from '../attentionSignal'
   import { getProfile, UnauthorizedError } from '../api'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
-  import { GROUP_CHOICES, attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
+  import { GROUP_CHOICES, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
   import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
-  import { folderProjectList, listProjectGroups, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
+  import { folderProjectList, listProjectGroups, machineHealth, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
   import { FACTORY_SESSION_END_DEFAULT, factorySessionEndModeOf, type FactorySessionEndMode } from '../gafferOutcome'
@@ -21,10 +21,11 @@
   // Add a project. Read again every 15 seconds while in view. A read that fails keeps the last list and says so. Only the
   // Group by choice is stored (Home's key); the search and filters live on this page only. On a tablet or phone the projects
   // are the full project rail (the phone rail, moved here from Home): its menus, Select and the state words.
-  let { userId, onsignedout, onattention }: {
+  // The bell and the title count by the app's one rule (App reads it on this page as on every page but Home); this page
+  // reads its list again whenever something is answered or marked seen there.
+  let { userId, onsignedout }: {
     userId: number
     onsignedout: (e: unknown) => void
-    onattention?: (count: number, cards: NeedCard[], markSeen: (sessionId: string) => Promise<void>, answered: () => Promise<void>) => void
   } = $props()
 
   const POLL_MS = 15_000
@@ -107,16 +108,7 @@
   const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
   const cards = $derived(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines))
   const needing = $derived(new Set(cards.map(c => c.sessionId)))
-  async function markSeen(sessionId: string) {
-    try {
-      await markSessionSeen(sessionId)
-      signalAttentionChanged()
-      await load(true)
-    } catch { /* next read recovers */ }
-  }
-  $effect(() => {
-    onattention?.(attentionCount(cards), cards, markSeen, async () => { await load(true) })
-  })
+
   const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
   const agents = $derived(agentChoicesOf(sessions ?? []))
@@ -219,7 +211,8 @@
     document.addEventListener('visibilitychange', wake)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
     query.addEventListener('change', resized)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', wake); query.removeEventListener('change', resized); life.abort() }
+    const offAttention = onAttentionChanged(() => { void load(true) })
+    return () => { offAttention(); clearInterval(timer); document.removeEventListener('visibilitychange', wake); query.removeEventListener('change', resized); life.abort() }
   })
 </script>
 

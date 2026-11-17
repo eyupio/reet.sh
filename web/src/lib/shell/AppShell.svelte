@@ -9,7 +9,7 @@
   import MoreSheet from './MoreSheet.svelte'
   import TopTabs from './TopTabs.svelte'
   import type { JumpItem, Tab } from './tabs'
-  import type { NeedCard } from '../home'
+  import type { WaitingEntry } from '../home/homeWaiting'
 
   // The signed-in top bar and, on a phone, the bottom tab bar (spec: Information architecture and navigation, R13).
   // Every width keeps the primary tabs in the bar: the page's own left panel (Home's projects, the session rail) is
@@ -18,11 +18,11 @@
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account,
+    tabs, waiting = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account,
   }: {
     tabs: Tab[]
-    attention: number
-    needsCards?: NeedCard[]
+    /** What waits for the person: the bell lists it and its badge counts it. */
+    waiting?: WaitingEntry[]
     onseen?: (sessionId: string) => void | Promise<void>
     /** Called after an approval on a card was answered, so the lists are read again. */
     onanswered?: () => void | Promise<void>
@@ -142,7 +142,7 @@
     onclick={() => (searchOpen ? closeSearch() : void openSearch())}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
   </button>
-  {#if bell}<Bell count={attention} cards={needsCards} {onseen} {onanswered} />{/if}
+  {#if bell}<Bell entries={waiting} {onseen} {onanswered} />{/if}
   {#if compact}
     <button type="button" class="icon compact-more" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
       aria-label={moreCurrent ? 'More, current page inside' : 'More'} onclick={(event) => openMore(event.currentTarget, true)}>

@@ -3,29 +3,41 @@ import { inSection, sectionSummary, waited } from '../factory/factoryList'
 import type { FactoryItem } from '../factory/factoryList'
 import type { NeedCard } from '../home'
 
-export type WaitingEntry =
-  | { source: 'factory'; id: string; since: number; item: FactoryItem }
-  | { source: 'session'; id: string; since: number; card: NeedCard }
+/** A Gaffer goal that needs review on a session, as the list shows it: the session's title and place, and Gaffer's reason. */
+export type GoalNeed = { id: string; sessionId: string; title: string; where: string; href: string; reason: string; since: number }
 
-/** Pipelines waiting for the person and sessions needing them, oldest first. A finished session is not waiting, and a
- *  pipeline's own session shows once, as the pipeline. */
-export function homeWaiting(items: FactoryItem[], cards: NeedCard[]): WaitingEntry[] {
+export type WaitingEntry =
+  | { source: 'factory'; id: string; since: number; item: FactoryItem; approval?: NeedCard['approval'] }
+  | { source: 'session'; id: string; since: number; card: NeedCard }
+  | { source: 'gaffer'; id: string; since: number; goal: GoalNeed }
+
+/** Pipelines waiting for the person, sessions needing them and Gaffer's goals that need review, oldest first. A finished
+ *  session is not waiting. A session's card gives way to its pipeline's item only while that item waits and shows what
+ *  the card asks: an approval the item does not carry keeps the card. A goal shows only on a session that has no card
+ *  and no pipeline (a card already says the goal needs the person; a pipeline's goal is its item). */
+export function homeWaiting(items: FactoryItem[], cards: NeedCard[], goals: GoalNeed[] = []): WaitingEntry[] {
+  const waiting = inSection(items, 'waiting').filter(item => !item.archived)
+  const waitingBySession = new Map(waiting.filter(item => item.sessionId).map(item => [item.sessionId, item]))
+  const shownByItem = (card: NeedCard) => { const item = waitingBySession.get(card.sessionId); return !!item && !(card.approval && item.kind !== 'approval') }
   const pipelineSessions = new Set(items.map(item => item.sessionId).filter(Boolean))
+  const carded = new Set(cards.map(card => card.sessionId))
   const entries: WaitingEntry[] = [
-    ...inSection(items, 'waiting').filter(item => !item.archived).map((item): WaitingEntry => ({ source: 'factory', id: item.id, since: item.since, item })),
-    ...cards.filter(card => card.kind !== 'finished' && !pipelineSessions.has(card.sessionId)).map((card): WaitingEntry => ({ source: 'session', id: `session:${card.sessionId}`, since: card.at, card })),
+    ...waiting.map((item): WaitingEntry => ({ source: 'factory', id: item.id, since: item.since, item })),
+    ...cards.filter(card => card.kind !== 'finished' && !shownByItem(card)).map((card): WaitingEntry => ({ source: 'session', id: `session:${card.sessionId}`, since: card.at, card })),
+    ...goals.filter(goal => !carded.has(goal.sessionId) && !pipelineSessions.has(goal.sessionId)).map((goal): WaitingEntry => ({ source: 'gaffer', id: `gaffer:${goal.id}`, since: goal.since, goal })),
   ]
   return entries.sort((a, b) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }
 
-type Label = 'decision' | 'approval' | 'merge' | 'question' | 'stopped' | 'failed' | 'review'
-const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'stopped', 'failed', 'review']
+type Label = 'decision' | 'approval' | 'merge' | 'question' | 'stopped' | 'failed' | 'review' | 'gaffer'
+const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'stopped', 'failed', 'review', 'gaffer']
 const WORDS: Record<Label, [string, string]> = {
   decision: ['decision', 'decisions'], approval: ['approval', 'approvals'], merge: ['merge', 'merges'], question: ['question', 'questions'],
-  stopped: ['stopped', 'stopped'], failed: ['failed', 'failed'], review: ['to review', 'to review'],
+  stopped: ['stopped', 'stopped'], failed: ['failed', 'failed'], review: ['to review', 'to review'], gaffer: ['Gaffer goal', 'Gaffer goals'],
 }
 
 function labelOf(entry: WaitingEntry): Label {
+  if (entry.source === 'gaffer') return 'gaffer'
   if (entry.source === 'factory') {
     const kind = entry.item.kind
     return kind === 'approval' || kind === 'merge' || kind === 'stopped' || kind === 'failed' ? kind : 'decision'

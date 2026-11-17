@@ -10,7 +10,8 @@
   // one line of a list on a wide screen (chip, text, stages, buttons in columns that line up from row to row); a row
   // narrower than ROW_MIN of its own width is drawn as a card.
   // The page passes the hash-link `id` (and any other attributes) in `rest`.
-  let { item, layout, pipeline, selected = false, busy = false, permission, sessionId = '', usable, onchoose, ondetails, onanswered, ...rest }: {
+  // With `detailsHref`, Details is a link to that address (Home); without it, a button that calls `ondetails` (the Factory).
+  let { item, layout, pipeline, selected = false, busy = false, permission, sessionId = '', usable, onchoose, ondetails, detailsHref = '', onanswered, ...rest }: {
     item: FactoryItem
     layout: 'card' | 'row' | 'compact'
     pipeline: 'labelled' | 'circles' | 'dots'
@@ -21,6 +22,7 @@
     usable: (choice: NeedChoice) => boolean
     onchoose: (choice: NeedChoice) => void
     ondetails: () => void
+    detailsHref?: string
     onanswered?: () => void | Promise<void>
     [key: string]: unknown
   } = $props()
@@ -69,7 +71,8 @@
     <!-- Marked as the detail's bar marks it: a caption above the button. -->
     {#if advised}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render fill()}</span>{:else}{@render fill()}{/if}
   {/if}
-  <button type="button" class="btn" aria-label={detailsLabel} onclick={ondetails}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></button>
+  {#if detailsHref}<a class="btn" href={detailsHref} aria-label={detailsLabel}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></a>
+  {:else}<button type="button" class="btn" aria-label={detailsLabel} onclick={ondetails}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></button>{/if}
 {/snippet}
 {#snippet card(size: 'labelled' | 'circles' | 'dots')}
   <article class="item card" {...rest}>
@@ -140,6 +143,7 @@
   .why{color:var(--ink)}
   .buttons{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
   .buttons .btn{min-height:44px}
+  a.btn{display:inline-flex;align-items:center;text-decoration:none}
   .lead{display:grid;gap:2px;min-width:0}
   .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

@@ -71,7 +71,8 @@ try {
  // project on Home, chosen; a skill on its shelf card).
  if (run('jump')) {
   let seen = false
-  const session = {id:'s1',agentId:'a',projectId:'fp1',title:'Refactor the store layer',state:'ended',exitCode:0,attention:'finished',attentionAt:Date.now()-30000,changedSinceSeen:true,createdAt:Date.now(),updatedAt:Date.now()}
+  // A session that failed and has not been seen: it waits for the person (one that only finished would not).
+  const session = {id:'s1',agentId:'a',projectId:'fp1',title:'Refactor the store layer',state:'ended',exitCode:1,attention:'failed',attentionAt:Date.now()-30000,changedSinceSeen:true,createdAt:Date.now(),updatedAt:Date.now()}
   const project = {id:'fp1',host:'a',machine:'studio',dir:'/home/dev/store',name:'Store rewrite',isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}
   const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],terminalStatus:active,terminalMachines:[terminalMachine('a','studio',true)],
    routes:{'/api/v2/terminal/sessions':()=>({sessions:[{...session,changedSinceSeen:!seen}]}),'/api/v2/terminal/sessions/s1/seen':()=>{seen=true;return{seenAt:Date.now()}},'/api/v2/folder-projects':{projects:[project],savedWaiting:0}}})

@@ -9,7 +9,7 @@
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { hasPending } from '../attention'
-  import { announceWaiting, approvalOf, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession, type NeedCard } from '../home'
+  import { announceWaiting, fleetCards, handedProjects, reporting, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession } from '../home'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -23,9 +23,10 @@
   import StagePipeline from '../factory/StagePipeline.svelte'
   import ProjectPicker from '../factory/ProjectPicker.svelte'
   import PipelineChoices, { usable } from '../factory/PipelineChoices.svelte'
-  import { factoryItems, inSection, stageCaption, type FactoryItem } from '../factory/factoryList'
+  import { inSection, stageCaption, type FactoryItem } from '../factory/factoryList'
   import { readSections, writeSections } from '../factory/sectionMemory'
-  import { homeWaiting, waitingSummary, workingSummary, type WaitingEntry } from './homeWaiting'
+  import { waitingSummary, workingSummary, type WaitingEntry } from './homeWaiting'
+  import { whatWaits } from './whatWaits'
   import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
@@ -50,9 +51,8 @@
     /** The saved Project id an old /projects/<id> address named: its folder project is looked up and chosen. */
     legacyProject?: string
     onsignedout: (e: unknown) => void
-    /** How many things wait for the person (Factory items and sessions) and the session cards among them, for the bell
-     *  and document title. */
-    onattention?: (count: number, cards: NeedCard[], onseen: (sessionId: string) => Promise<void>, onanswered: () => Promise<void>) => void
+    /** What waits for the person (Factory items, sessions and Gaffer's goals), for the bell and the document title. */
+    onattention?: (entries: WaitingEntry[], onseen: (sessionId: string) => Promise<void>, onanswered: () => Promise<void>) => void
   } = $props()
 
   const POLL_MS = 15_000
@@ -118,27 +118,25 @@
   const running = $derived(projectRunning(sessions ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
-  // A Gaffer goal for a session that already has a card is that card's second reason.
-  const needs = $derived(foldGafferGoals(needsYou(sessions ?? [], now, owners, health ?? []), followups?.goals).cards)
-
-  // The Factory as Home sees it: every pipeline as one item, as the Factory page lists it. A session holding a tool
-  // approval makes its pipeline an Approval item, answered from the item itself.
+  // What waits for the person, by the one rule every page uses (whatWaits): Factory items, sessions and Gaffer's goals
+  // together, oldest first. The bell and the title count all of it; the page shows what is in the chosen project or group.
+  const waits = $derived(whatWaits(sessions ?? [], now, owners, health ?? [], factoryRecords, followups?.goals))
+  const needs = $derived(waits.cards)
+  const items = $derived(waits.items)
+  const allWaiting = $derived(waits.entries)
   const byConversation = $derived(new Map((followups?.goals ?? []).map(row => [row.goal.conversationId, row])))
-  const held = $derived(new Map((sessions ?? []).flatMap(s => s.pendingPermission?.permissionId ? [[s.id, s.pendingPermission] as const] : [])))
-  const approvalFor = (sessionId: string | undefined) => { const p = sessionId ? held.get(sessionId) : undefined; return p ? approvalOf(p) : undefined }
-  const items = $derived(factoryItems(factoryRecords, byConversation, new Set(held.keys())))
   const pairs = $derived(new Map<string, { record: Outcome; piece: GafferOutcomeSession }>(factoryRecords.flatMap(record => record.sessions.map(piece => [`${record.id}.${piece.key}`, { record, piece }] as const))))
-  // What waits for the person, Factory items and sessions together, oldest first. The bell and the title count all of it;
-  // the page shows what is in the chosen project or group.
-  const allWaiting = $derived(homeWaiting(items, needs))
   const sessionProject = $derived(new Map((sessions ?? []).map(s => [s.id, s.projectId ?? ''])))
-  const projectOf = (entry: WaitingEntry) => entry.source === 'factory' ? entry.item.projectId : sessionProject.get(entry.card.sessionId) ?? ''
+  const projectOf = (entry: WaitingEntry) => entry.source === 'factory' ? entry.item.projectId : sessionProject.get(entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId) ?? ''
   const inScope = (projectId: string) => scopedIds === undefined || scopedIds.includes(projectId)
   const waiting = $derived(allWaiting.filter(entry => inScope(projectOf(entry))))
   const working = $derived(inSection(items, 'working').filter(item => inScope(item.projectId)))
   // The list shows ten at first and ten more each time.
   const WAITING_PAGE = 10
   let waitingLimit = $state(WAITING_PAGE)
+  // A new project or group starts the list at its first ten again.
+  const scopeKey = $derived(scope ? `${scope.kind}:${scope.id}` : '')
+  $effect(() => { void scopeKey; waitingLimit = WAITING_PAGE })
   // What waits and works in each project, whatever the page is narrowed to, for the Projects button of a narrow screen.
   const projectCounts = $derived.by(() => {
     const counts = new Map<string, { waiting: number; working: number }>()
@@ -192,7 +190,7 @@
 
   const answered = async () => { await load(true) }
 
-  $effect(() => { onattention?.(allWaiting.length, allWaiting.flatMap(entry => entry.source === 'session' ? [entry.card] : []), markSeen, answered) })
+  $effect(() => { onattention?.(allWaiting, markSeen, answered) })
 
   // Polite live region for transitions into Waiting for you, throttled to at most once per session per minute.
   let waitingNotice = $state('')
@@ -529,10 +527,11 @@
 {#snippet waitingEntry(entry: WaitingEntry)}
   {#if entry.source === 'factory'}{@const pair = pairs.get(entry.id)}{#if pair}
     <WaitingItem item={entry.item} layout={narrow ? 'card' : 'row'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} {busy}
-      permission={approvalFor(pair.piece.sessionId)} sessionId={pair.piece.sessionId ?? ''} usable={choice => usable(choice, pair.piece)}
-      onchoose={choice => choices?.choose(choice, pair.record, pair.piece)} ondetails={() => location.assign(pipelineHref(entry.item))} onanswered={answered}/>
+      permission={entry.approval} sessionId={pair.piece.sessionId ?? ''} usable={choice => usable(choice, pair.piece)}
+      onchoose={choice => choices?.choose(choice, pair.record, pair.piece)} detailsHref={pipelineHref(entry.item)} ondetails={() => location.assign(pipelineHref(entry.item))} onanswered={answered}/>
   {/if}
-  {:else}<SessionWaitingItem card={entry.card} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>{/if}
+  {:else if entry.source === 'session'}<SessionWaitingItem card={entry.card} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>
+  {:else}<SessionWaitingItem goal={entry.goal} layout={narrow ? 'card' : 'row'}/>{/if}
 {/snippet}
 
 <div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>

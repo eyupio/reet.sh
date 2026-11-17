@@ -112,8 +112,9 @@ try{
    // The head says it in one line.
    await expect(page.locator('.workspace-heading')).toContainText('5 waiting for you · 1 pipeline working · 4 sessions open')
    // Details goes to the pipeline on the Factory page.
-   const details=entries(page).filter({hasText:'Export docs'}).getByRole('button',{name:'Details and other actions for Export docs'})
-   await expect(details).toBeVisible()
+   // Details is a real link to the pipeline on the Factory page.
+   const details=entries(page).filter({hasText:'Export docs'}).getByRole('link',{name:'Details and other actions for Export docs'})
+   await expect(details).toHaveAttribute('href',`/factory?pipeline=${oid}.c`)
    // Factory, working without you: closed the first time, naming the working pipeline; opened, it stays open after a reload.
    const working=head(page,'Factory, working without you')
    await expect(working).toHaveAttribute('aria-expanded','false')
@@ -178,7 +179,7 @@ try{
  for(const theme of ['light','dark']){
   const w=await open(1440,theme,withMore),page=w.page
   try{
-   const details=page.getByRole('button',{name:/^Details and other actions for /})
+   const details=page.getByRole('link',{name:/^Details and other actions for /})
    const answer=page.getByRole('link',{name:'Answer in chat',exact:true})
    await expect(answer).toBeVisible();await expect(details.first()).toBeVisible()
    const edges=[await right(details.first()),await right(answer)]
@@ -188,6 +189,15 @@ try{
     edges.push(await right(article.locator('.buttons .btn').last()))
    }
    for(const edge of edges)expect(Math.abs(edge-edges[0])).toBeLessThanOrEqual(1)
+   // The bell lists what it counts: every entry, the pipelines with a link to their detail.
+   await page.getByRole('button',{name:'Needs you: 7',exact:true}).click()
+   const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+   await expect(pop.locator('.item')).toHaveCount(7)
+   await expect(pop.getByRole('link',{name:'Open in the Factory',exact:true})).toHaveCount(3)
+   await expect(pop.locator('.item',{hasText:'Export docs'}).getByRole('link',{name:'Open in the Factory',exact:true})).toHaveAttribute('href',`/factory?pipeline=${oid}.c`)
+   await expect(pop.locator('.item',{hasText:'Stages when collapsed'}).getByRole('button',{name:'Allow once'})).toBeVisible()
+   await page.screenshot({path:`${shots}/home-bell-1440-${theme}.png`})
+   await page.keyboard.press('Escape')
    // Every row is as wide as the list; the chips and the stages each start at one left edge.
    const rows=await page.evaluate(()=>[...document.querySelectorAll('.waiting-list > li article')].map(a=>a.getBoundingClientRect().right))
    expect(rows.length).toBe(7)
@@ -214,6 +224,15 @@ try{
    expect(await noSideways(page)).toBe(true)
    expect(await answer.evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
    await page.screenshot({path:`${shots}/home-waiting-${width}.png`,fullPage:true})
+   if(width===390){
+    await page.getByRole('button',{name:'Needs you: 5',exact:true}).click()
+    const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+    await expect(pop.locator('.item')).toHaveCount(5)
+    await expect(pop.getByRole('link',{name:'Open in the Factory',exact:true})).toHaveCount(3)
+    expect(await noSideways(page)).toBe(true)
+    await page.screenshot({path:`${shots}/home-bell-390.png`})
+    await page.keyboard.press('Escape')
+   }
    // Closed, each header still says what is inside, on its own line on a phone.
    await head(page,'Waiting for you').click()
    await expect(head(page,'Waiting for you')).toHaveAttribute('aria-expanded','false')
@@ -233,5 +252,20 @@ try{
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
- console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, ok')
+ // A new project starts the list at its first ten again.
+ {
+  const many=f=>{for(let i=0;i<12;i++)f.box.sessions.push({agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now-3*3600000,exitCode:2,dir:'/work',id:`many-${i}`,title:`Lost run ${i}`,state:'exited',updatedAt:now-(30+i)*MIN,projectId:'p2',attention:'failed',attentionSource:'terminal',changedSinceSeen:true})}
+  const w=await open(834,'light',many),page=w.page
+  try{
+   await expect(entries(page)).toHaveCount(10)
+   await section(page,'Waiting for you').getByRole('button',{name:'Show 7 more',exact:true}).click()
+   await expect(entries(page)).toHaveCount(17)
+   await page.getByRole('button',{name:'Projects: all',exact:true}).click()
+   await page.getByRole('dialog',{name:'Projects'}).getByRole('button',{name:/^portal/}).click()
+   await expect(entries(page)).toHaveCount(10)
+   await expect(section(page,'Waiting for you').getByRole('button',{name:'Show 4 more',exact:true})).toBeVisible()
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, Details a link, the bell listing what it counts with links to the Factory, paging back to ten on a new project, ok')
 }finally{await browser.close()}

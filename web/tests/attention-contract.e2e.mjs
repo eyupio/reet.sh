@@ -220,5 +220,36 @@ try{
  expect(box.reads-stuckReads).toBeLessThanOrEqual(8)
  expect(w.errors).toEqual([])
  await w.context.close()
+ // One rule on every page, with a Factory decision as well as a failed session: Home, another page and the Sessions page
+ // all count 2, the title says (2), and the bell lists exactly what it counts, the pipeline with a link to its detail.
+ {
+  const oid='e'.repeat(32),cid='c'.repeat(32),pid='a'.repeat(32)
+  const pins={providerId:pid,providerRevision:1,model:'m',contextRevision:1,workerRevision:1}
+  const goal={...pins,id:'1'.repeat(32),conversationId:cid,sessionId:'factory-work-0001',revision:1,text:'x',state:'needs_user',note:'Gaffer brought a question back.',maxReviews:12,usedReviews:1,expiresAt:now+HOUR,createdAt:now-HOUR,updatedAt:now-20*MIN}
+  const outcome={id:oid,revision:1,objective:'Ship CSV export.',state:'settled',note:'',agentId:'a1',projectId:'',projectName:'',dir:'/work',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now-HOUR,updatedAt:now,sessions:[
+   {key:'a',title:'Export API',prompt:'p',state:'following',sessionState:'running',note:'',sessionId:'factory-work-0001',conversationId:cid,updatedAt:now,stage:0,stages:[{kind:'code',tool:'opencode',state:'running',sessionId:'factory-work-0001',conversationId:cid},{kind:'review',tool:'opencode',state:'pending'}]}]}
+  const routes={
+   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
+   '/api/v2/terminal/machines':{machines:[machine]},
+   '/api/v2/terminal/sessions':{sessions:[failed(),session('factory-work-0001','Export API · code',{structured:true,attention:'working',attentionSource:'chat'})]},
+   '/api/v2/gaffer/outcomes':{outcomes:[outcome]},
+   '/api/v2/gaffer/goals':{goals:[{goal,session:{id:'factory-work-0001',agentId:'a1',title:'Export API · code',state:'running'},available:true,attention:true,reason:'Gaffer brought a question back.'}],readAt:now},
+  }
+  const f=await openWorkspace(browser,{width:1440,height:950,terminalStatus:{configured:true,available:true},terminalMachines:[machine],routes})
+  try{
+   const page=f.page
+   for(const [path,title] of [['/','Home'],['/skills','Skills'],['/sessions','Sessions']]){
+    await page.goto(base+path)
+    await surfaces(page,2,title)
+    await bellButton(page,2).click()
+    const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+    await expect(pop.locator('.item'),`${title}: the bell lists what it counts`).toHaveCount(2)
+    await expect(pop.getByRole('link',{name:'Open in the Factory',exact:true})).toHaveAttribute('href',`/factory?pipeline=${oid}.a`)
+    await expect(pop.locator('.item',{hasText:'Docs pass'})).toHaveCount(1)
+    await page.keyboard.press('Escape')
+   }
+   expect(f.errors).toEqual([])
+  }finally{await f.context.close()}
+ }
  console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count.')
 }finally{await browser.close()}

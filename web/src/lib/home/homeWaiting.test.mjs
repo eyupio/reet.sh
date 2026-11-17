@@ -21,10 +21,32 @@ test('a finished session is not waiting, a failed one and one to review are', ()
   assert.equal(out[0].since, 2)
 })
 
-test('a pipeline’s own session appears once, as the Factory item', () => {
-  const items = [item('o.a', 'decision', 'waiting', 100, { sessionId: 's1' }), item('o.b', 'running', 'working', 50, { sessionId: 's2' }), item('o.c', 'done', 'finished', 50, { sessionId: 's3' })]
-  const out = w.homeWaiting(items, [card('s1', 'waiting', 90), card('s2', 'failed', 90), card('s3', 'review', 90), card('s4', 'review', 90)])
-  assert.deepEqual(out.map(e => e.id), ['session:s4', 'o.a'])
+test('a pipeline’s own session appears once, as the Factory item, when that item is waiting and shows what the card asks', () => {
+  const ask = { permissionId: 'p', title: 't', command: 'ls', path: '', truncated: false, queued: 0 }
+  const items = [item('o.a', 'decision', 'waiting', 100, { sessionId: 's1' }), item('o.p', 'approval', 'waiting', 100, { sessionId: 's5' })]
+  const out = w.homeWaiting(items, [card('s1', 'waiting', 90), card('s5', 'waiting', 90, { approval: ask, reasons: ['approval'] }), card('s4', 'review', 90)])
+  assert.deepEqual(out.map(e => e.id), ['session:s4', 'o.a', 'o.p'])
+})
+
+test('a session’s card stays when its pipeline is not waiting, or waits for something else than the card’s approval', () => {
+  const ask = { permissionId: 'p', title: 't', command: 'ls', path: '', truncated: false, queued: 0 }
+  // A working pipeline whose session holds an approval: the approval is only on the card, so the card stays.
+  const working = w.homeWaiting([item('o.b', 'running', 'working', 50, { sessionId: 's2' })], [card('s2', 'waiting', 90, { approval: ask, reasons: ['approval'] })])
+  assert.deepEqual(working.map(e => e.id), ['session:s2'])
+  // A decision item does not show the approval its session holds: both are listed.
+  const decision = w.homeWaiting([item('o.a', 'decision', 'waiting', 100, { sessionId: 's1' })], [card('s1', 'waiting', 90, { approval: ask, reasons: ['approval'] })])
+  assert.deepEqual(decision.map(e => e.id), ['session:s1', 'o.a'])
+  // A finished or working pipeline's session that failed still asks the person.
+  const done = w.homeWaiting([item('o.c', 'done', 'finished', 50, { sessionId: 's3' }), item('o.d', 'running', 'working', 50, { sessionId: 's6' })], [card('s3', 'review', 90), card('s6', 'failed', 80)])
+  assert.deepEqual(done.map(e => e.id), ['session:s6', 'session:s3'])
+})
+
+test('a Gaffer goal that needs review on a session with no card and no pipeline is an entry of its own', () => {
+  const goal = (sessionId, since) => ({ id: `goal-${sessionId}`, sessionId, title: sessionId, where: '', href: `/sessions?session=${sessionId}`, reason: '', since })
+  const out = w.homeWaiting([item('o.a', 'running', 'working', 1, { sessionId: 'piped' })], [card('carded', 'failed', 5)], [goal('alone', 3), goal('carded', 4), goal('piped', 2)])
+  assert.deepEqual(out.map(e => e.id), ['gaffer:goal-alone', 'session:carded'])
+  assert.equal(out[0].source, 'gaffer'); assert.equal(out[0].since, 3)
+  assert.equal(w.waitingSummary(out, HOUR + 3), '1 failed, 1 Gaffer goal · oldest 1 h')
 })
 
 test('entries come oldest first across both sources', () => {

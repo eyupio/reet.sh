@@ -229,7 +229,7 @@ try{
   try{
    const pick=page.getByRole('button',{name:'Projects: all',exact:true})
    await expect(pick).toBeVisible()
-   await expect(page.getByText('Export API',{exact:true}).first()).toBeVisible()
+   await expect(page.getByRole('main').getByText('Export API',{exact:true}).first()).toBeVisible()
    await page.screenshot({path:`${shots}/picker-closed-${width}.png`})
    await pick.click()
    const dialog=page.getByRole('dialog')
@@ -392,9 +392,12 @@ try{
  })
  // F2: a read that fails after one that worked keeps the list and says so.
  await step('a failed read keeps the last list and says so',async()=>{
-  const {w,page}=await open(1280,{tweak:f=>{let reads=0;const answer=f.routes['/api/v2/gaffer/outcomes'];f.routes['/api/v2/gaffer/outcomes']=request=>++reads>1?{status:503,json:{error:'The controller is restarting.'}}:answer(request)}})
+  // Reads fail from the moment the page has shown its list (the bell reads the outcomes too, so a count of reads would not do).
+  const read={failing:false}
+  const {w,page}=await open(1280,{tweak:f=>{const answer=f.routes['/api/v2/gaffer/outcomes'];f.routes['/api/v2/gaffer/outcomes']=request=>read.failing?{status:503,json:{error:'The controller is restarting.'}}:answer(request)}})
   try{
    await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+   read.failing=true
    await expect(page.getByRole('alert').filter({hasText:'Showing the last successful read.'})).toBeVisible({timeout:15000})
    await expect(page.getByRole('region',{name:'Waiting for you',exact:true}).getByRole('button',{name:'Decision: Export API',exact:true})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()

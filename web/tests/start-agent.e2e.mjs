@@ -102,7 +102,7 @@ await page.route('**/api/**',async route=>{
 })
 function reply(route,raw){
  const body=JSON.parse(raw)
- const s={id:`session-${body.requestId.replaceAll('-','').slice(0,20)}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}
+ const s={id:`session-${body.requestId.replaceAll('-','').slice(0,20)}`,agentId:body.agentId,title:body.title,state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null,tool:body.tool}
  if(!sessions.some(x=>x.id===s.id))sessions=[...sessions,s]
  return route.fulfill({json:s})
 }

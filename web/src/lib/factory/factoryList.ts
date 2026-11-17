@@ -74,6 +74,8 @@ export function inSection(items: FactoryItem[], section: FactorySection): Factor
 /** The stage in hand and the next, in words. `dots` is the short form for a row of dots, `circles` the longer one. */
 export function stageCaption(nodes: TrackNode[], at: number, size: 'dots' | 'circles'): string {
   if (at < 0 || at >= nodes.length) return ''
+  // A pipeline with every stage done has none in hand.
+  if (nodes.every(node => node.state === 'done')) return nodes.length === 1 ? 'Its one stage done' : `All ${nodes.length} stages done`
   const here = nodes[at].label, last = at === nodes.length - 1
   if (size === 'dots') return `${here} · ${at + 1} of ${nodes.length} · ${last ? 'the last' : `next ${nodes[at + 1].label}`}`
   const done = nodes.slice(0, at).map(node => node.label)

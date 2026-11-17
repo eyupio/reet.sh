@@ -294,7 +294,13 @@
     if (!record || !piece) return
     if (record.archivedAt) showArchived = true
     select(`${record.id}.${piece.key}`)
-    if (!narrow) void tick().then(() => document.getElementById(id)?.scrollIntoView({ block: 'nearest' }))
+    // Its section opens so the item can be seen in the list, and the detail's title takes the focus.
+    void tick().then(() => {
+      const item = byId.get(`${record.id}.${piece.key}`)
+      if (item && !opened[item.section]) opened = { ...opened, [item.section]: true }
+      void tick().then(() => { if (!narrow) document.getElementById(id)?.scrollIntoView({ block: 'nearest' }) })
+    })
+    focusTitle()
   })
   const pipelineOf = (event: ActivityEvent) => { try { return String(JSON.parse(event.detail || '{}').pipeline ?? '') } catch { return '' } }
   // The person's own controls over a pipeline: move it on from the stage in hand, and how its merge is decided.
@@ -440,12 +446,16 @@
   // The chosen pipeline is named in the address (?pipeline=<outcome>.<key>), so a reload or a shared link reopens it.
   // On a wide screen one is always shown: the chosen one, else the first waiting, else the first working. Once shown it
   // stays, even when it moves to another section. On a narrow screen the detail is open only while one is chosen.
-  const address = (changes: Record<string, string | null>, hash = location.hash) => {
+  // On a narrow screen, opening a pipeline from the list is a step the browser's Back undoes: it is pushed onto the
+  // history, and `pushed` says so. Previous and next, a wide screen, and a page entered on ?pipeline= replace instead.
+  const addressed = (changes: Record<string, string | null>, hash = location.hash) => {
     const url = new URL(location.href)
     for (const [name, value] of Object.entries(changes)) { if (value) url.searchParams.set(name, value); else url.searchParams.delete(name) }
     url.hash = hash
-    history.replaceState(history.state, '', url)
+    return url
   }
+  const address = (changes: Record<string, string | null>, hash = location.hash) => history.replaceState(history.state, '', addressed(changes, hash))
+  let pushed = false
   let chosenId = $state(new URLSearchParams(location.search).get('pipeline') ?? ''), shownId = $state('')
   let pane = $state<HTMLElement>()
   const firstId = $derived((waitingItems[0] ?? inSection(items, 'working')[0])?.id ?? '')
@@ -455,18 +465,47 @@
   const selectedPair = $derived(selectedId ? pairs.get(selectedId) : undefined)
   const detailOpen = $derived(narrow && !!selected)
   const place = $derived(selected ? waitingItems.findIndex(item => item.id === selected.id) : -1)
+  // The detail's title takes the focus when the detail opens as a screen of its own or from a link.
+  const focusTitle = () => void tick().then(() => pane?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true }))
   function select(id: string) {
     chosenId = id
     if (id) shownId = id
     address({ pipeline: id || null }, '')
     if (narrow) void tick().then(() => scrollTo({ top: 0 })); else if (pane) pane.scrollTop = 0
   }
-  // Back to the list, at the item that was open.
+  // Details on an item: on a narrow screen a new history entry, with the focus on the detail's title.
+  function open(id: string) {
+    if (!narrow || byId.has(chosenId)) { select(id); return }
+    history.pushState(history.state, '', addressed({ pipeline: id }, ''))
+    pushed = true; chosenId = id; shownId = id
+    void tick().then(() => scrollTo({ top: 0 }))
+    focusTitle()
+  }
+  // Back to the list, at the item that was open, with the focus on its Details button.
+  const returnTo = (item: FactoryItem | undefined) => {
+    if (item) void tick().then(() => {
+      const card = document.getElementById(pipelineAnchor(item.outcomeId, item.key))
+      card?.scrollIntoView({ block: 'center' })
+      card?.querySelector<HTMLElement>('button[aria-label^="Details"]')?.focus({ preventScroll: true })
+    })
+  }
   function back() {
+    if (pushed) { history.back(); return }
     const item = selected
     select('')
-    if (item) void tick().then(() => document.getElementById(pipelineAnchor(item.outcomeId, item.key))?.scrollIntoView({ block: 'center' }))
+    returnTo(item)
   }
+  // The browser's Back and Forward move between the list and the detail opened from it.
+  onMount(() => {
+    const moved = () => {
+      const item = selected
+      chosenId = new URLSearchParams(location.search).get('pipeline') ?? ''
+      pushed = !!chosenId
+      if (chosenId) { shownId = chosenId; focusTitle() } else returnTo(item)
+    }
+    addEventListener('popstate', moved)
+    return () => removeEventListener('popstate', moved)
+  })
   const step = (by: number) => { const next = waitingItems[place + by]; if (next) select(next.id) }
 
   // Other sessions: Gaffer's goals that are not a pipeline's, and running chats it does not look after yet, in the scope.
@@ -490,7 +529,7 @@
 {#snippet entry(item: FactoryItem)}{@const pair = pairs.get(item.id)}{#if pair}{@const record = pair.record}{@const piece = pair.piece}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}
   <WaitingItem {item} layout={narrow ? 'card' : 'compact'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} selected={!narrow && item.id === selectedId} {busy}
     permission={approvalFor(piece.sessionId)} sessionId={piece.sessionId ?? ''} usable={choice => usable(choice, piece)} onchoose={choice => choose(choice, record, piece, goal)}
-    ondetails={() => select(item.id)} onanswered={() => loadRail(true)} id={pipelineAnchor(record.id, piece.key)}/>
+    ondetails={() => open(item.id)} onanswered={() => loadRail(true)} id={pipelineAnchor(record.id, piece.key)}/>
 {/if}{/snippet}
 
 {#snippet section(key: FactorySection, name: string, none: string)}{@const own = inSection(items, key)}
@@ -600,8 +639,8 @@
   .hint,.foot,.counts{color:var(--muted)}.warning{color:var(--bad)}
   .top{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}.identity{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 18px;min-width:0;flex:1 1 320px}.counts{font-size:0.9375rem}
   .top-actions{display:flex;gap:8px;flex-wrap:wrap}.top-actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center}
-  /* What an action did stays in view wherever on the page it was pressed. */
-  .notice{position:sticky;top:8px;z-index:5;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--shadow)}.notice.bad{border-color:var(--bad);color:var(--bad)}.notice p{min-width:0}.notice .inline{flex:none}
+  /* What an action did, in the flow under the head: it never covers what it is about. */
+  .notice{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--shadow)}.notice.bad{border-color:var(--bad);color:var(--bad)}.notice p{min-width:0}.notice .inline{flex:none}
   .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.875rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
   .empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}
   /* The list, and beside it on a wide screen the chosen pipeline. Each scrolls by itself within the window, so the

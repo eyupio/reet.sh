@@ -42,9 +42,16 @@ try {
       const endedItem=waiting.locator(`#pipeline-${oid}-a`)
       await expect(endedItem).toContainText('Agent stopped')
       const open=async(section,title,chip)=>{
-        if(width<1100){const back=page.getByRole('button',{name:'‹ Factory',exact:true});if(await back.count())await back.click()}
-        const region=page.getByRole('region',{name:section,exact:true})
-        if(!(await region.locator('.body').count()))await page.getByRole('button',{name:new RegExp(`^${section}`)}).click()
+        if(width<1100){
+          // Wait for the list or a detail, then leave the detail if it is the one on screen.
+          const back=page.getByRole('button',{name:'‹ Factory',exact:true}),title=page.getByRole('heading',{name:'Factory',level:1,exact:true})
+          await expect(back.or(title)).toBeVisible()
+          if(await back.isVisible()){await back.click();await expect(title).toBeVisible()}
+        }
+        const region=page.getByRole('region',{name:section,exact:true}),head=page.getByRole('button',{name:new RegExp(`^${section}`)})
+        await expect(head).toBeVisible()
+        if(await head.getAttribute('aria-expanded')!=='true')await head.click()
+        await expect(head).toHaveAttribute('aria-expanded','true')
         if(width<1100)await region.getByRole('button',{name:`Details and other actions for ${title}`,exact:true}).click()
         else await region.getByRole('button',{name:`${chip}: ${title}`,exact:true}).click()
         await expect(page.getByRole('heading',{name:title,level:2,exact:true})).toBeVisible()

@@ -89,6 +89,17 @@ test('the caption names the stage in hand and the next', () => {
   assert.equal(f.stageCaption(first.nodes, 0, 'circles'), 'Code in hand · the first stage · next Review')
 })
 
+test('a pipeline whose every stage is done says so, in both sizes', () => {
+  const done = f.factoryItems([{ id: 'o', objective: 'x', projectId: 'p', sessions: [piece('a', 'done', { stages: stages(4, 4), stage: 3 })] }], new Map())[0]
+  assert.equal(f.stageCaption(done.nodes, done.at, 'circles'), 'All 4 stages done')
+  assert.equal(f.stageCaption(done.nodes, done.at, 'dots'), 'All 4 stages done')
+  const one = f.factoryItems([{ id: 'o', objective: 'x', projectId: 'p', sessions: [piece('a', 'done', { stages: stages(1, 1), stage: 0 })] }], new Map())[0]
+  assert.equal(f.stageCaption(one.nodes, one.at, 'circles'), 'Its one stage done')
+  // The last stage in hand is still in hand, not done.
+  const last = f.factoryItems([{ id: 'o', objective: 'x', projectId: 'p', sessions: [piece('a', 'following', { stages: stages(4, 3), stage: 3 })] }], new Map())[0]
+  assert.equal(f.stageCaption(last.nodes, last.at, 'dots'), 'Review · 4 of 4 · the last')
+})
+
 test('a closed section still says what is in it', () => {
   const at = (n, extra) => Array.from({ length: n }, (_, i) => piece(String.fromCharCode(97 + i), 'following', { title: String.fromCharCode(65 + i), ...extra }))
   const make = sessions => f.factoryItems([{ id: 'o', objective: 'x', projectId: 'p', sessions }], new Map())

@@ -81,7 +81,7 @@ try {
       await page.goto(`${base}/factory`)
       const welcome = page.getByRole('region', { name: 'Put Gaffer on the job.', exact: true })
       await expect(welcome).toBeVisible()
-      await expect(page.getByText(/waiting for you ·/)).toHaveCount(0)
+      await expect(page.locator('.counts')).toHaveCount(0)
       await expect(welcome.getByRole('listitem')).toHaveCount(4)
       await expect(page.getByRole('navigation', { name: 'Filter the floor', exact: true })).toHaveCount(0)
       await expect(page.getByRole('heading', { name: 'Put Gaffer on the job.', exact: true })).toHaveCSS('color', await page.locator('body').evaluate(el => getComputedStyle(el).color))

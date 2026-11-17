@@ -155,7 +155,7 @@
   <header class="head">
     <div class="title">
       <p class="eyebrow">{record.objective} · pipeline {item.index} of {item.of}</p>
-      <div class="name"><h2 id={`${uid}-title`}>{piece.title}</h2><span class="chip {tone}">{item.chip}</span></div>
+      <div class="name"><h2 id={`${uid}-title`} tabindex="-1">{piece.title}</h2><span class="chip {tone}">{item.chip}</span></div>
       <p class="meta">{record.projectName || 'Project'} · started {helpers.when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {helpers.when(record.archivedAt)}{/if}</p>
     </div>
     <div class="head-actions">
@@ -180,11 +180,14 @@
 
   <StagePipeline {nodes} at={item.at} size="labelled" waiting={item.section === 'waiting'} {selected} onselect={index => (chosen = { id: item.id, index })} label={`Choose a stage of ${piece.title}`}/>
 
+  {#if item.section !== 'waiting' && item.why}<p class="note">{item.why}</p>{/if}
+
   {#if item.section === 'waiting'}<section class="waits" aria-label="What is waiting">
     <p class="waits-head">Waiting for you</p>
     <p>{item.need?.why ?? item.why}</p>
     {#if reviewWaits && goal?.goal.summary}{@render review(goal.goal.summary, piece.conversationId ?? '')}{/if}
     {#if item.need?.recommend?.by === 'gaffer'}<p class="advice"><strong>Gaffer recommends: {item.need.recommend.label.replace(/…$/, '')}.</strong> {item.need.recommend.why}</p>{/if}
+    {#if goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}
     {#if gafferNote}<p class="hint">{gafferNote}</p>{/if}
     {#if lost}<p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>{/if}
   </section>{/if}
@@ -339,7 +342,9 @@
   .menu ul button.danger{color:var(--bad)}
   .waits{display:grid;gap:6px;padding:12px 16px;border-radius:10px;background:var(--tint);border:1px solid var(--accent)}
   .waits-head{font-weight:600}
-  .advice{overflow-wrap:anywhere}
+  .advice{overflow-wrap:anywhere}.said{color:var(--muted);overflow-wrap:anywhere}
+  .note{color:var(--ink)}
+  h2:focus{outline:none}h2:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .stage{display:grid;gap:10px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);min-width:0}
   .stage-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
   .handover{color:var(--muted);font-size:0.875rem}.handover.low{color:var(--warn);font-weight:600}

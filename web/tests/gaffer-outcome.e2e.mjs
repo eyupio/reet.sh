@@ -391,6 +391,11 @@ try {
       await page.getByRole('button',{name:/^Finished or stopped/}).click()
       const halted=page.getByRole('region',{name:'Finished or stopped',exact:true}).locator('[id^="pipeline-"]')
       await expect(halted).toHaveCount(2);await expect(halted).toContainText(['Stopped','Stopped'])
+      // Each says why it never started, in its detail, though it waits for nobody.
+      await expect(detail).toContainText('Not started: this outcome was stopped first.')
+      await halted.nth(1).click()
+      await expect(detail.getByRole('heading',{level:2})).toHaveText(await halted.nth(1).locator('.title').innerText())
+      await expect(detail).toContainText('Not started: this outcome was stopped first.')
       await detail.getByRole('button',{name:'More for this outcome',exact:true}).click()
       await expect(detail.getByRole('button',{name:'Stop starting sessions',exact:true})).toHaveCount(0)
       expect(f.box.stops).toEqual([{revision:1}])

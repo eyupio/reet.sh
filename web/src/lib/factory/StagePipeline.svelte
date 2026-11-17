@@ -62,6 +62,5 @@
   li.failed{color:var(--bad)}li.failed .dot{border-color:var(--bad);color:var(--bad)}
   li.chosen .name{text-decoration:underline;text-underline-offset:3px}
   .caption{margin:6px 0 0;color:var(--muted);font-size:0.875rem;line-height:1.35;overflow-wrap:anywhere}
-  .circles .caption{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   @media (pointer: coarse){button{min-height:44px}}
 </style>

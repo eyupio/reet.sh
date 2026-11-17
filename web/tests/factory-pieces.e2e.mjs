@@ -151,8 +151,11 @@ try{
  for(const width of [1280,834]){
   const {w,page}=await open(width,{hash:`#pipeline-${oid}-b`})
   try{
-   await expect(page.getByRole('heading',{name:'Export button',level:2,exact:true})).toBeVisible()
+   const title=page.getByRole('heading',{name:'Export button',level:2,exact:true})
+   await expect(title).toBeVisible();await expect(title).toBeFocused()
    if(width<1100)await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toHaveCount(0)
+   // Its section opens, though Working starts closed, so the chosen item is in view in the list.
+   else{await expect(page.getByRole('button',{name:/^Working/})).toHaveAttribute('aria-expanded','true');await expect(page.getByRole('button',{name:'Running: Export button',exact:true})).toHaveAttribute('aria-pressed','true')}
   }finally{await w.context.close()}
  }
  console.log('ok - the page on a wide screen')
@@ -172,6 +175,8 @@ try{
    await page.screenshot({path:`${shots}/factory-list-${width}-${theme}.png`,fullPage:true})
    await waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true}).click()
    await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+   // The focus moves to the detail's title, not to the top of the document.
+   await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeFocused()
    await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toHaveCount(0)
    await expect(page).toHaveURL(new RegExp(`[?&]pipeline=${oid}\\.a(&|$)`))
    const nav=page.getByRole('navigation',{name:'Waiting items',exact:true})
@@ -192,6 +197,19 @@ try{
    await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toHaveCount(0)
    expect(new URL(page.url()).searchParams.get('pipeline')).toBeNull()
+   // The focus is back on the Details button of the item that was open.
+   await expect(waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true})).toBeFocused()
+   // The browser's Back closes a detail opened from the list, and Forward opens it again.
+   await waiting.getByRole('button',{name:'Details and other actions for Export docs',exact:true}).click()
+   await expect(page.getByRole('heading',{name:'Export docs',level:2,exact:true})).toBeVisible()
+   await page.goBack()
+   await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Export docs',level:2,exact:true})).toHaveCount(0)
+   expect(new URL(page.url()).pathname).toBe('/factory');expect(new URL(page.url()).searchParams.get('pipeline')).toBeNull()
+   await page.goForward()
+   await expect(page.getByRole('heading',{name:'Export docs',level:2,exact:true})).toBeVisible()
+   await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
+   await expect(page.getByRole('region',{name:'Waiting for you',exact:true})).toBeVisible()
    expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
   }finally{await w.context.close()}
  }

@@ -65,4 +65,35 @@ try{
   }finally{await w.context.close()}
   console.log('ok - waiting item')
  }
+ // The pipeline detail: one bar of what can be done, the settings in a line, who decides, and the facts of a picked stage.
+ // Not run until the page mounts PipelineDetail (Task 6).
+ {
+  const f=fixture(),posted=[]
+  const advised={...f.routes['/api/v2/gaffer/goals']().goals[0]}
+  advised.attention=true;advised.reason='Gaffer brought a question back.';advised.goal={...advised.goal,note:'Gaffer brought a question back.',summary:'Tests pass locally.',advice:{choice:'move',why:'The review stage will catch the rest.'}}
+  const routes={...f.routes,
+   '/api/v2/gaffer/goals':()=>({goals:[advised],readAt:now}),
+   [`/api/v2/gaffer/outcomes/${oid}/automation`]:request=>{const input=request.postDataJSON();posted.push(input);f.outcome.automation=input.on;return f.outcome},
+  }
+  const w=await openWorkspace(browser,{width:1440,height:1000,theme:'light',touch:false,routes})
+  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+  try{
+   const page=w.page
+   await page.goto(`${base}/factory`)
+   await page.getByRole('region',{name:'Waiting for you',exact:true}).getByRole('button',{name:/^Details and other actions/}).click()
+   const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+   await expect(bar.getByRole('button').first()).toHaveAccessibleName(/^Move to next stage/)
+   await expect(bar.getByRole('button',{name:'Tell the agent…',exact:true})).toHaveCount(1)
+   await expect(bar.getByRole('button',{name:/^Move to next stage/})).toHaveCount(1)
+   await expect(page.getByText('You decide · Ask me · merge waits for you',{exact:true})).toBeVisible()
+   await page.getByText('Settings for this outcome',{exact:true}).click()
+   await page.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+   await expect.poll(()=>posted).toEqual([{revision:5,on:true}])
+   await page.getByRole('list',{name:'Choose a stage of Export API',exact:true}).getByRole('button',{name:/Review/}).click()
+   await expect(page.getByRole('region',{name:'Review stage',exact:true})).toBeVisible()
+   await expect(page.getByRole('region',{name:'Review stage',exact:true})).toContainText('will do this stage')
+   expect(w.state.unexpected).toEqual([])
+  }finally{await w.context.close()}
+  console.log('ok - pipeline detail')
+ }
 }finally{await browser.close()}

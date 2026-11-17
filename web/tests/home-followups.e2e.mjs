@@ -88,6 +88,11 @@ try {
       await goal.getByRole('button',{name:'Stop goal',exact:true}).click()
       await page.getByRole('dialog',{name:'Stop this goal?',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
       await expect(goal.getByRole('heading',{name:'Stopped',exact:true})).toBeVisible()
+      // Nothing in Other sessions needs the person now. The page reads that on its next refresh, and the section it
+      // opened by itself stays open for the visit: it does not close under the dialog the goal was stopped in.
+      await expect(others).not.toContainText('needs you',{timeout:20000})
+      await expect(others).toHaveAttribute('aria-expanded','true')
+      await expect(goal.getByRole('heading',{name:'Stopped',exact:true})).toBeVisible()
       expect(f.box.controls).toHaveLength(1);expect(writes).toEqual([`/api/v2/gaffer/conversations/${id}/goal/control`])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }

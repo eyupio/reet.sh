@@ -43,7 +43,8 @@ what is **waiting for you**, **working** and **finished**. The list has four sec
   yet.
 
 A section opens and closes, and your browser remembers which are open. The first time only **Waiting for you** is
-open. **Other sessions** also opens by itself while a session in it needs you. A closed section still says what is in
+open. **Other sessions** also opens by itself when a session in it needs you, and then stays open for the visit
+until you close it, so answering the last one does not close it under you. A closed section still says what is in
 it: how long the oldest has waited, or the first titles.
 
 A pipeline's status is **Decision**, **Approval**, **Ready to merge**, **Agent stopped** or **Failed** while it waits

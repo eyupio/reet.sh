@@ -78,6 +78,8 @@ function fixture({active=1}={}){
 async function openFloor(w){
   await w.page.goto(base+'/factory')
   await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
+  // They are a section of the page's list, closed until opened.
+  const others=w.page.getByRole('button',{name:/^Other sessions/});if(await others.getAttribute('aria-expanded')!=='true')await others.click()
   return w.page.locator('[data-floor]')
 }
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
@@ -216,6 +218,8 @@ try {
       expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(44)
       await entry.click()
       await expect(w.page).toHaveURL(/\/factory$/)
+      // The floor is the page's Other sessions section, closed until opened.
+      const others=w.page.getByRole('button',{name:/^Other sessions/});if(await others.getAttribute('aria-expanded')!=='true')await others.click()
       const floor=w.page.locator('[data-floor]')
       await expect(floor.getByRole('group',{name:'Running chats not followed',exact:true}).getByRole('checkbox')).toHaveCount(2)
       await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true})).toHaveCount(0)

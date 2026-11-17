@@ -171,6 +171,9 @@ Two tools read the Factory for any connection on a writer account:
   session has been asked, `choice` says whether they were applied (`applied`,
   `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for
   a difference, `choice_note`.
+  A stage whose chosen effort its agent did not offer for the model on that
+  machine has `effort_not_offered` (the effort chosen); it started on the
+  agent's default effort, and its `effort` is then empty.
   `balance_below` is the share of a plan, in percent, under which a stage of
   the outcome starts on its backup.
   `decisions_by` is `you` or `gaffer`: who chooses what happens when a stage

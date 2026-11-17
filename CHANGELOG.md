@@ -5,6 +5,23 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory crew**: **Your Factory crew** in Gaffer settings now offers real
+  choices instead of boxes to type in. **Model** lists the models your machines
+  have listed for the chosen agent, with **Agent's default model** and
+  **Other…** for a name of your own; **Effort** lists the levels your machines
+  report for that agent, and shows **No effort setting** for an agent that has
+  none, such as OpenCode. An agent none of your machines can run is marked "(not
+  on your machines)" but can still be chosen, so a crew can be set before a
+  machine connects. A saved model or effort that none of your machines offers is
+  kept and marked, with a line saying what happens at the start. Changing a
+  row's agent clears its model and effort. If your machines cannot be read, the
+  form says so and still saves.
+- **Factory**: a stage whose chosen effort its agent does not offer for the
+  model no longer stops: it starts on the agent's default effort and says so on
+  the stage ("agent's default effort (high is not offered)"), on its **Applied**
+  line and in the activity log. A model the agent does not offer still stops the
+  stage. Every backup of a stage, not only the first, now drops an effort its
+  machine does not report before it is started.
 - **Home**: Home now opens on **Waiting for you**, one list of everything that
   needs you, Factory pipelines and sessions together, the one that has waited
   longest at the top. Each entry says what it needs (a decision, an approval,

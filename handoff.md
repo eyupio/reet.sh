@@ -18,6 +18,71 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## CREW-CHOICES-1: the crew chosen from what the machines offer, and an effort that is not offered (17 November 2026)
+
+The owner asked, with a picture of Gaffer settings → **Your Factory crew**: "The gaffer settings need a dynamically
+generated dropdown with the actual values for the models and efforts, etc. Also, ensure the effort selection doesn't
+cause any issues for agents/models that are not supportive." Built on `ccr-93f68fda-ippwiu` (draft PR #834), in two
+parts: the controller first, then the form and these docs.
+
+**What was built: the controller.** A stage whose effort its agent does not offer starts on the agent's default effort
+instead of stopping, and says so (`internal/gaffer/outcome_effort.go`). Before a start, the machine's last capability
+report is read (`effortNotReported`): if it describes the agent's options and lists no such thought level, the effort
+is not asked for. If a start is refused for the effort all the same, the stage is asked for once more, under a fresh
+request, without it (`dropStageEffort`). Either way the stage keeps the effort chosen in `EffortNotOffered` with
+`Effort` empty, the activity log records `gaffer-stage-effort-not-offered`, the choice check reads **Confirmed** with
+the reason, MCP's stage carries `effort_not_offered` (`internal/api/gaffer_factory_mcp.go`), and the Factory page's
+stage facts say "agent's default effort (high is not offered)". A wrong model still stops the stage. Backups and
+balancing treat a dropped effort as the one asked for.
+
+**How the refusal is recognised.** The machine refuses an unconfirmed effort with the generic code
+`ACPUnavailable`, which also covers other refusals. The controller tells this one apart by the machine's exact
+sentence, the constant `terminalproto.ACPEffortUnconfirmedDetail` (`terminalbroker.ACPUnavailableError.EffortNotConfirmed`).
+The sentence is pinned on both sides: the connector's side by
+`TestChosenEffortRefusalSaysTheSentenceTheControllerRecognises` (`internal/terminalagent/chat_test.go`), the
+controller's by `TestAnEffortRefusalIsToldApartFromTheOthers` (`internal/terminalbroker/chat_effort_refusal_test.go`)
+and `internal/api/gaffer_outcomes_test.go`. Changing the sentence on either side fails a test. The proper fix later is
+a result code of its own from the machine, so nothing hangs on wording.
+
+**What was built: the form.** `web/src/lib/GafferCrewSettings.svelte` no longer has boxes for model and effort.
+- **Model** is `GafferModelSelect` fed one merged list per agent: GET `/api/v2/models?tool=` (`allModels`, the cached
+  rows of every machine, no machine is asked), merged by `mergeMachineModels` (`web/src/lib/crewChoices.ts`: each id
+  once, provider kept). The select gained `everywhere` (groups read "On your machines", a missing favourite "not on
+  your machines") and `note`; a saved model no list has stays, under "Current", with "None of your machines lists this
+  model. If the agent does not offer it, the stage stops when it starts." Favourites are read as the outcome dialog
+  reads them.
+- **Effort** is a select of `effortUnion` over every machine's `reportedEfforts` (low, medium, high, then the rest as
+  reported), with **Default effort** first; `crewEffortChoices` gives **No effort setting**, disabled, when no machine
+  reports a level and none is saved, and keeps a saved level none offers as "High (not offered by your machines)"
+  with the hint "If the agent does not offer this effort, the stage starts on the agent's default effort."
+- **Agent** keeps the fixed list (a crew may be set before a machine connects); one no machine runs as a chat
+  (`structuredAgent`) reads "(not on your machines)". Changing a row's agent clears its model, effort and Cline source.
+- Reads: the crew, the machines and the favourites once on mount; each agent's models once, when it is first in the
+  crew. No polling. A failed read is one line ("Your machines could not be read…"), the model select falls back to the
+  agent's default, favourites, suggestions and **Other…**, the effort to the saved level and the default, and saving
+  is never blocked.
+- The outcome dialog and **Add pipelines** now drop an unreported effort from every backup, further backups included
+  (`withReportedEfforts` in `gafferOutcome.ts`); before, the dialog dropped only the first backup's and Add pipelines
+  dropped none.
+
+**Tests.** Unit: `crewChoices.test.mjs` (new, in `npm run test`), `models.test.mjs` (`everywhere`),
+`gafferOutcome.test.mjs` (every backup's effort). Browser: `gaffer-settings.e2e.mjs` has the crew checks (options from
+the machines' reports, OpenCode's **No effort setting**, the agent change that clears, a kept unlisted model and
+unoffered effort, exactly what is saved, a failed read that still saves, 1440 light and dark, 390 light and dark);
+`gaffer-factory.e2e.mjs`'s crew block now chooses from the selects (its two `fill` calls on the model and effort boxes
+and the saved values they led to were replaced). `tests/helpers/workspace.mjs` answers `/api/v2/models` with no rows.
+
+**Not covered.**
+- Efforts are reported per agent, not per model, so the form (and the outcome dialog) may offer a level a particular
+  model lacks; the stage then starts on the default effort.
+- A machine that reports nothing about its agents' options costs one refused start before the retry.
+- Each refused start leaves one "lost" row in Sessions history.
+- If the controller stops between the refusal and saving the retry, the stage reads as failed, and **Try again** goes
+  the same way.
+
+**Not checked.** No real machine or agent: every refusal, model list and capability report is a fixture or a unit
+test. Widths are emulated. No screen reader. The captures are in [docs/ui-verification.md](docs/ui-verification.md).
+
 ## HOME-REWORK-1: Home rebuilt around one list of what waits (17 November 2026)
 
 The owner asked for Home next, by the same method as the Factory page and in its own pull request, on the branch

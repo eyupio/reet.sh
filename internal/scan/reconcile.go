@@ -350,15 +350,15 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 		defer os.RemoveAll(staging)
 	}
 	prev, hadPrev := r.installed[key]
-	state, edit := "installed", (*store.SkillReportEntry)(nil)
 	var moved []movedCopy
+	var edits []store.SkillReportEntry
 	for _, name := range matches {
 		if name == keep {
 			continue
 		}
 		was := r.copyAt(f, name)
 		if err := r.writable(f); err != nil {
-			r.failInstall(f, a, err.Error(), moved, edit)
+			r.failInstall(f, a, err.Error(), moved, edits)
 			return
 		}
 		dest, err := r.backup(f.dir, name)
@@ -370,19 +370,21 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 				r.add(f.label, a.Name, "failed", "", detail, r.firstBackup(moved))
 				return
 			}
-			r.failInstall(f, a, detail, moved, edit)
+			r.failInstall(f, a, detail, moved, edits)
 			return
 		}
 		moved = append(moved, movedCopy{original: filepath.Join(f.dir, name), backup: dest})
-		// A readable copy that is neither this revision nor the one reet
-		// last put here was changed on this machine. The first such backup
-		// is the one the report names, and it is passed on at once.
-		if was.all != "" && !was.is(a.Digest) && !(hadPrev && was.is(prev)) {
-			state = "edited"
-			if edit == nil {
-				edit = &store.SkillReportEntry{Folder: f.label, Name: a.Name, State: "edited", Digest: a.Digest, Backup: r.tilde(dest)}
-				r.tell(*edit)
+		// A copy that is neither this revision nor the one reet last put
+		// here was changed on this machine, or is one reet cannot read to
+		// tell. Its backup may hold the only copy of someone's work, so each
+		// one is passed on at once, under the name it had here.
+		if !was.is(a.Digest) && !(hadPrev && was.is(prev)) {
+			e := store.SkillReportEntry{Folder: f.label, Name: name, State: "edited", Digest: a.Digest, Backup: r.tilde(dest)}
+			if was.all == "" {
+				e.Detail = "reet could not read this copy"
 			}
+			edits = append(edits, e)
+			r.tell(e)
 		}
 	}
 	switch {
@@ -392,14 +394,14 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 			err = r.link(f.real, source)
 		}
 		if err != nil {
-			r.failInstall(f, a, err.Error(), moved, edit)
+			r.failInstall(f, a, err.Error(), moved, edits)
 			return
 		}
 		keep = source
 	case keep == "":
 		dest := filepath.Join(f.dir, a.Name)
 		if err := r.install(f, staging, dest, a.Digest); err != nil {
-			r.failInstall(f, a, err.Error(), moved, edit)
+			r.failInstall(f, a, err.Error(), moved, edits)
 			return
 		}
 		r.digests[dest] = copyDigest{all: a.Digest, sans: a.Digest}
@@ -407,11 +409,12 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 		r.recovered(f, a)
 	}
 	r.settle(f, a, keep)
-	backup := r.firstBackup(moved)
-	if edit != nil {
-		backup = edit.Backup
+	// The skill's own entry names the first copy that was not reet's.
+	state, detail, backup := "installed", "", r.firstBackup(moved)
+	if len(edits) > 0 {
+		state, detail, backup = "edited", edits[0].Detail, edits[0].Backup
 	}
-	r.add(f.label, a.Name, state, a.Digest, "", backup)
+	r.add(f.label, a.Name, state, a.Digest, detail, backup)
 }
 
 // install moves the staged copy to dest. Staging sits beside the folder, so
@@ -461,9 +464,10 @@ func (r *reconciler) fail(label, rel string, a store.DesiredSkill, detail, backu
 }
 
 // failInstall puts back the copies moved for an install that could not
-// finish, takes back the edit it passed on, reports the failure and, for a
-// copy of reet's files, waits before trying this folder again.
-func (r *reconciler) failInstall(f *folderRun, a store.DesiredSkill, detail string, moved []movedCopy, edit *store.SkillReportEntry) {
+// finish, takes back the edits it passed on whose copies went back, reports
+// the failure and, for a copy of reet's files, waits before trying this
+// folder again.
+func (r *reconciler) failInstall(f *folderRun, a store.DesiredSkill, detail string, moved []movedCopy, edits []store.SkillReportEntry) {
 	var left []movedCopy
 	restored := map[string]bool{}
 	// Nothing goes back through a folder that has moved.
@@ -487,8 +491,10 @@ func (r *reconciler) failInstall(f *folderRun, a store.DesiredSkill, detail stri
 	}
 	// An edit whose copy is back in place was never replaced. One whose copy
 	// stays in its backup is still news: the person's edit lives only there.
-	if edit != nil && restored[edit.Backup] && r.retract != nil {
-		r.retract(*edit)
+	for _, e := range edits {
+		if restored[e.Backup] && r.retract != nil {
+			r.retract(e)
+		}
 	}
 	if !f.linked {
 		r.failedInstall(f, a, detail)

@@ -1961,12 +1961,13 @@ func TestAgentCycleReportsAnEditWhenAnotherCopyCannotMove(t *testing.T) {
 	rep := srv.lastReport(t)
 	var states []string
 	for _, e := range rep.Entries {
-		if e.Name == "alpha" {
-			states = append(states, e.State+" "+e.Backup)
+		if strings.EqualFold(e.Name, "alpha") {
+			states = append(states, e.Name+" "+e.State+" "+e.Backup)
 		}
 	}
 	date := time.Now().Format(backupDateLayout)
-	want := []string{"edited ~/.agents/.reet-backups/" + date + "/.agents-ALPHA", "failed ~/.agents/.reet-backups/" + date + "/.agents-ALPHA"}
+	// The edit is reported under the name its copy had.
+	want := []string{"ALPHA edited ~/.agents/.reet-backups/" + date + "/.agents-ALPHA", "alpha failed ~/.agents/.reet-backups/" + date + "/.agents-ALPHA"}
 	if strings.Join(states, "|") != strings.Join(want, "|") {
 		t.Fatalf("alpha entries %q, want %q", states, want)
 	}
@@ -2193,5 +2194,107 @@ func TestAgentCyclePrunesOnlyBesideFoldersItWorksIn(t *testing.T) {
 	sameTree(t, "project", before, homeTree(t, project))
 	if _, err := os.Lstat(ours); !os.IsNotExist(err) {
 		t.Fatalf("an expired backup beside a folder reet works in was kept: %v", err)
+	}
+}
+
+// Every copy reet backs up and replaces that was not its own reaches the
+// controller with its backup, though the report that first carried them was
+// never delivered: each case variant under its own name, and a copy reet
+// cannot read as a skill too.
+func TestAgentCycleReportsEveryCopyThatWasNotReets(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	home := loaded(t, config).Home
+	shared := filepath.Join(home, ".agents", "skills")
+	mkdirs(t, home, ".agents/skills")
+	if !caseSensitive(t, shared) {
+		t.Skip("this file system cannot hold names differing only in case")
+	}
+	placeFiles(t, filepath.Join(shared, "ALPHA"), []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("first edit")}})
+	placeFiles(t, filepath.Join(shared, "Alpha"), []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("second edit")}})
+	// A link in the shared folder is never followed, so reet cannot read it.
+	theirs := filepath.Join(home, "dev", "alpha")
+	writeSkill(t, theirs)
+	symlink(t, theirs, filepath.Join(shared, "alpha"))
+	a, aFiles := skillBundle(t, "alpha", "first")
+	srv.serve(t, a, aFiles)
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}})
+	srv.mu.Lock()
+	srv.reportStatus = http.StatusServiceUnavailable
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err == nil {
+		t.Fatal("a refused report was not an error")
+	}
+	// The agent restarts, and the controller takes reports again.
+	skillReportsSent.Lock()
+	delete(skillReportsSent.last, config)
+	skillReportsSent.Unlock()
+	srv.mu.Lock()
+	srv.reportStatus = 0
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	backups := "~/.agents/.reet-backups/" + time.Now().Format(backupDateLayout) + "/"
+	var got []string
+	for _, e := range srv.lastReport(t).Entries {
+		if e.State == "edited" {
+			got = append(got, e.Name+" "+e.Backup+" "+e.Detail)
+		}
+	}
+	want := []string{
+		"ALPHA " + backups + ".agents-ALPHA ",
+		"Alpha " + backups + ".agents-Alpha ",
+		"alpha " + backups + ".agents-alpha reet could not read this copy",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("edited entries\n%q\nwant\n%q", got, want)
+	}
+	at := func(name string) string {
+		return filepath.Join(home, strings.TrimPrefix(backups, "~/"), ".agents-"+name)
+	}
+	for name, body := range map[string]string{"ALPHA": "first edit", "Alpha": "second edit"} {
+		if b, err := os.ReadFile(filepath.Join(at(name), "SKILL.md")); err != nil || string(b) != body {
+			t.Fatalf("backup of %s: %q %v", name, b, err)
+		}
+	}
+	if target, err := os.Readlink(at("alpha")); err != nil || target != theirs {
+		t.Fatalf("backup of the link: %q %v", target, err)
+	}
+	if _, err := os.Lstat(config + ".unsent"); !os.IsNotExist(err) {
+		t.Fatal("delivered entries were kept")
+	}
+}
+
+// Copies put back after an install fails were never replaced, so the edits
+// passed on for them are taken back, every one.
+func TestAgentCycleTakesBackEveryEditWhoseCopyWentBack(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	shared := filepath.Join(loaded(t, config).Home, ".agents", "skills")
+	mkdirs(t, loaded(t, config).Home, ".agents/skills")
+	if !caseSensitive(t, shared) {
+		t.Skip("this file system cannot hold names differing only in case")
+	}
+	placeFiles(t, filepath.Join(shared, "ALPHA"), []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("first edit")}})
+	placeFiles(t, filepath.Join(shared, "Alpha"), []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("second edit")}})
+	before := homeTree(t, shared)
+	was := reconcileMove
+	t.Cleanup(func() { reconcileMove = was })
+	reconcileMove = func(string, string) (bool, error) { return false, errors.New("no space left on device") }
+	a, aFiles := skillBundle(t, "alpha", "first")
+	srv.serve(t, a, aFiles)
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}})
+	skillCycle(t, config)
+	sameTree(t, "skills", withoutFolderTimes(before), withoutFolderTimes(homeTree(t, shared)))
+	var got []string
+	for _, e := range srv.lastReport(t).Entries {
+		got = append(got, e.Name+" "+e.State+" "+e.Backup)
+	}
+	if strings.Join(got, "|") != "alpha failed " {
+		t.Fatalf("entries %q", got)
+	}
+	if _, err := os.Lstat(config + ".unsent"); !os.IsNotExist(err) {
+		t.Fatal("edits taken back were kept")
 	}
 }

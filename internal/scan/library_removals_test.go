@@ -21,7 +21,6 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 	for _, mode := range []string{"remove", "dirty", "partial", "old_controller", "future_capability", "source", "unverified", "wrong_target", "maintain", "blocked", "stale_before_move", "stale_after_move", "journal_refused", "backup_link", "edit_during_check", "mixed"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
-			defer os.Chmod(home, 0755)
 			t.Setenv("HOME", home)
 			root := filepath.Join(home, ".claude", "skills")
 			path := filepath.Join(root, "demo")
@@ -71,7 +70,14 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 						}
 					}
 					if mode == "journal_refused" && n == 3 {
-						if err := os.Chmod(home, 0500); err != nil {
+						// A non-empty directory where the journal goes refuses its
+						// write for every user. Permissions would not: root, which
+						// reet's machines often run as, writes into a 0500 folder.
+						journal := filepath.Join(home, "agent.json.library")
+						if err := os.Rename(journal, journal+".kept"); err != nil {
+							t.Error(err)
+						}
+						if err := os.MkdirAll(filepath.Join(journal, "occupied"), 0755); err != nil {
 							t.Error(err)
 						}
 					}
@@ -146,6 +152,15 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 			}, onPlan: func(p SyncPlan) { plan = p }, onBackup: func(path string) { backups = append(backups, path) }}
 			args := []string{"--server", c.Server, "--token", c.Token, "--env", "desktop", "--target", "target", "--apply"}
 			err = runSyncWithOptions(args, strings.NewReader("yes\n"), io.Discard, func([]string, string) error { t.Fatal("removal invoked npx"); return nil }, "test", opts)
+			if mode == "journal_refused" {
+				// The journal kept aside is what the refused write leaves on disk.
+				if err := os.RemoveAll(config + ".library"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(config+".library.kept", config+".library"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			failed := strings.HasPrefix(mode, "stale_") || mode == "journal_refused" || mode == "backup_link" || mode == "edit_during_check"
 			if (err != nil) != failed {
 				t.Fatalf("mode=%s result=%v", mode, err)

@@ -433,7 +433,7 @@
               <label for={`${formId}-balance`}>Switch to a backup below</label>
               <span class="percent"><input id={`${formId}-balance`} type="number" inputmode="numeric" min={BALANCE_MIN_PERCENT} max={BALANCE_MAX_PERCENT} step="5" bind:value={balanceBelow} disabled={planning} aria-describedby={`${formId}-balance-unit`} onblur={() => balanceBelow = balancePercent(balanceBelow)}/><span id={`${formId}-balance-unit`}>% of the first choice’s plan left</span></span>
             </div>
-            <p class="hint">{anyBackup ? `A stage starts on its tier’s backup when the first choice’s plan has under ${balancePercent(balanceBelow)}% left in its tightest window and the backup’s has more. The stage says when that happened and why.` : 'No tier has a backup yet, so every stage runs on its first choice.'} Balancing needs plan limits to be on for the machine; without figures every stage stays on its first choice.</p>
+            <p class="hint">{anyBackup ? `A stage starts on its tier’s backup when the first choice’s plan has under ${balancePercent(balanceBelow)}% left in its tightest window and the backup’s has more. The stage says when that happened and why.` : 'No tier has a backup yet, so every stage runs on its first choice.'} Balancing needs the machine to be able to read the agent’s plan (Claude Code and Codex today); without figures every stage stays on its first choice.</p>
             <p class="crew-save"><button class="link" type="button" disabled={planning || crewSaving || !tools.length} onclick={() => void rememberCrew()}>{crewSaving ? 'Saving…' : 'Save as my crew'}</button> <span role="status">{crewNote}</span></p>
           </details>
           {#if github}

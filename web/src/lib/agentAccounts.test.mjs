@@ -26,7 +26,7 @@ test('a plan in one line names the window with the least left, and says nothing 
   assert.equal(a.planLeft(signedIn({ limitsState: 'read', limits: [limits[0]] }), now).label, 'Plan 81% left')
   // Figures kept from an earlier read say how old they are.
   assert.ok(a.planLeft(signedIn({ limitsState: 'failed', limits, limitsAt: now - 3 * hour }), now).detail.endsWith('Read 3 h ago.'))
-  // No figures, no line: plan limits off, an API key, no sign-in, or an agent the machine said nothing about.
+  // No figures, no line: a plan not read yet, an API key, no sign-in, or an agent the machine said nothing about.
   assert.equal(a.planLeft(signedIn(), now), null)
   assert.equal(a.planLeft(signedIn({ method: 'api_key', limitsState: 'unsupported' }), now), null)
   assert.equal(a.planLeft({ tool: 'codex', state: 'none', limitsState: 'not_asked' }, now), null)

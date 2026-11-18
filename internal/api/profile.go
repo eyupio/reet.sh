@@ -297,10 +297,8 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		}
 		detail["chatAgents"] = *in.ChatAgents
 	}
-	if in.PlanLimits != nil {
-		profile.PlanLimits = *in.PlanLimits
-		detail["planLimits"] = *in.PlanLimits
-	}
+	// PlanLimits is accepted from an older web bundle and changes nothing:
+	// plan limits are read for every account.
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())
 		return

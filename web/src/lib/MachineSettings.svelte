@@ -9,7 +9,7 @@
   import { softwareLine, softwarePlanActions, type SoftwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
   import { allModels, applyMachineSoftware, machineAccounts, machineModels, machineSoftwarePlan, refreshMachineAccounts, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
-  import { accountFor, limitLines, limitsNote, PLAN_LIMITS_OFF_HINT, readAgo, signInLine, type MachineAccounts } from './agentAccounts'
+  import { accountFor, limitLines, limitsNote, readAgo, signInLine, type MachineAccounts } from './agentAccounts'
 
   // A machine's policies live here rather than beside the buttons that act on
   // it, so a card says what is happening and this dialog says how it is set.
@@ -317,7 +317,6 @@
           <div class="copy">
             <strong>Sign-ins</strong>
             <small aria-live="polite">{accountsError || accountsLine || accountsHint || 'Which agents are signed in on this machine, read from their own files.'}</small>
-            {#if accounts && !accounts.planLimits}<small class="limits-off">{PLAN_LIMITS_OFF_HINT}</small>{/if}
           </div>
           <button class="btn" type="button" disabled={!canCheckAccounts || accountsChecking || accountsLoading} onclick={() => void checkAccounts()}>
             {accountsChecking ? 'Checking…' : 'Check sign-ins'}
@@ -338,14 +337,14 @@
                 {@const account = accountFor(accounts, item.id)}
                 {@const note = limitsNote(account, item.name, accountsNow)}
                 <small class="sign-in" data-sign-in={account?.state}>{signInLine(account)}</small>
-                {#if accounts?.planLimits && account?.limits?.length}
+                {#if account?.limits?.length}
                   <ul class="limits" aria-label={`${item.name} plan limits`}>
                     {#each limitLines(account, accountsNow) as line (line.key)}
                       <li class:low={line.low}><span class="limit-meter" aria-hidden="true"><span style:width={`${line.left}%`}></span></span><span>{line.text}</span>{#if line.resets}<small>{line.resets}</small>{/if}</li>
                     {/each}
                   </ul>
                 {/if}
-                {#if accounts?.planLimits && note}<small class="limits-note">{note}</small>{/if}
+                {#if note}<small class="limits-note">{note}</small>{/if}
               {/if}
               <small class="model-state" aria-live="polite">{modelLine(read)}</small>
               {#if HINTED_TOOLS.includes(item.id)}
@@ -502,7 +501,7 @@
   .limit-meter { display: block; flex: none; width: 56px; height: 4px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
   .limit-meter > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
   .limits li.low .limit-meter > span { background: var(--warn); }
-  .limits-note, .limits-off, .sign-ins small { overflow-wrap: anywhere; }
+  .limits-note, .sign-ins small { overflow-wrap: anywhere; }
   .plan { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
   .plan p, .plan ol { margin: 0; }
   .plan ol { display: grid; gap: 4px; padding-left: 18px; }

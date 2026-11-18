@@ -56,7 +56,9 @@ func (f *modelsAPI) send(t *testing.T, cookie, method, path, body string) (int, 
 	return w.Code, out, w.Body.String()
 }
 
-func (f *modelsAPI) planLimits(t *testing.T, on bool) {
+// oldClientPlanLimits sends the setting an older web bundle still sends. The
+// controller accepts it and changes nothing: plan limits are always read.
+func (f *modelsAPI) oldClientPlanLimits(t *testing.T, on bool) {
 	t.Helper()
 	body := `{"planLimits":false}`
 	if on {
@@ -89,24 +91,26 @@ func accountEntry(t *testing.T, out map[string]any, tool string) map[string]any 
 	return nil
 }
 
-// Plan limits are off until the account turns them on: the first read asks
-// the machine for sign-ins only, and what it answers is kept and served.
-func TestMachineAccountsFirstReadAsksForSignInsOnly(t *testing.T) {
+// Plan limits are always read: the first read asks the machine for the
+// sign-ins and each plan's allowance, and what it answers is kept and served.
+func TestMachineAccountsFirstReadAsksForTheAllowance(t *testing.T) {
 	f := accountsFixture(t, accountsCaps())
 	code, out, raw := f.get(t, f.cookie, accountsPath(f.agent))
-	if code != 200 || out["state"] != "read" || out["planLimits"] != false || out["sentence"] != "" || out["checkedAt"] == nil {
+	// planLimits stays in the answer, always true, for an older web bundle that reads it.
+	if code != 200 || out["state"] != "read" || out["planLimits"] != true || out["sentence"] != "" || out["checkedAt"] == nil {
 		t.Fatal(code, raw)
 	}
 	claude := accountEntry(t, out, "claude")
-	if claude["state"] != "signed_in" || claude["account"] != "person@example.com" || claude["plan"] != "max" || claude["limitsState"] != "not_asked" || claude["limits"] != nil {
+	limits, _ := claude["limits"].([]any)
+	if claude["state"] != "signed_in" || claude["account"] != "person@example.com" || claude["plan"] != "max" || claude["limitsState"] != "read" || len(limits) != 2 || limits[0].(map[string]any)["usedPercent"] != float64(19) || limits[0].(map[string]any)["kind"] != "session" {
 		t.Fatal("claude", claude)
 	}
 	if codex := accountEntry(t, out, "codex"); codex["state"] != "none" {
 		t.Fatal("codex", codex)
 	}
 	sent := f.accountRequests()
-	if len(sent) != 1 || sent[0].Limits || sent[0].Refresh {
-		t.Fatalf("the machine was asked for the allowance of an account that never turned it on: %+v", sent)
+	if len(sent) != 1 || !sent[0].Limits || sent[0].Refresh {
+		t.Fatalf("the first read did not ask for the allowance, or asked for fresh figures: %+v", sent)
 	}
 	// A recent answer is served without asking again.
 	if code, out, raw = f.get(t, f.cookie, accountsPath(f.agent)); code != 200 || out["state"] != "read" || len(f.accountRequests()) != 1 {
@@ -130,39 +134,29 @@ func TestMachineAccountsAnOldAnswerIsReadAgain(t *testing.T) {
 	}
 }
 
-// Turning plan limits on asks the machine for the allowance at once, though
-// the kept answer is recent; turning them off stops showing the figures.
-func TestMachineAccountsPlanLimitsFollowTheAccountSetting(t *testing.T) {
+// An answer kept before plan limits were always read says not_asked for a
+// signed-in plan: it is no answer now, so it is read again at once though it
+// is recent. An older web bundle turning the old switch off changes nothing.
+func TestMachineAccountsAnAnswerWithoutTheAllowanceIsReadAgain(t *testing.T) {
 	f := accountsFixture(t, accountsCaps())
-	if code, _, raw := f.get(t, f.cookie, accountsPath(f.agent)); code != 200 {
-		t.Fatal(code, raw)
+	if err := f.st.SaveMachineAccountsFor(f.uid, f.agent, signedInAnswer(false).Accounts, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
 	}
-	f.planLimits(t, true)
 	code, out, raw := f.get(t, f.cookie, accountsPath(f.agent))
-	if code != 200 || out["planLimits"] != true {
-		t.Fatal(code, raw)
+	if code != 200 || accountEntry(t, out, "claude")["limitsState"] != "read" {
+		t.Fatal("an answer without the allowance was served as it was", code, raw)
 	}
-	sent := f.accountRequests()
-	if len(sent) != 2 || !sent[1].Limits || sent[1].Refresh {
-		t.Fatalf("turning plan limits on did not ask for them: %+v", sent)
+	if sent := f.accountRequests(); len(sent) != 1 || !sent[0].Limits {
+		t.Fatalf("the machine was not asked for the allowance: %+v", sent)
 	}
-	claude := accountEntry(t, out, "claude")
-	limits, _ := claude["limits"].([]any)
-	if claude["limitsState"] != "read" || len(limits) != 2 || limits[0].(map[string]any)["usedPercent"] != float64(19) || limits[0].(map[string]any)["kind"] != "session" {
-		t.Fatal("limits", claude)
-	}
-	// With the answer recent and made with limits, nothing is asked again.
-	if _, _, _ = f.get(t, f.cookie, accountsPath(f.agent)); len(f.accountRequests()) != 2 {
-		t.Fatal("a recent answer with limits was read again")
-	}
-	f.planLimits(t, false)
+	f.oldClientPlanLimits(t, false)
 	code, out, raw = f.get(t, f.cookie, accountsPath(f.agent))
-	claude = accountEntry(t, out, "claude")
-	if code != 200 || out["planLimits"] != false || claude["limits"] != nil || claude["limitsAt"] != nil || claude["limitsState"] != "not_asked" || claude["account"] != "person@example.com" {
-		t.Fatal("figures were shown with plan limits off", raw)
+	claude := accountEntry(t, out, "claude")
+	if code != 200 || out["planLimits"] != true || claude["limitsState"] != "read" || claude["limits"] == nil {
+		t.Fatal("the old switch hid the figures", raw)
 	}
-	if len(f.accountRequests()) != 2 {
-		t.Fatal("turning plan limits off asked the machine")
+	if len(f.accountRequests()) != 1 {
+		t.Fatal("the old switch made the machine be asked again")
 	}
 }
 
@@ -245,24 +239,22 @@ func TestMachineAccountsKeepTheLastAnswerWhenTheMachineCannotRead(t *testing.T) 
 	}
 }
 
-// A person-pressed read asks for fresh figures only when the account has
-// plan limits on, is rate limited, and is the only read that is audited. The
-// audit row names no account.
+// A person-pressed read always asks for fresh figures, is rate limited, and
+// is the only read that is audited. The audit row names no account.
 func TestMachineAccountsRefresh(t *testing.T) {
 	f := accountsFixture(t, accountsCaps())
 	code, out, raw := f.send(t, f.cookie, "POST", accountsPath(f.agent)+"/refresh", "")
-	if code != 200 || out["state"] != "read" {
+	if code != 200 || out["state"] != "read" || accountEntry(t, out, "claude")["limitsState"] != "read" {
 		t.Fatal(code, raw)
 	}
-	if sent := f.accountRequests(); len(sent) != 1 || sent[0].Limits || sent[0].Refresh {
-		t.Fatalf("a refresh with plan limits off asked for them: %+v", sent)
+	if sent := f.accountRequests(); len(sent) != 1 || !sent[0].Limits || !sent[0].Refresh {
+		t.Fatalf("a refresh did not ask for fresh figures: %+v", sent)
 	}
-	f.planLimits(t, true)
 	if code, _, raw = f.send(t, f.cookie, "POST", accountsPath(f.agent)+"/refresh", ""); code != 200 {
 		t.Fatal(code, raw)
 	}
 	if sent := f.accountRequests(); len(sent) != 2 || !sent[1].Limits || !sent[1].Refresh {
-		t.Fatalf("a refresh with plan limits on did not ask for fresh figures: %+v", sent)
+		t.Fatalf("a second refresh did not ask for fresh figures: %+v", sent)
 	}
 	events := worktreeEvents(t, f.st, f.uid, "machine-accounts-read")
 	if len(events) != 2 {
@@ -277,7 +269,7 @@ func TestMachineAccountsRefresh(t *testing.T) {
 	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if len(detail) != 3 || detail["machine"] != f.agent || detail["state"] != "read" || detail["limits"] == nil {
+	if len(detail) != 3 || detail["machine"] != f.agent || detail["state"] != "read" || detail["limits"] != true {
 		t.Fatal("audit detail", detail)
 	}
 	if code, _, raw := f.get(t, f.cookie, accountsPath(f.agent)); code != 200 || len(worktreeEvents(t, f.st, f.uid, "machine-accounts-read")) != 2 {
@@ -297,19 +289,27 @@ func TestMachineAccountsRefresh(t *testing.T) {
 	}
 }
 
-func TestProfilePlanLimitsIsOffUntilTurnedOn(t *testing.T) {
+// The old per-account switch is gone: the profile says plan limits are on for
+// every account, so an older web bundle shows the figures, and the setting it
+// may still send is accepted and changes nothing.
+func TestProfilePlanLimitsIsAlwaysOn(t *testing.T) {
 	f := accountsFixture(t, accountsCaps())
 	code, out, raw := f.get(t, f.cookie, "/api/v2/profile")
 	profile, _ := out["profile"].(map[string]any)
-	if code != 200 || profile["planLimits"] != false {
-		t.Fatal("plan limits are not off for a new account", code, raw)
+	if code != 200 || profile["planLimits"] != true {
+		t.Fatal("plan limits are not on for a new account", code, raw)
 	}
-	f.planLimits(t, true)
+	f.oldClientPlanLimits(t, false)
 	_, out, raw = f.get(t, f.cookie, "/api/v2/profile")
 	if profile, _ = out["profile"].(map[string]any); profile["planLimits"] != true {
-		t.Fatal("the setting was not kept", raw)
+		t.Fatal("an older client turned plan limits off", raw)
 	}
-	// Another setting saved later leaves it as it is.
+	for _, event := range worktreeEvents(t, f.st, f.uid, "profile") {
+		if strings.Contains(event.Detail, "planLimits") {
+			t.Fatal("a setting that changes nothing was audited", event.Detail)
+		}
+	}
+	// Another setting saved later leaves it on.
 	if code, _, raw := f.send(t, f.cookie, "PATCH", "/api/v2/profile", `{"worktreesByDefault":false}`); code != 200 {
 		t.Fatal(code, raw)
 	}

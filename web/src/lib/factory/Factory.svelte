@@ -328,8 +328,8 @@
     await load()
   }
   const when = (at: number) => formatWhen(at, timeZone, dateFormat)
-  // What is left of the plan of the agent doing a pipeline's stage in hand, where the outcome's machine reads sign-ins
-  // and the account has plan limits on. The same figures as the machine's settings; nothing is asked of the machine.
+  // What is left of the plan of the agent doing a pipeline's stage in hand, where the outcome's machine reads sign-ins.
+  // The same figures as the machine's settings; nothing is asked of the machine.
   let plans = $state<Record<string, MachineAccounts>>({}), planClock = $state(Date.now())
   let planMachines = $state<Map<string, string>>(new Map())
   const planAgents = $derived([...new Set(records.map(o => o.agentId).filter(id => id && planMachines.has(id)))].sort().join(','))

@@ -150,7 +150,7 @@ export async function machineModels(agentId: string, tool: string, signal?: Abor
 export async function refreshMachineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/models/refresh`, { method: 'POST', signal, body: JSON.stringify({ tool }) })).json()
 }
-/** Which of a machine's agents are signed in and, when the account has plan limits on, how much of each plan is left. The
+/** Which of a machine's agents are signed in and how much of each plan is left. The
  *  controller answers what it kept while that is recent, and otherwise asks the machine once. */
 export async function machineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts`, { signal })).json()

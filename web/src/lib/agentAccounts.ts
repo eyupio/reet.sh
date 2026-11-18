@@ -1,19 +1,18 @@
-// What a machine says of its agents' sign-ins, in words. The machine reads each agent's own sign-in files and, when the
-// account has plan limits on, asks the agent's provider from the machine with that sign-in; no credential reaches reet.
+// What a machine says of its agents' sign-ins, in words. The machine reads each agent's own sign-in files and asks the
+// agent's provider, from the machine with that sign-in, how much of the plan is left; no credential reaches reet.
 // These helpers only word the answer. Self-contained on purpose: the unit test loads this file alone.
 export type AccountLimit = { kind: 'session' | 'day' | 'week' | 'month'; label?: string; usedPercent: number; resetsAt?: number }
 export type AgentAccount = {
   tool: string; state: 'signed_in' | 'none' | 'unreadable'; method?: 'subscription' | 'api_key'; account?: string; plan?: string
   limitsState: 'read' | 'not_asked' | 'unsupported' | 'renew' | 'refused' | 'rate_limited' | 'failed'; limits?: AccountLimit[]; limitsAt?: number
 }
-/** A machine's answer as the controller serves it. `state` is "read", or why there is nothing newer; `planLimits` is the account's setting. */
+/** A machine's answer as the controller serves it. `state` is "read", or why there is nothing newer. `planLimits` is
+ *  always true now that plan limits are read for every account; it is kept for the shape of older answers. */
 export type MachineAccounts = { state: 'read' | 'offline' | 'update' | 'off' | 'busy' | 'failed'; sentence: string; planLimits: boolean; checkedAt: number | null; accounts: AgentAccount[] }
 export type LimitLine = { key: string; name: string; left: number; low: boolean; text: string; resets: string }
 
-/** The account setting's label and what turning it on does, said once for Settings and the machine page. */
-export const PLAN_LIMITS_LABEL = "Show how much of each agent's plan is left"
-export const PLAN_LIMITS_HELP = "Off until you turn it on. With it on, reet on each of your machines with terminal access on uses an agent's own sign-in to ask that agent's provider how much of your plan is left. The sign-in stays on the machine and is never renewed by reet; the controller is sent the account's name, the plan and percentages. Claude Code and Codex are read today. Which agents are signed in shows either way, read from files on the machine."
-export const PLAN_LIMITS_OFF_HINT = 'Plan limits are off. Turn them on in Settings > Agents to see how much of each plan is left.'
+/** What reet reads of each agent's plan, said once for Settings > Agents and the Usage page. */
+export const PLAN_LIMITS_HELP = "Each of your machines with terminal access on uses an agent's own sign-in to ask that agent's provider how much of your plan is left. The sign-in stays on the machine and is never renewed by reet; the controller is sent the account's name, the plan and percentages. Claude Code and Codex are read today."
 
 /** At or under this share of a window left, the figure is marked low. */
 export const LOW_LIMIT_PERCENT = 15
@@ -62,7 +61,7 @@ export function limitLines(account: AgentAccount | undefined, now: number): Limi
 export type PlanLeft = { label: string; left: number; summary: string; detail: string; low: boolean }
 /** The window with the least left is the one that will stop the agent first, so it is the one named. `summary` lists
  *  every window and `detail` adds when each starts again and, when the latest read failed, how old the figures are.
- *  Null when there are no figures: plan limits are off, the agent is not signed in to a plan, or it is not one reet reads. */
+ *  Null when there are no figures: the agent is not signed in to a plan, the plan has not been read yet, or it is not one reet reads. */
 export function planLeft(account: AgentAccount | undefined, now: number): PlanLeft | null {
   const lines = limitLines(account, now)
   if (!lines.length) return null
@@ -79,8 +78,8 @@ export function planLeft(account: AgentAccount | undefined, now: number): PlanLe
 /** One plan to draw: an agent's account on a machine that has figures for it. */
 export type PlanEntry = { key: string; tool: string; host: string; account: AgentAccount; plan: PlanLeft; stale: boolean }
 /** The plans across a set of machines, one per account. The same account signed in on two machines is one allowance,
- *  so it is listed once, from whichever machine read it last. An account with no figures (plan limits off, an API key,
- *  no sign-in) is left out. `stale` marks figures kept from a read that has since failed. */
+ *  so it is listed once, from whichever machine read it last. An account with no figures (an API key, no sign-in, a plan
+ *  not read yet) is left out. `stale` marks figures kept from a read that has since failed. */
 export function planEntries(machines: { host: string; answer: Pick<MachineAccounts, 'accounts'> | null | undefined }[], now: number): PlanEntry[] {
   const out = new Map<string, PlanEntry>()
   for (const machine of machines) for (const account of machine.answer?.accounts ?? []) {

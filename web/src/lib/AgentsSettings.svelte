@@ -9,7 +9,7 @@
   import { CATALOGUE } from './catalogue'
   import { KNOWN_SOURCES } from './clineSource'
   import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
-  import { PLAN_LIMITS_HELP, PLAN_LIMITS_LABEL } from './agentAccounts'
+  import { PLAN_LIMITS_HELP } from './agentAccounts'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -26,8 +26,6 @@
   let chatOn = $state<Record<string, boolean>>({})
   // Whether this account's machines read plan limits. Its box behaves as a gated chat's does: it applies at once, and a
   // refused save puts it back as the server has it.
-  let planLimits = $state(false)
-  let planLimitsBox = $state<HTMLInputElement | null>(null)
   // The checkboxes themselves: a click changes the box before the save answers, and Svelte does not write an unchanged
   // value back, so a refused save has to put the box back by hand.
   const chatBoxes: Record<string, HTMLInputElement | undefined> = {}
@@ -114,7 +112,6 @@
       if (life.signal.aborted) return
       fillProfile(answer.profile)
       chatOn = answer.chatEnabled ?? {}
-      planLimits = answer.profile.planLimits === true
     } catch (e) {
       if (life.signal.aborted) return
       fail(e)
@@ -431,23 +428,6 @@
     }
   }
 
-  async function togglePlanLimits(on: boolean) {
-    busy = 'limits'; formMessage = ''; notice = ''
-    try {
-      const answer = await saveProfile({ planLimits: on })
-      if (life.signal.aborted) return
-      planLimits = answer.profile.planLimits === true
-      notice = planLimits ? 'Plan limits are on. Each machine reads them the next time it is asked.' : 'Plan limits are off. No machine will ask a provider for them.'
-    } catch (err) {
-      if (life.signal.aborted) return
-      fail(err)
-      if (planLimitsBox) planLimitsBox.checked = planLimits
-      formMessage = err instanceof ApiError && err.message ? err.message : "Couldn't change that just now. Try again."
-    } finally {
-      if (!life.signal.aborted) busy = ''
-    }
-  }
-
   onMount(() => {
     const coarse = matchMedia('(pointer: coarse)')
     const readPointer = () => { touch = coarse.matches }
@@ -534,11 +514,11 @@
     {/each}
   </fieldset>
 
-  <fieldset class="chatgate" data-plan-limits disabled={!canWrite || loading || !profileLoaded || busy !== ''}>
-    <legend>Plan limits</legend>
+  <section class="usage" data-usage-note aria-labelledby="agents-usage-title">
+    <h3 id="agents-usage-title">Usage</h3>
     <p class="muted">{PLAN_LIMITS_HELP}</p>
-    <label class="check"><input type="checkbox" bind:this={planLimitsBox} checked={planLimits} onchange={event => void togglePlanLimits(event.currentTarget.checked)} /> <span>{PLAN_LIMITS_LABEL}</span></label>
-  </fieldset>
+    <p class="see"><a href="/usage">See all usage</a></p>
+  </section>
 
   <h3>Favourite models</h3>
   {#if favMessage}<p class="notice bad" role="alert">{favMessage}</p>{/if}
@@ -636,6 +616,10 @@
   .picker .value { min-width: 0; overflow-wrap: anywhere; }
   .picker .chev { flex: none; color: var(--muted); }
   .formacts { display: flex; justify-content: flex-end; }
+  .usage .see { margin: 4px 0 0; }
+  .usage .see a { display: inline-flex; align-items: center; min-height: 32px; color: var(--accent-text); }
+  .usage .see a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  @media (pointer: coarse) { .usage .see a { min-height: 44px; } }
   .chatgate { margin: 24px 0 0; padding: 0; border: 0; min-width: 0; }
   .chatgate legend { padding: 0; font: 600 1.02rem/1.3 var(--sans); }
   .chatgate .check { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-top: 8px; color: var(--ink); font-size: 0.95rem; }

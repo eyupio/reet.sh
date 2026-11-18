@@ -389,7 +389,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  // failed read keeps the last figures: they are the agent's last word, not a live gauge.
  let usage = $state<ChatUsage | null>(null)
  const usageView = $derived(chatUsageView(usage, toolName))
- // What is left of this agent's plan, where its machine reads sign-ins and the account has plan limits on: the same
+ // What is left of this agent's plan, where its machine reads sign-ins: the same
  // figures as the machine's settings, beside the context left. The controller answers from the machine's last read.
  let plans = $state<MachineAccounts | null>(null), planClock = $state(Date.now())
  const planView = $derived(planEntries([{ host: planHost, answer: plans }], planClock).filter(entry => entry.tool === tool))

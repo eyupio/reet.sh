@@ -5,6 +5,29 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Usage**: a new page, **More → Usage**, lists every agent in one place: how
+  much of each signed-in plan is left, and the tokens its chats and Factory
+  stages reported today, over the last 7 days or over the last 30 days (in your
+  own time zone), with the sessions behind the figures and Gaffer's own model
+  requests. An agent with nothing to show says why in a sentence: no sign-in on
+  a machine, an API key with no plan to read, an agent whose plan reet cannot
+  read, a read that failed, or terminal access off. The **Plan limits** panel
+  opened from the plan chips links to it with **See all usage**.
+- **Plan limits are always on**: each machine now reads how much of Claude
+  Code's and Codex's plans is left for every account. The switch in **Settings
+  → Agents** is gone; in its place a short note under **Usage** says what is
+  read and links to the page. Balancing a Factory stage to its backup now needs
+  only that the machine can read the agent's plan.
+
+  **Upgrading**: after this upgrade every machine with terminal access on asks
+  Claude Code's and Codex's providers, from the machine and with the agent's own
+  sign-in, how much of each plan is left, for every account, including accounts
+  that had never turned plan limits on. The sign-in stays on the machine; the
+  controller is sent the account's name, the plan and percentages, as before.
+  Token totals on the Usage page start from the day of the upgrade: nothing
+  earlier was dated. Counts are kept for 90 days; a report made while a machine
+  is disconnected is not counted.
+
 - **Navigation**: the main tabs now read Home, Sessions, Factory, Desks,
   Machines, Skills. **Desks** is on a phone's bottom bar (Home, Sessions,
   Factory, Desks, Machines, More) and in a tablet's top bar, instead of under

@@ -1,5 +1,38 @@
 # UI verification — 4 November 2026
 
+## Usage page, and plan limits always on (18 November 2026)
+
+What was checked: the new page at **More → Usage** (`web/src/lib/UsagePage.svelte`, words in `web/src/lib/usage.ts`),
+the **See all usage** link in the plan chips' **Plan limits** panel, and **Settings → Agents**, where the Plan limits
+switch is replaced by a sentence under **Usage** and the same link. Fixtures only; no real controller or machine.
+
+- `node src/lib/usage.test.mjs` (in `npm run test`): ranges from a named time zone, including across the clock
+  changes in London (25 October 2026) and New York (8 March 2026); the totals line with and without "counted since";
+  each agent's tokens line; each plan sentence; the remembered period with storage that throws.
+- `node web/tests/usage.e2e.mjs` (job `phone-chat` in `terminal-browser.yml`): the More item and its landing at 1440
+  and 390; every agent block in the catalogue's order with the right sentence for a plan account, an API-key sign-in,
+  no sign-in, an unreadable agent, a terminal-only agent, a failed read, terminal access off and no machine; the
+  period switch changing the request's range and the totals, remembered across a reload; the sessions table, and its
+  cards at 390 with 44 px links; the Factory and removed-from-history marks; the empty account; a quiet refresh that
+  fails keeping the last figures, then **Try again**; a refused read signing out; **See all usage** from Home's chips;
+  the Settings link; and at 320, 390, 834 and 1440 in light and dark: no sideways scroll, nothing under 14 px (the
+  agents' decorative marks aside), 44 px period buttons on touch, a visible focus ring.
+- `account.e2e.mjs` and `agent-accounts.e2e.mjs`: the switch is gone, the note and link are there, and a machine's
+  sign-ins never tell the person to turn plan limits on, even when an older controller's answer says `planLimits:false`.
+
+Captures, at device scale 2, each looked at:
+
+- ![Usage at 1440, light](images/ui/usage-1440-light.png) — six agent blocks in three columns, the Claude plan with
+  its low week window in the warning colour, the sessions table with numbers right-aligned.
+- ![Usage at 834, dark](images/ui/usage-834-dark.png) — two columns of agents; the table fits without scrolling. The
+  first capture broke model names at their hyphens over three lines; the model column now keeps one line and the
+  last-activity column wraps instead.
+- ![Usage at 390, light](images/ui/usage-390-light.png) — one column; sessions as cards. The bottom bar shows mid-page
+  because a full-page capture draws fixed bars where the window was.
+
+Also fixed after looking: an agent's sentence once read "Google Antigravity (AGY)'s plan"; it now says "this
+agent's plan". Not checked: a screen reader, a real tablet, and a real account's figures.
+
 ## Your Factory crew: choices from the machines (17 November 2026)
 
 What changed is in [handoff.md](../handoff.md) (CREW-CHOICES-1) and the [changelog](../CHANGELOG.md); what a person

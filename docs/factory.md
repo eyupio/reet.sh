@@ -148,7 +148,7 @@ Each tier can have a **Backup**: a second agent, model and effort.
 - A working agent is never interrupted. If a stage's agent stops, or its session ends, with its plan below your
   figure, the stage is run again on its backup in a new session in the same folder and branch, once for a stage.
 - The stage's facts in the detail say **Balanced** with the reason. A finished stage keeps it, and so does History.
-- Balancing needs [plan limits](agent-accounts.md) to be on for the machine, and figures no more than six hours old.
+- Balancing needs the machine to be able to read the agent's [plan](agent-accounts.md) (Claude Code and Codex today), and figures no more than six hours old.
   Without them every stage stays on its first choice.
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer

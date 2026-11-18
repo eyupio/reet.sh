@@ -385,6 +385,8 @@ of the chat's finished turns added up, with cached tokens counted apart.
 - It is the controller's own record (`GET /api/v2/terminal/sessions/{id}/chat/usage`), so an ended chat, or one whose
   machine is away, still shows its last figures. No machine is asked.
 - The machine and the controller both need `acp-usage-v1`; an older machine reports nothing and the line stays empty.
+- Every report that carries tokens is also dated, so the [Usage page](usage.md) (More → **Usage**) can add them up
+  per agent for today, 7 days or 30 days, with the sessions behind them, even after a chat is removed from the history.
 
 The field names reet reads (`used` and `size` on a `usage_update`; `inputTokens`, `outputTokens`, `cachedReadTokens`
 and `cachedWriteTokens` on a finished turn) were checked against the published Agent Client Protocol schema

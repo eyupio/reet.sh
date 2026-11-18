@@ -1,35 +1,38 @@
 # Agent sign-ins and plan limits
 
-A machine can say which of its AI agents are signed in, whose account it is and which plan it is on. When your account
-turns **plan limits** on, the machine also reads how much of each plan's allowance is left: the session window, the
-week, and any window a plan keeps for one model. Both are read on the machine. No credential reaches the reet
+A machine can say which of its AI agents are signed in, whose account it is and which plan it is on, and how much of
+each plan's allowance is left: the session window, the week, and any window a plan keeps for one model. This is read
+for every account; there is no switch. Both are read on the machine. No credential reaches the reet
 controller: an answer is a state, a name, a plan word and whole percentages.
 
-Claude Code and Codex are read today. Every other agent shows nothing here: reet cannot tell, and does not guess.
+Claude Code and Codex are read today. Every other agent shows nothing here: reet cannot tell, and does not guess. The
+[Usage page](usage.md) lists every agent and says, for each one with no figure, why.
 
 ## What you see
 
 - **Machines → a machine's ⋮ → Settings… → Agents.** A **Sign-ins** row says when the machine last read them, with
   **Check sign-ins** to ask it now. Each agent it can read then says *Signed in as person@example.com · Max plan*,
-  *Signed in with an API key*, *No sign-in found on this machine*, or that reet can't read the sign-in. With plan
-  limits on, a signed-in plan lists its windows as what is left (*Session 81% left · resets in 2 h 10 min*), marked when
+  *Signed in with an API key*, *No sign-in found on this machine*, or that reet can't read the sign-in. A signed-in plan lists its windows as what is left (*Session 81% left · resets in 2 h 10 min*), marked when
   15% or less is left.
 - **Start an agent.** If the machine looked and found no sign-in for the chosen agent, the dialog says so before you
   start, because the agent would refuse its first message. It is advice: nothing is disabled, and a machine that has
   not answered yet shows nothing.
-- **Plan meters**, with plan limits on, wherever the work is. Each account is a chip: the agent's mark, the share
+- **Plan meters**, wherever the work is. Each account is a chip: the agent's mark, the share
   left of the window with the least left (the one that stops the agent first) and a hairline meter under it. A chip
   turns to the warning colour at 15% or less; figures kept from a read that has since failed are dimmed and never
   alarm. A mouse over the chips, or keyboard focus on them, lists every account's windows; a click or a tap opens
   **Plan limits**: per account its agent, plan and address, then each window with when it resets and a meter, which
-  machine read it and how long ago, and why if the latest read failed. Escape or a click elsewhere closes it.
-  - **Home**, at the start of the summary line, and the **Sessions** toolbar: every account across your machines.
+  machine read it and how long ago, and why if the latest read failed, with **See all usage**, which opens the
+  [Usage page](usage.md). Escape or a click elsewhere closes it.
+  - **Home**, in the page head beside the counts, and the **Sessions** toolbar: every account across your machines.
     The same account signed in on two machines is one allowance, so it is one chip, from the machine that read it
     last. More than fit fold into **+N**; the panel lists them all.
   - **A chat's status strip**, beside the context left: the plan of that chat's agent.
-  - **A Factory pipeline's card**, as **Plan left**: the plan of the agent doing the stage in hand, with its windows
-    in words, until the pipeline is done.
-- **Settings → Agents → Plan limits.** The switch for your account, off until you turn it on.
+  - **A Factory pipeline's detail**, as **Plan left** among the stage's facts: the plan of the agent doing the stage
+    in hand, with its windows in words, until the pipeline is done.
+- **Usage** (More → Usage): every agent, each account's plan left, and the tokens its sessions reported. See
+  [Usage](usage.md).
+- **Settings → Agents → Usage.** A sentence on what is read, and a link to the Usage page. There is no switch.
 
 These show the figures each machine last read, which the controller keeps; they look again every two minutes and
 never ask a machine to read. Only machines that read sign-ins are asked. An agent with no plan to read (an API key,
@@ -55,7 +58,7 @@ What this cannot see is said plainly rather than guessed:
 - A folder variable that is not an absolute path, a file that is not a plain file, one over 256 KiB or one that does
   not parse reads as unreadable.
 
-Plan limits, only when your account has them on. The machine asks the agent's own provider, with the agent's own
+Plan limits, for every account. The machine asks the agent's own provider, with the agent's own
 sign-in, from the machine:
 
 | Agent | Asked | Windows |
@@ -86,9 +89,9 @@ last figures it read.
 
 - **Terminal access.** A machine reports the capability, and answers a request, only while terminal access is on
   there, and it reads the switch again for each request. With access off the page says so and nothing is read.
-- **Your account's setting.** Plan limits are off for every account until it turns them on in **Settings → Agents**.
-  With them off the controller asks machines for sign-ins only, and figures kept from when they were on are no longer
-  shown. There is no extra switch on the machine.
+- **No account setting.** Plan limits are read for every account. Earlier versions kept them off until an account
+  turned them on in **Settings → Agents**; that switch is gone, and an older browser tab that still sends it changes
+  nothing. There is no switch on the machine either: terminal access is the machine's gate.
 - **Who can ask.** The routes sit behind the same account sign-in and role as the other terminal routes; another
   account's machine answers as an offline one and shows nothing.
 
@@ -120,13 +123,14 @@ GET  /api/v2/machines/{agentId}/accounts            # the kept answer while rece
 POST /api/v2/machines/{agentId}/accounts/refresh    # a person asking now
 ```
 
-A read serves the kept answer for five minutes. An older one, none, or one made before the account turned plan limits
-on has an online machine asked once, synchronously (14 seconds at most). A machine that cannot be asked answers with
+A read serves the kept answer for five minutes. An older one, none, or one kept before plan limits were read for every
+account (it says `not_asked` for a signed-in plan) has an online machine asked once, synchronously (14 seconds at most). A machine that cannot be asked answers with
 what was kept and a `state` saying why it is not newer: `offline`, `update` (an older reet there), `off` (terminal
-access), `busy` or `failed`. The response is `{state, sentence, planLimits, checkedAt, accounts}`.
+access), `busy` or `failed`. The response is `{state, sentence, planLimits, checkedAt, accounts}`; `planLimits` is always `true`, kept for older
+browser tabs.
 
 A refresh is limited to 6 a minute per account and machine and writes the `machine-accounts-read` audit row, which
-names the machine, the outcome and whether limits were asked for, never an account or plan.
+names the machine, the outcome and that limits were asked for, never an account or plan.
 
 ## What is here, and what is next
 
@@ -135,4 +139,4 @@ providers' present answers were not observed: the request and field names follow
 endpoints were seen to exist: asked with no sign-in, one answered 401 and the other a rate limit, neither not-found.
 Not done: GitHub Copilot, Google
 Antigravity, OpenCode and Cline; the macOS keychain and system keyrings; several accounts for one agent; signing in
-from the browser; limits beside a session or in the sessions list.
+from the browser.

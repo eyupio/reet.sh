@@ -414,7 +414,7 @@
                     <dd><span class="saved-part">Agent</span> {chatToolName(row.tool)}<span class="saved-sep" aria-hidden="true">·</span><span class="saved-part">Model</span> {row.model || 'Agent’s default model'}</dd>
                   </div>{/each}
                 </dl>
-                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. Every stage uses its tier’s choice; you can change them for this outcome below.</p>
+                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. The crew below starts from these; a saved agent this machine cannot run falls back to the outcome’s own agent. You can change them for this outcome below.</p>
               {:else if crewRead === 'failed'}
                 <p class="hint">Your Gaffer settings could not be read. Each stage will use the agent and model you choose below. <a href="/account/gaffer">Open Gaffer settings</a>.</p>
               {:else}

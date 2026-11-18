@@ -32,8 +32,8 @@ const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 
 const oid='e'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
-function fixture({planFails=false,settles=true,crew=null}={}){
-  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewSaves:[]}
+function fixture({planFails=false,settles=true,crew=null,crewFails=false}={}){
+  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewFails,crewSaves:[]}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -58,7 +58,7 @@ function fixture({planFails=false,settles=true,crew=null}={}){
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     // The account's crew: read when the dialog opens, saved only when the person asks.
-    '/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crew=request.postDataJSON();box.crewSaves.push(box.crew)}return {crew:box.crew??{light:{},standard:{},heavy:{}},saved:!!box.crew,tiers:['light','standard','heavy'],defaults:{}}},
+    '/api/v2/gaffer/crew':request=>{if(box.crewFails&&request.method()==='GET')return{status:500,json:{error:'The crew could not be read.'}};if(request.method()==='PUT'){box.crew=request.postDataJSON();box.crewSaves.push(box.crew)}return {crew:box.crew??{light:{},standard:{},heavy:{}},saved:!!box.crew,tiers:['light','standard','heavy'],defaults:{}}},
     '/api/v2/folder-projects':{projects,savedWaiting:0},
     '/api/v2/settings/yolo':{allowed:true,changedBy:'owner@example.test'},
     '/api/v2/machines/a1/uploads':request=>{expect(request.method()).toBe('POST');box.uploads++;if(box.uploadFails)return{status:502,json:{error:'The image could not be uploaded.'}};return{status:200,headers:{'X-Reet-Upload-Path':'/home/dev/launch-uploads/outcome.png','X-Reet-Upload-Reference':'/home/dev/launch-uploads/outcome.png'},json:{uploaded:'true'}}},
@@ -443,6 +443,20 @@ try {
       await w.page.keyboard.press('Escape');await expect(outcome).toHaveCount(0)
       await expect(w.page.getByRole('button',{name:'Give Gaffer an outcome',exact:true})).toBeFocused()
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`]);expect(f.box.approved).toEqual([]);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // Gaffer settings cannot be read: the dialog says so and leaves the crew to the person, rather than failing or showing
+  // blank settings as if none were saved.
+  {
+    const f=fixture({crewFails:true}),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const {outcome}=await openOutcome(w)
+      const fromSettings=outcome.getByRole('region',{name:'Your Gaffer settings',exact:true})
+      await expect(fromSettings).toContainText('Your Gaffer settings could not be read.')
+      await expect(fromSettings).toContainText('Each stage will use the agent and model you choose below.')
+      await expect(fromSettings).not.toContainText('No crew is saved')
+      expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
   // The optional image on an outcome: validation, removal, planning stays text-only, one upload at approval,

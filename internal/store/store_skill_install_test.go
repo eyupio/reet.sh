@@ -627,3 +627,21 @@ func TestInstallReplacesAStaleSameSlugAndCancelRestoresIt(t *testing.T) {
 		})
 	}
 }
+
+// A machine that follows the library takes no install jobs: every Active
+// skill reaches it already. The refusal writes nothing.
+func TestInstallRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
+	e := installFixture(t)
+	if err := e.s.SetAgentSkillsProtocolFor(e.uid, e.agent.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	before := e.dump(t)
+	_, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+	var refused *InstallError
+	if !errors.As(err, &refused) || refused.Code != "follows-library" {
+		t.Fatalf("install: %v", err)
+	}
+	if after := e.dump(t); after != before {
+		t.Fatalf("a refused install wrote:\n%s\nwas:\n%s", after, before)
+	}
+}

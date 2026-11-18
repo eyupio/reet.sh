@@ -280,3 +280,27 @@ func TestMachineCaptureReusesTheSkillsBundle(t *testing.T) {
 		t.Fatalf("the second capture used another bundle: %+v", again.Receipt)
 	}
 }
+
+// A copy from one machine to another is not turned into job-based sync on a
+// destination that follows the library: that machine gets its skills from the
+// library, and the transfer says so.
+func TestMachineSkillSyncDoesNotAdvanceToAMachineThatFollowsTheLibrary(t *testing.T) {
+	s, uid, a, b, _, r, files := machineSyncFixture(t)
+	r = finishMachineCopy(t, s, uid, a, r, files)
+	if err := s.SetAgentSkillsProtocolFor(uid, b.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AdvanceMachineSkillSyncs(uid, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.RemoteImportFor(uid, r.ID)
+	if err != nil || current.SyncRunID != "" || current.SyncError != ErrAgentFollowsLibrary.Error() {
+		t.Fatalf("transfer: %+v %v", current, err)
+	}
+	if targets, _ := s.SyncTargetsFor(uid); len(targets) != 0 {
+		t.Fatalf("a saved set was written for it: %+v", targets)
+	}
+	if jobs, _ := s.SyncJobsFor(uid); len(jobs) != 0 {
+		t.Fatalf("jobs: %+v", jobs)
+	}
+}

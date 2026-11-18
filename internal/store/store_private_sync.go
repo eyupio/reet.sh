@@ -196,6 +196,22 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 		return e
 	}
 
+	// A destination that follows the library gets its skills from there, so
+	// the transfer stops here and says why.
+	var destHost string
+	if e = s.db.QueryRow(`SELECT host FROM environments WHERE id=? AND user_id=?`, r.DestinationID, uid).Scan(&destHost); e != nil && !errors.Is(e, sql.ErrNoRows) {
+		return e
+	}
+	if destHost != "" {
+		follows, e := s.HostOnSkillsProtocolFor(uid, destHost)
+		if e != nil {
+			return e
+		}
+		if follows {
+			return ErrAgentFollowsLibrary
+		}
+	}
+
 	// Serialize destination work, including reviews. Updating a desired
 	// revision while a prior transfer applies would invalidate its plan.
 	var busy int

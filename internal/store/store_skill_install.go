@@ -160,6 +160,11 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if !online {
 			return offline
 		}
+		if err = refuseJobsForSkillsAgentTx(tx, uid, in.AgentID); errors.Is(err, ErrAgentFollowsLibrary) {
+			return installRefused("follows-library", host+" now follows your library, so every Active skill is already there. Add this skill to your library to put it on "+host+".")
+		} else if err != nil {
+			return err
+		}
 		var skill SyncSkill
 		found := false
 		if hostedErr != nil {

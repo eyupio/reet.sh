@@ -86,6 +86,7 @@ type server struct {
 	skillCopies      sync.WaitGroup
 	original         originalCache
 	originalTTL      time.Duration
+	skillPollKicks   pollKicks
 
 	sso                *oidc.Provider
 	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time

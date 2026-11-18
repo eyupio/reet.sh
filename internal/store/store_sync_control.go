@@ -501,26 +501,81 @@ const CurrentSkillsProtocol = 2
 // updated.
 const SkillsNeedUpdate = "needs-update"
 
+// SkillsNeedNewerController is the SkillsState of an agent above
+// CurrentSkillsProtocol: this controller is older than reet on the machine.
+const SkillsNeedNewerController = "needs-newer-controller"
+
+// ErrAgentFollowsLibrary refuses job-based sync for a machine on the skills
+// protocol: its skills follow the library.
+var ErrAgentFollowsLibrary = errors.New("This machine now follows your library, so it takes no sync jobs.")
+
 // SetSkillsProtocol sets the agent's skills protocol and the state it gives.
 func (a *SyncAgent) SetSkillsProtocol(protocol int) {
 	a.SkillsProtocol, a.SkillsState = protocol, ""
-	if protocol < CurrentSkillsProtocol {
+	switch {
+	case protocol < CurrentSkillsProtocol:
 		a.SkillsState = SkillsNeedUpdate
+	case protocol > CurrentSkillsProtocol:
+		a.SkillsState = SkillsNeedNewerController
 	}
 }
 
+// syncJobNotNeeded closes the job-based sync work a machine had waiting when
+// it moves onto the skills protocol.
+const syncJobNotNeeded = "This machine now follows your library; this job is no longer needed."
+
 // SetAgentSkillsProtocolFor records the skills protocol an agent announced in
-// X-Reet-Skills-Protocol. An agent below 2 gets no skill work.
+// X-Reet-Skills-Protocol. An agent below 2 gets no skill work. When a machine
+// moves onto the protocol (or a newer one) its waiting job-based sync work is
+// closed, once, saying why: it follows the library from then on. Its update
+// jobs stay.
 func (s *Store) SetAgentSkillsProtocolFor(uid int64, agentID string, protocol int) error {
-	_, err := s.db.Exec(`UPDATE sync_agents SET skills_protocol=? WHERE id=? AND user_id=?`, protocol, agentID, uid)
+	return s.withTx(func(tx *sql.Tx) error {
+		var was int
+		err := tx.QueryRow(`SELECT skills_protocol FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&was)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && was == protocol {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`UPDATE sync_agents SET skills_protocol=? WHERE id=? AND user_id=?`, protocol, agentID, uid); err != nil {
+			return err
+		}
+		if was >= CurrentSkillsProtocol || protocol < CurrentSkillsProtocol {
+			return nil
+		}
+		if _, err = tx.Exec(`UPDATE sync_runs SET status='cancelled',updated_at=? WHERE user_id=? AND agent_id=? AND status IN ('running','review')`, now(), uid, agentID); err != nil {
+			return err
+		}
+		return endSyncJobsTx(tx, "cancelled", syncJobNotNeeded, `j.user_id=? AND j.agent_id=? AND j.kind<>'update' AND j.status IN ('queued','awaiting-approval')`, uid, agentID)
+	})
+}
+
+// refuseJobsForSkillsAgentTx refuses job-based sync for a machine on the
+// skills protocol or a newer one: its skills follow the library.
+func refuseJobsForSkillsAgentTx(q privateSkillQuery, uid int64, agentID string) error {
+	var protocol int
+	err := q.QueryRow(`SELECT skills_protocol FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&protocol)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err == nil && protocol >= CurrentSkillsProtocol {
+		return ErrAgentFollowsLibrary
+	}
 	return err
 }
 
-// HostOnSkillsProtocolFor reports whether the machine named host (compared
-// without case) has an agent on CurrentSkillsProtocol, as last recorded.
+// HostOnSkillsProtocolFor reports whether the machine named host, or a machine
+// it is an alias of (compared without case), has an agent on
+// CurrentSkillsProtocol or a newer one, as last recorded.
 func (s *Store) HostOnSkillsProtocolFor(uid int64, host string) (bool, error) {
+	host, err := s.ResolveMachineHostFor(uid, host)
+	if err != nil {
+		return false, err
+	}
 	var on bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE AND skills_protocol=?)`, uid, host, CurrentSkillsProtocol).Scan(&on)
+	err = s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE AND skills_protocol>=?)`, uid, host, CurrentSkillsProtocol).Scan(&on)
 	return on, err
 }
 
@@ -678,6 +733,9 @@ func (s *Store) QueueSyncJob(uid int64, agentID, targetID, kind string) (SyncJob
 	// remain exclusive, duplicate previews are rejected, and ClaimSyncJob
 	// serialises execution on each machine. Approval still requires an exact hash.
 	err := s.withTx(func(tx *sql.Tx) error {
+		if err := refuseJobsForSkillsAgentTx(tx, uid, agentID); err != nil {
+			return err
+		}
 		var n int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND kind<>'update' AND status IN ('queued','running','awaiting-approval') AND (?='scan' OR kind!='preview' OR target_id=?)`, agentID, kind, targetID).Scan(&n); err != nil {
 			return err

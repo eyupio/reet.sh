@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -318,5 +319,136 @@ func TestAgentsCarryTheirSkillsProtocol(t *testing.T) {
 	authed.SetSkillsProtocol(1)
 	if authed.SkillsProtocol != 1 || authed.SkillsState != SkillsNeedUpdate {
 		t.Fatalf("set below 2: %+v", authed)
+	}
+	authed.SetSkillsProtocol(CurrentSkillsProtocol + 1)
+	if authed.SkillsState != SkillsNeedNewerController {
+		t.Fatalf("set above the controller's: %+v", authed)
+	}
+}
+
+// A machine is on the skills protocol whether it is named by its own name or
+// by an alias a merge left, and at a newer protocol too: it takes no job-based
+// sync either way.
+func TestHostOnSkillsProtocolResolvesAliases(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	a, _, err := s.EnrollSyncAgent(uid, "studio", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "old-studio", "studio"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(host string, want bool) {
+		t.Helper()
+		on, err := s.HostOnSkillsProtocolFor(uid, host)
+		if err != nil || on != want {
+			t.Fatalf("%s: %t %v, want %t", host, on, err, want)
+		}
+	}
+	check("studio", false)
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	check("STUDIO", true)
+	check("Old-Studio", true)
+	check("elsewhere", false)
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol+1); err != nil {
+		t.Fatal(err)
+	}
+	check("old-studio", true)
+}
+
+const followsLibraryMessage = "This machine now follows your library; this job is no longer needed."
+
+// When a machine first announces the skills protocol, its queued job-based
+// sync work is closed, once, saying why; its update job stays.
+func TestSkillsProtocolClosesOldJobsOnce(t *testing.T) {
+	s, uid, _ := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan, err := s.QueueSyncJob(uid, a.ID, "", "scan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := "waiting-" + scan.ID
+	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'','preview','awaiting-approval','',1,1)`, waiting, uid, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	update, err := s.QueueAgentUpdate(uid, a.ID, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	status := func() map[string]SyncJob {
+		t.Helper()
+		jobs, err := s.SyncJobsFor(uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]SyncJob{}
+		for _, j := range jobs {
+			out[j.ID] = j
+		}
+		return out
+	}
+	jobs := status()
+	for _, id := range []string{scan.ID, waiting} {
+		if j := jobs[id]; j.Status != "cancelled" || j.Message != followsLibraryMessage {
+			t.Fatalf("%s: %+v", id, j)
+		}
+	}
+	if j := jobs[update.ID]; j.Status != "queued" {
+		t.Fatalf("the update job: %+v", j)
+	}
+	// Only the change closes jobs: the same protocol again leaves a job alone.
+	late := "late-" + scan.ID
+	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'','scan','queued','',2,2)`, late, uid, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if j := status()[late]; j.Status != "queued" {
+		t.Fatalf("the same protocol again closed a job: %+v", j)
+	}
+}
+
+// A machine on the skills protocol is given no job-based sync: queueing one
+// is refused, while an update is still queued.
+func TestJobBasedSyncRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
+	s, uid, _ := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueSyncJob(uid, a.ID, "", "scan"); !errors.Is(err, ErrAgentFollowsLibrary) {
+		t.Fatalf("queue a scan: %v", err)
+	}
+	if err = s.withTx(func(tx *sql.Tx) error {
+		_, err := insertSyncJobTx(tx, uid, a.ID, "", "auto")
+		return err
+	}); !errors.Is(err, ErrAgentFollowsLibrary) {
+		t.Fatalf("queue an automatic sync: %v", err)
+	}
+	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err != nil {
+		t.Fatalf("queue an update: %v", err)
+	}
+	if err = s.SyncLibraryMachineFor(uid, "owner", "https://reet.example", a.ID); err != nil {
+		t.Fatalf("sync one machine that follows the library: %v", err)
+	}
+	if err = s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
+		t.Fatalf("sync all machines: %v", err)
+	}
+	jobs, err := s.SyncJobsFor(uid)
+	if err != nil || len(jobs) != 1 || jobs[0].Kind != "update" {
+		t.Fatalf("jobs: %+v %v", jobs, err)
 	}
 }

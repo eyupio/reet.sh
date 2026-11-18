@@ -155,6 +155,9 @@ func (s *Store) startSyncRun(uid int64, agentID string, targetIDs []string, idem
 }
 
 func insertSyncJobTx(tx *sql.Tx, uid int64, agentID, targetID, kind string) (SyncJob, error) {
+	if err := refuseJobsForSkillsAgentTx(tx, uid, agentID); err != nil {
+		return SyncJob{}, err
+	}
 	revision := ""
 	if targetID != "" {
 		var targetHost, agentHost string

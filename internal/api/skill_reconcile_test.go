@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,10 +180,15 @@ func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The machine's first poll on the protocol closed its job-based work,
+	// saying why, and no more can be queued for it.
 	for _, j := range jobs {
-		if j.ID == scan.ID && j.Status != "queued" {
-			t.Fatalf("the scan job moved: %+v", j)
+		if j.ID == scan.ID && (j.Status != "cancelled" || j.Message != "This machine now follows your library; this job is no longer needed.") {
+			t.Fatalf("the scan job: %+v", j)
 		}
+	}
+	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "follows your library") {
+		t.Fatalf("queueing a scan: %d %s", code, raw)
 	}
 }
 
@@ -280,17 +286,17 @@ func TestReportEndpointRecords(t *testing.T) {
 func TestReportBodyIsBoundedAndStrict(t *testing.T) {
 	e := newReconcileEnv(t)
 	many := store.SkillReport{Version: "v1"}
-	for i := range 4097 {
+	for i := range 8193 {
 		many.Entries = append(many.Entries, store.SkillReportEntry{Folder: "~/.agents/skills", Name: fmt.Sprintf("s%d", i), State: "unknown"})
 	}
 	tooMany, _ := json.Marshal(many)
-	huge, _ := json.Marshal(store.SkillReport{Version: "v1", Entries: []store.SkillReportEntry{{Folder: "~/.agents/skills", Name: "x", State: "failed", Detail: strings.Repeat("x", 5<<20)}}})
+	huge, _ := json.Marshal(store.SkillReport{Version: "v1", Entries: []store.SkillReportEntry{{Folder: "~/.agents/skills", Name: "x", State: "failed", Detail: strings.Repeat("x", 9<<20)}}})
 	for name, bad := range map[string]string{
 		"not json":     `nope`,
 		"unknown":      `{"Version":"v1","Entries":[],"Extra":true}`,
 		"trailing":     `{"Version":"v1"} {}`,
-		"4097 entries": string(tooMany),
-		"over 4 MiB":   string(huge),
+		"8193 entries": string(tooMany),
+		"over 8 MiB":   string(huge),
 	} {
 		if code, raw := e.call(t, "/api/v2/sync/skills/report", bad, true); code != 400 {
 			t.Fatalf("%s: %d %.200s", name, code, raw)
@@ -301,6 +307,12 @@ func TestReportBodyIsBoundedAndStrict(t *testing.T) {
 	}
 	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1","Entries":[]}`, true); code != 200 {
 		t.Fatalf("an empty report: %d %s", code, raw)
+	}
+	// As many entries as four folders of the most skills reet holds, and more.
+	many.Entries = many.Entries[:8192]
+	full, _ := json.Marshal(many)
+	if code, raw := e.call(t, "/api/v2/sync/skills/report", string(full), true); code != 200 {
+		t.Fatalf("8192 entries: %d %.200s", code, raw)
 	}
 }
 
@@ -414,29 +426,50 @@ func TestReportKeepsEditedBackups(t *testing.T) {
 	}
 }
 
+// scanItem is one sighting in an inventory scan, as `reet scan` posts it.
+type scanItem struct {
+	Name    string `json:"name"`
+	Source  string `json:"source,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Agent   string `json:"agent,omitempty"`
+	Project string `json:"project,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
 // scanImport posts an inventory scan from elitebook's home folders, as
 // `reet scan` does: one sighting in ~/.agents/skills for each name in home, and
 // one entry for each name in locked, a skill a lock file names with no folder.
 func (e reconcileEnv) scanImport(t *testing.T, home []string, locked ...string) {
 	t.Helper()
-	type item struct {
-		Name   string `json:"name"`
-		Source string `json:"source,omitempty"`
-		Host   string `json:"host,omitempty"`
-		Agent  string `json:"agent,omitempty"`
-		Path   string `json:"path,omitempty"`
-	}
-	in := map[string]any{"machine": map[string]string{"host": "elitebook"}, "prune": true,
-		"environments": []map[string]any{{"host": "elitebook", "agent": "agents", "path": ".agents/skills", "skills": home}}}
-	items := []item{}
+	items := []scanItem{}
 	for _, name := range home {
-		items = append(items, item{Name: name, Host: "elitebook", Agent: "agents", Path: ".agents/skills"})
+		items = append(items, scanItem{Name: name, Host: "elitebook", Agent: "agents", Path: ".agents/skills"})
 	}
 	for _, name := range locked {
-		items = append(items, item{Name: name, Source: "owner/repo"})
+		items = append(items, scanItem{Name: name, Source: "owner/repo"})
 	}
-	in["items"] = items
-	body, _ := json.Marshal(in)
+	e.scanItems(t, "elitebook", items...)
+}
+
+// scanItems posts an inventory scan from machine with exactly items.
+func (e reconcileEnv) scanItems(t *testing.T, machine string, items ...scanItem) {
+	t.Helper()
+	envs := map[string]map[string]any{}
+	for _, it := range items {
+		if it.Host == "" {
+			continue
+		}
+		key := it.Agent + "\x00" + it.Project
+		if envs[key] == nil {
+			envs[key] = map[string]any{"host": it.Host, "agent": it.Agent, "project": it.Project, "path": it.Path, "skills": []string{}}
+		}
+		envs[key]["skills"] = append(envs[key]["skills"].([]string), it.Name)
+	}
+	environments := []map[string]any{}
+	for _, env := range envs {
+		environments = append(environments, env)
+	}
+	body, _ := json.Marshal(map[string]any{"machine": map[string]string{"host": machine}, "prune": true, "environments": environments, "items": items})
 	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/import", string(body), "X-Reet-Token", "fixture-owner"); code != 200 {
 		t.Fatalf("scan import: %d %s", code, raw)
 	}
@@ -469,6 +502,12 @@ func TestScanOfAProtocol2MachineMakesNoLibraryItems(t *testing.T) {
 	}
 	e.poll(t, "", true)
 	e.scanImport(t, []string{"cq", "find-skills"}, "locked")
+	// Codex's folder is never synced, but a skill there is still the
+	// machine's own: installed with a source or left after a delete, it must
+	// not become a library item that is fetched or spread.
+	e.scanItems(t, "elitebook",
+		scanItem{Name: "codex-linked", Source: "owner/repo", Host: "elitebook", Agent: "codex", Path: ".codex/skills"},
+		scanItem{Name: "codex-local", Host: "elitebook", Agent: "codex", Path: ".codex/skills"})
 	names := e.libraryNames(t)
 	if _, ok := names["cq"]; ok || len(names) != 1 {
 		t.Fatalf("the scan made library items: %+v", names)
@@ -495,7 +534,7 @@ func TestScanOfAProtocol2MachineMakesNoLibraryItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range needs {
-		if n.Name == "cq" || n.Name == "locked" {
+		if n.Name == "cq" || n.Name == "locked" || strings.HasPrefix(n.Name, "codex-") {
 			t.Fatalf("the copy worker plans a copy of %s: %+v", n.Name, needs)
 		}
 	}
@@ -520,5 +559,121 @@ func TestScanOfAnOlderMachineStillMakesLibraryItems(t *testing.T) {
 	}
 	if _, ok := names["locked"]; !ok {
 		t.Fatalf("an older machine's scan made no item of its lock entry: %+v", names)
+	}
+}
+
+// A project folder is not the machine's home: until Task 14 its skills keep
+// today's import, on any machine.
+func TestScanOfAProjectFolderStillMakesLibraryItems(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", true)
+	e.scanItems(t, "elitebook", scanItem{Name: "in-project", Host: "elitebook", Agent: "claude", Project: "/home/u/code/app", Path: "/home/u/code/app/.claude/skills"})
+	if _, ok := e.libraryNames(t)["in-project"]; !ok {
+		t.Fatal("a project sighting made no item")
+	}
+}
+
+// Names a person types into the import are their choice: they are never held
+// back, whichever machine is named beside them.
+func TestTypedImportIsNeverGated(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", true)
+	body := `{"machine":{"host":"elitebook"},"text":"typed-skill\n"}`
+	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/import", body, "X-Reet-Token", "fixture-owner"); code != 200 {
+		t.Fatalf("import: %d %s", code, raw)
+	}
+	if _, ok := e.libraryNames(t)["typed-skill"]; !ok {
+		t.Fatal("a typed name made no item")
+	}
+}
+
+// Polls kick the copy worker at most once every 30 seconds per account; the
+// first poll always does, and every report does.
+func TestPollKicksCopiesAtMostEvery30Seconds(t *testing.T) {
+	e := newReconcileEnv(t)
+	var clock atomic.Int64
+	kicks := &e.api.s.skillPollKicks
+	kicks.mu.Lock()
+	kicks.now = func() time.Time { return time.UnixMilli(clock.Load()) }
+	kicks.mu.Unlock()
+	// A fetch that finds nothing to keep and records no problem, so each kick
+	// tries again and counts.
+	e.fetch.set("", errNoSkillFetcher)
+	r, err := ref.Parse("vercel-labs/skills/find-skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.st.UpsertFor(e.uid, r, store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	pollAt := func(at time.Time, want int) {
+		t.Helper()
+		clock.Store(at.UnixMilli())
+		e.poll(t, "", true)
+		e.api.s.skillCopies.Wait()
+		if got := e.fetch.callCount(); got != want {
+			t.Fatalf("after a poll at +%s: %d kicks, want %d", at.Sub(time.Unix(1_800_000_000, 0)), got, want)
+		}
+	}
+	start := time.Unix(1_800_000_000, 0)
+	pollAt(start, 1)
+	pollAt(start.Add(5*time.Second), 1)
+	pollAt(start.Add(29*time.Second), 1)
+	pollAt(start.Add(30*time.Second), 2)
+	pollAt(start.Add(35*time.Second), 2)
+	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1","Entries":[]}`, true); code != 200 {
+		t.Fatalf("report: %d %s", code, raw)
+	}
+	e.api.s.skillCopies.Wait()
+	if got := e.fetch.callCount(); got != 3 {
+		t.Fatalf("a report kicks every time: %d kicks", got)
+	}
+}
+
+// An agent on a newer skills protocol than this controller's gets no skill
+// work and no job-based sync, only updates, and shows that the controller
+// needs updating.
+func TestPollFromANewerAgentGetsOnlyUpdates(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.writtenSkill(t, "demo")
+	update, err := e.st.QueueAgentUpdate(e.uid, e.agent.ID, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, raw := e.call(t, "/api/v2/sync/poll", `{"skillsVersion":""}`, false, "X-Reet-Skills-Protocol", "3")
+	if code != 200 {
+		t.Fatalf("poll: %d %s", code, raw)
+	}
+	var reply skillPollReply
+	if err = json.Unmarshal([]byte(raw), &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Desired != nil || strings.Contains(raw, `"desired"`) {
+		t.Fatalf("a newer agent was sent skills: %s", raw)
+	}
+	if reply.Job == nil || reply.Job.ID != update.ID {
+		t.Fatalf("the update job: %s", raw)
+	}
+	if reply.Agent.SkillsProtocol != 3 || reply.Agent.SkillsState != store.SkillsNeedNewerController {
+		t.Fatalf("agent: %+v", reply.Agent)
+	}
+	agents, err := e.st.SyncAgentsFor(e.uid)
+	if err != nil || agents[0].SkillsProtocol != 3 || agents[0].SkillsState != store.SkillsNeedNewerController {
+		t.Fatalf("recorded: %+v %v", agents, err)
+	}
+	if _, err = e.st.QueueSyncJob(e.uid, e.agent.ID, "", "scan"); err == nil {
+		t.Fatal("a scan was queued for a newer agent")
+	}
+	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1","Entries":[]}`, false, "X-Reet-Skills-Protocol", "3"); code != 409 {
+		t.Fatalf("a newer agent's report: %d %s", code, raw)
+	}
+	if m, _ := e.st.SkillHealthFor(e.uid, time.Now()); len(m) != 1 {
+		t.Fatalf("health: %+v", m)
+	} else {
+		for _, h := range m {
+			if h.Total != 0 {
+				t.Fatalf("a newer agent was counted: %+v", h)
+			}
+		}
 	}
 }

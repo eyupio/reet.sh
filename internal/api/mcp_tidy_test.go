@@ -80,7 +80,7 @@ func TestMCPTidyTools(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.UpsertFor(uid, rf, store.Patch{}); err != nil {
+		if _, err := legacyShelfCopy(t, st, uid, rf); err != nil {
 			t.Fatal(err)
 		}
 		name := "SVG Logo Designer"

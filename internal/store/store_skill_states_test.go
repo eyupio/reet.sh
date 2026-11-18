@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/ref"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 )
 
 // dropLibraryTriggers stops shelf and hosted rows from making library items,
@@ -102,6 +105,11 @@ func skillRemovals(t *testing.T, s *Store, uid int64) map[string]SkillRemoval {
 		out[r.Name] = r
 	}
 	return out
+}
+
+func namedPrivateWrite(name, requestID string) PrivateSkillWrite {
+	base := ""
+	return PrivateSkillWrite{RequestID: requestID, ExpectedBase: &base, Name: name, Files: []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: " + name + "\ndescription: Kept in reet\n---\nUse it.\n")}}}
 }
 
 // savedWrittenSkill saves a written skill, which reet holds a copy of.
@@ -271,6 +279,12 @@ func TestSkillStatesUpgradeFoldsDuplicateNames(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	savedWrittenSkill(t, s, uid, "askme", false)
+	// A copy captured from a machine before names were unique, with its own
+	// bundle in reet.
+	captured, err := s.SavePrivateSkillRevisionFor(uid, "", namedPrivateWrite("askme", "fold_captured_copy_0001"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	dropLibraryTriggers(t, s)
 	if _, err := s.UpsertLocalFor(uid, "askme", Patch{Used: bp(true), Liked: bp(true), Notes: sp("machine notes")}); err != nil {
 		t.Fatal(err)
@@ -307,6 +321,17 @@ func TestSkillStatesUpgradeFoldsDuplicateNames(t *testing.T) {
 	}
 	if item.Metadata == nil || !item.Metadata.Liked || item.Metadata.Notes != "machine notes" || !hasTag(item.Metadata.Tags, "from-machine") {
 		t.Fatalf("the machine copy's like, notes and tags were lost: %+v", item.Metadata)
+	}
+	if !hasAlias(item, "hosted") || !hasAlias(item, "bundle") || !hasAlias(item, "shelf") || item.RevisionID == "" {
+		t.Fatalf("the written skill lost an alias or its content: %+v", item)
+	}
+	// The captured copy is deleted from reet, content included.
+	if _, err = s.PrivateSkillBundleFor(uid, captured.Bundle.ID); !errors.Is(err, ErrPrivateSkillMissing) {
+		t.Fatal("the folded copy's bundle is still in reet", err)
+	}
+	var left int
+	if err = s.db.QueryRow(`SELECT (SELECT count(*) FROM private_skill_revisions WHERE user_id=? AND bundle_id=?)+(SELECT count(*) FROM private_skill_blobs b WHERE b.user_id=? AND NOT EXISTS(SELECT 1 FROM private_skill_revision_files f WHERE f.user_id=b.user_id AND f.digest=b.digest))`, uid, captured.Bundle.ID, uid).Scan(&left); err != nil || left != 0 {
+		t.Fatal("the folded copy's revisions or bytes are still in reet", left, err)
 	}
 
 	seo := skillStateNamed(t, s, uid, "seo-audit")
@@ -450,6 +475,14 @@ func TestSkillStatesNamesAreUnique(t *testing.T) {
 	if copy, err := s.UpsertLocalFor(uid, "SEO-Audit", Patch{}); err != nil || copy.LibraryItemID != first.id {
 		t.Fatalf("a copy named SEO-Audit made a second item: %+v, %v", copy, err)
 	}
+	// A pasted link to another source of the name is refused.
+	if _, err := s.UpsertFor(uid, mustRef(t, "c/d/seo-audit"), Patch{}); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a second linked seo-audit was accepted", err)
+	}
+	// The source already on the shelf can still be added again.
+	if _, err := s.UpsertFor(uid, mustRef(t, "a/b/seo-audit"), Patch{Liked: bp(true)}); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
 		t.Fatal(err)
 	}
@@ -532,4 +565,154 @@ func TestSkillStatesDeletedWrittenSkillPurges(t *testing.T) {
 	if err := s.UndeleteSkillsFor(uid, []string{item.id}); err == nil {
 		t.Fatal("undo after the purge succeeded")
 	}
+}
+
+func TestSkillStatesLinkToOwnWrittenSkillJoinsIt(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	written := savedWrittenSkill(t, s, uid, "my-notes", true)
+	rf, err := ref.ParseAt("https://reet.example/writer/my-notes", "reet.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, err := s.UpsertFor(uid, rf, Patch{})
+	if err != nil || sk.LibraryItemID != written.id {
+		t.Fatalf("the link to the account's own written skill was not that skill: %+v, %v", sk, err)
+	}
+}
+
+func TestSkillStatesLocationImportRefusesATakenName(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if _, err := s.UpsertFor(uid, mustRef(t, "a/b/demo"), Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	location := LibraryLocation{ID: strings.Repeat("c", 32), Application: "shared", Path: "/fixture/skills"}
+	if _, err := s.RegisterLibraryLocationFor(uid, agent.ID, location); err != nil {
+		t.Fatal(err)
+	}
+	base := ""
+	in := LibraryLocationImport{LocationID: location.ID, Name: "demo", RequestID: "taken_location_0001", ExpectedBase: &base, Files: machineImportFixture(t).Files}
+	if _, err := s.ImportLibraryLocationFor(uid, agent.ID, in); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a location copy of a library name became a second item", err)
+	}
+	if rows := skillStatesNamed(t, s, uid, "demo"); len(rows) != 1 || rows[0].revision != "" {
+		t.Fatalf("the refused import changed the library: %+v", rows)
+	}
+	if bundles, err := s.PrivateSkillBundlesFor(uid); err != nil || len(bundles) != 0 {
+		t.Fatal("the refused import kept its bundle", bundles, err)
+	}
+}
+
+func TestSkillStatesMachineImportRefusesATakenName(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if _, err := s.UpsertFor(uid, mustRef(t, "a/b/demo"), Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a machine capture of a library name became a second item", err)
+	}
+	if rows := skillStatesNamed(t, s, uid, "demo"); len(rows) != 1 || rows[0].revision != "" {
+		t.Fatalf("the refused capture changed the library: %+v", rows)
+	}
+	if bundles, err := s.PrivateSkillBundlesFor(uid); err != nil || len(bundles) != 0 {
+		t.Fatal("the refused capture kept its bundle", bundles, err)
+	}
+	// A capture of a free name is still made an item.
+	other := machineImportFixture(t)
+	other.RequestID = "machine_import_free_0001"
+	other.Name = "free-name"
+	other.Files = namedPrivateWrite("free-name", "unused_request_0001").Files
+	m, err := skillbundle.FromContents(other.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Digest = m.Digest
+	if _, err = s.SaveMachineSkillImportFor(uid, agent.ID, other); err != nil {
+		t.Fatal(err)
+	}
+	skillStateNamed(t, s, uid, "free-name")
+}
+
+func TestSkillStatesLibraryUploadRefusesATakenName(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if _, err := s.UpsertFor(uid, mustRef(t, "a/b/seo-audit"), Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveLibraryContentFor(uid, "", namedPrivateWrite("seo-audit", "taken_upload_00001")); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("an upload of a library name became a second item", err)
+	}
+	if bundles, err := s.PrivateSkillBundlesFor(uid); err != nil || len(bundles) != 0 {
+		t.Fatal("the refused upload kept its bundle", bundles, err)
+	}
+	// A new name is accepted, and so is a new revision of that item.
+	first, err := s.SaveLibraryContentFor(uid, "", namedPrivateWrite("free-name", "free_upload_000001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := namedPrivateWrite("free-name", "free_upload_000002")
+	next.ExpectedBase = &first.Revision.ID
+	next.Files[0].Data = append(next.Files[0].Data, []byte("Second revision.\n")...)
+	if _, err = s.SaveLibraryContentFor(uid, first.Bundle.ID, next); err != nil {
+		t.Fatal(err)
+	}
+	if rows := skillStatesNamed(t, s, uid, "free-name"); len(rows) != 1 {
+		t.Fatalf("want one item named free-name: %+v", rows)
+	}
+}
+
+// The Skills page still sets stages until it shows Active and Archived: In use
+// or To test makes a skill Active and Parked makes it Archived, with the
+// removal list following.
+func TestSkillStatesShelfStageMovesTheStatus(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	savedWrittenSkill(t, s, uid, "seo-audit", true)
+	rf, err := ref.ParseAt("https://reet.example/writer/seo-audit", "reet.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.UpsertFor(uid, rf, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	yes, no := true, false
+	expect := func(step, status string, removal bool) {
+		t.Helper()
+		if got := skillStateNamed(t, s, uid, "seo-audit"); got.status != status {
+			t.Fatalf("%s: status %q, want %q", step, got.status, status)
+		}
+		if _, listed := skillRemovals(t, s, uid)["seo-audit"]; listed != removal {
+			t.Fatalf("%s: on the removal list = %v, want %v", step, listed, removal)
+		}
+	}
+	if _, err = s.PatchFor(uid, rf.ID, Patch{Used: &no, Bookmarked: &no}); err != nil {
+		t.Fatal(err)
+	}
+	expect("park", SkillArchived, true)
+	if _, err = s.PatchFor(uid, rf.ID, Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	expect("mark in use", SkillActive, false)
+	if _, err = s.PatchManyFor(uid, []string{rf.ID}, Patch{Used: &no, Bookmarked: &no}); err != nil {
+		t.Fatal(err)
+	}
+	expect("bulk park", SkillArchived, true)
+	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Bookmarked: &yes}, false); err != nil {
+		t.Fatal(err)
+	}
+	expect("bulk to test", SkillActive, false)
+	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Used: &no, Bookmarked: &no}, false); err != nil {
+		t.Fatal(err)
+	}
+	expect("bulk update park", SkillArchived, true)
+	// A sighting on a machine joins the Archived skill and leaves it Archived.
+	if _, err = s.UpsertLocalFor(uid, "seo-audit", Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	expect("sighting", SkillArchived, true)
+	// Marking the skill already on the shelf as used makes it Active.
+	if _, err = s.UpsertFor(uid, rf, Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	expect("quick mark in use", SkillActive, false)
 }

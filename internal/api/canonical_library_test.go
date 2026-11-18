@@ -65,7 +65,9 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 	if err == nil {
 		t.Fatal("malformed skill should produce a partial-capture exit")
 	}
-	if !strings.Contains(string(output), `"imported":4`) || !strings.Contains(string(output), `"import_failed"`) {
+	// The second copy of twins is refused, as the library already has the
+	// name; the healthy imports still finish.
+	if !strings.Contains(string(output), `"imported":3`) || !strings.Contains(string(output), `"name":"broken","code":"import_failed"`) || !strings.Contains(string(output), `"name":"`+syncContractName("twins")+`","code":"import_failed"`) {
 		t.Fatalf("healthy imports did not finish independently: %s", output)
 	}
 	var library struct {
@@ -75,8 +77,8 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 	if err = json.Unmarshal([]byte(raw), &library); err != nil {
 		t.Fatal(err)
 	}
-	if len(library.Items) != 4 {
-		t.Fatalf("want four independent complete imports, got %d", len(library.Items))
+	if len(library.Items) != 3 {
+		t.Fatalf("want three independent complete imports, got %d", len(library.Items))
 	}
 	twins := 0
 	m.stop()
@@ -102,8 +104,8 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 			}
 		}
 	}
-	if twins != 2 {
-		t.Fatal("same-name imports were collapsed")
+	if twins != 1 {
+		t.Fatal("one name became more than one library item")
 	}
 	targets, err := h.st.SyncTargetsFor(h.uid)
 	if err != nil || len(targets) != 0 {

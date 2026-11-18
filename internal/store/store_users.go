@@ -605,28 +605,52 @@ func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error
 	return s.upsertFor(userID, "local/"+name, "local", name, "local", "", name, f)
 }
 
+// upsertFor adds a skill to the shelf or switches on its flags. A pasted or
+// linked source cannot take a name the library already has; a machine
+// sighting (a local row) joins the skill of its name instead.
 func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string, f Patch) (Skill, error) {
 	t := now()
 	notes := ""
 	if f.Notes != nil {
 		notes = *f.Notes
 	}
-	if _, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?)
+	err := s.withTx(func(tx *sql.Tx) error {
+		var existed int
+		if err := tx.QueryRow(`SELECT count(*) FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&existed); err != nil {
+			return err
+		}
+		if typ != "local" {
+			if err := linkedSkillNameFree(tx, userID, id, slug); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?)
 		ON CONFLICT(id) DO NOTHING`, id, source, slug, typ, url, name, t, t); err != nil {
-		return Skill{}, err
-	}
-	if _, err := s.db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id,skill_id) DO UPDATE SET
 			updated_at=CASE WHEN (shelf.liked=0 AND excluded.liked=1) OR (shelf.bookmarked=0 AND excluded.bookmarked=1) OR (shelf.used=0 AND excluded.used=1) THEN excluded.updated_at ELSE shelf.updated_at END,
 			liked=shelf.liked OR excluded.liked, bookmarked=shelf.bookmarked OR excluded.bookmarked, used=shelf.used OR excluded.used`,
-		userID, id, b2i(f.Liked), b2i(f.Bookmarked), b2i(f.Used), notes, t, t); err != nil {
-		return Skill{}, err
-	}
-	if f.Notes != nil {
-		if _, err := s.db.Exec(`UPDATE shelf SET notes=? WHERE user_id=? AND skill_id=?`, *f.Notes, userID, id); err != nil {
-			return Skill{}, err
+			userID, id, b2i(f.Liked), b2i(f.Bookmarked), b2i(f.Used), notes, t, t); err != nil {
+			return err
 		}
+		if f.Notes != nil {
+			if _, err := tx.Exec(`UPDATE shelf SET notes=? WHERE user_id=? AND skill_id=?`, *f.Notes, userID, id); err != nil {
+				return err
+			}
+		}
+		// Marking a skill already on the shelf In use or To test makes it
+		// Active. A new row keeps the status of the item it made or joined, so
+		// a sighting of an Archived skill stays Archived.
+		if existed > 0 && ((f.Used != nil && *f.Used) || (f.Bookmarked != nil && *f.Bookmarked)) {
+			return shelfStageStatusTx(tx, userID, id, time.Now())
+		}
+		return nil
+	})
+	if err != nil {
+		return Skill{}, err
 	}
 	_ = s.applyTopicsFor(userID, id)
 	sk, _, err := s.GetFor(userID, id)
@@ -647,6 +671,9 @@ func (s *Store) PatchFor(userID int64, id string, p Patch) (Skill, error) {
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
+		}
+		if p.Used != nil || p.Bookmarked != nil {
+			return shelfStageStatusTx(tx, userID, id, time.Now())
 		}
 		return nil
 	})
@@ -729,6 +756,13 @@ func (s *Store) ResolveFor(userID int64, oldID string, r ref.Ref) (Skill, error)
 	if !ok {
 		return Skill{}, ErrNotFound
 	}
+	// Linking a copy to its source keeps it the same library skill: the source
+	// becomes another reference of the item that holds the name.
+	if old.LibraryItemID != "" {
+		if _, err = s.db.Exec(`INSERT OR IGNORE INTO library_aliases(user_id,kind,reference,item_id) SELECT user_id,'shelf',?,id FROM library_items WHERE user_id=? AND id=? AND deleted_at=0 AND lower(name)=lower(?)`, r.ID, userID, old.LibraryItemID, r.Slug); err != nil {
+			return Skill{}, err
+		}
+	}
 	nk, err := s.UpsertFor(userID, r, Patch{Liked: &old.Liked, Bookmarked: &old.Bookmarked, Used: &old.Used})
 	if err != nil {
 		return Skill{}, err
@@ -777,7 +811,15 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 			return err
 		}
 		n, err = res.RowsAffected()
-		return err
+		if err != nil || (p.Used == nil && p.Bookmarked == nil) {
+			return err
+		}
+		for _, id := range ids {
+			if err = shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return int(n), err
 }

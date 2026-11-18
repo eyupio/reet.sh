@@ -168,6 +168,7 @@ func (s *Store) foldSkillNames(tx *sql.Tx) error {
 		return err
 	}
 	winner := copyOf{}
+	folded := map[int64]bool{}
 	for _, c := range copies {
 		if c.uid != winner.uid || c.name != winner.name {
 			winner = c
@@ -176,13 +177,20 @@ func (s *Store) foldSkillNames(tx *sql.Tx) error {
 		if err = s.foldLibraryItem(tx, c.uid, winner.id, c.id); err != nil {
 			return err
 		}
+		folded[c.uid] = true
+	}
+	for uid := range folded {
+		if err = dropUnusedBlobs(tx, uid); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // foldLibraryItem moves the loser's tags, notes, like and list membership onto
-// the winner's shelf row and deletes the loser from reet. Machines are not
-// touched. When the winner has no shelf row the loser's becomes its own.
+// the winner's shelf row and deletes the loser from reet, its content included.
+// Machines are not touched. When the winner has no shelf row the loser's
+// becomes its own.
 func (s *Store) foldLibraryItem(tx *sql.Tx, uid int64, winner, loser string) error {
 	shelfOf := func(item string) ([]string, error) {
 		rows, err := tx.Query(`SELECT a.reference FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference WHERE a.user_id=? AND a.item_id=? AND a.kind='shelf' ORDER BY a.reference`, uid, item)
@@ -220,8 +228,7 @@ func (s *Store) foldLibraryItem(tx *sql.Tx, uid int64, winner, loser string) err
 			return err
 		}
 	}
-	_, err = tx.Exec(`DELETE FROM library_items WHERE user_id=? AND id=?`, uid, loser)
-	return err
+	return s.purgeSkillTx(tx, uid, loser)
 }
 
 func (s *Store) moveShelfOrganisation(tx *sql.Tx, uid int64, from, to string) error {
@@ -275,6 +282,55 @@ func skillNameTakenTx(tx *sql.Tx, uid int64, itemType, name, except string) (boo
 	return n > 0, err
 }
 
+// linkedSkillNameFree refuses a pasted or linked source whose name the library
+// already has. A shelf row or alias that exists keeps its item, and a link to
+// the account's own written skill is that skill. Machine sightings (local
+// rows) are not checked: they join the skill of their name.
+func linkedSkillNameFree(tx *sql.Tx, uid int64, id, slug string) error {
+	var known int
+	if err := tx.QueryRow(`SELECT (SELECT count(*) FROM shelf WHERE user_id=? AND skill_id=?)+(SELECT count(*) FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference=?)`, uid, id, uid, id).Scan(&known); err != nil {
+		return err
+	}
+	if known > 0 {
+		return nil
+	}
+	own := ""
+	err := tx.QueryRow(`SELECT a.item_id FROM publishers p JOIN library_aliases a ON a.user_id=p.user_id AND a.kind='hosted' AND a.reference=? WHERE p.user_id=? AND ? GLOB 'hosted/*/'||p.username||'/'||?`, slug, uid, id, slug).Scan(&own)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	taken, err := skillNameTakenTx(tx, uid, LibrarySkill, slug, own)
+	if err == nil && taken {
+		err = ErrSkillNameTaken
+	}
+	return err
+}
+
+// refuseSecondSkillName ends a content write that can make a library item.
+// Content is saved before it is bound to an item, so the check runs last: it
+// fails when the item the bundle ended up on shares its name with another live
+// item, which only happens when the write made a new one.
+func refuseSecondSkillName(tx *sql.Tx, uid int64, result PrivateSkillResult) error {
+	id, err := libraryAliasID(tx, uid, "bundle", result.Bundle.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var itemType, name string
+	if err = tx.QueryRow(`SELECT item_type,name FROM library_items WHERE user_id=? AND id=? AND deleted_at=0`, uid, id).Scan(&itemType, &name); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	taken, err := skillNameTakenTx(tx, uid, itemType, name, id)
+	if err == nil && taken {
+		err = ErrSkillNameTaken
+	}
+	return err
+}
+
 // setSkillStatusTx archives or restores one live item. Archiving puts a skill
 // on the removal list only when reet holds a copy of it, so the only copy is
 // never taken off a machine; restoring takes its name off the list.
@@ -290,6 +346,31 @@ func setSkillStatusTx(tx *sql.Tx, uid int64, it skillStateItem, status string, a
 	}
 	_, err := tx.Exec(`DELETE FROM skill_removals WHERE user_id=? AND name=?`, uid, it.name)
 	return err
+}
+
+// shelfStageStatusTx moves a skill's live library item to the status its
+// shelf stage now names, for the Skills page that still sets stages: In use or
+// To test is Active, Parked is Archived, as the upgrade maps them. It goes
+// through setSkillStatusTx so the removal list follows.
+func shelfStageStatusTx(tx *sql.Tx, uid int64, skill string, at time.Time) error {
+	var used, bookmarked bool
+	var item string
+	err := tx.QueryRow(`SELECT sh.used,sh.bookmarked,a.item_id FROM shelf sh JOIN library_aliases a ON a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id WHERE sh.user_id=? AND sh.skill_id=?`, uid, skill).Scan(&used, &bookmarked, &item)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	it, err := skillStateItemTx(tx, uid, item)
+	if err != nil || it.deletedAt != 0 {
+		return err
+	}
+	status := SkillArchived
+	if used || bookmarked {
+		status = SkillActive
+	}
+	return setSkillStatusTx(tx, uid, it, status, at)
 }
 
 func addSkillRemovalTx(tx *sql.Tx, uid int64, it skillStateItem, reason string, at int64) error {
@@ -470,7 +551,7 @@ func (s *Store) purgeSkillTx(tx *sql.Tx, uid int64, id string) error {
 	if err != nil {
 		return err
 	}
-	bundles, err := references(`SELECT reference FROM library_aliases WHERE user_id=? AND item_id=? AND kind='bundle' UNION SELECT bundle_id FROM library_items WHERE user_id=? AND id=? AND bundle_id<>''`, uid, id, uid, id)
+	bundles, err := references(`SELECT b FROM (SELECT reference AS b FROM library_aliases WHERE user_id=? AND item_id=? AND kind='bundle' UNION SELECT bundle_id FROM library_items WHERE user_id=? AND id=? AND bundle_id<>'') WHERE NOT EXISTS(SELECT 1 FROM library_items o WHERE o.user_id=? AND o.bundle_id=b AND o.id<>?)`, uid, id, uid, id, uid, id)
 	if err != nil {
 		return err
 	}

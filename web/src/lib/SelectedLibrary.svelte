@@ -47,7 +47,7 @@
   // The import step of connecting: what this folder reports that the library does not have. Importing stays the existing
   // reviewed flow (preview, choose files, approve); this only takes the person to it with the skill already chosen.
   const found = $derived(host && onimport && destination ? foundNotInLibrary(destination.content, items) : { importable: [], incomplete: 0 })
-  const eligible = (item: LibraryItem) => item.itemType === 'skill' && item.status === 'in_use'
+  const eligible = (item: LibraryItem) => item.itemType === 'skill' && item.status === 'active'
   const visible = $derived(items.filter(item => item.itemType === 'skill' && item.name.toLowerCase().includes(query.trim().toLowerCase())))
   const folderLabel = (destination: SyncEnvironment) => `${host ? '' : `${destination.host} · `}${({ agents: 'Shared skills', claude: 'Claude Code', opencode: 'OpenCode', cursor: 'Cursor' } as Record<string, string>)[destination.agent] ?? destination.agent}${destination.project ? ` · ${destination.project}` : ' · All projects'}`
   async function choose(id: string) {
@@ -94,7 +94,7 @@
 </script>
 <section aria-labelledby={headingId} class="selection" class:embedded={!!host}>
   <h2 id={headingId} class:vh={!!host}>Skills to sync</h2>
-  <p>{host ? 'Choose which library skills belong on this machine. You can save changes while it is offline.' : 'Choose a machine folder and the skills to keep up to date.'} Only skills marked In use are sent.</p>
+  <p>{host ? 'Choose which library skills belong on this machine. You can save changes while it is offline.' : 'Choose a machine folder and the skills to keep up to date.'} Only Active skills are sent.</p>
   {#if targets.length > 0}
   {#if host}<p>Each AI tool on this machine keeps its skills in its own folder. Pick the folder, then tick the skills it should have.</p>{/if}
   <label>Machine folder <select value={target} disabled={busy || loading} onchange={event=>void choose(event.currentTarget.value)}><option value="">Choose a folder…</option>{#each targets as destination}<option value={destination.id}>{folderLabel(destination)}</option>{/each}</select></label>
@@ -103,8 +103,8 @@
   {#if target && !loading && loadedSelection}
     <form onsubmit={event=>{event.preventDefault();void save()}}>
       <label class="search">Find a skill <input type="search" bind:value={query} placeholder="Search your library" /></label>
-      <div class="selection-actions"><button class="btn quiet" type="button" disabled={busy} onclick={()=>{selected=[...new Set([...selected,...items.filter(eligible).map(item=>item.id)])];notice=''}}>Select all In use</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>{selected=[];notice=''}}>Clear selection</button></div>
-      <fieldset disabled={busy}><legend>Selected skills · {selected.length}</legend>{#each visible as item (item.id)}{@const itemState = host && savedSelection.includes(item.id) ? stateOf(item) : undefined}<div class="row"><label class="skill"><input type="checkbox" checked={selected.includes(item.id)} disabled={!eligible(item) && !selected.includes(item.id)} aria-describedby={itemState ? `state-${item.id}` : undefined} onchange={event=>toggle(item.id,event.currentTarget.checked)} /><span>{item.name}{#if item.status!=='in_use'} <small>({item.status.replaceAll('_',' ')})</small>{/if}{#if item.problem || item.contentState!=='complete'}<small> · Waiting for complete content</small>{/if}</span></label>{#if itemState}<p class="state {itemState.tone}" id={`state-${item.id}`} data-item-state={itemState.key}><strong>{itemState.label}</strong>{#if itemState.detail} <span>{itemState.detail}</span>{/if}</p>{/if}</div>{:else}<p>{query.trim() ? 'No skills match your search.' : 'Your library has no skills yet.'}</p>{/each}</fieldset>
+      <div class="selection-actions"><button class="btn quiet" type="button" disabled={busy} onclick={()=>{selected=[...new Set([...selected,...items.filter(eligible).map(item=>item.id)])];notice=''}}>Select all Active</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>{selected=[];notice=''}}>Clear selection</button></div>
+      <fieldset disabled={busy}><legend>Selected skills · {selected.length}</legend>{#each visible as item (item.id)}{@const itemState = host && savedSelection.includes(item.id) ? stateOf(item) : undefined}<div class="row"><label class="skill"><input type="checkbox" checked={selected.includes(item.id)} disabled={!eligible(item) && !selected.includes(item.id)} aria-describedby={itemState ? `state-${item.id}` : undefined} onchange={event=>toggle(item.id,event.currentTarget.checked)} /><span>{item.name}{#if item.status!=='active'} <small>({item.status.replaceAll('_',' ')})</small>{/if}{#if item.problem || item.contentState!=='complete'}<small> · Waiting for complete content</small>{/if}</span></label>{#if itemState}<p class="state {itemState.tone}" id={`state-${item.id}`} data-item-state={itemState.key}><strong>{itemState.label}</strong>{#if itemState.detail} <span>{itemState.detail}</span>{/if}</p>{/if}</div>{:else}<p>{query.trim() ? 'No skills match your search.' : 'Your library has no skills yet.'}</p>{/each}</fieldset>
       <button class="btn" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : 'Save selection'}</button>
     </form>
     {#if found.importable.length || found.incomplete}

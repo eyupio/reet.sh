@@ -6,7 +6,7 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./machineItems.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
 const { itemMachineState } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
-const item = (changes = {}) => ({ id: 'a'.repeat(32), name: 'code-review', itemType: 'skill', status: 'in_use', contentState: 'complete', ...changes })
+const item = (changes = {}) => ({ id: 'a'.repeat(32), name: 'code-review', itemType: 'skill', status: 'active', contentState: 'complete', ...changes })
 const skill = (changes = {}) => ({ id: 'local/code-review', itemId: 'a'.repeat(32), name: 'code-review', slug: 'code-review', source: 'private:x:y:z', sourceType: 'private', ...changes })
 const target = (changes = {}) => ({ target: { id: 't' }, desired: [skill()], missing: [], extra: [], ...changes })
 const job = (changes = {}) => ({ id: 'j', agentId: 'a', targetId: 't', kind: 'apply', status: 'succeeded', revision: 'r', hash: 'h', plan: {}, message: '', createdAt: 1, updatedAt: 2, ...changes })
@@ -17,8 +17,8 @@ test('an unselected item is not on the machine and says nothing else', () => {
   assert.equal(s.key, 'unselected')
 })
 
-test('a selected item that is not In use is kept in the library only, whatever the machine reports', () => {
-  for (const status of ['to_test', 'on_shelf', 'disabled']) {
+test('a selected item that is not Active is kept in the library only, whatever the machine reports', () => {
+  for (const status of ['archived']) {
     const s = state({ item: item({ status }), target: target() })
     assert.equal(s.key, 'inactive')
     assert.match(s.detail, new RegExp(status.replaceAll('_', ' ')))

@@ -109,6 +109,10 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	if body := expect(0, "GET", "/alice/reet-demo/SKILL.md", nil, 200); body != sk.Content {
 		t.Fatal("another author replaced the skill")
 	}
+	// Bob's library already has a reet-demo of his own, so he cannot add
+	// Alice's under the same name until he deletes his.
+	expect(bob.ID, "POST", "/api/skills", map[string]string{"input": srv.URL + "/alice/reet-demo"}, 409)
+	expect(bob.ID, "DELETE", "/api/v2/hosting/skills/reet-demo", nil, 200)
 	// Both the URL and its copied command add the same hosted reference.
 	for _, input := range []string{srv.URL + "/alice/reet-demo", "npx skills add " + srv.URL + "/alice/reet-demo"} {
 		body := expect(bob.ID, "POST", "/api/skills", map[string]string{"input": input}, 200)
@@ -253,4 +257,38 @@ func TestHostedPrefixPreferenceRenameAndShelf(t *testing.T) {
 	// Turning the prefix off allows bare names for new skills.
 	expect("PATCH", "/api/v2/profile", `{"hostedPrefix":""}`, 200)
 	expect("PUT", "/api/v2/hosting/skills/bare", `{"content":"---\nname: bare\ndescription: A skill.\n---\n\nInstructions.\n","files":{}}`, 200)
+}
+
+// One live library item per name: adding a link, writing a skill or uploading
+// content under a name the library already has is refused with 409.
+func TestLibraryNameAlreadyTakenIsAConflict(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "")
+	owner, _ := st.CreateUser("names@example.com", "Names", "member", "hash")
+	st.CreateAPIToken(owner.ID, "test", auth.HashToken("names-token"))
+	call := func(method, path string, in any) (int, string) {
+		t.Helper()
+		body := ""
+		if s, ok := in.(string); ok {
+			body = s
+		} else if in != nil {
+			b, _ := json.Marshal(in)
+			body = string(b)
+		}
+		return do(t, srv, method, path, body, "X-Reet-Token", "names-token")
+	}
+	// Written skills take the account's default name prefix, so the name is one.
+	name := store.DefaultHostedPrefix + "notes"
+	if code, body := call("POST", "/api/skills", `{"input":"https://www.skills.sh/someone/skills/`+name+`"}`); code != 200 {
+		t.Fatalf("first add: %d %s", code, body)
+	}
+	if code, body := call("POST", "/api/skills", `{"input":"https://www.skills.sh/someone-else/skills/`+name+`"}`); code != 409 || !strings.Contains(body, "already in your library") {
+		t.Fatalf("a second source of the name: %d %s", code, body)
+	}
+	if code, body := call("POST", "/api/v2/hosting/username", map[string]string{"username": "names"}); code != 200 {
+		t.Fatalf("username: %d %s", code, body)
+	}
+	written := store.HostedSkill{Content: "---\nname: " + name + "\ndescription: Mine\n---\nBody\n"}
+	if code, body := call("PUT", "/api/v2/hosting/skills/"+name, written); code != 409 {
+		t.Fatalf("a written skill took a library name: %d %s", code, body)
+	}
 }

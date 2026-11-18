@@ -62,12 +62,15 @@ func TestRemoteImportBrowserApprovalTwoMachinesAndChangedSource(t *testing.T) {
 		return response.StatusCode
 	}
 	for index, machine := range []string{"one", "two", "changed"} {
+		// Each machine's skill has its own name: the library refuses a second
+		// item with a name it already has.
+		name := "demo-" + machine
 		home := t.TempDir()
-		root := filepath.Join(home, ".agents", "skills", "demo")
+		root := filepath.Join(home, ".agents", "skills", name)
 		if err = os.MkdirAll(root, 0700); err != nil {
 			t.Fatal(err)
 		}
-		instruction := []byte("---\r\nname: demo\r\ndescription: Remote instructions\r\n---\r\nUse the toolkit.\r\n")
+		instruction := []byte("---\r\nname: " + name + "\r\ndescription: Remote instructions\r\n---\r\nUse the toolkit.\r\n")
 		if err = os.WriteFile(filepath.Join(root, "SKILL.md"), instruction, 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +93,7 @@ func TestRemoteImportBrowserApprovalTwoMachinesAndChangedSource(t *testing.T) {
 			t.Fatal(handled, err)
 		}
 		var request store.RemoteImport
-		input := store.RemoteImportCreate{RequestKey: "browser_remote_request_" + machine, AgentID: a.ID, EnvironmentID: store.EnvironmentIDFor(uid, machine, "agents", ""), Name: "demo"}
+		input := store.RemoteImportCreate{RequestKey: "browser_remote_request_" + machine, AgentID: a.ID, EnvironmentID: store.EnvironmentIDFor(uid, machine, "agents", ""), Name: name}
 		if code := browser("POST", "/api/v2/skill-imports", input, &request); code != 200 {
 			t.Fatal(code, request)
 		}

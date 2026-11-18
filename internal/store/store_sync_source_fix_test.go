@@ -37,7 +37,7 @@ func sourceFixFixture(t *testing.T) (*Store, int64, string) {
 	if err = s.RecordEnvironmentFor(uid, installed.ID, "laptop", "claude", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.UpsertFor(uid, mustRef(t, "a/b/one"), Patch{}); err != nil {
+	if _, err = legacyUpsert(t, s, uid, mustRef(t, "a/b/one")); err != nil {
 		t.Fatal(err)
 	}
 	candidates, err := s.SyncCandidatesFor(uid, "owner", 0)
@@ -95,7 +95,7 @@ func TestResolveSyncSourceConflictRefusesAmbiguousMachine(t *testing.T) {
 	if err := s.RecordInventoryFor(uid, cursor, true, MachineInfo{}); err != nil {
 		t.Fatal(err)
 	}
-	other, err := s.UpsertFor(uid, mustRef(t, "z/w/one"), Patch{})
+	other, err := legacyUpsert(t, s, uid, mustRef(t, "z/w/one"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestMaintainSyncLeavesAmbiguousSourceConflictReported(t *testing.T) {
 	if err := s.RecordInventoryFor(uid, cursor, true, MachineInfo{}); err != nil {
 		t.Fatal(err)
 	}
-	other, err := s.UpsertFor(uid, mustRef(t, "z/w/one"), Patch{})
+	other, err := legacyUpsert(t, s, uid, mustRef(t, "z/w/one"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestMaintainSyncKeepsAnAutoFixOnAFolderThatFollowsItsSource(t *testing.T) {
 	}
 	target, source := EnvironmentIDFor(uid, "laptop", "agents", ""), EnvironmentIDFor(uid, "desktop", "agents", "")
 	for _, held := range [][3]string{{"x/y/one", "laptop", "claude"}, {"a/b/one", "desktop", "agents"}} {
-		sk, e := s.UpsertFor(uid, mustRef(t, held[0]), Patch{})
+		sk, e := legacyUpsert(t, s, uid, mustRef(t, held[0]))
 		if e != nil {
 			t.Fatal(e)
 		}

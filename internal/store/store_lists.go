@@ -627,7 +627,10 @@ func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return n, err
 		}
-		if _, err := s.UpsertFor(userID, it, Patch{Bookmarked: &yes}); err != nil {
+		// A skill whose name the library already has is already there.
+		if _, err := s.UpsertFor(userID, it, Patch{Bookmarked: &yes}); errors.Is(err, ErrSkillNameTaken) {
+			continue
+		} else if err != nil {
 			return n, err
 		}
 		n++

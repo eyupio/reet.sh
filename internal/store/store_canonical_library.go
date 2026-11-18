@@ -256,8 +256,11 @@ func (s *Store) SaveLibraryContentFor(uid int64, id string, in PrivateSkillWrite
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(`INSERT INTO library_aliases VALUES(?,'user_upload',?,?) ON CONFLICT(user_id,kind,reference) DO NOTHING`, uid, result.Bundle.ID, item)
-		return err
+		if _, err = tx.Exec(`INSERT INTO library_aliases VALUES(?,'user_upload',?,?) ON CONFLICT(user_id,kind,reference) DO NOTHING`, uid, result.Bundle.ID, item); err != nil {
+			return err
+		}
+		// An upload that would make a second item of a name is refused.
+		return refuseSecondSkillName(tx, uid, result)
 	})
 }
 

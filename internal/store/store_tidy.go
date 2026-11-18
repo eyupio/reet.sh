@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -442,6 +443,11 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 			if _, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
 				WHERE user_id=? AND skill_id=?`, nullBool(change.Liked), nullBool(change.Bookmarked), nullBool(change.Used), now(), userID, id); err != nil {
 				return 0, nil, err
+			}
+			if change.Used != nil || change.Bookmarked != nil {
+				if err := shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
+					return 0, nil, err
+				}
 			}
 		}
 		for _, tagID := range addIDs {

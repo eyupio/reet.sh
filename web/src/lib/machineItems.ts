@@ -21,7 +21,7 @@ const same = (skill: SyncSkill, item: LibraryItem) => (skill.itemId ? skill.item
 
 export function itemMachineState({ item, selected, target, jobs, online }: Input): ItemMachineState {
   if (!selected) return { key: 'unselected', label: 'Not on this machine', tone: 'muted' }
-  if (item.status !== 'in_use') {
+  if (item.status !== 'active') {
     return { key: 'inactive', label: 'Kept in the library only', detail: `It is ${plain(item.status)}, so it is not installed here and any copy reet.sh installed is removed. Your selection is kept.`, tone: 'muted' }
   }
   if (item.problem || item.contentState !== 'complete') {

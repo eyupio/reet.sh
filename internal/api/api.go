@@ -1335,6 +1335,10 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, in.Patch)
+	if errors.Is(err, store.ErrSkillNameTaken) {
+		writeErr(w, 409, "A skill with that name is already in your library.")
+		return
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1589,6 +1593,12 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		sk, err = s.st.UpsertLocalFor(userID, name, flags)
 	} else {
 		sk, err = s.st.UpsertFor(userID, rf, flags)
+		// A scanned copy of a name the library already has is a sighting of
+		// that skill on the machine, not a new source.
+		if errors.Is(err, store.ErrSkillNameTaken) && item.Host != "" && item.Agent != "" {
+			local = true
+			sk, err = s.st.UpsertLocalFor(userID, name, flags)
+		}
 	}
 	if err != nil {
 		return id, false, false, err
@@ -3105,6 +3115,10 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		((p.Liked != nil && old.Liked) || (p.Bookmarked != nil && old.Bookmarked) || (p.Used != nil && old.Used))
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, p)
+	if errors.Is(err, store.ErrSkillNameTaken) {
+		quickPage(w, 409, "A skill with that name is already in your library")
+		return
+	}
 	if err != nil {
 		quickPage(w, 500, "Could not save")
 		return

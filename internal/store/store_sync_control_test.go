@@ -500,7 +500,7 @@ func TestDesiredSelectionDeduplicatesLocalCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	linked, err := s.UpsertFor(uid, mustRef(t, "owner/skills/improve"), Patch{})
+	linked, err := legacyUpsert(t, s, uid, mustRef(t, "owner/skills/improve"))
 	if err != nil {
 		t.Fatal(err)
 	}

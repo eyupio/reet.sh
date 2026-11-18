@@ -133,13 +133,13 @@
     if (!machinesKnown) return ''
     if (!hosts.length) return 'Not selected on any machine'
     const names = hosts.join(', ')
-    return item.status === 'in_use' ? `Selected on ${names}` : `Selected on ${names}, not installed while ${statusLabel(item.status).toLowerCase()}`
+    return item.status === 'active' ? `Selected on ${names}` : `Selected on ${names}, not installed while ${statusLabel(item.status).toLowerCase()}`
   }
 
   onMount(() => { if (canWrite) void load(); else loading = false; return () => { disposed = true } })
 </script>
 
-<PageHeader title="Library" lede="Every skill you own, one entry each. Choose what is In use here, and pick the machines that keep it on the Machines page." />
+<PageHeader title="Library" lede="Every skill you own, one entry each. Choose what is Active here, and pick the machines that keep it on the Machines page." />
 
 <section class="library" aria-label="Your library">
   {#if !canWrite}
@@ -172,7 +172,7 @@
     {#if machinesError}<p class="quiet-note" role="status">Machine selections could not be read just now, so which machines keep each item is not shown. <button class="btn quiet" type="button" onclick={() => void loadMachines()}>Try again</button></p>{/if}
         <p class="quiet-note" role="status" aria-live="polite">{shown.length === items.length ? `${items.length} ${items.length === 1 ? 'item' : 'items'}` : `${shown.length} of ${items.length} items`}</p>
     {#if shown.length === 0}
-      <p class="quiet-note">No items match. Clear the search or choose All to see everything, including items that are not In use.</p>
+      <p class="quiet-note">No items match. Clear the search or choose All to see everything, including Archived items.</p>
     {:else}
       <ul class="items">
         {#each shown as item (item.id)}

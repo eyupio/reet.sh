@@ -273,6 +273,8 @@ func skillCopyProblem(err error) string {
 		return "The skill is no longer at its original link"
 	case errors.Is(err, skillfetch.ErrTooLarge):
 		return "The skill is over 8 MiB or 256 files"
+	case errors.Is(err, skillfetch.ErrArchiveTooLarge):
+		return "The repository is too large to download"
 	case errors.Is(err, store.ErrPrivateSkillInvalid):
 		return "The files at the original link did not pass reet's checks"
 	case errors.Is(err, store.ErrPrivateSkillCapacity):
@@ -377,6 +379,8 @@ func originalError(w http.ResponseWriter, err error) {
 		writeErr(w, 502, "The skill is no longer at its original link.")
 	case errors.Is(err, skillfetch.ErrTooLarge):
 		writeErr(w, 502, "The original is over 8 MiB or 256 files.")
+	case errors.Is(err, skillfetch.ErrArchiveTooLarge):
+		writeErr(w, 502, "The original's repository is too large to download.")
 	case errors.Is(err, context.DeadlineExceeded):
 		writeErr(w, 504, "Getting the original took too long.")
 	case errors.Is(err, store.ErrPrivateSkillInvalid), errors.Is(err, store.ErrPrivateSkillConflict), errors.Is(err, store.ErrPrivateSkillCapacity):

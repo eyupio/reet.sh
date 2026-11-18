@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -329,12 +330,14 @@ func TestRefuseAddress(t *testing.T) {
 	for _, ip := range []string{"127.0.0.1", "::1", "::ffff:10.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "fd00::1", "100.64.0.1", "0.0.0.0", "224.0.0.1", "fe80::1",
 		"0.1.2.3", "192.0.0.8", "198.18.0.1", "198.19.255.255", "240.0.0.1", "255.255.255.255", "::ffff:240.0.0.1",
 		// NAT64 and 6to4 whose embedded IPv4 is not public, and the local-use NAT64 prefix.
-		"64:ff9b::7f00:1", "64:ff9b::a00:5", "64:ff9b::c0a8:101", "64:ff9b:1::1", "2002:7f00:1::", "2002:0a00:5::1", "2002:c0a8:101::1"} {
+		"64:ff9b::7f00:1", "64:ff9b::a00:5", "64:ff9b::c0a8:101", "64:ff9b:1::1", "2002:7f00:1::", "2002:0a00:5::1", "2002:c0a8:101::1",
+		"::7f00:1", "::a00:5", "::ffff:0:7f00:1", "::ffff:0:a00:5", "fec0::1", "feff::1",
+		"2001:0:4136:e378:8000:63bf:80ff:fffe", "2001:0:a00:5:8000:63bf:f7f7:f7f7"} {
 		if err := refuseAddress("tcp", net.JoinHostPort(ip, "443"), nil); err == nil {
 			t.Errorf("%s allowed", ip)
 		}
 	}
-	for _, ip := range []string{"140.82.112.3", "2606:50c0:8000::154", "198.20.0.1", "223.255.255.1", "64:ff9b::8c52:7003", "2002:8c52:7003::1"} {
+	for _, ip := range []string{"140.82.112.3", "2606:50c0:8000::154", "198.20.0.1", "223.255.255.1", "64:ff9b::8c52:7003", "2002:8c52:7003::1", "::8c52:7003", "::ffff:0:8c52:7003", "2001:0:4136:e378:8000:63bf:f7f7:f7f7"} {
 		if err := refuseAddress("tcp", net.JoinHostPort(ip, "443"), nil); err != nil {
 			t.Errorf("%s refused: %v", ip, err)
 		}
@@ -663,33 +666,39 @@ type closeCounter struct {
 
 func (c closeCounter) CloseIdleConnections() { c.n.Add(1); c.Transport.CloseIdleConnections() }
 
-// gzipTar is buildTar with the fastest compression, for big, repetitive bodies.
+// gzipTar is buildTar with the fastest compression, for big, repetitive
+// bodies. A regular entry carries its body; any other type carries size zero
+// bytes of data, the way a reader that does not know the type will skip them.
 func gzipTar(t *testing.T, entries []entry, size int64) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	gz, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	tw := tar.NewWriter(gz)
 	for _, e := range entries {
-		n := int64(len(e.body))
-		if e.typeflag != 0 && e.typeflag != tar.TypeReg {
-			n = size
-		}
-		tf := e.typeflag
+		tf, n := e.typeflag, int64(len(e.body))
 		if tf == 0 {
 			tf = tar.TypeReg
+		}
+		if tf != tar.TypeReg {
+			n = size
 		}
 		if err := tw.WriteHeader(&tar.Header{Name: e.name, Mode: 0o644, Typeflag: tf, Size: n}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := io.Copy(tw, io.LimitReader(zeroReader{}, n)); err != nil && e.body == "" {
+		var src io.Reader = strings.NewReader(e.body)
+		if tf != tar.TypeReg {
+			src = io.LimitReader(zeroReader{}, n)
+		}
+		if _, err := io.Copy(tw, src); err != nil {
 			t.Fatal(err)
 		}
-		if e.body != "" {
-			tw.Write([]byte(e.body))
-		}
 	}
-	tw.Close()
-	gz.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return buf.Bytes()
 }
 
@@ -705,8 +714,45 @@ func TestFetchCountsNonRegularEntrySizesTowardTheStreamCap(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
 	defer srv.Close()
 	f := Fetcher{Client: srv.Client(), GitHub: srv.URL, streamCap: 32 << 10}
-	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrTooLarge) {
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrArchiveTooLarge) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Two sizes whose sum wraps past MaxInt64 must not slip under the cap.
+func TestFetchStreamCapSurvivesSizeOverflow(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "r-abc/a", Mode: 0o644, Typeflag: 'Z', Size: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(make([]byte, 100)); err != nil {
+		t.Fatal(err)
+	}
+	// Only the header: the body is never sent, so a reader that tries to skip
+	// it gets an unexpected EOF instead of the size error.
+	if err := tw.WriteHeader(&tar.Header{Name: "r-abc/b", Mode: 0o644, Typeflag: 'Z', Size: math.MaxInt64 - 50}); err != nil {
+		t.Fatal(err)
+	}
+	gz.Close()
+	body := buf.Bytes()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	f := Fetcher{Client: srv.Client(), GitHub: srv.URL}
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrArchiveTooLarge) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// The body a regular entry is built with must reach the archive.
+func TestGzipTarKeepsRegularBodies(t *testing.T) {
+	body := gzipTar(t, []entry{{name: "r-abc/skills/pdf/SKILL.md", body: "---\nname: pdf\n---\nhello"}}, 0)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	res, err := Fetcher{Client: srv.Client(), GitHub: srv.URL}.Fetch(context.Background(), ghRef("pdf"))
+	if err != nil || !strings.Contains(string(res.Files[0].Data), "hello") {
+		t.Fatalf("%v %+v", err, res.Files)
 	}
 }
 
@@ -721,7 +767,7 @@ func TestFetchTruncatedArchiveIsTooLarge(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
 	defer srv.Close()
 	f := Fetcher{Client: srv.Client(), GitHub: srv.URL, archiveCap: 16 << 10}
-	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrTooLarge) {
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrArchiveTooLarge) {
 		t.Fatalf("a cut archive must say too large, not a gzip error: %v", err)
 	}
 	f.archiveCap = int64(len(body)) // exactly its size is fine

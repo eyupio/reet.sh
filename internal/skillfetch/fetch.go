@@ -29,6 +29,8 @@ import (
 var (
 	ErrNotFound = errors.New("skill not found in its source")
 	ErrTooLarge = errors.New("skill is over 8 MiB or 256 files")
+	// ErrArchiveTooLarge is the repository, not the skill, being too big to read.
+	ErrArchiveTooLarge = errors.New("repository archive is too large to read")
 )
 
 const (
@@ -158,7 +160,7 @@ type tally struct {
 }
 
 // capReader reads at most left bytes of r. If r has more, the read fails with
-// ErrTooLarge, so a cut-off archive is reported as too large and not as a
+// ErrArchiveTooLarge, so a cut-off archive is reported as too large and not as a
 // damaged gzip stream.
 type capReader struct {
 	r    io.Reader
@@ -169,7 +171,7 @@ func (c *capReader) Read(p []byte) (int, error) {
 	if c.left <= 0 {
 		var b [1]byte
 		if n, err := c.r.Read(b[:]); n > 0 {
-			return 0, ErrTooLarge
+			return 0, ErrArchiveTooLarge
 		} else if err != nil {
 			return 0, err
 		}
@@ -222,7 +224,7 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			return nil, "", fmt.Errorf("skill archive: %w", err)
 		}
 		if entries > maxArchiveEntries {
-			return nil, "", ErrTooLarge
+			return nil, "", ErrArchiveTooLarge
 		}
 		if strings.HasPrefix(h.Name, "/") {
 			return nil, "", errors.New("skill archive has an absolute path")
@@ -233,10 +235,10 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			}
 		}
 		// Whatever the type, the size is what the reader will skip or read.
-		streamed += h.Size
-		if streamed > streamCap || h.Size < 0 {
-			return nil, "", ErrTooLarge
+		if h.Size < 0 || h.Size > streamCap-streamed {
+			return nil, "", ErrArchiveTooLarge
 		}
+		streamed += h.Size
 		if h.Typeflag != tar.TypeReg {
 			continue // directories, links, pax headers
 		}
@@ -274,7 +276,7 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		}
 		retained += h.Size
 		if retained > maxRetainedBytes {
-			return nil, "", ErrTooLarge
+			return nil, "", ErrArchiveTooLarge
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, h.Size))
 		if err != nil {

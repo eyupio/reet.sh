@@ -42,6 +42,12 @@ func (f *stubFetcher) gateChan() chan struct{} {
 	return f.gate
 }
 
+func (f *stubFetcher) setName(n string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.name = n
+}
+
 func (f *stubFetcher) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -455,6 +461,7 @@ func TestOriginalStoreFailureIsNotAnUpstreamFailure(t *testing.T) {
 		{"fetch failure", errors.New("connection reset"), 502},
 		{"not found", skillfetch.ErrNotFound, 502},
 		{"too large", skillfetch.ErrTooLarge, 502},
+		{"archive too large", skillfetch.ErrArchiveTooLarge, 502},
 	} {
 		e.fetch.set("v1", tc.err)
 		if code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", ""); code != tc.want {
@@ -565,6 +572,8 @@ func TestSkillCopyProblemWording(t *testing.T) {
 		want string
 	}{
 		{skillfetch.ErrTooLarge, "over 8 MiB or 256 files"},
+		{skillfetch.ErrArchiveTooLarge, "repository is too large"},
+		{fmt.Errorf("skill archive: %w", skillfetch.ErrArchiveTooLarge), "repository is too large"},
 		{fmt.Errorf("wrapped: %w", skillfetch.ErrTooLarge), "over 8 MiB or 256 files"},
 		{store.ErrPrivateSkillInvalid, "did not pass reet's checks"},
 		{skillfetch.ErrNotFound, "no longer at its original link"},
@@ -577,7 +586,7 @@ func TestSkillCopyProblemWording(t *testing.T) {
 
 func TestFetchedNameThatDiffersFromTheItemSaysSo(t *testing.T) {
 	e := newCopyEnv(t)
-	e.fetch.name = "other-name"
+	e.fetch.setName("other-name")
 	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
 		t.Fatalf("%d %s", code, body)
 	}

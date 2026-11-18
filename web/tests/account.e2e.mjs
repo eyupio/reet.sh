@@ -161,6 +161,32 @@ try {
     await context.close()
   }
 
+  // A default source reet has no label for — an id saved by an older version — stays visible and selected, and saving
+  // it back keeps the same id untouched.
+  if (run('legacy default source')) {
+    const {context, page, errors, unmocked} = await open()
+    profile.defaultTool = 'cline'
+    profile.defaultClineSource = 'legacy-provider'
+    await page.reload()
+    await expect(page.getByRole('heading', {name:'Agents', level:2})).toBeVisible()
+    const source = page.getByLabel('Default source', {exact:true})
+    await expect(source).toHaveValue('legacy-provider')
+    await expect(source.locator('option')).toHaveText(['Cline’s own choice', 'Usage-Billing', 'ClinePass', 'legacy-provider'])
+    // Saving another default keeps the legacy id: it is not sent, so the stored value survives the round-trip.
+    await page.getByLabel('Base branch for fresh worktrees').fill('main')
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect(page.getByText(/defaults saved/)).toBeVisible()
+    expect(patches).toHaveLength(1)
+    expect(patches[0]).toMatchObject({defaultBaseBranch:'main'})
+    expect('defaultClineSource' in patches[0]).toBe(false)
+    await page.reload()
+    await expect(page.getByRole('heading', {name:'Agents', level:2})).toBeVisible()
+    await expect(page.getByLabel('Default source', {exact:true})).toHaveValue('legacy-provider')
+    expect(errors).toEqual([])
+    expect(unmocked).toEqual([])
+    await context.close()
+  }
+
   // A model needs its agent: the page refuses before the server, and nothing is PATCHed.
   if (run('gated chat switches')) {
     const {context, page, errors} = await open()

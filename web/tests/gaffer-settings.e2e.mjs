@@ -255,6 +255,26 @@ try {
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
+  // A crew saved while reet knew a different Cline provider id keeps it: the source is shown as Cline reported it,
+  // selected, and saving the crew untouched writes the same id back.
+  {
+    const legacy={heavy:{tool:'cline',model:'',effort:'',provider:'legacy-provider'},standard:{},light:{},balanceBelow:20,gafferDecides:false,updatedAt:now}
+    const box={crew:structuredClone(legacy),saves:[],modelReads:[]}
+    const w=await openWorkspace(browser,{width:1440,height:1400,routes:crewRoutes(box)})
+    try {
+      const page=w.page
+      await page.goto(`${base}/account/gaffer`)
+      const crew=page.getByRole('region',{name:'Your Factory crew',exact:true})
+      const source=crew.getByRole('combobox',{name:'Heavy Cline billing source',exact:true})
+      await expect(source).toHaveValue('legacy-provider')
+      await expect(source.locator('option')).toHaveText(['Cline’s own choice','Usage-Billing','ClinePass','legacy-provider'])
+      await crew.getByRole('button',{name:'Save crew',exact:true}).click()
+      await expect(crew.getByRole('status').filter({hasText:'Saved.'})).toHaveText('Saved. New outcomes start from this crew.')
+      const {updatedAt,...loaded}=legacy
+      expect(box.saves).toEqual([loaded])
+      expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
+    } finally { await w.context.close() }
+  }
   // Further backups keep their own fields when one above them is removed, and Other… on a model no list has keeps it in
   // the box to be corrected. The note under such a model waits until the agent's models are read.
   {

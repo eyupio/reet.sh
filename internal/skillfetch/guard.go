@@ -36,7 +36,8 @@ var notPublic = func() []*net.IPNet {
 // publicAddress reports whether ip is one skills may be fetched from: not this
 // machine, a private or link-local network, a reserved range or any other
 // non-unicast address. An address that carries an IPv4 one (NAT64 64:ff9b::/96,
-// 6to4 2002::/16) is public only if the IPv4 address inside it is. The dial
+// 6to4 2002::/16, IPv4-compatible ::/96, SIIT ::ffff:0:0:0/96, Teredo
+// 2001::/32) is public only if the IPv4 address inside it is. The dial
 // guard and the check made before a request goes to a proxy share it.
 func publicAddress(ip net.IP) bool {
 	if v4 := ip.To4(); v4 != nil {
@@ -54,9 +55,19 @@ func publicAddress(ip net.IP) bool {
 	if ip16 := ip.To16(); len(ip) == net.IPv6len && ip16 != nil {
 		switch {
 		case ip16[0] == 0x00 && ip16[1] == 0x64 && ip16[2] == 0xff && ip16[3] == 0x9b && allZero(ip16[4:12]):
-			return publicAddress(net.IP(ip16[12:16]))
+			return publicAddress(net.IP(ip16[12:16])) // NAT64
 		case ip16[0] == 0x20 && ip16[1] == 0x02:
-			return publicAddress(net.IP(ip16[2:6]))
+			return publicAddress(net.IP(ip16[2:6])) // 6to4
+		case allZero(ip16[:12]):
+			return publicAddress(net.IP(ip16[12:16])) // IPv4-compatible, deprecated
+		case allZero(ip16[:8]) && ip16[8] == 0xff && ip16[9] == 0xff && ip16[10] == 0 && ip16[11] == 0:
+			return publicAddress(net.IP(ip16[12:16])) // SIIT ::ffff:0:a.b.c.d
+		case ip16[0] == 0xfe && ip16[1]&0xc0 == 0xc0:
+			return false // deprecated site-local fec0::/10
+		case ip16[0] == 0x20 && ip16[1] == 0x01 && ip16[2] == 0 && ip16[3] == 0:
+			// Teredo: the server's address, and the client's with every bit flipped.
+			client := net.IPv4(^ip16[12], ^ip16[13], ^ip16[14], ^ip16[15])
+			return publicAddress(net.IP(ip16[4:8])) && publicAddress(client)
 		}
 	}
 	return true

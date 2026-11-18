@@ -275,7 +275,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 		errs = append(errs, err)
 	}
 	if local.AllowApply {
-		errs = append(errs, pruneBackups(c.Home, now))
+		errs = append(errs, pruneBackups(c.Home, now, c.Projects))
 	}
 	return errors.Join(errs...)
 }

@@ -523,7 +523,7 @@ func (r *reconciler) stage(f *folderRun, a store.DesiredSkill) (string, error) {
 		if err := os.MkdirAll(f.dir, 0755); err != nil {
 			return "", err
 		}
-		real, err := filepath.EvalSymlinks(f.dir)
+		real, err := resolveLinks(f.dir)
 		if err != nil || real != f.planned {
 			return "", moved
 		}

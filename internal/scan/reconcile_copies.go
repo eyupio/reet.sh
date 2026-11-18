@@ -90,7 +90,7 @@ func (r *reconciler) sharedTarget(real, p string) string {
 	target = filepath.Clean(target)
 	shared := filepath.Join(r.home, filepath.FromSlash(sharedSkillsDir))
 	if parent := filepath.Dir(target); parent != shared && parent != r.sharedReal {
-		if parent, err = filepath.EvalSymlinks(parent); err != nil || parent != r.sharedReal {
+		if parent, err = resolveLinks(parent); err != nil || parent != r.sharedReal {
 			return ""
 		}
 	}

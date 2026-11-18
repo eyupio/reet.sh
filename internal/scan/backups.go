@@ -266,12 +266,20 @@ func dateFolders(root string) []string {
 }
 
 // pruneBackups removes dated backup folders older than backupRetention from
-// the managed folders' .reet-backups under home.
-func pruneBackups(home string, now time.Time) error {
+// the .reet-backups beside each managed folder under home that a pass works
+// in (see managedRoots, given the enrolled projects as unmanaged). Beside a
+// folder reet leaves alone, such as one whose parent links into a project,
+// .reet-backups lies in someone else's folder, and nothing there is pruned.
+func pruneBackups(home string, now time.Time, unmanaged []string) error {
 	cutoff := now.Add(-backupRetention)
+	roots := managedRoots(home, unmanaged)
 	var errs []error
-	for _, rel := range backupFolders {
-		root := backupRoot(filepath.Join(home, rel))
+	for i, f := range managedFolders {
+		if !roots[i].handled() {
+			continue
+		}
+		folder := filepath.Join(home, filepath.FromSlash(f.Dir))
+		root := backupRoot(folder)
 		for _, date := range dateFolders(root) {
 			day, err := time.ParseInLocation(backupDateLayout, date, now.Location())
 			if err != nil || !day.Before(cutoff) {

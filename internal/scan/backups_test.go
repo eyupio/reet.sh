@@ -108,7 +108,8 @@ func TestPruneBackupsKeeps30Days(t *testing.T) {
 	writeSkill(t, filepath.Join(root, old, ".cursor-a"))
 	writeSkill(t, filepath.Join(root, recent, ".cursor-b"))
 	writeSkill(t, filepath.Join(root, "notes", "x")) // not a date: left alone
-	if err := pruneBackups(home, backupNow); err != nil {
+	mkdirs(t, home, ".cursor/skills")
+	if err := pruneBackups(home, backupNow, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, old)); !os.IsNotExist(err) {
@@ -132,7 +133,8 @@ func TestPruneBackupsRemovesSymlinkWithoutFollowing(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(day, ".claude-x")); err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneBackups(home, backupNow); err != nil {
+	mkdirs(t, home, ".claude/skills")
+	if err := pruneBackups(home, backupNow, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(day); !os.IsNotExist(err) {
@@ -316,7 +318,8 @@ func TestListBackupsLegacyRemovedEntries(t *testing.T) {
 	if want := when.Local().Format("2006-01-02"); entries[0].Date != want || entries[0].Name != "foo" {
 		t.Fatalf("entry = %+v, want date %s", entries[0], want)
 	}
-	if err := pruneBackups(home, backupNow); err != nil {
+	mkdirs(t, home, ".claude/skills")
+	if err := pruneBackups(home, backupNow, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(removed, "foo", "SKILL.md")); err != nil {

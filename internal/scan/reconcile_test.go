@@ -1486,6 +1486,92 @@ func TestReconcileCleansStagingBesideALinkedFolder(t *testing.T) {
 	}
 }
 
+// Two names for one folder are one folder: a project's protection goes by the
+// folder it is, not the name it was enrolled under.
+func TestWithinGoesByTheFolderNotItsName(t *testing.T) {
+	root := t.TempDir()
+	mkdirs(t, root, "work/app/.claude/skills", "work/apple")
+	// "Work" is a second name for "work", as another case is on a disk that
+	// ignores case.
+	symlink(t, filepath.Join(root, "work"), filepath.Join(root, "Work"))
+	for _, c := range []struct {
+		p, dir string
+		want   bool
+	}{
+		{"work/app/.claude/skills", "Work/app", true},
+		{"work/app", "Work/app", true},
+		{"work/app/not-made-yet/x", "Work/app", true},
+		{"work/apple", "Work/app", false},
+		{"work", "Work/app", false},
+		// Where the folder does not exist, the paths' text decides.
+		{"gone/app/x", "gone/app", true},
+		{"gone/apple", "gone/app", false},
+	} {
+		p, dir := filepath.Join(root, filepath.FromSlash(c.p)), filepath.Join(root, filepath.FromSlash(c.dir))
+		if got := within(p, dir); got != c.want {
+			t.Errorf("within(%s, %s) = %v, want %v", c.p, c.dir, got, c.want)
+		}
+	}
+	if !samePath(filepath.Join(root, "work", "app"), filepath.Join(root, "Work", "app")) {
+		t.Error("two names for one folder are not the same folder")
+	}
+	if samePath(filepath.Join(root, "work", "app"), filepath.Join(root, "work", "apple")) {
+		t.Error("two folders are the same folder")
+	}
+}
+
+// A managed folder that reaches an enrolled project under another name for
+// its folder is still left alone. On a disk that ignores case, ~/Work/app and
+// ~/work/app are one folder, and resolving links keeps the case each path was
+// given in, so the paths' text alone does not show it.
+func TestReconcileKnowsAProjectByItsFolderNotItsName(t *testing.T) {
+	for _, c := range []struct{ name, skills, remove, why string }{
+		{"leads into", "work/app/.claude/skills", "legacy", "~/.claude/skills leads into a project folder, so reet leaves it alone"},
+		{"holds", "work", "app", "~/.claude/skills holds a project folder, so reet leaves it alone"},
+	} {
+		for _, second := range []string{"a linked name", "another case"} {
+			t.Run(c.name+" under "+second, func(t *testing.T) {
+				home := t.TempDir()
+				work := filepath.Join(home, "work")
+				writeSkill(t, filepath.Join(work, "app", ".claude", "skills", "legacy"))
+				symlink(t, filepath.Join(home, filepath.FromSlash(c.skills)), filepath.Join(home, ".claude", "skills"))
+				enrolled := filepath.Join(home, "Work", "app")
+				if second == "another case" {
+					if caseSensitive(t, work) {
+						t.Skip("this file system keeps names differing only in case apart")
+					}
+				} else {
+					// "projects" stands for "Work": a second name for the
+					// folder that resolving keeps as it was given.
+					alias := filepath.Join(home, "projects")
+					enrolled = filepath.Join(alias, "app")
+					symlink(t, work, alias)
+					realWork, err := filepath.EvalSymlinks(work)
+					if err != nil {
+						t.Fatal(err)
+					}
+					was := resolveLinks
+					t.Cleanup(func() { resolveLinks = was })
+					resolveLinks = func(p string) (string, error) {
+						r, err := filepath.EvalSymlinks(p)
+						if rest, ok := strings.CutPrefix(p, alias); err == nil && ok && (rest == "" || rest[0] == filepath.Separator) {
+							r = alias + strings.TrimPrefix(r, realWork)
+						}
+						return r, err
+					}
+				}
+				before := homeTree(t, work)
+				d := store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: c.remove, Reason: "archived"}}}
+				rep, _ := reconcileWith(context.Background(), home, d, map[string]string{}, (&stubBundles{}).fetch, reconcileNow, reconcileOptions{unmanaged: []string{enrolled}})
+				sameTree(t, "work", before, homeTree(t, work))
+				if e := entryOf(t, rep, "~/.claude/skills", c.remove); e.State != "failed" || e.Detail != c.why {
+					t.Fatalf("entry %+v", e)
+				}
+			})
+		}
+	}
+}
+
 func TestReconcileNeedsAHomeFolder(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)
@@ -2080,5 +2166,32 @@ func TestAgentCycleRetriesAFailedReport(t *testing.T) {
 	}
 	if rep := srv.lastReport(t); rep.Version != "v1" {
 		t.Fatalf("report %+v", rep)
+	}
+}
+
+// Old backups are pruned only beside the folders a pass works in. One reached
+// through a link into a project lies in the project, and stays.
+func TestAgentCyclePrunesOnlyBesideFoldersItWorksIn(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	c := loaded(t, config)
+	project := filepath.Join(c.Home, "work", "app")
+	c.Projects = []string{project}
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	mkdirs(t, c.Home, "work/app/.claude/skills", ".agents/skills")
+	writeSkill(t, filepath.Join(project, ".claude", ".reet-backups", "2020-01-01", ".claude-old"))
+	symlink(t, filepath.Join(project, ".claude"), filepath.Join(c.Home, ".claude"))
+	ours := filepath.Join(c.Home, ".agents", ".reet-backups", "2020-01-01")
+	writeSkill(t, filepath.Join(ours, ".agents-old"))
+	before := homeTree(t, project)
+	srv.setDesired(&store.DesiredState{Version: "v1"})
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	sameTree(t, "project", before, homeTree(t, project))
+	if _, err := os.Lstat(ours); !os.IsNotExist(err) {
+		t.Fatalf("an expired backup beside a folder reet works in was kept: %v", err)
 	}
 }

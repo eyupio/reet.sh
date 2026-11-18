@@ -79,6 +79,8 @@ What is true today (18 November 2026, `9c03201`):
 | Advanced sync, per-machine plans, exact sets, Preview → Approve | **Removed**, UI and code. |
 | How today's stages map | In use and To test → **Active**; Parked → **Archived**. |
 | How to build it | **Replace the engine with a plain reconcile loop** (approach B below). |
+| How a public skill's files get into reet | **The controller fetches them from GitHub** once, as a bundle every machine installs. |
+| A skill edited on a machine | **reet's copy wins.** The edit is backed up and replaced, with **Use this version** to adopt it. |
 
 ## Approaches considered
 
@@ -202,8 +204,8 @@ desired: {
 ```
 
 - **One content path.** Every Active skill reaches machines as a reet bundle with a digest, written skills and
-  public ones alike. The agent stops running `npx skills add` (`internal/scan/sync.go:1280-1290`). How a public
-  skill's files first get into a bundle is in *Open questions for the owner*.
+  public ones alike. The agent stops running `npx skills add` (`internal/scan/sync.go:1280-1290`). The controller
+  fetches public skills itself (see *Public skill files and edits made on a machine*).
 - **Names are the identity on disk.** Active and removed names never overlap, and no two library items share a name
   (see *The upgrade* for today's duplicates).
 - **A short grace period.** A status change waits 10 seconds before it is sent, so an Undo pressed in that window
@@ -219,8 +221,8 @@ not paused:
    OpenCode keep today's arrangement of linking to the `~/.agents/skills` copy (`linkSharedInstall`,
    `sync.go:1170-1180, 1386-1407`).
 2. **Active skill present with a different digest:** back it up, then install reet's revision. A different digest
-   means either reet has a newer revision, or the copy was edited on the machine. What happens to the edit is in
-   *Open questions for the owner*.
+   means either reet has a newer revision, or the copy was edited on the machine. When the machine's copy matches
+   no revision reet has sent it, the report marks it `edited`, so the activity can offer **Use this version**.
 3. **A removed name present:** back it up and remove it, whether or not reet installed it, and whether or not it was
    edited.
 4. **Any other skill folder:** leave it alone and report it as unknown.
@@ -308,8 +310,7 @@ item has no other caller before deleting it.
 - `internal/skillplan` and `internal/skillpreview`: the content planner and preview capture.
 - In `internal/scan`, these go: the `reet sync` executor in `sync.go`, except `backupSkillEntry`,
   `linkSharedInstall` and the source helpers the loop reuses; `sync_report.go`; job dispatch in `agent.go` (662-781),
-  replaced by the loop; `content_preview.go`; `library_edits.go`, `library_removals.go` and `library_restore.go`,
-  unless the owner keeps machine edits flowing back.
+  replaced by the loop; `content_preview.go`; `library_edits.go`, `library_removals.go` and `library_restore.go`.
 - In `internal/api`, these go: the engine routes in `sync_control.go` (desired, reconcile, adopt, run, jobs,
   library, dedupe, source-conflicts, candidates), the sync-target parts of `sync.go`, `canonical_library.go`'s
   selection, deployment-intent, install-evidence, deletion and restore routes, and `content_previews.go`,
@@ -325,8 +326,7 @@ item has no other caller before deleting it.
 **Tables:** `sync_targets`, `sync_options`, `sync_policies`, `sync_runs`, `sync_run_jobs`, `sync_receipts`,
 `skill_installs`, `sync_library`, `canonical_library_selections`, `library_selections`, `library_selection_accounts`,
 `library_bases`, `library_connectors`, `library_difference_choices`, the `skill_content_*` tables and `ignored`. The
-`library_intent_fence` trigger also goes. `library_edit_events` goes unless machine edits keep flowing back.
-`sync_jobs` stays for binary updates.
+`library_intent_fence` trigger and `library_edit_events` also go. `sync_jobs` stays for binary updates.
 
 **Web**
 - `SyncControl.svelte` (the Sync page and Advanced sync) is replaced by the new Sync page.
@@ -351,24 +351,26 @@ stay. The builder checks `reet agent skill` and `reet agent status --remote`.
 `docs/controller-sync.md`, `docs/skills-single-source.md`, the `docs/skill-content-*.md` pages, and the README's
 Skills, Sync and *Adding skills* sections. The superseded specs in `docs/superpowers/specs/` stay as history.
 
-## Open questions for the owner
+## Public skill files and edits made on a machine
 
-1. **How a public skill's files first get into reet.** Today each machine runs `npx skills add` and fetches from
-   GitHub itself, with no digest check. Choosing *one content path* means the files have to enter a reet bundle
-   once:
-   - **(a) The controller fetches from GitHub** when a skill is added or refreshed. *Recommended:* one fetch, the same
-     bytes on every machine, and no Node on machines. The cost is a new outbound fetch from the controller; today
-     only skills.sh pages are read.
-   - **(b) One machine fetches it with the skills CLI and uploads it**, as Keep does. The controller makes no new
-     fetch, but adding a skill needs an online machine with Node.
-2. **An Active skill edited on a machine.** Today an edit can flow back into reet as a new revision
-   (`internal/scan/library_edits.go`, `store_library_edits.go:91-209`), and a Differences view lets a person keep,
-   take or compare.
-   - **(a) reet's copy wins.** The edited copy is backed up and replaced, and the activity says so, with **Use this
-     version**, which captures the backup as a new revision for every machine. *Recommended:* it keeps the rule
-     simple and loses nothing.
-   - **(b) The edit flows back automatically** and spreads to every machine, as today's last-writer-wins capture
-     does.
+Both are the owner's decisions, made after the engine map.
+
+- **The controller fetches public skills from GitHub.** When a skill is added by link, or refreshed, the controller
+  downloads its folder once and stores it as a private revision, a bundle with a digest. Every machine installs
+  those bytes. Machines no longer need Node or `npx`. This is a new outbound fetch from the controller; today it
+  only reads skills.sh pages. The README's *Nothing is sent to skills.sh…* line and `SECURITY.md` say so.
+  - **Size and safety limits** are today's private-bundle limits: 2 MiB, 100 supporting files, and the
+    credential-path and key-material checks in `internal/skillimport`.
+  - **Failures.** A skill that cannot be fetched (repository gone, too large, rate limited) is added with a visible
+    *Couldn't fetch the files · Retry* line, and it reaches no machine until it can be fetched.
+  - **Refresh** fetches again. If the files changed, it makes a new revision, which reaches every machine.
+- **reet's copy wins over an edit made on a machine.** When an Active skill's copy on a machine differs from reet's
+  revision, the machine backs it up and installs reet's revision.
+  - The activity says *askme was edited on ThinkPad; reet's copy put back*, with **Use this version**.
+  - **Use this version** captures the backup, using the existing capture, as a new revision, and every machine gets
+    it.
+  - Edits never flow back automatically, so `library_edits.go`, `library_bases`, `library_edit_events` and the
+    Differences view go.
 
 ## Left to the builder
 
@@ -394,7 +396,7 @@ not deleted.
 **The agent, in a temporary home folder:**
 - installs a missing Active skill and checks the digest
 - refuses a bundle whose digest doesn't match
-- replaces a different copy after backing it up
+- replaces a different copy after backing it up, and marks a copy edited on the machine as `edited`
 - backs up and removes an Archived skill it never installed, including an edited one and a symlinked one
 - leaves an unknown skill alone and reports it
 - carries on past one failure
@@ -414,6 +416,11 @@ not deleted.
 - reads health from the reports
 - Retry clears a failure
 - an agent without the new protocol gets no skill work
+- fetches a public skill into a bundle (against a stub GitHub), refuses one over the limits or carrying credentials,
+  and shows a fetch failure with Retry
+- Refresh makes a new revision only when the files changed
+- an `edited` report offers **Use this version**, which captures the backup as a new revision that reaches every
+  machine
 
 **The upgrade, on a copy of a store with every case:**
 - In use, To test and Parked map to the right states

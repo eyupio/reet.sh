@@ -33,6 +33,10 @@ const sharedSkillsDir = ".agents/skills"
 
 var skillDigestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+// reconcileDigest reads the digest of a skill folder on disk. Tests replace
+// it to stand for a disk that does not keep files exactly.
+var reconcileDigest = privateSkillDigest
+
 // reconcileOrder visits ~/.agents/skills first, because Cursor and OpenCode
 // link to the copy there, and Claude's own copies last.
 var reconcileOrder = []int{0, 2, 3, 1}
@@ -318,7 +322,8 @@ func (r *reconciler) fail(label, rel string, a store.DesiredSkill, detail, backu
 }
 
 // stage fetches and checks a's files, once a pass, and writes them into a
-// staging folder beside dir, creating dir when it is missing.
+// staging folder beside dir, creating dir when it is missing. The staged copy
+// must read back with a's digest.
 func (r *reconciler) stage(dir string, a store.DesiredSkill) (string, error) {
 	lower := strings.ToLower(a.Name)
 	b, ok := r.bundles[lower]
@@ -337,7 +342,18 @@ func (r *reconciler) stage(dir string, a store.DesiredSkill) (string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	return stageSkillFiles(filepath.Dir(dir), b.files)
+	staging, err := stageSkillFiles(filepath.Dir(dir), b.files)
+	if err != nil {
+		return "", err
+	}
+	// On a disk that does not keep files exactly (fixed modes on SMB, exFAT
+	// or some FUSE mounts), reet's copy would read as changed on every pass
+	// and be replaced again each time. Nothing present is touched then.
+	if got, err := reconcileDigest(staging); err != nil || got != a.Digest {
+		os.RemoveAll(staging)
+		return "", errors.New("These files don't read back as reet's copy on this disk")
+	}
+	return staging, nil
 }
 
 // backup moves dir/name into the dated backups beside dir and returns where
@@ -386,7 +402,7 @@ func (r *reconciler) digest(dir, name string) string {
 	if d, ok := r.digests[p]; ok {
 		return d
 	}
-	d, err := privateSkillDigest(p)
+	d, err := reconcileDigest(p)
 	if err != nil {
 		d = ""
 	}
@@ -437,12 +453,20 @@ func (r *reconciler) skillAt(dir, name string) (string, bool) {
 }
 
 // skillInventory is the report of a machine that may not write: what the
-// managed folders hold, changing nothing. An Active skill whose copy is reet's
-// is installed; everything else there is unknown.
+// managed folders hold, changing nothing. Every copy of an Active or removed
+// name is reported under that name, in any case: an Active copy that is reet's
+// is installed and one that differs has failed; a removed name still present
+// is installed, so the controller does not take it for gone. Only other
+// skills are unknown.
 func skillInventory(home string, d store.DesiredState) store.SkillReport {
+	active, removals, _ := checkDesired(d)
 	want := map[string]store.DesiredSkill{}
-	for _, a := range d.Active {
+	for _, a := range active {
 		want[strings.ToLower(a.Name)] = a
+	}
+	gone := map[string]string{}
+	for _, rm := range removals {
+		gone[strings.ToLower(rm.Name)] = rm.Name
 	}
 	r := &reconciler{home: home, digests: map[string]string{}}
 	rep := store.SkillReport{Version: d.Version, Blocked: "allow-apply", Entries: []store.SkillReportEntry{}}
@@ -452,23 +476,29 @@ func skillInventory(home string, d store.DesiredState) store.SkillReport {
 	for _, i := range reconcileOrder {
 		rel := managedFolders[i].Dir
 		dir := filepath.Join(home, filepath.FromSlash(rel))
+		label := "~/" + rel
 		names, err := skillEntries(dir)
 		if err != nil {
 			continue
 		}
 		for _, lower := range slices.Sorted(maps.Keys(names)) {
 			for _, name := range names[lower] {
-				digest, ok := r.skillAt(dir, name)
-				if !ok {
-					continue
+				if a, ok := want[lower]; ok {
+					if digest := r.digest(dir, name); digest == a.Digest {
+						r.add(label, a.Name, "installed", digest, "", "")
+					} else {
+						r.add(label, a.Name, "failed", "", "allow-apply is off", "")
+					}
+				} else if removed, ok := gone[lower]; ok {
+					r.add(label, removed, "installed", r.digest(dir, name), "", "")
+				} else if digest, ok := r.skillAt(dir, name); ok {
+					r.add(label, name, "unknown", digest, "", "")
 				}
-				if a, active := want[lower]; active && digest == a.Digest {
-					rep.Entries = append(rep.Entries, store.SkillReportEntry{Folder: "~/" + rel, Name: a.Name, State: "installed", Digest: digest})
-					continue
-				}
-				rep.Entries = append(rep.Entries, store.SkillReportEntry{Folder: "~/" + rel, Name: name, State: "unknown", Digest: digest})
 			}
 		}
+	}
+	if r.entries != nil {
+		rep.Entries = r.entries
 	}
 	return rep
 }
@@ -505,6 +535,74 @@ func readDesiredSkills(config string, c agentConfig) *store.DesiredState {
 		return nil
 	}
 	return &kept.Desired
+}
+
+// unsentCache is <config>.unsent: entries no report has delivered yet that a
+// later pass would not report again, with the controller and machine they
+// are for.
+type unsentCache struct {
+	Server  string                   `json:"server"`
+	Agent   string                   `json:"agent"`
+	Entries []store.SkillReportEntry `json:"entries"`
+}
+
+// unsentKept caps the entries kept while reports fail, keeping the newest.
+const unsentKept = 500
+
+func readUnsentSkills(config string, c agentConfig) []store.SkillReportEntry {
+	b, err := os.ReadFile(config + ".unsent")
+	if err != nil {
+		return nil
+	}
+	var kept unsentCache
+	if json.Unmarshal(b, &kept) != nil || kept.Server != c.Server || kept.Agent != c.ID {
+		return nil
+	}
+	return kept.Entries
+}
+
+// newsOf returns what a pass did that the next pass cannot see: an edit it
+// backed up and replaced, and a copy it removed, each with its backup.
+func newsOf(rep store.SkillReport) []store.SkillReportEntry {
+	var news []store.SkillReportEntry
+	for _, e := range rep.Entries {
+		if e.State == "edited" || e.State == "removed" && e.Backup != "" {
+			news = append(news, e)
+		}
+	}
+	return news
+}
+
+// withUnsent adds entries earlier reports carried but never delivered. Each
+// goes just before this report's entry for the same skill and folder, which
+// the controller records last, or at the end. An installed entry of the same
+// revision says nothing an unsent edit does not, so it is left out.
+func withUnsent(rep store.SkillReport, unsent []store.SkillReportEntry) store.SkillReport {
+	if len(unsent) == 0 {
+		return rep
+	}
+	key := func(e store.SkillReportEntry) string { return e.Folder + "\x00" + strings.ToLower(e.Name) }
+	waiting := map[string][]store.SkillReportEntry{}
+	for _, u := range unsent {
+		waiting[key(u)] = append(waiting[key(u)], u)
+	}
+	entries := make([]store.SkillReportEntry, 0, len(rep.Entries)+len(unsent))
+	for _, e := range rep.Entries {
+		before := waiting[key(e)]
+		delete(waiting, key(e))
+		entries = append(entries, before...)
+		if n := len(before); n > 0 && e.State == "installed" && before[n-1].State == "edited" && before[n-1].Digest == e.Digest {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	for _, u := range unsent {
+		if _, left := waiting[key(u)]; left {
+			entries = append(entries, u)
+		}
+	}
+	rep.Entries = entries
+	return rep
 }
 
 func readInstalledSkills(config string) map[string]string {
@@ -548,11 +646,24 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	if err != nil {
 		return errors.Join(append(errs, err)...)
 	}
+	earlier := readUnsentSkills(config, c)
+	unsent := earlier
 	var rep store.SkillReport
 	if local.AllowApply {
 		installed := readInstalledSkills(config)
 		var next map[string]string
 		rep, next = reconcileSkills(ctx, c.Home, *d, installed, controllerBundles(c), now)
+		// Kept before anything else is written, so a report that never
+		// arrives cannot lose an edit's backup or a removal.
+		if news := newsOf(rep); len(news) > 0 {
+			unsent = append(unsent, news...)
+			if len(unsent) > unsentKept {
+				unsent = unsent[len(unsent)-unsentKept:]
+			}
+			if err := writePrivate(config+".unsent", unsentCache{Server: c.Server, Agent: c.ID, Entries: unsent}); err != nil {
+				errs = append(errs, fmt.Errorf("could not keep what this pass did until it is reported: %w", err))
+			}
+		}
 		if !maps.Equal(installed, next) {
 			if err := writePrivate(config+".installed", next); err != nil {
 				errs = append(errs, err)
@@ -561,7 +672,13 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	} else {
 		rep = skillInventory(c.Home, *d)
 	}
-	errs = append(errs, postSkillReport(ctx, c, config, rep, version))
+	if err := postSkillReport(ctx, c, config, withUnsent(rep, earlier), version); err != nil {
+		errs = append(errs, err)
+	} else if len(unsent) > 0 {
+		if err := os.Remove(config + ".unsent"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
 	if local.AllowApply {
 		errs = append(errs, pruneBackups(c.Home, now))
 	}
@@ -569,6 +686,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 }
 
 // postSkillReport sends rep unless this process already sent the same one.
+// It returns nil once the controller has rep.
 func postSkillReport(ctx context.Context, c agentConfig, config string, rep store.SkillReport, version string) error {
 	b, err := json.Marshal(rep)
 	if err != nil {

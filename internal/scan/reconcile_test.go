@@ -270,6 +270,19 @@ func homeTree(t *testing.T, root string) map[string]string {
 	return out
 }
 
+// withoutFolderTimes drops folders' modification times from a homeTree, for
+// a pass that may stage files and remove them again.
+func withoutFolderTimes(m map[string]string) map[string]string {
+	out := map[string]string{}
+	for p, v := range m {
+		if strings.HasPrefix(v, "d") {
+			v = strings.Fields(v)[0]
+		}
+		out[p] = v
+	}
+	return out
+}
+
 func sameTree(t *testing.T, what string, before, after map[string]string) {
 	t.Helper()
 	for p, v := range after {
@@ -767,6 +780,40 @@ func TestReconcileRefusesUnsafeNames(t *testing.T) {
 	}
 }
 
+// On a disk that does not keep files exactly (fixed modes on SMB, exFAT or
+// some FUSE mounts), reet's copy never reads back as itself. Installing it
+// would replace it again on every poll, so nothing is replaced at all.
+func TestReconcileRefusesACopyThatDoesNotReadBack(t *testing.T) {
+	home := t.TempDir()
+	mkdirs(t, home, ".cursor/skills")
+	a, aFiles := skillBundle(t, "alpha", "first")
+	_, older := skillBundle(t, "alpha", "older")
+	placeFiles(t, filepath.Join(home, ".agents", "skills", "alpha"), older)
+	installed := map[string]string{".agents/skills/alpha": digestOfFiles(t, older)}
+	was := reconcileDigest
+	t.Cleanup(func() { reconcileDigest = was })
+	reconcileDigest = func(p string) (string, error) {
+		if strings.HasPrefix(filepath.Base(p), ".reet-private-") {
+			return strings.Repeat("0", 64), nil
+		}
+		return privateSkillDigest(p)
+	}
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}
+	before := withoutFolderTimes(homeTree(t, home))
+	for pass := 1; pass <= 2; pass++ {
+		rep, next := reconcileSkills(context.Background(), home, d, installed, stub.fetch, reconcileNow)
+		sameTree(t, "home", before, withoutFolderTimes(homeTree(t, home)))
+		e := entryOf(t, rep, "~/.agents/skills", "alpha")
+		if e.State != "failed" || e.Detail != "These files don't read back as reet's copy on this disk" || e.Backup != "" {
+			t.Fatalf("pass %d: entry %+v", pass, e)
+		}
+		if !maps.Equal(next, installed) {
+			t.Fatalf("pass %d: installed %v", pass, next)
+		}
+	}
+}
+
 func TestReconcileNeedsAHomeFolder(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)
@@ -1008,13 +1055,107 @@ func TestAgentCycleBlockedWithoutAllowApply(t *testing.T) {
 	if rep.Blocked != "allow-apply" || rep.Version != "v1" {
 		t.Fatalf("report %+v", rep)
 	}
-	// What is on disk is reported as it is, so the controller does not take
-	// the archived skill for gone.
-	if e := entryOf(t, rep, "~/.agents/skills", "gone"); e.State != "unknown" {
+	// The archived skill is still there, so the controller must not take it
+	// for gone.
+	if e := entryOf(t, rep, "~/.agents/skills", "gone"); e.State != "installed" {
 		t.Fatalf("entry %+v", e)
 	}
 	if _, _, _, fetches := srv.counts(); fetches != 0 {
 		t.Fatalf("fetched %d times", fetches)
+	}
+}
+
+func TestAgentCycleBlockedReportsUnderDesiredNames(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	c := loaded(t, config)
+	c.AllowApply = false
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(c.Home, ".agents", "skills")
+	seo, seoFiles := skillBundle(t, "seo-audit", "audit")
+	ask, _ := skillBundle(t, "askme", "ask")
+	_, askOld := skillBundle(t, "askme", "old")
+	placeFiles(t, filepath.Join(shared, "SEO-Audit"), seoFiles)
+	placeFiles(t, filepath.Join(shared, "askme"), askOld)
+	writeSkill(t, filepath.Join(shared, "Old-Thing"))
+	writeSkill(t, filepath.Join(shared, "cq"))
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{ask, seo}, Remove: []store.DesiredRemoval{{Name: "old-thing", Reason: "archived"}}})
+	before := homeTree(t, shared)
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	sameTree(t, "skills", before, homeTree(t, shared))
+	rep := srv.lastReport(t)
+	if rep.Blocked != "allow-apply" || len(rep.Entries) != 4 {
+		t.Fatalf("report %+v", rep)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "seo-audit"); e.State != "installed" || e.Digest != seo.Digest {
+		t.Fatalf("case variant of an Active skill: %+v", e)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "askme"); e.State != "failed" || e.Detail != "allow-apply is off" {
+		t.Fatalf("Active copy that differs: %+v", e)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "old-thing"); e.State != "installed" {
+		t.Fatalf("archived name still present: %+v", e)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "cq"); e.State != "unknown" || e.Digest != folderDigest(t, filepath.Join(shared, "cq")) {
+		t.Fatalf("unknown skill: %+v", e)
+	}
+}
+
+// An edit backed up and replaced, and a removal, reach the controller even
+// when the report that carried them was never delivered.
+func TestAgentCycleKeepsUnsentNewsUntilItIsReported(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	home := loaded(t, config).Home
+	a, aFiles := skillBundle(t, "alpha", "first")
+	srv.serve(t, a, aFiles)
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}, Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}})
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".agents", "skills", "alpha", "SKILL.md"), []byte("my own edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(home, ".agents", "skills", "gone"))
+	srv.mu.Lock()
+	srv.reportStatus = http.StatusServiceUnavailable
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err == nil {
+		t.Fatal("a refused report was not an error")
+	}
+	if st, err := os.Stat(config + ".unsent"); err != nil || st.Mode().Perm() != 0600 {
+		t.Fatalf("unsent entries were not kept: %v %v", st, err)
+	}
+	// The agent restarts, and the controller takes reports again.
+	skillReportsSent.Lock()
+	delete(skillReportsSent.last, config)
+	skillReportsSent.Unlock()
+	srv.mu.Lock()
+	srv.reportStatus = 0
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	date := time.Now().Format(backupDateLayout)
+	rep := srv.lastReport(t)
+	if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "edited" || e.Digest != a.Digest || e.Backup != "~/.agents/.reet-backups/"+date+"/.agents-alpha" {
+		t.Fatalf("edited entry %+v", e)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "gone"); e.State != "removed" || e.Backup != "~/.agents/.reet-backups/"+date+"/.agents-gone" {
+		t.Fatalf("removed entry %+v", e)
+	}
+	if _, err := os.Lstat(config + ".unsent"); !os.IsNotExist(err) {
+		t.Fatal("delivered entries were kept")
+	}
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if rep := srv.lastReport(t); len(rep.Entries) != 1 || rep.Entries[0].State != "installed" || rep.Entries[0].Backup != "" {
+		t.Fatalf("delivered entries were sent again: %+v", rep)
 	}
 }
 

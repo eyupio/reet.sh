@@ -538,12 +538,12 @@ func (r *reconciler) stage(f *folderRun, a store.DesiredSkill) (string, error) {
 			r.sharedReal = real
 		}
 	}
-	staging, err := stageSkillFiles(filepath.Dir(f.real), b.files)
+	staging, err := r.stageIn(f, filepath.Dir(f.real), b.files)
 	if err != nil && filepath.Dir(f.dir) != filepath.Dir(f.real) {
 		// The real folder may be a mount root, or sit in a folder this user
 		// cannot write in. Beside the folder under home works then, and the
 		// install reads back what lands if it had to copy.
-		staging, err = stageSkillFiles(filepath.Dir(f.dir), b.files)
+		staging, err = r.stageIn(f, filepath.Dir(f.dir), b.files)
 	}
 	if err != nil {
 		return "", err
@@ -556,6 +556,16 @@ func (r *reconciler) stage(f *folderRun, a store.DesiredSkill) (string, error) {
 		return "", errNoReadBack
 	}
 	return staging, nil
+}
+
+// stageIn writes files into a new staging folder in dir, beside the folder,
+// only while the folder and its parent are still where the pass found them:
+// the fetch, or a first try elsewhere, may have given them time to move.
+func (r *reconciler) stageIn(f *folderRun, dir string, files []skillbundle.ContentFile) (string, error) {
+	if err := r.writable(f); err != nil {
+		return "", err
+	}
+	return stageSkillFiles(dir, files)
 }
 
 // link makes a link in the folder that is really at real to reet's copy

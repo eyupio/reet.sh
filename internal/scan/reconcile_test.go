@@ -1617,6 +1617,82 @@ func TestReconcileStagesBesideTheFolderWhenItsRealParentIsClosed(t *testing.T) {
 	}
 }
 
+// When staging beside a folder's real place fails and reet falls back to
+// beside the folder under home, that parent may have been pointed elsewhere
+// in the meantime. Nothing is staged there then.
+func TestReconcileStagesNothingBesideAParentRepointedBeforeTheFallback(t *testing.T) {
+	home := t.TempDir()
+	mount := filepath.Join(home, "mnt")
+	mkdirs(t, home, "mnt/skills")
+	for _, parent := range []string{"claude-a", "claude-b"} {
+		symlink(t, filepath.Join(mount, "skills"), filepath.Join(home, parent, "skills"))
+	}
+	claude := filepath.Join(home, ".claude")
+	symlink(t, filepath.Join(home, "claude-a"), claude)
+	realMount, err := filepath.EvalSymlinks(mount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realB, err := filepath.EvalSymlinks(filepath.Join(home, "claude-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := homeTree(t, filepath.Join(home, "claude-b"))
+	stagedInB := false
+	was := makeStaging
+	t.Cleanup(func() { makeStaging = was })
+	makeStaging = func(dir, pattern string) (string, error) {
+		if dir == realMount {
+			// The mount refuses, and ~/.claude is pointed elsewhere now.
+			if err := os.Remove(claude); err != nil {
+				t.Error(err)
+			}
+			if err := os.Symlink(filepath.Join(home, "claude-b"), claude); err != nil {
+				t.Error(err)
+			}
+			return "", &os.PathError{Op: "mkdirtemp", Path: dir, Err: syscall.EACCES}
+		}
+		if real, err := filepath.EvalSymlinks(dir); err == nil && real == realB {
+			stagedInB = true
+		}
+		return os.MkdirTemp(dir, pattern)
+	}
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if stagedInB {
+		t.Error("staged in the parent ~/.claude was pointed at")
+	}
+	sameTree(t, "claude-b", before, homeTree(t, filepath.Join(home, "claude-b")))
+	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
+// A folder whose parent is pointed elsewhere while reet's files are fetched
+// gets no staging folder in the new place.
+func TestReconcileStagesNothingInAFolderMovedDuringTheFetch(t *testing.T) {
+	home := t.TempDir()
+	a, aFiles := skillBundle(t, "alpha", "first")
+	// reet's copy is in the shared folder already, so the fetch is Claude's.
+	placeFiles(t, filepath.Join(home, ".agents", "skills", "alpha"), aFiles)
+	mkdirs(t, home, ".claude/skills", "elsewhere/.claude/skills")
+	elsewhere := filepath.Join(home, "elsewhere")
+	before := homeTree(t, elsewhere)
+	claude := filepath.Join(home, ".claude")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}, onFetch: func() {
+		repoint(t, claude, filepath.Join(elsewhere, ".claude"))
+	}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if stub.calls != 1 {
+		t.Fatalf("fetched %d times", stub.calls)
+	}
+	sameTree(t, "elsewhere", before, homeTree(t, elsewhere))
+	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
 func TestReconcileCleansStagingBesideALinkedFolder(t *testing.T) {
 	home := t.TempDir()
 	elsewhere := filepath.Join(home, "dotfiles", "editors", "cursor", "skills")

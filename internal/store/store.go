@@ -1817,6 +1817,8 @@ func (s *Store) RestoreSnapshot(snapshot Snapshot) error {
 	})
 }
 
+// restoreSkills writes the shared skills catalog only. It adds no shelf row, so
+// it makes no library item and cannot give a name a second one.
 func restoreSkills(tx *sql.Tx, all []Skill) error {
 	for _, k := range all {
 		if err := rederive(&k); err != nil {

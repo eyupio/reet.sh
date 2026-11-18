@@ -176,6 +176,10 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 // SavePrivateSkillRevisionFor atomically creates an immutable revision and moves
 // only its owned bundle's head. A digest never identifies an account or revision.
 // Reusing an identical request returns its original receipt, even after later edits.
+//
+// It makes no name check, and does not need one: nothing outside the store's
+// tests calls it. The person-initiated paths that make an item (SaveLibraryContentFor,
+// the machine import and the location import) refuse a taken name themselves.
 func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite) (PrivateSkillResult, error) {
 	return s.savePrivateSkillRevisionFor(uid, id, in, nil)
 }

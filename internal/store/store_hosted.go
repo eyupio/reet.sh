@@ -218,6 +218,24 @@ func (s *Store) SaveHostedSkill(userID int64, sk HostedSkill) (HostedSkill, erro
 		if err := tx.QueryRow(`SELECT count(*) FROM hosted_skills WHERE user_id=? AND slug=?`, userID, sk.Slug).Scan(&exists); err != nil {
 			return err
 		}
+		if exists > 0 {
+			// Saving over a skill whose item was deleted but not yet purged is
+			// writing that skill again: bring the item back, or the save would
+			// land on a hidden row that purge removes later.
+			if id, err := libraryAliasID(tx, userID, "hosted", sk.Slug); err == nil {
+				it, err := skillStateItemTx(tx, userID, id)
+				if err != nil {
+					return err
+				}
+				if it.deletedAt != 0 {
+					if err = undeleteSkillItemTx(tx, userID, it); err != nil {
+						return err
+					}
+				}
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
 		if exists == 0 {
 			own, err := libraryAliasID(tx, userID, "hosted", sk.Slug)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {

@@ -344,6 +344,15 @@ func setSkillStatusTx(tx *sql.Tx, uid int64, it skillStateItem, status string, a
 	if status == SkillArchived {
 		return addSkillRemovalTx(tx, uid, it, "archived", at.UnixMilli())
 	}
+	return dropSkillRemovalTx(tx, uid, it)
+}
+
+// dropSkillRemovalTx takes an item's name off the removal list. The list holds
+// skill names only, so an item of another type with the same name leaves it.
+func dropSkillRemovalTx(tx *sql.Tx, uid int64, it skillStateItem) error {
+	if it.itemType != LibrarySkill {
+		return nil
+	}
 	_, err := tx.Exec(`DELETE FROM skill_removals WHERE user_id=? AND name=?`, uid, it.name)
 	return err
 }
@@ -437,8 +446,9 @@ func (s *Store) DeleteSkillsFor(uid int64, ids []string, noCopyConfirmed bool, a
 	})
 }
 
-// UndeleteSkillsFor brings deleted items back within SkillUndoWindow, before
-// they are purged. An Archived one goes back on the removal list as archived.
+// UndeleteSkillsFor brings deleted items back within SkillUndoWindow of their
+// deletion; an item deleted longer ago is gone, whether or not purge has run
+// yet. An Archived one goes back on the removal list as archived.
 func (s *Store) UndeleteSkillsFor(uid int64, ids []string) error {
 	return s.withTx(func(tx *sql.Tx) error {
 		if err := privateSkillOwner(tx, uid); err != nil {
@@ -452,27 +462,38 @@ func (s *Store) UndeleteSkillsFor(uid int64, ids []string) error {
 			if it.deletedAt == 0 {
 				continue
 			}
-			taken, err := skillNameTakenTx(tx, uid, it.itemType, it.name, it.id)
-			if err != nil {
+			if it.deletedAt <= now()-SkillUndoWindow.Milliseconds() {
+				return ErrPrivateSkillMissing
+			}
+			if err = undeleteSkillItemTx(tx, uid, it); err != nil {
 				return err
-			}
-			if taken {
-				return ErrSkillNameTaken
-			}
-			if _, err = tx.Exec(`UPDATE library_items SET deleted_at=0 WHERE user_id=? AND id=?`, uid, id); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(`DELETE FROM skill_removals WHERE user_id=? AND name=?`, uid, it.name); err != nil {
-				return err
-			}
-			if it.status == SkillArchived {
-				if err = addSkillRemovalTx(tx, uid, it, "archived", now()); err != nil {
-					return err
-				}
 			}
 		}
 		return nil
 	})
+}
+
+// undeleteSkillItemTx clears an item's deleted mark unless its name was taken
+// in the meantime, and takes its removal row off the list (an Archived item
+// goes back on it as archived).
+func undeleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem) error {
+	taken, err := skillNameTakenTx(tx, uid, it.itemType, it.name, it.id)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrSkillNameTaken
+	}
+	if _, err = tx.Exec(`UPDATE library_items SET deleted_at=0 WHERE user_id=? AND id=?`, uid, it.id); err != nil {
+		return err
+	}
+	if err = dropSkillRemovalTx(tx, uid, it); err != nil {
+		return err
+	}
+	if it.status == SkillArchived {
+		return addSkillRemovalTx(tx, uid, it, "archived", now())
+	}
+	return nil
 }
 
 // SkillRemovalsFor lists the names machines are to back up and remove.

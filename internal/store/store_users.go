@@ -171,6 +171,8 @@ func (s *Store) MigrateToOwner(ownerID int64) error {
 		if _, err := tx.Exec(`PRAGMA defer_foreign_keys=ON`); err != nil {
 			return err
 		}
+		// These shelf rows cannot make a second item of a name: the
+		// library_shelf_insert trigger joins the live item that has it.
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
 			SELECT ?,id,liked,bookmarked,used,notes,created_at,updated_at FROM skills`, ownerID); err != nil {
 			return err

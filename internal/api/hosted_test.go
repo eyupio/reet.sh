@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -330,4 +331,30 @@ func TestRepeatScanOfAnArchivedSkillLeavesItArchived(t *testing.T) {
 			t.Fatalf("scan %d changed the removal list: %+v %v", i, removals, err)
 		}
 	}
+}
+
+// A written skill cannot take a name the library already has: saving a new one
+// and renaming one onto it are both 409.
+func TestHostedSaveAndRenameRefuseATakenLibraryName(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "")
+	alice, _ := st.CreateUser("author@example.com", "Author", "member", "hash")
+	token := "hosted-taken-token"
+	st.CreateAPIToken(alice.ID, "test", auth.HashToken(token))
+	expect := func(method, path, body string, want int) {
+		t.Helper()
+		if code, out := do(t, srv, method, path, body, "X-Reet-Token", token); code != want {
+			t.Fatalf("%s %s: %d %s; want %d", method, path, code, out, want)
+		}
+	}
+	expect("POST", "/api/v2/hosting/username", `{"username":"alice"}`, 200)
+	expect("PATCH", "/api/v2/profile", `{"hostedPrefix":""}`, 200)
+	if _, err := st.UpsertFor(alice.ID, ref.Ref{ID: "a/b/Taken-Name", Source: "a/b", Slug: "Taken-Name", SourceType: "github", URL: "https://www.skills.sh/a/b/Taken-Name"}, store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	content := func(name string) string {
+		return fmt.Sprintf(`{"content":"---\nname: %s\ndescription: A skill.\n---\n\nInstructions.\n","files":{}}`, name)
+	}
+	expect("PUT", "/api/v2/hosting/skills/taken-name", content("taken-name"), 409)
+	expect("PUT", "/api/v2/hosting/skills/mine", content("mine"), 200)
+	expect("POST", "/api/v2/hosting/skills/mine/rename", `{"name":"taken-name"}`, 409)
 }

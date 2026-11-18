@@ -2700,3 +2700,47 @@ func TestAgentCycleKeepsBackupsWhoseNewsIsNotDelivered(t *testing.T) {
 		t.Fatalf("the backup was kept after its news was delivered: %v", err)
 	}
 }
+
+// A report never holds more entries than the controller takes: past the cap
+// the agent sends the first entries, in a stable order, and one failed entry
+// saying some are not shown, so the machine still reports instead of being
+// refused every cycle.
+func TestSkillReportNeverExceedsTheControllerCap(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	c := loaded(t, config)
+	rep := store.SkillReport{Version: "v1"}
+	for i := range skillReportMaxEntries + 5 {
+		// Out of order, so the stable order is the agent's doing.
+		rep.Entries = append(rep.Entries, store.SkillReportEntry{Folder: "~/.agents/skills", Name: fmt.Sprintf("s%05d", skillReportMaxEntries+5-i), State: "unknown", Digest: strings.Repeat("d", 64)})
+	}
+	if err := postSkillReport(context.Background(), c, config, rep, "test"); err != nil {
+		t.Fatal(err)
+	}
+	got := srv.lastReport(t)
+	if len(got.Entries) != skillReportMaxEntries {
+		t.Fatalf("sent %d entries, want %d", len(got.Entries), skillReportMaxEntries)
+	}
+	last := got.Entries[len(got.Entries)-1]
+	if last.State != "failed" || last.Detail != "Too many skills to report; some are not shown." || last.Name == "" {
+		t.Fatalf("the last entry: %+v", last)
+	}
+	if got.Entries[0].Name != "s00001" || got.Entries[len(got.Entries)-2].Name != fmt.Sprintf("s%05d", skillReportMaxEntries-1) {
+		t.Fatalf("not the first entries in order: %s … %s", got.Entries[0].Name, got.Entries[len(got.Entries)-2].Name)
+	}
+	// An entry naming a backup is never the one left out.
+	withBackup := slices.Clone(rep.Entries)
+	withBackup[0] = store.SkillReportEntry{Folder: "~/.agents/skills", Name: "zz-edited", State: "edited", Digest: strings.Repeat("e", 64), Backup: "~/.agents/.reet-backups/2027-01-15/.agents-zz-edited"}
+	cut := capSkillReport(store.SkillReport{Version: "v1", Entries: withBackup})
+	if len(cut.Entries) != skillReportMaxEntries || !slices.Contains(cut.Entries, withBackup[0]) {
+		t.Fatalf("the edited entry was left out of %d entries", len(cut.Entries))
+	}
+	// A report within the cap is sent as it is.
+	small := store.SkillReport{Version: "v2", Entries: rep.Entries[:3]}
+	if err := postSkillReport(context.Background(), c, config, small, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.lastReport(t); !reflect.DeepEqual(got, small) {
+		t.Fatalf("a small report was changed: %+v", got)
+	}
+}

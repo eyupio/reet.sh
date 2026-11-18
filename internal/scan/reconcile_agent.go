@@ -269,18 +269,22 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 		rep = skillInventory(c.Home, *d, c.Projects)
 	}
 	var undelivered []string
-	if err := postSkillReport(ctx, c, config, withUnsent(rep, unsent), version); err != nil {
+	sent := capSkillReport(withUnsent(rep, unsent))
+	if err := postSkillReport(ctx, c, config, sent, version); err != nil {
 		errs = append(errs, err)
-		// Until the controller has heard of them, these backups may hold the
-		// only copy of someone's work.
-		for _, u := range unsent {
-			if u.Backup != "" {
-				undelivered = append(undelivered, fromTilde(c.Home, u.Backup))
-			}
-		}
+	} else if unsent = slices.DeleteFunc(unsent, func(u store.SkillReportEntry) bool { return slices.Contains(sent.Entries, u) }); len(unsent) > 0 {
+		// A report cut to the cap left these out; they wait for the next.
+		keepUnsent()
 	} else if err := os.Remove(config + ".unsent"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// The controller has every entry kept there now.
 		errs = append(errs, err)
+	}
+	// Until the controller has heard of them, these backups may hold the
+	// only copy of someone's work.
+	for _, u := range unsent {
+		if u.Backup != "" {
+			undelivered = append(undelivered, fromTilde(c.Home, u.Backup))
+		}
 	}
 	if local.AllowApply {
 		errs = append(errs, pruneBackups(c.Home, now, c.Projects, undelivered...))
@@ -296,10 +300,10 @@ func fromTilde(home, p string) string {
 	return p
 }
 
-// postSkillReport sends rep unless this process already sent the same one.
-// It returns nil once the controller has rep.
+// postSkillReport sends rep, cut to the controller's cap, unless this process
+// already sent the same one. It returns nil once the controller has it.
 func postSkillReport(ctx context.Context, c agentConfig, config string, rep store.SkillReport, version string) error {
-	b, err := json.Marshal(rep)
+	b, err := json.Marshal(capSkillReport(rep))
 	if err != nil {
 		return err
 	}
@@ -316,4 +320,48 @@ func postSkillReport(ctx context.Context, c agentConfig, config string, rep stor
 	skillReportsSent.last[config] = string(b)
 	skillReportsSent.Unlock()
 	return nil
+}
+
+// skillReportMaxEntries is the most entries the controller takes in one
+// report (internal/api skill_reconcile.go); a longer report is refused every
+// time, so the agent never sends one.
+const skillReportMaxEntries = 8192
+
+// skillReportCut is the entry that ends a report cut to the cap.
+var skillReportCut = store.SkillReportEntry{Name: "(not reported)", State: "failed", Detail: "Too many skills to report; some are not shown."}
+
+// capSkillReport keeps rep within skillReportMaxEntries. Past it, the report
+// carries entries in a stable order, by folder and name, that keeps each
+// skill's entries in the order they were made: first every entry that names
+// a backup, which may be the only record of someone's work, then the first
+// of the rest; and last one failed entry saying some are not shown.
+func capSkillReport(rep store.SkillReport) store.SkillReport {
+	if len(rep.Entries) <= skillReportMaxEntries {
+		return rep
+	}
+	entries := slices.Clone(rep.Entries)
+	slices.SortStableFunc(entries, func(a, b store.SkillReportEntry) int {
+		if c := strings.Compare(a.Folder, b.Folder); c != 0 {
+			return c
+		}
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+	room := skillReportMaxEntries - 1
+	keep := make([]bool, len(entries))
+	for pass := 0; pass < 2; pass++ {
+		for i, e := range entries {
+			if room > 0 && !keep[i] && (pass == 1 || e.Backup != "") {
+				keep[i] = true
+				room--
+			}
+		}
+	}
+	kept := make([]store.SkillReportEntry, 0, skillReportMaxEntries)
+	for i, e := range entries {
+		if keep[i] {
+			kept = append(kept, e)
+		}
+	}
+	rep.Entries = append(kept, skillReportCut)
+	return rep
 }

@@ -142,16 +142,20 @@ var reconcileNow = time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 
 // stubBundles is a bundleFetcher that counts its calls.
 type stubBundles struct {
-	mu    sync.Mutex
-	files map[string][]skillbundle.ContentFile
-	fail  map[string]error
-	calls int
+	mu      sync.Mutex
+	files   map[string][]skillbundle.ContentFile
+	fail    map[string]error
+	calls   int
+	onFetch func() // runs during each fetch, standing for what happens meanwhile
 }
 
 func (s *stubBundles) fetch(_ context.Context, d store.DesiredSkill) ([]skillbundle.ContentFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
+	if s.onFetch != nil {
+		s.onFetch()
+	}
 	if err := s.fail[d.Name]; err != nil {
 		return nil, err
 	}
@@ -793,12 +797,21 @@ func TestReconcileRefusesACopyThatDoesNotReadBack(t *testing.T) {
 	installed := map[string]string{".agents/skills/alpha": digestOfFiles(t, older)}
 	was := readBackDigest
 	t.Cleanup(func() { readBackDigest = was })
-	readBackDigest = func(string) (string, error) { return strings.Repeat("0", 64), nil }
+	readBacks := 0
+	readBackDigest = func(string) (string, error) {
+		readBacks++
+		return strings.Repeat("0", 64), nil
+	}
 	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
 	d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}
 	before := withoutFolderTimes(homeTree(t, home))
 	for pass := 1; pass <= 2; pass++ {
-		rep, next := reconcileSkills(context.Background(), home, d, installed, stub.fetch, reconcileNow)
+		// The second pass comes after the wait, so it reads back again.
+		at := reconcileNow.Add(time.Duration(pass-1) * time.Minute)
+		rep, next := reconcileSkills(context.Background(), home, d, installed, stub.fetch, at)
+		if readBacks != pass {
+			t.Fatalf("pass %d: %d read-backs", pass, readBacks)
+		}
 		sameTree(t, "home", before, withoutFolderTimes(homeTree(t, home)))
 		e := entryOf(t, rep, "~/.agents/skills", "alpha")
 		if e.State != "failed" || e.Detail != "These files don't read back as reet's copy on this disk" || e.Backup != "" {
@@ -864,8 +877,8 @@ func TestReconcilePutsTheCopyBackWhenTheInstallFails(t *testing.T) {
 	installed := map[string]string{".agents/skills/alpha": digestOfFiles(t, older)}
 	was := reconcileMove
 	t.Cleanup(func() { reconcileMove = was })
-	reconcileMove = func(src, dest string) error {
-		return &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
+	reconcileMove = func(src, dest string) (bool, error) {
+		return false, &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
 	}
 	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
 	rep, next := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, installed, stub.fetch, reconcileNow)
@@ -914,6 +927,8 @@ func TestReconcileHandlesSymlinkedFoldersOnce(t *testing.T) {
 	t.Run("Claude's folder linked to Codex's", func(t *testing.T) {
 		home := t.TempDir()
 		writeSkill(t, filepath.Join(home, ".codex", "skills", "legacy"))
+		writeSkill(t, filepath.Join(home, ".codex", "skills", "alpha"))
+		writeSkill(t, filepath.Join(home, ".codex", "skills", "cq"))
 		symlink(t, filepath.Join("..", ".codex", "skills"), filepath.Join(home, ".claude", "skills"))
 		before := homeTree(t, filepath.Join(home, ".codex"))
 		a, aFiles := skillBundle(t, "alpha", "first")
@@ -921,7 +936,18 @@ func TestReconcileHandlesSymlinkedFoldersOnce(t *testing.T) {
 		d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}, Remove: []store.DesiredRemoval{{Name: "legacy", Reason: "archived"}}}
 		rep, _ := reconcileSkills(context.Background(), home, d, map[string]string{}, stub.fetch, reconcileNow)
 		sameTree(t, ".codex", before, homeTree(t, filepath.Join(home, ".codex")))
-		if len(rep.Entries) != 1 || rep.Entries[0].Folder != "~/.agents/skills" {
+		if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "installed" {
+			t.Fatalf("entry %+v", e)
+		}
+		// What Claude can still see there is reported, so the archived
+		// skill is not taken for gone.
+		for _, name := range []string{"alpha", "legacy"} {
+			e := entryOf(t, rep, "~/.claude/skills", name)
+			if e.State != "failed" || e.Detail != "~/.claude/skills leads into Codex's skills folder, so reet leaves it alone" {
+				t.Fatalf("entry %+v", e)
+			}
+		}
+		if len(rep.Entries) != 3 {
 			t.Fatalf("entries %+v", rep.Entries)
 		}
 	})
@@ -1043,6 +1069,228 @@ func TestReconcileIgnoresOSFilesInACopy(t *testing.T) {
 		if stub.calls != 0 {
 			t.Fatalf("recorded %v: fetched %d times", recorded, stub.calls)
 		}
+	}
+}
+
+func TestReconcileKeepsInstallingClaudeWhenTheSharedFolderFails(t *testing.T) {
+	home := t.TempDir()
+	mkdirs(t, home, ".claude/skills")
+	a, aFiles := skillBundle(t, "alpha", "first")
+	was := readBackDigest
+	t.Cleanup(func() { readBackDigest = was })
+	shared := string(filepath.Separator) + ".agents" + string(filepath.Separator)
+	readBackDigest = func(p string) (string, error) {
+		if strings.Contains(p, shared) {
+			return strings.Repeat("0", 64), nil
+		}
+		return privateSkillDigest(p)
+	}
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}
+	claude := filepath.Join(home, ".claude", "skills", "alpha")
+	for pass := 0; pass < 2; pass++ {
+		// The second pass falls inside the shared folder's wait.
+		rep, _ := reconcileSkills(context.Background(), home, d, map[string]string{}, stub.fetch, reconcileNow.Add(time.Duration(pass)*time.Second))
+		if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "read back") {
+			t.Fatalf("pass %d: shared entry %+v", pass, e)
+		}
+		if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "installed" || e.Detail != "" {
+			t.Fatalf("pass %d: Claude's entry %+v", pass, e)
+		}
+		if got := folderDigest(t, claude); got != a.Digest {
+			t.Fatalf("pass %d: Claude's copy is not reet's", pass)
+		}
+		if err := os.RemoveAll(claude); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestReconcileLeavesAFolderMadeDuringThePassForTheNextPass(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	home := t.TempDir()
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}, onFetch: func() {
+		if err := os.MkdirAll(filepath.Join(home, ".cursor", "skills"), 0755); err != nil {
+			t.Error(err)
+		}
+	}}
+	d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}
+	first, installed := reconcileSkills(context.Background(), home, d, map[string]string{}, stub.fetch, reconcileNow)
+	if entries, _ := os.ReadDir(cwd); len(entries) != 0 {
+		t.Fatalf("wrote %v in the working folder", entries)
+	}
+	if len(first.Entries) != 1 || first.Entries[0].Folder != "~/.agents/skills" {
+		t.Fatalf("entries %+v", first.Entries)
+	}
+	second, _ := reconcileSkills(context.Background(), home, d, installed, stub.fetch, reconcileNow)
+	if e := entryOf(t, second, "~/.cursor/skills", "alpha"); e.State != "installed" {
+		t.Fatalf("entry %+v", e)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cursor", "skills", "alpha", "SKILL.md")); err != nil {
+		t.Fatalf("Cursor's link: %v", err)
+	}
+	if entries, _ := os.ReadDir(cwd); len(entries) != 0 {
+		t.Fatalf("wrote %v in the working folder", entries)
+	}
+}
+
+// A managed folder on another device is copied into, not renamed into. The
+// copy that lands must read back as reet's, or reet's copy would look edited
+// and be replaced on every pass.
+func TestReconcileReadsBackACopyMovedAcrossDevices(t *testing.T) {
+	home := t.TempDir()
+	a, aFiles := skillBundle(t, "alpha", "first")
+	_, older := skillBundle(t, "alpha", "older")
+	present := filepath.Join(home, ".agents", "skills", "alpha")
+	placeFiles(t, present, older)
+	installed := map[string]string{".agents/skills/alpha": digestOfFiles(t, older)}
+	wasMove, wasRead := reconcileMove, readBackDigest
+	t.Cleanup(func() { reconcileMove, readBackDigest = wasMove, wasRead })
+	reconcileMove = func(src, dest string) (bool, error) {
+		if err := copyEntry(src, dest); err != nil {
+			return true, err
+		}
+		return true, os.RemoveAll(src)
+	}
+	readBackDigest = func(p string) (string, error) {
+		if !strings.Contains(p, ".reet-private-") {
+			return strings.Repeat("0", 64), nil
+		}
+		return privateSkillDigest(p)
+	}
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}
+	for pass := 0; pass < 2; pass++ {
+		rep, next := reconcileSkills(context.Background(), home, d, installed, stub.fetch, reconcileNow.Add(time.Duration(pass)*time.Minute))
+		e := entryOf(t, rep, "~/.agents/skills", "alpha")
+		if e.State != "failed" || !strings.Contains(e.Detail, "read back") || e.Backup != "" {
+			t.Fatalf("pass %d: entry %+v", pass, e)
+		}
+		if got := folderDigest(t, present); got != digestOfFiles(t, older) {
+			t.Fatalf("pass %d: the copy that was there is not back", pass)
+		}
+		if kept, _ := filepath.Glob(filepath.Join(home, ".agents", ".reet-backups", "*", ".agents-alpha*")); len(kept) != 0 {
+			t.Fatalf("pass %d: backups left: %v", pass, kept)
+		}
+		if left := stagingLeft(t, home); len(left) != 0 {
+			t.Fatalf("pass %d: staging left: %v", pass, left)
+		}
+		if !maps.Equal(next, installed) {
+			t.Fatalf("pass %d: installed %v", pass, next)
+		}
+	}
+}
+
+func backoffsFor(home string) int {
+	installBackoffs.Lock()
+	defer installBackoffs.Unlock()
+	n := 0
+	for key := range installBackoffs.m {
+		if strings.HasPrefix(key, home+"\x00") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestReconcileForgetsWaitsForSkillsNoLongerActive(t *testing.T) {
+	home := t.TempDir()
+	a, _ := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{fail: map[string]error{"alpha": errors.New("controller replied 502 Bad Gateway")}}
+	reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if n := backoffsFor(home); n == 0 {
+		t.Fatal("a failed install was not remembered")
+	}
+	reconcileSkills(context.Background(), home, store.DesiredState{Version: "v2"}, map[string]string{}, stub.fetch, reconcileNow.Add(time.Second))
+	if n := backoffsFor(home); n != 0 {
+		t.Fatalf("%d waits kept for a skill no longer Active", n)
+	}
+}
+
+func TestReconcileLeavesFoldersLeadingIntoProjectsOrCustomConfigAlone(t *testing.T) {
+	for _, c := range []struct {
+		name, folder, place, env string
+		want                     string
+	}{
+		{"project", ".claude/skills", "work/app/.claude/skills", "", "~/.claude/skills leads into a project folder, so reet leaves it alone"},
+		{"CLAUDE_CONFIG_DIR", ".claude/skills", "claude-work/skills", "CLAUDE_CONFIG_DIR=claude-work", "~/.claude/skills leads into the folder CLAUDE_CONFIG_DIR names, so reet leaves it alone"},
+		{"XDG_CONFIG_HOME", ".config/opencode/skills", "xdg/opencode/skills", "XDG_CONFIG_HOME=xdg", "~/.config/opencode/skills leads into the folder XDG_CONFIG_HOME names, so reet leaves it alone"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			place := filepath.Join(home, filepath.FromSlash(c.place))
+			writeSkill(t, filepath.Join(place, "legacy"))
+			symlink(t, place, filepath.Join(home, filepath.FromSlash(c.folder)))
+			if name, value, ok := strings.Cut(c.env, "="); ok {
+				t.Setenv(name, filepath.Join(home, value))
+			}
+			before := homeTree(t, place)
+			d := store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "legacy", Reason: "archived"}}}
+			opts := reconcileOptions{unmanaged: []string{filepath.Join(home, "work", "app")}}
+			rep, _ := reconcileWith(context.Background(), home, d, map[string]string{}, (&stubBundles{}).fetch, reconcileNow, opts)
+			sameTree(t, c.place, before, homeTree(t, place))
+			if e := entryOf(t, rep, "~/"+c.folder, "legacy"); e.State != "failed" || e.Detail != c.want {
+				t.Fatalf("entry %+v", e)
+			}
+		})
+	}
+}
+
+// A project or custom folder that is home itself would cover every managed
+// folder; it is no reason to leave them alone.
+func TestReconcileIgnoresAProjectThatIsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	opts := reconcileOptions{unmanaged: []string{home, filepath.Dir(home)}}
+	rep, _ := reconcileWith(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow, opts)
+	if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "installed" {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
+// The last guard: a folder that turns into a link to somewhere else while the
+// pass runs is not written through.
+func TestReconcileRefusesAFolderThatMovesDuringThePass(t *testing.T) {
+	home := t.TempDir()
+	mkdirs(t, home, ".claude/skills", "elsewhere")
+	claude := filepath.Join(home, ".claude", "skills")
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}, onFetch: func() {
+		if err := os.Rename(claude, claude+"-old"); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(filepath.Join(home, "elsewhere"), claude); err != nil {
+			t.Error(err)
+		}
+	}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") {
+		t.Fatalf("entry %+v", e)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(home, "elsewhere")); len(entries) != 0 {
+		t.Fatalf("wrote %v through the new link", entries)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "installed" {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
+func TestReconcileFindsCodexThroughALinkedHome(t *testing.T) {
+	realHome := t.TempDir()
+	home := filepath.Join(t.TempDir(), "home")
+	symlink(t, realHome, home)
+	writeSkill(t, filepath.Join(realHome, ".codex", "legacy"))
+	symlink(t, filepath.Join("..", ".codex"), filepath.Join(realHome, ".claude", "skills"))
+	before := homeTree(t, filepath.Join(realHome, ".codex"))
+	d := store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "legacy", Reason: "archived"}}}
+	rep, _ := reconcileSkills(context.Background(), home, d, map[string]string{}, (&stubBundles{}).fetch, reconcileNow)
+	sameTree(t, ".codex", before, homeTree(t, filepath.Join(realHome, ".codex")))
+	if e := entryOf(t, rep, "~/.claude/skills", "legacy"); e.State != "failed" {
+		t.Fatalf("entry %+v", e)
 	}
 }
 
@@ -1333,6 +1581,43 @@ func TestAgentCycleSecondCycleWritesNothing(t *testing.T) {
 	sameTree(t, "home", tree, homeTree(t, home))
 	if _, _, r, f := srv.counts(); r != reports || f != fetches {
 		t.Fatalf("reports %d→%d, fetches %d→%d", reports, r, fetches, f)
+	}
+}
+
+// An agent stopped after it backed up an edited copy and before reet's copy
+// went in still reports the edit after it starts again.
+func TestAgentCycleReportsAnEditWhenStoppedBeforeTheInstall(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	home := loaded(t, config).Home
+	a, aFiles := skillBundle(t, "alpha", "first")
+	srv.serve(t, a, aFiles)
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}})
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".agents", "skills", "alpha", "SKILL.md"), []byte("my own edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	was := reconcileMove
+	reconcileMove = func(string, string) (bool, error) { panic("the agent was stopped") }
+	func() {
+		defer func() { recover() }()
+		skillCycle(t, config)
+	}()
+	reconcileMove = was
+	skillReportsSent.Lock()
+	delete(skillReportsSent.last, config)
+	skillReportsSent.Unlock()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	e := entryOf(t, srv.lastReport(t), "~/.agents/skills", "alpha")
+	if e.State != "edited" || !strings.HasPrefix(e.Backup, "~/.agents/.reet-backups/") {
+		t.Fatalf("entry %+v", e)
+	}
+	if b, err := os.ReadFile(filepath.Join(home, strings.TrimPrefix(e.Backup, "~/"), "SKILL.md")); err != nil || string(b) != "my own edit" {
+		t.Fatalf("backup %q %v", b, err)
 	}
 }
 

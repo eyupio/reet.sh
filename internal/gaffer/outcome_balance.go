@@ -30,30 +30,46 @@ const (
 type planFigure struct {
 	signedIn bool
 	// known is whether there are figures fresh enough to act on; left is then
-	// the share left in the tightest window, as a whole percentage.
+	// the share left in the tightest window that applies, as a whole
+	// percentage.
 	known bool
 	left  int
+	// stale is whether there are figures, but too old to act on.
+	stale bool
 }
 
 // planLeft reads an agent's plan from a machine's last answer. A window that
-// covers one model counts only for a stage on that model.
+// covers one model counts only for a stage on that model, beside any window
+// for the whole plan. A plan whose windows are all for something no model's
+// name holds (Copilot's are Premium, Chat and Completions) is judged by its
+// tightest window: it has figures, and the least left is the safe reading.
 func planLeft(accounts []terminalproto.AgentAccount, tool, model string, now time.Time) planFigure {
 	for _, account := range accounts {
 		if account.Tool != tool || account.State != terminalproto.AccountSignedIn {
 			continue
 		}
 		out := planFigure{signedIn: true}
-		if len(account.Limits) == 0 || account.LimitsAt <= 0 || now.Sub(time.UnixMilli(account.LimitsAt)) > balanceFreshFor {
+		if len(account.Limits) == 0 {
+			return out
+		}
+		if account.LimitsAt <= 0 || now.Sub(time.UnixMilli(account.LimitsAt)) > balanceFreshFor {
+			out.stale = true
 			return out
 		}
 		name := strings.ToLower(model)
+		tightest := 100 - account.Limits[0].UsedPercent
 		for _, limit := range account.Limits {
+			left := 100 - limit.UsedPercent
+			tightest = min(tightest, left)
 			if label := strings.ToLower(limit.Label); label != "" && (name == "" || !strings.Contains(name, label)) {
 				continue
 			}
-			if left := 100 - limit.UsedPercent; !out.known || left < out.left {
+			if !out.known || left < out.left {
 				out.known, out.left = true, left
 			}
+		}
+		if !out.known {
+			out.known, out.left = true, tightest
 		}
 		return out
 	}
@@ -61,7 +77,10 @@ func planLeft(accounts []terminalproto.AgentAccount, tool, model string, now tim
 }
 
 func agentWords(a store.GafferStageAgent) string {
-	name := store.AgentLabel(a.Tool)
+	name := terminalproto.ToolName(a.Tool)
+	if name == a.Tool {
+		name = store.AgentLabel(a.Tool)
+	}
 	if a.Model != "" {
 		name += " (" + a.Model + ")"
 	}
@@ -91,6 +110,10 @@ func balanceChoice(accounts []terminalproto.AgentAccount, first, backup store.Ga
 	why := agentWords(first) + "’s plan had " + strconv.Itoa(one.left) + "% left, so this stage runs on " + agentWords(backup)
 	if two.known {
 		return true, why + ", which had " + strconv.Itoa(two.left) + "% left."
+	}
+	if two.stale {
+		// Its figures are older than balanceFreshFor: they decide nothing.
+		return true, why + ", whose plan figures are too old to go by."
 	}
 	// Signed in with a key, or on a plan reet reads no figures for: the
 	// person chose it as the backup knowing that.

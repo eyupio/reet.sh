@@ -98,18 +98,18 @@ func (s *Store) SkillSourceFor(uid int64, item string) (r ref.Ref, ok bool, err 
 }
 
 // skillCopyPlan sorts the live skills that have no content and no problem
-// recorded: those reet can fetch, those a machine can send, and the Active
+// recorded (or only SkillNoSourceProblem, which it clears once a source appears): those reet can fetch, those a machine can send, and the Active
 // ones with neither.
 func (s *Store) skillCopyPlan(uid int64) (needs []SkillCopyNeed, unsourced []string, err error) {
-	rows, err := s.db.Query(`SELECT id,name,status FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND revision_id='' AND copy_problem='' ORDER BY lower(name),id`, uid, LibrarySkill)
+	rows, err := s.db.Query(`SELECT id,name,status,copy_problem FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND revision_id='' AND copy_problem IN ('',?) ORDER BY lower(name),id`, uid, LibrarySkill, SkillNoSourceProblem)
 	if err != nil {
 		return nil, nil, err
 	}
-	type item struct{ id, name, status string }
+	type item struct{ id, name, status, problem string }
 	var items []item
 	for rows.Next() {
 		var it item
-		if err = rows.Scan(&it.id, &it.name, &it.status); err != nil {
+		if err = rows.Scan(&it.id, &it.name, &it.status, &it.problem); err != nil {
 			break
 		}
 		items = append(items, it)
@@ -126,13 +126,25 @@ func (s *Store) skillCopyPlan(uid int64) (needs []SkillCopyNeed, unsourced []str
 		if err != nil {
 			return nil, nil, err
 		}
+		agent, folder, found := "", "", false
+		if !fetch {
+			if agent, folder, found, err = s.captureCandidate(uid, it.id, it.name); err != nil {
+				return nil, nil, err
+			}
+		}
+		// "No machine has a copy" was true when it was recorded; once something
+		// can supply the content it is not, so the skill is planned again.
+		if it.problem != "" {
+			if !fetch && !found {
+				continue
+			}
+			if _, err = s.db.Exec(`UPDATE library_items SET copy_problem='' WHERE user_id=? AND id=? AND copy_problem=?`, uid, it.id, SkillNoSourceProblem); err != nil {
+				return nil, nil, err
+			}
+		}
 		if fetch {
 			needs = append(needs, SkillCopyNeed{Item: it.id, Name: it.name, Kind: "fetch"})
 			continue
-		}
-		agent, folder, found, err := s.captureCandidate(uid, it.id, it.name)
-		if err != nil {
-			return nil, nil, err
 		}
 		switch {
 		case found:
@@ -382,18 +394,21 @@ func (s *Store) setSkillContent(uid int64, item string, files []skillbundle.Cont
 		if err := attachLibraryBundle(tx, uid, item, result); err != nil {
 			return err
 		}
-		ref := ""
+		// Only a copy landing (fetched or captured) says reet now holds the
+		// skill; an edit or a use-version does not.
 		if origin.Kind == "original" || origin.Kind == "capture" {
-			ref = origin.Reference
+			return skillCopyLandedTx(tx, uid, item, origin.Reference, true)
 		}
-		return skillCopyLandedTx(tx, uid, item, ref)
+		return skillCopyLandedTx(tx, uid, item, "", false)
 	})
 }
 
 // skillCopyLandedTx follows a copy landing on an item: it clears the copy
-// problem, records where the copy came from, and, for an Archived skill,
-// adds its name to the removal list.
-func skillCopyLandedTx(tx *sql.Tx, uid int64, item, originRef string) error {
+// problem, records where the copy came from, and, when a copy landed and the
+// skill is Archived, adds its name to the removal list. A later edit of an
+// Archived skill is not a copy landing, so it leaves the list alone: a row
+// that was purged stays gone.
+func skillCopyLandedTx(tx *sql.Tx, uid int64, item, originRef string, copied bool) error {
 	if _, err := tx.Exec(`UPDATE library_items SET copy_problem='' WHERE user_id=? AND id=?`, uid, item); err != nil {
 		return err
 	}
@@ -401,6 +416,9 @@ func skillCopyLandedTx(tx *sql.Tx, uid int64, item, originRef string) error {
 		if _, err := tx.Exec(`UPDATE library_items SET origin_ref=? WHERE user_id=? AND id=?`, originRef, uid, item); err != nil {
 			return err
 		}
+	}
+	if !copied {
+		return nil
 	}
 	_, err := tx.Exec(`INSERT INTO skill_removals(user_id,name,reason,created_at) SELECT user_id,name,'archived',? FROM library_items WHERE user_id=? AND id=? AND item_type=? AND status=? AND deleted_at=0 AND revision_id<>'' ON CONFLICT DO NOTHING`, now(), uid, item, LibrarySkill, SkillArchived)
 	return err
@@ -431,14 +449,16 @@ func machineCopyLandedTx(tx *sql.Tx, uid int64, enrollment, agent string, result
 		return err
 	}
 	if current != "" {
-		return skillCopyLandedTx(tx, uid, item, "")
+		return skillCopyLandedTx(tx, uid, item, "", true)
 	}
-	return skillCopyLandedTx(tx, uid, item, "machine:"+host+":"+folder)
+	return skillCopyLandedTx(tx, uid, item, "machine:"+host+":"+folder, true)
 }
 
 // SkillEditedSinceImportFor says whether a skill's content was changed after
-// the last revision fetched from its original: any later revision that is not
-// itself fetched counts. A skill with no fetched revision is not edited.
+// the last revision that is reet's copy of something else: fetched from its
+// original or captured from a machine (revisions saved before captures had a
+// kind of their own say import). Any later revision that is not such a copy
+// counts. A skill with no such revision is not edited.
 func (s *Store) SkillEditedSinceImportFor(uid int64, item string) (bool, error) {
 	var bundle string
 	err := s.db.QueryRow(`SELECT bundle_id FROM library_items WHERE user_id=? AND id=? AND item_type=? AND deleted_at=0`, uid, item, LibrarySkill).Scan(&bundle)
@@ -459,7 +479,7 @@ func (s *Store) SkillEditedSinceImportFor(uid int64, item string) (bool, error) 
 		if err = rows.Scan(&kind); err != nil {
 			return false, err
 		}
-		if kind == "original" {
+		if kind == "original" || kind == "capture" || kind == "import" {
 			imported, edited = true, false
 		} else if imported {
 			edited = true

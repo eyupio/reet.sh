@@ -358,3 +358,94 @@ func TestOriginRefBackfillIsTheOriginalLink(t *testing.T) {
 		t.Fatalf("well-known origin_ref = %q, want empty until content lands", got)
 	}
 }
+
+// A capture is the reet copy's starting point, like a fetched original: an edit
+// after it is an edit, and a newer capture replaces the edits. Revisions saved
+// before captures had their own kind (import) count the same way.
+func TestEditedSinceImportCountsACaptureAsTheStartingPoint(t *testing.T) {
+	for _, kind := range []string{"capture", "import"} {
+		t.Run(kind, func(t *testing.T) {
+			s := newStore(t)
+			uid, _ := s.DefaultOwner()
+			item := localItem(t, s, uid, "elitebook", "x")
+			if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("x", "v1"), PrivateSkillOrigin{Kind: kind, Reference: "machine:elitebook:~/.agents/skills"}); err != nil {
+				t.Fatal(err)
+			}
+			if edited, err := s.SkillEditedSinceImportFor(uid, item.id); err != nil || edited {
+				t.Fatalf("fresh capture: %v %v", edited, err)
+			}
+			if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("x", "mine"), PrivateSkillOrigin{Kind: "edit"}); err != nil {
+				t.Fatal(err)
+			}
+			if edited, err := s.SkillEditedSinceImportFor(uid, item.id); err != nil || !edited {
+				t.Fatalf("after an edit: %v %v", edited, err)
+			}
+			if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("x", "v2"), PrivateSkillOrigin{Kind: kind, Reference: "machine:elitebook:~/.agents/skills"}); err != nil {
+				t.Fatal(err)
+			}
+			if edited, _ := s.SkillEditedSinceImportFor(uid, item.id); edited {
+				t.Fatal("a newer capture replaces the edits")
+			}
+		})
+	}
+}
+
+// "No machine has a copy" only holds until a machine that can be asked reports
+// the skill; any other problem stays until Retry.
+func TestNoSourceProblemClearsWhenASourceAppears(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := localItem(t, s, uid, "elitebook", "lonely")
+	other := localItem(t, s, uid, "elitebook", "broken")
+	if n, err := s.MarkUnsourcedSkillsFor(uid); err != nil || n != 2 {
+		t.Fatalf("marked %d, %v", n, err)
+	}
+	if _, err := s.db.Exec(`UPDATE library_items SET copy_problem='folder is over 8 MiB' WHERE user_id=? AND id=?`, uid, other.id); err != nil {
+		t.Fatal(err)
+	}
+	agent := reportAgent(t, s, uid, "elitebook")
+	reportOf(t, s, uid, agent, reportT0, installedAt("lonely", "d1"), installedAt("broken", "d2"))
+	needs, err := s.SkillsNeedingCopyFor(uid)
+	if err != nil || len(needs) != 1 || needs[0].Item != item.id || needs[0].Kind != "capture" || needs[0].AgentID != agent {
+		t.Fatalf("needs: %+v %v", needs, err)
+	}
+	if h := healthOf(t, s, uid, item.id, reportT0); h.State != "copying" {
+		t.Fatalf("the cleared skill: %+v", h)
+	}
+	if h := healthOf(t, s, uid, other.id, reportT0); h.State != "copy-failed" || h.Reason != "folder is over 8 MiB" {
+		t.Fatalf("another problem was cleared: %+v", h)
+	}
+}
+
+// Only a copy landing puts an Archived skill's name on the removal list; an
+// edit or a use-version of its content must not bring back a purged row.
+func TestEditOfAnArchivedSkillDoesNotReAddItsRemovalRow(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM skill_removals WHERE user_id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"edit", "use-version"} {
+		if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("seo-audit", kind), PrivateSkillOrigin{Kind: kind}); err != nil {
+			t.Fatal(err)
+		}
+		if r := skillRemovals(t, s, uid); len(r) != 0 {
+			t.Fatalf("a %s re-added the removal row: %+v", kind, r)
+		}
+	}
+	for _, kind := range []string{"original", "capture"} {
+		if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("seo-audit", kind), PrivateSkillOrigin{Kind: kind, Reference: "https://github.com/a/b"}); err != nil {
+			t.Fatal(err)
+		}
+		if r := skillRemovals(t, s, uid); r["seo-audit"].Reason != "archived" {
+			t.Fatalf("a %s landing did not add the removal row: %+v", kind, r)
+		}
+		if _, err := s.db.Exec(`DELETE FROM skill_removals WHERE user_id=?`, uid); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

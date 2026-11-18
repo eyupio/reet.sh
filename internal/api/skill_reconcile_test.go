@@ -187,7 +187,7 @@ func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 			t.Fatalf("the scan job: %+v", j)
 		}
 	}
-	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "follows your library, so it takes no sync jobs. Make the skill Active and it reaches every machine.") {
+	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "elitebook follows your library; its skills are checked on every poll, so there's nothing to scan.") {
 		t.Fatalf("queueing a scan: %d %s", code, raw)
 	}
 }

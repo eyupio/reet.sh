@@ -32,7 +32,7 @@ func (s *Store) QueueLibraryRestoreSyncFor(uid int64, enrollment string, in Libr
 	err = s.withTx(func(tx *sql.Tx) error {
 		// A machine that follows the library has its skills put back by
 		// reconcile, so there is nothing to queue.
-		if e := refuseJobsForSkillsAgentTx(tx, uid, enrollment); errors.Is(e, ErrAgentFollowsLibrary) {
+		if e := refuseJobsForSkillsAgentTx(tx, uid, enrollment, "auto"); errors.Is(e, ErrAgentFollowsLibrary) {
 			return nil
 		} else if e != nil {
 			return e

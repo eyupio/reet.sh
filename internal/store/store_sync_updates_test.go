@@ -429,13 +429,13 @@ func TestJobBasedSyncRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
 	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.QueueSyncJob(uid, a.ID, "", "scan"); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "This machine now follows your library, so it takes no sync jobs. Make the skill Active and it reaches every machine." {
+	if _, err = s.QueueSyncJob(uid, a.ID, "", "scan"); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "laptop follows your library; its skills are checked on every poll, so there's nothing to scan." {
 		t.Fatalf("queue a scan: %v", err)
 	}
 	if err = s.withTx(func(tx *sql.Tx) error {
 		_, err := insertSyncJobTx(tx, uid, a.ID, "", "auto")
 		return err
-	}); !errors.Is(err, ErrAgentFollowsLibrary) {
+	}); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "laptop follows your library. Make the skill Active to put it on every machine." {
 		t.Fatalf("queue an automatic sync: %v", err)
 	}
 	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err != nil {

@@ -510,10 +510,14 @@ const SkillsNeedNewerController = "needs-newer-controller"
 var ErrAgentFollowsLibrary = errors.New("This machine now follows your library, so it takes no sync jobs. Make the skill Active and it reaches every machine.")
 
 // FollowsLibraryError is ErrAgentFollowsLibrary for a machine the person
-// named, said with its name.
-type FollowsLibraryError struct{ Host string }
+// named, said with its name and in the words of what was asked: a scan, or
+// anything that would put skills on it.
+type FollowsLibraryError struct{ Host, Action string }
 
 func (e FollowsLibraryError) Error() string {
+	if e.Action == "scan" {
+		return e.Host + " follows your library; its skills are checked on every poll, so there's nothing to scan."
+	}
 	return e.Host + " follows your library. Make the skill Active to put it on every machine."
 }
 
@@ -581,16 +585,18 @@ func (s *Store) SetAgentSkillsProtocolFor(uid int64, agentID string, protocol in
 	})
 }
 
-// refuseJobsForSkillsAgentTx refuses job-based sync for a machine on the
-// skills protocol or a newer one: its skills follow the library.
-func refuseJobsForSkillsAgentTx(q privateSkillQuery, uid int64, agentID string) error {
+// refuseJobsForSkillsAgentTx refuses job-based sync of the kind asked for
+// (a job kind, or "install") for a machine on the skills protocol or a newer
+// one: its skills follow the library. The refusal is a FollowsLibraryError.
+func refuseJobsForSkillsAgentTx(q privateSkillQuery, uid int64, agentID, kind string) error {
 	var protocol int
-	err := q.QueryRow(`SELECT skills_protocol FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&protocol)
+	var host string
+	err := q.QueryRow(`SELECT skills_protocol,host FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&protocol, &host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err == nil && protocol >= CurrentSkillsProtocol {
-		return ErrAgentFollowsLibrary
+		return FollowsLibraryError{Host: host, Action: kind}
 	}
 	return err
 }
@@ -762,7 +768,7 @@ func (s *Store) QueueSyncJob(uid int64, agentID, targetID, kind string) (SyncJob
 	// remain exclusive, duplicate previews are rejected, and ClaimSyncJob
 	// serialises execution on each machine. Approval still requires an exact hash.
 	err := s.withTx(func(tx *sql.Tx) error {
-		if err := refuseJobsForSkillsAgentTx(tx, uid, agentID); err != nil {
+		if err := refuseJobsForSkillsAgentTx(tx, uid, agentID, kind); err != nil {
 			return err
 		}
 		var n int

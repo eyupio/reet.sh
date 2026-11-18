@@ -645,3 +645,23 @@ func TestInstallRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
 		t.Fatalf("a refused install wrote:\n%s\nwas:\n%s", after, before)
 	}
 }
+
+// The machine must be the agent's before anything about that agent is said:
+// an agent of another machine that follows the library is not this one.
+func TestInstallChecksTheAgentIsThisMachineFirst(t *testing.T) {
+	e := installFixture(t)
+	other, _, err := e.s.EnrollSyncAgent(e.uid, "desktop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.s.SetAgentSkillsProtocolFor(e.uid, other.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	in := e.req("pdf")
+	in.AgentID = other.ID
+	_, err = e.s.InstallHostedSkillFor(e.uid, in)
+	var refused *InstallError
+	if !errors.As(err, &refused) || refused.Code != "connector-offline" {
+		t.Fatalf("install with another machine's agent: %v", err)
+	}
+}

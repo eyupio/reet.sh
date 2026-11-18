@@ -314,11 +314,15 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if stage.SentBack != "" {
 		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
 	}
-	text += "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n" + item.Prompt
+	lead := "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n"
+	// What follows the brief is the stage's boundary, which the agent must
+	// read last; it is built apart so that a long prompt loses brief, not it.
+	text, brief := text+lead, item.Prompt
+	end := ""
 	if stage.Part != "" {
-		text += "\n\nThis part is finished when you have left, for this part only, " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
+		end += "\n\nThis part is finished when you have left, for this part only, " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
 	} else {
-		text += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
+		end += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
 	}
 	if len(later) > 0 {
 		// Named once each: the later parts of this stage are the same kind.
@@ -329,24 +333,33 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 			}
 		}
 		if len(names) > 0 {
-			text += " The later stages (" + strings.Join(names, ", ") + ") are done separately, after this one is checked: do not start them."
+			end += " The later stages (" + strings.Join(names, ", ") + ") are done separately, after this one is checked: do not start them."
 		}
 	}
 	if stage.Kind != "merge" {
-		text += " Do not merge."
+		end += " Do not merge."
 	}
-	return clipPrompt(text)
+	if room := MaxOutcomePromptBytes - len(text) - len(end); len(brief) > room {
+		if room < len("…") {
+			// Even the start is too long: it is cut, and the boundary kept.
+			return clipTo(text, MaxOutcomePromptBytes-len(end)) + end
+		}
+		brief = clipTo(brief, room)
+	}
+	return text + brief + end
 }
 
-func clipPrompt(text string) string {
-	if len(text) <= MaxOutcomePromptBytes {
+// clipTo cuts text to at most limit bytes on a character boundary, marking
+// the cut with "…".
+func clipTo(text string, limit int) string {
+	if len(text) <= limit {
 		return text
 	}
-	cut := MaxOutcomePromptBytes - len("…")
+	cut := limit - len("…")
 	for cut > 0 && !utf8.RuneStart(text[cut]) {
 		cut--
 	}
-	return text[:cut] + "…"
+	return text[:max(cut, 0)] + "…"
 }
 
 const (
@@ -1038,7 +1051,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 					if row.Key != key || row.State != "following" || row.ConversationID != conversation || row.Stage >= len(row.Stages) {
 						continue
 					}
-					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, 1800), time.Now().UnixMilli()
+					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, maxHandoverBytes), time.Now().UnixMilli()
 					row.Stages[row.Stage].ClosedBy = by
 					// What Gaffer's model used on this stage is kept with it: the next stage's goal starts its own count.
 					row.Stages[row.Stage].Reviews, row.Stages[row.Stage].InputTokens, row.Stages[row.Stage].OutputTokens, row.Stages[row.Stage].UsageReported = used.UsedReviews, used.InputTokens, used.OutputTokens, used.UsageReported

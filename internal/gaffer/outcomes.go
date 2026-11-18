@@ -24,6 +24,10 @@ const (
 	MaxOutcomePromptBytes    = 8000
 	MaxOutcomeReplyBytes     = 2000
 	maxOutcomeSummaryBytes   = 2000
+	// maxHandoverBytes is what a finished stage may hand the next one. A plan
+	// or design is handed over as its content, which does not fit in 2,000
+	// bytes; half a stage prompt leaves room for the brief and the boundary.
+	maxHandoverBytes = 4000
 )
 
 type OutcomePlanInput struct {

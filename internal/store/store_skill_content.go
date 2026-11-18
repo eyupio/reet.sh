@@ -329,6 +329,18 @@ func (s *Store) RequestSkillCaptureFor(uid int64, item, agentID, p string) error
 // the removal list in the same transaction, so a name is only removed from
 // machines once reet holds it.
 func (s *Store) SetSkillContentFor(uid int64, item string, files []skillbundle.ContentFile, origin PrivateSkillOrigin) (PrivateSkillResult, error) {
+	return s.setSkillContent(uid, item, files, origin, nil)
+}
+
+// SetSkillContentFromFor is SetSkillContentFor for a write that was decided
+// against a revision the caller read earlier: it saves only while the item's
+// head is still expectedRevision, and otherwise returns ErrPrivateSkillConflict
+// and changes nothing.
+func (s *Store) SetSkillContentFromFor(uid int64, item string, files []skillbundle.ContentFile, origin PrivateSkillOrigin, expectedRevision string) (PrivateSkillResult, error) {
+	return s.setSkillContent(uid, item, files, origin, &expectedRevision)
+}
+
+func (s *Store) setSkillContent(uid int64, item string, files []skillbundle.ContentFile, origin PrivateSkillOrigin, expected *string) (PrivateSkillResult, error) {
 	var name, bundle, head string
 	err := s.db.QueryRow(`SELECT name,bundle_id FROM library_items WHERE user_id=? AND id=? AND item_type=? AND deleted_at=0`, uid, item, LibrarySkill).Scan(&name, &bundle)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -347,6 +359,9 @@ func (s *Store) SetSkillContentFor(uid int64, item string, files []skillbundle.C
 		} else {
 			bundle = ""
 		}
+	}
+	if expected != nil && *expected != head {
+		return PrivateSkillResult{}, ErrPrivateSkillConflict
 	}
 	id, err := privateSkillRandomID()
 	if err != nil {

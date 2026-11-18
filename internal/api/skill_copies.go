@@ -181,47 +181,48 @@ func (s *server) retrySkillCopies(w http.ResponseWriter, r *http.Request) {
 }
 
 // fetchOriginal downloads the original of an imported skill and the manifest
-// reet holds now (nil when it has no content).
-func (s *server) fetchOriginal(ctx context.Context, uid int64, item string) (skillfetch.Result, *skillbundle.Manifest, error) {
+// reet holds now (nil when it has no content), and the id of the revision it
+// read that manifest from, taken before the download starts.
+func (s *server) fetchOriginal(ctx context.Context, uid int64, item string) (skillfetch.Result, *skillbundle.Manifest, string, error) {
 	var none skillfetch.Result
 	li, err := s.st.LibraryItemFor(uid, item)
 	if err != nil {
-		return none, nil, err
+		return none, nil, "", err
 	}
 	r, ok, err := s.st.SkillSourceFor(uid, item)
 	if err != nil {
-		return none, nil, err
+		return none, nil, "", err
 	}
 	if !ok || li.ItemType != store.LibrarySkill {
-		return none, nil, errNoOriginal
+		return none, nil, "", errNoOriginal
 	}
 	var current *skillbundle.Manifest
 	if li.BundleID != "" && li.RevisionID != "" {
 		rev, e := s.st.PrivateSkillRevisionFor(uid, li.BundleID, li.RevisionID)
 		if e != nil {
-			return none, nil, e
+			return none, nil, "", e
 		}
 		current = rev.Manifest
 	}
 	ctx, cancel := context.WithTimeout(ctx, skillFetchTimeout)
 	defer cancel()
 	res, err := s.skillFetcher.Fetch(ctx, r)
-	return res, current, err
+	return res, current, li.RevisionID, err
 }
 
 // originalChanges fetches the original of an imported skill and compares it
-// with reet's copy. It returns the changes, the digest of what it fetched and
-// whether the skill was edited since it was imported. It changes nothing.
-func (s *server) originalChanges(ctx context.Context, uid int64, item string) (skillbundle.Diff, string, bool, error) {
-	res, current, err := s.fetchOriginal(ctx, uid, item)
+// with reet's copy. It returns the changes, the digest of what it fetched, the
+// revision it compared against and whether the skill was edited since it was imported. It changes nothing.
+func (s *server) originalChanges(ctx context.Context, uid int64, item string) (skillbundle.Diff, string, string, bool, error) {
+	res, current, revision, err := s.fetchOriginal(ctx, uid, item)
 	if err != nil {
-		return skillbundle.Diff{}, "", false, err
+		return skillbundle.Diff{}, "", "", false, err
 	}
 	edited, err := s.st.SkillEditedSinceImportFor(uid, item)
 	if err != nil {
-		return skillbundle.Diff{}, "", false, err
+		return skillbundle.Diff{}, "", "", false, err
 	}
-	return skillbundle.Compare(current, &res.Manifest), res.Manifest.Digest, edited, nil
+	return skillbundle.Compare(current, &res.Manifest), res.Manifest.Digest, revision, edited, nil
 }
 
 func originalError(w http.ResponseWriter, err error) {
@@ -244,7 +245,7 @@ func originalError(w http.ResponseWriter, err error) {
 // skillOriginalChanges is the first half of Update from original: which
 // files differ, the digest to confirm, and whether the person edited the skill.
 func (s *server) skillOriginalChanges(w http.ResponseWriter, r *http.Request) {
-	diff, digest, edited, err := s.originalChanges(r.Context(), s.uid(r), r.PathValue("item"))
+	diff, digest, revision, edited, err := s.originalChanges(r.Context(), s.uid(r), r.PathValue("item"))
 	if err != nil {
 		originalError(w, err)
 		return
@@ -257,27 +258,37 @@ func (s *server) skillOriginalChanges(w http.ResponseWriter, r *http.Request) {
 	for _, c := range diff.Changes {
 		changes = append(changes, change{c.Path, c.Kind})
 	}
-	writeJSON(w, 200, map[string]any{"changes": changes, "state": diff.State, "digest": digest, "edited": edited})
+	writeJSON(w, 200, map[string]any{"changes": changes, "state": diff.State, "digest": digest, "revision": revision, "edited": edited})
 }
 
 // skillOriginalUpdate is the confirmed half: body {"digest":"<digest from
-// GET>"}. It fetches again and saves a new revision only when what it fetched
-// is what was shown (409 otherwise) and differs from reet's copy.
+// GET>","revision":"<revision from GET>"}. It fetches again and saves a new
+// revision only when what it fetched is what was shown and the skill is still
+// at the revision that was compared (409 otherwise) and differs from reet's copy.
 func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Digest string `json:"digest"`
+		Digest   string `json:"digest"`
+		Revision string `json:"revision"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
+	if in.Revision == "" {
+		writeErr(w, 400, "Say which revision you looked at. Review the changes again.")
+		return
+	}
 	uid, item := s.uid(r), r.PathValue("item")
-	res, current, err := s.fetchOriginal(r.Context(), uid, item)
+	res, current, revision, err := s.fetchOriginal(r.Context(), uid, item)
 	if err != nil {
 		originalError(w, err)
 		return
 	}
 	if in.Digest == "" || res.Manifest.Digest != in.Digest {
 		writeErr(w, 409, "The original changed since you looked at it. Review the changes again.")
+		return
+	}
+	if revision != in.Revision {
+		writeErr(w, 409, "The skill changed since you looked at it. Review the changes again.")
 		return
 	}
 	edited, err := s.st.SkillEditedSinceImportFor(uid, item)
@@ -289,7 +300,11 @@ func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"updated": false, "digest": res.Manifest.Digest, "edited": edited})
 		return
 	}
-	if _, err = s.st.SetSkillContentFor(uid, item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin}); err != nil {
+	if _, err = s.st.SetSkillContentFromFor(uid, item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin}, in.Revision); err != nil {
+		if errors.Is(err, store.ErrPrivateSkillConflict) {
+			writeErr(w, 409, "The skill changed since you looked at it. Review the changes again.")
+			return
+		}
 		originalError(w, err)
 		return
 	}

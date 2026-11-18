@@ -230,10 +230,11 @@ func TestOriginalChangesShowsDiffAndEdited(t *testing.T) {
 	e.settle()
 	item := e.item(t)
 	type reply struct {
-		Changes []struct{ Path, Kind string }
-		State   string
-		Digest  string
-		Edited  bool
+		Changes  []struct{ Path, Kind string }
+		State    string
+		Digest   string
+		Revision string
+		Edited   bool
 	}
 	get := func() reply {
 		t.Helper()
@@ -244,11 +245,15 @@ func TestOriginalChangesShowsDiffAndEdited(t *testing.T) {
 		}
 		return r
 	}
+	post := func(r reply) string { return `{"digest":"` + r.Digest + `","revision":"` + r.Revision + `"}` }
+	if r := get(); r.Revision == "" {
+		t.Fatalf("GET must return the revision it compared against: %+v", r)
+	}
 	if r := get(); r.State != "equal" || len(r.Changes) != 0 || r.Edited || r.Digest == "" {
 		t.Fatalf("nothing changed: %+v", r)
 	}
 	// Posting when nothing changed makes no revision.
-	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+get().Digest+`"}`); code != 200 || !strings.Contains(body, `"updated":false`) {
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", post(get())); code != 200 || !strings.Contains(body, `"updated":false`) {
 		t.Fatalf("no-op update: %d %s", code, body)
 	}
 	e.fetch.set("v2", nil)
@@ -263,13 +268,13 @@ func TestOriginalChangesShowsDiffAndEdited(t *testing.T) {
 	if r = get(); !r.Edited {
 		t.Fatalf("after an edit: %+v", r)
 	}
-	if code, _ := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"stale"}`); code != 409 {
+	if code, _ := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"stale","revision":"`+r.Revision+`"}`); code != 409 {
 		t.Fatalf("a stale digest: %d", code)
 	}
 	if edited, _ := e.st.SkillEditedSinceImportFor(e.uid, item); !edited {
 		t.Fatal("a refused update must change nothing")
 	}
-	code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`"}`)
+	code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", post(r))
 	if code != 200 || !strings.Contains(body, `"updated":true`) || !strings.Contains(body, `"edited":true`) {
 		t.Fatalf("confirmed update: %d %s", code, body)
 	}
@@ -278,6 +283,50 @@ func TestOriginalChangesShowsDiffAndEdited(t *testing.T) {
 	}
 	if code, _ := do(t, e.srv, "GET", "/api/v2/skills/nosuchitem/original", ""); code != 404 {
 		t.Fatalf("unknown item: %d", code)
+	}
+}
+
+func TestOriginalRefusesWhenTheSkillChangedDuringTheDownload(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	e.fetch.set("v2", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil || r.Revision == "" {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	url := "/api/v2/skills/" + item + "/original"
+	for _, in := range []string{`{"digest":"` + r.Digest + `"}`, `{"digest":"` + r.Digest + `","revision":""}`} {
+		if code, body := do(t, e.srv, "POST", url, in); code != 400 {
+			t.Fatalf("a missing revision is a 400: %d %s", code, body)
+		}
+	}
+	// An edit lands after the person looked, before they confirmed.
+	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: find-skills\ndescription: Mine\n---\nedited during the download\n")}}
+	edit, err := e.st.SetSkillContentFor(e.uid, item, files, store.PrivateSkillOrigin{Kind: "edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`)
+	if code != 409 || !strings.Contains(body, "changed") {
+		t.Fatalf("an edit made since the revision was read must be refused: %d %s", code, body)
+	}
+	li, err := e.st.LibraryItemFor(e.uid, item)
+	if err != nil || li.RevisionID != edit.Revision.ID {
+		t.Fatalf("the edit must stay the head: %+v %v", li, err)
+	}
+	// Reading again gives the new revision, and that one is accepted.
+	var again struct{ Digest, Revision string }
+	code, body = do(t, e.srv, "GET", url, "")
+	if code != 200 || json.Unmarshal([]byte(body), &again) != nil || again.Revision != edit.Revision.ID {
+		t.Fatalf("GET after the edit: %d %s", code, body)
+	}
+	if code, body = do(t, e.srv, "POST", url, `{"digest":"`+again.Digest+`","revision":"`+again.Revision+`"}`); code != 200 || !strings.Contains(body, `"updated":true`) {
+		t.Fatalf("the right revision succeeds: %d %s", code, body)
 	}
 }
 

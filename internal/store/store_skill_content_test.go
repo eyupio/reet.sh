@@ -248,6 +248,30 @@ func TestEditedSinceImport(t *testing.T) {
 	}
 }
 
+func TestSkillContentFromRefusesAMovedHead(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+	origin := PrivateSkillOrigin{Kind: "original", Reference: "https://github.com/vercel-labs/skills/tree/HEAD/skills/find-skills"}
+	v1, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "v1"), origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "mine"), PrivateSkillOrigin{Kind: "edit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSkillContentFromFor(uid, item.id, contentFiles("find-skills", "v2"), origin, v1.Revision.ID); !errors.Is(err, ErrPrivateSkillConflict) {
+		t.Fatalf("a head that moved must be refused: %v", err)
+	}
+	if edited, _ := s.SkillEditedSinceImportFor(uid, item.id); !edited {
+		t.Fatal("a refused write must leave the edit as the head")
+	}
+	if _, err := s.SetSkillContentFromFor(uid, item.id, contentFiles("find-skills", "v2"), origin, mine.Revision.ID); err != nil {
+		t.Fatalf("the current head is accepted: %v", err)
+	}
+}
+
 func TestMachineCaptureRecordsWhereItCameFromAndFollowsArchive(t *testing.T) {
 	s, uid, agent, _ := observationFixture(t)
 	item := localItem(t, s, uid, agent.Host, "demo")

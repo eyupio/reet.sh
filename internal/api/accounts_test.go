@@ -118,6 +118,49 @@ func TestMachineAccountsFirstReadAsksForTheAllowance(t *testing.T) {
 	}
 }
 
+// A machine that reads more agents is kept and served whole: the controller
+// keeps no list of its own. A plan sign-in its provider said has nothing to
+// read is shown as that while plan limits are on, and as not asked once they
+// are off; an API key has no plan either way.
+func TestMachineAccountsServeEveryAgentTheMachineReads(t *testing.T) {
+	f := modelsAPIFixture(t, accountsCaps())
+	f.answering(func(body terminalproto.Body) terminalproto.Body {
+		answer := signedInAnswer(body.(terminalproto.Accounts).Limits)
+		copilot := terminalproto.AgentAccount{Tool: "copilot", State: terminalproto.AccountSignedIn, Method: terminalproto.AccountSubscription, Account: "person", LimitsState: terminalproto.AccountLimitsNotAsked}
+		opencode := terminalproto.AgentAccount{Tool: "opencode", State: terminalproto.AccountSignedIn, Method: terminalproto.AccountSubscription, LimitsState: terminalproto.AccountLimitsNotAsked}
+		if body.(terminalproto.Accounts).Limits {
+			copilot.LimitsState = terminalproto.AccountLimitsUnsupported
+			opencode.LimitsState, opencode.Plan, opencode.LimitsAt = terminalproto.AccountLimitsRead, "go", time.Now().UnixMilli()
+			opencode.Limits = []terminalproto.AccountLimit{{Kind: terminalproto.AccountLimitMonth, UsedPercent: 3}}
+		}
+		answer.Accounts[1] = terminalproto.AgentAccount{Tool: "codex", State: terminalproto.AccountSignedIn, Method: terminalproto.AccountAPIKey, LimitsState: terminalproto.AccountLimitsUnsupported}
+		answer.Accounts = append(answer.Accounts, opencode, terminalproto.AgentAccount{Tool: "antigravity", State: terminalproto.AccountNone, LimitsState: terminalproto.AccountLimitsNotAsked}, copilot)
+		return answer
+	})
+	code, out, raw := f.get(t, f.cookie, accountsPath(f.agent))
+	if code != 200 || len(modelsField(t, out, "accounts")) != 5 {
+		t.Fatal(code, raw)
+	}
+	if copilot := accountEntry(t, out, "copilot"); copilot["limitsState"] != "unsupported" || copilot["limits"] != nil {
+		t.Fatal("copilot", copilot)
+	}
+	if opencode := accountEntry(t, out, "opencode"); opencode["limitsState"] != "read" || opencode["plan"] != "go" {
+		t.Fatal("opencode", opencode)
+	}
+	// An older web bundle that still sends the switch off changes nothing: what the provider said is shown.
+	f.oldClientPlanLimits(t, false)
+	_, out, _ = f.get(t, f.cookie, accountsPath(f.agent))
+	if copilot := accountEntry(t, out, "copilot"); copilot["limitsState"] != "unsupported" {
+		t.Fatal("the retired switch hid what a provider said", copilot)
+	}
+	if opencode := accountEntry(t, out, "opencode"); opencode["limitsState"] != "read" {
+		t.Fatal("the retired switch hid a plan's figures", opencode)
+	}
+	if codex := accountEntry(t, out, "codex"); codex["limitsState"] != "unsupported" {
+		t.Fatal("an API key", codex)
+	}
+}
+
 func TestMachineAccountsAnOldAnswerIsReadAgain(t *testing.T) {
 	f := accountsFixture(t, accountsCaps())
 	old := time.Now().Add(-accountsStaleAfter - time.Minute).UnixMilli()

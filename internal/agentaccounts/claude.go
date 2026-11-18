@@ -89,10 +89,10 @@ func (r *Reader) goos() string {
 // askClaude reads the allowance of a Claude plan: the five-hour window, the
 // week, and the week's share for a model the plan limits on its own. Each is a
 // used percentage and the time it starts again.
-func askClaude(ctx context.Context, r *Reader, s signIn) ([]terminalproto.AccountLimit, terminalproto.AccountLimitsState, time.Duration) {
+func askClaude(ctx context.Context, r *Reader, s signIn) allowance {
 	body, state, wait := r.get(ctx, r.opts.ClaudeUsageURL, s.token, map[string]string{"anthropic-beta": "oauth-2025-04-20"})
 	if state != terminalproto.AccountLimitsRead {
-		return nil, state, wait
+		return allowance{state: state, wait: wait}
 	}
 	type window struct {
 		Utilization *float64 `json:"utilization"`
@@ -105,7 +105,7 @@ func askClaude(ctx context.Context, r *Reader, s signIn) ([]terminalproto.Accoun
 		Sonnet   *window `json:"seven_day_sonnet"`
 	}
 	if json.Unmarshal(body, &doc) != nil {
-		return nil, terminalproto.AccountLimitsFailed, 0
+		return allowance{state: terminalproto.AccountLimitsFailed}
 	}
 	var limits []terminalproto.AccountLimit
 	add := func(w *window, kind terminalproto.AccountLimitKind, name string) {
@@ -124,7 +124,7 @@ func askClaude(ctx context.Context, r *Reader, s signIn) ([]terminalproto.Accoun
 	add(doc.Sonnet, terminalproto.AccountLimitWeek, "Sonnet")
 	if len(limits) == 0 {
 		// An answer with no window this reader knows is not an allowance.
-		return nil, terminalproto.AccountLimitsFailed, 0
+		return allowance{state: terminalproto.AccountLimitsFailed}
 	}
-	return limits, terminalproto.AccountLimitsRead, 0
+	return allowance{limits: limits, state: terminalproto.AccountLimitsRead}
 }

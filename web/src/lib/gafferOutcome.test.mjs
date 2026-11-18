@@ -471,6 +471,20 @@ test('a tier’s backup goes with each of its stages, and one that is the first 
   assert.equal(o.track({ state: 'following', stage: 0, stages: [{ kind: 'code', tool: 'codex', state: 'running', balanced: 'Claude Code’s plan had 12% left.' }] })[0].balanced, 'Claude Code’s plan had 12% left.')
 })
 
+test('the crew saved in Gaffer settings is shown at open, tier by tier, or nothing when there is none', () => {
+  const saved = { heavy: { tool: 'claude', model: ' opus ' }, standard: { tool: 'opencode', model: '' }, light: { tool: 'cline', model: 'deepseek/deepseek-v4' } }
+  assert.deepEqual(o.savedCrewRows(saved), [
+    { tier: 'heavy', label: 'Heavy', tool: 'claude', model: 'opus' },
+    { tier: 'standard', label: 'Standard', tool: 'opencode', model: '' },
+    { tier: 'light', label: 'Light', tool: 'cline', model: 'deepseek/deepseek-v4' },
+  ])
+  // A tier with no agent is not a saved setting, and no saved crew has nothing to show.
+  assert.deepEqual(o.savedCrewRows({ heavy: { model: 'opus' }, standard: {}, light: { tool: ' ', model: 'x' } }), [])
+  assert.deepEqual(o.savedCrewRows({}), [])
+  assert.deepEqual(o.savedCrewRows(null), [])
+  assert.deepEqual(o.savedCrewRows(undefined), [])
+})
+
 test('a split stage is sent as one entry for each part, on that part’s own tier', () => {
   const crew = { heavy: { tool: 'claude', model: 'opus' }, standard: { tool: 'claude', model: '' }, light: { tool: 'codex', model: 'small' } }
   const ratings = o.planRatings([

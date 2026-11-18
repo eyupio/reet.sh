@@ -6,17 +6,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
 
-// backupRetention is how long a backed-up skill is kept before the agent
-// prunes it.
-const backupRetention = 30 * 24 * time.Hour
+// backupRetentionDays is how many days a backed-up skill is kept before the
+// agent prunes it.
+const backupRetentionDays = 30
 
 const backupDateLayout = "2006-01-02"
 
@@ -109,8 +111,12 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(backupRoot(folder), now.Format(backupDateLayout))
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return "", err
+	// List and prune ignore a .reet-backups or date folder that is a link, so
+	// a backup made through one could never be found again.
+	for _, d := range []string{backupRoot(folder), dir} {
+		if err := ensureRealDir(d); err != nil {
+			return "", err
+		}
 	}
 	base := backupPrefix(folder) + name
 	dest := filepath.Join(dir, base)
@@ -128,9 +134,30 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 	idx := readBackupIndex(dir)
 	idx.Entries[filepath.Base(dest)] = indexRecord{Name: name, Folder: folder, At: now.UnixMilli()}
 	if err := writeBackupIndex(dir, idx); err != nil {
-		return dest, fmt.Errorf("backed up to %s but could not record its name: %w", dest, err)
+		// The skill is safely in its backup, and listing falls back to the
+		// entry's name, so this is a warning and not a failure.
+		log.Printf("backed up to %s but could not record its name: %v", dest, err)
 	}
 	return dest, nil
+}
+
+// ensureRealDir makes dir, one level, when it is missing, and refuses it when
+// something else than a real directory is there. A link is not followed.
+func ensureRealDir(dir string) error {
+	st, err := os.Lstat(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err = os.Mkdir(dir, 0700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		st, err = os.Lstat(dir)
+	}
+	if err != nil {
+		return err
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("refusing to back up into %s: it is not a real folder", dir)
+	}
+	return nil
 }
 
 // moveEntry renames src to dest, falling back to copy-then-remove when the
@@ -272,7 +299,10 @@ func dateFolders(root string) []string {
 // folder reet leaves alone, such as one whose parent links into a project,
 // .reet-backups lies in someone else's folder, and nothing there is pruned.
 func pruneBackups(home string, now time.Time, unmanaged []string) error {
-	cutoff := now.Add(-backupRetention)
+	// A date folder goes once its whole day is more than 30 days gone, so a
+	// backup made late in the day is kept as long as one made early in it.
+	y, m, d := now.Date()
+	cutoff := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).AddDate(0, 0, -backupRetentionDays)
 	roots := managedRoots(home, unmanaged)
 	var errs []error
 	for i, f := range managedFolders {
@@ -310,6 +340,10 @@ func listBackups(home string) ([]backupEntry, error) {
 				return nil, err
 			}
 			idx := readBackupIndex(dir)
+			present := map[string]bool{}
+			for _, e := range entries {
+				present[e.Name()] = true
+			}
 			for _, e := range entries {
 				if e.Name() == backupIndexFile {
 					continue
@@ -318,6 +352,11 @@ func listBackups(home string) ([]backupEntry, error) {
 				if rec, ok := idx.Entries[e.Name()]; ok && validBackupName(rec.Name) {
 					b.Name, b.At = rec.Name, rec.At
 				} else if name := strings.TrimPrefix(e.Name(), prefix); name != e.Name() && validBackupName(name) {
+					// Without an index, a trailing -N is a clash suffix only
+					// beside the entry it clashed with.
+					if stem, ok := clashStem(name); ok && present[prefix+stem] {
+						name = stem
+					}
 					b.Name = name
 				} else {
 					continue
@@ -372,6 +411,20 @@ func listBackups(home string) ([]backupEntry, error) {
 		return out[i].Path > out[j].Path
 	})
 	return out, nil
+}
+
+// clashStem returns name without a trailing -N (N at least 2), the suffix
+// backupSkill adds when a backup of the name is already there.
+func clashStem(name string) (string, bool) {
+	i := strings.LastIndexByte(name, '-')
+	if i <= 0 {
+		return "", false
+	}
+	n, err := strconv.Atoi(name[i+1:])
+	if err != nil || n < 2 || name[i+1] == '+' {
+		return "", false
+	}
+	return name[:i], true
 }
 
 // restoreBackup moves the named backup back into the folder it came from and

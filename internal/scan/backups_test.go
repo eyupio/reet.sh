@@ -2,6 +2,7 @@ package scan
 
 import (
 	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -439,5 +440,199 @@ func TestBackupAndRestoreALongNameAcrossDevices(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(got, "SKILL.md")); err != nil || string(b) != "body" {
 		t.Fatalf("restored %q %v", b, err)
+	}
+}
+
+// A date folder goes only when its whole day is more than 30 days gone: a
+// backup made late on a day is still kept 30 days after it was made.
+func TestPruneBackupsKeepsADateFolderUntilItsWholeDayIs30DaysOld(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		now  time.Time
+	}{
+		{"utc noon", time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)},
+		{"just after midnight", time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)},
+		{"just before midnight", time.Date(2026, 11, 18, 23, 59, 59, 0, time.UTC)},
+		{"far west, local date ahead of nowhere", time.Date(2026, 11, 18, 23, 30, 0, 0, time.FixedZone("west", -10*3600))},
+		{"far east, local date ahead of utc", time.Date(2026, 11, 18, 0, 30, 0, 0, time.FixedZone("east", 14*3600))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, ".cursor", ".reet-backups")
+			day := func(n int) string { return tc.now.AddDate(0, 0, -n).Format(backupDateLayout) }
+			for _, n := range []int{29, 30, 31} {
+				writeSkill(t, filepath.Join(root, day(n), ".cursor-a"))
+			}
+			mkdirs(t, home, ".cursor/skills")
+			if err := pruneBackups(home, tc.now, nil); err != nil {
+				t.Fatal(err)
+			}
+			for n, kept := range map[int]bool{29: true, 30: true, 31: false} {
+				_, err := os.Lstat(filepath.Join(root, day(n)))
+				if kept && err != nil {
+					t.Errorf("the folder %d days back was pruned: %v", n, err)
+				}
+				if !kept && !os.IsNotExist(err) {
+					t.Errorf("the folder %d days back was kept", n)
+				}
+			}
+		})
+	}
+}
+
+// A .reet-backups that is a link, or a date folder that is, is not followed:
+// list and prune ignore it, so a backup made there could not be found again.
+func TestBackupRefusesALinkedBackupsRootOrDateFolder(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, filepath.Join(folder, "alpha"))
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(home, ".claude", ".reet-backups")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backupSkill(folder, "alpha", backupNow); err == nil {
+		t.Fatal("backed up through a linked .reet-backups")
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Fatalf("wrote through the link: %v", entries)
+	}
+	if _, err := os.Lstat(filepath.Join(folder, "alpha")); err != nil {
+		t.Fatalf("the skill moved anyway: %v", err)
+	}
+
+	home = t.TempDir()
+	folder = filepath.Join(home, ".claude", "skills")
+	writeSkill(t, filepath.Join(folder, "alpha"))
+	elsewhere = t.TempDir()
+	root := filepath.Join(home, ".claude", ".reet-backups")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(root, "2026-11-18")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backupSkill(folder, "alpha", backupNow); err == nil {
+		t.Fatal("backed up through a linked date folder")
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Fatalf("wrote through the link: %v", entries)
+	}
+}
+
+// The move is what matters: when the name cannot be recorded the backup
+// stands, the caller is told so, and a clash copy still lists as its skill.
+func TestBackupSucceedsWhenItsIndexCannotBeWritten(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	dateDir := filepath.Join(home, ".claude", ".reet-backups", "2026-11-18")
+	// A folder where index.json goes makes every write of the index fail.
+	if err := os.MkdirAll(filepath.Join(dateDir, backupIndexFile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	var got []string
+	for i := 0; i < 2; i++ {
+		writeSkill(t, filepath.Join(folder, "foo"))
+		dest, err := backupSkill(folder, "foo", backupNow)
+		if err != nil {
+			t.Fatalf("backup %d: %v", i, err)
+		}
+		if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); err != nil {
+			t.Fatalf("backup %d is not at %s: %v", i, dest, err)
+		}
+		got = append(got, filepath.Base(dest))
+	}
+	if got[0] != ".claude-foo" || got[1] != ".claude-foo-2" {
+		t.Fatalf("backups at %v", got)
+	}
+	if !strings.Contains(logged.String(), "could not record") {
+		t.Fatalf("no warning logged: %q", logged.String())
+	}
+	entries, err := listBackups(home)
+	if err != nil || len(entries) != 2 || entries[0].Name != "foo" || entries[1].Name != "foo" {
+		t.Fatalf("list = %+v, %v", entries, err)
+	}
+}
+
+// Without an index, a trailing -N is a clash suffix only when the entry it
+// would be a clash of is there too.
+func TestListBackupsReadsAClashSuffixOnlyBesideItsOriginal(t *testing.T) {
+	home := t.TempDir()
+	dateDir := filepath.Join(home, ".cursor", ".reet-backups", "2026-11-18")
+	for _, n := range []string{".cursor-foo", ".cursor-foo-2", ".cursor-bar-2", ".cursor-baz-x"} {
+		writeSkill(t, filepath.Join(dateDir, n))
+	}
+	entries, err := listBackups(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	if want := "bar-2 baz-x foo foo"; strings.Join(names, " ") != want {
+		t.Fatalf("names %q, want %q", names, want)
+	}
+}
+
+// A backup moved across devices is copied and then removed, through the
+// same call that moves it on one device: a folder, a link and a file.
+func TestMoveEntryAcrossDevicesCopiesThenRemoves(t *testing.T) {
+	was := renameEntry
+	t.Cleanup(func() { renameEntry = was })
+	var tried int
+	renameEntry = func(src, dest string) error {
+		tried++
+		return &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
+	}
+	root := t.TempDir()
+	folder := filepath.Join(root, "folder")
+	writeSkill(t, folder)
+	if err := os.Symlink("SKILL.md", filepath.Join(folder, "inner")); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(folder, link); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{link, file, folder} {
+		dest := filepath.Join(root, "moved-"+filepath.Base(src))
+		copied, err := moveEntryCopying(src, dest)
+		if err != nil || !copied {
+			t.Fatalf("%s: copied %v, err %v", src, copied, err)
+		}
+		if _, err := os.Lstat(src); !os.IsNotExist(err) {
+			t.Fatalf("%s: the source stayed: %v", src, err)
+		}
+		st, err := os.Lstat(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch src {
+		case link:
+			if l, err := os.Readlink(dest); st.Mode()&os.ModeSymlink == 0 || err != nil || l != folder {
+				t.Fatalf("link moved as %v %q %v", st.Mode(), l, err)
+			}
+		case file:
+			if b, _ := os.ReadFile(dest); string(b) != "x" {
+				t.Fatalf("file moved as %q", b)
+			}
+		case folder:
+			if l, err := os.Readlink(filepath.Join(dest, "inner")); err != nil || l != "SKILL.md" {
+				t.Fatalf("inner link = %q %v", l, err)
+			}
+			if b, _ := os.ReadFile(filepath.Join(dest, "SKILL.md")); string(b) != "body" {
+				t.Fatal("folder not copied")
+			}
+		}
+	}
+	if tried != 3 {
+		t.Fatalf("rename tried %d times, want 3", tried)
 	}
 }

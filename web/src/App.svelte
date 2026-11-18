@@ -473,7 +473,7 @@
       // A waiting desk session opens on the desk at its pane: the panes of the desks holding one (each read once per version).
       const onDesks = new Set(entries.flatMap(entry => entry.source !== 'factory' && entry.desk ? [entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId] : []))
       if (lastDesks && onDesks.size) {
-        const panes = await readDeskPanes(lastDesks, onDesks)
+        const panes = await readDeskPanes(lastDesks, onDesks, AbortSignal.timeout(15_000))
         if (mine !== attentionGeneration) return
         entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks, panes }).entries
       }

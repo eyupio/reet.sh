@@ -40,8 +40,8 @@ export async function listDesks(signal?: AbortSignal): Promise<DeskSummary[]> {
   return Array.isArray(body?.desks) ? body.desks : []
 }
 
-export async function getDesk(id: string): Promise<Desk> {
-  return (await deskRequest(`${base}/${encodeURIComponent(id)}`)).json()
+export async function getDesk(id: string, signal?: AbortSignal): Promise<Desk> {
+  return (await deskRequest(`${base}/${encodeURIComponent(id)}`, signal ? { signal } : {})).json()
 }
 
 export async function createDesk(input: { name: string; colour?: ProjectColour; template?: boolean; from?: string }): Promise<Desk> {

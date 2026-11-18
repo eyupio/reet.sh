@@ -309,7 +309,7 @@
       if (writer && desks) {
         // The panes of the desks holding a session that waits (each desk read once per version).
         const wanted = new Set(waits.entries.flatMap(entry => entry.source !== 'factory' && entry.desk ? [entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId] : []))
-        const panes = await readPanes(desks, wanted)
+        const panes = await readPanes(desks, wanted, bounded())
         if (!stale()) deskPanes = panes
       }
     } finally {

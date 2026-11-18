@@ -53,3 +53,13 @@ test('the pane reader reads only the desks that hold a wanted session, once per 
   await reader(desks, new Set())
   assert.equal(reads.length, 4)
 })
+
+test('a pane read is bounded: the reader hands its signal to each read, and a read that is cut off links nothing', async () => {
+  const seen = []
+  const reader = deskPaneReader((id, signal) => new Promise((_, reject) => { seen.push(signal); signal.addEventListener('abort', () => reject(new Error('cut off'))) }))
+  const cut = new AbortController()
+  const pending = reader([desk('d1', ['s1'])], new Set(['s1']), cut.signal)
+  cut.abort()
+  assert.deepEqual([...await pending], [])
+  assert.equal(seen[0], cut.signal)
+})

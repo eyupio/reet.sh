@@ -429,6 +429,10 @@ func Open(dir string) (*Store, error) {
 		st.db.Close()
 		return nil, err
 	}
+	if err := st.migrateUsageEvents(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateGafferOutcomes(); err != nil {
 		db.Close()
 		return nil, err

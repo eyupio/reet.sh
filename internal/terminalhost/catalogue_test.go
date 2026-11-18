@@ -656,3 +656,28 @@ func TestLaunchArgvPrefersAManagedBinary(t *testing.T) {
 		t.Fatalf("launch did not use the managed binary: %v", argv)
 	}
 }
+
+// TestLaunchToolsFollowTheCatalogue keeps the controller's ordered list of
+// agents (the Usage page lists one block per agent, in this order) equal to the
+// presets this connector starts, and its "reports tokens in a chat" rule equal
+// to the presets that have a chat adapter.
+func TestLaunchToolsFollowTheCatalogue(t *testing.T) {
+	var want []string
+	for _, p := range Catalogue {
+		if p.DisabledReason != "" {
+			continue
+		}
+		want = append(want, p.ID)
+		if terminalproto.ReviewedChatTool(p.ID) != (p.ACP != "") {
+			t.Fatalf("%s: chat adapter %q but reviewed chat %v", p.ID, p.ACP, terminalproto.ReviewedChatTool(p.ID))
+		}
+	}
+	got := terminalproto.LaunchTools()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("launch tools %v, catalogue %v", got, want)
+	}
+	got[0] = "changed"
+	if terminalproto.LaunchTools()[0] == "changed" {
+		t.Fatal("LaunchTools hands out its own slice")
+	}
+}

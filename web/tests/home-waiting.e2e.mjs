@@ -391,6 +391,9 @@ try{
    await item.scrollIntoViewIfNeeded()
    await page.screenshot({path:`${shots}/home-desk-bell-1440.png`})
    await page.keyboard.press('Escape')
+   // The Projects panel's running count leaves the desk sessions out too, so it matches what Home lists.
+   await expect(page.locator('aside.rail')).toContainText('portal')
+   await expect(page.locator('aside.rail')).not.toContainText('5 running')
    // Neither Continue working nor the board lists a desk session.
    const views=page.getByRole('group',{name:'Home view',exact:true})
    await views.getByRole('button',{name:'Continue working',exact:true}).click()
@@ -435,6 +438,7 @@ try{
    await expect(entries(page)).toHaveCount(6)
    await expect(entries(page).filter({hasText:'Desk deploy check'}).locator('.where')).not.toContainText('Desk Front')
    await expect(page.locator('.workspace-heading')).toContainText('6 waiting for you · 1 pipeline working · 7 sessions open')
+   await expect(page.locator('aside.rail')).toContainText('5 running')
    await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Continue working',exact:true}).click()
    await expect(page.getByRole('region',{name:'Continue working',exact:true})).toContainText('Desk idle shell')
    expect(w.f.desks.read).toBeGreaterThan(0)

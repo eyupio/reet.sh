@@ -32,7 +32,8 @@ flight.** A Factory pipeline's session is kept (it is its Factory item). What ne
 without the pane the link is `/desks/<id>`. `SessionWaitingItem` and the bell add " · Desk <name>" to the place. The bell
 off Home (`loadAttention` in `App.svelte`) reads the desks the same way (desk reads are plain fetches and never drive the
 progress bar). A failed desk read keeps the last desks, never signs out and never adds a problem line; before any read
-no session counts as a desk session. Left as they were, deliberately: the Projects rail's running counts and worktrees,
+no session counts as a desk session. The Projects rail's running counts leave desk sessions out too (the owner's choice, so the
+panel matches what Home lists). Left as they were, deliberately: the rail's worktrees,
 the machine cards, owners, the waiting announcement and the launch bar's recent models still see every session.
 
 **Checked.** Unit: `deskSessions.test.mjs`, four new cases in `whatWaits.test.mjs`. Browser: four new blocks in
@@ -53,8 +54,7 @@ Jump and the bell at 651, 834, 1100 and 1280 px. Not checked: a screen reader, a
 system font size.
 
 **Not checked.** A real controller and desk (fixtures only); a desk session that is also a pipeline's, beyond the unit
-case; the Projects rail now counts sessions (desk ones included) that the board, narrowed to that project, does not
-show.
+case.
 
 ## CREW-CHOICES-1: the crew chosen from what the machines offer, and an effort that is not offered (17 November 2026)
 

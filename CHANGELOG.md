@@ -10,8 +10,8 @@ this file existed releases were described on their GitHub release pages.
   Factory, Desks, Machines, More) and in a tablet's top bar, instead of under
   **More**.
 - **Home and desks**: sessions on a desk no longer show in Home's **Continue
-  working**, on its planning board or in its count of open sessions; the desk is
-  where you see them. A desk session that needs you (an approval, a question, a
+  working**, on its planning board, in its count of open sessions or in the
+  Projects panel's running counts on Home; the desk is where you see them. A desk session that needs you (an approval, a question, a
   failure or work to review) still shows in **Waiting for you** and in the bell,
   counted as before, marked with its desk's name, and **Open** takes you to its
   pane on the desk. If your desks cannot be read, Home shows every session as

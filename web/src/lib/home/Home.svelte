@@ -131,7 +131,8 @@
   const emptySync: SyncState = { environments: [], targets: [], agents: [], jobs: [] }
   const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now, terminals ?? []))
   const owners = $derived(sessionOwners(sessions ?? [], projects ?? []))
-  const running = $derived(projectRunning(sessions ?? []))
+  // The Projects panel counts what Home lists: a session on a desk is left out, as it is from the lists (`listed`).
+  const running = $derived(projectRunning(listed ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
   // What waits for the person, by the one rule every page uses (whatWaits): Factory items, sessions and Gaffer's goals

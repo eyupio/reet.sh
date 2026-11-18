@@ -136,7 +136,10 @@ func TestEditedBackupNeedsAPathAndTakesAnyFolder(t *testing.T) {
 	}
 }
 
-// Each machine keeps at most skillBackupsKept backups, dropping the oldest.
+// Each machine keeps at most skillBackupsKept backups. Over that a new copy's
+// backup is not kept, rather than dropping one that may still be someone's
+// only record of an edit; a newer backup of a copy already kept still
+// replaces it.
 func TestEditedBackupsAreBoundedPerMachine(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
@@ -147,10 +150,25 @@ func TestEditedBackupsAreBoundedPerMachine(t *testing.T) {
 		entries = append(entries, editedAt("~/.agents/skills", name, "d1", "~/.agents/.reet-backups/2027-01-15/agents-"+name))
 	}
 	reportOf(t, s, uid, a, reportT0, entries...)
-	reportOf(t, s, uid, a, reportT0.Add(time.Second), editedAt("~/.claude/skills", "newest", "d1", "~/.claude/.reet-backups/2027-01-15/claude-newest"))
+	reportOf(t, s, uid, a, reportT0.Add(time.Second),
+		editedAt("~/.claude/skills", "newest", "d1", "~/.claude/.reet-backups/2027-01-15/claude-newest"),
+		editedAt("~/.agents/skills", "s0000", "d1", "~/.agents/.reet-backups/2027-01-16/agents-s0000"))
 	got := backupsOf(t, s, uid, "", reportT0.Add(time.Second))
-	if len(got) != skillBackupsKept || got[0].Name != "newest" {
-		t.Fatalf("kept %d, want %d with the newest first", len(got), skillBackupsKept)
+	byName := map[string]SkillBackup{}
+	for _, b := range got {
+		byName[b.Name] = b
+	}
+	if len(got) != skillBackupsKept {
+		t.Fatalf("kept %d, want %d", len(got), skillBackupsKept)
+	}
+	if _, kept := byName["newest"]; kept {
+		t.Fatal("a backup over the cap was kept by dropping another")
+	}
+	if b := byName["s0001"]; b.Backup != "~/.agents/.reet-backups/2027-01-15/agents-s0001" {
+		t.Fatalf("an unexpired backup was dropped: %+v", b)
+	}
+	if b := byName["s0000"]; b.Backup != "~/.agents/.reet-backups/2027-01-16/agents-s0000" {
+		t.Fatalf("a newer backup of a kept copy did not replace it: %+v", b)
 	}
 }
 

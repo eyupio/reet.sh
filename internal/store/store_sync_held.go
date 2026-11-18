@@ -60,7 +60,7 @@ func (s *Store) heldLibrarySelections(uid int64) (map[string][]SyncHeld, error) 
 	for target, ids := range selections {
 		names := map[string]int{}
 		for _, id := range ids {
-			if item, ok := byID[id]; ok && item.Status == LibraryInUse && item.ItemType == LibrarySkill && item.RevisionID != "" {
+			if item, ok := byID[id]; ok && item.Status == SkillActive && item.ItemType == LibrarySkill && item.RevisionID != "" {
 				names[item.Name]++
 			}
 		}
@@ -71,7 +71,7 @@ func (s *Store) heldLibrarySelections(uid int64) (map[string][]SyncHeld, error) 
 			}
 			reason := ""
 			switch {
-			case item.Status != LibraryInUse:
+			case item.Status != SkillActive:
 				reason = "status"
 			case item.RevisionID == "":
 				reason = "content"

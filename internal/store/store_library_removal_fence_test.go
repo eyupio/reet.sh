@@ -48,7 +48,7 @@ func (e removalJobEnv) intentCheck(t *testing.T) LibraryDeploymentCheck {
 func (e removalJobEnv) deactivate(t *testing.T) {
 	t.Helper()
 	item, _ := e.s.LibraryItemFor(e.uid, e.in.ItemID)
-	if err := e.s.SetLibraryStatusFor(e.uid, item.ID, LibraryDisabled, item.Version); err != nil {
+	if err := e.s.SetLibraryStatusFor(e.uid, item.ID, SkillArchived, item.Version); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -56,7 +56,7 @@ func (e removalJobEnv) deactivate(t *testing.T) {
 func (e removalJobEnv) reactivate(t *testing.T) {
 	t.Helper()
 	item, _ := e.s.LibraryItemFor(e.uid, e.in.ItemID)
-	if err := e.s.SetLibraryStatusFor(e.uid, item.ID, LibraryInUse, item.Version); err != nil {
+	if err := e.s.SetLibraryStatusFor(e.uid, item.ID, SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 }

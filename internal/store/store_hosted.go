@@ -175,8 +175,12 @@ func scanHosted(row interface{ Scan(...any) error }) (HostedSkill, error) {
 
 const hostedCols = `slug,description,content,files,published,created_at,updated_at`
 
+// hostedNotDeleted leaves out a written skill whose library item is deleted
+// and waiting out its undo window, so its public page goes at once.
+const hostedNotDeleted = `NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=h.user_id AND a.kind='hosted' AND a.reference=h.slug AND i.deleted_at<>0)`
+
 func (s *Store) HostedSkillsFor(userID int64) ([]HostedSkill, error) {
-	rows, err := s.db.Query(`SELECT `+hostedCols+` FROM hosted_skills WHERE user_id=? ORDER BY slug`, userID)
+	rows, err := s.db.Query(`SELECT `+hostedCols+` FROM hosted_skills h WHERE user_id=? AND `+hostedNotDeleted+` ORDER BY slug`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +212,29 @@ func (s *Store) SaveHostedSkill(userID int64, sk HostedSkill) (HostedSkill, erro
 		return sk, err
 	}
 	at := now()
-	_, err = s.db.Exec(`INSERT INTO hosted_skills(user_id,slug,description,content,files,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
+	err = s.withTx(func(tx *sql.Tx) error {
+		// A new written skill cannot take a name the library already has.
+		var exists int
+		if err := tx.QueryRow(`SELECT count(*) FROM hosted_skills WHERE user_id=? AND slug=?`, userID, sk.Slug).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			own, err := libraryAliasID(tx, userID, "hosted", sk.Slug)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			taken, err := skillNameTakenTx(tx, userID, LibrarySkill, sk.Slug, own)
+			if err != nil {
+				return err
+			}
+			if taken {
+				return ErrSkillNameTaken
+			}
+		}
+		_, err := tx.Exec(`INSERT INTO hosted_skills(user_id,slug,description,content,files,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
  ON CONFLICT(user_id,slug) DO UPDATE SET description=excluded.description,content=excluded.content,files=excluded.files,published=excluded.published,updated_at=excluded.updated_at`, userID, sk.Slug, sk.Description, sk.Content, string(files), sk.Published, at, at)
+		return err
+	})
 	if err != nil {
 		return sk, err
 	}
@@ -317,6 +342,17 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		own, err := libraryAliasID(tx, userID, "hosted", slug)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		taken, err := skillNameTakenTx(tx, userID, LibrarySkill, newSlug, own)
+		if err != nil {
+			return err
+		}
+		if taken {
+			return ErrSkillNameTaken
+		}
 		files, err := json.Marshal(old.Files)
 		if err != nil {
 			return err
@@ -409,7 +445,7 @@ func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
 }
 
 func (s *Store) PublishedHostedSkill(username, slug string) (HostedSkill, error) {
-	sk, err := scanHosted(s.db.QueryRow(`SELECT h.slug,h.description,h.content,h.files,h.published,h.created_at,h.updated_at FROM hosted_skills h JOIN publishers p ON p.user_id=h.user_id JOIN users u ON u.id=p.user_id WHERE p.username=? AND h.slug=? AND h.published=1 AND u.disabled_at=0`, username, slug))
+	sk, err := scanHosted(s.db.QueryRow(`SELECT h.slug,h.description,h.content,h.files,h.published,h.created_at,h.updated_at FROM hosted_skills h JOIN publishers p ON p.user_id=h.user_id JOIN users u ON u.id=p.user_id WHERE p.username=? AND h.slug=? AND h.published=1 AND u.disabled_at=0 AND `+hostedNotDeleted, username, slug))
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -425,7 +461,7 @@ type PublishedHostedSkillRef struct {
 
 // PublishedHostedSkills lists the public skill pages, newest first. Disabled authors are left out, as their pages are.
 func (s *Store) PublishedHostedSkills() ([]PublishedHostedSkillRef, error) {
-	rows, err := s.db.Query(`SELECT p.username,h.slug,h.updated_at FROM hosted_skills h JOIN publishers p ON p.user_id=h.user_id JOIN users u ON u.id=p.user_id WHERE h.published=1 AND u.disabled_at=0 ORDER BY h.updated_at DESC,h.slug`)
+	rows, err := s.db.Query(`SELECT p.username,h.slug,h.updated_at FROM hosted_skills h JOIN publishers p ON p.user_id=h.user_id JOIN users u ON u.id=p.user_id WHERE h.published=1 AND u.disabled_at=0 AND ` + hostedNotDeleted + ` ORDER BY h.updated_at DESC,h.slug`)
 	if err != nil {
 		return nil, err
 	}

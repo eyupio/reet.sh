@@ -134,17 +134,17 @@ func TestDuplicateNameWithoutAPlanKeepsTheOldestCopy(t *testing.T) {
 }
 
 // A skill the account wrote itself outranks a third-party copy of the name when
-// no saved plan says otherwise.
+// no saved plan says otherwise. The library refuses a written skill whose name
+// it already has, so the third-party copy is added second.
 func TestDuplicateNamePrefersTheAccountsOwnWrittenSkill(t *testing.T) {
 	s, uid, _ := libraryFixture(t)
 	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpsertFor(uid, mustRef(t, "x/y/reet-notes"), Patch{}); err != nil {
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-notes", Content: "---\nname: reet-notes\ndescription: Mine\n---\nBody\n"}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(5 * time.Millisecond)
-	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-notes", Content: "---\nname: reet-notes\ndescription: Mine\n---\nBody\n"}); err != nil {
+	if _, err := s.UpsertFor(uid, mustRef(t, "x/y/reet-notes"), Patch{}); err != nil {
 		t.Fatal(err)
 	}
 	view, err := s.SyncLibraryViewFor(uid, "owner")

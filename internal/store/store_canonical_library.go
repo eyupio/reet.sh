@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/contentobs"
 )
@@ -13,10 +14,10 @@ const (
 	LibrarySkill    = "skill"
 	LibraryAgent    = "agent_definition"
 	LibrarySettings = "portable_settings"
-	LibraryInUse    = "in_use"
-	LibraryToTest   = "to_test"
-	LibraryOnShelf  = "on_shelf"
-	LibraryDisabled = "disabled"
+	// An Active skill is on every machine; an Archived one is kept in reet
+	// and taken off them.
+	SkillActive   = "active"
+	SkillArchived = "archived"
 )
 
 var ErrLibraryConflict = errors.New("library item changed")
@@ -48,7 +49,7 @@ type LibraryAlias struct {
 }
 
 func validLibraryStatus(status string) bool {
-	return status == LibraryInUse || status == LibraryToTest || status == LibraryOnShelf || status == LibraryDisabled
+	return status == SkillActive || status == SkillArchived
 }
 
 func (s *Store) migrateCanonicalLibrary() error {
@@ -63,13 +64,10 @@ func (s *Store) migrateCanonicalLibrary() error {
 			`CREATE TABLE IF NOT EXISTS library_selections(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,selected TEXT NOT NULL,PRIMARY KEY(user_id,target_id))`,
 			`CREATE TABLE IF NOT EXISTS library_items(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,id TEXT NOT NULL,item_type TEXT NOT NULL CHECK(item_type IN ('skill','agent_definition','portable_settings')),name TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('in_use','to_test','on_shelf','disabled')),version INTEGER NOT NULL DEFAULT 1,bundle_id TEXT NOT NULL DEFAULT '',revision_id TEXT NOT NULL DEFAULT '',digest TEXT NOT NULL DEFAULT '',problem TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,id))`,
 			`CREATE TABLE IF NOT EXISTS library_aliases(user_id INTEGER NOT NULL,kind TEXT NOT NULL,reference TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(user_id,kind,reference),FOREIGN KEY(user_id,item_id) REFERENCES library_items(user_id,id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)`,
-			`CREATE TRIGGER IF NOT EXISTS library_intent_fence AFTER UPDATE OF status,revision_id,name,deleted_at ON library_items WHEN OLD.status<>NEW.status OR OLD.revision_id<>NEW.revision_id OR OLD.name<>NEW.name OR OLD.deleted_at<>NEW.deleted_at BEGIN
-            UPDATE sync_targets SET revision=lower(hex(randomblob(16))) WHERE user_id=NEW.user_id AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
-            UPDATE sync_jobs SET status='cancelled',message='Library content or status changed',updated_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE user_id=NEW.user_id AND status IN ('queued','awaiting-approval') AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
-            END`,
+			libraryIntentFence,
 			`CREATE INDEX IF NOT EXISTS library_alias_item ON library_aliases(user_id,item_id)`,
 			`CREATE INDEX IF NOT EXISTS library_shelf_projection ON library_aliases(user_id,kind,reference,item_id)`,
-			`CREATE INDEX IF NOT EXISTS library_item_projection ON library_items(user_id,id,status)`,
+			libraryItemProjection,
 			`CREATE TABLE IF NOT EXISTS library_projection_guard(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,item_id TEXT NOT NULL,PRIMARY KEY(user_id,item_id))`,
 			`CREATE TABLE IF NOT EXISTS library_migrations(name TEXT PRIMARY KEY,completed_at INTEGER NOT NULL)`,
 			`CREATE TABLE IF NOT EXISTS library_legacy_stages(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,skill_id TEXT NOT NULL,used INTEGER NOT NULL,bookmarked INTEGER NOT NULL,liked INTEGER NOT NULL,notes TEXT NOT NULL,PRIMARY KEY(user_id,skill_id))`,
@@ -81,6 +79,8 @@ func (s *Store) migrateCanonicalLibrary() error {
 		}
 		// Additive backfill: no catalog, metadata, selection, receipt or content
 		// row is deleted. Retain the original stage evidence before projections.
+		// It writes the stages of its time, which skill-states-v1 then maps to
+		// Active and Archived when it rebuilds library_items.
 		var migrated int
 		if err := tx.QueryRow(`SELECT count(*) FROM library_migrations WHERE name='identity-v1'`).Scan(&migrated); err != nil {
 			return err
@@ -116,14 +116,16 @@ func (s *Store) migrateCanonicalLibrary() error {
 				return err
 			}
 		}
-		for _, stmt := range canonicalLibraryTriggers {
-			if _, err := tx.Exec(stmt); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
 }
+
+// library_items keeps this trigger and index across the skill-states rebuild.
+const libraryIntentFence = `CREATE TRIGGER IF NOT EXISTS library_intent_fence AFTER UPDATE OF status,revision_id,name,deleted_at ON library_items WHEN OLD.status<>NEW.status OR OLD.revision_id<>NEW.revision_id OR OLD.name<>NEW.name OR OLD.deleted_at<>NEW.deleted_at BEGIN
+            UPDATE sync_targets SET revision=lower(hex(randomblob(16))) WHERE user_id=NEW.user_id AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
+            UPDATE sync_jobs SET status='cancelled',message='Library content or status changed',updated_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE user_id=NEW.user_id AND status IN ('queued','awaiting-approval') AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
+            END`
+const libraryItemProjection = `CREATE INDEX IF NOT EXISTS library_item_projection ON library_items(user_id,id,status)`
 
 // source_type=hosted is the persisted controller-hosted provenance. Match the
 // author's namespace as a complete component; a coincident name is insufficient.
@@ -134,34 +136,30 @@ const shelfAliasBackfill = `INSERT INTO library_aliases(user_id,kind,reference,i
 const shelfItemBackfill = `INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,created_at,updated_at)
  SELECT sh.user_id,a.item_id,'skill',k.slug,CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END,sh.created_at,sh.updated_at FROM shelf sh JOIN skills k ON k.id=sh.skill_id JOIN library_aliases a ON a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id`
 
-const canonicalShelfStatus = `COALESCE((SELECT i.status FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id),CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END)`
+const canonicalShelfStatus = `COALESCE((SELECT i.status FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id),'active')`
 
 // Bare legacy import copies have not been adopted: retaining them forever would
 // turn old transfer attempts into quota-consuming library entries. Only a
 // trusted binding/explicit upload, or user/fork origin, claims their content.
 const claimedLibraryContent = `(EXISTS(SELECT 1 FROM library_aliases a WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind IN ('hosted','shelf','machine','machine_capture','user_upload')) OR EXISTS(SELECT 1 FROM private_skill_revisions r WHERE r.user_id=i.user_id AND r.id=i.revision_id AND json_extract(r.origin,'$.kind')<>'import'))`
 
+// sameNameLibrarySkill is the live skill item a new shelf row joins when the
+// library already has a skill by its name, so no two items share a name.
+const sameNameLibrarySkill = `(SELECT o.id FROM library_items o JOIN skills k ON k.id=NEW.skill_id WHERE o.user_id=NEW.user_id AND o.item_type='skill' AND o.deleted_at=0 AND lower(o.name)=lower(k.slug) ORDER BY o.id LIMIT 1)`
+
+// A new shelf or written skill starts Active. The shelf's used and bookmarked
+// flags no longer decide or mirror an item's status.
 var canonicalLibraryTriggers = []string{
 	`CREATE TRIGGER IF NOT EXISTS library_shelf_insert AFTER INSERT ON shelf BEGIN
-	 INSERT OR IGNORE INTO library_aliases VALUES(NEW.user_id,'shelf',NEW.skill_id,COALESCE(` + ownHostedLibraryID + `,lower(hex(randomblob(16)))));
-	 INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,created_at,updated_at) SELECT NEW.user_id,a.item_id,'skill',k.slug,CASE WHEN NEW.used THEN 'in_use' WHEN NEW.bookmarked THEN 'to_test' ELSE 'on_shelf' END,NEW.created_at,NEW.updated_at FROM library_aliases a JOIN skills k ON k.id=NEW.skill_id WHERE a.user_id=NEW.user_id AND a.kind='shelf' AND a.reference=NEW.skill_id;
-	 UPDATE library_items SET status='in_use' WHERE NEW.used=1 AND user_id=NEW.user_id AND id=(SELECT item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='shelf' AND reference=NEW.skill_id);
-	 INSERT OR IGNORE INTO library_projection_guard SELECT NEW.user_id,item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='shelf' AND reference=NEW.skill_id;
-	 UPDATE shelf SET used=(SELECT status='in_use' FROM library_items WHERE user_id=NEW.user_id AND id=(SELECT item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='shelf' AND reference=NEW.skill_id)),bookmarked=CASE (SELECT status FROM library_items WHERE user_id=NEW.user_id AND id=(SELECT item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='shelf' AND reference=NEW.skill_id)) WHEN 'to_test' THEN 1 WHEN 'on_shelf' THEN 0 ELSE bookmarked END WHERE user_id=NEW.user_id AND skill_id=NEW.skill_id;
-	 DELETE FROM library_projection_guard WHERE user_id=NEW.user_id AND item_id=(SELECT item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='shelf' AND reference=NEW.skill_id);
+	 INSERT OR IGNORE INTO library_aliases VALUES(NEW.user_id,'shelf',NEW.skill_id,COALESCE(` + ownHostedLibraryID + `,` + sameNameLibrarySkill + `,lower(hex(randomblob(16)))));
+	 INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) SELECT NEW.user_id,a.item_id,'skill',k.slug,'active',CASE WHEN k.source<>'' AND k.source_type<>'local' THEN 'imported' ELSE 'machine' END,NEW.created_at,NEW.updated_at FROM library_aliases a JOIN skills k ON k.id=NEW.skill_id WHERE a.user_id=NEW.user_id AND a.kind='shelf' AND a.reference=NEW.skill_id;
 	 END`,
-	`CREATE TRIGGER IF NOT EXISTS library_shelf_stage AFTER UPDATE OF used,bookmarked ON shelf
-	 WHEN (OLD.used<>NEW.used OR OLD.bookmarked<>NEW.bookmarked) AND NOT EXISTS(SELECT 1 FROM library_projection_guard g JOIN library_aliases a ON a.user_id=g.user_id AND a.item_id=g.item_id WHERE a.user_id=NEW.user_id AND a.kind='shelf' AND a.reference=NEW.skill_id)
-	 BEGIN UPDATE library_items SET status=CASE WHEN NEW.used THEN 'in_use' WHEN NEW.bookmarked THEN 'to_test' ELSE 'on_shelf' END WHERE user_id=NEW.user_id AND id=(SELECT item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='shelf' AND reference=NEW.skill_id); END`,
-	`CREATE TRIGGER IF NOT EXISTS library_status_projection AFTER UPDATE OF status ON library_items WHEN OLD.status<>NEW.status BEGIN
-	 INSERT INTO library_projection_guard VALUES(NEW.user_id,NEW.id);
-	 UPDATE shelf SET used=(NEW.status='in_use'),bookmarked=CASE WHEN NEW.status='to_test' THEN 1 WHEN NEW.status='on_shelf' THEN 0 ELSE bookmarked END WHERE user_id=NEW.user_id AND skill_id IN (SELECT reference FROM library_aliases WHERE user_id=NEW.user_id AND item_id=NEW.id AND kind='shelf');
+	`CREATE TRIGGER IF NOT EXISTS library_status_version AFTER UPDATE OF status ON library_items WHEN OLD.status<>NEW.status BEGIN
 	 UPDATE library_items SET version=version+1,updated_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE user_id=NEW.user_id AND id=NEW.id;
-	 DELETE FROM library_projection_guard WHERE user_id=NEW.user_id AND item_id=NEW.id;
 	 END`,
 	`CREATE TRIGGER IF NOT EXISTS library_hosted_insert AFTER INSERT ON hosted_skills BEGIN
 	 INSERT OR IGNORE INTO library_aliases VALUES(NEW.user_id,'hosted',NEW.slug,lower(hex(randomblob(16))));
-	 INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,created_at,updated_at) SELECT NEW.user_id,item_id,'skill',NEW.slug,'to_test',NEW.created_at,NEW.updated_at FROM library_aliases WHERE user_id=NEW.user_id AND kind='hosted' AND reference=NEW.slug;
+	 INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) SELECT NEW.user_id,item_id,'skill',NEW.slug,'active','written',NEW.created_at,NEW.updated_at FROM library_aliases WHERE user_id=NEW.user_id AND kind='hosted' AND reference=NEW.slug;
 	 END`,
 	`CREATE TRIGGER IF NOT EXISTS library_hosted_update AFTER UPDATE ON hosted_skills BEGIN UPDATE library_items SET name=NEW.slug,updated_at=NEW.updated_at WHERE user_id=NEW.user_id AND id=(SELECT item_id FROM library_aliases WHERE user_id=NEW.user_id AND kind='hosted' AND reference=NEW.slug); END`,
 	`CREATE TRIGGER IF NOT EXISTS library_hosted_delete AFTER DELETE ON hosted_skills BEGIN
@@ -228,7 +226,7 @@ func attachLibraryBundle(tx *sql.Tx, uid int64, id string, result PrivateSkillRe
 }
 
 func recordLibraryPrivateRevision(tx *sql.Tx, uid int64, result PrivateSkillResult) error {
-	id, err := ensureLibraryAlias(tx, uid, "bundle", result.Bundle.ID, result.Bundle.ItemType, result.Bundle.Name, LibraryToTest)
+	id, err := ensureLibraryAlias(tx, uid, "bundle", result.Bundle.ID, result.Bundle.ItemType, result.Bundle.Name, SkillActive)
 	if err != nil {
 		return err
 	}
@@ -298,7 +296,8 @@ func backfillLibraryBundles(tx *sql.Tx) error {
 			return err
 		}
 		if id == "" {
-			id, err = ensureLibraryAlias(tx, e.uid, "bundle", e.bundle, e.kind, e.name, LibraryToTest)
+			// identity-v1 runs before skill-states-v1, on its stages.
+			id, err = ensureLibraryAlias(tx, e.uid, "bundle", e.bundle, e.kind, e.name, "to_test")
 			if err != nil {
 				return err
 			}
@@ -331,11 +330,8 @@ func backfillLibraryBundles(tx *sql.Tx) error {
 	return nil
 }
 
-func syncLibraryShelfStatus(tx *sql.Tx, uid int64, skill string) error {
-	_, err := tx.Exec(`UPDATE library_items SET status=(SELECT CASE WHEN used THEN 'in_use' WHEN bookmarked THEN 'to_test' ELSE 'on_shelf' END FROM shelf WHERE user_id=? AND skill_id=?) WHERE user_id=? AND id=(SELECT item_id FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference=?) AND EXISTS(SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?)`, uid, skill, uid, uid, skill, uid, skill)
-	return err
-}
-
+// SetLibraryStatusFor moves one item to Active or Archived when it is still at
+// version, as SetSkillStatusFor does.
 func (s *Store) SetLibraryStatusFor(uid int64, id, status string, version int64) error {
 	if !validLibraryStatus(status) || version < 1 {
 		return ErrPrivateSkillInvalid
@@ -344,15 +340,14 @@ func (s *Store) SetLibraryStatusFor(uid int64, id, status string, version int64)
 		if err := privateSkillOwner(tx, uid); err != nil {
 			return err
 		}
-		res, err := tx.Exec(`UPDATE library_items SET status=? WHERE user_id=? AND id=? AND version=? AND deleted_at=0`, status, uid, id, version)
+		it, err := skillStateItemTx(tx, uid, id)
+		if errors.Is(err, ErrPrivateSkillMissing) || (err == nil && (it.deletedAt != 0 || it.version != version)) {
+			return ErrLibraryConflict
+		}
 		if err != nil {
 			return err
 		}
-		n, err := res.RowsAffected()
-		if err == nil && n == 0 {
-			err = ErrLibraryConflict
-		}
-		return err
+		return setSkillStatusTx(tx, uid, it, status, time.Now())
 	})
 }
 

@@ -1085,14 +1085,10 @@ func (s *server) eventRequest(r *http.Request, action, skillID string, detail an
 
 func stageLabel(sk store.Skill) string {
 	switch sk.Status {
-	case store.LibraryInUse:
-		return "In use"
-	case store.LibraryToTest:
-		return "To test"
-	case store.LibraryOnShelf:
-		return "Parked"
-	case store.LibraryDisabled:
-		return "Disabled"
+	case store.SkillActive:
+		return "Active"
+	case store.SkillArchived:
+		return "Archived"
 	}
 	if sk.Used {
 		return "In use"
@@ -1294,16 +1290,14 @@ func compactTagNames(sk store.Skill) []string {
 	return names
 }
 
+// stageKey keeps the keys the Skills page reads until it shows Active and
+// Archived: an Active skill reads as In use and an Archived one as Parked.
 func stageKey(sk store.Skill) string {
 	switch sk.Status {
-	case store.LibraryInUse:
+	case store.SkillActive:
 		return "use"
-	case store.LibraryToTest:
-		return "try"
-	case store.LibraryOnShelf:
+	case store.SkillArchived:
 		return "shelf"
-	case store.LibraryDisabled:
-		return "disabled"
 	}
 	if sk.Used {
 		return "use"

@@ -246,9 +246,9 @@ type attachMode struct {
 // libraryStatusCode reads library_items.status as a small integer so a listing
 // does not allocate a string per row for a value from a fixed set; the CHECK
 // constraint on the column names exactly the values in libraryStatuses.
-const libraryStatusCode = `CASE i.status WHEN 'in_use' THEN 1 WHEN 'to_test' THEN 2 WHEN 'on_shelf' THEN 3 WHEN 'disabled' THEN 4 ELSE 0 END`
+const libraryStatusCode = `CASE i.status WHEN 'active' THEN 1 WHEN 'archived' THEN 2 ELSE 0 END`
 
-var libraryStatuses = [...]string{"", LibraryInUse, LibraryToTest, LibraryOnShelf, LibraryDisabled}
+var libraryStatuses = [...]string{"", SkillActive, SkillArchived}
 
 // attachMetaForMode loads tags, environments and (with mode.library) the
 // canonical library item for skills, which all belong to userID. With
@@ -486,15 +486,15 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	if clause, ok := tabWhere[f.Tab]; ok {
 		q += clause
 	}
+	// The old stages read as the new statuses: In use as Active, Parked as
+	// Archived. Nothing is To test or Disabled any more.
 	switch f.Stage {
-	case "use":
-		q += ` AND ` + canonicalShelfStatus + `='in_use'`
-	case "try":
-		q += ` AND ` + canonicalShelfStatus + `='to_test'`
-	case "shelf":
-		q += ` AND ` + canonicalShelfStatus + `='on_shelf'`
-	case "disabled":
-		q += ` AND ` + canonicalShelfStatus + `='disabled'`
+	case "active", "use":
+		q += ` AND ` + canonicalShelfStatus + `='active'`
+	case "archived", "shelf":
+		q += ` AND ` + canonicalShelfStatus + `='archived'`
+	case "try", "disabled":
+		q += ` AND 0`
 	}
 	for _, id := range f.Tags {
 		q += ` AND EXISTS (SELECT 1 FROM skill_tags st WHERE st.user_id=? AND st.skill_id=sh.skill_id AND st.tag_id=? AND st.hidden=0)`
@@ -648,9 +648,6 @@ func (s *Store) PatchFor(userID int64, id string, p Patch) (Skill, error) {
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
 		}
-		if p.Used != nil || p.Bookmarked != nil {
-			return syncLibraryShelfStatus(tx, userID, id)
-		}
 		return nil
 	})
 	if err != nil {
@@ -780,17 +777,7 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 			return err
 		}
 		n, err = res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if p.Used != nil || p.Bookmarked != nil {
-			for _, id := range ids {
-				if err = syncLibraryShelfStatus(tx, userID, id); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+		return err
 	})
 	return int(n), err
 }

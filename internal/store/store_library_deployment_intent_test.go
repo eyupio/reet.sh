@@ -31,7 +31,7 @@ func deploymentIntentFixture(t *testing.T) (*Store, int64, SyncAgent, LibraryDep
 	if _, err = s.SaveLibrarySelectionFor(uid, LibrarySelection{TargetID: target, ItemIDs: []string{item.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.SetLibraryStatusFor(uid, item.ID, LibraryInUse, item.Version); err != nil {
+	if err = s.SetLibraryStatusFor(uid, item.ID, SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	base := LibraryBase{BindingID: strings.Repeat("a", 64), ItemID: item.ID, RevisionID: item.RevisionID}
@@ -48,7 +48,7 @@ func TestLibraryDeploymentIntentTracksControlAndRejectsABA(t *testing.T) {
 		t.Fatal(first, err)
 	}
 	item, _ := s.LibraryItemFor(uid, in.ItemID)
-	if err = s.SetLibraryStatusFor(uid, item.ID, LibraryDisabled, item.Version); err != nil {
+	if err = s.SetLibraryStatusFor(uid, item.ID, SkillArchived, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	removed, err := s.LibraryDeploymentIntentFor(uid, agent.ID, in)
@@ -61,7 +61,7 @@ func TestLibraryDeploymentIntentTracksControlAndRejectsABA(t *testing.T) {
 		t.Fatalf("stale install allowed: %v", err)
 	}
 	item, _ = s.LibraryItemFor(uid, in.ItemID)
-	if err = s.SetLibraryStatusFor(uid, item.ID, LibraryInUse, item.Version); err != nil {
+	if err = s.SetLibraryStatusFor(uid, item.ID, SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	current, err := s.LibraryDeploymentIntentFor(uid, agent.ID, in)

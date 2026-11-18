@@ -133,13 +133,13 @@ func (s *Store) refreshCanonicalSelections(uid int64, agent SyncAgent) error {
 		names := map[string]int{}
 		for _, id := range ids {
 			item, ok := byID[id]
-			if ok && item.Status == LibraryInUse && item.ItemType == LibrarySkill && item.RevisionID != "" {
+			if ok && item.Status == SkillActive && item.ItemType == LibrarySkill && item.RevisionID != "" {
 				names[item.Name]++
 			}
 		}
 		for _, id := range ids {
 			item, ok := byID[id]
-			if !ok || item.Status != LibraryInUse || item.ItemType != LibrarySkill || item.RevisionID == "" || names[item.Name] > 1 {
+			if !ok || item.Status != SkillActive || item.ItemType != LibrarySkill || item.RevisionID == "" || names[item.Name] > 1 {
 				continue
 			}
 			legacyID := "library/" + item.ID

@@ -85,8 +85,8 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 		if item.Name == syncContractName("twins") {
 			twins++
 		}
-		if item.Status != store.LibraryToTest || item.RevisionID == "" {
-			t.Fatal("new capture was activated or incomplete", item)
+		if item.Status != store.SkillActive || item.RevisionID == "" {
+			t.Fatal("new capture was not Active or was incomplete", item)
 		}
 		var revision store.PrivateSkillRevision
 		body := h.mustRequest(http.MethodGet, "/api/v2/skill-bundles/"+item.BundleID+"/revisions/"+item.RevisionID, nil)
@@ -119,20 +119,20 @@ func TestCanonicalLibraryAPIPreservesAccountAndLifecycleBoundaries(t *testing.T)
 		t.Fatal(items, err)
 	}
 	item := items[0]
-	code, _ := h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "disabled", "expectedVersion": item.Version})
+	code, _ := h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "archived", "expectedVersion": item.Version})
 	if code != 200 {
 		t.Fatal("canonical lifecycle patch failed", code)
 	}
-	code, _ = h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "in_use", "expectedVersion": item.Version})
+	code, _ = h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "active", "expectedVersion": item.Version})
 	if code != 409 {
 		t.Fatal("stale lifecycle patch accepted", code)
 	}
 	// A first publication, repeated save and unpublication must each retain an
-	// existing Disabled stage, even when they create/show the legacy shelf row.
+	// existing Archived status, even when they create/show the legacy shelf row.
 	for _, published := range []bool{true, true, false} {
 		h.mustRequest(http.MethodPut, "/api/v2/hosting/skills/reet-lifecycle", store.HostedSkill{Content: syncContractContent("lifecycle", "updated private contents"), Published: published})
 		current, err := h.st.LibraryFor(h.uid)
-		if err != nil || len(current) != 1 || current[0].ID != item.ID || current[0].Status != store.LibraryDisabled || current[0].Published != published {
+		if err != nil || len(current) != 1 || current[0].ID != item.ID || current[0].Status != store.SkillArchived || current[0].Published != published {
 			t.Fatal("visibility reset canonical lifecycle", current, err)
 		}
 	}
@@ -179,7 +179,7 @@ func TestCanonicalLibraryTypedPrivateAPI(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	code, body = h.request(http.MethodGet, "/api/v2/library", nil)
-	if code != 200 || json.Unmarshal([]byte(body), &library) != nil || len(library.Items) != 1 || library.Items[0]["itemType"] != "agent_definition" || library.Items[0]["status"] != "to_test" {
+	if code != 200 || json.Unmarshal([]byte(body), &library) != nil || len(library.Items) != 1 || library.Items[0]["itemType"] != "agent_definition" || library.Items[0]["status"] != "active" {
 		t.Fatalf("typed capture missing from canonical library: %d %s", code, body)
 	}
 }

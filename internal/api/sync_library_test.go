@@ -129,7 +129,7 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 		t.Fatal(items, err)
 	}
 	item := items[0]
-	if err := st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+	if err := st.SetLibraryStatusFor(uid, item.ID, store.SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
@@ -236,8 +236,8 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 	}
 	selected := []string{}
 	for _, item := range imported {
-		if item.Status != store.LibraryInUse {
-			if err := st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+		if item.Status != store.SkillActive {
+			if err := st.SetLibraryStatusFor(uid, item.ID, store.SkillActive, item.Version); err != nil {
 				t.Fatal(err)
 			}
 		}

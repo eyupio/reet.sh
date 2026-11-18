@@ -100,7 +100,7 @@ func libraryDeploymentIntentTx(tx *sql.Tx, uid int64, enrollment string, in Libr
 		out.Action, out.Reason = "remove", "library_deleted"
 	case !isSelected:
 		out.Action, out.Reason = "remove", "deselected"
-	case status != LibraryInUse:
+	case status != SkillActive:
 		out.Action, out.Reason = "remove", "inactive"
 	case itemType != LibrarySkill || problem != "" || out.RevisionID == "" || out.Digest == "":
 		out.Action, out.Reason = "blocked", "content_unavailable"

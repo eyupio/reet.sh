@@ -34,7 +34,7 @@ and Copilot plans; those readers come from a separate branch. So nothing here na
 draws whatever accounts and windows any machine answers for any tool (scoped and month/day windows included), each
 block leads with its token figure (for an agent with no plan, the only figures there are), and the no-figure sentence
 comes from the answer's states (`planSentence`, `planNote` in `usage.ts`): no sign-in, API key or no plan allowance,
-"Open <Agent> on <machine> to sign in again", provider slowed down or unreachable (last figures dimmed), terminal access
+"<Agent>'s sign-in on <machine> has run out; it renews itself the next time <Agent> runs there", provider slowed down or unreachable (last figures dimmed), terminal access
 off, no connected machine reporting sign-ins, and only where no machine answers for the agent at all, "reet can't read
 this agent's plan". Settings → Agents says "the agents reet can read a plan for" and links to the sign-ins doc.
 
@@ -78,10 +78,34 @@ writer's Workspace row is Usage and Teams" plus "a viewer has Teams alone, no ro
 **Data limits.** Totals start when this version is installed (nothing earlier is dated). Reports made while a machine
 is disconnected are lost (never queued). Only chats report: plain terminals, Copilot and machines without
 `acp-usage-v1` count nothing. Factory marks rely on the 30 outcomes kept. Gaffer's figures go when a Gaffer
-conversation is deleted. Events are kept 90 days.
+conversation is deleted. Events older than 90 days are removed when the same account next reports usage.
 
 **Not checked.** A real controller, machine or provider; a screen reader; a real tablet; the page under a very large
 history (the session list is bounded at 200, the per-tool sums are not).
+
+**Review fixes (PR #840).**
+- Copilot reads only `github.com` and `github.com:<app>` keys; a look-alike host (`github.company.com:…`,
+  `github.comcast.com`) is never read, so its token never reaches api.github.com.
+- Balancing (`planLeft` in `internal/gaffer/outcome_balance.go`) now judges a plan whose windows are all labelled and
+  none for the stage's model (Copilot's Premium, Chat, Completions) by its tightest window, instead of reading it as
+  signed in with no figures. A plan with a plan-wide window is judged as before. A backup whose figures are over six
+  hours old is chosen "whose plan figures are too old to go by", not "has no plan figures". With plan limits always on,
+  a backup agent with a sign-in but no figures at all (a key, or a plan reet cannot read) can still be chosen, "which
+  has no plan figures to run low": that is by design (the person chose it as the backup) but worth knowing.
+- `readFile` looks at a sign-in path before opening it and opens without waiting, so a named pipe or device there is
+  unreadable at once instead of blocking the read (`fifo_test.go`).
+- Time: OpenCode's store wait is 1 s, providers 9 s, other sign-in files 1 s: `agentaccounts.ReadTakesAtMost` = 11 s,
+  a second under the connector's 12 s `accountsAnswerAfter`; a terminalagent test keeps it so.
+- Antigravity asks its second endpoint only on a failure (no answer, 5xx, 404); a 429 is reported rate limited and its
+  Retry-After honoured. With no identity token, an Antigravity sign-in is told from the next by `keyMark` (moved to
+  `accounts.go`) of its refresh token, so a new sign-in is not shown the last one's figures.
+- The "renew" sentence on the Usage page now says the agent renews its own sign-in when it next runs. An agent reported
+  `retired` with figures says reet no longer starts it. The headline's session count is the controller's
+  `sessionCount` (each session once), not the sum of the agents' counts.
+- The OpenCode percentage is read as *used* (`usage.*.percent`). This was not checked against the provider: if the page
+  ever shows an OpenCode plan upside down (full when it is nearly spent), that is the place to look.
+- An answer that an account has no plan with limits stands for five minutes (`freshFor`), like figures; a plan bought
+  in those five minutes shows after them, or after **Check sign-ins** once 30 s have passed.
 
 ## DESK-HOME-1: desk sessions off Home, unless they need you (18 November 2026)
 

@@ -121,7 +121,7 @@
 <section class="gaffer-settings" aria-label="Gaffer AI settings">
   <header class="intro">
     <div class="portrait" aria-hidden="true"><GafferAvatar phase="idle" pose="tea" /></div>
-    <div><p class="eyebrow">Your critical buddy</p><h2>Gaffer AI</h2><p class="quip">Pick the brains. I’ll put the kettle on.</p>
+    <div><p class="eyebrow">Your critical buddy</p><h2>Your Gaffer setup</h2><p class="quip">Pick the brains. I’ll put the kettle on.</p>
       <p class="intro-copy">Choose who Gaffer talks to. His model is separate from the agent doing your work, and these providers belong to your account.</p></div>
   </header>
   <p class="note">Choose a provider, then use Ask Gaffer for a natter. In a working session, “Look after this session” reviews access and saves your goal in one step.</p>

@@ -565,7 +565,7 @@ and an outcome holds at most ten pipelines.
 A new installation sees **Set up your factory** instead: connect a machine, add a
 project, choose Gaffer's model. Each step links to where it is done and ticks off.
 
-### New Factory outcome
+### New Factory outcome { #give-gaffer-an-outcome }
 
 1. Write the outcome and choose the project. Only agents whose chat is available on
    that project's machine are offered, and the machine must be connected. To work in a

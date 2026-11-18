@@ -50,7 +50,11 @@
 
   const startConnect = location.hash === '#connect-machine'
   let section = $state<Section>(sectionFromHash())
-  const sectionTitle = $derived(sections.find(item => item.key === section)?.label ?? 'Personal settings')
+  const sectionTitle = $derived.by(() => {
+    if (section === 'agents') return 'Agent settings'
+    if (section === 'sso') return 'Single sign-on'
+    return sections.find(item => item.key === section)?.label ?? 'Personal settings'
+  })
   let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
   let sessionsLoading = $state(false)
@@ -509,7 +513,7 @@
     </CollectionPanel>
   {:else if section === 'sso'}
     <section class="block" aria-labelledby="sso-title">
-      <h2 id="sso-title">Single sign-on</h2>
+      <h2 id="sso-title">Your sign-in identity</h2>
       {#if !sso?.enabled}
         <p class="muted">Single sign-on is not set up on this instance.</p>
       {:else if sso.linked}

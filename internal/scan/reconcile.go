@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -42,27 +41,6 @@ var (
 // reconcileOrder visits ~/.agents/skills first, because Cursor and OpenCode
 // link to the copy there, and Claude's own copies last.
 var reconcileOrder = []int{0, 2, 3, 1}
-
-// A skill whose install failed is tried again after installRetryFirst, then
-// after twice as long each time, up to installRetryMost.
-const (
-	installRetryFirst = 5 * time.Second
-	installRetryMost  = 5 * time.Minute
-)
-
-type installBackoff struct {
-	digest, detail string
-	failures       int
-	next           time.Time
-}
-
-// installBackoffs remembers, per home and lower-case name, an install that
-// failed, so a bundle that cannot be installed is not fetched every cycle.
-// It lasts as long as the process; a restarted agent tries at once.
-var installBackoffs = struct {
-	sync.Mutex
-	m map[string]installBackoff
-}{m: map[string]installBackoff{}}
 
 // reconcileSkills makes the managed folders under home match d and reports
 // what it found and did, one entry per skill and folder. installed maps
@@ -202,147 +180,6 @@ func skillNameProblem(name string) string {
 	return ""
 }
 
-type managedRoot struct {
-	real   string // where the folder really is, or would be made
-	exists bool
-	skip   bool   // handled under an earlier managed folder, or left alone
-	why    string // why it is left alone, as the report says it; "" when handled elsewhere
-}
-
-// handled says the pass works in this folder.
-func (m managedRoot) handled() bool { return m.exists && !m.skip }
-
-// managedRoots resolves the managed folders, which may be links, as a
-// dotfiles setup makes them. One that is the same folder as an earlier
-// managed folder is handled under that one. One that leads into another
-// managed folder, Codex's skills folder, an enrolled project or the folder a
-// custom CLAUDE_CONFIG_DIR or XDG_CONFIG_HOME names, or that holds one of
-// those places, is left alone; so is one whose parent, where its backups and
-// staging go, leads into such a place.
-func managedRoots(home string, unmanaged []string) []managedRoot {
-	type place struct{ path, name string }
-	places := []place{{resolvePath(filepath.Join(home, ".codex", "skills")), "Codex's skills folder"}}
-	for _, p := range unmanaged {
-		if filepath.IsAbs(p) {
-			places = append(places, place{resolvePath(p), "a project folder"})
-		}
-	}
-	// As sync refused before: a custom folder is the person's own setup.
-	for _, custom := range []struct{ env, usual string }{{"CLAUDE_CONFIG_DIR", ".claude"}, {"XDG_CONFIG_HOME", ".config"}} {
-		dir := os.Getenv(custom.env)
-		if filepath.IsAbs(dir) && resolvePath(dir) != resolvePath(filepath.Join(home, custom.usual)) {
-			places = append(places, place{resolvePath(dir), "the folder " + custom.env + " names"})
-		}
-	}
-	realHome := resolvePath(home)
-	// into says whether p lies in pl. A place that is home, or holds it,
-	// would cover every managed folder, so only what lies in it outside home
-	// counts.
-	into := func(p string, pl place) bool {
-		return within(p, pl.path) && !(within(realHome, pl.path) && within(p, realHome))
-	}
-	roots := make([]managedRoot, len(managedFolders))
-	parents := make([]string, len(managedFolders))
-	for i, f := range managedFolders {
-		p := filepath.Join(home, filepath.FromSlash(f.Dir))
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			roots[i].real, roots[i].exists = real, true
-		} else {
-			roots[i].real = resolvePath(p)
-		}
-		parents[i] = resolvePath(filepath.Dir(p))
-	}
-	for i := range roots {
-		label, real := "~/"+managedFolders[i].Dir, roots[i].real
-		for _, pl := range places {
-			switch {
-			case into(real, pl) || into(parents[i], pl):
-				roots[i].why = label + " leads into " + pl.name + ", so reet leaves it alone"
-			case within(pl.path, real):
-				roots[i].why = label + " holds " + pl.name + ", so reet leaves it alone"
-			default:
-				continue
-			}
-			roots[i].skip = true
-			break
-		}
-		for j, other := range roots {
-			if roots[i].skip {
-				break
-			}
-			switch {
-			case j == i:
-			case real == other.real:
-				roots[i].skip = j < i
-			case within(real, other.real):
-				roots[i].skip, roots[i].why = true, label+" leads into ~/"+managedFolders[j].Dir+", so reet leaves it alone"
-			}
-		}
-	}
-	return roots
-}
-
-// resolvePath resolves the links in p as far as p exists, and keeps the rest
-// as it is, so a folder not made yet compares with ones that exist.
-func resolvePath(p string) string {
-	p = filepath.Clean(p)
-	var rest []string
-	for {
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			return filepath.Join(append([]string{real}, rest...)...)
-		}
-		parent := filepath.Dir(p)
-		if parent == p {
-			return filepath.Join(append([]string{p}, rest...)...)
-		}
-		rest = append([]string{filepath.Base(p)}, rest...)
-		p = parent
-	}
-}
-
-// within says whether p is dir or lies inside it.
-func within(p, dir string) bool {
-	rel, err := filepath.Rel(dir, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// copyDigest is a copy's digest over all its files, and over all but the files
-// an operating system leaves in folders on its own, which no one put in the
-// skill. Either matching reet's digest makes the copy reet's.
-type copyDigest struct{ all, sans string }
-
-func (c copyDigest) is(digest string) bool {
-	return digest != "" && (c.all == digest || c.sans == digest)
-}
-
-// osFile says whether a skill file is one Finder or Windows Explorer leaves on
-// its own: .DS_Store, Thumbs.db, or a ._ AppleDouble file.
-func osFile(p string) bool {
-	base := p[strings.LastIndex(p, "/")+1:]
-	return strings.EqualFold(base, ".DS_Store") || strings.EqualFold(base, "Thumbs.db") || strings.HasPrefix(base, "._")
-}
-
-func readCopyDigest(dir string) copyDigest {
-	m, err := skillbundle.Scan(dir, skillbundle.Limits{})
-	if err != nil || !m.Complete {
-		return copyDigest{}
-	}
-	c := copyDigest{all: m.Digest, sans: m.Digest}
-	kept := make([]skillbundle.File, 0, len(m.Files))
-	for _, f := range m.Files {
-		if !osFile(f.Path) {
-			kept = append(kept, f)
-		}
-	}
-	if len(kept) != len(m.Files) {
-		c.sans = ""
-		if stripped, err := skillbundle.FromMetadata(kept); err == nil {
-			c.sans = stripped.Digest
-		}
-	}
-	return c
-}
-
 type fetchedBundle struct {
 	files []skillbundle.ContentFile
 	err   error
@@ -364,24 +201,6 @@ type reconciler struct {
 	entries       []store.SkillReportEntry
 }
 
-// folderRun is one managed folder during a pass.
-type folderRun struct {
-	rel, label, dir string
-	linked          bool   // Cursor and OpenCode link to ~/.agents/skills
-	real            string // where it really is; "" until it exists
-	planned         string // where it would be made
-}
-
-func newFolderRun(home string, i int, root managedRoot) *folderRun {
-	rel := managedFolders[i].Dir
-	f := &folderRun{rel: rel, label: "~/" + rel, dir: filepath.Join(home, filepath.FromSlash(rel)), planned: root.real,
-		linked: managedFolders[i].Agent == "cursor" || managedFolders[i].Agent == "opencode"}
-	if root.exists {
-		f.real = root.real
-	}
-	return f
-}
-
 func (r *reconciler) add(folder, name, state, digest, detail, backup string) {
 	r.entries = append(r.entries, store.SkillReportEntry{Folder: folder, Name: name, State: state, Digest: digest, Detail: detail, Backup: backup})
 }
@@ -390,40 +209,6 @@ func (r *reconciler) add(folder, name, state, digest, detail, backup string) {
 func (r *reconciler) tell(e store.SkillReportEntry) {
 	if r.news != nil {
 		r.news(e)
-	}
-}
-
-// clearStaging removes what an interrupted install left, only around the
-// folders this pass works in: .reet-private-* staging beside where each is
-// under home and beside where it really is, and a cross-device copy's hidden
-// .<name>.reet-copy-* folder inside it.
-func (r *reconciler) clearStaging(roots []managedRoot) {
-	beside := map[string]bool{}
-	inside := map[string]bool{}
-	for i, f := range managedFolders {
-		if roots[i].handled() {
-			beside[filepath.Dir(filepath.Join(r.home, filepath.FromSlash(f.Dir)))] = true
-			beside[filepath.Dir(roots[i].real)] = true
-			inside[roots[i].real] = true
-		}
-	}
-	clear := func(dir string, ours func(string) bool) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return
-		}
-		for _, e := range entries {
-			if ours(e.Name()) {
-				// RemoveAll removes a link without following it.
-				_ = os.RemoveAll(filepath.Join(dir, e.Name()))
-			}
-		}
-	}
-	for dir := range beside {
-		clear(dir, func(name string) bool { return strings.HasPrefix(name, ".reet-private-") })
-	}
-	for dir := range inside {
-		clear(dir, func(name string) bool { return strings.HasPrefix(name, ".") && strings.Contains(name, ".reet-copy-") })
 	}
 }
 
@@ -651,17 +436,6 @@ func (r *reconciler) install(f *folderRun, staging, dest, digest string) error {
 	return nil
 }
 
-// writable refuses to write into a folder that is not one this pass works
-// in, or that has moved since the pass started: the last guard that reet
-// writes only inside the managed folders.
-func (r *reconciler) writable(f *folderRun) error {
-	real, err := filepath.EvalSymlinks(f.dir)
-	if err != nil || f.real == "" || real != f.real || !r.allowed[real] {
-		return errors.New(f.label + " changed while reet was working on it; it is tried again next time")
-	}
-	return nil
-}
-
 // settle records that reet's copy of a is in place as keep.
 func (r *reconciler) settle(f *folderRun, a store.DesiredSkill, keep string) {
 	if f.rel == sharedSkillsDir {
@@ -720,62 +494,6 @@ func (r *reconciler) failInstall(f *folderRun, a store.DesiredSkill, detail stri
 		r.failedInstall(f, a, detail)
 	}
 	r.fail(f.label, f.rel, a, detail, r.firstBackup(left))
-}
-
-func (r *reconciler) waitKey(f *folderRun, a store.DesiredSkill) string {
-	return r.home + "\x00" + f.rel + "\x00" + strings.ToLower(a.Name)
-}
-
-// waiting says whether a's install in this folder failed lately for this
-// revision, and why.
-func (r *reconciler) waiting(f *folderRun, a store.DesiredSkill) (string, bool) {
-	installBackoffs.Lock()
-	defer installBackoffs.Unlock()
-	b, ok := installBackoffs.m[r.waitKey(f, a)]
-	if !ok || b.digest != a.Digest || r.now.After(b.next) {
-		return "", false
-	}
-	return b.detail, true
-}
-
-func (r *reconciler) failedInstall(f *folderRun, a store.DesiredSkill, detail string) {
-	installBackoffs.Lock()
-	defer installBackoffs.Unlock()
-	key := r.waitKey(f, a)
-	b := installBackoffs.m[key]
-	if b.digest != a.Digest {
-		b = installBackoff{digest: a.Digest}
-	}
-	b.failures++
-	wait := installRetryMost
-	if b.failures <= 6 {
-		wait = min(installRetryFirst<<(b.failures-1), installRetryMost)
-	}
-	b.next, b.detail = r.now.Add(wait), detail
-	installBackoffs.m[key] = b
-}
-
-func (r *reconciler) recovered(f *folderRun, a store.DesiredSkill) {
-	installBackoffs.Lock()
-	defer installBackoffs.Unlock()
-	delete(installBackoffs.m, r.waitKey(f, a))
-}
-
-// forgetWaits drops the waits of skills that are no longer Active.
-func (r *reconciler) forgetWaits(active []store.DesiredSkill) {
-	still := map[string]bool{}
-	for _, a := range active {
-		still[strings.ToLower(a.Name)] = true
-	}
-	installBackoffs.Lock()
-	defer installBackoffs.Unlock()
-	for key := range installBackoffs.m {
-		home, rest, _ := strings.Cut(key, "\x00")
-		_, name, _ := strings.Cut(rest, "\x00")
-		if home == r.home && !still[name] {
-			delete(installBackoffs.m, key)
-		}
-	}
 }
 
 // stage fetches and checks a's files, once a pass, and writes them into a
@@ -873,77 +591,4 @@ func (r *reconciler) tilde(p string) string {
 		return p
 	}
 	return "~/" + filepath.ToSlash(rel)
-}
-
-// copyAt reads the digests of the copy at name in the folder, or nothing when
-// it cannot be read as a skill. A link is followed only into
-// ~/.agents/skills, where reet keeps the copy Cursor, OpenCode and the skills
-// CLI link to; nothing outside the managed folders is read.
-func (r *reconciler) copyAt(f *folderRun, name string) copyDigest {
-	p := filepath.Join(f.dir, name)
-	st, err := os.Lstat(p)
-	if err != nil {
-		return copyDigest{}
-	}
-	if st.Mode()&os.ModeSymlink != 0 {
-		if p = r.sharedTarget(f.real, p); p == "" {
-			return copyDigest{}
-		}
-		if st, err = os.Lstat(p); err != nil {
-			return copyDigest{}
-		}
-	}
-	if !st.IsDir() {
-		return copyDigest{}
-	}
-	if c, ok := r.digests[p]; ok {
-		return c
-	}
-	c := readCopyDigest(p)
-	r.digests[p] = c
-	return c
-}
-
-// sharedTarget returns the copy in ~/.agents/skills the link at p leads to,
-// when p is in another folder, really at real, or "".
-func (r *reconciler) sharedTarget(real, p string) string {
-	if r.sharedReal == "" || real == "" || real == r.sharedReal {
-		return ""
-	}
-	target, err := os.Readlink(p)
-	if err != nil {
-		return ""
-	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(real, target)
-	}
-	target = filepath.Clean(target)
-	shared := filepath.Join(r.home, filepath.FromSlash(sharedSkillsDir))
-	if parent := filepath.Dir(target); parent != shared && parent != r.sharedReal {
-		if parent, err = filepath.EvalSymlinks(parent); err != nil || parent != r.sharedReal {
-			return ""
-		}
-	}
-	return filepath.Join(shared, filepath.Base(target))
-}
-
-// skillAt says whether name in the folder is a skill to report, with its
-// digest: a folder holding a SKILL.md, or a link, which is never followed out
-// of the managed folders.
-func (r *reconciler) skillAt(f *folderRun, name string) (string, bool) {
-	p := filepath.Join(f.dir, name)
-	st, err := os.Lstat(p)
-	if err != nil {
-		return "", false
-	}
-	if st.Mode()&os.ModeSymlink != 0 {
-		return r.copyAt(f, name).all, true
-	}
-	if !st.IsDir() {
-		return "", false
-	}
-	if md, err := os.Lstat(filepath.Join(p, "SKILL.md")); err != nil || !md.Mode().IsRegular() {
-		return "", false
-	}
-	return r.copyAt(f, name).all, true
 }

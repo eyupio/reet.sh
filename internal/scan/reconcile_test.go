@@ -1405,6 +1405,111 @@ func TestReconcileBacksUpNothingThroughAFolderRepointedMidPass(t *testing.T) {
 	}
 }
 
+// repoint points the folder at dir elsewhere, as someone might while a pass
+// runs, keeping what it held in dir-old.
+func repoint(t *testing.T, dir, elsewhere string) {
+	t.Helper()
+	if err := os.Rename(dir, dir+"-old"); err != nil {
+		t.Error(err)
+	}
+	if err := os.Symlink(elsewhere, dir); err != nil {
+		t.Error(err)
+	}
+}
+
+// A folder pointed elsewhere after the pass started, before its turn, is not
+// read at all: what the new place holds is not this folder's to report.
+func TestReconcileReadsNothingInAFolderMovedBeforeItsTurn(t *testing.T) {
+	home := t.TempDir()
+	mkdirs(t, home, ".claude/skills")
+	elsewhere := filepath.Join(home, "elsewhere")
+	writeSkill(t, filepath.Join(elsewhere, "cq"))
+	before := homeTree(t, elsewhere)
+	a, aFiles := skillBundle(t, "alpha", "first")
+	// The bundle is fetched for ~/.agents/skills, before Claude's turn.
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}, onFetch: func() {
+		repoint(t, filepath.Join(home, ".claude", "skills"), elsewhere)
+	}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	sameTree(t, "elsewhere", before, homeTree(t, elsewhere))
+	var claude []string
+	for _, e := range rep.Entries {
+		if e.Folder == "~/.claude/skills" {
+			claude = append(claude, e.Name+" "+e.State+" "+e.Detail)
+		}
+	}
+	if want := "alpha failed ~/.claude/skills changed while reet was working on it; it is tried again next time"; strings.Join(claude, "|") != want {
+		t.Fatalf("Claude's entries %q, want %q", claude, want)
+	}
+}
+
+// A folder pointed elsewhere while reet's copy is staged, after its copies
+// were listed, has none of them backed up: the backup would move what the
+// new place holds.
+func TestReconcileBacksUpNoCopyThroughAFolderRepointedWhileStaging(t *testing.T) {
+	home := t.TempDir()
+	claude := filepath.Join(home, ".claude", "skills")
+	_, older := skillBundle(t, "alpha", "older")
+	placeFiles(t, filepath.Join(claude, "alpha"), older)
+	elsewhere := filepath.Join(home, "elsewhere")
+	writeSkill(t, filepath.Join(elsewhere, "alpha"))
+	before := homeTree(t, elsewhere)
+	a, aFiles := skillBundle(t, "alpha", "first")
+	was := readBackDigest
+	t.Cleanup(func() { readBackDigest = was })
+	moved := false
+	readBackDigest = func(p string) (string, error) {
+		if !moved && strings.Contains(p, string(filepath.Separator)+".claude"+string(filepath.Separator)) {
+			moved = true
+			repoint(t, claude, elsewhere)
+		}
+		return privateSkillDigest(p)
+	}
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if !moved {
+		t.Fatal("the folder was never pointed elsewhere")
+	}
+	sameTree(t, "elsewhere", before, homeTree(t, elsewhere))
+	if got := folderDigest(t, filepath.Join(claude+"-old", "alpha")); got != digestOfFiles(t, older) {
+		t.Fatal("the copy in the folder as it was is not as it was")
+	}
+	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") || e.Backup != "" {
+		t.Fatalf("entry %+v", e)
+	}
+}
+
+// A folder pointed elsewhere after its copy was backed up, before reet's copy
+// went in, has nothing put back through it: the copy stays in its backup and
+// the new place is left as it is.
+func TestReconcilePutsNothingBackThroughAFolderRepointedMidInstall(t *testing.T) {
+	home := t.TempDir()
+	shared := filepath.Join(home, ".agents", "skills")
+	_, older := skillBundle(t, "alpha", "older")
+	placeFiles(t, filepath.Join(shared, "alpha"), older)
+	elsewhere := filepath.Join(home, "elsewhere")
+	mkdirs(t, home, "elsewhere")
+	before := homeTree(t, elsewhere)
+	was := reconcileMove
+	t.Cleanup(func() { reconcileMove = was })
+	reconcileMove = func(string, string) (bool, error) {
+		repoint(t, shared, elsewhere)
+		return false, errors.New("no space left on device")
+	}
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	sameTree(t, "elsewhere", before, homeTree(t, elsewhere))
+	backup := "~/.agents/.reet-backups/2026-11-18/.agents-alpha"
+	e := entryOf(t, rep, "~/.agents/skills", "alpha")
+	if e.State != "failed" || e.Backup != backup || !strings.Contains(e.Detail, "stays in "+backup+": ~/.agents/skills changed while reet was working") {
+		t.Fatalf("entry %+v", e)
+	}
+	if got := folderDigest(t, filepath.Join(home, strings.TrimPrefix(backup, "~/"))); got != digestOfFiles(t, older) {
+		t.Fatal("the copy is not in its backup")
+	}
+}
+
 func TestReconcileReportsAFolderLeftAloneThatCannotBeRead(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0755); err != nil {
@@ -1564,7 +1669,7 @@ func TestReconcileBacksUpNothingBesideAParentRepointedMidPass(t *testing.T) {
 
 // Two names for one folder are one folder: a project's protection goes by the
 // folder it is, not the name it was enrolled under.
-func TestWithinGoesByTheFolderNotItsName(t *testing.T) {
+func TestReconcileComparesFoldersByIdentity(t *testing.T) {
 	root := t.TempDir()
 	mkdirs(t, root, "work/app/.claude/skills", "work/apple")
 	// "Work" is a second name for "work", as another case is on a disk that

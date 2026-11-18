@@ -2,6 +2,8 @@ package agentaccounts
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -82,12 +85,30 @@ func (r *Reader) openCode() signIn {
 	}
 	out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountSubscription
 	out.token = key
-	// There is no account name to tell keys apart by, so the key's digest
+	// There is no account name to tell keys apart by, so a mark of the key
 	// does, in memory only: figures read with one key are not shown for the next.
-	sum := sha256.Sum256([]byte(key))
-	out.identity = "opencode\x00" + hex.EncodeToString(sum[:])
+	out.identity = "opencode\x00" + keyMark(key)
 	return out
 }
+
+// keyMark tells one key from another without keeping the key: a keyed digest
+// under a secret made afresh for this process, so the mark means nothing
+// outside it and cannot be tried against guesses of the key.
+func keyMark(key string) string {
+	markOnce.Do(func() {
+		if _, err := rand.Read(markSecret[:]); err != nil {
+			panic("agentaccounts: no randomness for the key mark: " + err.Error())
+		}
+	})
+	mac := hmac.New(sha256.New, markSecret[:])
+	mac.Write([]byte(key))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+var (
+	markOnce   sync.Once
+	markSecret [32]byte
+)
 
 // openCodeStoreKey reads the key from OpenCode 2's store at path. store is
 // false when there is no such store there: no file, or a database without

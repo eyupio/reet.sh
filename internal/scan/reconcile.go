@@ -539,11 +539,13 @@ func (r *reconciler) stage(f *folderRun, a store.DesiredSkill) (string, error) {
 		}
 	}
 	staging, err := r.stageIn(f, filepath.Dir(f.real), b.files)
-	if err != nil && filepath.Dir(f.dir) != filepath.Dir(f.real) {
+	if err != nil && f.parent != filepath.Dir(f.real) {
 		// The real folder may be a mount root, or sit in a folder this user
 		// cannot write in. Beside the folder under home works then, and the
-		// install reads back what lands if it had to copy.
-		staging, err = r.stageIn(f, filepath.Dir(f.dir), b.files)
+		// install reads back what lands if it had to copy. It is staged in
+		// the parent by the resolved path stageIn checks, so a parent pointed
+		// elsewhere after the check does not get it.
+		staging, err = r.stageIn(f, f.parent, b.files)
 	}
 	if err != nil {
 		return "", err

@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -1666,6 +1667,65 @@ func TestReconcileStagesNothingBesideAParentRepointedBeforeTheFallback(t *testin
 	sameTree(t, "claude-b", before, homeTree(t, filepath.Join(home, "claude-b")))
 	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") {
 		t.Fatalf("entry %+v", e)
+	}
+}
+
+// The fallback stages in the parent where it was checked, by its resolved
+// path, so a parent pointed elsewhere between the check and the making of the
+// staging folder does not get it.
+func TestReconcileFallbackStagesWhereTheParentWasChecked(t *testing.T) {
+	home := t.TempDir()
+	mount := filepath.Join(home, "mnt")
+	mkdirs(t, home, "mnt/skills")
+	for _, parent := range []string{"claude-a", "claude-b"} {
+		symlink(t, filepath.Join(mount, "skills"), filepath.Join(home, parent, "skills"))
+	}
+	claude := filepath.Join(home, ".claude")
+	symlink(t, filepath.Join(home, "claude-a"), claude)
+	realMount, err := filepath.EvalSymlinks(mount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realA, err := filepath.EvalSymlinks(filepath.Join(home, "claude-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := homeTree(t, filepath.Join(home, "claude-b"))
+	var stagedIn []string
+	was := makeStaging
+	t.Cleanup(func() { makeStaging = was })
+	makeStaging = func(dir, pattern string) (string, error) {
+		if dir == realMount {
+			return "", &os.PathError{Op: "mkdirtemp", Path: dir, Err: syscall.EACCES}
+		}
+		if strings.HasPrefix(pattern, ".reet-private-") && (dir == claude || dir == realA) {
+			// The check has passed; ~/.claude is pointed elsewhere now.
+			if err := os.Remove(claude); err != nil {
+				t.Error(err)
+			}
+			if err := os.Symlink(filepath.Join(home, "claude-b"), claude); err != nil {
+				t.Error(err)
+			}
+		}
+		p, err := os.MkdirTemp(dir, pattern)
+		if err == nil {
+			real, _ := filepath.EvalSymlinks(filepath.Dir(p))
+			stagedIn = append(stagedIn, real)
+		}
+		return p, err
+	}
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	sameTree(t, "claude-b", before, homeTree(t, filepath.Join(home, "claude-b")))
+	if !slices.Contains(stagedIn, realA) {
+		t.Errorf("staged in %q, want in %s", stagedIn, realA)
+	}
+	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") {
+		t.Fatalf("entry %+v", e)
+	}
+	if left := stagingLeft(t, home); len(left) != 0 {
+		t.Fatalf("staging left: %v", left)
 	}
 }
 

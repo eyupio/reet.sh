@@ -18,11 +18,6 @@ type managedRoot struct {
 // handled says the pass works in this folder.
 func (m managedRoot) handled() bool { return m.exists && !m.skip }
 
-// besideOK says reet may work beside the folder, where its backups are: the
-// pass works in it, or works in it under an earlier managed folder that is
-// the same folder. Either way the folder and its parent passed every check.
-func (m managedRoot) besideOK() bool { return m.handled() || m.skip && m.why == "" }
-
 // managedRoots resolves the managed folders, which may be links, as a
 // dotfiles setup makes them. One that is the same folder as an earlier
 // managed folder is handled under that one. One that leads into another

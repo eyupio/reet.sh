@@ -909,26 +909,41 @@ func TestAgentRestoreCommandPrintsOneLinePerPath(t *testing.T) {
 	}
 }
 
-// A folder that is the same folder as an earlier managed one, such as
-// ~/.cursor/skills linked to ~/.agents/skills, is handled under that one, but
-// backups made beside it before it was linked still expire.
-func TestPruneBackupsBesideAFolderHandledUnderAnother(t *testing.T) {
-	home := t.TempDir()
-	mkdirs(t, home, ".agents/skills")
-	symlink(t, filepath.Join("..", ".agents", "skills"), filepath.Join(home, ".cursor", "skills"))
-	root := filepath.Join(home, ".cursor", ".reet-backups")
-	old, recent := backupNow.AddDate(0, 0, -40).Format(backupDateLayout), backupNow.AddDate(0, 0, -1).Format(backupDateLayout)
-	writeSkill(t, filepath.Join(root, old, ".cursor-a"))
-	writeSkill(t, filepath.Join(root, recent, ".cursor-b"))
-	if err := pruneBackups(home, backupNow, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(filepath.Join(root, old)); !os.IsNotExist(err) {
-		t.Fatalf("an expired backup was kept: %v", err)
-	}
-	if _, err := os.Lstat(filepath.Join(root, recent)); err != nil {
-		t.Fatalf("a recent backup was pruned: %v", err)
-	}
+// Backups are pruned only beside the folders a pass works in, never beside a
+// folder handled under another that is the same folder. When the link is at
+// the parent, that folder's .reet-backups is the handled one's under another
+// name, and pruning there would remove a held backup, which may be the only
+// copy of an edit the controller has not had yet.
+func TestPruneBackupsOnlyBesideFoldersThePassWorksIn(t *testing.T) {
+	old := backupNow.AddDate(0, 0, -40).Format(backupDateLayout)
+	t.Run("a held backup reached through a linked parent", func(t *testing.T) {
+		home := t.TempDir()
+		mkdirs(t, home, ".claude/skills")
+		// ~/.agents is a link to ~/.claude, so ~/.agents/skills is
+		// ~/.claude/skills, and the pass works in it as ~/.agents/skills.
+		symlink(t, filepath.Join(home, ".claude"), filepath.Join(home, ".agents"))
+		held := filepath.Join(home, ".agents", ".reet-backups", old, ".agents-alpha")
+		writeSkill(t, held)
+		if err := pruneBackups(home, backupNow, nil, held); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(held, "SKILL.md")); err != nil {
+			t.Fatalf("a held backup was pruned through the link: %v", err)
+		}
+	})
+	t.Run("a backup beside a folder handled under another", func(t *testing.T) {
+		home := t.TempDir()
+		mkdirs(t, home, ".agents/skills")
+		symlink(t, filepath.Join("..", ".agents", "skills"), filepath.Join(home, ".cursor", "skills"))
+		kept := filepath.Join(home, ".cursor", ".reet-backups", old)
+		writeSkill(t, filepath.Join(kept, ".cursor-a"))
+		if err := pruneBackups(home, backupNow, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(kept); err != nil {
+			t.Fatalf("a backup beside a folder handled under another was pruned: %v", err)
+		}
+	})
 }
 
 // A restore never writes into a folder reet leaves alone. Here

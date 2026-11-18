@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -356,5 +357,70 @@ func TestDefaultClientRefusesLoopback(t *testing.T) {
 	_, err := Fetcher{}.Fetch(context.Background(), r)
 	if err == nil || !strings.Contains(err.Error(), "not one this server may connect to") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func proxyFixture(t *testing.T, handler http.HandlerFunc) (*atomic.Int64, func(*http.Request) (*url.URL, error)) {
+	t.Helper()
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		handler(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	return &hits, func(*http.Request) (*url.URL, error) { return u, nil }
+}
+
+func fakeLookup(answers map[string]string) func(context.Context, string) ([]net.IP, error) {
+	return func(_ context.Context, host string) ([]net.IP, error) {
+		if a, ok := answers[host]; ok {
+			return []net.IP{net.ParseIP(a)}, nil
+		}
+		return nil, errors.New("no such host")
+	}
+}
+
+func TestProxyReachedForPublicDestination(t *testing.T) {
+	var method, target atomic.Value
+	hits, proxy := proxyFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		method.Store(r.Method)
+		target.Store(r.Host)
+		http.Error(w, "stand-in proxy", http.StatusBadGateway)
+	})
+	f := Fetcher{proxy: proxy, lookup: fakeLookup(map[string]string{"example.test": "140.82.112.3"})}
+	r := ref.Ref{Source: "example.test", Slug: "demo", SourceType: "well-known"}
+	_, err := f.Fetch(context.Background(), r)
+	if err == nil || strings.Contains(err.Error(), "may connect to") {
+		t.Fatalf("err = %v", err)
+	}
+	if hits.Load() == 0 || method.Load() != "CONNECT" || target.Load() != "example.test:443" {
+		t.Fatalf("proxy hits=%d method=%v target=%v", hits.Load(), method.Load(), target.Load())
+	}
+}
+
+func TestProxyRefusesNonPublicDestinationBeforeContact(t *testing.T) {
+	for _, source := range []string{"127.0.0.1:8443", "10.0.0.5", "internal.test"} {
+		hits, proxy := proxyFixture(t, func(w http.ResponseWriter, r *http.Request) {})
+		f := Fetcher{proxy: proxy, lookup: fakeLookup(map[string]string{"internal.test": "10.1.2.3"})}
+		r := ref.Ref{Source: source, Slug: "demo", SourceType: "well-known"}
+		_, err := f.Fetch(context.Background(), r)
+		if err == nil || !strings.Contains(err.Error(), "may connect to") || hits.Load() != 0 {
+			t.Fatalf("%s: err = %v, proxy hits = %d", source, err, hits.Load())
+		}
+	}
+}
+
+func TestProxyRefusesRedirectToPrivateAddress(t *testing.T) {
+	hits, proxy := proxyFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://objects.githubusercontent.com/x", http.StatusFound)
+	})
+	f := Fetcher{
+		GitHub: "http://example.test", proxy: proxy,
+		lookup: fakeLookup(map[string]string{"example.test": "140.82.112.3", "objects.githubusercontent.com": "10.0.0.5"}),
+	}
+	_, err := f.Fetch(context.Background(), ghRef("pdf"))
+	if err == nil || !strings.Contains(err.Error(), "may connect to") || hits.Load() != 1 {
+		t.Fatalf("err = %v, proxy hits = %d", err, hits.Load())
 	}
 }

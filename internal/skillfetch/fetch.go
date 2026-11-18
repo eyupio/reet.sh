@@ -19,6 +19,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -55,6 +56,10 @@ type Result struct {
 type Fetcher struct {
 	Client *http.Client
 	GitHub string
+
+	// Set by tests to avoid the environment and DNS; used with a nil Client.
+	proxy  func(*http.Request) (*url.URL, error)
+	lookup func(context.Context, string) ([]net.IP, error)
 }
 
 // Fetch returns the files of the skill r names.
@@ -77,9 +82,19 @@ func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
 	return Result{Files: selected, Manifest: m, Origin: origin}, nil
 }
 
-// refuseAddress stops a connection to this machine, a private or link-local
-// network, or any address that is not a public unicast one. Skills are public,
-// so unlike an identity provider nothing internal is a legitimate source.
+var errAddress = errors.New("skill source address is not one this server may connect to")
+
+// publicAddress reports whether ip is one skills may be fetched from: not this
+// machine, a private or link-local network, or any other non-unicast address.
+// The dial guard and the check made before a request goes to a proxy share it.
+func publicAddress(ip net.IP) bool {
+	cgnat := net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast() || cgnat.Contains(ip))
+}
+
+// refuseAddress is the dial-time guard. Skills are public, so unlike an
+// identity provider nothing internal is a legitimate source.
 func refuseAddress(network, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -89,26 +104,86 @@ func refuseAddress(network, address string, _ syscall.RawConn) error {
 	if ip == nil {
 		return errors.New("skill source address is not an IP address")
 	}
-	cgnat := net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast() || cgnat.Contains(ip) {
-		return errors.New("skill source address is not one this server may connect to")
+	if !publicAddress(ip) {
+		return errAddress
 	}
 	return nil
 }
 
-func defaultClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: refuseAddress}
+func lookupIPs(ctx context.Context, host string) ([]net.IP, error) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	ips := make([]net.IP, len(addrs))
+	for i, a := range addrs {
+		ips[i] = a.IP
+	}
+	return ips, err
+}
+
+// defaultClient honours the proxy settings of the environment, as the rest of
+// reet does. Without a proxy the dial guard refuses non-public addresses. With
+// one, the proxy itself is operator configuration and may be private, but the
+// destination is resolved here first and refused unless every address is public;
+// that runs for each redirect hop too, since each hop asks for its proxy.
+func defaultClient(proxy func(*http.Request) (*url.URL, error), lookup func(context.Context, string) ([]net.IP, error)) *http.Client {
+	if proxy == nil {
+		proxy = http.ProxyFromEnvironment
+	}
+	if lookup == nil {
+		lookup = lookupIPs
+	}
+	var proxies sync.Map
+	guarded := &net.Dialer{Timeout: 5 * time.Second, Control: refuseAddress}
+	plain := &net.Dialer{Timeout: 5 * time.Second}
 	return &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
-			DialContext:           dialer.DialContext,
+			Proxy: func(req *http.Request) (*url.URL, error) {
+				p, err := proxy(req)
+				if err != nil || p == nil {
+					return p, err
+				}
+				host := req.URL.Hostname()
+				ips := []net.IP{net.ParseIP(host)}
+				if ips[0] == nil {
+					if ips, err = lookup(req.Context(), host); err != nil {
+						return nil, fmt.Errorf("resolve skill source: %w", err)
+					}
+				}
+				for _, ip := range ips {
+					if !publicAddress(ip) {
+						return nil, errAddress
+					}
+				}
+				proxies.Store(proxyAddress(p), true)
+				return p, nil
+			},
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if _, ok := proxies.Load(addr); ok {
+					return plain.DialContext(ctx, network, addr)
+				}
+				return guarded.DialContext(ctx, network, addr)
+			},
 			TLSHandshakeTimeout:   5 * time.Second,
 			ResponseHeaderTimeout: 15 * time.Second,
 			MaxIdleConns:          4,
 			IdleConnTimeout:       30 * time.Second,
 		},
 	}
+}
+
+func proxyAddress(p *url.URL) string {
+	port := p.Port()
+	if port == "" {
+		switch p.Scheme {
+		case "https":
+			port = "443"
+		case "socks5", "socks5h":
+			port = "1080"
+		default:
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(p.Hostname(), port)
 }
 
 func githubHost(h string) bool {
@@ -121,7 +196,7 @@ func githubHost(h string) bool {
 func (f Fetcher) get(ctx context.Context, rawURL string, github bool) (*http.Response, error) {
 	client := f.Client
 	if client == nil {
-		client = defaultClient()
+		client = defaultClient(f.proxy, f.lookup)
 	}
 	c := *client
 	c.Jar = nil

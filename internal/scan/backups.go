@@ -153,13 +153,48 @@ func moveEntryCopying(src, dest string) (bool, error) {
 }
 
 // copyEntry copies a file, directory tree or symlink to dest; symlinks stay
-// links. dest is created exclusively: if anything is already there it fails
-// and leaves it alone. On a later failure it removes only what it created.
+// links. The copy is made in a hidden folder beside dest and moved in only
+// when it is complete and nothing is at dest by then, so dest never holds a
+// partial copy and whatever another process puts there is left alone. On a
+// failure only that hidden folder is removed.
 func copyEntry(src, dest string) error {
-	created := false
-	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	taken := func() error {
+		_, err := os.Lstat(dest)
+		if err == nil {
+			return &os.PathError{Op: "copy", Path: dest, Err: fs.ErrExist}
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if err := taken(); err != nil {
+		return err
+	}
+	aside, err := os.MkdirTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".reet-copy-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(aside)
+	copied := filepath.Join(aside, "copy")
+	if err := copyTree(src, copied); err != nil {
+		return err
+	}
+	// Batch D replaces this with a rename that never replaces.
+	if err := taken(); err != nil {
+		return err
+	}
+	return os.Rename(copied, dest)
+}
+
+// copyTree copies src to dest, a path nothing else uses.
+func copyTree(src, dest string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if copyEntryStep != nil && p != src {
+			copyEntryStep()
 		}
 		rel, err := filepath.Rel(src, p)
 		if err != nil {
@@ -176,13 +211,9 @@ func copyEntry(src, dest string) error {
 			if err != nil {
 				return err
 			}
-			err = os.Symlink(link, target)
-			created = created || err == nil && p == src
-			return err
+			return os.Symlink(link, target)
 		case info.IsDir():
-			err := os.Mkdir(target, info.Mode().Perm()|0700)
-			created = created || err == nil && p == src
-			return err
+			return os.Mkdir(target, info.Mode().Perm()|0700)
 		case info.Mode().IsRegular():
 			in, err := os.Open(p)
 			if err != nil {
@@ -193,7 +224,6 @@ func copyEntry(src, dest string) error {
 			if err != nil {
 				return err
 			}
-			created = created || p == src
 			if _, err = io.Copy(out, in); err != nil {
 				out.Close()
 				return err
@@ -202,14 +232,14 @@ func copyEntry(src, dest string) error {
 		}
 		return fmt.Errorf("cannot back up %s: unsupported file type", p)
 	})
-	if err != nil && created {
-		_ = os.RemoveAll(dest)
-	}
-	return err
 }
 
 // renameEntry is os.Rename; tests replace it to stand for two devices.
 var renameEntry = os.Rename
+
+// copyEntryStep, when set, runs before each entry under the top one is
+// copied; tests use it to stand for another process at work meanwhile.
+var copyEntryStep func()
 
 func isRealDir(p string) bool {
 	st, err := os.Lstat(p)

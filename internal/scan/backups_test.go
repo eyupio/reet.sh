@@ -380,3 +380,37 @@ func TestBackupMoveAcrossDevicesLeavesWhatIsAtItsDestination(t *testing.T) {
 		t.Fatalf("a failed copy left what it made: %v", err)
 	}
 }
+
+// Another process writing where a copy is going while it is made keeps what
+// it wrote when the copy then fails: the copy is made aside and moved in only
+// when complete, and cleaning up removes only what the copy made.
+func TestBackupCopyLeavesWhatAnotherProcessWritesAlone(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	writeSkill(t, src)
+	if err := syscall.Mkfifo(filepath.Join(src, "zz-pipe"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "dest")
+	t.Cleanup(func() { copyEntryStep = nil })
+	copyEntryStep = func() {
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			t.Error(err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, "theirs.txt"), []byte("theirs"), 0644); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := copyEntry(src, dest); err == nil {
+		t.Fatal("copied a named pipe")
+	}
+	if b, err := os.ReadFile(filepath.Join(dest, "theirs.txt")); err != nil || string(b) != "theirs" {
+		t.Fatalf("another process's file went: %q %v", b, err)
+	}
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".reet-copy-") {
+			t.Fatalf("left %s", e.Name())
+		}
+	}
+}

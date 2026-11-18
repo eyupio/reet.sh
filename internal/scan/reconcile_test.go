@@ -2722,7 +2722,7 @@ func TestSkillReportNeverExceedsTheControllerCap(t *testing.T) {
 		t.Fatalf("sent %d entries, want %d", len(got.Entries), skillReportMaxEntries)
 	}
 	last := got.Entries[len(got.Entries)-1]
-	if last.State != "failed" || last.Detail != "Too many skills to report; some are not shown." || last.Name == "" {
+	if last.State != "failed" || last.Detail != "Too many skills to report; some are not shown." || last.Name != store.SkillReportCutName || !got.Cut() {
 		t.Fatalf("the last entry: %+v", last)
 	}
 	if got.Entries[0].Name != "s00001" || got.Entries[len(got.Entries)-2].Name != fmt.Sprintf("s%05d", skillReportMaxEntries-1) {
@@ -2731,9 +2731,17 @@ func TestSkillReportNeverExceedsTheControllerCap(t *testing.T) {
 	// An entry naming a backup is never the one left out.
 	withBackup := slices.Clone(rep.Entries)
 	withBackup[0] = store.SkillReportEntry{Folder: "~/.agents/skills", Name: "zz-edited", State: "edited", Digest: strings.Repeat("e", 64), Backup: "~/.agents/.reet-backups/2027-01-15/.agents-zz-edited"}
-	cut := capSkillReport(store.SkillReport{Version: "v1", Entries: withBackup})
+	cut := capSkillReport(store.SkillReport{Version: "v1", Entries: withBackup}, nil)
 	if len(cut.Entries) != skillReportMaxEntries || !slices.Contains(cut.Entries, withBackup[0]) {
 		t.Fatalf("the edited entry was left out of %d entries", len(cut.Entries))
+	}
+	// So is an entry for a name on the removal list: its absence would read
+	// as the machine confirming the removal.
+	removing := slices.Clone(rep.Entries)
+	removing[1] = store.SkillReportEntry{Folder: "~/.claude/skills", Name: "zz-Archived", State: "installed", Digest: strings.Repeat("a", 64)}
+	cut = capSkillReport(store.SkillReport{Version: "v1", Entries: removing}, []store.DesiredRemoval{{Name: "zz-archived", Reason: "archived"}})
+	if len(cut.Entries) != skillReportMaxEntries || !slices.Contains(cut.Entries, removing[1]) || !cut.Cut() {
+		t.Fatalf("the removal-list entry was left out of %d entries", len(cut.Entries))
 	}
 	// A report within the cap is sent as it is.
 	small := store.SkillReport{Version: "v2", Entries: rep.Entries[:3]}
@@ -2742,5 +2750,104 @@ func TestSkillReportNeverExceedsTheControllerCap(t *testing.T) {
 	}
 	if got := srv.lastReport(t); !reflect.DeepEqual(got, small) {
 		t.Fatalf("a small report was changed: %+v", got)
+	}
+}
+
+// Records the controller has not acknowledged are never dropped. While the
+// journal of them is full, the pass makes no backup that would need a new
+// one: the skill waits, reported failed, until a report gets through.
+func TestAgentCycleWaitsWhileUnsentRecordsAreFull(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	c := loaded(t, config)
+	home := c.Home
+	pending := make([]store.SkillReportEntry, 0, unsentKept)
+	for i := range unsentKept {
+		pending = append(pending, store.SkillReportEntry{Folder: "~/.agents/skills", Name: fmt.Sprintf("old%04d", i), State: "removed", Backup: fmt.Sprintf("~/.agents/.reet-backups/2026-11-01/.agents-old%04d", i)})
+	}
+	if err := writePrivate(config+".unsent", unsentCache{Server: c.Server, Agent: c.ID, Entries: pending}); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(home, ".agents", "skills", "gone"))
+	srv.setDesired(&store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}})
+	srv.mu.Lock()
+	srv.reportStatus = 500
+	srv.mu.Unlock()
+	_ = skillCycle(t, config)
+	if kept := readUnsentSkills(config, c); len(kept) != unsentKept || kept[0] != pending[0] {
+		t.Fatalf("unsent records were dropped: %d kept", len(kept))
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".agents", "skills", "gone")); err != nil {
+		t.Fatal("the removal went ahead with nowhere to record it")
+	}
+	srv.mu.Lock()
+	srv.reportStatus = 0
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	rep := srv.lastReport(t)
+	held := false
+	for _, e := range rep.Entries {
+		held = held || e.Name == "gone" && e.State == "failed" && e.Detail == "Waiting to report earlier changes first"
+	}
+	if !held || len(rep.Entries) != unsentKept+1 {
+		t.Fatalf("report of %d entries, held %t", len(rep.Entries), held)
+	}
+	if kept := readUnsentSkills(config, c); len(kept) != 0 {
+		t.Fatalf("%d records left after they were delivered", len(kept))
+	}
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".agents", "skills", "gone")); !os.IsNotExist(err) {
+		t.Fatal("the removal did not resume once the records were delivered")
+	}
+	if e := srv.lastReport(t).Entries; len(e) != 1 || e[0].State != "removed" {
+		t.Fatalf("report %+v", e)
+	}
+}
+
+// A managed folder that holds another managed folder is left alone, as is
+// the one it holds: removing an entry of one must never move the other.
+func TestReconcileLeavesManagedFoldersThatHoldEachOtherAlone(t *testing.T) {
+	for _, c := range []struct{ name, outer, inner, entry string }{
+		{"claude inside agents", ".agents/skills", ".claude/skills", "legacy"},
+		{"agents inside claude", ".claude/skills", ".agents/skills", "shared"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			outer := filepath.Join(home, filepath.FromSlash(c.outer))
+			held := filepath.Join(outer, c.entry)
+			writeSkill(t, filepath.Join(held, "inner-skill"))
+			symlink(t, held, filepath.Join(home, filepath.FromSlash(c.inner)))
+			before := homeTree(t, outer)
+			d := store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: c.entry, Reason: "archived"}}}
+			rep, _ := reconcileSkills(context.Background(), home, d, map[string]string{}, (&stubBundles{}).fetch, reconcileNow)
+			sameTree(t, c.outer, before, homeTree(t, outer))
+			if target, err := os.Readlink(filepath.Join(home, filepath.FromSlash(c.inner))); err != nil || target != held {
+				t.Fatalf("the inner folder's link: %q %v", target, err)
+			}
+			want := "~/" + c.outer + " holds ~/" + c.inner + ", so reet leaves it alone"
+			if e := entryOf(t, rep, "~/"+c.outer, c.entry); e.State != "failed" || e.Detail != want {
+				t.Fatalf("entry %+v, want %q", e, want)
+			}
+		})
+	}
+}
+
+// The last guard: even in a folder the pass works in, an entry that is or
+// holds another managed folder is never backed up or replaced.
+func TestReconcileNeverMovesAnEntryHoldingAManagedFolder(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".agents", "skills")
+	writeSkill(t, filepath.Join(folder, "keeper", "inside"))
+	r := &reconciler{home: home, now: reconcileNow, digests: map[string]copyDigest{},
+		roots: []rootPlace{{label: "~/.claude/skills", real: filepath.Join(folder, "keeper", "inside")}}}
+	if _, err := r.backup(folder, "keeper"); err == nil || !strings.Contains(err.Error(), "~/.claude/skills") {
+		t.Fatalf("backup of an entry holding a managed folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "keeper", "inside", "SKILL.md")); err != nil {
+		t.Fatal("the entry was moved")
 	}
 }

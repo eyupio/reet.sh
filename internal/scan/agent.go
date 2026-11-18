@@ -633,6 +633,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		return err
 	}
 	c.Host = reply.Agent.Host
+	keepControllerSkillsProtocol(config, c, reply.Agent.SkillsProtocol, out)
 	if reply.Agent.Paused {
 		return nil
 	}

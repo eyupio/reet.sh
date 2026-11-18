@@ -125,8 +125,10 @@ type unsentCache struct {
 	Entries []store.SkillReportEntry `json:"entries"`
 }
 
-// unsentKept caps the entries kept while reports fail, keeping the newest.
-const unsentKept = 500
+// unsentKept bounds new work while reports fail: with this many records not
+// yet acknowledged, the pass makes no backup that would need another. A
+// record is never dropped to make room. It is room for a whole library.
+const unsentKept = 4096
 
 func readUnsentSkills(config string, c agentConfig) []store.SkillReportEntry {
 	b, err := os.ReadFile(config + ".unsent")
@@ -235,9 +237,6 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	}
 	unsent := readUnsentSkills(config, c)
 	keepUnsent := func() {
-		if len(unsent) > unsentKept {
-			unsent = unsent[len(unsent)-unsentKept:]
-		}
 		if err := writePrivate(config+".unsent", unsentCache{Server: c.Server, Agent: c.ID, Entries: unsent}); err != nil {
 			errs = append(errs, fmt.Errorf("could not keep what this pass did until it is reported: %w", err))
 		}
@@ -248,6 +247,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 		// Each edit or removal is kept the moment its backup is made, so an
 		// agent stopped before the report still reports it.
 		opts := reconcileOptions{unmanaged: c.Projects,
+			room: func() bool { return len(unsent) < unsentKept },
 			news: func(e store.SkillReportEntry) {
 				unsent = append(unsent, e)
 				keepUnsent()
@@ -269,7 +269,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 		rep = skillInventory(c.Home, *d, c.Projects)
 	}
 	var undelivered []string
-	sent := capSkillReport(withUnsent(rep, unsent))
+	sent := capSkillReport(withUnsent(rep, unsent), d.Remove)
 	if err := postSkillReport(ctx, c, config, sent, version); err != nil {
 		errs = append(errs, err)
 	} else if unsent = slices.DeleteFunc(unsent, func(u store.SkillReportEntry) bool { return slices.Contains(sent.Entries, u) }); len(unsent) > 0 {
@@ -303,7 +303,7 @@ func fromTilde(home, p string) string {
 // postSkillReport sends rep, cut to the controller's cap, unless this process
 // already sent the same one. It returns nil once the controller has it.
 func postSkillReport(ctx context.Context, c agentConfig, config string, rep store.SkillReport, version string) error {
-	b, err := json.Marshal(capSkillReport(rep))
+	b, err := json.Marshal(capSkillReport(rep, nil))
 	if err != nil {
 		return err
 	}
@@ -327,15 +327,18 @@ func postSkillReport(ctx context.Context, c agentConfig, config string, rep stor
 // time, so the agent never sends one.
 const skillReportMaxEntries = 8192
 
-// skillReportCut is the entry that ends a report cut to the cap.
-var skillReportCut = store.SkillReportEntry{Name: "(not reported)", State: "failed", Detail: "Too many skills to report; some are not shown."}
+// skillReportCut is the entry that ends a report cut to the cap; the
+// controller reads it as SkillReport.Cut.
+var skillReportCut = store.SkillReportEntry{Name: store.SkillReportCutName, State: "failed", Detail: store.SkillReportCutDetail}
 
 // capSkillReport keeps rep within skillReportMaxEntries. Past it, the report
 // carries entries in a stable order, by folder and name, that keeps each
 // skill's entries in the order they were made: first every entry that names
-// a backup, which may be the only record of someone's work, then the first
-// of the rest; and last one failed entry saying some are not shown.
-func capSkillReport(rep store.SkillReport) store.SkillReport {
+// a backup, which may be the only record of someone's work; then every entry
+// for a name on the removal list, whose absence would read as the machine
+// confirming the removal; then the first of the rest; and last one failed
+// entry saying some are not shown.
+func capSkillReport(rep store.SkillReport, removals []store.DesiredRemoval) store.SkillReport {
 	if len(rep.Entries) <= skillReportMaxEntries {
 		return rep
 	}
@@ -346,11 +349,20 @@ func capSkillReport(rep store.SkillReport) store.SkillReport {
 		}
 		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
+	removing := map[string]bool{}
+	for _, r := range removals {
+		removing[strings.ToLower(r.Name)] = true
+	}
+	wanted := []func(store.SkillReportEntry) bool{
+		func(e store.SkillReportEntry) bool { return e.Backup != "" },
+		func(e store.SkillReportEntry) bool { return removing[strings.ToLower(e.Name)] },
+		func(store.SkillReportEntry) bool { return true },
+	}
 	room := skillReportMaxEntries - 1
 	keep := make([]bool, len(entries))
-	for pass := 0; pass < 2; pass++ {
+	for _, wants := range wanted {
 		for i, e := range entries {
-			if room > 0 && !keep[i] && (pass == 1 || e.Backup != "") {
+			if room > 0 && !keep[i] && wants(e) {
 				keep[i] = true
 				room--
 			}

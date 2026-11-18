@@ -67,11 +67,18 @@ type reconcileOptions struct {
 	// news is told each edit or removal as soon as its backup is made, and
 	// retract an edit whose replacement then failed and was put back.
 	news, retract func(store.SkillReportEntry)
+	// room says whether a backup's record can still be kept until reported;
+	// without it the pass makes no backup.
+	room func() bool
 }
+
+// waitingToReport is why a skill waits while the records of earlier
+// backups have not reached the controller.
+const waitingToReport = "Waiting to report earlier changes first"
 
 // reconcileWith is reconcileSkills with what the agent adds.
 func reconcileWith(ctx context.Context, home string, d store.DesiredState, installed map[string]string, fetch bundleFetcher, now time.Time, opts reconcileOptions) (store.SkillReport, map[string]string) {
-	r := &reconciler{ctx: ctx, home: home, now: now, fetch: fetch, installed: installed, news: opts.news, retract: opts.retract,
+	r := &reconciler{ctx: ctx, home: home, now: now, fetch: fetch, installed: installed, news: opts.news, retract: opts.retract, room: opts.room,
 		next: map[string]string{}, bundles: map[string]fetchedBundle{}, digests: map[string]copyDigest{}, shared: map[string]string{}, allowed: map[string]bool{}}
 	rep := store.SkillReport{Version: d.Version, Entries: []store.SkillReportEntry{}}
 	active, removals, refused := checkDesired(d)
@@ -92,6 +99,9 @@ func reconcileWith(ctx context.Context, home string, d store.DesiredState, insta
 	r.forgetWaits(active)
 	claimed := claimedNames(active, removals, refused)
 	roots := managedRoots(home, opts.unmanaged)
+	for i, root := range roots {
+		r.roots = append(r.roots, rootPlace{label: "~/" + managedFolders[i].Dir, real: root.real})
+	}
 	r.clearStaging(roots)
 	for _, root := range roots {
 		if root.handled() {
@@ -193,13 +203,23 @@ type reconciler struct {
 	installed     map[string]string
 	next          map[string]string
 	news, retract func(store.SkillReportEntry)
+	room          func() bool
 	bundles       map[string]fetchedBundle // by lower-case name: one fetch a pass
 	digests       map[string]copyDigest    // by path, for real folders read this pass
 	shared        map[string]string        // lower-case name → reet's copy in ~/.agents/skills
 	sharedReal    string                   // where ~/.agents/skills really is, once it exists
 	allowed       map[string]bool          // the real folders this pass may write in
 	entries       []store.SkillReportEntry
+	roots         []rootPlace // every managed folder, for backup's last guard
 }
+
+// rootPlace is a managed folder: how a report names it, and where it really
+// is (or would be made).
+type rootPlace struct{ label, real string }
+
+// hasRoom says whether the pass may make a backup whose record must be kept
+// until the controller has it.
+func (r *reconciler) hasRoom() bool { return r.room == nil || r.room() }
 
 func (r *reconciler) add(folder, name, state, digest, detail, backup string) {
 	r.entries = append(r.entries, store.SkillReportEntry{Folder: folder, Name: name, State: state, Digest: digest, Detail: detail, Backup: backup})
@@ -290,6 +310,10 @@ func (r *reconciler) folder(f *folderRun, active []store.DesiredSkill, removals 
 				r.add(f.label, rm.Name, "failed", "", err.Error(), "")
 				continue
 			}
+			if !r.hasRoom() {
+				r.add(f.label, rm.Name, "failed", "", waitingToReport, "")
+				continue
+			}
 			dest, err := r.backup(f.dir, name)
 			if err != nil {
 				r.add(f.label, rm.Name, "failed", "", "could not back up "+name+": "+err.Error(), "")
@@ -329,6 +353,17 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 		if r.copyAt(f, name).is(a.Digest) && (keep == "" || name == a.Name) {
 			keep = name
 		}
+	}
+	// Every copy moved aside is a record kept until the controller has it;
+	// with no room for one, the skill waits.
+	if (len(matches) > 1 || len(matches) == 1 && keep == "") && !r.hasRoom() {
+		if keep != "" {
+			r.settle(f, a, keep)
+			r.add(f.label, a.Name, "failed", "", waitingToReport, "")
+			return
+		}
+		r.fail(f.label, f.rel, a, waitingToReport, "")
+		return
 	}
 	staging, source := "", ""
 	if keep == "" {
@@ -592,6 +627,17 @@ func (r *reconciler) link(real, source string) error {
 // it went.
 func (r *reconciler) backup(dir, name string) (string, error) {
 	p := filepath.Join(dir, name)
+	// The last guard: an entry that is or holds a managed folder is never
+	// moved, whatever the folders around it. A link moves as a link, and
+	// takes nothing with it.
+	if info, err := os.Lstat(p); err == nil && info.Mode()&os.ModeSymlink == 0 {
+		real := resolvePath(p)
+		for _, root := range r.roots {
+			if within(root.real, real) {
+				return "", errors.New(name + " holds " + root.label + ", so reet leaves it alone")
+			}
+		}
+	}
 	dest, err := reconcileBackup(dir, name, r.now)
 	delete(r.digests, p)
 	if dest == "" {

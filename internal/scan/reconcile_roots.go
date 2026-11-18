@@ -20,12 +20,12 @@ func (m managedRoot) handled() bool { return m.exists && !m.skip }
 
 // managedRoots resolves the managed folders, which may be links, as a
 // dotfiles setup makes them. One that is the same folder as an earlier
-// managed folder is handled under that one. One that leads into another
-// managed folder, Codex's skills folder, an enrolled project or the folder a
-// custom CLAUDE_CONFIG_DIR or XDG_CONFIG_HOME names, or that holds one of
-// those places, is left alone; so is one whose parent, where its backups and
-// staging go, leads into such a place. Folders are compared by what they are,
-// not by how their paths are spelled (see within).
+// managed folder is handled under that one. One that leads into or holds
+// another managed folder, Codex's skills folder, an enrolled project or the
+// folder a custom CLAUDE_CONFIG_DIR or XDG_CONFIG_HOME names is left alone;
+// so is one whose parent, where its backups and staging go, leads into such
+// a place. Folders are compared by what they are, not by how their paths are
+// spelled (see within).
 func managedRoots(home string, unmanaged []string) []managedRoot {
 	type place struct{ path, name string }
 	places := []place{{resolvePath(filepath.Join(home, ".codex", "skills")), "Codex's skills folder"}}
@@ -82,6 +82,9 @@ func managedRoots(home string, unmanaged []string) []managedRoot {
 				roots[i].skip = j < i
 			case within(real, other.real):
 				roots[i].skip, roots[i].why = true, label+" leads into ~/"+managedFolders[j].Dir+", so reet leaves it alone"
+			case within(other.real, real):
+				// Removing one of its entries could take the other folder with it.
+				roots[i].skip, roots[i].why = true, label+" holds ~/"+managedFolders[j].Dir+", so reet leaves it alone"
 			}
 		}
 	}

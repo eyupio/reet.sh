@@ -64,6 +64,76 @@ type libraryLocalState struct {
 	// restores not yet reported; see library_restore.go.
 	Missing  []libraryMissing `json:"missing,omitempty"`
 	Restores []libraryRestore `json:"restores,omitempty"`
+	// EditPaths names, by event, the folder each pending edit was read from.
+	// Edits queued by builds before it have none.
+	EditPaths map[string]string `json:"editPaths,omitempty"`
+}
+
+// managedHomeCopy says whether path lies in one of the managed folders under
+// home. This build follows the library: there reet's copy wins, so an edit is
+// backed up and reported by the reconcile pass, never sent as a new revision.
+func managedHomeCopy(home, path string) bool {
+	if home == "" || !filepath.IsAbs(path) {
+		return false
+	}
+	for _, f := range managedFolders {
+		dir := filepath.Join(home, filepath.FromSlash(f.Dir))
+		if within(filepath.Clean(path), dir) || within(resolvePath(path), resolvePath(dir)) {
+			return true
+		}
+	}
+	return false
+}
+
+// skillsProtocolSeen is <config>.skills-protocol: the skills protocol the
+// controller last recorded for this machine, with the controller and machine
+// it is for.
+type skillsProtocolSeen struct {
+	Server   string `json:"server"`
+	Agent    string `json:"agent"`
+	Protocol int    `json:"protocol"`
+}
+
+// keepControllerSkillsProtocol remembers the protocol a poll's reply says the
+// controller recorded for this machine, writing only when it changed.
+func keepControllerSkillsProtocol(config string, c agentConfig, protocol int, out io.Writer) {
+	seen := skillsProtocolSeen{Server: c.Server, Agent: c.ID, Protocol: protocol}
+	var was skillsProtocolSeen
+	if b, err := os.ReadFile(config + ".skills-protocol"); err == nil && json.Unmarshal(b, &was) == nil && was == seen {
+		return
+	}
+	if err := writePrivate(config+".skills-protocol", seen); err != nil {
+		fmt.Fprintln(out, "Skills: could not note the controller's skills protocol:", err)
+	}
+}
+
+// followsLibrary says whether this machine's skills follow the library. They
+// do unless the controller this machine last polled recorded it below the
+// skills protocol (an older controller, which still runs the job-based sync
+// and takes edits made at home): until a poll says so, they are taken to
+// follow it, so nothing is sent before the first poll after an update.
+func followsLibrary(config string, c agentConfig) bool {
+	var seen skillsProtocolSeen
+	b, err := os.ReadFile(config + ".skills-protocol")
+	if err != nil || json.Unmarshal(b, &seen) != nil || seen.Server != c.Server || seen.Agent != c.ID {
+		return true
+	}
+	return seen.Protocol >= store.CurrentSkillsProtocol
+}
+
+// heldEdit says whether a pending edit stays on disk, unsent: one read from a
+// managed home folder, or, for one queued before edits recorded their folder,
+// one of an item with a copy in a managed home folder.
+func (state *libraryLocalState) heldEdit(home string, e store.LibraryEdit) bool {
+	if p, ok := state.EditPaths[e.EventID]; ok {
+		return managedHomeCopy(home, p)
+	}
+	for _, b := range state.Bindings {
+		if b.ItemID == e.ItemID && managedHomeCopy(home, b.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
@@ -97,17 +167,27 @@ func libraryApplyConsent(config string, c agentConfig) error {
 
 // Only exact private revisions installed by this enrollment are watched. A
 // missing file is not an edit/deletion; Stage 4 restores it from central content.
-func captureLibraryEdits(state *libraryLocalState) error {
+// A copy in a managed home folder under home is not watched: see
+// managedHomeCopy. Edits held unsent do not count against the queue's bounds.
+func captureLibraryEdits(state *libraryLocalState, home string) error {
 	for i := range state.Bindings {
 		binding := &state.Bindings[i]
 		var queuedBytes int64
+		queued := 0
 		for _, event := range state.Pending {
+			if state.heldEdit(home, event) {
+				continue
+			}
+			queued++
 			for _, file := range event.Files {
 				queuedBytes += int64(len(file.Data))
 			}
 		}
-		if queuedBytes >= 64<<20 || len(state.Pending) >= 256 {
+		if queuedBytes >= 64<<20 || queued >= 256 {
 			break
+		}
+		if managedHomeCopy(home, binding.Path) {
+			continue
 		}
 		if err := safeLibraryParent(binding.Path); err != nil {
 			continue
@@ -154,7 +234,12 @@ func captureLibraryEdits(state *libraryLocalState) error {
 		}
 		// A later local edit queues after the prior one; upload binds its causal
 		// base to that prior receipt before sending it. All bytes are durable first.
-		state.Pending = append(state.Pending, store.LibraryEdit{EventID: hex.EncodeToString(random), ItemID: binding.ItemID, Base: binding.Revision, SavedAt: saved + state.Offset, Uncertainty: state.Uncertainty + max(0, time.Now().UnixMilli()-state.CalibratedAt)/10000, Files: files})
+		event := store.LibraryEdit{EventID: hex.EncodeToString(random), ItemID: binding.ItemID, Base: binding.Revision, SavedAt: saved + state.Offset, Uncertainty: state.Uncertainty + max(0, time.Now().UnixMilli()-state.CalibratedAt)/10000, Files: files}
+		state.Pending = append(state.Pending, event)
+		if state.EditPaths == nil {
+			state.EditPaths = map[string]string{}
+		}
+		state.EditPaths[event.EventID] = binding.Path
 		binding.Digest = manifest.Digest
 	}
 	return nil
@@ -177,10 +262,16 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	if err != nil {
 		return err
 	}
+	// A machine that follows the library sends no edit made in a managed
+	// home folder: there reet's copy wins (see managedHomeCopy).
+	managedHome := ""
+	if followsLibrary(config, c) {
+		managedHome = c.Home
+	}
 	// Capture precedes all network operations: offline edits keep their original
 	// base and calibrated source time through process/controller restarts.
 	if state.CalibratedAt != 0 && c.AllowApply {
-		if err = captureLibraryEdits(&state); err != nil {
+		if err = captureLibraryEdits(&state, managedHome); err != nil {
 			return err
 		}
 		if err = writePrivate(config+".library", state); err != nil {
@@ -226,7 +317,7 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	failed := map[string]bool{}
 	for i := 0; i < len(state.Pending); {
 		event := state.Pending[i]
-		if failed[event.ItemID] {
+		if failed[event.ItemID] || state.heldEdit(managedHome, event) {
 			i++
 			continue
 		}
@@ -243,6 +334,7 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 		// Persist the receipt before dropping bytes. An uncertain HTTP result is
 		// retried with exactly the same ID/payload and cannot move the head twice.
 		state.Pending = append(state.Pending[:i], state.Pending[i+1:]...)
+		delete(state.EditPaths, event.EventID)
 		for j := range state.Bindings {
 			if state.Bindings[j].ItemID == event.ItemID {
 				state.Bindings[j].Revision = receipt.RevisionID

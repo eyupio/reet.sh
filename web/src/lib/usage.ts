@@ -14,7 +14,7 @@ export const PERIODS: { id: UsagePeriod; label: string; days: number }[] = [
 export type UsageAgent = { tool: string; name: string; reports: 'chat' | 'terminal_only' | 'retired'; input: number; output: number; cached: number; sessions: number; factoryStages: number; firstAt?: number }
 export type UsageGaffer = { provider: string; model: string; input: number; output: number; replies: number }
 export type UsageSession = { id: string; title: string; tool: string; model: string; agentId: string; host: string; projectId: string | null; structured: boolean; state: string; archived: boolean; factory: boolean; input: number; output: number; cached: number; lastAt: number; contextUsed: number; contextSize: number }
-export type UsageAnswer = { from: number; to: number; since: number; agents: UsageAgent[]; gaffer: UsageGaffer[]; sessions: UsageSession[]; more: boolean }
+export type UsageAnswer = { from: number; to: number; since: number; /** Each session that reported in the range, once (a session whose agent changed is under each agent in `agents`). */ sessionCount?: number; agents: UsageAgent[]; gaffer: UsageGaffer[]; sessions: UsageSession[]; more: boolean }
 
 /** One machine as the page knows it: whether it reads sign-ins, whether terminal access is off, and its last answer. */
 export type MachinePlanRead = { host: string; reads: boolean; terminalOff: boolean; answer: MachineAccounts | null; error?: boolean }
@@ -69,21 +69,26 @@ const spent = (a: { input: number; output: number }) => (a.input || 0) + (a.outp
 /** The line under the page's title: the period's total, and since when reet has counted when the period starts before. */
 export function totalsLine(answer: UsageAnswer, timeZone: string, dateFormat = 'locale'): string {
   if (!answer.since) return 'Nothing has been counted yet. reet counts what your agents report from now on.'
-  const total = answer.agents.reduce((sum, a) => sum + spent(a), 0), sessions = answer.agents.reduce((sum, a) => sum + (a.sessions || 0), 0)
+  const total = answer.agents.reduce((sum, a) => sum + spent(a), 0)
+  // The controller's own count of the period's sessions; adding up the agents' would count a session whose agent
+  // changed once for each.
+  const sessions = typeof answer.sessionCount === 'number' ? answer.sessionCount : answer.agents.reduce((sum, a) => sum + (a.sessions || 0), 0)
   const since = answer.since > answer.from ? ` · counted since ${dayLabel(answer.since, timeZone, dateFormat)}` : ''
   if (!total && !sessions) return `No tokens reported in this period${since}`
   return `${tokens(total)} ${total === 1 ? 'token' : 'tokens'} across ${plural(sessions, 'session')}${since}`
 }
 
 /** What one agent used in the period: the figure itself (the most prominent thing for an agent with no plan to read),
- *  the sessions behind it, and a quieter detail; or, with no figure, the sentence that says why. */
-export function agentTokens(agent: UsageAgent): { figure: string; line: string; detail: string } {
+ *  the sessions behind it, and a quieter detail; or, with no figure, the sentence that says why. An agent reet no
+ *  longer starts also has a note saying why it is still listed. */
+export function agentTokens(agent: UsageAgent): { figure: string; line: string; detail: string; note?: string } {
   if (agent.reports === 'terminal_only') return { figure: '', line: `${agent.name} runs only in a terminal here, which reports no token counts.`, detail: '' }
   const total = spent(agent)
   if (!total && !agent.cached && !agent.sessions) return { figure: '', line: 'No tokens reported in this period.', detail: '' }
   const factory = agent.factoryStages ? ` · ${plural(agent.factoryStages, 'Factory stage')}` : ''
   const detail = [`Input ${tokens(agent.input || 0)}`, `Output ${tokens(agent.output || 0)}`, ...(agent.cached ? [`Cached ${tokens(agent.cached)}`] : [])].join(' · ')
-  return { figure: `${tokens(total)} ${total === 1 ? 'token' : 'tokens'}`, line: `${plural(agent.sessions, 'session')}${factory}`, detail }
+  const used = { figure: `${tokens(total)} ${total === 1 ? 'token' : 'tokens'}`, line: `${plural(agent.sessions, 'session')}${factory}`, detail }
+  return agent.reports === 'retired' ? { ...used, note: `reet no longer starts ${agent.name}. These figures are from sessions it ran before.` } : used
 }
 
 /** The plans signed in for an agent across the machines, one per account (the freshest read wins, as the chips do). */
@@ -102,7 +107,8 @@ const orList = (hosts: string[]) => hosts.length <= 1 ? hosts.join('') : `${host
  *  before are still shown, dimmed, under this line. */
 function readProblem(account: AgentAccount, name: string, host: string): string {
   switch (account.limitsState) {
-    case 'renew': return `Open ${name} on ${host} to sign in again.`
+    // The agent renews its own sign-in when it next runs; reet never does (as the machine's settings say).
+    case 'renew': return `${name}'s sign-in on ${host} has run out; it renews itself the next time ${name} runs there.`
     case 'refused': return `${name}'s provider refused the sign-in on ${host} when asked for the plan.`
     case 'rate_limited': return `${name}'s provider asked reet to slow down.`
     case 'failed': return `${name}'s provider could not be reached from ${host} just now.`

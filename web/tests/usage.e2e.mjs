@@ -123,8 +123,8 @@ try {
     await page.goto(`${base}/usage`)
     await expect(block(page, 'claude').locator('[data-plan-why]')).toHaveText("Claude Code's provider could not be reached from studio just now.")
     await expect(block(page, 'codex').locator('[data-plan-why]')).toHaveText('No sign-in found on studio.')
-    // A sign-in that has expired, with no figures kept: say how to sign in again.
-    await expect(block(page, 'opencode').locator('[data-plan-why]')).toHaveText('Open OpenCode on studio to sign in again.')
+    // A sign-in that has run out, with no figures kept: say that the agent renews it when it next runs.
+    await expect(block(page, 'opencode').locator('[data-plan-why]')).toHaveText("OpenCode's sign-in on studio has run out; it renews itself the next time OpenCode runs there.")
     await context.close()
     // A machine with terminal access off, and an older reet.
     const off = await open({ machines: [machine('a1', 'studio', false, { terminalEnabled: false })], plans: {} })

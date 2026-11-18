@@ -69,13 +69,17 @@ type UsageGaffer struct {
 }
 
 // UsageReport is an account's usage in a range. Since is the time of its
-// earliest kept event at all (0 for none). More says the session list was cut.
+// earliest kept event at all (0 for none). SessionCount is the sessions that
+// reported in the range, each once: a session whose agent changed is counted
+// under each agent in Tools, but once here. More says the session list was
+// cut.
 type UsageReport struct {
-	Since    int64
-	Tools    []UsageToolTotal
-	Sessions []UsageSession
-	Gaffer   []UsageGaffer
-	More     bool
+	Since        int64
+	SessionCount int
+	Tools        []UsageToolTotal
+	Sessions     []UsageSession
+	Gaffer       []UsageGaffer
+	More         bool
 }
 
 func (s *Store) migrateUsageEvents() error {
@@ -135,6 +139,9 @@ func (s *Store) UsageFor(uid, from, to int64, limit int) (UsageReport, error) {
 		return out, err
 	}
 	out.Since = since.Int64
+	if err := s.db.QueryRow(`SELECT COUNT(DISTINCT session_id) FROM terminal_usage_events WHERE user_id=? AND at>=? AND at<?`, uid, from, to).Scan(&out.SessionCount); err != nil {
+		return out, err
+	}
 
 	rows, err := s.db.Query(`WITH factory(id) AS (`+usageFactorySessions+`),
 		spans AS (SELECT session_id, tool FROM terminal_usage_events WHERE user_id=?1 AND at>=?2 AND at<?3 GROUP BY session_id, tool)

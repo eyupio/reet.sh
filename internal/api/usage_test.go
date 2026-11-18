@@ -32,7 +32,7 @@ func TestUsageListsEveryAgentWithWhatItReported(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("usage %d %s", code, body)
 	}
-	if out["from"] != float64(from) || out["to"] != float64(to) || out["more"] != false {
+	if out["from"] != float64(from) || out["to"] != float64(to) || out["more"] != false || out["sessionCount"] != float64(1) {
 		t.Fatalf("range: %s", body)
 	}
 	if since, _ := out["since"].(float64); since <= 0 || since > float64(now) {
@@ -85,7 +85,7 @@ func TestUsageListsEveryAgentWithWhatItReported(t *testing.T) {
 
 	// A range with nothing in it still lists every agent, at zero.
 	code, out, body = f.do(t, f.cookie, "GET", usageURL(now-48*time.Hour.Milliseconds(), now-24*time.Hour.Milliseconds()), nil)
-	if code != 200 || len(out["agents"].([]any)) != len(tools) || len(out["sessions"].([]any)) != 0 {
+	if code != 200 || len(out["agents"].([]any)) != len(tools) || len(out["sessions"].([]any)) != 0 || out["sessionCount"] != float64(0) {
 		t.Fatalf("an empty range: %d %s", code, body)
 	}
 }

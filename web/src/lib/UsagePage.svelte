@@ -135,6 +135,7 @@
               {#if used.figure}<p class="figure" data-figure>{used.figure}</p>{/if}
               <p class="line">{used.line}</p>
               {#if used.detail}<p class="detail">{used.detail}</p>{/if}
+              {#if used.note}<p class="detail" data-retired>{used.note}</p>{/if}
             </div>
             <div class="plans" data-plans>
               <h4>Plan left</h4>

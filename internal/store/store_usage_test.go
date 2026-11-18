@@ -235,3 +235,38 @@ func TestUsageAggregatesPerAgentAndSessionWithGafferAndFactory(t *testing.T) {
 		t.Fatalf("a deleted account's usage stayed: %d %v", left, err)
 	}
 }
+
+// A session whose agent changed reports under each agent it ran, but is one
+// session in the period's own count.
+func TestUsageCountsASessionOnceThoughItsAgentChanged(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	moved := usageSession(t, s, uid, a, c, "claude", "made-up-small", "Moved")
+	other := usageSession(t, s, uid, a, c, "codex", "made-up-medium", "Other")
+	base := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC).UnixMilli()
+	if err := s.addTerminalSessionUsageAt(uid, moved.ID, 10, 1, 0, 0, 0, base+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE terminal_sessions SET tool='codex' WHERE id=?`, moved.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{moved.ID, other.ID} {
+		if err := s.addTerminalSessionUsageAt(uid, id, 5, 1, 0, 0, 0, base+2); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.UsageFor(uid, base, base+usageDay, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perTool := 0
+	for _, tool := range got.Tools {
+		perTool += tool.Sessions
+	}
+	if perTool != 3 || got.SessionCount != 2 {
+		t.Fatalf("per agent %d (want 3), sessions in the period %d (want 2)", perTool, got.SessionCount)
+	}
+	// Outside the range, none.
+	if got, err := s.UsageFor(uid, base+usageDay, base+2*usageDay, 200); err != nil || got.SessionCount != 0 {
+		t.Fatalf("an empty range: %+v %v", got, err)
+	}
+}

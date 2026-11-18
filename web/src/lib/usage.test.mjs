@@ -58,6 +58,9 @@ test('totals are words a person reads, with the counted-since note only when the
     { tool: 'copilot', name: 'GitHub Copilot', reports: 'terminal_only', input: 0, output: 0, cached: 0, sessions: 0, factoryStages: 0 },
   ], gaffer: [], sessions: [], more: false, ...over })
   assert.equal(u.totalsLine(answer(), 'UTC', 'dmy'), '1.6M tokens across 21 sessions · counted since 14 Nov')
+  // The period's own session count, when the controller gives it, counts a session whose agent changed once.
+  assert.equal(u.totalsLine(answer({ sessionCount: 20 }), 'UTC', 'dmy'), '1.6M tokens across 20 sessions · counted since 14 Nov')
+  assert.equal(u.totalsLine(answer({ sessionCount: 0, agents: [] }), 'UTC', 'dmy'), 'No tokens reported in this period · counted since 14 Nov')
   // A range that starts after the first count does not say since when.
   assert.equal(u.totalsLine(answer({ since: Date.UTC(2026, 9, 1) }), 'UTC', 'dmy'), '1.6M tokens across 21 sessions')
   assert.equal(u.totalsLine(answer({ agents: [{ tool: 'claude', name: 'Claude Code', reports: 'chat', input: 900, output: 99, cached: 0, sessions: 1, factoryStages: 0 }] }), 'UTC', 'dmy'), '999 tokens across 1 session · counted since 14 Nov')
@@ -76,6 +79,8 @@ test('each agent says what it used, with the figure first, or why there is nothi
   assert.deepEqual(u.agentTokens(agent({ input: 10, output: 5, cached: 0, sessions: 1, factoryStages: 1 })), { figure: '15 tokens', line: '1 session · 1 Factory stage', detail: 'Input 10 · Output 5' })
   assert.deepEqual(u.agentTokens(agent({ input: 0, output: 0, cached: 0, sessions: 0, factoryStages: 0 })), { figure: '', line: 'No tokens reported in this period.', detail: '' })
   assert.deepEqual(u.agentTokens(agent({ tool: 'copilot', name: 'GitHub Copilot', reports: 'terminal_only', input: 0, output: 0, cached: 0, sessions: 0, factoryStages: 0 })), { figure: '', line: 'GitHub Copilot runs only in a terminal here, which reports no token counts.', detail: '' })
+  // An agent reet no longer starts keeps its earlier figures, and says why it is still listed.
+  assert.deepEqual(u.agentTokens(agent({ tool: 'old-agent', name: 'Old Agent', reports: 'retired', input: 40, output: 2, cached: 0, sessions: 2, factoryStages: 0 })), { figure: '42 tokens', line: '2 sessions', detail: 'Input 40 · Output 2', note: 'reet no longer starts Old Agent. These figures are from sessions it ran before.' })
 })
 
 test('an agent without plan figures gets one sentence chosen from the answer, never from its name', () => {
@@ -86,7 +91,7 @@ test('an agent without plan figures gets one sentence chosen from the answer, ne
   // Any agent: what decides is the answer. OpenCode, Cline and Copilot are treated alike.
   for (const [tool, name] of [['opencode', 'OpenCode'], ['copilot', 'GitHub Copilot'], ['claude', 'Claude Code']]) {
     assert.equal(u.planSentence(tool, name, [withAccount('studio', { tool, state: 'none', limitsState: 'not_asked' })], now), 'No sign-in found on studio.')
-    assert.equal(u.planSentence(tool, name, [withAccount('studio', plan(tool, { limitsState: 'renew' }))], now), `Open ${name} on studio to sign in again.`)
+    assert.equal(u.planSentence(tool, name, [withAccount('studio', plan(tool, { limitsState: 'renew' }))], now), `${name}'s sign-in on studio has run out; it renews itself the next time ${name} runs there.`)
   }
   assert.equal(u.planSentence('claude', 'Claude Code', [], now), 'No connected machine reports sign-ins.')
   assert.equal(u.planSentence('claude', 'Claude Code', [machine('old-box', { reads: false, answer: null })], now), 'Update reet on old-box to see which agents are signed in.')
@@ -104,14 +109,14 @@ test('an agent without plan figures gets one sentence chosen from the answer, ne
   assert.equal(u.planSentence('claude', 'Claude Code', [machine('studio', { answer: { state: 'offline', sentence: 'That machine is not connected.', planLimits: true, checkedAt: null, accounts: [] } })], now), 'studio: That machine is not connected.')
   assert.equal(u.planSentence('claude', 'Claude Code', [machine('studio', { answer: null, error: true })], now), "reet couldn't ask studio for its sign-ins just now.")
   // A sign-in to renew is said before a machine that simply has no sign-in.
-  assert.equal(u.planSentence('claude', 'Claude Code', [withAccount('laptop', { tool: 'claude', state: 'none', limitsState: 'not_asked' }), withAccount('studio', plan('claude', { limitsState: 'renew' }))], now), 'Open Claude Code on studio to sign in again.')
+  assert.equal(u.planSentence('claude', 'Claude Code', [withAccount('laptop', { tool: 'claude', state: 'none', limitsState: 'not_asked' }), withAccount('studio', plan('claude', { limitsState: 'renew' }))], now), "Claude Code's sign-in on studio has run out; it renews itself the next time Claude Code runs there.")
 })
 
 test('figures kept from a read that failed carry the reason and their age', () => {
   const entry = limitsState => ({ key: 'k', tool: 'opencode', host: 'studio', stale: limitsState !== 'read', plan: {}, account: { tool: 'opencode', state: 'signed_in', method: 'subscription', limitsState, limitsAt: now - 12 * minute, limits: [{ kind: 'month', usedPercent: 40 }] } })
   assert.equal(u.planNote(entry('read'), 'OpenCode', now), '')
   assert.equal(u.planNote(entry('rate_limited'), 'OpenCode', now), "OpenCode's provider asked reet to slow down. Showing the figures read 12 min ago.")
-  assert.equal(u.planNote(entry('renew'), 'OpenCode', now), 'Open OpenCode on studio to sign in again. Showing the figures read 12 min ago.')
+  assert.equal(u.planNote(entry('renew'), 'OpenCode', now), "OpenCode's sign-in on studio has run out; it renews itself the next time OpenCode runs there. Showing the figures read 12 min ago.")
 })
 
 test('the plans to draw for an agent come from every machine, one line per account', () => {

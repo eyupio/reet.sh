@@ -125,5 +125,7 @@ func (s *server) usage(w http.ResponseWriter, r *http.Request) {
 	for _, x := range report.Sessions {
 		sessions = append(sessions, usageSession(x))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "since": report.Since, "agents": agents, "gaffer": gaffer, "sessions": sessions, "more": report.More})
+	// sessionCount is each session that reported in the range once; the
+	// agents' own counts add a session whose agent changed under each.
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "since": report.Since, "sessionCount": report.SessionCount, "agents": agents, "gaffer": gaffer, "sessions": sessions, "more": report.More})
 }

@@ -216,32 +216,33 @@ func (m managedRoot) handled() bool { return m.exists && !m.skip }
 // dotfiles setup makes them. One that is the same folder as an earlier
 // managed folder is handled under that one. One that leads into another
 // managed folder, Codex's skills folder, an enrolled project or the folder a
-// custom CLAUDE_CONFIG_DIR or XDG_CONFIG_HOME names, or that holds Codex's
-// skills folder, is left alone.
+// custom CLAUDE_CONFIG_DIR or XDG_CONFIG_HOME names, or that holds one of
+// those places, is left alone; so is one whose parent, where its backups and
+// staging go, leads into such a place.
 func managedRoots(home string, unmanaged []string) []managedRoot {
-	type place struct {
-		path, name string
-		holdsToo   bool // a folder holding it is left alone too
-	}
-	places := []place{{resolvePath(filepath.Join(home, ".codex", "skills")), "Codex's skills folder", true}}
-	realHome := resolvePath(home)
-	// A project, or a custom folder as sync refused before, is the person's
-	// own; one that is home itself, or holds it, would cover every folder and
-	// is no such place.
-	others := func(dir, name string) {
-		if filepath.IsAbs(dir) && !within(realHome, resolvePath(dir)) {
-			places = append(places, place{resolvePath(dir), name, false})
-		}
-	}
+	type place struct{ path, name string }
+	places := []place{{resolvePath(filepath.Join(home, ".codex", "skills")), "Codex's skills folder"}}
 	for _, p := range unmanaged {
-		others(p, "a project folder")
-	}
-	for _, custom := range []struct{ env, usual string }{{"CLAUDE_CONFIG_DIR", ".claude"}, {"XDG_CONFIG_HOME", ".config"}} {
-		if dir := os.Getenv(custom.env); dir != "" && filepath.Clean(dir) != filepath.Join(home, custom.usual) {
-			others(dir, "the folder "+custom.env+" names")
+		if filepath.IsAbs(p) {
+			places = append(places, place{resolvePath(p), "a project folder"})
 		}
+	}
+	// As sync refused before: a custom folder is the person's own setup.
+	for _, custom := range []struct{ env, usual string }{{"CLAUDE_CONFIG_DIR", ".claude"}, {"XDG_CONFIG_HOME", ".config"}} {
+		dir := os.Getenv(custom.env)
+		if filepath.IsAbs(dir) && resolvePath(dir) != resolvePath(filepath.Join(home, custom.usual)) {
+			places = append(places, place{resolvePath(dir), "the folder " + custom.env + " names"})
+		}
+	}
+	realHome := resolvePath(home)
+	// into says whether p lies in pl. A place that is home, or holds it,
+	// would cover every managed folder, so only what lies in it outside home
+	// counts.
+	into := func(p string, pl place) bool {
+		return within(p, pl.path) && !(within(realHome, pl.path) && within(p, realHome))
 	}
 	roots := make([]managedRoot, len(managedFolders))
+	parents := make([]string, len(managedFolders))
 	for i, f := range managedFolders {
 		p := filepath.Join(home, filepath.FromSlash(f.Dir))
 		if real, err := filepath.EvalSymlinks(p); err == nil {
@@ -249,14 +250,21 @@ func managedRoots(home string, unmanaged []string) []managedRoot {
 		} else {
 			roots[i].real = resolvePath(p)
 		}
+		parents[i] = resolvePath(filepath.Dir(p))
 	}
 	for i := range roots {
 		label, real := "~/"+managedFolders[i].Dir, roots[i].real
 		for _, pl := range places {
-			if within(real, pl.path) || pl.holdsToo && within(pl.path, real) {
-				roots[i].skip, roots[i].why = true, label+" leads into "+pl.name+", so reet leaves it alone"
-				break
+			switch {
+			case into(real, pl) || into(parents[i], pl):
+				roots[i].why = label + " leads into " + pl.name + ", so reet leaves it alone"
+			case within(pl.path, real):
+				roots[i].why = label + " holds " + pl.name + ", so reet leaves it alone"
+			default:
+				continue
 			}
+			roots[i].skip = true
+			break
 		}
 		for j, other := range roots {
 			if roots[i].skip {
@@ -385,28 +393,37 @@ func (r *reconciler) tell(e store.SkillReportEntry) {
 	}
 }
 
-// clearStaging removes .reet-private-* folders an interrupted install left
-// beside the managed folders: beside where each is under home, and beside
-// where each the pass works in really is.
+// clearStaging removes what an interrupted install left, only around the
+// folders this pass works in: .reet-private-* staging beside where each is
+// under home and beside where it really is, and a cross-device copy's hidden
+// .<name>.reet-copy-* folder inside it.
 func (r *reconciler) clearStaging(roots []managedRoot) {
-	parents := map[string]bool{}
+	beside := map[string]bool{}
+	inside := map[string]bool{}
 	for i, f := range managedFolders {
-		parents[filepath.Dir(filepath.Join(r.home, filepath.FromSlash(f.Dir)))] = true
 		if roots[i].handled() {
-			parents[filepath.Dir(roots[i].real)] = true
+			beside[filepath.Dir(filepath.Join(r.home, filepath.FromSlash(f.Dir)))] = true
+			beside[filepath.Dir(roots[i].real)] = true
+			inside[roots[i].real] = true
 		}
 	}
-	for parent := range parents {
-		entries, err := os.ReadDir(parent)
+	clear := func(dir string, ours func(string) bool) {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue
+			return
 		}
 		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), ".reet-private-") {
+			if ours(e.Name()) {
 				// RemoveAll removes a link without following it.
-				_ = os.RemoveAll(filepath.Join(parent, e.Name()))
+				_ = os.RemoveAll(filepath.Join(dir, e.Name()))
 			}
 		}
+	}
+	for dir := range beside {
+		clear(dir, func(name string) bool { return strings.HasPrefix(name, ".reet-private-") })
+	}
+	for dir := range inside {
+		clear(dir, func(name string) bool { return strings.HasPrefix(name, ".") && strings.Contains(name, ".reet-copy-") })
 	}
 }
 
@@ -436,7 +453,8 @@ func skillEntries(dir string) (map[string][]string, error) {
 // name there as gone. Only the folder's names are read.
 func (r *reconciler) leftAlone(f *folderRun, why string, active []store.DesiredSkill, removals []store.DesiredRemoval) {
 	names, err := skillEntries(f.dir)
-	if err != nil || names == nil {
+	if err != nil {
+		r.failAll(f, active, removals, why+"; reet cannot read it to see what it holds: "+err.Error())
 		return
 	}
 	for _, a := range active {
@@ -451,16 +469,28 @@ func (r *reconciler) leftAlone(f *folderRun, why string, active []store.DesiredS
 	}
 }
 
+// failAll reports every Active and removed name as failed in a folder the
+// pass could not work in.
+func (r *reconciler) failAll(f *folderRun, active []store.DesiredSkill, removals []store.DesiredRemoval, detail string) {
+	for _, a := range active {
+		r.fail(f.label, f.rel, a, detail, "")
+	}
+	for _, rm := range removals {
+		r.add(f.label, rm.Name, "failed", "", detail, "")
+	}
+}
+
 // folder reconciles one managed folder.
 func (r *reconciler) folder(f *folderRun, active []store.DesiredSkill, removals []store.DesiredRemoval, claimed map[string]bool) {
+	if f.real != "" {
+		if err := r.writable(f); err != nil {
+			r.failAll(f, active, removals, err.Error())
+			return
+		}
+	}
 	names, err := skillEntries(f.dir)
 	if err != nil {
-		for _, a := range active {
-			r.fail(f.label, f.rel, a, "cannot read "+f.label+": "+err.Error(), "")
-		}
-		for _, rm := range removals {
-			r.add(f.label, rm.Name, "failed", "", "cannot read "+f.label+": "+err.Error(), "")
-		}
+		r.failAll(f, active, removals, "cannot read "+f.label+": "+err.Error())
 		return
 	}
 	for _, a := range active {
@@ -471,6 +501,10 @@ func (r *reconciler) folder(f *folderRun, active []store.DesiredSkill, removals 
 	}
 	for _, rm := range removals {
 		for _, name := range names[strings.ToLower(rm.Name)] {
+			if err := r.writable(f); err != nil {
+				r.add(f.label, rm.Name, "failed", "", err.Error(), "")
+				continue
+			}
 			dest, err := r.backup(f.dir, name)
 			if err != nil {
 				r.add(f.label, rm.Name, "failed", "", "could not back up "+name+": "+err.Error(), "")
@@ -538,6 +572,10 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 			continue
 		}
 		was := r.copyAt(f, name)
+		if err := r.writable(f); err != nil {
+			r.failInstall(f, a, err.Error(), moved, edit)
+			return
+		}
 		dest, err := r.backup(f.dir, name)
 		if err != nil {
 			detail := "could not back up " + name + ": " + err.Error()
@@ -653,19 +691,29 @@ func (r *reconciler) fail(label, rel string, a store.DesiredSkill, detail, backu
 // copy of reet's files, waits before trying this folder again.
 func (r *reconciler) failInstall(f *folderRun, a store.DesiredSkill, detail string, moved []movedCopy, edit *store.SkillReportEntry) {
 	var left []movedCopy
+	restored := map[string]bool{}
+	// Nothing goes back through a folder that has moved.
+	guard := r.writable(f)
 	for i := len(moved) - 1; i >= 0; i-- {
 		m := moved[i]
-		err := errors.New(m.original + " is taken")
-		if _, statErr := os.Lstat(m.original); errors.Is(statErr, fs.ErrNotExist) {
-			err = moveEntry(m.backup, m.original)
+		err := guard
+		if err == nil {
+			err = errors.New(m.original + " is taken")
+			if _, statErr := os.Lstat(m.original); errors.Is(statErr, fs.ErrNotExist) {
+				err = moveEntry(m.backup, m.original)
+			}
 		}
 		if err != nil {
 			detail += "; the copy that was there stays in " + r.tilde(m.backup) + ": " + err.Error()
 			left = append([]movedCopy{m}, left...)
+		} else {
+			restored[r.tilde(m.backup)] = true
 		}
 		delete(r.digests, m.original)
 	}
-	if edit != nil && r.retract != nil {
+	// An edit whose copy is back in place was never replaced. One whose copy
+	// stays in its backup is still news: the person's edit lives only there.
+	if edit != nil && restored[edit.Backup] && r.retract != nil {
 		r.retract(*edit)
 	}
 	if !f.linked {
@@ -767,6 +815,12 @@ func (r *reconciler) stage(f *folderRun, a store.DesiredSkill) (string, error) {
 		}
 	}
 	staging, err := stageSkillFiles(filepath.Dir(f.real), b.files)
+	if err != nil && filepath.Dir(f.dir) != filepath.Dir(f.real) {
+		// The real folder may be a mount root, or sit in a folder this user
+		// cannot write in. Beside the folder under home works then, and the
+		// install reads back what lands if it had to copy.
+		staging, err = stageSkillFiles(filepath.Dir(f.dir), b.files)
+	}
 	if err != nil {
 		return "", err
 	}

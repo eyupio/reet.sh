@@ -140,11 +140,15 @@ func readUnsentSkills(config string, c agentConfig) []store.SkillReportEntry {
 	return kept.Entries
 }
 
-// withUnsent adds entries earlier reports carried but never delivered. Each
+// withUnsent adds the entries kept until delivered: what earlier reports
+// carried but never delivered, and news this pass passed on that its report
+// does not carry, such as an edit whose skill then failed. Each
 // goes just before this report's entry for the same skill and folder, which
 // the controller records last, or at the end. An installed entry of the same
 // revision says nothing an unsent edit does not, so it is left out.
 func withUnsent(rep store.SkillReport, unsent []store.SkillReportEntry) store.SkillReport {
+	// An entry this report already carries is not added twice.
+	unsent = slices.DeleteFunc(slices.Clone(unsent), func(u store.SkillReportEntry) bool { return slices.Contains(rep.Entries, u) })
 	if len(unsent) == 0 {
 		return rep
 	}
@@ -229,8 +233,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	if err != nil {
 		return errors.Join(append(errs, err)...)
 	}
-	earlier := readUnsentSkills(config, c)
-	unsent := slices.Clone(earlier)
+	unsent := readUnsentSkills(config, c)
 	keepUnsent := func() {
 		if len(unsent) > unsentKept {
 			unsent = unsent[len(unsent)-unsentKept:]
@@ -265,7 +268,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	} else {
 		rep = skillInventory(c.Home, *d, c.Projects)
 	}
-	if err := postSkillReport(ctx, c, config, withUnsent(rep, earlier), version); err != nil {
+	if err := postSkillReport(ctx, c, config, withUnsent(rep, unsent), version); err != nil {
 		errs = append(errs, err)
 	} else if err := os.Remove(config + ".unsent"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// The controller has every entry kept there now.

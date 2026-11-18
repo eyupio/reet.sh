@@ -112,10 +112,14 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 	return os.Rename(staging, destination)
 }
 
+// makeStaging is os.MkdirTemp; tests replace it to stand for a folder whose
+// parent reet cannot write in.
+var makeStaging = os.MkdirTemp
+
 // stageSkillFiles writes checked files into a new .reet-private-* folder in
 // parent and returns it, for the caller to rename into place or remove.
 func stageSkillFiles(parent string, files []skillbundle.ContentFile) (string, error) {
-	staging, err := os.MkdirTemp(parent, ".reet-private-")
+	staging, err := makeStaging(parent, ".reet-private-")
 	if err != nil {
 		return "", err
 	}

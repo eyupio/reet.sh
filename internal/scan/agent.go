@@ -636,7 +636,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if reply.Agent.Paused {
 		return nil
 	}
-	skillErr := reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now())
+	skillErr := reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now(), out)
 	scanAll := func() error {
 		dirs := append([]string{c.Home}, c.Projects...)
 		var failures []error

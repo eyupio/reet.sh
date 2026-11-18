@@ -36,7 +36,6 @@ import (
 	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
-	"github.com/eyupio/reet.sh/internal/skillfetch"
 	"github.com/eyupio/reet.sh/internal/softwaremirror"
 	"github.com/eyupio/reet.sh/internal/softwarerun"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -358,8 +357,10 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		opt(s)
 	}
 	if s.skillFetcher == nil {
-		// The default fetcher guards its addresses and honours proxies.
-		s.skillFetcher = skillfetch.Fetcher{}
+		// Nothing reaches the network unless the caller passes WithSkillFetcher;
+		// cmd/reet passes skillfetch.Fetcher{}, whose default client guards its
+		// addresses and honours proxies.
+		s.skillFetcher = noSkillFetcher{}
 	}
 	if s.sso != nil {
 		// The environment seeds the owner's single sign-on settings once; after

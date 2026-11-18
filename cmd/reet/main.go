@@ -30,6 +30,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/oidc"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/setup"
+	"github.com/eyupio/reet.sh/internal/skillfetch"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalcontrol"
 	"github.com/eyupio/reet.sh/web"
@@ -367,6 +368,7 @@ func serve() error {
 		api.WithSignup(signup), api.WithSupportDesk(truthy(os.Getenv("REET_SUPPORT_DESK"))), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
 		api.WithGafferProviders(bcfg.Sealer),
+		api.WithSkillFetcher(skillfetch.Fetcher{}), // the guarded default client
 		api.WithReleaseChecker(releases), api.WithOIDC(sso))
 	defer func() { terminalControl.Close(); h.Close() }()
 	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable, terminalcontrol.Options{Configure: h.ConfigureTerminalOrigin, Reason: h.RemoteTerminalsReason, PublicURL: h.RemoteTerminalPublicURL, AuthMode: h.RemoteTerminalAuthMode}); err != nil {

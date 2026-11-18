@@ -295,3 +295,27 @@ func TestOriginalIsRefusedForASkillWithoutALink(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillCopyDefaultFetchesNothing(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, deadFetcher(t), "")
+	srv := httptest.NewServer(h)
+	t.Cleanup(func() { srv.Close(); h.Close() })
+	if _, ok := h.s.skillFetcher.(noSkillFetcher); !ok {
+		t.Fatalf("a server built without WithSkillFetcher must not reach the network: %T", h.s.skillFetcher)
+	}
+	if code, body := do(t, srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	h.s.skillCopies.Wait()
+	uid, _ := st.DefaultOwner()
+	m, _ := st.SkillHealthFor(uid, time.Now())
+	for _, v := range m {
+		if v.State != "getting" || v.Reason != "" {
+			t.Fatalf("an unconfigured fetcher leaves the skill pending, not failed: %+v", v)
+		}
+	}
+}

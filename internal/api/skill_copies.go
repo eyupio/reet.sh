@@ -26,6 +26,16 @@ type SkillFetcher interface {
 // WithSkillFetcher replaces how public skills are fetched. Only tests need it.
 func WithSkillFetcher(f SkillFetcher) Option { return func(s *server) { s.skillFetcher = f } }
 
+// noSkillFetcher is the default: it fetches nothing, so a server built without
+// WithSkillFetcher (every test) never reaches the network.
+type noSkillFetcher struct{}
+
+var errNoSkillFetcher = errors.New("public skills are not fetched by this server")
+
+func (noSkillFetcher) Fetch(context.Context, ref.Ref) (skillfetch.Result, error) {
+	return skillfetch.Result{}, errNoSkillFetcher
+}
+
 var errNoOriginal = errors.New("this skill has no original link to update from")
 
 func (s *server) registerSkillCopies(mux *http.ServeMux) {
@@ -114,7 +124,7 @@ func (s *server) fetchSkillCopy(uid int64, n store.SkillCopyNeed) {
 	if err == nil {
 		_, err = s.st.SetSkillContentFor(uid, n.Item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin})
 	}
-	if err == nil || s.ctx.Err() != nil {
+	if err == nil || s.ctx.Err() != nil || errors.Is(err, errNoSkillFetcher) {
 		return
 	}
 	if errors.Is(err, store.ErrPrivateSkillConflict) || errors.Is(err, store.ErrPrivateSkillMissing) {

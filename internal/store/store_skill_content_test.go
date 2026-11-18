@@ -279,3 +279,58 @@ func TestMachineCaptureRecordsWhereItCameFromAndFollowsArchive(t *testing.T) {
 		t.Fatalf("remove after capture: %v", remove)
 	}
 }
+
+func TestCaptureNeedSkipsMachinesThatCannotBeAsked(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := localItem(t, s, uid, "thinkpad", "x") // only thinkpad has an environment
+	elite := reportAgent(t, s, uid, "elitebook")
+	think := reportAgent(t, s, uid, "thinkpad")
+	// elitebook sorts first but reet has no environment for it; thinkpad's folder is not managed.
+	reportOf(t, s, uid, elite, reportT0, installedAt("x", "d1"))
+	reportOf(t, s, uid, think, reportT0, SkillReportEntry{Folder: "/tmp/elsewhere", Name: "x", State: "installed", Digest: "d1"})
+	if needs, err := s.SkillsNeedingCopyFor(uid); err != nil || len(needs) != 0 {
+		t.Fatalf("no machine can be asked: %+v %v", needs, err)
+	}
+	if n, err := s.MarkUnsourcedSkillsFor(uid); err != nil || n != 1 {
+		t.Fatalf("marked %d, %v", n, err)
+	}
+	if h := healthOf(t, s, uid, item.id, reportT0); h.State != "copy-failed" || h.Reason != SkillNoSourceProblem {
+		t.Fatalf("health: %+v", h)
+	}
+	// Once thinkpad reports it in a managed folder, it is the one asked.
+	if _, err := s.RetrySkillCopiesFor(uid, []string{item.id}); err != nil {
+		t.Fatal(err)
+	}
+	reportOf(t, s, uid, think, reportT0, installedAt("x", "d1"))
+	needs, _ := s.SkillsNeedingCopyFor(uid)
+	if len(needs) != 1 || needs[0].AgentID != think {
+		t.Fatalf("needs: %+v", needs)
+	}
+}
+
+func TestOriginRefBackfillIsTheOriginalLink(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	gh := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+	wk := importedItem(t, s, uid, "example.com/foo")
+	if _, err := s.db.Exec(`UPDATE library_items SET origin_ref='https://www.skills.sh/vercel-labs/skills/find-skills' WHERE id=?`, gh.id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.migrateSkillContent(); err != nil {
+		t.Fatal(err)
+	}
+	get := func(id string) string {
+		_, ref, err := s.SkillOriginFor(uid, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ref
+	}
+	if got := get(gh.id); got != "https://github.com/vercel-labs/skills" {
+		t.Fatalf("github origin_ref = %q", got)
+	}
+	if got := get(wk.id); got != "" {
+		t.Fatalf("well-known origin_ref = %q, want empty until content lands", got)
+	}
+}

@@ -77,8 +77,12 @@ func (s *Store) migrateSkillContent() error {
 			return err
 		}
 	}
+	// An earlier build stored the skills.sh page here; that is not the original.
+	if _, err = s.db.Exec(`UPDATE library_items SET origin_ref='' WHERE origin_ref LIKE 'https://www.skills.sh/%'`); err != nil {
+		return err
+	}
 	// An imported skill's link is known from the shelf row it came from.
-	_, err = s.db.Exec(`UPDATE library_items SET origin_ref=COALESCE((SELECT k.url FROM library_aliases a JOIN skills k ON k.id=a.reference WHERE a.user_id=library_items.user_id AND a.item_id=library_items.id AND a.kind='shelf' AND k.source_type IN ('github','well-known') AND k.url<>'' ORDER BY a.reference LIMIT 1),'') WHERE origin='imported' AND origin_ref=''`)
+	_, err = s.db.Exec(`UPDATE library_items SET origin_ref=COALESCE((SELECT 'https://github.com/'||k.source FROM library_aliases a JOIN skills k ON k.id=a.reference WHERE a.user_id=library_items.user_id AND a.item_id=library_items.id AND a.kind='shelf' AND k.source_type='github' AND k.source<>'' ORDER BY a.reference LIMIT 1),'') WHERE origin='imported' AND origin_ref=''`)
 	return err
 }
 
@@ -126,22 +130,72 @@ func (s *Store) skillCopyPlan(uid int64) (needs []SkillCopyNeed, unsourced []str
 			needs = append(needs, SkillCopyNeed{Item: it.id, Name: it.name, Kind: "fetch"})
 			continue
 		}
-		var agent, folder string
-		err = s.db.QueryRow(`SELECT a.id,m.folder FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id AND a.user_id=m.user_id
- WHERE m.user_id=? AND lower(m.name)=lower(?) AND m.state IN ('installed','edited','unknown') AND a.paused=0 AND a.skills_protocol=2
- ORDER BY m.state='installed' DESC,a.host,m.folder,a.id LIMIT 1`, uid, it.name).Scan(&agent, &folder)
-		switch {
-		case err == nil:
-			needs = append(needs, SkillCopyNeed{Item: it.id, Name: it.name, Kind: "capture", AgentID: agent, Folder: folder})
-		case errors.Is(err, sql.ErrNoRows):
-			if it.status == SkillActive {
-				unsourced = append(unsourced, it.id)
-			}
-		default:
+		agent, folder, found, err := s.captureCandidate(uid, it.id, it.name)
+		if err != nil {
 			return nil, nil, err
+		}
+		switch {
+		case found:
+			needs = append(needs, SkillCopyNeed{Item: it.id, Name: it.name, Kind: "capture", AgentID: agent, Folder: folder})
+		case it.status == SkillActive:
+			unsourced = append(unsourced, it.id)
 		}
 	}
 	return needs, unsourced, nil
+}
+
+// captureCandidate is the first machine that reports the skill in a managed
+// folder and that reet can ask for it: it must have an environment for that
+// folder tied to the skill. Machines that cannot be asked are skipped.
+func (s *Store) captureCandidate(uid int64, item, name string) (agent, folder string, found bool, err error) {
+	rows, err := s.db.Query(`SELECT a.id,m.folder FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id AND a.user_id=m.user_id
+ WHERE m.user_id=? AND lower(m.name)=lower(?) AND m.state IN ('installed','edited','unknown') AND a.paused=0 AND a.skills_protocol=2
+ ORDER BY m.state='installed' DESC,a.host,m.folder,a.id`, uid, name)
+	if err != nil {
+		return "", "", false, err
+	}
+	type cand struct{ agent, folder string }
+	var cands []cand
+	for rows.Next() {
+		var c cand
+		if err = rows.Scan(&c.agent, &c.folder); err != nil {
+			break
+		}
+		cands = append(cands, c)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return "", "", false, err
+	}
+	for _, c := range cands {
+		kind, _, ok := managedSkillPath(c.folder)
+		if !ok {
+			continue
+		}
+		if _, _, _, ok, err = s.captureSource(uid, item, c.agent, kind); err != nil {
+			return "", "", false, err
+		} else if ok {
+			return c.agent, c.folder, true, nil
+		}
+	}
+	return "", "", false, nil
+}
+
+// captureSource finds the shelf skill, environment and slug the machine
+// capture flow needs to ask agentID for the skill, if reet knows them.
+func (s *Store) captureSource(uid int64, item, agentID, kind string) (skill, environment, slug string, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT a.reference,e.id,k.slug FROM library_aliases a
+ JOIN skills k ON k.id=a.reference JOIN skill_envs se ON se.skill_id=a.reference
+ JOIN environments e ON e.id=se.env_id AND e.user_id=a.user_id AND e.agent=? AND e.project=''
+ JOIN sync_agents g ON g.id=? AND g.user_id=a.user_id AND g.host=e.host COLLATE NOCASE
+ WHERE a.user_id=? AND a.item_id=? AND a.kind='shelf' ORDER BY a.reference,e.id LIMIT 1`, kind, agentID, uid, item).Scan(&skill, &environment, &slug)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", "", false, nil
+	}
+	return skill, environment, slug, err == nil, err
 }
 
 // SkillsNeedingCopyFor lists the skills reet holds no copy of and could get
@@ -240,16 +294,12 @@ func (s *Store) RequestSkillCaptureFor(uid int64, item, agentID, p string) error
 	if revision != "" {
 		return nil
 	}
-	var skill, environment, slug string
-	err = s.db.QueryRow(`SELECT a.reference,e.id,k.slug FROM library_aliases a
- JOIN skills k ON k.id=a.reference JOIN skill_envs se ON se.skill_id=a.reference
- JOIN environments e ON e.id=se.env_id AND e.user_id=a.user_id AND e.host=? COLLATE NOCASE AND e.agent=? AND e.project=''
- WHERE a.user_id=? AND a.item_id=? AND a.kind='shelf' ORDER BY a.reference,e.id LIMIT 1`, host, kind, uid, item).Scan(&skill, &environment, &slug)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrSkillNoCaptureSource
-	}
+	skill, environment, slug, found, err := s.captureSource(uid, item, agentID, kind)
 	if err != nil {
 		return err
+	}
+	if !found {
+		return ErrSkillNoCaptureSource
 	}
 	var active, ended int
 	if err = s.db.QueryRow(`SELECT COALESCE(SUM(state IN ('queued','previewing','reviewing','approved','uploading','completed')),0),COALESCE(SUM(state IN ('failed','expired','cancelled')),0) FROM machine_import_requests WHERE user_id=? AND json_extract(data,'$.syncSkillId')=?`, uid, skill).Scan(&active, &ended); err != nil {

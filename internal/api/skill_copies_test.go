@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -24,7 +26,26 @@ type stubFetcher struct {
 	body  string
 	err   error
 	gate  chan struct{} // when set, a fetch waits for it to close
+	name  string        // when set, the front-matter name of the fetched SKILL.md
 	calls int
+}
+
+func (f *stubFetcher) setGate(g chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gate = g
+}
+
+func (f *stubFetcher) gateChan() chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gate
+}
+
+func (f *stubFetcher) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 func (f *stubFetcher) set(body string, err error) {
@@ -35,7 +56,7 @@ func (f *stubFetcher) set(body string, err error) {
 
 func (f *stubFetcher) Fetch(ctx context.Context, r ref.Ref) (skillfetch.Result, error) {
 	f.mu.Lock()
-	gate, body, err := f.gate, f.body, f.err
+	gate, body, err, name := f.gate, f.body, f.err, f.name
 	f.calls++
 	f.mu.Unlock()
 	if gate != nil {
@@ -48,7 +69,10 @@ func (f *stubFetcher) Fetch(ctx context.Context, r ref.Ref) (skillfetch.Result, 
 	if err != nil {
 		return skillfetch.Result{}, err
 	}
-	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: " + r.Slug + "\ndescription: Finds skills\n---\n" + body + "\n")}}
+	if name == "" {
+		name = r.Slug
+	}
+	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: " + name + "\ndescription: Finds skills\n---\n" + body + "\n")}}
 	m, e := skillbundle.FromContents(files)
 	return skillfetch.Result{Files: files, Manifest: m, Origin: findSkillsOrigin}, e
 }
@@ -69,6 +93,7 @@ func newCopyEnv(t *testing.T) copyEnv {
 	}
 	f := &stubFetcher{body: "v1"}
 	h := New(st, deadFetcher(t), "", WithSkillFetcher(f))
+	h.s.originalTTL = 0 // a GET fetches every time unless a test turns the cache on
 	srv := httptest.NewServer(h)
 	t.Cleanup(func() { srv.Close(); h.Close(); st.Close() })
 	uid, _ := st.DefaultOwner()
@@ -121,7 +146,7 @@ func TestAddByLinkFetchesContent(t *testing.T) {
 
 func TestAddByLinkShowsGettingWhileFetching(t *testing.T) {
 	e := newCopyEnv(t)
-	e.fetch.gate = make(chan struct{})
+	e.fetch.setGate(make(chan struct{}))
 	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
 		t.Fatalf("%d %s", code, body)
 	}
@@ -131,7 +156,7 @@ func TestAddByLinkShowsGettingWhileFetching(t *testing.T) {
 	if d, _ := e.st.DesiredSkillsFor(e.uid, time.Now()); len(d.Active) != 0 {
 		t.Fatalf("a skill with no content is not spread: %+v", d)
 	}
-	close(e.fetch.gate)
+	close(e.fetch.gateChan())
 	e.settle()
 	if d, _ := e.st.DesiredSkillsFor(e.uid, time.Now()); len(d.Active) != 1 {
 		t.Fatalf("desired after the fetch: %+v", d)
@@ -148,9 +173,7 @@ func TestAddByLinkFetchFailureShowsProblem(t *testing.T) {
 	if h := e.health(t); h.State != "fetch-failed" || h.Reason == "" {
 		t.Fatalf("health: %+v", h)
 	}
-	e.fetch.mu.Lock()
-	calls := e.fetch.calls
-	e.fetch.mu.Unlock()
+	calls := e.fetch.callCount()
 	if calls != 1 {
 		t.Fatalf("a failed skill is not fetched again until Retry: %d calls", calls)
 	}
@@ -172,18 +195,16 @@ func TestAddByLinkFetchFailureShowsProblem(t *testing.T) {
 
 func TestKickSkillCopiesRunsOnePerAccount(t *testing.T) {
 	e := newCopyEnv(t)
-	e.fetch.gate = make(chan struct{})
+	e.fetch.setGate(make(chan struct{}))
 	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
 		t.Fatalf("%d %s", code, body)
 	}
 	for range 5 {
 		e.api.s.kickSkillCopies(e.uid)
 	}
-	close(e.fetch.gate)
+	close(e.fetch.gateChan())
 	e.settle()
-	e.fetch.mu.Lock()
-	calls := e.fetch.calls
-	e.fetch.mu.Unlock()
+	calls := e.fetch.callCount()
 	if calls > 2 {
 		t.Fatalf("kicks while a run is going share one run and one more: %d fetches", calls)
 	}
@@ -332,16 +353,26 @@ func TestOriginalRefusesWhenTheSkillChangedDuringTheDownload(t *testing.T) {
 
 func TestOriginalIsRefusedForASkillWithoutALink(t *testing.T) {
 	e := newCopyEnv(t)
-	item, err := e.st.UpsertLocalFor(e.uid, "mine", store.Patch{})
-	if err != nil {
+	if _, err := e.st.UpsertLocalFor(e.uid, "mine", store.Patch{}); err != nil {
 		t.Fatal(err)
 	}
-	_ = item
-	health, _ := e.st.SkillHealthFor(e.uid, time.Now())
+	health, err := e.st.SkillHealthFor(e.uid, time.Now())
+	if err != nil || len(health) != 1 {
+		t.Fatalf("the machine skill must be in the library: %+v %v", health, err)
+	}
 	for id := range health {
-		if code, _ := do(t, e.srv, "GET", "/api/v2/skills/"+id+"/original", ""); code != 404 {
-			t.Fatalf("a machine skill has no original: %d", code)
+		for _, method := range []string{"GET", "POST"} {
+			body := ""
+			if method == "POST" {
+				body = `{"digest":"d","revision":"r"}`
+			}
+			if code, _ := do(t, e.srv, method, "/api/v2/skills/"+id+"/original", body); code != 404 {
+				t.Fatalf("%s: a machine skill has no original: %d", method, code)
+			}
 		}
+	}
+	if e.fetch.callCount() != 0 {
+		t.Fatal("a skill without a link must not be fetched")
 	}
 }
 
@@ -366,5 +397,220 @@ func TestSkillCopyDefaultFetchesNothing(t *testing.T) {
 		if v.State != "getting" || v.Reason != "" {
 			t.Fatalf("an unconfigured fetcher leaves the skill pending, not failed: %+v", v)
 		}
+	}
+}
+
+func TestKickSkillCopiesRacingCloseIsSafe(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &stubFetcher{body: "v1"}
+	h := New(st, deadFetcher(t), "", WithSkillFetcher(f))
+	t.Cleanup(func() { h.Close(); st.Close() })
+	uid, _ := st.DefaultOwner()
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range 20 {
+				h.s.kickSkillCopies(uid)
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		h.Close()
+	}()
+	close(start)
+	wg.Wait()
+	h.s.skillCopies.Wait()
+	// Once closed, a kick starts nothing.
+	h.s.kickSkillCopies(uid)
+	h.s.skillCopyMu.Lock()
+	running := h.s.skillCopyRunning[uid]
+	h.s.skillCopyMu.Unlock()
+	if running {
+		t.Fatal("a kick after Close started a run")
+	}
+}
+
+func TestOriginalStoreFailureIsNotAnUpstreamFailure(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"fetch failure", errors.New("connection reset"), 502},
+		{"not found", skillfetch.ErrNotFound, 502},
+		{"too large", skillfetch.ErrTooLarge, 502},
+	} {
+		e.fetch.set("v1", tc.err)
+		if code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", ""); code != tc.want {
+			t.Fatalf("%s: %d %s", tc.name, code, body)
+		}
+	}
+	// A store failure is ours, not the original's.
+	rec := httptest.NewRecorder()
+	originalError(rec, errors.New("sql: database is locked"))
+	if rec.Code != 500 || strings.Contains(rec.Body.String(), "original") {
+		t.Fatalf("store failure: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	originalError(rec, fetchError{errors.New("dial tcp: refused")})
+	if rec.Code != 502 {
+		t.Fatalf("fetch failure: %d", rec.Code)
+	}
+}
+
+func TestOriginalUpdateNeedsDigestAndRevision(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	url := "/api/v2/skills/" + e.item(t) + "/original"
+	for _, in := range []string{`{"revision":"r"}`, `{"digest":"","revision":"r"}`} {
+		if code, body := do(t, e.srv, "POST", url, in); code != 400 {
+			t.Fatalf("an empty digest is a 400, like a missing revision: %q %d %s", in, code, body)
+		}
+	}
+}
+
+func TestSkillCopyBodiesAreSmallAndStrict(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	big := strings.Repeat("a", 100<<10)
+	for name, c := range map[string]struct{ url, body string }{
+		"retry too big":       {"/api/v2/skills/retry", `{"items":["` + big + `"]}`},
+		"retry unknown field": {"/api/v2/skills/retry", `{"items":["` + item + `"],"extra":1}`},
+		"retry trailing data": {"/api/v2/skills/retry", `{"items":["` + item + `"]} {}`},
+		"update too big":      {"/api/v2/skills/" + item + "/original", `{"digest":"` + big + `","revision":"r"}`},
+		"update unknown":      {"/api/v2/skills/" + item + "/original", `{"digest":"d","revision":"r","x":1}`},
+	} {
+		if code, body := do(t, e.srv, "POST", c.url, c.body); code != 400 {
+			t.Fatalf("%s: %d %s", name, code, body)
+		}
+	}
+	if code, _ := do(t, e.srv, "POST", "/api/v2/skills/retry", `{"items":["`+item+`"]}`); code != 200 {
+		t.Fatalf("a normal retry still works: %d", code)
+	}
+	e.settle()
+}
+
+func TestOriginalGetIsCachedBrieflyAndPostRefetches(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	now := time.Now()
+	e.api.s.originalTTL = time.Minute
+	e.api.s.original.now = func() time.Time { return now }
+	url := "/api/v2/skills/" + item + "/original"
+	var r struct{ Digest, Revision, State string }
+	get := func() {
+		t.Helper()
+		code, body := do(t, e.srv, "GET", url, "")
+		if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+			t.Fatalf("GET: %d %s", code, body)
+		}
+	}
+	before := e.fetch.callCount()
+	get()
+	get()
+	get()
+	if n := e.fetch.callCount() - before; n != 1 {
+		t.Fatalf("three GETs inside the window made %d fetches", n)
+	}
+	// A POST verifies against a fresh fetch.
+	if code, body := do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`); code != 200 {
+		t.Fatalf("POST: %d %s", code, body)
+	}
+	if n := e.fetch.callCount() - before; n != 2 {
+		t.Fatalf("POST must fetch again: %d fetches", n)
+	}
+	// After the window, a GET fetches again and sees the change.
+	e.fetch.set("v2", nil)
+	get()
+	if r.State != "equal" {
+		t.Fatalf("inside the window the answer is the cached one: %+v", r)
+	}
+	now = now.Add(2 * time.Minute)
+	get()
+	if r.State != "changed" {
+		t.Fatalf("after the window the original is fetched again: %+v", r)
+	}
+}
+
+func TestSkillCopyProblemWording(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{skillfetch.ErrTooLarge, "over 8 MiB or 256 files"},
+		{fmt.Errorf("wrapped: %w", skillfetch.ErrTooLarge), "over 8 MiB or 256 files"},
+		{store.ErrPrivateSkillInvalid, "did not pass reet's checks"},
+		{skillfetch.ErrNotFound, "no longer at its original link"},
+	} {
+		if got := skillCopyProblem(tc.err); !strings.Contains(got, tc.want) {
+			t.Errorf("%v: %q does not say %q", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestFetchedNameThatDiffersFromTheItemSaysSo(t *testing.T) {
+	e := newCopyEnv(t)
+	e.fetch.name = "other-name"
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	h := e.health(t)
+	if h.State != "fetch-failed" || !strings.Contains(h.Reason, "other-name") || !strings.Contains(h.Reason, "find-skills") || strings.Contains(h.Reason, "reet's checks") {
+		t.Fatalf("the problem must say the names differ: %+v", h)
+	}
+	if d, _ := e.st.DesiredSkillsFor(e.uid, time.Now()); len(d.Active) != 0 {
+		t.Fatalf("nothing is saved: %+v", d)
+	}
+}
+
+// Close must cancel under the lock a kick takes; otherwise a kick that already
+// saw a live context can add to the worker group while Close is waiting on it.
+func TestCloseCancelsUnderTheKickLock(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, deadFetcher(t), "", WithSkillFetcher(&stubFetcher{body: "v1"}))
+	t.Cleanup(func() { h.Close(); st.Close() })
+	h.s.skillCopyMu.Lock()
+	closed := make(chan struct{})
+	go func() { h.Close(); close(closed) }()
+	time.Sleep(100 * time.Millisecond) // long enough for an unlocked Close to cancel
+	cancelledWhileHeld := h.s.ctx.Err() != nil
+	h.s.skillCopyMu.Unlock()
+	<-closed
+	if cancelledWhileHeld {
+		t.Fatal("Close cancelled the context while a kick held the lock")
+	}
+	if h.s.ctx.Err() == nil {
+		t.Fatal("Close must cancel the context")
 	}
 }

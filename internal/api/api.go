@@ -84,6 +84,8 @@ type server struct {
 	skillCopyRunning map[int64]bool
 	skillCopyAgain   map[int64]bool
 	skillCopies      sync.WaitGroup
+	original         originalCache
+	originalTTL      time.Duration
 
 	sso                *oidc.Provider
 	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time
@@ -303,7 +305,11 @@ func (s *Server) Close() error {
 		s.s.stopOnce.Do(func() {
 			close(s.s.stop)
 			if s.s.cancel != nil {
+				// Under the lock a kick takes, so a kick either sees the
+				// cancelled context or has added to workers before Wait.
+				s.s.skillCopyMu.Lock()
 				s.s.cancel()
+				s.s.skillCopyMu.Unlock()
 			}
 		})
 	}
@@ -352,6 +358,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		cancel:       cancel,
 
 		skillCopyRunning: map[int64]bool{}, skillCopyAgain: map[int64]bool{},
+		originalTTL: skillOriginalTTL,
 	}
 	for _, opt := range opts {
 		opt(s)

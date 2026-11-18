@@ -3,19 +3,105 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/skillfetch"
 	"github.com/eyupio/reet.sh/internal/store"
+	"gopkg.in/yaml.v3"
 )
 
 // skillFetchTimeout bounds one public skill's download.
 const skillFetchTimeout = 2 * time.Minute
+
+// skillCopyBodyLimit bounds the small JSON bodies of Retry and Update from
+// original: at most 500 ids, or a digest and a revision.
+const skillCopyBodyLimit = 64 << 10
+
+// skillOriginalTTL is how long a fetched original is remembered for GET, so a
+// page that draws again does not download it again. A POST always fetches.
+const skillOriginalTTL = 60 * time.Second
+
+// skillOriginalCacheMax bounds the remembered originals; only manifests are
+// kept, which are small.
+const skillOriginalCacheMax = 128
+
+type originalKey struct {
+	uid  int64
+	item string
+}
+
+type originalEntry struct {
+	manifest skillbundle.Manifest
+	at       time.Time
+}
+
+// originalCache remembers the manifest of the last fetch of an original, per
+// account and skill.
+type originalCache struct {
+	mu      sync.Mutex
+	now     func() time.Time // tests only
+	entries map[originalKey]originalEntry
+}
+
+func (c *originalCache) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+func (c *originalCache) get(k originalKey, ttl time.Duration) (skillbundle.Manifest, bool) {
+	if ttl <= 0 {
+		return skillbundle.Manifest{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[k]
+	if !ok || c.clock().Sub(e.at) >= ttl {
+		return skillbundle.Manifest{}, false
+	}
+	return e.manifest, true
+}
+
+func (c *originalCache) put(k originalKey, m skillbundle.Manifest, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.clock()
+	if c.entries == nil {
+		c.entries = map[originalKey]originalEntry{}
+	}
+	if _, ok := c.entries[k]; !ok && len(c.entries) >= skillOriginalCacheMax {
+		oldest, found := originalKey{}, false
+		for key, e := range c.entries {
+			if now.Sub(e.at) >= ttl {
+				delete(c.entries, key)
+			} else if !found || e.at.Before(c.entries[oldest].at) {
+				oldest, found = key, true
+			}
+		}
+		if len(c.entries) >= skillOriginalCacheMax && found {
+			delete(c.entries, oldest)
+		}
+	}
+	c.entries[k] = originalEntry{m, now}
+}
+
+// fetchError marks an error from downloading the original, as opposed to one
+// from reet's own storage.
+type fetchError struct{ err error }
+
+func (e fetchError) Error() string { return e.err.Error() }
+func (e fetchError) Unwrap() error { return e.err }
 
 // SkillFetcher downloads one public skill. skillfetch.Fetcher is the
 // production one, with its guarded client; tests pass a stub.
@@ -115,24 +201,69 @@ func (s *server) runSkillCopies(uid int64) {
 
 func (s *server) fetchSkillCopy(uid int64, n store.SkillCopyNeed) {
 	r, ok, err := s.st.SkillSourceFor(uid, n.Item)
-	if err != nil || !ok {
+	if err != nil {
+		log.Printf("skill copies: source of %s: %v", n.Name, err)
+		return
+	}
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, skillFetchTimeout)
 	defer cancel()
 	res, err := s.skillFetcher.Fetch(ctx, r)
+	problem := ""
 	if err == nil {
-		_, err = s.st.SetSkillContentFor(uid, n.Item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin})
+		if got := skillMDName(res.Files); got != "" && got != n.Name {
+			problem = fmt.Sprintf("The original's SKILL.md is named %q, but this skill is named %q", truncate(got, 64), truncate(n.Name, 64))
+		} else {
+			_, err = s.st.SetSkillContentFor(uid, n.Item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin})
+		}
 	}
-	if err == nil || s.ctx.Err() != nil || errors.Is(err, errNoSkillFetcher) {
+	if (err == nil && problem == "") || s.ctx.Err() != nil || errors.Is(err, errNoSkillFetcher) {
 		return
 	}
 	if errors.Is(err, store.ErrPrivateSkillConflict) || errors.Is(err, store.ErrPrivateSkillMissing) {
 		return // changed under us; the next run looks again
 	}
-	if perr := s.st.SetSkillCopyProblemFor(uid, n.Item, skillCopyProblem(err)); perr != nil && !errors.Is(perr, store.ErrPrivateSkillMissing) {
+	if problem == "" {
+		problem = skillCopyProblem(err)
+	}
+	if perr := s.st.SetSkillCopyProblemFor(uid, n.Item, problem); perr != nil && !errors.Is(perr, store.ErrPrivateSkillMissing) {
 		log.Printf("skill copies: %v", perr)
 	}
+}
+
+// skillMDName is the name in the front matter of the SKILL.md in files, or ""
+// when there is none to read.
+func skillMDName(files []skillbundle.ContentFile) string {
+	for _, f := range files {
+		if f.Path != "SKILL.md" {
+			continue
+		}
+		md := strings.ReplaceAll(string(f.Data), "\r\n", "\n")
+		if !strings.HasPrefix(md, "---\n") {
+			return ""
+		}
+		end := strings.Index(md[4:], "\n---\n")
+		if end < 0 {
+			return ""
+		}
+		var header struct {
+			Name string `yaml:"name"`
+		}
+		if yaml.Unmarshal([]byte(md[4:4+end]), &header) != nil {
+			return ""
+		}
+		return header.Name
+	}
+	return ""
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return strings.ToValidUTF8(s[:n], "") + "..."
+	}
+	return s
 }
 
 // skillCopyProblem words why a skill's files could not be fetched or saved.
@@ -163,7 +294,7 @@ func (s *server) retrySkillCopies(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Items []string `json:"items"`
 	}
-	if !decode(w, r, &in) {
+	if !decodeStrictJSON(w, r, skillCopyBodyLimit, &in, "Invalid or oversized retry request.") {
 		return
 	}
 	items := uniqueStrings(in.Items)
@@ -183,7 +314,10 @@ func (s *server) retrySkillCopies(w http.ResponseWriter, r *http.Request) {
 // fetchOriginal downloads the original of an imported skill and the manifest
 // reet holds now (nil when it has no content), and the id of the revision it
 // read that manifest from, taken before the download starts.
-func (s *server) fetchOriginal(ctx context.Context, uid int64, item string) (skillfetch.Result, *skillbundle.Manifest, string, error) {
+//
+// With cached, a fetch made in the last skillOriginalTTL is reused: the result
+// then has its manifest only, no files.
+func (s *server) fetchOriginal(ctx context.Context, uid int64, item string, cached bool) (skillfetch.Result, *skillbundle.Manifest, string, error) {
 	var none skillfetch.Result
 	li, err := s.st.LibraryItemFor(uid, item)
 	if err != nil {
@@ -204,17 +338,27 @@ func (s *server) fetchOriginal(ctx context.Context, uid int64, item string) (ski
 		}
 		current = rev.Manifest
 	}
+	key := originalKey{uid, item}
+	if cached {
+		if m, ok := s.original.get(key, s.originalTTL); ok {
+			return skillfetch.Result{Manifest: m}, current, li.RevisionID, nil
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, skillFetchTimeout)
 	defer cancel()
 	res, err := s.skillFetcher.Fetch(ctx, r)
-	return res, current, li.RevisionID, err
+	if err != nil {
+		return none, nil, "", fetchError{err}
+	}
+	s.original.put(key, res.Manifest, s.originalTTL)
+	return res, current, li.RevisionID, nil
 }
 
 // originalChanges fetches the original of an imported skill and compares it
 // with reet's copy. It returns the changes, the digest of what it fetched, the
 // revision it compared against and whether the skill was edited since it was imported. It changes nothing.
 func (s *server) originalChanges(ctx context.Context, uid int64, item string) (skillbundle.Diff, string, string, bool, error) {
-	res, current, revision, err := s.fetchOriginal(ctx, uid, item)
+	res, current, revision, err := s.fetchOriginal(ctx, uid, item, true)
 	if err != nil {
 		return skillbundle.Diff{}, "", "", false, err
 	}
@@ -237,8 +381,10 @@ func originalError(w http.ResponseWriter, err error) {
 		writeErr(w, 504, "Getting the original took too long.")
 	case errors.Is(err, store.ErrPrivateSkillInvalid), errors.Is(err, store.ErrPrivateSkillConflict), errors.Is(err, store.ErrPrivateSkillCapacity):
 		privateSkillError(w, err)
-	default:
+	case errors.As(err, new(fetchError)):
 		writeErr(w, 502, "Couldn't get the original.")
+	default:
+		writeErr(w, 500, "Could not access private skill storage.")
 	}
 }
 
@@ -270,20 +416,24 @@ func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 		Digest   string `json:"digest"`
 		Revision string `json:"revision"`
 	}
-	if !decode(w, r, &in) {
+	if !decodeStrictJSON(w, r, skillCopyBodyLimit, &in, "Invalid or oversized update request.") {
 		return
 	}
 	if in.Revision == "" {
 		writeErr(w, 400, "Say which revision you looked at. Review the changes again.")
 		return
 	}
+	if in.Digest == "" {
+		writeErr(w, 400, "Say which original you looked at. Review the changes again.")
+		return
+	}
 	uid, item := s.uid(r), r.PathValue("item")
-	res, current, revision, err := s.fetchOriginal(r.Context(), uid, item)
+	res, current, revision, err := s.fetchOriginal(r.Context(), uid, item, false)
 	if err != nil {
 		originalError(w, err)
 		return
 	}
-	if in.Digest == "" || res.Manifest.Digest != in.Digest {
+	if res.Manifest.Digest != in.Digest {
 		writeErr(w, 409, "The original changed since you looked at it. Review the changes again.")
 		return
 	}

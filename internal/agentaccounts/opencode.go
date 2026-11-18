@@ -2,11 +2,7 @@ package agentaccounts
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -28,8 +23,9 @@ const (
 	// openCodeStoreBusy is how long, in milliseconds, reading OpenCode's own
 	// store waits for OpenCode to finish a write.
 	openCodeStoreBusy = "250"
-	// openCodeStoreWait bounds the whole read of the store.
-	openCodeStoreWait = 2 * time.Second
+	// openCodeStoreWait bounds the whole read of the store. It is part of
+	// ReadTakesAtMost.
+	openCodeStoreWait = time.Second
 )
 
 // openCodeIntegrations are the sign-ins that can carry an OpenCode Go plan,
@@ -90,25 +86,6 @@ func (r *Reader) openCode() signIn {
 	out.identity = "opencode\x00" + keyMark(key)
 	return out
 }
-
-// keyMark tells one key from another without keeping the key: a keyed digest
-// under a secret made afresh for this process, so the mark means nothing
-// outside it and cannot be tried against guesses of the key.
-func keyMark(key string) string {
-	markOnce.Do(func() {
-		if _, err := rand.Read(markSecret[:]); err != nil {
-			panic("agentaccounts: no randomness for the key mark: " + err.Error())
-		}
-	})
-	mac := hmac.New(sha256.New, markSecret[:])
-	mac.Write([]byte(key))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-var (
-	markOnce   sync.Once
-	markSecret [32]byte
-)
 
 // openCodeStoreKey reads the key from OpenCode 2's store at path. store is
 // false when there is no such store there: no file, or a database without

@@ -26,8 +26,9 @@ this file existed releases were described on their GitHub release pages.
   that had never turned plan limits on. The sign-in stays on the machine; the
   controller is sent the account's name, the plan and percentages, as before.
   Token totals on the Usage page start from the day of the upgrade: nothing
-  earlier was dated. Counts are kept for 90 days; a report made while a machine
-  is disconnected is not counted.
+  earlier was dated. Counts older than 90 days are removed the next time the
+  account reports usage; a report made while a machine is disconnected is not
+  counted.
 
 - **Plan limits**: a machine now also says whether OpenCode, Google Antigravity
   and GitHub Copilot are signed in there and how much is
@@ -38,7 +39,8 @@ this file existed releases were described on their GitHub release pages.
   a machine with an older reet keeps showing Claude Code and Codex only. These
   are the providers' own internal endpoints and can change without notice; the
   Copilot request presents itself as an editor's Copilot Chat because that
-  endpoint answers nothing else. Tokens are only read, only sent to their own
+  endpoint answers nothing else, and the Antigravity request names itself as
+  that agent's own client (`User-Agent: antigravity`). Tokens are only read, only sent to their own
   provider and never refreshed. Sign-ins kept only in a keyring or keychain, or
   only by the GitHub CLI, are not read. See
   [agent sign-ins and plan limits](docs/agent-accounts.md).

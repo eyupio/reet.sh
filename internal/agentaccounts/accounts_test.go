@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -513,6 +514,68 @@ func TestWindowKindFollowsItsLength(t *testing.T) {
 	} {
 		if got := windowKind(seconds); got != want {
 			t.Errorf("windowKind(%v) = %s, want %s", seconds, got, want)
+		}
+	}
+}
+
+// The time a read may take is the sum of its parts, and the OpenCode store is
+// given a second of it.
+func TestAReadsTimeIsTheSumOfItsParts(t *testing.T) {
+	if openCodeStoreWait != time.Second || ReadTakesAtMost != openCodeStoreWait+requestTimeout+filesMargin || ReadTakesAtMost > 11*time.Second {
+		t.Fatalf("store %s + providers %s + files %s = %s", openCodeStoreWait, requestTimeout, filesMargin, ReadTakesAtMost)
+	}
+}
+
+// A key's mark is the same for the same key within a process, differs for
+// another key, and does not hold the key.
+func TestAKeysMarkTellsKeysApartWithoutHoldingThem(t *testing.T) {
+	one, other := "sk-one-"+secret, "sk-other-"+secret
+	if keyMark(one) != keyMark(one) {
+		t.Fatal("the same key gave two marks")
+	}
+	if keyMark(one) == keyMark(other) {
+		t.Fatal("two keys gave the same mark")
+	}
+	for _, key := range []string{one, other} {
+		mark := keyMark(key)
+		if mark == "" || strings.Contains(mark, key) || strings.Contains(mark, secret) || strings.Contains(mark, "sk-") {
+			t.Fatalf("the mark %q holds the key", mark)
+		}
+	}
+}
+
+// A provider's word with a control, format or line-breaking character is
+// dropped whole, and so is one too long.
+func TestALabelIsSafeToShowOrDropped(t *testing.T) {
+	for in, want := range map[string]string{
+		" person@example.com ": "person@example.com", "pro": "pro", "": "",
+		"a\u2028b": "", "a\u2029b": "", "a\u202eb": "", "a\u200bb": "", "a\nb": "", "a\x00b": "", "\xff": "",
+		strings.Repeat("x", 33): "",
+	} {
+		if got := label(in, 32); got != want {
+			t.Errorf("label(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The package's own source holds no character a reader cannot see: every
+// such character is written as an escape.
+func TestTheSourceHoldsNoInvisibleCharacters(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatal("no source", err)
+	}
+	for _, name := range files {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			for _, c := range line {
+				if c != '\t' && (unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || unicode.Is(unicode.Zl, c) || unicode.Is(unicode.Zp, c) || (unicode.IsSpace(c) && c != ' ')) {
+					t.Errorf("%s:%d holds %U", name, i+1, c)
+				}
+			}
 		}
 	}
 }

@@ -19,7 +19,11 @@ package agentaccounts
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -66,9 +70,22 @@ const (
 	tokenMargin = 30 * time.Second
 	// requestTimeout bounds one request to a provider, and also everything
 	// one agent's allowance takes, a second endpoint or a second token
-	// included, so the answer stays inside the connector's wait.
-	requestTimeout = 10 * time.Second
+	// included, so the answer stays inside the connector's wait. The
+	// providers are asked side by side, so it is also all their time.
+	requestTimeout = 9 * time.Second
+	// filesMargin is the time allowed for the other sign-in files, each a
+	// plain file of at most maxCredentialBytes (maxProfileBytes for Claude's
+	// settings), read one after another, and for putting the answer together.
+	filesMargin = time.Second
 )
+
+// ReadTakesAtMost is the longest a Read takes: the sign-in files are read one
+// after another, OpenCode's store taking up to openCodeStoreWait (1 s) and the
+// rest filesMargin (1 s), then the providers are asked side by side, for
+// requestTimeout (9 s) at most: 1 + 1 + 9 = 11 s. The connector answers a read
+// that takes longer timed out after 12 s, so this leaves a second for the
+// reply.
+const ReadTakesAtMost = openCodeStoreWait + filesMargin + requestTimeout
 
 // Options configure a Reader. The zero value of every field but Home works.
 type Options struct {
@@ -389,9 +406,21 @@ var errUnreadable = errors.New("unreadable")
 
 // readFile reads a plain file of at most limit bytes. A missing file is
 // os.ErrNotExist; anything that is not a plain file, is larger, or cannot be
-// read is errUnreadable.
+// read is errUnreadable. A link is followed only to a plain file.
+//
+// The path is looked at before it is opened: opening a named pipe or a device
+// can wait for ever, and a sign-in path is no place for either. It is opened
+// without waiting too (where the system has that), in case one is put there
+// in between, and looked at again once open.
 func readFile(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, os.ErrNotExist
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
+		return nil, errUnreadable
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|openNoWait, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, os.ErrNotExist
 	}
@@ -399,7 +428,7 @@ func readFile(path string, limit int64) ([]byte, error) {
 		return nil, errUnreadable
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
 		return nil, errUnreadable
 	}
@@ -410,6 +439,28 @@ func readFile(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+// keyMark tells one key from another without keeping the key: a keyed digest
+// under a secret made afresh for this process, so the mark means nothing
+// outside it and cannot be tried against guesses of the key. It is kept in
+// memory only, as part of an identity, where a sign-in has no account name
+// to tell it from the next (an OpenCode key, an Antigravity sign-in without
+// an identity token).
+func keyMark(key string) string {
+	markOnce.Do(func() {
+		if _, err := rand.Read(markSecret[:]); err != nil {
+			panic("agentaccounts: no randomness for the key mark: " + err.Error())
+		}
+	})
+	mac := hmac.New(sha256.New, markSecret[:])
+	mac.Write([]byte(key))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+var (
+	markOnce   sync.Once
+	markSecret [32]byte
+)
+
 // label makes a provider's word safe to show: no control or invisible
 // characters, trimmed, at most max characters. Anything else is dropped whole
 // rather than repaired.
@@ -419,7 +470,7 @@ func label(s string, max int) string {
 		return ""
 	}
 	for _, c := range s {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == ' ' || c == ' ' {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
 			return ""
 		}
 	}

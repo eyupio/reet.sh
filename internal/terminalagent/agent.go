@@ -90,9 +90,10 @@ var (
 	// 10 s; this leaves room for the reply and process reaping.
 	modelsAnswerAfter = 12 * time.Second
 	// accountsAnswerAfter is when a sign-in read that has not returned is
-	// answered timed_out. The providers are asked side by side, ten seconds
-	// at most; this leaves room for the reply and is under the controller's
-	// wait (terminalbroker.AccountsCallTimeout).
+	// answered timed_out. A read takes agentaccounts.ReadTakesAtMost (11 s:
+	// the sign-in files, OpenCode's store among them, then the providers side
+	// by side); this leaves a second for the reply and is under the
+	// controller's wait (terminalbroker.AccountsCallTimeout).
 	accountsAnswerAfter = 12 * time.Second
 	// softwareAnswerAfter is when an apply that has not returned is answered
 	// timed_out. The install continues under softwareApplyWorkTimeout, and a

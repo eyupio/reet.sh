@@ -168,3 +168,12 @@ func TestAccountsOneAtATime(t *testing.T) {
 		t.Fatal("the refused request reached the provider")
 	}
 }
+
+// A sign-in read answers inside the connector's wait, with room for the reply:
+// the OpenCode store's wait, the providers' and the other sign-in files' time
+// together are under accountsAnswerAfter.
+func TestASignInReadFitsTheConnectorsWait(t *testing.T) {
+	if agentaccounts.ReadTakesAtMost+time.Second > accountsAnswerAfter {
+		t.Fatalf("a read takes up to %s, the connector answers after %s", agentaccounts.ReadTakesAtMost, accountsAnswerAfter)
+	}
+}

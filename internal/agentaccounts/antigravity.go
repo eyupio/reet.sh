@@ -46,9 +46,10 @@ func (r *Reader) antigravity() signIn {
 		}
 	}
 	type token struct {
-		AccessToken string    `json:"access_token"`
-		Expiry      time.Time `json:"expiry"`
-		IDToken     string    `json:"id_token"`
+		AccessToken  string    `json:"access_token"`
+		RefreshToken string    `json:"refresh_token"`
+		Expiry       time.Time `json:"expiry"`
+		IDToken      string    `json:"id_token"`
 	}
 	var file struct {
 		Token   *token `json:"token"`
@@ -77,19 +78,34 @@ func (r *Reader) antigravity() signIn {
 	if jwtClaims(idToken, &identity) {
 		out.account.Account = label(identity.Email, 128)
 	}
-	out.identity = "antigravity\x00" + identity.Subject + "\x00" + out.account.Account
+	if identity.Subject != "" || out.account.Account != "" {
+		out.identity = "antigravity\x00" + identity.Subject + "\x00" + out.account.Account
+	} else {
+		// No identity token: a mark of the sign-in tells it from the next,
+		// so a new sign-in is not shown the last one's figures. The refresh
+		// token is marked when there is one, as it outlives each access token.
+		key := file.Token.RefreshToken
+		if key == "" {
+			key = file.Token.AccessToken
+		}
+		out.identity = "antigravity\x00\x00\x00" + keyMark(key)
+	}
 	return out
 }
 
 // askAntigravity reads the allowance of an Antigravity plan: a five-hour and a
 // weekly window for the plan's own models, and the same two for other models.
 // Each is a share left and the time it starts again. The daily endpoint is
-// asked first; when it fails for a reason other than the sign-in, the stable
-// one is asked once.
+// asked first; only when it fails (no answer, an error, or not found) is the
+// stable one asked, once. A refused sign-in or a rate limit is the provider's
+// answer and stands, with its Retry-After.
+//
+// The request names itself as the agent's own client (User-Agent:
+// antigravity), as the agent does.
 func askAntigravity(ctx context.Context, r *Reader, s signIn) allowance {
 	headers := map[string]string{"User-Agent": "antigravity"}
 	got := r.send(ctx, http.MethodPost, r.opts.AntigravityUsageURL, "Bearer "+s.token, []byte("{}"), headers)
-	if got.state != terminalproto.AccountLimitsRead && got.state != terminalproto.AccountLimitsRefused {
+	if got.state == terminalproto.AccountLimitsFailed {
 		got = r.send(ctx, http.MethodPost, r.opts.AntigravityFallbackUsageURL, "Bearer "+s.token, []byte("{}"), headers)
 	}
 	if got.state != terminalproto.AccountLimitsRead {

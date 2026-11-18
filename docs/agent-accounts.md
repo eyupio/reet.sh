@@ -53,7 +53,7 @@ agent is started and no command is run.
 | Codex | `auth.json` in `~/.codex`, or in the folder `CODEX_HOME` names | the address and plan claims of the identity token; an `OPENAI_API_KEY` there is a sign-in with no plan |
 | OpenCode | its key for OpenCode's own models (`opencode-go`, else `opencode`), from the first of: OpenCode 2's store `opencode.db` in `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode` (or the file `OPENCODE_DB` names), opened read-only and only when it has OpenCode 2's tables; `auth.json` in that folder, not read when that store is there; `OPENCODE_API_KEY` in the environment reet's connector runs with | no name: the account shows as *Signed in*, on its machine; the plan word comes from the provider's answer (*Go*) |
 | Google Antigravity | `antigravity-oauth-token` in `~/.gemini/antigravity-cli`, or in the folder `ANTIGRAVITY_APP_DATA_DIR` names, plain or in its keyring library's `go-keyring-base64:` form | the address claim of the identity token; no plan word |
-| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only; the first login found is the account, and its tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
+| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only (a key named `github.com` or `github.com:` and an app id; another host's key, even one whose name starts the same way, is never read); the first login found is the account, and its tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
 
 What this cannot see is said plainly rather than guessed:
 
@@ -79,14 +79,15 @@ sign-in, from the machine:
 | Claude Code | `GET https://api.anthropic.com/api/oauth/usage` | five hours (session), seven days (week), and the week's share for Opus and for Sonnet when the plan limits them separately |
 | Codex | `GET https://chatgpt.com/backend-api/wham/usage` | the plan's one or two windows, named by their length: up to six hours a session, up to a day and a half a day, up to eight days a week, longer a month |
 | OpenCode | `GET https://opencode.ai/zen/go/v1/usage`, with the key as a bearer token | the Go plan's rolling (session), weekly and monthly windows. A key with no Go plan is answered 403, shown as *no plan with limits to read*, not as an error |
-| Google Antigravity | `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary` with `{}`; when that fails other than by refusing the sign-in, once `https://cloudcode-pa.googleapis.com/…` instead | five hours (session) and the week for the plan's own models, and the same two labelled *Other models*. An answer with no buckets is *no plan with limits to read* |
+| Google Antigravity | `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary` with `{}`; when that fails (no answer, a server error or not found), once `https://cloudcode-pa.googleapis.com/…` instead. A refused sign-in or a rate limit is not tried again elsewhere | five hours (session) and the week for the plan's own models, and the same two labelled *Other models*. An answer with no buckets is *no plan with limits to read* |
 | GitHub Copilot | `GET https://api.github.com/copilot_internal/user`, with the token as `Authorization: token …` | the month's premium requests, chats and completions (*Premium*, *Chat*, *Completions*); a window without a limit is left out. A free plan's are worked out from its monthly quotas and what is left of them. An account without Copilot (404 for every token) or with no limited window is *no plan with limits to read* |
 
 These are the providers' own internal endpoints, the ones the agents' own clients use for the same figures. They are
 not published interfaces and can change or close without notice; when an answer is not in the shape above the machine
 reports a failure and keeps the last figures it read. The Copilot request presents itself as an editor's Copilot Chat
 (its `User-Agent`, `Editor-Version`, `Editor-Plugin-Version` and `X-GitHub-Api-Version` headers), because the endpoint
-answers nothing else. A token is only ever sent to its own provider, and reet never refreshes one.
+answers nothing else. The Antigravity request likewise names itself as the agent's own client (`User-Agent:
+antigravity`). A token is only ever sent to its own provider, and reet never refreshes one.
 
 ## The rules the machine keeps
 
@@ -100,7 +101,8 @@ answers nothing else. A token is only ever sent to its own provider, and reet ne
   for an agent, a pressed **Check sign-ins** included; a failure stands for a minute before an unprompted retry, and a
   rate limit for as long as the provider's `Retry-After` says, up to an hour. An answer that the account has no plan to
   read stands for five minutes too. Everything one agent's figures take (Antigravity's second endpoint, Copilot's
-  further tokens included) times out after 10 seconds, and answers are capped at 256 KiB.
+  further tokens included) times out after 9 seconds, and answers are capped at 256 KiB. Reading OpenCode's own
+  store is given a second, so a whole read stays inside the 12 seconds the machine waits for it.
 - **Another account never inherits figures.** If the signed-in account changes, the remembered figures are dropped.
 - **One read at a time** per machine; a second request is told the machine is busy.
 

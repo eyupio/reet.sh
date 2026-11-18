@@ -40,6 +40,9 @@ func copilotHeaders() map[string]string {
 // its folder (github-copilot in $XDG_CONFIG_HOME, or in ~/.config). Each holds
 // GitHub tokens by host, with the login each belongs to. The first login found
 // is the account; its tokens are tried in turn when asking for the allowance.
+// Only github.com's keys are read ("github.com", or "github.com:" and an app
+// id): a key for any other host, even one whose name starts the same way, is
+// never sent to api.github.com.
 // The GitHub CLI's sign-in is not read: that would mean running it.
 func (r *Reader) copilot() signIn {
 	out := signIn{account: terminalproto.AgentAccount{Tool: "copilot", State: terminalproto.AccountNone}, ask: askCopilot}
@@ -66,7 +69,7 @@ func (r *Reader) copilot() signIn {
 		}
 		hosts := make([]string, 0, len(file))
 		for host := range file {
-			if strings.HasPrefix(host, "github.com") {
+			if host == "github.com" || strings.HasPrefix(host, "github.com:") {
 				hosts = append(hosts, host)
 			}
 		}

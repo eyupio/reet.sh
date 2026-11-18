@@ -64,8 +64,8 @@ func TestAntigravitySignInAndLimits(t *testing.T) {
 	}
 }
 
-func TestAntigravityAsksTheSecondEndpointOnlyWhenTheFirstFailsOtherwise(t *testing.T) {
-	for status, want := range map[int]terminalproto.AccountLimitsState{500: terminalproto.AccountLimitsRead, 404: terminalproto.AccountLimitsRead, 429: terminalproto.AccountLimitsRead, 401: terminalproto.AccountLimitsRefused, 403: terminalproto.AccountLimitsRefused} {
+func TestAntigravityAsksTheSecondEndpointOnlyWhenTheFirstFails(t *testing.T) {
+	for status, want := range map[int]terminalproto.AccountLimitsState{500: terminalproto.AccountLimitsRead, 503: terminalproto.AccountLimitsRead, 404: terminalproto.AccountLimitsRead, 429: terminalproto.AccountLimitsRateLimited, 401: terminalproto.AccountLimitsRefused, 403: terminalproto.AccountLimitsRefused} {
 		f := newFixture(t)
 		f.write(antigravityFile, antigravityToken(f.now.Add(time.Hour)))
 		f.antigravity.answer(status, `{}`)
@@ -78,6 +78,14 @@ func TestAntigravityAsksTheSecondEndpointOnlyWhenTheFirstFailsOtherwise(t *testi
 		if a.LimitsState != want || f.antigravityStable.count() != asked {
 			t.Fatalf("first endpoint %d: %+v, second asked %d times", status, a, f.antigravityStable.count())
 		}
+	}
+	// A first endpoint that cannot be reached is a failure too.
+	g := newFixture(t)
+	g.write(antigravityFile, antigravityToken(g.now.Add(time.Hour)))
+	g.antigravity.server.Close()
+	g.antigravityStable.answer(200, antigravityUsage)
+	if a := g.one("antigravity", true, false); a.LimitsState != terminalproto.AccountLimitsRead || g.antigravityStable.count() != 1 {
+		t.Fatalf("first endpoint unreachable: %+v, second asked %d times", a, g.antigravityStable.count())
 	}
 	// Both failing is a failure, and the second is asked once.
 	f := newFixture(t)
@@ -163,5 +171,61 @@ func TestAntigravityMovedFolderIsFollowed(t *testing.T) {
 	}
 	if a := f.one("antigravity", false, false); a.Account != "person@example.com" {
 		t.Fatalf("the moved folder was not read: %+v", a)
+	}
+}
+
+// A rate limit is the provider's answer, not a failure: it is said, the
+// second endpoint is not asked, and the provider's Retry-After is honoured.
+func TestAntigravityRateLimitWaitsAsLongAsTheProviderAsks(t *testing.T) {
+	f := newFixture(t)
+	f.write(antigravityFile, antigravityToken(f.now.Add(2*time.Hour)))
+	f.antigravity.header.Set("Retry-After", "600")
+	f.antigravity.answer(429, `{}`)
+	f.antigravityStable.answer(200, antigravityUsage)
+	if a := f.one("antigravity", true, false); a.LimitsState != terminalproto.AccountLimitsRateLimited {
+		t.Fatalf("rate limited: %+v", a)
+	}
+	f.now = f.now.Add(5 * time.Minute)
+	if a := f.one("antigravity", true, true); a.LimitsState != terminalproto.AccountLimitsRateLimited || f.antigravity.count() != 1 {
+		t.Fatalf("asked again inside the provider's wait (%d requests): %+v", f.antigravity.count(), a)
+	}
+	f.now = f.now.Add(6 * time.Minute)
+	f.antigravity.answer(200, antigravityUsage)
+	if a := f.one("antigravity", true, false); a.LimitsState != terminalproto.AccountLimitsRead || f.antigravity.count() != 2 {
+		t.Fatalf("did not ask once the wait was over (%d requests): %+v", f.antigravity.count(), a)
+	}
+	if f.antigravityStable.count() != 0 {
+		t.Fatalf("the second endpoint was asked %d times on a rate limit", f.antigravityStable.count())
+	}
+}
+
+// Without an identity token there is no account to tell sign-ins apart by: a
+// mark of the token does, so a new sign-in is not shown the last one's figures.
+func TestAntigravityWithoutAnIdentityTokenDoesNotInheritFigures(t *testing.T) {
+	signIn := func(name string) string {
+		return fmt.Sprintf(`{"token":{"access_token":"ya29.%s%s","refresh_token":"1//%s%s","expiry":%q}}`, name, secret, name, secret, testNow.Add(2*time.Hour).Format(time.RFC3339))
+	}
+	f := newFixture(t)
+	f.write(antigravityFile, signIn("first"))
+	f.antigravity.answer(200, antigravityUsage)
+	if a := f.one("antigravity", true, false); a.LimitsState != terminalproto.AccountLimitsRead || a.Account != "" {
+		t.Fatalf("first sign-in: %+v", a)
+	}
+	f.write(antigravityFile, signIn("second"))
+	f.now = f.now.Add(time.Minute)
+	f.antigravity.answer(500, `{}`)
+	f.antigravityStable.answer(500, `{}`)
+	if a := f.one("antigravity", true, false); len(a.Limits) != 0 || a.LimitsAt != 0 || a.LimitsState != terminalproto.AccountLimitsFailed {
+		t.Fatalf("a second sign-in was shown the first one's figures: %+v", a)
+	}
+	// The same sign-in, its access token renewed, keeps its figures.
+	g := newFixture(t)
+	g.write(antigravityFile, signIn("first"))
+	g.antigravity.answer(200, antigravityUsage)
+	g.one("antigravity", true, false)
+	g.write(antigravityFile, strings.Replace(signIn("first"), "ya29.first", "ya29.renewed", 1))
+	g.now = g.now.Add(time.Minute)
+	if a := g.one("antigravity", true, false); a.LimitsState != terminalproto.AccountLimitsRead || len(a.Limits) == 0 || g.antigravity.count() != 1 {
+		t.Fatalf("a renewed token lost its figures: %+v after %d requests", a, g.antigravity.count())
 	}
 }

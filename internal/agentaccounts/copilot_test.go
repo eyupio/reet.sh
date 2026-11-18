@@ -245,3 +245,33 @@ func TestEveryAgentReadFitsOneAnswer(t *testing.T) {
 		t.Fatalf("copilot windows: %+v", accounts["copilot"])
 	}
 }
+
+func TestCopilotLookAlikeHostsAreNotGitHub(t *testing.T) {
+	f := newFixture(t)
+	f.write(".config/github-copilot/hosts.json", copilotHosts(
+		[3]string{"github.comcast.com", "aaa", copilotToken("lookalike")},
+		[3]string{"github.com", "person", copilotToken("real")},
+	))
+	f.write(".config/github-copilot/apps.json", copilotHosts(
+		[3]string{"github.company.com:Iv1.1", "aaa", copilotToken("enterprise")},
+		[3]string{"github.com.evil.example:Iv1.2", "aaa", copilotToken("evil")},
+	))
+	f.copilot.answer(200, copilotPaid)
+	a := f.one("copilot", true, false)
+	if a.State != terminalproto.AccountSignedIn || a.LimitsState != terminalproto.AccountLimitsRead || f.copilot.count() != 1 {
+		t.Fatalf("beside look-alike hosts: %+v after %d requests", a, f.copilot.count())
+	}
+	if got := f.copilot.last().Header.Get("Authorization"); got != "token "+copilotToken("real") {
+		t.Fatalf("sent %q, want the github.com token", got)
+	}
+	// Look-alike hosts alone: nothing is signed in and nothing is sent.
+	g := newFixture(t)
+	g.write(".config/github-copilot/apps.json", copilotHosts(
+		[3]string{"github.company.com:Iv1.1", "person", copilotToken("enterprise")},
+		[3]string{"github.comcast.com", "person", copilotToken("lookalike")},
+	))
+	g.copilot.answer(200, copilotPaid)
+	if a := g.one("copilot", true, false); a.State != terminalproto.AccountNone || g.copilot.count() != 0 {
+		t.Fatalf("look-alike hosts alone: %+v after %d requests", a, g.copilot.count())
+	}
+}

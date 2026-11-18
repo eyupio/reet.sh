@@ -126,7 +126,13 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 	mux.HandleFunc("/used", func(w http.ResponseWriter, r *http.Request) {
 		_, name := pick(r)
 		// The shelf status is keyed by the skill's own id, not the library item id.
-		h.used(h.candidate(syncContractName(name)).ID, r.URL.Query().Get("value") == "true")
+		id := h.candidate(syncContractName(name)).ID
+		on := r.URL.Query().Get("value") == "true"
+		h.used(id, on)
+		if !on {
+			// Parking goes through the shelf stage: neither used nor bookmarked is Archived.
+			h.mustRequest(http.MethodPatch, "/api/skill", map[string]any{"id": id, "bookmarked": false})
+		}
 		fmt.Fprint(w, "ok")
 	})
 	mux.HandleFunc("/deletefile", func(w http.ResponseWriter, r *http.Request) {

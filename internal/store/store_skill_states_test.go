@@ -852,3 +852,32 @@ func TestSkillStatesRenameRefusesATakenName(t *testing.T) {
 		t.Fatal("the refused rename moved the skill", err)
 	}
 }
+
+// A restore inside the grace window keeps the status the item held before the
+// archive, so machines never saw the change and the Undo is invisible.
+func TestSkillStatesRestoreInsideGraceKeepsThePreviousStatus(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	archivedAt := time.UnixMilli(1_800_000_000_000)
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, archivedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillActive, archivedAt.Add(SkillGrace/2)); err != nil {
+		t.Fatal(err)
+	}
+	got := skillStateNamed(t, s, uid, "seo-audit")
+	if got.status != SkillActive || got.prevStatus != SkillActive {
+		t.Fatalf("restore inside the grace window: status %s, prev %s", got.status, got.prevStatus)
+	}
+	// Past the window the restore records the archive it undoes.
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, archivedAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillActive, archivedAt.Add(time.Minute+SkillGrace)); err != nil {
+		t.Fatal(err)
+	}
+	if got = skillStateNamed(t, s, uid, "seo-audit"); got.prevStatus != SkillArchived {
+		t.Fatalf("restore after the grace window: prev %s", got.prevStatus)
+	}
+}

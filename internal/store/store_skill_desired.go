@@ -29,6 +29,12 @@ type DesiredState struct {
 // change reaches machines only once it has held for SkillGrace. An Active
 // item without content is held: in neither list. A name that is effectively
 // Active is never on the remove list.
+//
+// An item archived and then deleted gets a fresh 'deleted' removal row (its
+// archived one is replaced), so its name leaves Remove for SkillGrace and the
+// Version changes twice: once when the archive's grace ends and the name
+// appears, once when the delete's grace ends and the reason changes. Machines
+// treat a name's absence from Remove as "do nothing", so the gap is harmless.
 func (s *Store) DesiredSkillsFor(uid int64, now time.Time) (DesiredState, error) {
 	at, grace := now.UnixMilli(), SkillGrace.Milliseconds()
 	state := DesiredState{Active: []DesiredSkill{}, Remove: []DesiredRemoval{}}

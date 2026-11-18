@@ -186,3 +186,60 @@ func TestDesiredNewActiveSkillOfDeletedNameIsNotRemoved(t *testing.T) {
 		t.Fatalf("active %v remove %v", active, remove)
 	}
 }
+
+func insertDesiredItem(t *testing.T, s *Store, uid int64, id, itemType, name, status, revision string) {
+	t.Helper()
+	if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,revision_id,created_at,updated_at) VALUES(?,?,?,?,?,?,1,1)`, uid, id, itemType, name, status, revision); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertDesiredRemoval(t *testing.T, s *Store, uid int64, name string) {
+	t.Helper()
+	if _, err := s.db.Exec(`INSERT INTO skill_removals(user_id,name,reason,created_at) VALUES(?,?,'archived',1)`, uid, name); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDesiredActiveNameBeatsARemovalRowOfAnotherCase(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	insertDesiredItem(t, s, uid, "item-demo", LibrarySkill, "Demo", SkillActive, "rev")
+	insertDesiredRemoval(t, s, uid, "demo")
+	active, remove := desiredNames(desiredAt(t, s, uid, desiredT0))
+	if !reflect.DeepEqual(active, []string{"Demo"}) || len(remove) != 0 {
+		t.Fatalf("active %v remove %v", active, remove)
+	}
+}
+
+func TestDesiredIgnoresItemsOfOtherTypes(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	// An active agent definition does not keep a skill of its name off the
+	// remove list, and is never listed as a skill.
+	insertDesiredItem(t, s, uid, "item-agent", "agent_definition", "gone", SkillActive, "rev")
+	insertDesiredRemoval(t, s, uid, "gone")
+	active, remove := desiredNames(desiredAt(t, s, uid, desiredT0))
+	if len(active) != 0 || !reflect.DeepEqual(remove, []string{"gone"}) {
+		t.Fatalf("active %v remove %v", active, remove)
+	}
+}
+
+func TestDesiredOrdersNamesEqualIgnoringCaseByItem(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	insertDesiredItem(t, s, uid, "b-item", LibrarySkill, "zed", SkillActive, "rev-b")
+	insertDesiredItem(t, s, uid, "a-item", LibrarySkill, "Zed", SkillActive, "rev-a")
+	insertDesiredItem(t, s, uid, "c-item", LibrarySkill, "alpha", SkillActive, "rev-c")
+	first := desiredAt(t, s, uid, desiredT0)
+	var got []string
+	for _, a := range first.Active {
+		got = append(got, a.Item)
+	}
+	if !reflect.DeepEqual(got, []string{"c-item", "a-item", "b-item"}) {
+		t.Fatalf("order %v", got)
+	}
+	if again := desiredAt(t, s, uid, desiredT0); again.Version != first.Version {
+		t.Fatal("the version of the same state changed")
+	}
+}

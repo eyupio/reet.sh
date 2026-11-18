@@ -2596,3 +2596,47 @@ func TestAgentCycleTakesBackEveryEditWhoseCopyWentBack(t *testing.T) {
 		t.Fatal("edits taken back were kept")
 	}
 }
+
+// A backup named in news the controller has not had yet may hold the only
+// copy of someone's work, so it is not pruned however old it is until a
+// report delivers that news.
+func TestAgentCycleKeepsBackupsWhoseNewsIsNotDelivered(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	c := loaded(t, config)
+	mkdirs(t, c.Home, ".agents/skills")
+	root := filepath.Join(c.Home, ".agents", ".reet-backups")
+	named := time.Now().AddDate(0, 0, -40).Format(backupDateLayout)
+	other := time.Now().AddDate(0, 0, -41).Format(backupDateLayout)
+	writeSkill(t, filepath.Join(root, named, ".agents-alpha"))
+	writeSkill(t, filepath.Join(root, other, ".agents-beta"))
+	news := store.SkillReportEntry{Folder: "~/.agents/skills", Name: "alpha", State: "edited", Digest: strings.Repeat("c", 64), Backup: "~/.agents/.reet-backups/" + named + "/.agents-alpha"}
+	if err := writePrivate(config+".unsent", unsentCache{Server: c.Server, Agent: c.ID, Entries: []store.SkillReportEntry{news}}); err != nil {
+		t.Fatal(err)
+	}
+	srv.setDesired(&store.DesiredState{Version: "v1"})
+	srv.mu.Lock()
+	srv.reportStatus = http.StatusServiceUnavailable
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err == nil {
+		t.Fatal("a refused report was not an error")
+	}
+	if _, err := os.Stat(filepath.Join(root, named, ".agents-alpha", "SKILL.md")); err != nil {
+		t.Fatalf("a backup whose news was not delivered was pruned: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, other)); !os.IsNotExist(err) {
+		t.Fatalf("an expired backup no news names was kept: %v", err)
+	}
+	srv.mu.Lock()
+	srv.reportStatus = 0
+	srv.mu.Unlock()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if e := entryOf(t, srv.lastReport(t), "~/.agents/skills", "alpha"); e != news {
+		t.Fatalf("entry %+v", e)
+	}
+	if _, err := os.Lstat(filepath.Join(root, named)); !os.IsNotExist(err) {
+		t.Fatalf("the backup was kept after its news was delivered: %v", err)
+	}
+}

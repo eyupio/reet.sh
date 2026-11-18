@@ -295,25 +295,32 @@ func dateFolders(root string) []string {
 
 // pruneBackups removes dated backup folders older than backupRetention from
 // the .reet-backups beside each managed folder under home that a pass works
-// in (see managedRoots, given the enrolled projects as unmanaged). Beside a
-// folder reet leaves alone, such as one whose parent links into a project,
+// in, or handles under an earlier managed folder that is the same folder (see
+// managedRoots, given the enrolled projects as unmanaged). Beside a folder
+// reet leaves alone, such as one whose parent links into a project,
 // .reet-backups lies in someone else's folder, and nothing there is pruned.
-func pruneBackups(home string, now time.Time, unmanaged []string) error {
+// A date folder holding one of keep, a backup the controller has not heard
+// of yet, is kept however old it is.
+func pruneBackups(home string, now time.Time, unmanaged []string, keep ...string) error {
 	// A date folder goes once its whole day is more than 30 days gone, so a
 	// backup made late in the day is kept as long as one made early in it.
 	y, m, d := now.Date()
 	cutoff := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).AddDate(0, 0, -backupRetentionDays)
+	held := map[string]bool{}
+	for _, p := range keep {
+		held[filepath.Dir(filepath.Clean(p))] = true
+	}
 	roots := managedRoots(home, unmanaged)
 	var errs []error
 	for i, f := range managedFolders {
-		if !roots[i].handled() {
+		if !roots[i].besideOK() {
 			continue
 		}
 		folder := filepath.Join(home, filepath.FromSlash(f.Dir))
 		root := backupRoot(folder)
 		for _, date := range dateFolders(root) {
 			day, err := time.ParseInLocation(backupDateLayout, date, now.Location())
-			if err != nil || !day.Before(cutoff) {
+			if err != nil || !day.Before(cutoff) || held[filepath.Join(root, date)] {
 				continue
 			}
 			// RemoveAll unlinks symlinks inside without following them.

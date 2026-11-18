@@ -268,16 +268,32 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	} else {
 		rep = skillInventory(c.Home, *d, c.Projects)
 	}
+	var undelivered []string
 	if err := postSkillReport(ctx, c, config, withUnsent(rep, unsent), version); err != nil {
 		errs = append(errs, err)
+		// Until the controller has heard of them, these backups may hold the
+		// only copy of someone's work.
+		for _, u := range unsent {
+			if u.Backup != "" {
+				undelivered = append(undelivered, fromTilde(c.Home, u.Backup))
+			}
+		}
 	} else if err := os.Remove(config + ".unsent"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// The controller has every entry kept there now.
 		errs = append(errs, err)
 	}
 	if local.AllowApply {
-		errs = append(errs, pruneBackups(c.Home, now, c.Projects))
+		errs = append(errs, pruneBackups(c.Home, now, c.Projects, undelivered...))
 	}
 	return errors.Join(errs...)
+}
+
+// fromTilde turns a report's ~/ path back into the path under home.
+func fromTilde(home, p string) string {
+	if rest, ok := strings.CutPrefix(p, "~/"); ok {
+		return filepath.Join(home, filepath.FromSlash(rest))
+	}
+	return p
 }
 
 // postSkillReport sends rep unless this process already sent the same one.

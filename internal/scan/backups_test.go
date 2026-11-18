@@ -907,3 +907,25 @@ func TestAgentRestoreCommandPrintsOneLinePerPath(t *testing.T) {
 		t.Fatalf("printed %q, want %q", out.String(), want)
 	}
 }
+
+// A folder that is the same folder as an earlier managed one, such as
+// ~/.cursor/skills linked to ~/.agents/skills, is handled under that one, but
+// backups made beside it before it was linked still expire.
+func TestPruneBackupsBesideAFolderHandledUnderAnother(t *testing.T) {
+	home := t.TempDir()
+	mkdirs(t, home, ".agents/skills")
+	symlink(t, filepath.Join("..", ".agents", "skills"), filepath.Join(home, ".cursor", "skills"))
+	root := filepath.Join(home, ".cursor", ".reet-backups")
+	old, recent := backupNow.AddDate(0, 0, -40).Format(backupDateLayout), backupNow.AddDate(0, 0, -1).Format(backupDateLayout)
+	writeSkill(t, filepath.Join(root, old, ".cursor-a"))
+	writeSkill(t, filepath.Join(root, recent, ".cursor-b"))
+	if err := pruneBackups(home, backupNow, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, old)); !os.IsNotExist(err) {
+		t.Fatalf("an expired backup was kept: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, recent)); err != nil {
+		t.Fatalf("a recent backup was pruned: %v", err)
+	}
+}

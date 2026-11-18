@@ -170,6 +170,7 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
 	req.Header.Set("X-Reet-Library-Protocol", "1")
+	req.Header.Set("X-Reet-Skills-Protocol", "2")
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -615,17 +616,27 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if err != nil {
 		fmt.Fprintln(out, "Skill content preview channel unavailable; continuing inventory and sync work.")
 	}
-	var reply struct {
-		Agent store.SyncAgent
-		Job   *store.SyncJob
+	// The controller sends the skills this machine should have only when they
+	// differ from the version it last received; the copy kept then is what
+	// every later cycle puts back on disk.
+	cached := readDesiredSkills(config, c)
+	skillsVersion := ""
+	if cached != nil {
+		skillsVersion = cached.Version
 	}
-	if err := agentRequestContext(ctx, c, "/api/v2/sync/poll", map[string]string{}, &reply, version); err != nil {
+	var reply struct {
+		Agent   store.SyncAgent
+		Job     *store.SyncJob
+		Desired *store.DesiredState
+	}
+	if err := agentRequestContext(ctx, c, "/api/v2/sync/poll", map[string]string{"skillsVersion": skillsVersion}, &reply, version); err != nil {
 		return err
 	}
 	c.Host = reply.Agent.Host
 	if reply.Agent.Paused {
 		return nil
 	}
+	skillErr := reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now())
 	scanAll := func() error {
 		dirs := append([]string{c.Home}, c.Projects...)
 		var failures []error
@@ -642,9 +653,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if reply.Job == nil {
 		if time.Since(*lastScan) >= time.Minute {
 			*lastScan = time.Now()
-			return scanAll()
+			return errors.Join(skillErr, scanAll())
 		}
-		return nil
+		return skillErr
+	}
+	if skillErr != nil {
+		// A claimed job still runs; the skills report is sent again next cycle.
+		fmt.Fprintln(out, "Skills:", skillErr)
 	}
 	j := reply.Job
 	result := agentResult{ID: j.ID, Status: "succeeded"}

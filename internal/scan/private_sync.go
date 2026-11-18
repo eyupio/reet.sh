@@ -65,11 +65,17 @@ func privateSkillFiles(server, token string, skill store.SyncSkill) ([]skillbund
 	if !same {
 		return nil, errors.New("private skill revision changed")
 	}
-	manifest, files, err := skillimport.Select(revision.Files, nil)
+	return checkSkillFiles(revision.Files, parts[3])
+}
+
+// checkSkillFiles returns files only when they make a valid skill whose
+// digest is the one reet named. Nothing reaches disk without this check.
+func checkSkillFiles(files []skillbundle.ContentFile, digest string) ([]skillbundle.ContentFile, error) {
+	manifest, files, err := skillimport.Select(files, nil)
 	if err != nil {
 		return nil, err
 	}
-	if manifest.Digest != parts[3] {
+	if manifest.Digest != digest {
 		return nil, errors.New("private skill checksum mismatch")
 	}
 	return files, nil
@@ -83,24 +89,11 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 		return err
 	}
 
-	staging, err := os.MkdirTemp(filepath.Dir(targetPath), ".reet-private-")
+	staging, err := stageSkillFiles(filepath.Dir(targetPath), files)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(staging)
-	for _, file := range files {
-		path := filepath.Join(staging, filepath.FromSlash(file.Path))
-		if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-		mode := os.FileMode(0644)
-		if file.Executable {
-			mode = 0755
-		}
-		if err = os.WriteFile(path, file.Data, mode); err != nil {
-			return err
-		}
-	}
 	// The caller has already backed up a reviewed replacement. Refuse a new
 	// entry that appeared while downloading; never merge into an existing tree.
 	destination := filepath.Join(targetPath, skill.Slug)
@@ -117,4 +110,31 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 		}
 	}
 	return os.Rename(staging, destination)
+}
+
+// stageSkillFiles writes checked files into a new .reet-private-* folder in
+// parent and returns it, for the caller to rename into place or remove.
+func stageSkillFiles(parent string, files []skillbundle.ContentFile) (string, error) {
+	staging, err := os.MkdirTemp(parent, ".reet-private-")
+	if err != nil {
+		return "", err
+	}
+	for _, file := range files {
+		path := filepath.Join(staging, filepath.FromSlash(file.Path))
+		if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			break
+		}
+		mode := os.FileMode(0644)
+		if file.Executable {
+			mode = 0755
+		}
+		if err = os.WriteFile(path, file.Data, mode); err != nil {
+			break
+		}
+	}
+	if err != nil {
+		os.RemoveAll(staging)
+		return "", err
+	}
+	return staging, nil
 }

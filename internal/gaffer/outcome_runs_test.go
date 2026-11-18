@@ -13,7 +13,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/elicore"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -1373,5 +1375,33 @@ func TestAFinishedOutcomeCanBeArchivedRestoredAndDeletedButARunningOneCannot(t *
 	}
 	if _, err := r.s.Outcome(uid, running.ID); err != nil {
 		t.Fatalf("the running outcome was lost: %v", err)
+	}
+}
+
+func TestALongHandoverAndBriefKeepTheStagesBoundary(t *testing.T) {
+	handover := strings.Repeat("Step: change web/src/lib/ClineSourceSelect.svelte. ", maxHandoverBytes/52)
+	brief := strings.Repeat("The whole brief, for context. ", 7000/30)
+	item := store.GafferOutcomeSession{Prompt: brief, Stage: 1, Stages: []store.GafferOutcomeStage{{Kind: "plan", State: "done", Summary: handover}, {Kind: "design"}, {Kind: "code"}}}
+	got := stagePrompt(store.GafferOutcome{}, item, 1)
+	if len(got) > MaxOutcomePromptBytes || !utf8.ValidString(got) {
+		t.Fatalf("prompt is %d bytes", len(got))
+	}
+	if !strings.Contains(got, handover) {
+		t.Fatal("the handover was cut")
+	}
+	if !strings.Contains(got, "for context only") || !strings.Contains(got, "The later stages (code) are done separately") || !strings.HasSuffix(got, "Do not merge.") {
+		t.Fatalf("the boundary was lost: …%q", got[len(got)-400:])
+	}
+}
+
+func TestAHandoverMayCarryAWholePlan(t *testing.T) {
+	plan := strings.Repeat("1. Change web/src/lib/ClineSourceSelect.svelte to list every source. ", 80)[:maxHandoverBytes-1]
+	args, _ := json.Marshal(map[string]string{"summary": plan})
+	summary, _, err := goalQuestion(elicore.ToolCall{ID: "h1", Name: "hand_over", Arguments: args})
+	if err != nil || summary != plan {
+		t.Fatalf("a %d-byte handover was refused: %v", len(plan), err)
+	}
+	if _, _, err = goalQuestion(elicore.ToolCall{ID: "q1", Name: "ask_user", Arguments: args}); err == nil {
+		t.Fatal("a question to the person is still limited to 2,000 bytes")
 	}
 }

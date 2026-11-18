@@ -605,7 +605,7 @@
       {#if entry.jobs.length === 1 && entry.job.plan?.backups?.length}
         <details class="plan">
           <summary>Restore removed skills</summary>
-          <p class="hint">Run this on the machine. It asks before it restores and never overwrites a skill you already have. To see every backup, run <code>reet agent restore --list</code>.</p>
+          <p class="hint">Run this on the machine. It never overwrites a skill you already have. To see every backup, run <code>reet agent restore --list</code>.</p>
           {#each entry.job.plan.backups as backup}
             <div class="command"><code>{restoreCommand(backup)}</code><CopyButton text={restoreCommand(backup)} label="Copy restore command" /></div>
           {/each}

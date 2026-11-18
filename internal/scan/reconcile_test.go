@@ -1510,6 +1510,47 @@ func TestReconcilePutsNothingBackThroughAFolderRepointedMidInstall(t *testing.T)
 	}
 }
 
+// A link or file that appears where a copy is to be put back, after the check
+// that the place is free, is left as it is: the put-back never replaces it and
+// the copy stays in its backup.
+func TestReconcilePutBackNeverReplacesWhatAppearsAtTheOriginalPath(t *testing.T) {
+	home := t.TempDir()
+	shared := filepath.Join(home, ".agents", "skills")
+	// The copy that is backed up is a link, which a plain rename replaces.
+	target := filepath.Join(home, "elsewhere")
+	placeFiles(t, filepath.Join(target), []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("theirs")}})
+	mkdirs(t, home, ".agents/skills")
+	original := filepath.Join(shared, "alpha")
+	if err := os.Symlink(target, original); err != nil {
+		t.Fatal(err)
+	}
+	wasMove, wasRename := reconcileMove, renameEntry
+	t.Cleanup(func() { reconcileMove, renameEntry = wasMove, wasRename })
+	reconcileMove = func(string, string) (bool, error) { return false, errors.New("no space left on device") }
+	renameEntry = func(src, dest string) error {
+		if dest == original { // another process, between the check and the move
+			if err := os.WriteFile(dest, []byte("appeared"), 0644); err != nil {
+				t.Error(err)
+			}
+		}
+		return wasRename(src, dest)
+	}
+	a, aFiles := skillBundle(t, "alpha", "first")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if b, err := os.ReadFile(original); err != nil || string(b) != "appeared" {
+		t.Fatalf("what appeared at the original path is now %q, %v", b, err)
+	}
+	backup := "~/.agents/.reet-backups/2026-11-18/.agents-alpha"
+	e := entryOf(t, rep, "~/.agents/skills", "alpha")
+	if e.State != "failed" || e.Backup != backup || !strings.Contains(e.Detail, "the copy that was there stays in "+backup) {
+		t.Fatalf("entry %+v", e)
+	}
+	if l, err := os.Readlink(filepath.Join(home, strings.TrimPrefix(backup, "~/"))); err != nil || l != target {
+		t.Fatalf("the backed-up link is %q, %v", l, err)
+	}
+}
+
 func TestReconcileReportsAFolderLeftAloneThatCannotBeRead(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0755); err != nil {

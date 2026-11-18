@@ -208,11 +208,10 @@ func copyEntry(src, dest string) error {
 	if err := copyTree(src, copied); err != nil {
 		return err
 	}
-	// Batch D replaces this with a rename that never replaces.
 	if err := taken(); err != nil {
 		return err
 	}
-	return os.Rename(copied, dest)
+	return copyRename(copied, dest)
 }
 
 // copyTree copies src to dest, a path nothing else uses.
@@ -262,8 +261,9 @@ func copyTree(src, dest string) error {
 	})
 }
 
-// renameEntry is os.Rename; tests replace it to stand for two devices.
-var renameEntry = os.Rename
+// renameEntry is a rename that never replaces what is at the destination;
+// tests replace it to stand for two devices.
+var renameEntry = renameNoReplace
 
 // copyEntryStep, when set, runs before each entry under the top one is
 // copied; tests use it to stand for another process at work meanwhile.

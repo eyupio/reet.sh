@@ -2,6 +2,8 @@ package scan
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -634,5 +636,182 @@ func TestMoveEntryAcrossDevicesCopiesThenRemoves(t *testing.T) {
 	}
 	if tried != 3 {
 		t.Fatalf("rename tried %d times, want 3", tried)
+	}
+}
+
+func TestRenameNoReplaceRefusesAnythingAtTheDestination(t *testing.T) {
+	root := t.TempDir()
+	mkFile := func(name, body string) string {
+		p := filepath.Join(root, name)
+		if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	mkEmptyDir := func(name string) string {
+		p := filepath.Join(root, name)
+		if err := os.Mkdir(p, 0755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	check := func(name string, src, dest string) {
+		t.Helper()
+		err := renameNoReplace(src, dest)
+		if !errors.Is(err, fs.ErrExist) {
+			t.Fatalf("%s: err = %v, want one that is fs.ErrExist", name, err)
+		}
+		if _, err := os.Lstat(src); err != nil {
+			t.Fatalf("%s: the source went: %v", name, err)
+		}
+	}
+	// A file onto a file, a folder onto an empty folder, a link onto a file:
+	// os.Rename replaces the target in each of these.
+	check("file", mkFile("f1", "mine"), mkFile("f2", "theirs"))
+	if b, _ := os.ReadFile(filepath.Join(root, "f2")); string(b) != "theirs" {
+		t.Fatalf("the file at the destination is now %q", b)
+	}
+	d1 := mkEmptyDir("d1")
+	mkFile("d1/inner", "mine")
+	check("folder", d1, mkEmptyDir("d2"))
+	if entries, _ := os.ReadDir(filepath.Join(root, "d2")); len(entries) != 0 {
+		t.Fatalf("the empty folder at the destination now holds %v", entries)
+	}
+	link := filepath.Join(root, "l1")
+	if err := os.Symlink("f1", link); err != nil {
+		t.Fatal(err)
+	}
+	check("link", link, mkFile("f3", "theirs"))
+	// Where nothing is, it moves.
+	if err := renameNoReplace(d1, filepath.Join(root, "free")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "free", "inner")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Where the kernel or file system has no no-replace rename, the check and
+// the plain rename stand in for it.
+func TestRenameNoReplaceFallsBackWhenTheSystemCannotRefuse(t *testing.T) {
+	for _, errno := range []error{syscall.ENOSYS, syscall.EINVAL, syscall.ENOTSUP} {
+		t.Run(errno.Error(), func(t *testing.T) {
+			was := renameExcl
+			t.Cleanup(func() { renameExcl = was })
+			var calls int
+			renameExcl = func(src, dest string) error { calls++; return errno }
+			root := t.TempDir()
+			src, taken, free := filepath.Join(root, "src"), filepath.Join(root, "taken"), filepath.Join(root, "free")
+			for _, p := range []string{src, taken} {
+				if err := os.WriteFile(p, []byte(filepath.Base(p)), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := renameNoReplace(src, taken); !errors.Is(err, fs.ErrExist) {
+				t.Fatalf("err = %v, want fs.ErrExist", err)
+			}
+			if b, _ := os.ReadFile(taken); string(b) != "taken" {
+				t.Fatalf("destination is now %q", b)
+			}
+			if err := renameNoReplace(src, free); err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(free); string(b) != "src" || calls != 2 {
+				t.Fatalf("moved %q after %d tries", b, calls)
+			}
+		})
+	}
+}
+
+// An entry that appears where a skill is restored to after the check, before
+// the move, is left as it is, and the backup stays where it was.
+func TestRestoreBackupNeverReplacesWhatAppearsBeforeTheMove(t *testing.T) {
+	for _, kind := range []string{"file", "empty folder"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			folder := filepath.Join(home, ".claude", "skills")
+			// A file or link is what a plain rename replaces; a folder is
+			// what it replaces where the system lets it.
+			if kind == "file" {
+				writeSkill(t, filepath.Join(home, "shared", "alpha"))
+				if err := os.MkdirAll(folder, 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(home, "shared", "alpha"), filepath.Join(folder, "alpha")); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writeSkill(t, filepath.Join(folder, "alpha"))
+			}
+			backup, err := backupSkill(folder, "alpha", backupNow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			was := renameEntry
+			t.Cleanup(func() { renameEntry = was })
+			target := filepath.Join(folder, "alpha")
+			renameEntry = func(src, dest string) error {
+				if dest == target {
+					if kind == "file" {
+						if err := os.WriteFile(dest, []byte("theirs"), 0644); err != nil {
+							t.Error(err)
+						}
+					} else if err := os.Mkdir(dest, 0755); err != nil {
+						t.Error(err)
+					}
+				}
+				return was(src, dest)
+			}
+			if _, err := restoreBackup(home, "alpha", ""); err == nil {
+				t.Fatal("restored over what appeared")
+			}
+			st, err := os.Lstat(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "file" {
+				if b, _ := os.ReadFile(target); string(b) != "theirs" {
+					t.Fatalf("target is now %q", b)
+				}
+			} else if entries, _ := os.ReadDir(target); !st.IsDir() || len(entries) != 0 {
+				t.Fatalf("the empty folder was replaced: %v", entries)
+			}
+			if _, err := os.Stat(filepath.Join(backup, "SKILL.md")); err != nil {
+				t.Fatalf("the backup is gone: %v", err)
+			}
+			if _, err := os.Lstat(backup); err != nil {
+				t.Fatalf("the backup is gone: %v", err)
+			}
+			if left, _ := listBackups(home); len(left) != 1 {
+				t.Fatalf("backup no longer listed: %+v", left)
+			}
+		})
+	}
+}
+
+// A copy across devices is moved in with the same refusal to replace.
+func TestCopyEntryNeverReplacesWhatAppearsBeforeItIsMovedIn(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	if err := os.WriteFile(src, []byte("mine"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "dest")
+	was := copyRename
+	t.Cleanup(func() { copyRename = was })
+	copyRename = func(from, to string) error {
+		if err := os.WriteFile(to, []byte("theirs"), 0644); err != nil {
+			t.Error(err)
+		}
+		return was(from, to)
+	}
+	if err := copyEntry(src, dest); err == nil {
+		t.Fatal("moved a copy over a file that appeared")
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "theirs" {
+		t.Fatalf("the file that appeared is now %q", b)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 2 {
+		t.Fatalf("left %v", entries)
 	}
 }

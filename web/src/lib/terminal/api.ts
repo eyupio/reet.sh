@@ -5,6 +5,7 @@ import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../pro
 import type { MachineModels } from '../models'
 import type { SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
+import type { UsageAnswer } from '../usage'
 import type { ChatUsage } from '../chatUsage'
 
 /** Live sessions the workspace allows on one machine and across one account (a desk tab can hold nine panes on a machine): the browser's own check before a shell is started. The controller and the machine keep their own limits and answer a refusal past them. */
@@ -155,7 +156,11 @@ export async function refreshMachineModels(agentId: string, tool: string, signal
 export async function machineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts`, { signal })).json()
 }
-/** A person asking now: the machine reads its agents' sign-ins again, and fresh limits when the account has them on. */
+/** What the agents reported using in [from, to), for the Usage page. The controller answers from its own record. */
+export async function usageFor(from: number, to: number, signal?: AbortSignal): Promise<UsageAnswer> {
+  return (await terminalRequest(`/api/v2/usage?${new URLSearchParams({ from: String(from), to: String(to) })}`, { signal })).json()
+}
+/** A person asking now: the machine reads its agents' sign-ins and fresh plan limits again. */
 export async function refreshMachineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts/refresh`, { method: 'POST', signal })).json()
 }

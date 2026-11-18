@@ -113,7 +113,7 @@
         {#if note}<p class="note" class:bad={entry.account.limitsState === 'renew' || entry.account.limitsState === 'refused'}>{note}</p>{/if}
       </section>
     {/each}
-    <footer><span>The provider’s own figures, as each machine last read them.</span><a href="/machines">Machines</a></footer>
+    <footer><span>The provider’s own figures, as each machine last read them.</span><span class="links"><a href="/usage" data-see-usage>See all usage</a><a href="/machines">Machines</a></span></footer>
   </div>
 </span>
 {/if}
@@ -173,8 +173,10 @@
   .source, .note { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
   .note.bad { color: var(--bad); }
   .panel footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; font-size: 14px; color: var(--muted); }
-  .panel footer a { flex: none; color: var(--accent-text); }
+  .panel footer .links { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
+  .panel footer a { flex: none; display: inline-flex; align-items: center; min-height: 32px; color: var(--accent-text); }
+  .panel footer a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   /* A finger gets a larger target, and there is no hover to explain the chips: the panel is one tap away. */
-  @media (pointer: coarse) { .strip { min-height: 36px; } .close { width: 44px; height: 44px; } }
+  @media (pointer: coarse) { .strip { min-height: 36px; } .close { width: 44px; height: 44px; } .panel footer a { min-height: 44px; } }
   @media (prefers-reduced-motion: no-preference) { .tip, .panel { transition: opacity .12s ease; } }
 </style>

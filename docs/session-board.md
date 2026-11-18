@@ -55,8 +55,8 @@ session to plan instead is added from the Backlog column's **+** or
 **Plan a session**.
 
 When **Continue working** has no sessions to show, Home says **Nothing in
-flight.** and offers three buttons in one row, **Give Gaffer an outcome**,
-**Start a session** and **Open terminal**, with **Plan a session** under them.
+flight.** and offers three buttons in one row, **New Factory outcome**,
+**Start an agent session** and **Open terminal**, with **Plan a session** under them.
 Each opens its usual dialog on Home; opening one starts no work and makes no model
 request. **Plan a session** opens the planning composer on the board, and closing
 it returns keyboard focus to **Planning board**.

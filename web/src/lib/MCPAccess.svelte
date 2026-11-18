@@ -126,7 +126,7 @@
 
 <section class="mcp" aria-labelledby="mcp-title">
   <div class="heading">
-    <div><p class="eyebrow">Your account · Connections</p><h2 id="mcp-title">MCP access</h2><p class="muted">Bring your library and explicitly shared reet context into the AI tools you use. You choose what each connection can read.</p></div>
+    <div><p class="eyebrow">Your account · Connections</p><h2 id="mcp-title">AI tool connections</h2><p class="muted">Bring your library and explicitly shared reet context into the AI tools you use. You choose what each connection can read.</p></div>
     {#if access}<button type="button" class="btn" disabled={busy} onclick={() => setting({ enabled: !access!.enabled }, access!.enabled ? 'All MCP access is paused.' : 'MCP access is enabled.')}>{access.enabled ? 'Pause all access' : 'Enable access'}</button>{/if}
   </div>
   {#if error}<div class="notice bad" role="alert">{error} <button type="button" class="btn quiet" onclick={load} disabled={busy}>Retry</button></div>{/if}

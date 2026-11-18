@@ -274,17 +274,18 @@
   // then More, which holds Skills and the rest there.
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/factory', '/desks', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
-    ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
-    ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & distribution', current: isPrompts }] : []),
-    { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
-    { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
-    ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & distribution', current: isHosting }] : []),
+    ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & tools', current: isLibrary }] : []),
+    ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & tools', current: isPrompts }] : []),
+    { href: '/profiles', label: 'Setups', group: 'Skills & tools', current: isProfiles },
+    { href: '/shared', label: 'Lists', group: 'Skills & tools', current: isShared || isList },
+    ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & tools', current: isHosting }] : []),
+    ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }] : []),
+    { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
+    // An open instance has no account menu.
+    ...(authMode === 'none' ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: DOCS_URL, label: 'Documentation', group: 'Help & community', current: false },
-    ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }] : []),
-    { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
-    ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
   // Every routed page's header reads the current page's group from here (the getter keeps it current as `more` changes).
   // Signed out, a public page names its group but has no siblings to offer (the other pages need a sign-in), so it gets the label only.
@@ -1054,7 +1055,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1099,7 +1100,10 @@
             name={currentUser?.name ?? ''}
             email={currentUser?.email ?? ''}
             accounts={authMode === 'accounts'}
-            active={isAccount || (authMode === 'accounts' && isActivity) || isNotifications}
+            personalCurrent={isAccount || (authMode === 'accounts' && isActivity)}
+            instanceAdmin={isAdminUser}
+            adminCurrent={isAdmin}
+            notificationsCurrent={isNotifications}
             unread={unreadNotifications}
             onsignout={signOut}
           />
@@ -1279,10 +1283,10 @@
     {/await}
   {:else if isPrompts}
     {#if authMode !== 'accounts'}
-      <PageHeader group="Skills & distribution" title="Prompts need an account." />
+      <PageHeader group="Skills & tools" title="Prompts need an account." />
       <p class="notice bad" role="status">Sign in with an account to keep prompts and use them in a session.</p>
     {:else if !canWrite}
-      <PageHeader group="Skills & distribution" title="Prompts need a writer account." />
+      <PageHeader group="Skills & tools" title="Prompts need a writer account." />
       <p class="notice bad" role="status">Your role can read the workspace, but prompts are saved with a writer's account.</p>
     {:else}
       {#await pages.Prompts()}

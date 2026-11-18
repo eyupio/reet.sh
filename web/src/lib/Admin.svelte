@@ -30,7 +30,7 @@
   const sections = [
     { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
     ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
-    ...(supportDesk ? [{ key: 'support', label: 'Support' }] : []), { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, ...(role === 'owner' ? [{ key: 'move', label: 'Move' }] : []), { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
+    ...(supportDesk ? [{ key: 'support', label: 'Support' }] : []), { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, ...(role === 'owner' ? [{ key: 'move', label: 'Move' }] : []), { key: 'settings', label: 'Instance settings' }, { key: 'activity', label: 'Activity' },
   ]
   const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
   const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'
@@ -46,7 +46,7 @@
     email: 'Set the one mail server every message goes through, and watch the outbox.',
     backups: 'Protect the whole instance with encrypted backups.',
     move: 'Move this controller to another machine or bring an existing controller here.',
-    settings: 'Configure background jobs, sharing and usage privacy.',
+    settings: 'Set background jobs, sharing rules and usage privacy for this instance.',
     activity: 'Recent changes across the instance.',
   }
   const isOwner = $derived(role === 'owner')
@@ -536,7 +536,7 @@
 {/snippet}
 
 <div class="admin">
-  <PageHeader group="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} sectionsLabel="Admin" sections={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
+  <PageHeader group="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} sectionsLabel="Instance administration" sections={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
 
   {#if loading}
     <Skeleton label="Loading the administration page…" shape="cards" count={3} />
@@ -928,7 +928,7 @@
             <button type="submit" form="admin-settings-form" class="btn primary" disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
           {/snippet}
           {#snippet toolbar()}
-            <p class="note">These apply to the whole instance. The owner and administrators can still choose their own notification and approval defaults.</p>
+            <p class="note">These settings apply to everyone on this instance. Only the owner can change the settings in this form.</p>
           {/snippet}
           <form id="admin-settings-form" class="instance-settings" onsubmit={save}>
             <fieldset>

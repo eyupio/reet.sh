@@ -49,7 +49,7 @@ try {
 
     // Sync belongs to Machines, not More.
     await page.getByRole('button', { name: /^More/ }).first().click()
-    const more = page.getByRole('dialog', { name: 'More' })
+    const more = page.getByRole('navigation', { name: 'More pages' })
     await expect(more.getByRole('link', { name: 'Sync', exact: true })).toHaveCount(0)
     await expect(more.getByRole('link', { name: 'Write a skill', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')

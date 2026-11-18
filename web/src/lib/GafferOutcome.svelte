@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Give Gaffer an outcome. Gaffer proposes the sessions, the person edits and approves the plan, and only then does the
+  // Gaffer proposes the sessions, the person edits and approves the plan, and only then does the
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, untrack } from 'svelte'
@@ -363,13 +363,13 @@
   onMount(() => () => clearInterval(watching))
 </script>
 
-<WorkspaceDialog title="Give Gaffer an outcome" {onclose}>
+<WorkspaceDialog title="New Factory outcome" {onclose}>
   <div class="outcome">
     <ol class="steps" aria-label="Steps">
       {#each [['objective','Outcome'],['plan','Plan'],['results','Start']] as [id,name],index (id)}<li aria-current={step===id?'step':undefined} class:done={['objective','plan','results'].indexOf(step)>index}><span class="n">{index+1}</span>{name}</li>{/each}
     </ol>
     {#if step === 'objective'}
-      <p>Say what you want done. Gaffer proposes the sessions to start; nothing starts until you approve the plan.</p>
+      <p>Describe the result you want. Gaffer can draft the plan for your approval. Once you start it, track the work in Factory.</p>
       {#if loading}<p role="status">Reading your projects…</p>
       {:else if loadError}<p class="warning" role="alert">{loadError}</p>
       {:else}

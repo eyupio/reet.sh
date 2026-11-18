@@ -11,7 +11,7 @@ try {
       ['/machines', 'Machines', 'rows', true, /^Machines$/],
       ['/signin', 'AccountSignIn', 'auth', false, /Sign in/],
       ['/welcome', 'AccountSignIn', 'auth', false, /Sign in/],
-      ['/account', 'Account', 'form', true, /Sam/],
+      ['/account', 'Account', 'form', true, /^Profile$/],
     ]) {
       const { context, page, errors } = await openWorkspace(browser, { width, theme, ...(!signedIn ? { status: { user: null } } : {}) })
       await context.addInitScript(theme => localStorage.setItem('reet-theme', theme), theme)

@@ -100,7 +100,7 @@ async function open({viewport = {width:1280, height:900}, touch = false, user = 
   await page.goto(`${base}/account/profile#agents`)
   await expect(page.getByRole('heading', {name:'Agents', level:2})).toBeVisible()
   await expect(page).toHaveURL(`${base}/account/agents`)
-  await expect(page.locator('nav[aria-label="Account"] a[href="/account/agents"]').first()).toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('nav[aria-label="Personal settings"] a[href="/account/agents"]').first()).toHaveAttribute('aria-current', 'page')
   return {context, page, errors, unmocked}
 }
 

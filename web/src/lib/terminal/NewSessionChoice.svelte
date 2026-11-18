@@ -20,7 +20,7 @@
   <div class="choice">
     <button type="button" class="option" aria-label="Agent session" onclick={() => onchoose('agent')}><strong>Agent session</strong><span>Give an agent a brief and let it work in a folder.</span></button>
     <button type="button" class="option" aria-label="Terminal session" onclick={() => onchoose('terminal')}><strong>Terminal session</strong><span>A shell on the machine, with no agent.</span></button>
-    {#if factory}<button type="button" class="option" aria-label="Factory outcome" onclick={() => onchoose('factory')}><strong>Factory outcome</strong><span>Hand Gaffer an outcome. It plans the pipelines, you approve, and it runs each one to the finish.</span></button>{/if}
+    {#if factory}<button type="button" class="option" aria-label="Factory outcome" onclick={() => onchoose('factory')}><strong>Factory outcome</strong><span>Give Gaffer a goal, approve the plan and follow the work in Factory.</span></button>{/if}
   </div>
 </WorkspaceDialog>
 

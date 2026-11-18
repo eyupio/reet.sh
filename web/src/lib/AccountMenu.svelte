@@ -2,11 +2,14 @@
   import { applyTheme, saveProfile } from './api'
   import ThemePicker from './ThemePicker.svelte'
 
-  let { name = '', email = '', accounts = true, active = false, unread = 0, onsignout }: {
+  let { name = '', email = '', accounts = true, personalCurrent = false, instanceAdmin = false, adminCurrent = false, notificationsCurrent = false, unread = 0, onsignout }: {
     name?: string
     email?: string
     accounts?: boolean
-    active?: boolean
+    personalCurrent?: boolean
+    instanceAdmin?: boolean
+    adminCurrent?: boolean
+    notificationsCurrent?: boolean
     unread?: number
     onsignout: () => void
   } = $props()
@@ -59,7 +62,7 @@
 
 <div class="account" bind:this={root}>
   <details bind:this={menu} ontoggle={() => { if (menu?.open) previousTheme = currentTheme() }}>
-    <summary class:active aria-label={`Account menu for ${label}${unread > 0 ? `, ${unread} unread notifications` : ''}`}>
+    <summary class:active={personalCurrent || adminCurrent || notificationsCurrent} aria-label={`Account menu for ${label}${unread > 0 ? `, ${unread} unread notifications` : ''}`}>
       <span class="avatar" aria-hidden="true">{initials}{#if unread > 0}<span class="badge">{unreadLabel}</span>{/if}</span>
       <span class="who"><strong>{name || 'Your account'}</strong>{#if email}<small>{email}</small>{/if}</span>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg>
@@ -69,9 +72,18 @@
         <strong>{name || 'Your account'}</strong>
         {#if email}<span>{email}</span>{/if}
       </div>
+      {#if accounts}
+        <a class="settings-link" href="/account/profile" aria-current={personalCurrent ? 'location' : undefined}>
+          <span>Personal settings</span><small>Applies to your account</small>
+        </a>
+      {/if}
+      {#if instanceAdmin}
+        <a class="settings-link" href="/admin/overview" aria-current={adminCurrent ? 'location' : undefined}>
+          <span>Instance administration</span><small>Applies to everyone on this instance</small>
+        </a>
+      {/if}
       <div class="theme"><ThemePicker onchoose={saveTheme} /></div>
-      <a href="/notifications">Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
-      {#if accounts}<a href="/account/profile">Account &amp; preferences</a>{/if}
+      <a href="/notifications" aria-current={notificationsCurrent ? 'page' : undefined}>Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
       <button type="button" onclick={signOut}>Sign out</button>
     </div>
   </details>
@@ -106,7 +118,7 @@
   }
   .panel {
     position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
-    min-width: 240px; max-height: calc(100dvh - 90px); overflow: auto;
+    width: min(280px, calc(100vw - 32px)); max-height: calc(100dvh - 90px); overflow: auto;
     padding: 8px; border: 1px solid var(--line); border-radius: 12px;
     background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.14);
   }
@@ -118,7 +130,10 @@
     border: 0; border-radius: 8px; background: none; color: var(--ink);
     font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer;
   }
-  .panel a:hover, .panel button:hover { background: var(--tint); }
+  .panel a:hover, .panel button:hover, .panel a[aria-current] { background: var(--tint); }
+  .panel .settings-link { display: grid; justify-items: start; gap: 2px; }
+  .settings-link span { font-weight: 600; }
+  .settings-link small { color: var(--muted); font-size: .875rem; }
   .theme { display: flex; justify-content: center; padding: 8px 4px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
   @media (pointer: coarse) {
     summary { min-width: 44px; min-height: 44px; }

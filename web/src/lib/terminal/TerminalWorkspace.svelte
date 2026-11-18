@@ -743,7 +743,7 @@
 {/snippet}
 {#snippet startActions()}
   <div class="ended-actions">
-    {#if $gafferChatEntry}<a class="btn primary ended-cta" href="/factory?outcome=1">✦ Give Gaffer an outcome</a>{/if}
+    {#if $gafferChatEntry}<a class="btn primary ended-cta" href="/factory?outcome=1">✦ New Factory outcome</a>{/if}
     <button type="button" class="btn primary ended-cta" disabled={!machines.length || accountActive>=SESSIONS_PER_ACCOUNT} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
     <button type="button" class="btn primary ended-cta" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>✦ Start a new Terminal session</button>
   </div>

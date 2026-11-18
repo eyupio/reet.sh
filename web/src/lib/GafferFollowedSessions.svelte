@@ -163,7 +163,7 @@
     {#if bulkNotice}<p role="status">{bulkNotice}</p>{/if}
     {#if error}<p role="alert" class="warning">{error}</p>{#if view}<p class="muted">Showing the last successful read. Refresh to check for changes.</p>{/if}{/if}
     {#if loading}<p role="status">Reading the job sheet…</p>
-    {:else if !rows.length&&!candidates.length&&!error}<div class="empty" class:inline-empty={inline}><h3>Nowt on the job sheet yet.</h3><p>{inline ? 'Sessions you start yourself appear here, ready for Gaffer to look after.' : 'Give Gaffer an outcome above, or start an agent in Chat and it appears here, ready to be looked after. Opening this view starts nothing.'}</p>{#if inline}<a class="btn" href="/#launch">Start a session</a>{/if}{#if sessionsError}<p class="warning">{sessionsError}</p>{/if}</div>
+    {:else if !rows.length&&!candidates.length&&!error}<div class="empty" class:inline-empty={inline}><h3>Nowt on the job sheet yet.</h3><p>{inline ? 'Sessions you start yourself appear here, ready for Gaffer to look after.' : 'Create a Factory outcome above, or start an agent in Chat and it appears here, ready to be looked after. Opening this view starts nothing.'}</p>{#if inline}<a class="btn" href="/#launch">Start a session</a>{/if}{#if sessionsError}<p class="warning">{sessionsError}</p>{/if}</div>
     {:else if !visible.length&&!(showCandidates&&candidates.length)&&!error}<p>{filter==='idle'?'Every running chat is already on the job sheet.':'No sessions here that Gaffer looks after.'}</p>
     {:else if visible.length}<ul class="goals" aria-label="Sessions Gaffer looks after">
       {#each visible as row (row.goal.conversationId)}{@const g=row.goal}{@const owned=outcomeOf(g.text)}{@const part=outcomePart(g.text)}{@const title=row.session?.title||`Session · ${g.sessionId.slice(-8)}`}<li class:attention={row.attention}>
@@ -216,7 +216,7 @@
     <div class="own">
       <GafferCompanionAvatar size={48}/>
       <div class="own-copy"><p class="own-title">Hand Gaffer the outcome, not the chores.</p><p class="muted">Gaffer plans the sessions, you approve, and it follows each one to the finish.</p></div>
-      <button class="btn primary" type="button" bind:this={outcomeButton} onclick={()=>outcomeOpen=true}>Give Gaffer an outcome</button>
+      <button class="btn primary" type="button" bind:this={outcomeButton} onclick={()=>outcomeOpen=true}>New Factory outcome</button>
     </div>
     {#if outcomes.length}<section class="outcomes" aria-label="Outcomes">
       <h3>Outcomes</h3>

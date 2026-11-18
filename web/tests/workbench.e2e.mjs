@@ -36,12 +36,16 @@ try {
       await page.goto(base)
       const start = workbench(page)
       await expect(start).toBeVisible()
-      // One line and the ways to start: no cards, pictures or explanations.
+      // Quick-start buttons and a single explanation of where Factory work goes.
       await expect(start.getByRole('article')).toHaveCount(0)
       await expect(start.getByRole('img')).toHaveCount(0)
       await expect(start.getByRole('heading')).toHaveText(['Nothing in flight.'])
       const buttons = start.locator('.choices .btn')
-      await expect(buttons).toHaveText(['Give Gaffer an outcome', 'Start a session', 'Open terminal'])
+      await expect(buttons).toHaveText(['New Factory outcome', 'Start an agent session', 'Open terminal'])
+      await expect(page.getByRole('button', { name: 'New Factory outcome', exact: true })).toHaveCount(1)
+      await expect(start).toContainText('follow the work in Factory')
+      await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Start an agent session', exact: true })).toHaveCount(1)
       const styles = await buttons.evaluateAll(elements => elements.map(el => { const css = getComputedStyle(el), box = el.getBoundingClientRect(); return { background: css.backgroundColor, color: css.color, radius: css.borderRadius, padding: css.padding, height: box.height } }))
       expect(styles[1]).toEqual(styles[0]); expect(styles[2]).toEqual(styles[0])
       expect(styles[0].height).toBeGreaterThanOrEqual(44)
@@ -54,9 +58,9 @@ try {
       await page.screenshot({ path: `${shots}/home-${width}-${theme}.png`, fullPage: true })
 
       // Factory starts directly from Home. Merely opening or dismissing the composer makes no model or session write.
-      const factory = start.getByRole('button', { name: 'Give Gaffer an outcome', exact: true })
+      const factory = start.getByRole('button', { name: 'New Factory outcome', exact: true })
       await factory.click()
-      const outcome = page.getByRole('dialog', { name: 'Give Gaffer an outcome', exact: true })
+      const outcome = page.getByRole('dialog', { name: 'New Factory outcome', exact: true })
       await expect(outcome.getByRole('textbox', { name: 'Outcome', exact: true })).toBeVisible()
       expect(new URL(page.url()).pathname).toBe('/')
       expect(w.writes).toEqual([])
@@ -64,7 +68,7 @@ try {
       await expect(outcome).toHaveCount(0)
       await expect(factory).toBeFocused()
 
-      await start.getByRole('button', { name: 'Start a session', exact: true }).click()
+      await start.getByRole('button', { name: 'Start an agent session', exact: true }).click()
       await expect(page.getByRole('dialog', { name: 'Start an agent', exact: true })).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(page.getByRole('dialog', { name: 'Start an agent', exact: true })).toHaveCount(0)
@@ -80,6 +84,8 @@ try {
       await page.reload()
       await expect(planning).toHaveAttribute('aria-pressed', 'true')
       await expect(workbench(page)).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'New Factory outcome', exact: true })).toBeVisible()
       expect(w.writes).toEqual([])
 
       await page.goto(`${base}/factory`)
@@ -94,11 +100,11 @@ try {
       expect(await noSideways(page)).toBe(true)
       await page.screenshot({ path: `${shots}/factory-${width}-${theme}.png`, fullPage: true })
       expect(w.writes).toEqual([])
-      await welcome.getByRole('button', { name: 'Give Gaffer an outcome', exact: true }).click()
+      await welcome.getByRole('button', { name: 'New Factory outcome', exact: true }).click()
       await expect(outcome.getByRole('textbox', { name: 'Outcome', exact: true })).toHaveValue('')
       await page.keyboard.press('Escape')
       await expect(outcome).toHaveCount(0)
-      await expect(welcome.getByRole('button', { name: 'Give Gaffer an outcome', exact: true })).toBeFocused()
+      await expect(welcome.getByRole('button', { name: 'New Factory outcome', exact: true })).toBeFocused()
       expect(w.writes).toEqual([])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }

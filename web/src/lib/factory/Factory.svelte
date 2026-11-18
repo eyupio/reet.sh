@@ -129,7 +129,7 @@
     setRailWidth(width)
     try { localStorage.setItem('reet.rail.width', String(railWidth)) } catch { /* The rail keeps its width for this page. */ }
   }
-  // Give Gaffer an outcome: in the project the page is narrowed to, or the one whose + was pressed.
+  // Open the composer in the project the page is narrowed to, or the one whose + was pressed.
   function openOutcome(project = scope?.kind === 'project' ? scope.id : '', objective = '') { outcomeProject = project; outcomeObjective = objective; outcomeOpen = true }
   const listed = $derived((showArchived ? records : floor).filter(inScope))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
@@ -526,11 +526,11 @@
 <div class="factory" class:split={board && !narrow} class:reading={detailOpen}>
   {#if !detailOpen}
     <header class="top">
-      <div class="identity"><h1>Factory</h1>{#if records.length}<p class="counts">{count('waiting')} waiting for you · {count('working')} working · {count('finished')} finished</p>{/if}</div>
+      <div class="identity"><h1>Factory</h1><p class="factory-purpose">Track the work Gaffer plans and follows for you.</p>{#if records.length}<p class="counts">{count('waiting')} waiting for you · {count('working')} working · {count('finished')} finished</p>{/if}</div>
       <div class="top-actions">
         {#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}
-        <a class="btn quiet" href="/account/gaffer">Gaffer settings</a>
-        {#if loading || error || records.length || scope}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>Give Gaffer an outcome</button>{/if}
+        <a class="btn quiet" href="/account/gaffer">Your Gaffer settings</a>
+        {#if loading || error || records.length || scope}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>New Factory outcome</button>{/if}
       </div>
     </header>
     {#if narrow && (projects ?? []).length}<div class="projects"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} group={scope?.kind === 'group' ? scopeName : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></div>{/if}
@@ -546,7 +546,7 @@
       <ol>
         <li class:done={setup.machine}><span class="tick" aria-hidden="true">{setup.machine ? '✓' : '1'}</span><div><strong>Connect a machine</strong><p>Agents run on your own machines. {#if !setup.machine}<a href="/machines">Add a machine</a>{:else}Connected.{/if}</p></div></li>
         <li class:done={setup.project}><span class="tick" aria-hidden="true">{setup.project ? '✓' : '2'}</span><div><strong>Add a project</strong><p>A folder on that machine for the work, ideally a git repository so each pipeline gets its own worktree. {#if !setup.project}<a href="/">Add a project on Home</a>{:else}Added.{/if}</p></div></li>
-        <li class:done={setup.provider}><span class="tick" aria-hidden="true">{setup.provider ? '✓' : '3'}</span><div><strong>Choose Gaffer’s brains</strong><p>Gaffer needs its own model to plan and to follow the work. Pick one that supports tools and make it the default. {#if !setup.provider}<a href="/account/gaffer">Open Gaffer settings</a>{:else}Chosen.{/if}</p></div></li>
+        <li class:done={setup.provider}><span class="tick" aria-hidden="true">{setup.provider ? '✓' : '3'}</span><div><strong>Choose Gaffer’s model</strong><p>Gaffer needs its own model to plan and to follow the work. Pick one that supports tools and make it the default. {#if !setup.provider}<a href="/account/gaffer">Open Gaffer settings</a>{:else}Chosen.{/if}</p></div></li>
       </ol>
       <p class="hint">Looking after sessions is switched on by default once Gaffer has a provider, and pipelines stop at <strong>Ready to merge</strong> unless you allow auto-merge. Both are in Gaffer settings.</p>
     </div>
@@ -554,7 +554,7 @@
 
   {#if loading}<p role="status">Reading the factory…</p>
   {:else if error && !records.length}<div class="empty"><h2>The factory could not be read.</h2><p>Nothing is shown because nothing was read, not because there is nothing. The page tries again by itself every few seconds.</p><button class="btn" type="button" onclick={() => { loading = true; void load() }}>Try again now</button></div>
-  {:else if scope && !listed.length}<div class="empty"><h2>Nothing in {scopeName} yet.</h2><p>{scope.kind === 'project' ? 'Give Gaffer an outcome and its pipelines for this project appear here.' : 'No outcome has been started in this group’s projects.'}</p>{#if scope.kind === 'project'}<button class="btn primary" type="button" onclick={() => openOutcome()}>Give Gaffer an outcome in {scopeName}</button>{/if}</div>
+  {:else if scope && !listed.length}<div class="empty"><h2>Nothing in {scopeName} yet.</h2><p>{scope.kind === 'project' ? 'Create an outcome to plan and track work for this project.' : 'No outcome has been started in this group’s projects.'}</p>{#if scope.kind === 'project'}<button class="btn primary" type="button" onclick={() => openOutcome()}>New Factory outcome in {scopeName}</button>{/if}</div>
   {:else if !listed.length && shelved.length}<div class="empty"><h2>Nothing on the floor.</h2><p>Every outcome is archived. Show archived to look at them or bring one back.</p></div>
   {:else if !records.length}<FactoryWelcome bind:this={welcome} onstart={() => openOutcome()} />
   {:else}
@@ -590,6 +590,7 @@
 {#if yoloMerge}<ConfirmDialog title={`Let “${yoloMerge.piece.title}” merge by itself on YOLO?`} body="This pipeline’s agent runs on YOLO: it acts without asking you. If it may also merge by itself, nothing stops for you between the code and the merge. It still merges only once every check passes, no review thread is open and there are no conflicts. A merge cannot be undone from here." confirmLabel="Let it merge by itself" oncancel={() => yoloMerge = null} onconfirm={() => { const { record, piece } = yoloMerge!; void mergeMode(record, piece, true, true) }}/>{/if}
 
 <style>
+  .factory-purpose { margin: 4px 0 0; color: var(--muted); font-size: .875rem; }
   /* The rail is the left column on a wide desktop: its saved width, or the 56 px strip while folded. Below that there is no rail. */
   /* --foot is what covers the foot of the screen (a phone's tab bar), without the strip the app keeps for the floating button. */
   .factory-page{--foot:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px))}

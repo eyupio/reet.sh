@@ -220,14 +220,14 @@ report progress. Unsupported channels and providers remain visible limitations.
 ## The Factory
 
 **Factory** is its own page, in the main navigation beside Home. It is where you
-hand Gaffer an outcome and watch it run. Home has **Give Gaffer an outcome**,
+hand Gaffer an outcome and watch it run. Home has **New Factory outcome**,
 and what the Factory needs from you is in Home's **Waiting for you** list,
 among your sessions; an empty Gaffer chat
-offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
+offers **New Factory outcome** and **View Factory**. Opening the page starts
 nothing and makes no model request.
 
 Before the first outcome, the Factory says **No pipelines yet.** and has one
-button, **Give Gaffer an outcome**. It opens the composer, where you describe the
+button, **New Factory outcome**. It opens the composer, where you describe the
 outcome, choose the project and review the plan before work starts. Setup guidance stays visible if a machine,
 project or Gaffer provider is missing.
 
@@ -565,7 +565,7 @@ and an outcome holds at most ten pipelines.
 A new installation sees **Set up your factory** instead: connect a machine, add a
 project, choose Gaffer's model. Each step links to where it is done and ticks off.
 
-### Give Gaffer an outcome
+### New Factory outcome { #give-gaffer-an-outcome }
 
 1. Write the outcome and choose the project. Only agents whose chat is available on
    that project's machine are offered, and the machine must be connected. To work in a
@@ -759,7 +759,7 @@ no shell, GitHub or merge path here.
 
 ### Review followed sessions
 
-The floor reads top to bottom: **Give Gaffer an outcome**, then **Outcomes**,
+The floor reads top to bottom: **New Factory outcome**, then **Outcomes**,
 then **Sessions** with its filters and the actions for the sessions shown, then
 **Not looked after**. Each card is short on purpose. It shows the session, its state,
 the outcome it serves (or the start of its own goal), anything waiting on you in

@@ -7,7 +7,7 @@
   // asks it to (keyboardChrome: Jump, the launch prompt, the session's terminal). More's list is final: Skills (and Activity, only
   // on an instance without accounts: with accounts it is a section of the account page), then Setups, Lists, Community,
   // Support, Teams & organisations and Write a skill (Control and the old Projects page are retired). The session screen uses the slim top bar instead, so its terminal keeps the rows.
-  let { tabs, moreCurrent, moreOpen, hidden, onmore }: { tabs: Tab[]; moreCurrent: boolean; moreOpen: boolean; hidden: boolean; onmore: (opener: HTMLElement) => void } = $props()
+  let { tabs, moreId, moreCurrent, moreOpen, hidden, onmore }: { tabs: Tab[]; moreId: string; moreCurrent: boolean; moreOpen: boolean; hidden: boolean; onmore: (opener: HTMLElement) => void } = $props()
   const icons: Record<string, string> = {
     '/': 'M3 11l9-8 9 8v10H3z',
     '/factory': 'M3 21V10l6 4V10l6 4V4h6v17zM7 17h2M12 17h2M17 17h2',
@@ -25,7 +25,7 @@
       <span>{tab.label}</span>
     </a>
   {/each}
-  <button type="button" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
+  <button type="button" class:current={moreCurrent} popovertarget={moreId} aria-expanded={moreOpen}
     aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={(event) => onmore(event.currentTarget)}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
     <span>More</span>
@@ -51,6 +51,7 @@
   a[aria-current='page']::after, button.current::after {
     content: ''; position: absolute; top: 0; left: 50%; width: 28px; height: 3px; margin-left: -14px; border-radius: 0 0 3px 3px; background: var(--accent-text);
   }
+  button[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 10px; }
   svg { width: 22px; height: 22px; }
   span { white-space: nowrap; }

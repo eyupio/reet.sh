@@ -1,6 +1,6 @@
 # Factory
 
-The **Factory** is the page where you hand [Gaffer](gaffer-ai.md) an outcome and watch it run. You say what you want
+The **Factory** is where you track the work you hand over to [Gaffer](gaffer-ai.md). You say what you want
 done, Gaffer proposes the work as pipelines, you edit and approve the plan, and the controller runs each pipeline
 stage by stage. Factory is a tab beside Home on a controller with accounts sign-in, for any account that can start
 sessions; a read-only account does not have it. Before the first outcome you need a connected machine, a project and a
@@ -17,7 +17,7 @@ starts nothing and makes no model request.
 An **outcome** is what you asked for, in up to 4,000 bytes of plain text, in one project. A **pipeline** is one piece
 of that work, with its own title, brief and stages. Pipelines of an outcome run side by side and cannot see each other.
 
-To start one, choose **Give Gaffer an outcome**:
+To start one, choose **New Factory outcome**:
 
 1. Write the outcome and choose the **Project**, or **A repository from GitHub…** to have a connected machine clone
    one as a [temporary project](projects.md#temporary-projects). Choose the **Agent**, and a **Model** and **Effort**

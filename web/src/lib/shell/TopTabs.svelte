@@ -3,8 +3,8 @@
   // The tabs along the top bar: a nav of links, not an ARIA tablist (each one changes the page). A desktop shows every tab;
   // a tablet shows the bar's tabs (Home, Sessions, Factory, Desks, Machines) and More, which opens the rest. A phone hides this row and uses
   // the bottom tab bar instead. More opens secondary navigation at every width.
-  let { tabs, bar, moreCurrent, moreOpen, onmore }: {
-    tabs: Tab[]; bar: Tab[]; moreCurrent: boolean; moreOpen: boolean; onmore: (opener: HTMLElement) => void
+  let { tabs, bar, moreId, moreCurrent, moreOpen, onmore }: {
+    tabs: Tab[]; bar: Tab[]; moreId: string; moreCurrent: boolean; moreOpen: boolean; onmore: (opener: HTMLElement) => void
   } = $props()
   const inBar = (tab: Tab) => bar.some(b => b.href === tab.href)
 </script>
@@ -13,7 +13,7 @@
   {#each tabs as tab (tab.href)}
     <a href={tab.href} class:wide={!inBar(tab)} aria-current={tab.current ? 'page' : undefined}>{tab.label}</a>
   {/each}
-  <button type="button" class="more" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
+  <button type="button" class="more" class:current={moreCurrent} popovertarget={moreId} aria-expanded={moreOpen}
     aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={(event) => onmore(event.currentTarget)}>More</button>
 </nav>
 
@@ -29,7 +29,7 @@
     content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 0; background: var(--accent-text);
   }
   a:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 8px; }
-  .more { display: flex; }
+  .more[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
   /* Tablet: Home, Sessions, Factory, Desks, Machines and More. */
   @media (max-width: 1099.98px) {
     a.wide { display: none; }

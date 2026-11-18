@@ -50,6 +50,11 @@
 
   const startConnect = location.hash === '#connect-machine'
   let section = $state<Section>(sectionFromHash())
+  const sectionTitle = $derived.by(() => {
+    if (section === 'agents') return 'Agent settings'
+    if (section === 'sso') return 'Single sign-on'
+    return sections.find(item => item.key === section)?.label ?? 'Personal settings'
+  })
   let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
   let sessionsLoading = $state(false)
@@ -83,7 +88,7 @@
 
   onMount(() => {
     history.replaceState(null, '', `/account/${section}`)
-    document.title = `${sections.find(s => s.key === section)?.label ?? 'Account'} · Account · reet.sh`
+    document.title = `${sectionTitle} · Personal settings · reet.sh`
     void loadProfile()
     void loadSso()
     if (section === 'sessions') void loadSessions()
@@ -379,7 +384,7 @@
 <section class="account" aria-labelledby="account-title">
   <div class="idcard">
     <span class="avatar" aria-hidden="true">{initials()}</span>
-    <PageHeader group="Account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} sectionsLabel="Account" sections={accountNav(sections, section)} />
+    <PageHeader group="Personal settings" title={sectionTitle} titleId="account-title" lede={who.name ? `${who.name} · ${who.email}` : who.email} sectionsLabel="Personal settings" sections={accountNav(sections, section)} />
   </div>
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
@@ -391,7 +396,7 @@
         <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
       {/snippet}
       {#snippet toolbar()}
-        <p class="note">Make your workspace feel just reet. These preferences follow you to every browser you sign in from.</p>
+        <p class="note">These preferences apply to your account and follow you across browsers.</p>
       {/snippet}
       <form id="profile-form" class="profile-form" onsubmit={save}>
         <fieldset>
@@ -508,7 +513,7 @@
     </CollectionPanel>
   {:else if section === 'sso'}
     <section class="block" aria-labelledby="sso-title">
-      <h2 id="sso-title">Single sign-on</h2>
+      <h2 id="sso-title">Your sign-in identity</h2>
       {#if !sso?.enabled}
         <p class="muted">Single sign-on is not set up on this instance.</p>
       {:else if sso.linked}

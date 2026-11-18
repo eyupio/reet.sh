@@ -129,7 +129,7 @@ const runs = page => page.getByRole('region', { name: 'Recent runs' })
 const count = panel => panel.getByRole('status').first()
 const tab = (page, name) => page.getByRole('tablist', { name: 'Backup sections' }).getByRole('tab', { name })
 const openAdmin = async (page, label) => {
-  const nav = page.getByRole('navigation', { name: 'Admin', exact: true })
+  const nav = page.getByRole('navigation', { name: 'Instance administration', exact: true })
   await expect(nav).toBeVisible()
   const menu = nav.locator('details.mobile > summary')
   if (await menu.isVisible() && await nav.locator('details.mobile').getAttribute('open') === null) await menu.click()

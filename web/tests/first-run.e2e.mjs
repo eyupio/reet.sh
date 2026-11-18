@@ -15,7 +15,7 @@ try {
   const {context,page,errors} = await open({width})
   await page.goto(`${base}/machines`)
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'More'}).click()
-  const sheet = page.getByRole('dialog',{name:'More'})
+  const sheet = page.getByRole('navigation',{name:'More pages'})
   const panel = await sheet.evaluate(el=>{const r=el.getBoundingClientRect();return{left:r.left,right:r.right,width:innerWidth}})
   expect(panel.left, `More sheet left edge at ${width}px`).toBeGreaterThanOrEqual(0)
   expect(panel.right, `More sheet right edge at ${width}px`).toBeLessThanOrEqual(panel.width)

@@ -57,7 +57,7 @@ const home = {path:'/', extra:homeExtra, ready:async page => { for (const name o
 const sessionsRail = {path:'/sessions?view=list', extra:homeExtra, ready:async page => { for (const name of [SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 const SCREENS = [
  {name:'home', ...home},
- {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
+ {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.getByRole('navigation', {name:'More pages'}).waitFor({timeout:3000}) }},
  {name:'home: jump results', ...home, action:async page => { await page.getByRole('button', {name:'Jump to a session, project, skill or machine'}).click(); await page.getByRole('combobox', {name:'Jump to a session, project, skill or machine'}).fill('abcdefghij'); await page.getByRole('listbox', {name:'Jump results'}).getByRole('option').first().waitFor({timeout:3000}) }},
  {name:'home: launch Change sheet', ...home, action:async page => { await openQuickLaunch(page); await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Change', exact:true}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
  // The launch sheets: a slot's list opened from the Change sheet (the project list, with its Find field), and the status sheet

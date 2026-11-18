@@ -28,9 +28,14 @@ test('real API filters, tags, IDs and pagination preserve all matching results',
   assert.equal(third.has_more, false);
   const tags = await call(client, 'list_tags');
   const backend = tags.items.find(t => t.name === 'Backend');
-  // In use and To test are both Active, which the stage filter reads as 'use'.
+  // Every skill is Active, which the stage filter reads as 'use': the filter
+  // keeps them all, and the Parked (Archived) stage keeps none of them, so the
+  // stage really filters.
   const filtered = await call(client, 'list_skills', { tags: [backend.id], stage: 'use' });
   assert.deepEqual(filtered.items.map(s => s.name).sort(), ['Audit Trail', 'Deploy Guide', 'Metric Watch', 'Test Pilot']);
+  const parked = await call(client, 'list_skills', { tags: [backend.id], stage: 'shelf' });
+  assert.equal(parked.total_count, 0);
+  assert.deepEqual(parked.items, []);
   assert.equal((await call(client, 'get_skill', { id: 'demo/skills/tests' })).name, 'Test Pilot');
   assert.equal((await call(client, 'list_skills', { q: 'does-not-exist' })).total_count, 0);
   assert.equal((await call(client, 'list_skills', { offset: 100 })).next_offset, null);

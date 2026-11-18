@@ -150,11 +150,12 @@ type folderRun struct {
 	linked          bool   // Cursor and OpenCode link to ~/.agents/skills
 	real            string // where it really is; "" until it exists
 	planned         string // where it would be made
+	parent          string // where its parent, which holds its backups, really is
 }
 
 func newFolderRun(home string, i int, root managedRoot) *folderRun {
 	rel := managedFolders[i].Dir
-	f := &folderRun{rel: rel, label: "~/" + rel, dir: filepath.Join(home, filepath.FromSlash(rel)), planned: root.real,
+	f := &folderRun{rel: rel, label: "~/" + rel, dir: filepath.Join(home, filepath.FromSlash(rel)), planned: root.real, parent: root.parent,
 		linked: managedFolders[i].Agent == "cursor" || managedFolders[i].Agent == "opencode"}
 	if root.exists {
 		f.real = root.real
@@ -165,7 +166,7 @@ func newFolderRun(home string, i int, root managedRoot) *folderRun {
 // clearStaging removes what an interrupted install left, only around the
 // folders this pass works in: .reet-private-* staging beside where each is
 // under home and beside where it really is, and a cross-device copy's hidden
-// .<name>.reet-copy-* folder inside it.
+// .reet-copy-* folder inside it (named .<name>.reet-copy-* by earlier agents).
 func (r *reconciler) clearStaging(roots []managedRoot) {
 	beside := map[string]bool{}
 	inside := map[string]bool{}
@@ -197,11 +198,12 @@ func (r *reconciler) clearStaging(roots []managedRoot) {
 }
 
 // writable refuses to write into a folder that is not one this pass works
-// in, or that has moved since the pass started: the last guard that reet
-// writes only inside the managed folders.
+// in, or that has moved since the pass started, or whose parent has, where
+// its backups and fallback staging go: the last guard that reet writes only
+// inside and beside the managed folders.
 func (r *reconciler) writable(f *folderRun) error {
 	real, err := resolveLinks(f.dir)
-	if err != nil || f.real == "" || real != f.real || !r.allowed[real] {
+	if err != nil || f.real == "" || real != f.real || !r.allowed[real] || resolvePath(filepath.Dir(f.dir)) != f.parent {
 		return errors.New(f.label + " changed while reet was working on it; it is tried again next time")
 	}
 	return nil

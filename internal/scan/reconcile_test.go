@@ -1474,15 +1474,91 @@ func TestReconcileStagesBesideTheFolderWhenItsRealParentIsClosed(t *testing.T) {
 func TestReconcileCleansStagingBesideALinkedFolder(t *testing.T) {
 	home := t.TempDir()
 	elsewhere := filepath.Join(home, "dotfiles", "editors", "cursor", "skills")
-	// A cross-device copy cut short leaves its hidden folder inside.
-	mkdirs(t, home, "dotfiles/editors/cursor/skills/.alpha.reet-copy-5", "dotfiles/editors/cursor/.reet-private-9")
+	// A cross-device copy cut short leaves its hidden folder inside, named
+	// by an earlier agent after the skill, or now apart from it.
+	mkdirs(t, home, "dotfiles/editors/cursor/skills/.alpha.reet-copy-5", "dotfiles/editors/cursor/skills/.reet-copy-6", "dotfiles/editors/cursor/.reet-private-9")
 	symlink(t, elsewhere, filepath.Join(home, ".cursor", "skills"))
 	reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1"}, map[string]string{}, (&stubBundles{}).fetch, reconcileNow)
 	if left := stagingLeft(t, home); len(left) != 0 {
 		t.Fatalf("staging left: %v", left)
 	}
-	if _, err := os.Lstat(filepath.Join(elsewhere, ".alpha.reet-copy-5")); !os.IsNotExist(err) {
-		t.Fatal("a cut-short copy was left")
+	for _, cut := range []string{".alpha.reet-copy-5", ".reet-copy-6"} {
+		if _, err := os.Lstat(filepath.Join(elsewhere, cut)); !os.IsNotExist(err) {
+			t.Fatalf("a cut-short copy was left: %s", cut)
+		}
+	}
+}
+
+// A copy moved across devices is made in a hidden folder named apart from
+// the skill, so a name as long as a skill name may be still fits.
+func TestReconcileInstallsALongNameAcrossDevices(t *testing.T) {
+	home := t.TempDir()
+	was := renameEntry
+	t.Cleanup(func() { renameEntry = was })
+	renameEntry = func(src, dest string) error {
+		return &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
+	}
+	name := strings.Repeat("a", 250)
+	a, aFiles := skillBundle(t, name, "long")
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{name: aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{}, stub.fetch, reconcileNow)
+	if e := entryOf(t, rep, "~/.agents/skills", name); e.State != "installed" {
+		t.Fatalf("entry %+v", e)
+	}
+	shared := filepath.Join(home, ".agents", "skills")
+	if got := folderDigest(t, filepath.Join(shared, name)); got != a.Digest {
+		t.Fatal("reet's copy is not in place")
+	}
+	if entries, _ := os.ReadDir(shared); len(entries) != 1 {
+		t.Fatalf("left %v", entries)
+	}
+}
+
+// A folder whose parent is pointed elsewhere while the pass runs, though the
+// folder still resolves to where it was, gets nothing more: its backups and
+// fallback staging would land in the parent's new place.
+func TestReconcileBacksUpNothingBesideAParentRepointedMidPass(t *testing.T) {
+	home := t.TempDir()
+	skills := filepath.Join(home, "dotfiles", "claude-skills")
+	writeSkill(t, filepath.Join(skills, "gone"))
+	for _, parent := range []string{"claude-a", "claude-b"} {
+		symlink(t, skills, filepath.Join(home, parent, "skills"))
+	}
+	claude := filepath.Join(home, ".claude")
+	symlink(t, filepath.Join(home, "claude-a"), claude)
+	before := homeTree(t, filepath.Join(home, "claude-b"))
+	a, aFiles := skillBundle(t, "alpha", "first")
+	was := readBackDigest
+	t.Cleanup(func() { readBackDigest = was })
+	moved := false
+	readBackDigest = func(p string) (string, error) {
+		// Claude's copy is staged beside its real folder: point ~/.claude
+		// at the other parent now.
+		if !moved && strings.Contains(p, string(filepath.Separator)+"dotfiles"+string(filepath.Separator)) {
+			moved = true
+			if err := os.Remove(claude); err != nil {
+				t.Error(err)
+			}
+			if err := os.Symlink(filepath.Join(home, "claude-b"), claude); err != nil {
+				t.Error(err)
+			}
+		}
+		return privateSkillDigest(p)
+	}
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	d := store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}, Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}}
+	rep, _ := reconcileSkills(context.Background(), home, d, map[string]string{}, stub.fetch, reconcileNow)
+	if !moved {
+		t.Fatal("the parent was never pointed elsewhere")
+	}
+	sameTree(t, "claude-b", before, homeTree(t, filepath.Join(home, "claude-b")))
+	if _, err := os.Stat(filepath.Join(skills, "gone", "SKILL.md")); err != nil {
+		t.Fatalf("gone was moved: %v", err)
+	}
+	for _, name := range []string{"alpha", "gone"} {
+		if e := entryOf(t, rep, "~/.claude/skills", name); e.State != "failed" || !strings.Contains(e.Detail, "changed while reet was working") {
+			t.Fatalf("entry %+v", e)
+		}
 	}
 }
 

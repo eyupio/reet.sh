@@ -417,3 +417,27 @@ func TestBackupCopyLeavesWhatAnotherProcessWritesAlone(t *testing.T) {
 		}
 	}
 }
+
+// Across devices, a backup and its restore copy through a hidden folder
+// named apart from the skill, so a long name still fits.
+func TestBackupAndRestoreALongNameAcrossDevices(t *testing.T) {
+	was := renameEntry
+	t.Cleanup(func() { renameEntry = was })
+	renameEntry = func(src, dest string) error {
+		return &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
+	}
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	name := strings.Repeat("b", 240)
+	writeSkill(t, filepath.Join(folder, name))
+	if _, err := backupSkill(folder, name, backupNow); err != nil {
+		t.Fatal(err)
+	}
+	got, err := restoreBackup(home, name, "")
+	if err != nil || got != filepath.Join(folder, name) {
+		t.Fatalf("restore = %q, %v", got, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(got, "SKILL.md")); err != nil || string(b) != "body" {
+		t.Fatalf("restored %q %v", b, err)
+	}
+}

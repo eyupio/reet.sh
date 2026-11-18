@@ -153,10 +153,11 @@ func moveEntryCopying(src, dest string) (bool, error) {
 }
 
 // copyEntry copies a file, directory tree or symlink to dest; symlinks stay
-// links. The copy is made in a hidden folder beside dest and moved in only
-// when it is complete and nothing is at dest by then, so dest never holds a
-// partial copy and whatever another process puts there is left alone. On a
-// failure only that hidden folder is removed.
+// links. The copy is made in a hidden .reet-copy-* folder beside dest and
+// moved in only when it is complete and nothing is at dest by then, so dest
+// never holds a partial copy and whatever another process puts there is left
+// alone. On a failure only that hidden folder is removed. Its name does not
+// grow with dest's, so any name dest's folder can hold can be copied to.
 func copyEntry(src, dest string) error {
 	taken := func() error {
 		_, err := os.Lstat(dest)
@@ -171,7 +172,7 @@ func copyEntry(src, dest string) error {
 	if err := taken(); err != nil {
 		return err
 	}
-	aside, err := os.MkdirTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".reet-copy-")
+	aside, err := os.MkdirTemp(filepath.Dir(dest), ".reet-copy-")
 	if err != nil {
 		return err
 	}

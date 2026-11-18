@@ -251,3 +251,72 @@ func TestTheLatestUpdateIsKeptForEachMachineWhenJobHistoryIsBusy(t *testing.T) {
 		t.Fatalf("wrong jobs: %+v", byAgent)
 	}
 }
+
+// An agent on skills protocol 2 follows the desired state, not jobs: it takes
+// only binary updates, and other jobs queued for it stay where they are.
+func TestClaimUpdateJobTakesOnlyUpdates(t *testing.T) {
+	s, uid, _ := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan, err := s.QueueSyncJob(uid, a.ID, "", "scan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := s.ClaimUpdateJob(uid, a); err != nil || claimed != nil {
+		t.Fatalf("an old-engine job was claimed: %+v %v", claimed, err)
+	}
+	update, err := s.QueueAgentUpdate(uid, a.ID, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused := a
+	paused.Paused = true
+	if claimed, err := s.ClaimUpdateJob(uid, paused); err != nil || claimed != nil {
+		t.Fatalf("a paused machine claimed %+v %v", claimed, err)
+	}
+	claimed, err := s.ClaimUpdateJob(uid, a)
+	if err != nil || claimed == nil || claimed.ID != update.ID || claimed.Status != "running" || claimed.Stage != UpdateStageDownload {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	jobs, err := s.SyncJobsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range jobs {
+		if j.ID == scan.ID && j.Status != "queued" {
+			t.Fatalf("the scan job moved: %+v", j)
+		}
+	}
+}
+
+// An agent carries the skills protocol it last announced; below 2 it gets no
+// skill work and reads needs-update.
+func TestAgentsCarryTheirSkillsProtocol(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	a, secret, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 || agents[0].SkillsProtocol != 0 || agents[0].SkillsState != SkillsNeedUpdate {
+		t.Fatalf("a new enrollment: %+v %v", agents, err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.SyncAgentsFor(uid)
+	if err != nil || agents[0].SkillsProtocol != CurrentSkillsProtocol || agents[0].SkillsState != "" {
+		t.Fatalf("after protocol 2: %+v %v", agents, err)
+	}
+	authed, err := s.AuthenticateSyncAgentBuild(uid, a.ID, secret, "v1.2.0", "")
+	if err != nil || authed.SkillsProtocol != CurrentSkillsProtocol || authed.SkillsState != "" {
+		t.Fatalf("authenticated: %+v %v", authed, err)
+	}
+	authed.SetSkillsProtocol(1)
+	if authed.SkillsProtocol != 1 || authed.SkillsState != SkillsNeedUpdate {
+		t.Fatalf("set below 2: %+v", authed)
+	}
+}

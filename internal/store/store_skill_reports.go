@@ -588,6 +588,17 @@ func (s *Store) NewOnMachinesFor(uid int64) ([]NewSkill, error) {
 	return out, rows.Err()
 }
 
+// LiveLibrarySkillFor reports whether a sighting of a skill called name, or
+// of the shelf skill shelfID, is of a live library skill: one not deleted
+// whose name is name without case, or the one shelfID's shelf row stands for.
+func (s *Store) LiveLibrarySkillFor(uid int64, name, shelfID string) (bool, error) {
+	var live bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND lower(name)=lower(?))
+ OR EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.item_type=? AND i.deleted_at=0)`,
+		uid, LibrarySkill, name, uid, shelfID, LibrarySkill).Scan(&live)
+	return live, err
+}
+
 // SkillActivityFor lists what machines did with skills, newest first.
 func (s *Store) SkillActivityFor(uid int64, limit int) ([]SkillActivity, error) {
 	if limit <= 0 || limit > skillActivityKept {

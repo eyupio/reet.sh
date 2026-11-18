@@ -2,6 +2,7 @@ package scan
 
 import (
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,6 +14,16 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
+
+// olderAgent serves h as a controller sees an agent from before the skills
+// protocol. These tests drive the job-based sync, which only such an agent is
+// given until that sync is removed.
+func olderAgent(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("X-Reet-Skills-Protocol")
+		h.ServeHTTP(w, r)
+	})
+}
 
 func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -33,7 +44,7 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 	}
 	defer st.Close()
 	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
+	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "agent.json")
 	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply"}, io.Discard, "test"); err != nil {
@@ -111,7 +122,7 @@ func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	}
 	defer st.Close()
 	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
+	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "agent.json")
 	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--config", cfg, "--skip-terminal-setup"}, io.Discard, "test"); err != nil {
@@ -158,7 +169,7 @@ func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
 	}
 	defer st.Close()
 	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
+	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "agent.json")
 	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply"}, io.Discard, "test"); err != nil {

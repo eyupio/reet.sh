@@ -15,6 +15,7 @@ import (
 
 func (s *server) registerSyncControl(mux *http.ServeMux) {
 	s.registerRemoteImports(mux)
+	s.registerSkillReconcile(mux)
 	mux.HandleFunc("GET /api/v2/sync/skill-import", s.privateSkillAccess(s.machineSkillImport))
 	mux.HandleFunc("POST /api/v2/sync/skill-import", s.privateSkillAccess(s.machineSkillImport))
 	mux.HandleFunc("POST /api/v2/sync/content-observations/prepare", s.requireWriter(s.contentObservation))
@@ -345,10 +346,16 @@ func (s *server) reportUpdateStage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.agentIdentity(w, r)
+	a, ok := s.skillsAgentIdentity(w, r)
 	if !ok {
 		return
 	}
+	if a.SkillsProtocol >= store.CurrentSkillsProtocol {
+		s.pollSkillsAgent(w, r, a)
+		return
+	}
+	// An agent below the skills protocol keeps the job-based sync until it
+	// is updated.
 	s.importMu.Lock()
 	err := s.st.AdvanceMachineSkillSyncs(s.uid(r), s.role(r))
 	if err == nil {

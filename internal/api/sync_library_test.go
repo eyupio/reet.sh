@@ -159,7 +159,7 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 	if err := st.SetLibraryStatusFor(uid, item.ID, store.SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
+	srv := httptest.NewServer(olderAgents(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts))))
 	defer srv.Close()
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("REET_TOKEN", "")

@@ -127,11 +127,14 @@ func (h *syncContractHarness) handler() http.Handler {
 	api := New(h.st, h.fetcher, "",
 		WithAuthMode(AuthAccounts), WithNotify(&notify.Service{Store: h.st}),
 		WithMaintenance(false), WithRefresh(false), WithTopics(false))
+	// The contract drives the job-based sync, which only agents from before
+	// the skills protocol are given.
+	agents := olderAgents(api)
 	if !h.webUI {
-		return api
+		return agents
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api)
+	mux.Handle("/api/", agents)
 	mux.Handle("/", web.Handler("", web.WithSignedIn(api.SignedIn)))
 	return mux
 }

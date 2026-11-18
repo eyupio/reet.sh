@@ -1524,7 +1524,9 @@ type importItem struct {
 }
 
 // importEntry marks one installed skill as used, keeping existing flags and notes.
-func (s *server) importEntry(userID int64, item importItem, request *http.Request) (string, bool, bool, error) {
+// Without newItems a sighting only joins a live library skill: one of a name
+// the library does not have returns no id and changes nothing.
+func (s *server) importEntry(userID int64, item importItem, newItems bool, request *http.Request) (string, bool, bool, error) {
 	name, source := strings.TrimSpace(item.Name), strings.TrimSpace(item.Source)
 	if name == "" {
 		return "", false, false, errors.New("empty name")
@@ -1604,6 +1606,13 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	}
 	if ignored, err := s.st.IsIgnoredFor(userID, id); err != nil || ignored {
 		return id, false, ignored, err
+	}
+	if !newItems {
+		// Before any shelf row is written: a new one would make a library item.
+		live, err := s.st.LiveLibrarySkillFor(userID, name, id)
+		if err != nil || !live {
+			return "", false, false, err
+		}
 	}
 	_, existed, err := s.st.GetFor(userID, id)
 	if err != nil {
@@ -1728,11 +1737,18 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	itemIDs := map[string]string{}
+	mayCreate := s.scanMakesItems(s.uid(r), in.Machine.Host)
 	handle := func(item importItem) {
-		id, wasCreated, wasIgnored, err := s.importEntry(s.uid(r), item, r)
+		newItems, err := mayCreate(item)
+		id, wasCreated, wasIgnored := "", false, false
+		if err == nil {
+			id, wasCreated, wasIgnored, err = s.importEntry(s.uid(r), item, newItems, r)
+		}
 		switch {
 		case err != nil:
 			errs = append(errs, err.Error())
+		case id == "":
+			// New on a machine: its skills report carries it, not the scan.
 		case wasIgnored:
 			ignoredCount++
 		default:

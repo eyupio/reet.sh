@@ -384,6 +384,12 @@ type SyncAgent struct {
 	LastSeen        int64  `json:"lastSeen"`
 	Paused          bool   `json:"paused"`
 	AutoUpdate      bool   `json:"autoUpdate"`
+
+	// SkillsProtocol is the skills protocol the agent last announced in
+	// X-Reet-Skills-Protocol. Below CurrentSkillsProtocol it gets no skill
+	// work, and SkillsState says so.
+	SkillsProtocol int    `json:"skillsProtocol"`
+	SkillsState    string `json:"skillsState,omitempty"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`
@@ -476,12 +482,31 @@ func (s *Store) EnrollSyncAgentBuild(uid int64, host, version, commit string) (S
 	return a, secret, nil
 }
 
-const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced`
+const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced,skills_protocol`
 
 func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
 	var a SyncAgent
-	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
+	var protocol int
+	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &protocol)
+	a.SetSkillsProtocol(protocol)
 	return a, err
+}
+
+// CurrentSkillsProtocol is the skills protocol of agents that make their
+// skills folders match the desired state and report what they did.
+const CurrentSkillsProtocol = 2
+
+// SkillsNeedUpdate is the SkillsState of an agent below
+// CurrentSkillsProtocol: its skills stay as they are until reet on it is
+// updated.
+const SkillsNeedUpdate = "needs-update"
+
+// SetSkillsProtocol sets the agent's skills protocol and the state it gives.
+func (a *SyncAgent) SetSkillsProtocol(protocol int) {
+	a.SkillsProtocol, a.SkillsState = protocol, ""
+	if protocol < CurrentSkillsProtocol {
+		a.SkillsState = SkillsNeedUpdate
+	}
 }
 
 // SetAgentSkillsProtocolFor records the skills protocol an agent announced in
@@ -489,6 +514,14 @@ func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
 func (s *Store) SetAgentSkillsProtocolFor(uid int64, agentID string, protocol int) error {
 	_, err := s.db.Exec(`UPDATE sync_agents SET skills_protocol=? WHERE id=? AND user_id=?`, protocol, agentID, uid)
 	return err
+}
+
+// HostOnSkillsProtocolFor reports whether the machine named host (compared
+// without case) has an agent on CurrentSkillsProtocol, as last recorded.
+func (s *Store) HostOnSkillsProtocolFor(uid int64, host string) (bool, error) {
+	var on bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE AND skills_protocol=?)`, uid, host, CurrentSkillsProtocol).Scan(&on)
+	return on, err
 }
 
 func (s *Store) SyncAgentsFor(uid int64) ([]SyncAgent, error) {
@@ -690,6 +723,17 @@ func (s *Store) ControlSyncJob(uid int64, id, action, hash string) error {
 	})
 }
 func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
+	return s.claimSyncJob(uid, a, false)
+}
+
+// ClaimUpdateJob is ClaimSyncJob for an agent on CurrentSkillsProtocol, which
+// takes only binary updates: its skills follow the desired state, so any
+// other job queued for it is left where it is.
+func (s *Store) ClaimUpdateJob(uid int64, a SyncAgent) (*SyncJob, error) {
+	return s.claimSyncJob(uid, a, true)
+}
+
+func (s *Store) claimSyncJob(uid int64, a SyncAgent, updatesOnly bool) (*SyncJob, error) {
 	if a.Paused {
 		return nil, nil
 	}
@@ -704,7 +748,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 		if err = tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status='running'`, a.ID).Scan(&running); err != nil || running > 0 {
 			return err
 		}
-		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='queued' AND (?=1 OR NOT EXISTS(SELECT 1 FROM canonical_library_selections c WHERE c.user_id=sync_jobs.user_id AND c.target_id=sync_jobs.target_id)) ORDER BY created_at LIMIT 1`, uid, a.ID, a.LibraryProtocol))
+		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='queued' AND (?=0 OR kind='update') AND (?=1 OR NOT EXISTS(SELECT 1 FROM canonical_library_selections c WHERE c.user_id=sync_jobs.user_id AND c.target_id=sync_jobs.target_id)) ORDER BY created_at LIMIT 1`, uid, a.ID, updatesOnly, a.LibraryProtocol))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}

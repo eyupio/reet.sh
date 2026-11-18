@@ -117,7 +117,8 @@ func cleanReportText(v string, max int) string {
 
 type reportedRow struct{ state, digest, detail string }
 
-// RecordSkillReportFor replaces the machine's rows with the report, adds an
+// RecordSkillReportFor replaces the machine's rows with the report (a row's at
+// stays the time it was first seen in its state), adds an
 // activity line for each change from what it reported before, and records
 // the removals the report confirms. A deleted name is forgotten once every
 // unpaused machine on the new protocol has confirmed it or 30 days have
@@ -130,17 +131,20 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			return errors.New("unknown machine")
 		}
 		prev := map[string]reportedRow{}
-		rows, err := tx.Query(`SELECT folder,lower(name),state,digest,detail FROM machine_skills WHERE user_id=? AND agent_id=?`, uid, agentID)
+		prevAt := map[string]int64{} // when each row was first seen in its present state
+		rows, err := tx.Query(`SELECT folder,lower(name),state,digest,detail,at FROM machine_skills WHERE user_id=? AND agent_id=?`, uid, agentID)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var folder, name string
 			var r reportedRow
-			if err = rows.Scan(&folder, &name, &r.state, &r.digest, &r.detail); err != nil {
+			var seen int64
+			if err = rows.Scan(&folder, &name, &r.state, &r.digest, &r.detail, &seen); err != nil {
 				break
 			}
 			prev[folder+"\x00"+name] = r
+			prevAt[folder+"\x00"+name] = seen
 		}
 		if err == nil {
 			err = rows.Err()
@@ -192,8 +196,14 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			cur := reportedRow{e.State, cleanReportText(e.Digest, 128), cleanReportText(e.Detail, 500)}
 			key := name
 			lname := strings.ToLower(name)
+			// at is the first sighting: a row reported again in the same state
+			// keeps the time it was first seen, not the time of this report.
+			seen := at
+			if old, had := prev[folder+"\x00"+lname]; had && old.state == cur.state {
+				seen = prevAt[folder+"\x00"+lname]
+			}
 			if _, err = tx.Exec(`INSERT INTO machine_skills(user_id,agent_id,folder,name,state,digest,detail,backup,at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,agent_id,folder,name) DO UPDATE SET state=excluded.state,digest=excluded.digest,detail=excluded.detail,backup=excluded.backup,at=excluded.at`,
-				uid, agentID, folder, key, cur.state, cur.digest, cur.detail, cleanReportText(e.Backup, 512), at); err != nil {
+				uid, agentID, folder, key, cur.state, cur.digest, cur.detail, cleanReportText(e.Backup, 512), seen); err != nil {
 				return err
 			}
 			if cur.state != "removed" {

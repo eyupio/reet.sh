@@ -595,3 +595,30 @@ func TestReportTablesKeepNoUnusedColumns(t *testing.T) {
 		t.Fatal("not repeatable", err)
 	}
 }
+
+func TestReportNewOnMachinesKeepsFirstSightingAcrossReports(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	older, newer := reportAgent(t, s, uid, "zeta"), reportAgent(t, s, uid, "alpha")
+	unknown := SkillReportEntry{Folder: "~/.claude/skills", Name: "cq", State: "unknown", Digest: "d1"}
+	reportOf(t, s, uid, older, reportT0, unknown)
+	reportOf(t, s, uid, newer, reportT0.Add(time.Minute), unknown)
+	// Both report again, the first machine last.
+	reportOf(t, s, uid, newer, reportT0.Add(2*time.Minute), unknown)
+	reportOf(t, s, uid, older, reportT0.Add(3*time.Minute), unknown)
+	got, err := s.NewOnMachinesFor(uid)
+	if err != nil || len(got) != 1 || len(got[0].Copies) != 2 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	c := got[0].Copies
+	if c[0].Host != "zeta" || c[0].SeenAt != reportT0.UnixMilli() || c[1].Host != "alpha" || c[1].SeenAt != reportT0.Add(time.Minute).UnixMilli() {
+		t.Fatalf("a later report must not move the first sighting: %+v", c)
+	}
+	// A skill that goes away and comes back is a new sighting.
+	reportOf(t, s, uid, older, reportT0.Add(4*time.Minute))
+	reportOf(t, s, uid, older, reportT0.Add(5*time.Minute), unknown)
+	got, _ = s.NewOnMachinesFor(uid)
+	if len(got) != 1 || got[0].Copies[0].Host != "alpha" || got[0].Copies[1].SeenAt != reportT0.Add(5*time.Minute).UnixMilli() {
+		t.Fatalf("after coming back: %+v", got)
+	}
+}

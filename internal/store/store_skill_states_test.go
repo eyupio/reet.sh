@@ -881,3 +881,41 @@ func TestSkillStatesRestoreInsideGraceKeepsThePreviousStatus(t *testing.T) {
 		t.Fatalf("restore after the grace window: prev %s", got.prevStatus)
 	}
 }
+
+// The undo window is closed at its edge for both Undelete and purge: an item
+// deleted exactly SkillUndoWindow ago is gone, one millisecond inside is not.
+func TestSkillStatesUndoWindowBoundary(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	edge := savedWrittenSkill(t, s, uid, "edge-one", false)
+	inside := savedWrittenSkill(t, s, uid, "inside-one", false)
+	deletedAt := time.UnixMilli(1_900_000_000_000)
+	for _, id := range []string{edge.id, inside.id} {
+		if err := s.DeleteSkillsFor(uid, []string{id}, false, deletedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restore := skillUndoNow
+	defer func() { skillUndoNow = restore }()
+	skillUndoNow = func() int64 { return deletedAt.Add(SkillUndoWindow).UnixMilli() }
+	if err := s.UndeleteSkillsFor(uid, []string{edge.id}); !errors.Is(err, ErrPrivateSkillMissing) {
+		t.Fatalf("exactly at the window: %v", err)
+	}
+	skillUndoNow = func() int64 { return deletedAt.Add(SkillUndoWindow).UnixMilli() - 1 }
+	if err := s.UndeleteSkillsFor(uid, []string{inside.id}); err != nil {
+		t.Fatalf("1 ms inside the window: %v", err)
+	}
+	// Purge uses the same edge.
+	if err := s.PurgeDeletedSkillsFor(uid, deletedAt.Add(SkillUndoWindow-time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillStatesNamed(t, s, uid, "edge-one"); len(got) != 1 {
+		t.Fatal("purge ran 1 ms early")
+	}
+	if err := s.PurgeDeletedSkillsFor(uid, deletedAt.Add(SkillUndoWindow)); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillStatesNamed(t, s, uid, "edge-one"); len(got) != 0 {
+		t.Fatalf("purge must remove an item deleted exactly the window ago: %+v", got)
+	}
+}

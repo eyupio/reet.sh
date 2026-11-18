@@ -15,6 +15,10 @@ var (
 // PurgeDeletedSkillsFor removes its written skill, bundle and revisions.
 const SkillUndoWindow = time.Minute
 
+// skillUndoNow is the clock UndeleteSkillsFor measures the window with; tests
+// replace it to stand exactly on the window's edge.
+var skillUndoNow = now
+
 // SkillRemoval is a name machines back up and remove. Reason is "archived" or
 // "deleted".
 type SkillRemoval struct {
@@ -462,7 +466,7 @@ func (s *Store) UndeleteSkillsFor(uid int64, ids []string) error {
 			if it.deletedAt == 0 {
 				continue
 			}
-			if it.deletedAt <= now()-SkillUndoWindow.Milliseconds() {
+			if it.deletedAt <= skillUndoNow()-SkillUndoWindow.Milliseconds() {
 				return ErrPrivateSkillMissing
 			}
 			if err = undeleteSkillItemTx(tx, uid, it); err != nil {

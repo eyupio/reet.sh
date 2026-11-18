@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -330,5 +331,52 @@ func TestListBackupsLegacyRemovedEntries(t *testing.T) {
 	}
 	if _, err := os.Lstat(removed); !os.IsNotExist(err) {
 		t.Fatal("empty removed-* folder kept")
+	}
+}
+
+// A move between devices copies, and never removes what it finds where it
+// copies to: a copy that appeared there stays, and a copy that fails part-way
+// removes only what it made.
+func TestBackupMoveAcrossDevicesLeavesWhatIsAtItsDestination(t *testing.T) {
+	was := renameEntry
+	t.Cleanup(func() { renameEntry = was })
+	renameEntry = func(src, dest string) error {
+		return &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
+	}
+	root := t.TempDir()
+	folder := filepath.Join(root, "folder")
+	writeSkill(t, folder)
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(folder, link); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, src := range []string{folder, link, file} {
+		dest := filepath.Join(root, "taken-"+filepath.Base(src))
+		writeSkill(t, dest)
+		if err := moveEntry(src, dest); err == nil {
+			t.Fatalf("%s: moved onto a copy that was there", src)
+		}
+		if b, err := os.ReadFile(filepath.Join(dest, "SKILL.md")); err != nil || string(b) != "body" {
+			t.Fatalf("%s: the copy at the destination was touched: %q %v", src, b, err)
+		}
+		if _, err := os.Lstat(src); err != nil {
+			t.Fatalf("%s: the source went: %v", src, err)
+		}
+	}
+	partial := filepath.Join(root, "with-pipe")
+	writeSkill(t, partial)
+	if err := syscall.Mkfifo(filepath.Join(partial, "pipe"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(root, "fresh")
+	if err := copyEntry(partial, dest); err == nil {
+		t.Fatal("copied a named pipe")
+	}
+	if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+		t.Fatalf("a failed copy left what it made: %v", err)
 	}
 }

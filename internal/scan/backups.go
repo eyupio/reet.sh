@@ -136,20 +136,28 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 // moveEntry renames src to dest, falling back to copy-then-remove when the
 // two are on different devices.
 func moveEntry(src, dest string) error {
-	err := os.Rename(src, dest)
-	if err == nil || !errors.Is(err, syscall.EXDEV) {
-		return err
-	}
-	if err = copyEntry(src, dest); err != nil {
-		_ = os.RemoveAll(dest)
-		return err
-	}
-	return os.RemoveAll(src)
+	_, err := moveEntryCopying(src, dest)
+	return err
 }
 
-// copyEntry copies a file, directory tree or symlink; symlinks stay links.
+// moveEntryCopying is moveEntry, also saying whether it had to copy.
+func moveEntryCopying(src, dest string) (bool, error) {
+	err := renameEntry(src, dest)
+	if err == nil || !errors.Is(err, syscall.EXDEV) {
+		return false, err
+	}
+	if err = copyEntry(src, dest); err != nil {
+		return true, err
+	}
+	return true, os.RemoveAll(src)
+}
+
+// copyEntry copies a file, directory tree or symlink to dest; symlinks stay
+// links. dest is created exclusively: if anything is already there it fails
+// and leaves it alone. On a later failure it removes only what it created.
 func copyEntry(src, dest string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	created := false
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -168,9 +176,13 @@ func copyEntry(src, dest string) error {
 			if err != nil {
 				return err
 			}
-			return os.Symlink(link, target)
+			err = os.Symlink(link, target)
+			created = created || err == nil && p == src
+			return err
 		case info.IsDir():
-			return os.Mkdir(target, info.Mode().Perm()|0700)
+			err := os.Mkdir(target, info.Mode().Perm()|0700)
+			created = created || err == nil && p == src
+			return err
 		case info.Mode().IsRegular():
 			in, err := os.Open(p)
 			if err != nil {
@@ -181,6 +193,7 @@ func copyEntry(src, dest string) error {
 			if err != nil {
 				return err
 			}
+			created = created || p == src
 			if _, err = io.Copy(out, in); err != nil {
 				out.Close()
 				return err
@@ -189,7 +202,14 @@ func copyEntry(src, dest string) error {
 		}
 		return fmt.Errorf("cannot back up %s: unsupported file type", p)
 	})
+	if err != nil && created {
+		_ = os.RemoveAll(dest)
+	}
+	return err
 }
+
+// renameEntry is os.Rename; tests replace it to stand for two devices.
+var renameEntry = os.Rename
 
 func isRealDir(p string) bool {
 	st, err := os.Lstat(p)

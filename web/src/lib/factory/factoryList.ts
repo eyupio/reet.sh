@@ -4,7 +4,7 @@ import { track, waitingDecisions } from '../gafferOutcome'
 import type { Need, TrackNode } from '../gafferOutcome'
 
 export type FactorySection = 'waiting' | 'working' | 'finished'
-export type ItemKind = 'decision' | 'approval' | 'merge' | 'stopped' | 'failed' | 'running' | 'queued' | 'done' | 'halted'
+export type ItemKind = 'decision' | 'approval' | 'merge' | 'stopped' | 'failed' | 'running' | 'checking' | 'queued' | 'done' | 'halted'
 export type FactoryItem = {
   id: string
   /** The session the pipeline has in hand, '' when none. */
@@ -25,7 +25,7 @@ export type ListRecord = {
   sessions: {
     key: string; title: string; state: string; sessionState?: string; sessionId?: string; conversationId?: string
     stage?: number; updatedAt: number; note?: string
-    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
+    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; agentState?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
   }[]
 }
 /** The parts of a goal overview the list reads. A `GafferGoalOverview` is one. */
@@ -34,8 +34,8 @@ export type ListGoal = {
   goal: { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean; advice?: { choice: string; why: string; text?: string }; updatedAt: number }
 }
 
-const CHIPS: Record<ItemKind, string> = { decision: 'Decision', approval: 'Approval', merge: 'Ready to merge', stopped: 'Agent stopped', failed: 'Failed', running: 'Running', queued: 'Waiting its turn', done: 'Finished', halted: 'Stopped' }
-const SECTIONS: Record<ItemKind, FactorySection> = { decision: 'waiting', approval: 'waiting', merge: 'waiting', stopped: 'waiting', failed: 'waiting', running: 'working', queued: 'working', done: 'finished', halted: 'finished' }
+const CHIPS: Record<ItemKind, string> = { decision: 'Decision', approval: 'Approval', merge: 'Ready to merge', stopped: 'Agent stopped', failed: 'Failed', running: 'Running', checking: 'Checking', queued: 'Waiting its turn', done: 'Finished', halted: 'Stopped' }
+const SECTIONS: Record<ItemKind, FactorySection> = { decision: 'waiting', approval: 'waiting', merge: 'waiting', stopped: 'waiting', failed: 'waiting', running: 'working', checking: 'working', queued: 'working', done: 'finished', halted: 'finished' }
 
 /** Every pipeline as one item, in record order. `permissions` is the set of session ids that hold a pending permission. */
 export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, ListGoal>, permissions: ReadonlySet<string> = new Set()): FactoryItem[] {
@@ -53,10 +53,18 @@ export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, L
       else if (piece.state === 'waiting') kind = 'queued'
       else kind = 'running'
       const stages = piece.stages ?? []
+      // The pipeline stays "following" between the agent ending its turn and Gaffer reviewing that turn, so its note
+      // still says the stage is under way. The session itself already reads Finished everywhere else; say what is
+      // actually happening instead of Running.
+      const inHand = stages[Math.min(piece.stage ?? 0, stages.length - 1)]
+      if (kind === 'running' && piece.state === 'following' && inHand?.agentState === 'finished') kind = 'checking'
+      const why = decision ? decision.need.why
+        : kind === 'checking' ? `The ${inHand.part ? `“${inHand.part}” part of the ` : ''}${inHand.kind} stage’s agent finished its turn. Gaffer is checking the work before it moves on.`
+        : piece.note ?? ''
       items.push({
         id: `${record.id}.${piece.key}`, sessionId: piece.sessionId ?? '', outcomeId: record.id, key: piece.key, title: piece.title, objective: record.objective, projectId: record.projectId,
         index: index + 1, of: record.sessions.length, section: SECTIONS[kind], kind, chip: CHIPS[kind],
-        why: decision ? decision.need.why : piece.note ?? '',
+        why,
         ...(decision ? { need: decision.need } : {}),
         since: goal?.goal.updatedAt || piece.updatedAt,
         nodes: track(piece), at: stages.length ? Math.min(piece.stage ?? 0, stages.length - 1) : -1,

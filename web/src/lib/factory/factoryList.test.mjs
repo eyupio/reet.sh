@@ -111,3 +111,19 @@ test('a closed section still says what is in it', () => {
   assert.equal(f.sectionSummary([], 'working', 0), '')
   assert.equal(f.sectionSummary(make(at(2)), 'finished', 0), '')
 })
+
+test('a stage whose agent has finished its turn says Gaffer is checking it, not that it runs', () => {
+  const finished = stages(3, 0).map((s, i) => i === 0 ? { ...s, agentState: 'finished' } : s)
+  const working = stages(3, 0).map((s, i) => i === 0 ? { ...s, agentState: 'working' } : s)
+  const record = { id: 'o1', objective: 'x', projectId: 'p', sessions: [
+    piece('a', 'following', { stages: finished, note: 'The plan stage is under way.' }),
+    piece('b', 'following', { stages: working, note: 'The plan stage is under way.' }),
+  ] }
+  const [a, b] = f.factoryItems([record], new Map())
+  assert.equal(a.kind, 'checking')
+  assert.equal(a.section, 'working')
+  assert.equal(a.chip, 'Checking')
+  assert.match(a.why, /finished its turn/)
+  assert.equal(b.kind, 'running')
+  assert.equal(b.why, 'The plan stage is under way.')
+})

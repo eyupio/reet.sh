@@ -226,16 +226,20 @@ try {
    await page.keyboard.press('Tab')
   }
   expect(order).toEqual(['Home','Sessions','Factory','Desks','Machines','Skills'])
-  for (const width of [1100,1280,834,651]) {
+  for (const width of [1100,1280,1099,950,834,799,700,651]) {
    await page.setViewportSize({width,height:812})
+   // The page settles into the new width's layout (Home's rail and columns follow it) before it is measured.
+   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),{message:`no sideways scroll at ${width}px`}).toBe(true)
    const fit = await page.evaluate(()=>{
-    const shown=[...document.querySelectorAll('.top-tabs a,.top-tabs .more')].filter(e=>e.getClientRects().length).map(e=>e.getBoundingClientRect())
-    const jump=document.querySelector('.jump')?.getBoundingClientRect(),bell=document.querySelector('.bell-button')?.getBoundingClientRect()
-    const after=[jump,bell].filter(r=>r&&r.width)
-    return {right:Math.max(...shown.map(r=>r.right)),next:Math.min(...after.map(r=>r.left)),scroll:document.documentElement.scrollWidth<=innerWidth,count:shown.length}
+    const nav=document.querySelector('.shell-bar > .top-tabs')
+    const shown=[...nav.querySelectorAll('a,.more')].filter(e=>e.getClientRects().length).map(e=>e.getBoundingClientRect())
+    const after=[...document.querySelectorAll('.shell-bar > .jump, .shell-bar > .search-button, .shell-bar > .bell')].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.getBoundingClientRect()).filter(r=>r.width)
+    return {right:Math.max(...shown.map(r=>r.right)),next:Math.min(...after.map(r=>r.left)),overflow:nav.scrollWidth-nav.clientWidth,scroll:document.documentElement.scrollWidth<=innerWidth,widths:shown.map(r=>r.width)}
    })
+   expect(fit.overflow, `the tabs fit inside their own box at ${width}px`).toBeLessThanOrEqual(0)
    expect(fit.right, `tabs clear of Jump and the bell at ${width}px`).toBeLessThanOrEqual(fit.next)
-   expect(fit.scroll).toBe(true)
+   for (const w of fit.widths) expect(w, `each tab a 44 px target at ${width}px`).toBeGreaterThanOrEqual(44)
+   expect(fit.scroll, `no sideways scroll at ${width}px`).toBe(true)
   }
   expect(errors).toEqual([])
   await context.close()

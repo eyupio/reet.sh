@@ -20,7 +20,7 @@
 <style>
   .top-tabs { display: flex; align-items: stretch; align-self: stretch; gap: 4px; min-width: 0; }
   a, .more {
-    position: relative; display: flex; align-items: center; min-height: 44px; padding: 0 14px;
+    position: relative; display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 14px;
     border: 0; background: none; color: var(--muted); font: 400 14px/1 var(--sans); text-decoration: none; white-space: nowrap; cursor: pointer;
   }
   a:hover, .more:hover { color: var(--ink); }
@@ -34,7 +34,9 @@
   @media (max-width: 1099.98px) {
     a.wide { display: none; }
     .more { display: flex; }
-    a, .more { padding: 0 14px; font-size: 15px; }
+    /* Six with Desks in the bar: closer together than a desktop's, so they stay clear of Jump and the bell at 834 px. */
+    .top-tabs { gap: 2px; }
+    a, .more { padding: 0 10px; font-size: 15px; }
   }
   /* Six tabs with Desks and More: a small desktop tightens them so none runs under Jump or the bell. */
   @media (min-width: 1100px) and (max-width: 1279.98px) { a, .more { padding: 0 9px; } }

@@ -597,46 +597,65 @@ func TestDirectDialToTheProxyAddressStaysGuarded(t *testing.T) {
 	}
 }
 
+// The index answers at once and every file request then blocks until its own
+// context ends. Nothing but Fetch's deadline can end it: the test client has
+// no timeout of its own, and nothing here sleeps against a timer.
 func TestFetchHasAnOverallDeadline(t *testing.T) {
-	// Every body trickles, so no single request is slow, but the whole Fetch
-	// would take far longer than the limit.
-	release := make(chan struct{})
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "index.json") {
 			w.Write([]byte(`{"skills":[{"name":"demo","files":["SKILL.md"]}]}`))
 			return
 		}
-		w.WriteHeader(200)
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-release:
-				return
-			case <-time.After(10 * time.Millisecond):
-				w.Write([]byte("x"))
-				w.(http.Flusher).Flush()
-			}
-		}
+		<-r.Context().Done()
 	}))
 	defer srv.Close()
-	defer close(release)
 	host := strings.TrimPrefix(srv.URL, "https://")
-	f := Fetcher{Client: srv.Client(), timeout: 200 * time.Millisecond}
-	start := time.Now()
-	_, err := f.Fetch(context.Background(), ref.Ref{Source: host, Slug: "demo", SourceType: "well-known"})
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
-		t.Fatalf("err = %v after %v", err, time.Since(start))
+	r := ref.Ref{Source: host, Slug: "demo", SourceType: "well-known"}
+	f := Fetcher{Client: srv.Client(), timeout: 100 * time.Millisecond}
+	if _, err := f.Fetch(context.Background(), r); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Fetch's own deadline: err = %v", err)
 	}
-	// A shorter deadline of the caller still wins.
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	// A shorter deadline of the caller still wins over a long Fetch timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	f.timeout = time.Hour
-	start = time.Now()
-	if _, err = f.Fetch(ctx, ref.Ref{Source: host, Slug: "demo", SourceType: "well-known"}); !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
-		t.Fatalf("caller deadline: err = %v after %v", err, time.Since(start))
+	if _, err := f.Fetch(ctx, r); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("caller deadline: err = %v", err)
 	}
 }
+
+// A transport that reports a cancelled body as a clean end of file must not
+// make a half-read file look complete.
+func TestFetchCutByDeadlineIsNeverTakenAsComplete(t *testing.T) {
+	cut := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body io.ReadCloser
+		if strings.HasSuffix(req.URL.Path, "index.json") {
+			body = io.NopCloser(strings.NewReader(`{"skills":[{"name":"demo","files":["SKILL.md"]}]}`))
+		} else {
+			body = blockedBody{req.Context()}
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body, Request: req}, nil
+	})
+	f := Fetcher{Client: &http.Client{Transport: cut}, timeout: 50 * time.Millisecond}
+	_, err := f.Fetch(context.Background(), ref.Ref{Source: "example.test", Slug: "demo", SourceType: "well-known", URL: "https://x"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	// The same for a repository archive.
+	gh := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: blockedBody{req.Context()}, Request: req}, nil
+	})
+	f = Fetcher{Client: &http.Client{Transport: gh}, timeout: 50 * time.Millisecond}
+	if _, err = f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("archive: err = %v", err)
+	}
+}
+
+// blockedBody blocks until its context ends, then reports a clean end of file.
+type blockedBody struct{ ctx context.Context }
+
+func (b blockedBody) Read([]byte) (int, error) { <-b.ctx.Done(); return 0, io.EOF }
+func (b blockedBody) Close() error             { return nil }
 
 func TestFetchBuildsOneClientAndClosesItsConnections(t *testing.T) {
 	var built, closed atomic.Int64

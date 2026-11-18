@@ -103,6 +103,11 @@ func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
 		files, origin, err = f.github(ctx, r)
 	}
 	if err != nil {
+		// The deadline is the truth when it has passed: a read it cut short can
+		// surface as an EOF or a damaged archive.
+		if cerr := ctx.Err(); cerr != nil && !errors.Is(err, cerr) {
+			err = fmt.Errorf("fetch skill source: %w", cerr)
+		}
 		return Result{}, err
 	}
 	m, selected, err := skillimport.Select(files, nil)
@@ -285,6 +290,9 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		all[rel] = held{data, h.Mode&0o111 != 0}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, "", fmt.Errorf("fetch skill source: %w", err)
+	}
 	best, ok := pickFolder(skillDirs, all, r.Slug)
 	if !ok {
 		return nil, "", ErrNotFound
@@ -405,6 +413,11 @@ func (f Fetcher) readAll(ctx context.Context, rawURL string, limit int64) ([]byt
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	// A body cut short by the deadline or a cancel can look like a clean end;
+	// it must never be taken as the whole file.
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, fmt.Errorf("fetch skill source: %w", cerr)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("fetch skill source: %w", err)
 	}

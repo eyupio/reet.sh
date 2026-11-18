@@ -1,6 +1,6 @@
 # Skills: Active, Archived, Deleted, and machines that match
 
-Date: 18 November 2026. Status: awaiting the owner's approval.
+Date: 18 November 2026. Status: approved by the owner. Plan: `docs/superpowers/plans/2026-11-18-skills-active-archive.md`.
 
 ## Why
 
@@ -50,8 +50,8 @@ What is true today (18 November 2026, `9c03201`):
 - **Per-machine or per-agent choices.** No skill is on some machines and not others.
 - **Project folders inside repositories.** reet manages agents' home skill folders only. Project folders belong to
   git and are neither scanned for new skills nor written.
-- **Changes to writing a skill, publishing, the session skill picker or Setups**, except that each must keep working
-  once the old engine is gone (see *What is deleted*).
+- **Changes to writing a skill, publishing, the session skill picker or Setups**, beyond what *Places that used
+  the old engine* lists: each must keep working once the old engine is gone.
 - **A classic view or a switch back.** The old Skills page and sync pages are replaced outright; going back is
   reverting the change.
 
@@ -84,6 +84,8 @@ What is true today (18 November 2026, `9c03201`):
 | What an imported skill is | **A reet.sh skill.** Its original link is kept as a reference only, never the source for installing it or for its prompt. |
 | Editing and updating an imported skill | **Editable**, like one you wrote. **Update from original** is on request: it shows what changed and replaces the content only when confirmed; earlier versions stay in its history. |
 | Whether an imported skill is public | **Private until published**, like one you wrote. Its public page credits the original link. |
+| Community **Save** and a list's **Add all to my library** | **An Active / Archived toggle, Active by default.** |
+| Setups and skill folders | **Leave skills to the library.** Setups stop capturing and restoring skill folders. |
 
 ## Approaches considered
 
@@ -272,9 +274,19 @@ embedded UI and agent binary ship in the same release.
 ### Places that used the old engine and need a new path
 
 - **The session skill picker** installs a hosted skill by queuing a preview job and approving its hash
-  (`internal/api/terminal_skills_install.go`, `store_skill_install.go:121`, `web/src/lib/terminal/SkillInstallPanel.svelte`).
-  It now shows the files, as today, then **Add to your skills**, which makes the skill Active everywhere. It lists
-  Active skills only.
+  (`internal/api/terminal_skills_install.go`, `store_skill_install.go:121`,
+  `web/src/lib/terminal/SkillInstallPanel.svelte`).
+  - It keeps listing what the session's agent can use on that machine: Active skills, plus project and unknown
+    skills found there (`web/src/lib/terminal/skills.ts`).
+  - The *Your skills* group for written skills not yet on the machine goes. Every Active skill is already on every
+    machine, and Archived ones are not offered.
+  - A published skill from someone else shows its files, as today, then **Add to your skills**, which makes it
+    Active everywhere.
+- **Community Save and a list's Add all to my library** (`Community.svelte:42`, `store_lists.go:598`) set To test
+  today. They now offer **Active** or **Archived**, with Active preselected. **Add all** says how many skills and
+  machines first: *Put 12 skills on all 3 machines?*
+- **Setups** (`internal/setup`) stop capturing and restoring skill folders. They keep agent settings and the rest
+  of what they carry. A Setup saved earlier that holds skill folders skips them on restore and says so once.
 - **Written skills** stay library items whose content is their private revision (`store_hosted_sync.go`). Saving
   creates a new revision, which reaches every machine. A new written skill starts Active.
 - **Sync all machines** (`POST /api/v2/sync/library`) goes. There is nothing to start: machines follow the library.
@@ -290,17 +302,24 @@ embedded UI and agent binary ship in the same release.
 
 - In use and To test become **Active**. Parked becomes **Archived**. Skills on the ignore list with reason
   *removed* become **Archived**, so the five left on Elitebook are taken off.
-- A one-time notice on the Skills page: *8 Parked skills are now Archived and were taken off your machines.*
-  **Restore all**.
+- A one-time notice on the Archived tab: *8 Parked skills are now Archived and were taken off your machines.*
+  **Restore the Parked ones** and **Got it**.
 - Likes, notes, tags and lists are kept.
 - Saved per-machine plans, custom folder plans, lists used as sync sources and pending sync jobs are dropped. Every
   machine follows the library from then on.
 - Skills already on a machine that are not in the library appear as **New on a machine**.
 - **The ignore list** (`ignored`, `store.go:248`; enforced only at `api.go:1581`) becomes Archived items. An ignored
   ID with no library item becomes an Archived item with a name and no content. The table then goes.
-- **Duplicate names** that exist today (two linked items with the same name, `docs/skills-single-source.md`) have to
-  become one item per name. The In use copy wins, else the most recently updated one. Tags, notes, likes and list
-  membership move onto it, and the other copies are deleted without touching machines.
+- **Duplicate names** that exist today (`docs/skills-single-source.md`) have to become one item per name. A skill
+  the person wrote wins, then an imported (linked) one, then a copy found on a machine. Among equals, the In use one
+  wins, then the most recently updated. Tags, notes, likes and list membership move onto the winner, and the other
+  copies are deleted from reet without touching machines. Machines then get the winner's files, backing up what
+  they had. This covers an unlinked machine copy against a linked item too; today that copy is only hidden in the
+  view (`oneCanonicalCopyPerName`). A designer's call, after the builder check: written skills enter
+  `library_items` as `to_test` while scans import machine copies as In use (`api.go:1588-1591`), so "In use wins"
+  alone would delete a written skill.
+- **A copy pass.** Every Active or Archived item without content gets one before anything is removed (see *Never
+  removing the only copy*): public ones are fetched, and the rest are captured from a machine that reports them.
 - **Statuses.** Today's `in_use` and `to_test` become `active`; `on_shelf` and `disabled` become `archived`. Whether
   the column is renamed or the values are reused is the builder's call, but the `used` and `bookmarked` flags and
   the triggers that mirror them (`store_canonical_library.go:145-161`) go.
@@ -366,8 +385,8 @@ Both are the owner's decisions, made after the engine map.
   Every machine installs those bytes. Machines no longer need Node or `npx`. This is a new outbound fetch from the
   controller; today it only reads skills.sh pages. The README's *Nothing is sent to skills.sh…* line and
   `SECURITY.md` say so.
-  - **Size and safety limits** are today's private-bundle limits: 2 MiB, 100 supporting files, and the
-    credential-path and key-material checks in `internal/skillimport`.
+  - **Size and safety limits** are the bundle limits in `internal/skillbundle/manifest.go` (8 MiB and 256 files a
+    skill) and the credential-path and key-material checks in `internal/skillimport`.
   - **Failures.** A skill that cannot be fetched (repository gone, too large, rate limited) is added with a visible
     *Couldn't fetch the files · Retry* line, and it reaches no machine until it can be fetched.
 - **reet's copy wins over an edit made on a machine.** When an Active skill's copy on a machine differs from reet's
@@ -377,6 +396,34 @@ Both are the owner's decisions, made after the engine map.
     it.
   - Edits never flow back automatically, so `library_edits.go`, `library_bases`, `library_edit_events` and the
     Differences view go.
+
+## Never removing the only copy
+
+A designer's call, after the builder check, following the owner's rules that every skill is a reet.sh skill and that
+nothing is removed without a backup. Some library items have no content in reet today:
+- machine copies that were never captured (captures refuse folders over 256 files or 8 MiB, or with a bad
+  `SKILL.md`, `store_sync_library.go:316-322`)
+- ignored IDs with no item
+- a *New on a machine* skill being archived
+
+So:
+
+- **Archive copies first.** Archive, the upgrade's Parked → Archived step and *New on a machine* → Archive all
+  capture the files into reet, from a machine that reports them, before the name joins the removal list. Until then
+  the card says *Copying into reet from Elitebook*.
+- **A failed copy stops the removal.** If the copy fails, the skill is Archived in reet but stays on its machines,
+  and the card says *Couldn't copy into reet: {reason}. It stays on Elitebook until you delete it.*
+- **Delete removes regardless.** It asks once when reet holds no copy: *reet has no copy of this skill. Deleting
+  removes it from Elitebook; the machine keeps a backup for 30 days.*
+- **An Active skill with no content is held.** Its machine copies are left alone and it isn't spread to other
+  machines. The card says *Getting a copy from Elitebook*, or why it couldn't.
+- **Storage limits rise** to fit a whole library as reet copies. The owner's instance has 139 skills against a cap
+  of 128 bundles today (`store_private_skills.go:18-22`).
+  - Bundles: 128 → 1,024.
+  - Revisions: 256 → 4,096.
+  - Stored bytes: 64 MiB → 1 GiB.
+  - Superseded revisions are still freed as `docs/private-skill-revisions.md` describes.
+  - The numbers are a designer's call.
 
 ## Every skill is a reet.sh skill
 
@@ -458,11 +505,17 @@ not deleted.
   is offered only on a published skill and points at reet's URL
 - an `edited` report offers **Use this version**, which captures the backup as a new revision that reaches every
   machine
+- Archive of a skill reet has no copy of captures it first and only then removes it; a failed capture keeps it on
+  its machines with the reason; an Active skill with no content is neither spread nor removed
+- the raised storage limits hold a 139-skill library
+- Community Save and Add all honour the Active / Archived choice; a Setup restore skips skill folders and says so
 
 **The upgrade, on a copy of a store with every case:**
 - In use, To test and Parked map to the right states
 - ignored IDs become Archived, with and without a library item
-- duplicate names fold into one item with tags, notes, likes and lists kept
+- duplicate names fold into one item with tags, notes, likes and lists kept, a written skill winning over a
+  machine copy that is In use
+- items without content get the copy pass before any removal
 - selections and targets are dropped, and binary-update jobs survive
 - the upgrade writes nothing to machines
 

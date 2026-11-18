@@ -139,13 +139,14 @@ Queued or awaiting-approval jobs can be cancelled. Running operations are not pr
 
 When the plan, target revision or local files change between a preview and its apply, the machine reports that nothing was written and asks for a fresh plan. The controller answers that request itself: inside a run it queues a fresh automatic preview for the same scope at the same run position and carries on with the remaining scopes; outside a run it queues a fresh job for the same scope, keeping a person's preview a preview and taking an apply through a fresh plan and its additive changes. Either way local drift does not strand the rest of the machine behind a failed card. The attempt is still recorded honestly as failed with **The plan changed before it ran**, and the replacement appears as the live job with a note saying reet is planning again automatically. A scope is retried at most three times in one run, and the same bound applies outside a run, before auto fix stops and **Fix and try again** offers a fresh plan for the person to review. Commands that must run locally — creating a skills folder on an older agent, or `reet agent allow-apply on` — are shown rather than run from the web. Distinct agent scopes may queue read-only previews together. Duplicate previews for a scope are blocked, scans wait for active work, and an active scan or apply blocks new previews. Execution remains serial on each installation. Each preview requires its own approval. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
 
-Removed entries are moved to `.reet-sync-backups/removed-*/SKILL` beside the selected skills directory. Sync activity includes **Copy restore command** for each successfully backed-up removal, including partial failures. Run it on the enrolled machine:
+Before the agent removes or replaces a skill in one of the four managed folders (`~/.agents/skills`, `~/.claude/skills`, `~/.cursor/skills`, `~/.config/opencode/skills`), it moves the old copy into `.reet-backups/YYYY-MM-DD/` beside that folder. Backups older than 30 days are pruned. List and restore them on the machine, with no sync target needed:
 
 ```sh
-reet agent restore --target 'TARGET_ID' --backup '/path/to/.reet-sync-backups/removed-123/skill'
+reet agent restore --list
+reet agent restore NAME [--date YYYY-MM-DD]
 ```
 
-Restore verifies enrollment and backup scope, requires typing the target name, refuses to overwrite an existing skill, takes the target lock, moves the original entry back, and rescans. Review the desired set afterward so the next sync does not remove it again. Symlink entries are restored as symlinks.
+Without `--date`, restore uses the newest date that holds NAME; if that date has it from more than one folder, each is restored. Restore moves the entry back into the folder it came from, refuses to overwrite an existing skill, and restores a symlink as a symlink. Review the desired set afterward so the next sync does not remove it again.
 
 A killed agent or sync may leave a `.lock` file. Check that the relevant process is no longer running before removing that specific stale lock. Keep any `.result` file for acknowledgment/recovery; the agent drops it only when the controller refuses it permanently (for example because that job has already closed). Do not run multiple workers using copied configuration files.
 

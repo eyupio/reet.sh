@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/api"
@@ -96,15 +95,6 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 		t.Fatalf("not converged: %+v", targets)
 	}
 	c, _ := loadAgentConfig(cfg)
-	if err = restoreSkill(c, target, filepath.Dir(backups[0]), strings.NewReader(targets[0].Target.Name+"\n"), io.Discard, "test"); err != nil {
-		t.Fatal("restore:", err)
-	}
-	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "extra", "SKILL.md")); err != nil {
-		t.Fatal("restore missing", err)
-	}
-	if err = restoreSkill(c, target, filepath.Dir(backups[0]), strings.NewReader(targets[0].Target.Name+"\n"), io.Discard, "test"); err == nil {
-		t.Fatal("restore overwrote destination")
-	}
 	c.Hostname = "another-machine"
 	writePrivate(cfg, c)
 	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err == nil {

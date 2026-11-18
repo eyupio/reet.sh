@@ -227,6 +227,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	if action == "follow-moves" {
 		return runAgentFollowMoves(args[1:], out)
 	}
+	if action == "restore" {
+		return runAgentRestore(args[1:], out)
+	}
 	if action == "service" {
 		return runAgentService(args[1:], out)
 	}
@@ -237,8 +240,6 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
 	tokenFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
 	host := fs.String("env", clientconfig.EnvName(), "stable machine name")
-	backup := fs.String("backup", "", "removed skill entry to restore")
-	targetID := fs.String("target", "", "target scope for restore")
 	once := fs.Bool("once", false, "poll once, then exit (useful for a scheduler)")
 	foreground := fs.Bool("foreground", false, "keep the agent attached to this terminal (debugging / supervisors)")
 	supervised := fs.Bool("supervised", false, "run under the installed native service manager")
@@ -364,20 +365,6 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			return err
 		}
 		return runAgentAllowApply(c, *config, applyMode, out)
-	case "restore":
-		c, err := loadAgentConfig(*config)
-		if err != nil {
-			return err
-		}
-		targetValue, err := clientconfig.Require(*targetID, "--target (target scope)", false, in, os.Stderr)
-		if err != nil {
-			return err
-		}
-		backupValue, err := clientconfig.Require(*backup, "--backup (removed skill entry)", false, in, os.Stderr)
-		if err != nil {
-			return err
-		}
-		return restoreSkill(c, targetValue, backupValue, in, out, version)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {

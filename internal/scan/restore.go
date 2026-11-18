@@ -1,103 +1,66 @@
 package scan
 
 import (
-	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/eyupio/reet.sh/internal/store"
 )
 
-func restoreSkill(c agentConfig, targetID, backup string, in io.Reader, out io.Writer, version string) error {
-	var agent store.SyncAgent
-	if err := agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &agent, version); err != nil {
+// runAgentRestore implements `reet agent restore --list` and
+// `reet agent restore <name> [--date YYYY-MM-DD]`. It works on this
+// machine's dated backups and needs no sync target.
+func runAgentRestore(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("agent restore", flag.ContinueOnError)
+	fs.SetOutput(out)
+	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
+	list := fs.Bool("list", false, "list backed-up skills")
+	date := fs.String("date", "", "backup date, YYYY-MM-DD (default: newest)")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
-	target, err := fetchTarget(c.Server, c.Token, targetID)
+	name := ""
+	if fs.NArg() > 0 { // allow flags after the name
+		name = fs.Arg(0)
+		if err := fs.Parse(fs.Args()[1:]); err != nil {
+			return err
+		}
+	}
+	if fs.NArg() != 0 || (*list && name != "") || (!*list && name == "") {
+		return errors.New("usage: reet agent restore --list | reet agent restore NAME [--date YYYY-MM-DD]")
+	}
+	home := ""
+	if c, err := loadAgentConfig(*config); err == nil {
+		home = c.Home
+	}
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		home = h
+	}
+	if *list {
+		entries, err := listBackups(home)
+		if err != nil {
+			return err
+		}
+		if len(entries) == 0 {
+			fmt.Fprintln(out, "No backed-up skills.")
+		}
+		for _, b := range entries {
+			fmt.Fprintf(out, "%s  %s  from %s\n", b.Date, b.Name, b.Folder)
+		}
+		return nil
+	}
+	restored, err := restoreBackup(home, name, *date)
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(target.Target.Host, agent.Host) {
-		return errors.New("target belongs to another enrolled machine")
-	}
-	base := c.Home
-	dirs := homeDirs
-	if target.Target.Project != "" {
-		base = target.Target.Project
-		dirs = projectDirs
-		allowed := false
-		for _, p := range c.Projects {
-			if p == base {
-				allowed = true
-			}
-		}
-		if !allowed {
-			return errors.New("project is not enrolled")
-		}
-	}
-	directory := ""
-	for _, d := range dirs {
-		if d.Agent == target.Target.Agent {
-			directory = filepath.Join(base, d.Dir)
-		}
-	}
-	if directory == "" {
-		return errors.New("unsupported agent scope")
-	}
-	root := filepath.Join(filepath.Dir(directory), ".reet-sync-backups")
-	absolute, err := filepath.Abs(backup)
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(root, absolute)
-	if err != nil {
-		return err
-	}
-	parts := strings.Split(rel, string(filepath.Separator))
-	valid := len(parts) == 2 && strings.HasPrefix(parts[0], "removed-") &&
-		safeSlug.MatchString(parts[1]) && parts[1] != ".."
-	if !valid {
-		return errors.New("choose a removed skill entry from this target's .reet-sync-backups directory")
-	}
-	for _, p := range []string{root, filepath.Dir(absolute)} {
-		st, e := os.Lstat(p)
-		invalid := e != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0
-		if invalid {
-			return errors.New("backup parent must be a real directory")
-		}
-	}
-	destination := filepath.Join(directory, parts[1])
-	if _, err = os.Lstat(destination); !os.IsNotExist(err) {
-		return errors.New("destination exists or is unavailable; restore never overwrites an installed skill")
-	}
-	if _, err = os.Lstat(absolute); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "Restore %s\nTo %s\nType %q to restore: ", absolute, destination, target.Target.Name)
-	line, err := bufio.NewReader(in).ReadString('\n')
-	if err != nil && err != io.EOF {
-		return err
-	}
-	if strings.TrimSpace(line) != target.Target.Name {
-		return errors.New("cancelled; no files changed")
-	}
-	lockPath := filepath.Join(directory, ".reet-sync.lock")
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	lock.Close()
-	defer os.Remove(lockPath)
-	if _, err = os.Lstat(destination); !os.IsNotExist(err) {
-		return errors.New("destination changed; restore cancelled")
-	}
-	if err = os.Rename(absolute, destination); err != nil {
-		return err
-	}
-	fmt.Fprintln(out, "Restored. Review local & web changes before the next sync.")
-	return runVersionAt(base, []string{"--server", c.Server, "--token", c.Token, "--env", agent.Host, "--prune"}, out, version)
+	fmt.Fprintf(out, "Restored %s\n", restored)
+	return nil
 }

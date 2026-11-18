@@ -33,8 +33,10 @@ async function deskRequest(path: string, init: RequestInit = {}): Promise<Respon
   throw new TerminalError(response.status, message, code)
 }
 
-export async function listDesks(): Promise<DeskSummary[]> {
-  const body = await (await deskRequest(base)).json()
+/** A desk read never drives the shell's progress bar (it is a plain fetch), so the bell's background poll can use it
+ *  as it is; `signal` lets Home bound it with its other reads. */
+export async function listDesks(signal?: AbortSignal): Promise<DeskSummary[]> {
+  const body = await (await deskRequest(base, signal ? { signal } : {})).json()
   return Array.isArray(body?.desks) ? body.desks : []
 }
 

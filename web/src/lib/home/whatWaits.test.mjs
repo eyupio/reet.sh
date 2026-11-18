@@ -16,6 +16,7 @@ let source = compile('./whatWaits.ts')
 source = point(source, '../home', homeUrl)
 source = point(source, '../factory/factoryList', listUrl)
 source = point(source, './homeWaiting', waitingUrl)
+source = point(source, './deskSessions', dataUrl(compile('./deskSessions.ts')))
 const { whatWaits } = await import(dataUrl(source))
 
 const NOW = 1_800_000_000_000
@@ -46,4 +47,43 @@ test('the approval a pipeline’s session holds rides on its approval item', () 
   assert.deepEqual(entries.map(e => e.id), ['o1.k'])
   assert.equal(entries[0].item.kind, 'approval')
   assert.equal(entries[0].approval?.permissionId, 'perm1')
+})
+
+const desk = (id, sessions, over = {}) => ({ id, name: `Front ${id}`, template: false, version: 1, sessions, ...over })
+const runOn = (sessions, desks, panes, outcomes = [], goals = []) => whatWaits(sessions, NOW, new Map(), [{ agentId: 'a1', host: 'studio' }], outcomes, goals, { desks, panes })
+
+test('a waiting session on a desk is marked with its desk and opens on it, at its pane when known', () => {
+  const pendingPermission = { permissionId: 'perm1', title: 'Run a command', command: 'ls', path: '', truncated: false, queued: 0 }
+  const sessions = [waitingOn('s1', { pendingPermission }), waitingOn('s2'), session('s3', { attention: 'finished', changedSinceSeen: true }), waitingOn('s4')]
+  const { entries } = runOn(sessions, [desk('d1', ['s1', 's2', 's3'])], new Map([['s1', 'pane-1']]))
+  assert.deepEqual(entries.map(e => e.id).sort(), ['session:s1', 'session:s2', 'session:s4'])
+  const byId = new Map(entries.map(e => [e.id, e]))
+  assert.deepEqual(byId.get('session:s1').desk, { id: 'd1', name: 'Front d1', href: '/desks/d1#pane-1' })
+  assert.equal(byId.get('session:s1').card.href, '/desks/d1#pane-1')
+  assert.equal(byId.get('session:s2').card.href, '/desks/d1')
+  assert.equal(byId.get('session:s4').desk, undefined)
+  assert.match(byId.get('session:s4').card.href, /^\/sessions\?/)
+})
+
+test('a Gaffer goal on a desk session is marked and opens on the desk', () => {
+  const { entries } = runOn([session('s1')], [desk('d1', ['s1'])], undefined, [], [goalRow('c1', { session: { id: 's1', agentId: 'a1', title: 'Desk work', state: 'running' } }, { sessionId: 's1' })])
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].source, 'gaffer')
+  assert.equal(entries[0].desk?.name, 'Front d1')
+  assert.equal(entries[0].goal.href, '/desks/d1')
+})
+
+test('a template desk marks nothing, and the count is the same with desks as without', () => {
+  const sessions = [waitingOn('s1'), waitingOn('s2')]
+  const plain = run(sessions, [], undefined).entries
+  const marked = runOn(sessions, [desk('t', ['s1'], { template: true }), desk('d1', ['s2'])]).entries
+  assert.equal(marked.length, plain.length)
+  assert.equal(marked.find(e => e.id === 'session:s1').desk, undefined)
+  assert.equal(marked.find(e => e.id === 'session:s2').desk?.id, 'd1')
+})
+
+test('a Factory pipeline’s session on a desk stays its Factory item, unmarked', () => {
+  const record = outcome('o1', [piece('k', { conversationId: 'c1', sessionId: 's1', state: 'ready_to_merge' })])
+  const { entries } = runOn([waitingOn('s1')], [desk('d1', ['s1'])], undefined, [record], [])
+  assert.ok(entries.every(e => !e.desk))
 })

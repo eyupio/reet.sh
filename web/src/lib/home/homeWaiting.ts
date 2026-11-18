@@ -2,14 +2,15 @@
 import { inSection, sectionSummary, waited } from '../factory/factoryList'
 import type { FactoryItem } from '../factory/factoryList'
 import type { NeedCard } from '../home'
+import type { DeskMark } from './deskSessions'
 
 /** A Gaffer goal that needs review on a session, as the list shows it: the session's title and place, and Gaffer's reason. */
 export type GoalNeed = { id: string; sessionId: string; title: string; where: string; href: string; reason: string; since: number }
 
 export type WaitingEntry =
   | { source: 'factory'; id: string; since: number; item: FactoryItem; approval?: NeedCard['approval'] }
-  | { source: 'session'; id: string; since: number; card: NeedCard }
-  | { source: 'gaffer'; id: string; since: number; goal: GoalNeed }
+  | { source: 'session'; id: string; since: number; card: NeedCard; desk?: DeskMark }
+  | { source: 'gaffer'; id: string; since: number; goal: GoalNeed; desk?: DeskMark }
 
 /** Pipelines waiting for the person, sessions needing them and Gaffer's goals that need review, oldest first. A finished
  *  session is not waiting. A session's card gives way to its pipeline's item only while that item waits and shows what

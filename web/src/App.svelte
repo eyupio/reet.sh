@@ -5,13 +5,14 @@
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import { pageGroup, type JumpItem, type Tab } from './lib/shell/tabs'
-  import { listDesks } from './lib/desks/api'
+  import { getDesk, listDesks, type DeskSummary } from './lib/desks/api'
   import { ADVANCED_SYNC, syncRedirect } from './lib/syncRoutes'
   import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
   import { sessionOwners, titleWithAttention } from './lib/home'
   import { whatWaits } from './lib/home/whatWaits'
+  import { deskPaneReader } from './lib/home/deskSessions'
   import type { WaitingEntry } from './lib/home/homeWaiting'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
@@ -441,18 +442,21 @@
   // A slow earlier load must not overwrite a newer one (an answer's refresh can overtake the poll's).
   // The Factory's outcomes and Gaffer's goals as last read: a failed read of either keeps the last count, as a failed
   // sessions read does.
-  let attentionGeneration = 0, lastOutcomes: GafferOutcome[] = [], lastGoals: GafferGoalOverview[] | undefined
+  // The desks too: a waiting session on a desk is marked with it and opens on it. Until they are read none is marked.
+  let attentionGeneration = 0, lastOutcomes: GafferOutcome[] = [], lastGoals: GafferGoalOverview[] | undefined, lastDesks: DeskSummary[] | undefined
+  const readDeskPanes = deskPaneReader(getDesk)
   async function loadAttention() {
     if (!authenticated || needsAuth || !sessionsAccess || isHome) return
     const mine = ++attentionGeneration
     try {
       // A background read: like the terminal reads, it does not drive the progress bar.
-      const [read, outcomes, goals] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true)])
+      const [read, outcomes, goals, desks] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true), listDesks()])
       if (mine !== attentionGeneration) return
       if (read.status === 'rejected') return
       const sessions = read.value
       if (outcomes.status === 'fulfilled') lastOutcomes = outcomes.value
       if (goals.status === 'fulfilled') lastGoals = goals.value.goals
+      if (desks.status === 'fulfilled') lastDesks = desks.value
       let projects: FolderProject[] = []
       const hosts = environments.map(e => ({ agentId: e.id, host: e.host }))
       if (sessions.length > 0) {
@@ -462,7 +466,16 @@
         if (m.status === 'fulfilled') for (const tm of m.value) hosts.push({ agentId: tm.agentId, host: tm.host })
       }
       if (mine !== attentionGeneration) return
-      waitingEntries = whatWaits(sessions, Date.now(), sessionOwners(sessions, projects), hosts, lastOutcomes, lastGoals).entries
+      const owners = sessionOwners(sessions, projects), at = Date.now()
+      let entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks }).entries
+      // A waiting desk session opens on the desk at its pane: the panes of the desks holding one (each read once per version).
+      const onDesks = new Set(entries.flatMap(entry => entry.source !== 'factory' && entry.desk ? [entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId] : []))
+      if (lastDesks && onDesks.size) {
+        const panes = await readDeskPanes(lastDesks, onDesks)
+        if (mine !== attentionGeneration) return
+        entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks, panes }).entries
+      }
+      waitingEntries = entries
       onAnswered = () => loadAttention()
       onMarkSeen = async (sessionId: string) => {
         try {

@@ -31,6 +31,13 @@ the Factory or Gaffer's goals cannot be read, Home says so and keeps what it las
 read. When an entry leaves after you answer it or mark it seen, the focus moves to
 the next entry (or the one before it).
 
+Sessions on a [desk](desks.md) are not on Home: Continue working, the planning board
+and the count of open sessions leave them out, and the desk is where you see them. One
+that needs you is the exception: it is still in **Waiting for you** and the bell,
+marked **Desk** and the desk's name, and **Open** takes you to its pane on the desk. A
+session that is part of a Factory pipeline shows as its pipeline, desk or not. If the
+desks cannot be read, Home shows every session as it would without desks.
+
 Two more sections sit under it and start closed: **Factory, working without you**
 (the pipelines that are running by themselves, each a link to its place on the
 Factory page) and **Your machines**. Every section says what is inside when it is

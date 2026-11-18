@@ -363,6 +363,10 @@ Templates count towards the 50 desks.
   running sessions that are not already on this desk.
 - **The desk chip.** Sessions shows the desk a session is on as a chip after the row's words; it opens the desk at that
   pane.
+- **Home leaves desk sessions out.** A session on a desk is not in Home's Continue working, its planning board or its
+  count of open sessions. When it needs you (an approval, a question, a failure, work to review) it is still in
+  **Waiting for you** and the bell, marked "Desk" and the desk's name, and its **Open** opens the desk at its pane. A
+  template's sessions do not count, and a Factory pipeline's session shows as its pipeline.
 
 A session can be in only one pane across all your desks.
 

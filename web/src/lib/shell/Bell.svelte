@@ -91,17 +91,18 @@
           <li class="item" data-status="waiting">
             <span class="kind">Gaffer</span>
             <span class="title">{entry.goal.title}</span>
-            <span class="where">Session{entry.goal.where ? ` · ${entry.goal.where}` : ''}</span>
+            <span class="where">Session{entry.goal.where ? ` · ${entry.goal.where}` : ''}{entry.desk ? ` · Desk ${entry.desk.name}` : ''}</span>
             <span class="ask">Gaffer’s goal needs you.{#if entry.goal.reason}{' '}{entry.goal.reason}{/if}</span>
             <div class="actions"><a class="btn open" href={entry.goal.href} aria-label={`Open ${entry.goal.title}`} onclick={() => close()}>Open</a></div>
           </li>
           {:else}
           {@const card = entry.card}
           {@const answers = !!card.question && !card.approval}
+          {@const where = [card.where, entry.desk ? `Desk ${entry.desk.name}` : ''].filter(Boolean).join(' · ')}
           <li class="item" data-status={needStatus(card.kind)}>
             <span class="kind">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
-            {#if card.where}<span class="where">{card.where}</span>{/if}
+            {#if where}<span class="where">{where}</span>{/if}
             {#if answers && card.question}
               <span class="ask">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</span>
             {/if}

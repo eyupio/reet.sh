@@ -5,12 +5,14 @@ import type { MachineHealth, TerminalSession } from '../terminal/api'
 import { approvalOf, foldGafferGoals, needsYou, type NeedCard, type SessionOwner } from '../home'
 import { factoryItems, type FactoryItem } from '../factory/factoryList'
 import { homeWaiting, type GoalNeed, type WaitingEntry } from './homeWaiting'
+import { deskOf, type DeskLookup } from './deskSessions'
 
 export type WhatWaits = { entries: WaitingEntry[]; items: FactoryItem[]; cards: NeedCard[] }
 
 const sessionHref = (agentId: string, id: string) => `/sessions?agent=${encodeURIComponent(agentId)}&session=${encodeURIComponent(id)}`
 
-/** `outcomes` may include archived ones (they are left out); `goals` undefined means not read. */
+/** `outcomes` may include archived ones (they are left out); `goals` undefined means not read. A session on a desk
+ *  (`desks`) is counted as any other, marked with its desk and opening on it; a pipeline's session stays its item. */
 export function whatWaits(
   sessions: TerminalSession[],
   now: number,
@@ -18,6 +20,7 @@ export function whatWaits(
   machines: readonly Pick<MachineHealth, 'agentId' | 'host'>[],
   outcomes: GafferOutcome[],
   goals: GafferGoalOverview[] | undefined,
+  desks: DeskLookup = {},
 ): WhatWaits {
   // A goal on a session that already has a card is that card's second reason.
   const cards = foldGafferGoals(needsYou(sessions, now, owners, machines), goals).cards
@@ -39,8 +42,12 @@ export function whatWaits(
       reason: row.reason ?? '', since: row.goal.updatedAt,
     }]
   })
-  const entries = homeWaiting(items, cards, needs).map(entry => {
-    if (entry.source !== 'factory' || entry.item.kind !== 'approval') return entry
+  const pipelineSessions = new Set(items.map(item => item.sessionId).filter(Boolean))
+  const on = (sessionId: string) => pipelineSessions.has(sessionId) ? undefined : deskOf(desks.desks, sessionId, desks.panes)
+  const entries = homeWaiting(items, cards, needs).map((entry): WaitingEntry => {
+    if (entry.source === 'session') { const desk = on(entry.card.sessionId); return desk ? { ...entry, desk, card: { ...entry.card, href: desk.href } } : entry }
+    if (entry.source === 'gaffer') { const desk = on(entry.goal.sessionId); return desk ? { ...entry, desk, goal: { ...entry.goal, href: desk.href } } : entry }
+    if (entry.item.kind !== 'approval') return entry
     const pending = held.get(entry.item.sessionId)
     return pending ? { ...entry, approval: approvalOf(pending) } : entry
   })

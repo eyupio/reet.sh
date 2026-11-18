@@ -390,7 +390,7 @@ func TestSkillStatesArchiveRestoreDelete(t *testing.T) {
 		t.Fatalf("archive removal list: %+v", r)
 	}
 
-	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillActive, archivedAt.Add(time.Second)); err != nil {
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillActive, archivedAt.Add(SkillGrace)); err != nil {
 		t.Fatal(err)
 	}
 	if got = skillStateNamed(t, s, uid, "seo-audit"); got.status != SkillActive || got.prevStatus != SkillArchived {

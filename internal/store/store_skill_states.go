@@ -338,7 +338,7 @@ func setSkillStatusTx(tx *sql.Tx, uid int64, it skillStateItem, status string, a
 	if it.status == status {
 		return nil
 	}
-	if _, err := tx.Exec(`UPDATE library_items SET status=?,prev_status=status,status_at=? WHERE user_id=? AND id=?`, status, at.UnixMilli(), uid, it.id); err != nil {
+	if _, err := tx.Exec(`UPDATE library_items SET status=?,prev_status=CASE WHEN status_at>?-? AND prev_status<>'' THEN prev_status ELSE status END,status_at=? WHERE user_id=? AND id=?`, status, at.UnixMilli(), SkillGrace.Milliseconds(), at.UnixMilli(), uid, it.id); err != nil {
 		return err
 	}
 	if status == SkillArchived {

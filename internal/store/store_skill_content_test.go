@@ -449,3 +449,49 @@ func TestEditOfAnArchivedSkillDoesNotReAddItsRemovalRow(t *testing.T) {
 		}
 	}
 }
+
+// CF2: the name joins the removal list once reet holds a copy of an Archived
+// item, whatever kind the first content is.
+func TestArchiveRemovalRowFollowsTheFirstContentOfAnyKind(t *testing.T) {
+	for _, kind := range []string{"edit", "use-version", "original", "capture"} {
+		s := newStore(t)
+		uid, _ := s.DefaultOwner()
+		item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+		if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, desiredT0); err != nil {
+			t.Fatal(err)
+		}
+		if r := skillRemovals(t, s, uid); len(r) != 0 {
+			t.Fatalf("%s: before any content: %+v", kind, r)
+		}
+		if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "Find skills."), PrivateSkillOrigin{Kind: kind, Reference: "x"}); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if r := skillRemovals(t, s, uid); r["find-skills"].Reason != "archived" {
+			t.Fatalf("%s: the first content of an Archived item must put its name on the list: %+v", kind, r)
+		}
+	}
+}
+
+func TestEditedArchivedItemThatHadContentAddsNoRemovalRow(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+	if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "Find skills."), PrivateSkillOrigin{Kind: "original", Reference: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, desiredT0); err != nil {
+		t.Fatal(err)
+	}
+	// The row was purged (every machine confirmed it); an edit must not bring it back.
+	if _, err := s.db.Exec(`DELETE FROM skill_removals WHERE user_id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"edit", "original"} {
+		if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "Changed by "+kind), PrivateSkillOrigin{Kind: kind, Reference: "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if r := skillRemovals(t, s, uid); len(r) != 0 {
+			t.Fatalf("%s of an item that already had content: %+v", kind, r)
+		}
+	}
+}

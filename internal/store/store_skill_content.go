@@ -337,9 +337,9 @@ func (s *Store) RequestSkillCaptureFor(uid int64, item, agentID, p string) error
 // binds it to that item, whether the item has content or not. origin.Kind is
 // original (fetched), capture, edit or use-version; for original and capture
 // origin.Reference is the link or machine the skill is a copy of and becomes
-// the item's origin_ref. A copy landing on an Archived skill puts its name on
-// the removal list in the same transaction, so a name is only removed from
-// machines once reet holds it.
+// the item's origin_ref. The first content of an Archived skill, of any kind,
+// puts its name on the removal list in the same transaction, so a name is only
+// removed from machines once reet holds it. Later writes leave the list alone.
 func (s *Store) SetSkillContentFor(uid int64, item string, files []skillbundle.ContentFile, origin PrivateSkillOrigin) (PrivateSkillResult, error) {
 	return s.setSkillContent(uid, item, files, origin, nil)
 }
@@ -390,24 +390,30 @@ func (s *Store) setSkillContent(uid int64, item string, files []skillbundle.Cont
 		}
 		return nil
 	}, nil, func(tx *sql.Tx, result PrivateSkillResult) error {
+		// Whether reet held a copy before this write: only the item's first
+		// content makes it hold one, whatever kind that content is.
+		var before string
+		if err := tx.QueryRow(`SELECT revision_id FROM library_items WHERE user_id=? AND id=?`, uid, item).Scan(&before); err != nil {
+			return err
+		}
 		// A new bundle made an item of its own; fold it into this one.
 		if err := attachLibraryBundle(tx, uid, item, result); err != nil {
 			return err
 		}
-		// Only a copy landing (fetched or captured) says reet now holds the
-		// skill; an edit or a use-version does not.
+		// Only a copy landing (fetched or captured) says where the skill came from.
+		ref := ""
 		if origin.Kind == "original" || origin.Kind == "capture" {
-			return skillCopyLandedTx(tx, uid, item, origin.Reference, true)
+			ref = origin.Reference
 		}
-		return skillCopyLandedTx(tx, uid, item, "", false)
+		return skillCopyLandedTx(tx, uid, item, ref, before == "")
 	})
 }
 
-// skillCopyLandedTx follows a copy landing on an item: it clears the copy
-// problem, records where the copy came from, and, when a copy landed and the
-// skill is Archived, adds its name to the removal list. A later edit of an
-// Archived skill is not a copy landing, so it leaves the list alone: a row
-// that was purged stays gone.
+// skillCopyLandedTx follows content landing on an item: it clears the copy
+// problem, records where the copy came from, and, when it is the item's first
+// content (copied) and the skill is Archived, adds its name to the removal
+// list. A later write to an Archived skill is not a first copy, so it leaves
+// the list alone: a row that was purged stays gone.
 func skillCopyLandedTx(tx *sql.Tx, uid int64, item, originRef string, copied bool) error {
 	if _, err := tx.Exec(`UPDATE library_items SET copy_problem='' WHERE user_id=? AND id=?`, uid, item); err != nil {
 		return err

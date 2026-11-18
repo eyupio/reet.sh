@@ -114,7 +114,7 @@ capture/path limits and conservative credential blocking are unchanged from CLI 
 Those checks are not a guarantee of detecting every secret format. Only excluded file
 metadata, never their bytes, reaches the controller. Unsupported filesystem entries
 cannot be hidden with exclusions. Private storage keeps its bounds of
-128 bundles/256 revisions/64 MiB unique bytes per account. Superseded revisions that
+1,024 bundles/4,096 revisions/1 GiB unique bytes per account. Superseded revisions that
 nothing depends on are freed when a write needs the room, so the revision and byte
 bounds apply to what is in use. Deleting whole skills and content editing/export
 controls need their own reviewed work.

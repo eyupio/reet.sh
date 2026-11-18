@@ -22,9 +22,14 @@ const (
 	MaxPrivateSkillBytes     = 1 << 30
 )
 
-// privateSkillByteLimit is MaxPrivateSkillBytes; tests lower it to fill the
-// bound without writing a gibibyte.
-var privateSkillByteLimit int64 = MaxPrivateSkillBytes
+// privateSkillByteLimit, privateSkillBundleLimit and privateSkillRevisionLimit
+// are the bounds above; tests that fill a bound lower them so they do not have
+// to write a gibibyte or thousands of bundles and revisions.
+var (
+	privateSkillByteLimit     int64 = MaxPrivateSkillBytes
+	privateSkillBundleLimit         = MaxPrivateSkillBundles
+	privateSkillRevisionLimit       = MaxPrivateSkillRevisions
+)
 
 var (
 	ErrPrivateSkillInvalid  = errors.New("invalid private skill revision")
@@ -255,14 +260,14 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 			if err := tx.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&n); err != nil {
 				return err
 			}
-			if n >= MaxPrivateSkillBundles {
+			if n >= privateSkillBundleLimit {
 				// Deleting or renaming a written skill leaves its bundle behind and
 				// nothing can delete a bundle, so free those before refusing.
-				freed, e := freeDeadHostedBundles(tx, uid, n-MaxPrivateSkillBundles+1)
+				freed, e := freeDeadHostedBundles(tx, uid, n-privateSkillBundleLimit+1)
 				if e != nil {
 					return e
 				}
-				if n-freed >= MaxPrivateSkillBundles {
+				if n-freed >= privateSkillBundleLimit {
 					return ErrPrivateSkillCapacity
 				}
 			}
@@ -295,7 +300,7 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		revisionsFull := func() (bool, error) {
 			var revisions int
 			err := tx.QueryRow(`SELECT count(*) FROM private_skill_revisions WHERE user_id=?`, uid).Scan(&revisions)
-			return revisions >= MaxPrivateSkillRevisions, err
+			return revisions >= privateSkillRevisionLimit, err
 		}
 		full, e := revisionsFull()
 		if e == nil && full {

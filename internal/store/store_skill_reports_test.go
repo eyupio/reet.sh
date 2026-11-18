@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 var reportT0 = time.UnixMilli(1_800_000_000_000)
@@ -370,5 +371,227 @@ func TestReportActivityKeepsNewest500(t *testing.T) {
 	got, _ := s.SkillActivityFor(uid, 10)
 	if len(got) != 10 || got[0].At != reportT0.Add(519*time.Second).UnixMilli() {
 		t.Fatalf("newest first: %+v", got)
+	}
+}
+
+func TestReportDuplicateNamesInOneFolderWriteOneActivityRow(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	a := reportAgent(t, s, uid, "elitebook")
+	// Names that differ only by case are one row in the table, so they are one
+	// entry: the last one in the report is kept.
+	reportOf(t, s, uid, a, reportT0,
+		SkillReportEntry{Folder: "~/.agents/skills", Name: "Demo", State: "installed", Digest: "d1"},
+		SkillReportEntry{Folder: "~/.agents/skills", Name: "demo", State: "failed", Detail: "no write access"},
+		SkillReportEntry{Folder: "~/.claude/skills", Name: "demo", State: "installed", Digest: "d1"})
+	activity, err := s.SkillActivityFor(uid, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activity) != 2 {
+		t.Fatalf("want one row per folder and name, got %+v", activity)
+	}
+	var rows int
+	if err = s.db.QueryRow(`SELECT count(*) FROM machine_skills WHERE user_id=? AND agent_id=? AND folder='~/.agents/skills'`, uid, a).Scan(&rows); err != nil || rows != 1 {
+		t.Fatal("the table keeps one row", rows, err)
+	}
+	var state string
+	if err = s.db.QueryRow(`SELECT state FROM machine_skills WHERE user_id=? AND agent_id=? AND folder='~/.agents/skills'`, uid, a).Scan(&state); err != nil || state != "failed" {
+		t.Fatalf("the last entry is the one kept: %s %v", state, err)
+	}
+}
+
+func TestCleanReportTextTruncatesOnARuneBoundary(t *testing.T) {
+	got := cleanReportText("a"+strings.Repeat("é", 10), 4)
+	if !utf8.ValidString(got) || len(got) > 4 || got != "aé" {
+		t.Fatalf("%q", got)
+	}
+	if got = cleanReportText("  short  ", 20); got != "short" {
+		t.Fatalf("%q", got)
+	}
+	if got = cleanReportText(strings.Repeat("日", 5), 9); got != strings.Repeat("日", 3) {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestReportNewOnMachinesListsOldestSightingFirst(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	late, early := reportAgent(t, s, uid, "alpha"), reportAgent(t, s, uid, "zeta")
+	unknown := SkillReportEntry{Folder: "~/.claude/skills", Name: "cq", State: "unknown", Digest: "d1"}
+	reportOf(t, s, uid, early, reportT0, unknown)
+	reportOf(t, s, uid, late, reportT0.Add(time.Minute), unknown)
+	got, err := s.NewOnMachinesFor(uid)
+	if err != nil || len(got) != 1 || len(got[0].Copies) != 2 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got[0].Copies[0].Host != "zeta" || got[0].Copies[1].Host != "alpha" {
+		t.Fatalf("not oldest first: %+v", got[0].Copies)
+	}
+}
+
+func TestReportCopyingNamesOnlyCountedMachines(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) VALUES(?,?,?,?,?,?,1,1)`, uid, "copying", LibrarySkill, "copying", SkillActive, "machine"); err != nil {
+		t.Fatal(err)
+	}
+	counted, paused := reportAgent(t, s, uid, "elitebook"), reportAgent(t, s, uid, "thinkpad")
+	old, _, err := s.EnrollSyncAgentBuild(uid, "studio", "0.9", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ControlSyncAgent(uid, paused, "pause"); err != nil {
+		t.Fatal(err)
+	}
+	unknown := SkillReportEntry{Folder: "~/.agents/skills", Name: "copying", State: "unknown", Digest: "d1"}
+	for _, id := range []string{counted, paused, old.ID} {
+		reportOf(t, s, uid, id, reportT0, unknown)
+	}
+	h := healthOf(t, s, uid, "copying", reportT0)
+	if h.State != "copying" || !reflect.DeepEqual(h.Hosts, []string{"elitebook"}) {
+		t.Fatalf("copying: %+v", h)
+	}
+}
+
+func TestReportAgentUnseenForExactlyFiveMinutesIsNotOffline(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	reportAgent(t, s, uid, "elitebook") // last seen at reportT0, never reported
+	if h := healthOf(t, s, uid, item.id, reportT0.Add(skillOfflineAfter)); h.State != "installing" {
+		t.Fatalf("five minutes exactly: %+v", h)
+	}
+	if h := healthOf(t, s, uid, item.id, reportT0.Add(skillOfflineAfter+time.Millisecond)); h.State != "offline" {
+		t.Fatalf("a millisecond past five minutes: %+v", h)
+	}
+}
+
+func TestReportNameInstalledInOneFolderAndFailedInAnotherReadsFailed(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	a := reportAgent(t, s, uid, "elitebook")
+	reportOf(t, s, uid, a, reportT0, installedAt("seo-audit", itemDigest(t, s, uid, item.id)),
+		SkillReportEntry{Folder: "~/.claude/skills", Name: "seo-audit", State: "failed", Detail: "read-only folder"})
+	h := healthOf(t, s, uid, item.id, reportT0)
+	if h.State != "failed" || h.Reason != "read-only folder" || h.Pending != 1 {
+		t.Fatalf("failed: %+v", h)
+	}
+}
+
+func TestReportArchivedItemWithNoMachinesIsOff(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	if h := healthOf(t, s, uid, item.id, reportT0.Add(time.Minute)); h.State != "off" || h.Total != 0 || h.Pending != 0 {
+		t.Fatalf("archived, no machines: %+v", h)
+	}
+}
+
+// A machine that never reported has no rows, so it has nothing reet knows to
+// remove; an install it still owes reads installing, then offline when unseen.
+func TestReportMachineThatNeverReportedHasNothingToRemove(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	reportAgent(t, s, uid, "elitebook")
+	if h := healthOf(t, s, uid, item.id, reportT0); h.State != "installing" || h.Pending != 1 {
+		t.Fatalf("never reported, active: %+v", h)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	if h := healthOf(t, s, uid, item.id, reportT0.Add(time.Minute)); h.State != "ok" || h.Pending != 0 || h.Total != 1 {
+		t.Fatalf("never reported, archived: %+v", h)
+	}
+}
+
+func TestReportBlockedOutranksRemoving(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	d := itemDigest(t, s, uid, item.id)
+	blocked, other := reportAgent(t, s, uid, "elitebook"), reportAgent(t, s, uid, "thinkpad")
+	if err := s.RecordSkillReportFor(uid, blocked, SkillReport{Version: "v1", Blocked: "allow-apply", Entries: []SkillReportEntry{installedAt("seo-audit", d)}}, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	reportOf(t, s, uid, other, reportT0, installedAt("seo-audit", d))
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	h := healthOf(t, s, uid, item.id, reportT0.Add(time.Minute))
+	if h.State != "blocked" || h.Pending != 2 || !reflect.DeepEqual(h.Hosts, []string{"elitebook"}) {
+		t.Fatalf("blocked and removing: %+v", h)
+	}
+	states := map[string]string{}
+	for _, m := range h.Machines {
+		states[m.Host] = m.State
+	}
+	if states["elitebook"] != "blocked" || states["thinkpad"] != "removing" {
+		t.Fatalf("machines: %+v", h.Machines)
+	}
+}
+
+func columnsOf(t *testing.T, s *Store, table string) map[string]bool {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err = rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		out[name] = true
+	}
+	return out
+}
+
+// A report's version lives on machine_skill_reports only, and nothing keeps a
+// report time there: the rows of machine_skills carry the time of the sighting.
+func TestReportTablesKeepNoUnusedColumns(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	check := func() {
+		t.Helper()
+		if c := columnsOf(t, s, "machine_skills"); c["version"] || !c["at"] {
+			t.Fatalf("machine_skills columns: %v", c)
+		}
+		if c := columnsOf(t, s, "machine_skill_reports"); c["at"] || !c["version"] || !c["blocked"] {
+			t.Fatalf("machine_skill_reports columns: %v", c)
+		}
+	}
+	check()
+	// The tables as earlier builds made them are brought to the same shape.
+	for _, stmt := range []string{
+		`DROP TABLE machine_skills`, `DROP TABLE machine_skill_reports`,
+		`CREATE TABLE machine_skills(user_id INTEGER NOT NULL,agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE,folder TEXT NOT NULL,name TEXT NOT NULL COLLATE NOCASE,state TEXT NOT NULL,digest TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '',backup TEXT NOT NULL DEFAULT '',version TEXT NOT NULL DEFAULT '',at INTEGER NOT NULL,PRIMARY KEY(user_id,agent_id,folder,name))`,
+		`CREATE TABLE machine_skill_reports(user_id INTEGER NOT NULL,agent_id TEXT NOT NULL PRIMARY KEY REFERENCES sync_agents(id) ON DELETE CASCADE,version TEXT NOT NULL DEFAULT '',blocked TEXT NOT NULL DEFAULT '',at INTEGER NOT NULL)`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := reportAgent(t, s, uid, "elitebook")
+	if _, err := s.db.Exec(`INSERT INTO machine_skills(user_id,agent_id,folder,name,state,version,at) VALUES(?,?,'f','kept','installed','v1',5)`, uid, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.migrateSkillReports(); err != nil {
+		t.Fatal(err)
+	}
+	check()
+	var state string
+	if err := s.db.QueryRow(`SELECT state FROM machine_skills WHERE name='kept'`).Scan(&state); err != nil || state != "installed" {
+		t.Fatal("the migration lost rows", err)
+	}
+	if err := s.migrateSkillReports(); err != nil {
+		t.Fatal("not repeatable", err)
 	}
 }

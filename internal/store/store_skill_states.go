@@ -498,7 +498,11 @@ func undeleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem) error {
 
 // SkillRemovalsFor lists the names machines are to back up and remove.
 func (s *Store) SkillRemovalsFor(uid int64) ([]SkillRemoval, error) {
-	rows, err := s.db.Query(`SELECT name,reason,created_at FROM skill_removals WHERE user_id=? ORDER BY name`, uid)
+	return skillRemovalsOf(s.db, uid)
+}
+
+func skillRemovalsOf(q privateSkillQuery, uid int64) ([]SkillRemoval, error) {
+	rows, err := q.Query(`SELECT name,reason,created_at FROM skill_removals WHERE user_id=? ORDER BY name`, uid)
 	if err != nil {
 		return nil, err
 	}

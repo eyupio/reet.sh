@@ -36,9 +36,13 @@ type DesiredState struct {
 // appears, once when the delete's grace ends and the reason changes. Machines
 // treat a name's absence from Remove as "do nothing", so the gap is harmless.
 func (s *Store) DesiredSkillsFor(uid int64, now time.Time) (DesiredState, error) {
+	return desiredSkills(s.db, uid, now)
+}
+
+func desiredSkills(q privateSkillQuery, uid int64, now time.Time) (DesiredState, error) {
 	at, grace := now.UnixMilli(), SkillGrace.Milliseconds()
 	state := DesiredState{Active: []DesiredSkill{}, Remove: []DesiredRemoval{}}
-	rows, err := s.db.Query(`SELECT id,name,status,prev_status,status_at,deleted_at,revision_id,bundle_id,digest FROM library_items WHERE user_id=? AND item_type=?`, uid, LibrarySkill)
+	rows, err := q.Query(`SELECT id,name,status,prev_status,status_at,deleted_at,revision_id,bundle_id,digest FROM library_items WHERE user_id=? AND item_type=?`, uid, LibrarySkill)
 	if err != nil {
 		return state, err
 	}
@@ -70,7 +74,7 @@ func (s *Store) DesiredSkillsFor(uid int64, now time.Time) (DesiredState, error)
 	if err != nil {
 		return state, err
 	}
-	removals, err := s.SkillRemovalsFor(uid)
+	removals, err := skillRemovalsOf(q, uid)
 	if err != nil {
 		return state, err
 	}

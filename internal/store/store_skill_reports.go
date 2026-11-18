@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -72,14 +73,29 @@ type SkillActivity struct {
 
 func (s *Store) migrateSkillReports() error {
 	for _, stmt := range []string{
-		`CREATE TABLE IF NOT EXISTS machine_skills(user_id INTEGER NOT NULL,agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE,folder TEXT NOT NULL,name TEXT NOT NULL COLLATE NOCASE,state TEXT NOT NULL,digest TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '',backup TEXT NOT NULL DEFAULT '',version TEXT NOT NULL DEFAULT '',at INTEGER NOT NULL,PRIMARY KEY(user_id,agent_id,folder,name))`,
+		`CREATE TABLE IF NOT EXISTS machine_skills(user_id INTEGER NOT NULL,agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE,folder TEXT NOT NULL,name TEXT NOT NULL COLLATE NOCASE,state TEXT NOT NULL,digest TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '',backup TEXT NOT NULL DEFAULT '',at INTEGER NOT NULL,PRIMARY KEY(user_id,agent_id,folder,name))`,
 		// What a report says about the machine as a whole, so a report with no
 		// entries still records that it was held back.
-		`CREATE TABLE IF NOT EXISTS machine_skill_reports(user_id INTEGER NOT NULL,agent_id TEXT NOT NULL PRIMARY KEY REFERENCES sync_agents(id) ON DELETE CASCADE,version TEXT NOT NULL DEFAULT '',blocked TEXT NOT NULL DEFAULT '',at INTEGER NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS machine_skill_reports(user_id INTEGER NOT NULL,agent_id TEXT NOT NULL PRIMARY KEY REFERENCES sync_agents(id) ON DELETE CASCADE,version TEXT NOT NULL DEFAULT '',blocked TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE IF NOT EXISTS skill_activity(user_id INTEGER NOT NULL,at INTEGER NOT NULL,agent_id TEXT NOT NULL,name TEXT NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '')`,
 		`CREATE INDEX IF NOT EXISTS skill_activity_user ON skill_activity(user_id,at)`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	// Earlier builds kept a report time nothing read, and a copy of the report's
+	// version on every row. The version stays on machine_skill_reports, the
+	// time of a sighting on machine_skills.
+	for _, drop := range [][2]string{{"machine_skills", "version"}, {"machine_skill_reports", "at"}} {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name=?`, drop[0], drop[1]).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE ` + drop[0] + ` DROP COLUMN ` + drop[1]); err != nil {
 			return err
 		}
 	}
@@ -89,7 +105,12 @@ func (s *Store) migrateSkillReports() error {
 func cleanReportText(v string, max int) string {
 	v = strings.TrimSpace(v)
 	if len(v) > max {
-		v = v[:max]
+		// Cut on a rune boundary so the text stays valid UTF-8.
+		cut := max
+		for cut > 0 && !utf8.RuneStart(v[cut]) {
+			cut--
+		}
+		v = v[:cut]
 	}
 	return v
 }
@@ -154,11 +175,11 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 		if rep.Blocked == "allow-apply" {
 			blocked = rep.Blocked
 		}
-		if _, err = tx.Exec(`INSERT INTO machine_skill_reports(user_id,agent_id,version,blocked,at) VALUES(?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET version=excluded.version,blocked=excluded.blocked,at=excluded.at`, uid, agentID, cleanReportText(rep.Version, 128), blocked, at); err != nil {
+		if _, err = tx.Exec(`INSERT INTO machine_skill_reports(user_id,agent_id,version,blocked) VALUES(?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET version=excluded.version,blocked=excluded.blocked`, uid, agentID, cleanReportText(rep.Version, 128), blocked); err != nil {
 			return err
 		}
 		present := map[string]bool{}
-		for _, e := range rep.Entries {
+		for _, e := range dedupeReportEntries(rep.Entries) {
 			name, folder := cleanReportText(e.Name, 256), cleanReportText(e.Folder, 512)
 			switch e.State {
 			case "installed", "removed", "failed", "unknown", "edited":
@@ -171,8 +192,8 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			cur := reportedRow{e.State, cleanReportText(e.Digest, 128), cleanReportText(e.Detail, 500)}
 			key := name
 			lname := strings.ToLower(name)
-			if _, err = tx.Exec(`INSERT INTO machine_skills(user_id,agent_id,folder,name,state,digest,detail,backup,version,at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,agent_id,folder,name) DO UPDATE SET state=excluded.state,digest=excluded.digest,detail=excluded.detail,backup=excluded.backup,version=excluded.version,at=excluded.at`,
-				uid, agentID, folder, key, cur.state, cur.digest, cur.detail, cleanReportText(e.Backup, 512), cleanReportText(rep.Version, 128), at); err != nil {
+			if _, err = tx.Exec(`INSERT INTO machine_skills(user_id,agent_id,folder,name,state,digest,detail,backup,at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,agent_id,folder,name) DO UPDATE SET state=excluded.state,digest=excluded.digest,detail=excluded.detail,backup=excluded.backup,at=excluded.at`,
+				uid, agentID, folder, key, cur.state, cur.digest, cur.detail, cleanReportText(e.Backup, 512), at); err != nil {
 				return err
 			}
 			if cur.state != "removed" {
@@ -203,6 +224,25 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 		}
 		return forgetDeletedSkillsTx(tx, uid, at)
 	})
+}
+
+// dedupeReportEntries keeps the last entry for each folder and name compared
+// without case: the table has one row for them, so a second would write an
+// activity line for a change that is not recorded.
+func dedupeReportEntries(entries []SkillReportEntry) []SkillReportEntry {
+	seen := map[string]bool{}
+	var kept []SkillReportEntry
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		key := cleanReportText(e.Folder, 512) + "\x00" + strings.ToLower(cleanReportText(e.Name, 256))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		kept = append(kept, e)
+	}
+	slices.Reverse(kept)
+	return kept
 }
 
 // skillActivityFor names what a row's change from the machine's previous row
@@ -287,9 +327,21 @@ type healthMachine struct {
 // SkillHealthFor reads each skill's health from what machines reported,
 // compared with DesiredSkillsFor at now, so a change inside the grace window
 // shows no pending work. The key is the library item id.
+//
+// Everything is read in one transaction, so a report or a status change that
+// lands meanwhile cannot show half of itself.
 func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	return skillHealth(tx, uid, now)
+}
+
+func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]SkillHealth, error) {
 	at := now.UnixMilli()
-	desired, err := s.DesiredSkillsFor(uid, now)
+	desired, err := desiredSkills(q, uid, now)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +354,7 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 		remove[strings.ToLower(r.Name)] = true
 	}
 	var machines []healthMachine
-	rows, err := s.db.Query(`SELECT a.id,a.host,a.last_seen,COALESCE(r.blocked,'') FROM sync_agents a LEFT JOIN machine_skill_reports r ON r.agent_id=a.id WHERE a.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host,a.id`, uid)
+	rows, err := q.Query(`SELECT a.id,a.host,a.last_seen,COALESCE(r.blocked,'') FROM sync_agents a LEFT JOIN machine_skill_reports r ON r.agent_id=a.id WHERE a.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host,a.id`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -323,8 +375,8 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 		return nil, err
 	}
 	reported := map[string]map[string][]reportedRow{}
-	hostsOf := map[string][]string{} // name -> hosts of any machine that has it
-	rows, err = s.db.Query(`SELECT a.id,a.host,lower(m.name),m.state,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? ORDER BY a.host`, uid)
+	hostsOf := map[string][]string{} // name -> hosts of the counted machines that have it
+	rows, err = q.Query(`SELECT a.id,a.host,lower(m.name),m.state,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -350,14 +402,14 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 		return nil, err
 	}
 	removalNames := map[string]bool{}
-	removals, err := s.SkillRemovalsFor(uid)
+	removals, err := skillRemovalsOf(q, uid)
 	if err != nil {
 		return nil, err
 	}
 	for _, r := range removals {
 		removalNames[strings.ToLower(r.Name)] = true
 	}
-	items, err := s.db.Query(`SELECT id,name,status,prev_status,status_at,revision_id,origin,copy_problem FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0`, uid, LibrarySkill)
+	items, err := q.Query(`SELECT id,name,status,prev_status,status_at,revision_id,origin,copy_problem FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0`, uid, LibrarySkill)
 	if err != nil {
 		return nil, err
 	}
@@ -487,13 +539,13 @@ func machineSkillState(rows []reportedRow, want DesiredSkill, installing, removi
 
 // NewOnMachinesFor lists the unknown skills machines reported whose names are
 // neither in the library nor on the removal list, oldest sighting first
-// within a name. It only reads.
+// within a name (then by host and folder). It only reads.
 func (s *Store) NewOnMachinesFor(uid int64) ([]NewSkill, error) {
 	rows, err := s.db.Query(`SELECT m.name,m.agent_id,a.host,m.folder,m.digest,m.at FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id
  WHERE m.user_id=? AND m.state='unknown'
  AND NOT EXISTS(SELECT 1 FROM library_items i WHERE i.user_id=m.user_id AND i.item_type=? AND i.deleted_at=0 AND lower(i.name)=lower(m.name))
  AND NOT EXISTS(SELECT 1 FROM skill_removals r WHERE r.user_id=m.user_id AND r.name=m.name)
- ORDER BY lower(m.name),a.host,m.folder`, uid, LibrarySkill)
+ ORDER BY lower(m.name),m.at,a.host,m.folder`, uid, LibrarySkill)
 	if err != nil {
 		return nil, err
 	}

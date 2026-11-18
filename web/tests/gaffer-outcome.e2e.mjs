@@ -32,8 +32,8 @@ const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 
 const oid='e'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
-function fixture({planFails=false,settles=true,crew=null,crewFails=false}={}){
-  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewFails,crewSaves:[]}
+function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmpty=false}={}){
+  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewFails,crewEmpty,crewSaves:[]}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -58,7 +58,7 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false}={}){
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     // The account's crew: read when the dialog opens, saved only when the person asks.
-    '/api/v2/gaffer/crew':request=>{if(box.crewFails&&request.method()==='GET')return{status:500,json:{error:'The crew could not be read.'}};if(request.method()==='PUT'){box.crew=request.postDataJSON();box.crewSaves.push(box.crew)}return {crew:box.crew??{light:{},standard:{},heavy:{}},saved:!!box.crew,tiers:['light','standard','heavy'],defaults:{}}},
+    '/api/v2/gaffer/crew':request=>{if(box.crewFails&&request.method()==='GET')return{status:500,json:{error:'The crew could not be read.'}};if(request.method()==='PUT'){box.crew=request.postDataJSON();box.crewSaves.push(box.crew)}return {crew:box.crew??{light:{},standard:{},heavy:{}},saved:!!box.crew||box.crewEmpty,tiers:['light','standard','heavy'],defaults:{}}},
     '/api/v2/folder-projects':{projects,savedWaiting:0},
     '/api/v2/settings/yolo':{allowed:true,changedBy:'owner@example.test'},
     '/api/v2/machines/a1/uploads':request=>{expect(request.method()).toBe('POST');box.uploads++;if(box.uploadFails)return{status:502,json:{error:'The image could not be uploaded.'}};return{status:200,headers:{'X-Reet-Upload-Path':'/home/dev/launch-uploads/outcome.png','X-Reet-Upload-Reference':'/home/dev/launch-uploads/outcome.png'},json:{uploaded:'true'}}},
@@ -421,6 +421,9 @@ try {
       await expect(fromSettings).toContainText('Light')
       await expect(fromSettings).toContainText('Agent Codex')
       await expect(fromSettings).toContainText('Model gone')
+      // The unavailability fallback is stated where the saved crew is read, so a listed agent this machine cannot run
+      // is not mistaken for one that will be used as it is.
+      await expect(fromSettings).toContainText('a saved agent this machine cannot run falls back to the outcome’s own agent')
       await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
       await outcome.getByText('Choose who does what',{exact:true}).click()
@@ -443,6 +446,19 @@ try {
       await w.page.keyboard.press('Escape');await expect(outcome).toHaveCount(0)
       await expect(w.page.getByRole('button',{name:'Give Gaffer an outcome',exact:true})).toBeFocused()
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`]);expect(f.box.approved).toEqual([]);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // Gaffer settings reports a saved crew but hands back nothing, and cannot be read at all: either way the dialog says
+  // so and leaves the crew to the person, rather than showing blank agent and model fields as if none were saved.
+  {
+    const f=fixture({crewEmpty:true}),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const {outcome}=await openOutcome(w)
+      const fromSettings=outcome.getByRole('region',{name:'Your Gaffer settings',exact:true})
+      await expect(fromSettings).toContainText('No crew is saved in Gaffer settings yet.')
+      await expect(fromSettings.locator('dl')).toHaveCount(0)
+      expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
   // Gaffer settings cannot be read: the dialog says so and leaves the crew to the person, rather than failing or showing

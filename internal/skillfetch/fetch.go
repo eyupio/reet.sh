@@ -258,9 +258,9 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			t.files++
 			t.bytes += h.Size
 			over := t.files > skillbundle.MaxFiles || t.bytes > skillbundle.MaxBytes
-			// A folder named for the skill that is over the limits is that
-			// skill; stop here instead of reading the rest of the archive.
-			if over && d != "" && (d == "skills/"+r.Slug || normalize(path.Base(d)) == slug) {
+			// A SKILL.md folder named for the skill that is over the limits is
+			// that skill; stop here instead of reading the rest of the archive.
+			if over && d != "" && skillDirs[d] && (d == "skills/"+r.Slug || normalize(path.Base(d)) == slug) {
 				return nil, "", ErrTooLarge
 			}
 			if d == "" {

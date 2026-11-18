@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -258,7 +260,7 @@ func TestFetchWellKnown(t *testing.T) {
 	}
 }
 
-func TestFetchWellKnownRefusesTraversalAndRedirects(t *testing.T) {
+func TestFetchWellKnownRefusesTraversal(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/agent-skills/index.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"skills":[{"name":"demo","files":["SKILL.md","../x"]}]}`))
@@ -267,20 +269,92 @@ func TestFetchWellKnownRefusesTraversalAndRedirects(t *testing.T) {
 	if _, err := f.Fetch(context.Background(), r); err == nil {
 		t.Fatal("traversal accepted")
 	}
-	mux2 := http.NewServeMux()
-	mux2.HandleFunc("/.well-known/agent-skills/index.json", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "https://example.invalid/index.json", http.StatusFound)
-	})
-	f, r = wellKnownServer(t, mux2)
-	if _, err := f.Fetch(context.Background(), r); err == nil {
-		t.Fatal("cross-host redirect followed")
+}
+
+func TestFetchWellKnownRefusesOtherHostRedirect(t *testing.T) {
+	var hits atomic.Int64
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Write([]byte(`{"skills":[]}`))
+	}))
+	defer target.Close()
+	f, r := wellKnownServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/.well-known/agent-skills/index.json", http.StatusFound)
+	}))
+	_, err := f.Fetch(context.Background(), r)
+	if err == nil || !strings.Contains(err.Error(), "redirect to a host") {
+		t.Fatalf("err = %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("the redirect target was contacted")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestFetchGitHubRedirectAllowlist(t *testing.T) {
+	archive := buildTar(t, []entry{{name: "r-abc/skills/pdf/SKILL.md", body: "x"}})
+	run := func(location string) (Result, error, []string) {
+		var seen []string
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			seen = append(seen, req.URL.Host)
+			resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(archive)), Request: req}
+			if req.URL.Host == "codeload.github.com" {
+				resp.StatusCode = http.StatusFound
+				resp.Header.Set("Location", location)
+				resp.Body = io.NopCloser(strings.NewReader(""))
+			}
+			return resp, nil
+		})}
+		res, err := Fetcher{Client: client}.Fetch(context.Background(), ghRef("pdf"))
+		return res, err, seen
+	}
+	res, err, _ := run("https://objects.githubusercontent.com/o/r")
+	if err != nil || len(res.Files) != 1 {
+		t.Fatalf("allowed host: %v %v", res.Files, err)
+	}
+	for _, loc := range []string{"https://evil.example/o/r", "http://objects.githubusercontent.com/o/r", "https://githubusercontent.com.evil.example/x"} {
+		_, err, seen := run(loc)
+		if err == nil || !strings.Contains(err.Error(), "redirect to a host") || len(seen) != 1 {
+			t.Fatalf("%s: err = %v, hosts = %v", loc, err, seen)
+		}
+	}
+}
+
+func TestRefuseAddress(t *testing.T) {
+	for _, ip := range []string{"127.0.0.1", "::1", "::ffff:10.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "fd00::1", "100.64.0.1", "0.0.0.0", "224.0.0.1", "fe80::1"} {
+		if err := refuseAddress("tcp", net.JoinHostPort(ip, "443"), nil); err == nil {
+			t.Errorf("%s allowed", ip)
+		}
+	}
+	for _, ip := range []string{"140.82.112.3", "2606:50c0:8000::154"} {
+		if err := refuseAddress("tcp", net.JoinHostPort(ip, "443"), nil); err != nil {
+			t.Errorf("%s refused: %v", ip, err)
+		}
+	}
+}
+
+func TestFetchEarlyStopIgnoresUnrelatedSlugFolders(t *testing.T) {
+	var noise, skill []entry
+	for i := 0; i < 300; i++ {
+		noise = append(noise, entry{name: "r-abc/packages/pdf/f" + strings.Repeat("y", i/26) + string(rune('a'+i%26)) + ".js", body: "x"})
+	}
+	skill = []entry{{name: "r-abc/skills/pdf/SKILL.md", body: "x"}}
+	for name, entries := range map[string][]entry{"noise first": append(append([]entry{}, noise...), skill...), "skill first": append(append([]entry{}, skill...), noise...)} {
+		f := githubServer(t, buildTar(t, entries))
+		res, err := f.Fetch(context.Background(), ghRef("pdf"))
+		if err != nil || len(res.Files) != 1 || res.Origin != "https://github.com/o/r/tree/HEAD/skills/pdf" {
+			t.Fatalf("%s: %+v %v", name, res, err)
+		}
 	}
 }
 
 func TestDefaultClientRefusesLoopback(t *testing.T) {
 	_, r := wellKnownServer(t, demoHandler())
 	_, err := Fetcher{}.Fetch(context.Background(), r)
-	if err == nil || errors.Is(err, ErrNotFound) {
+	if err == nil || !strings.Contains(err.Error(), "not one this server may connect to") {
 		t.Fatalf("err = %v", err)
 	}
 }

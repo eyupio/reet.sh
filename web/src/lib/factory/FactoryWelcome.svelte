@@ -8,7 +8,7 @@
 
 <section class="welcome" aria-labelledby={`${id}-heading`}>
   <h2 id={`${id}-heading`}>No pipelines yet.</h2>
-  <button class="btn primary" type="button" bind:this={startButton} onclick={() => onstart()}>Give Gaffer an outcome</button>
+  <button class="btn primary" type="button" bind:this={startButton} onclick={() => onstart()}>New Factory outcome</button>
 </section>
 
 <style>

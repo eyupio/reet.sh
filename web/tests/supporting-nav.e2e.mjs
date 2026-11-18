@@ -11,14 +11,14 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, { width: 1440, routes: { '/api/v2/lists': { lists: [], userId: 1, linkEnabled: false } }, ...options })
 
 try {
-  // Lists sits in Skills & distribution: the label names the group, the title is the menu name, and the row holds its siblings.
+  // Lists sits in Skills & tools: the label names the group, the title is the menu name, and the row holds its siblings.
   if (run('lists')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/shared`)
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
     await expect(page.getByRole('heading', { level: 1, name: 'Lists' })).toBeVisible()
-    await expect(page.locator('.page-heading').getByText('Skills & distribution', { exact: true })).toBeVisible()
-    const row = page.getByRole('navigation', { name: 'Skills & distribution' })
+    await expect(page.locator('.page-heading').getByText('Skills & tools', { exact: true })).toBeVisible()
+    const row = page.getByRole('navigation', { name: 'Skills & tools' })
     await expect(row.getByRole('link', { name: 'Setups' })).toHaveAttribute('href', '/profiles')
     await expect(row.getByRole('link', { name: 'Lists' })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Write a skill' })).toHaveAttribute('href', '/hosting')
@@ -181,7 +181,7 @@ try {
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
     await expect(page.locator('.page-heading').getByText('Instance administration', { exact: true })).toBeVisible()
     await expect(page.locator('.page-head').getByRole('navigation')).toHaveCount(1)
-    const row = page.getByRole('navigation', { name: 'Admin', exact: true })
+    const row = page.getByRole('navigation', { name: 'Instance administration', exact: true })
     await expect(row.getByRole('link', { name: 'Users' })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('navigation', { name: 'Workspace', exact: true })).toHaveCount(0)
     expect(errors).toEqual([])
@@ -193,9 +193,9 @@ try {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/account/profile`)
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
-    await expect(page.getByRole('heading', { level: 1, name: 'Sam', exact: true })).toBeVisible()
-    await expect(page.locator('.page-heading').getByText('Account', { exact: true })).toBeVisible()
-    const row = page.getByRole('navigation', { name: 'Account', exact: true })
+    await expect(page.getByRole('heading', { level: 1, name: 'Profile', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByText('Personal settings', { exact: true })).toBeVisible()
+    const row = page.getByRole('navigation', { name: 'Personal settings', exact: true })
     await expect(row).toHaveCount(1)
     await expect(row.getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page')
     // The Machines and Sync entries still lead to the Machines page and its sync view.
@@ -217,7 +217,7 @@ try {
     for (const width of [1440, 1100]) {
       const { context, page, errors } = await open({ width })
       await page.goto(`${base}/account/sessions`)
-      const row = page.getByRole('navigation', { name: 'Account', exact: true })
+      const row = page.getByRole('navigation', { name: 'Personal settings', exact: true })
       const desktop = row.locator('.desktop')
       await expect(desktop.getByRole('link', { name: 'Profile', exact: true })).toBeVisible()
       const tops = await desktop.locator(':scope > a, :scope > details > summary').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)))
@@ -247,7 +247,7 @@ try {
   if (run('account phone menu')) {
     const { context, page, errors } = await open({ width: 390 })
     await page.goto(`${base}/account/sessions`)
-    const row = page.getByRole('navigation', { name: 'Account', exact: true })
+    const row = page.getByRole('navigation', { name: 'Personal settings', exact: true })
     const menu = row.locator('details.mobile')
     await expect(menu.locator(':scope > summary')).toContainText('Sign-ins')
     await menu.locator(':scope > summary').click()
@@ -262,11 +262,11 @@ try {
 
   // The other pages: one h1 that is the menu name, the group label, and the row with the current page marked.
   const pages = [
-    { name: 'library', path: '/library', title: 'Library', group: 'Skills & distribution', current: 'Library', others: ['Setups', 'Lists', 'Write a skill'] },
-    { name: 'setups', path: '/profiles', title: 'Setups', group: 'Skills & distribution', current: 'Setups', others: ['Lists', 'Write a skill'] },
-    { name: 'write a skill', path: '/hosting', title: 'Write a skill', group: 'Skills & distribution', current: 'Write a skill', others: ['Setups', 'Lists'] },
+    { name: 'library', path: '/library', title: 'Library', group: 'Skills & tools', current: 'Library', others: ['Setups', 'Lists', 'Write a skill'] },
+    { name: 'setups', path: '/profiles', title: 'Setups', group: 'Skills & tools', current: 'Setups', others: ['Lists', 'Write a skill'] },
+    { name: 'write a skill', path: '/hosting', title: 'Write a skill', group: 'Skills & tools', current: 'Write a skill', others: ['Setups', 'Lists'] },
     { name: 'support', path: '/support', title: 'Support', group: 'Help & community', current: 'Support', others: ['Community'], routes: { '/api/v2/tickets': { tickets: [] }, '/api/v2/groups': { groups: [] } } },
-    { name: 'teams', path: '/spaces', title: 'Teams & organisations', group: 'Workspace', current: 'Teams & organisations', others: ['Instance administration'], routes: { '/api/v2/groups': { groups: [] } } },
+    { name: 'teams', path: '/spaces', title: 'Teams & organisations', group: 'Workspace', current: 'Teams & organisations', others: ['Usage'], routes: { '/api/v2/groups': { groups: [] } } },
   ]
   for (const item of pages) if (run(item.name)) {
     const { context, page, errors } = await open({ routes: item.routes })
@@ -316,7 +316,7 @@ try {
     const viewer = await open({ status: { user: { id: 2, name: 'Vi', email: 'vi@example.test', role: 'viewer' } } })
     await viewer.page.goto(`${base}/shared`)
     await expect(viewer.page.getByRole('heading', { level: 1, name: 'Lists', exact: true })).toBeVisible()
-    const row = viewer.page.getByRole('navigation', { name: 'Skills & distribution' })
+    const row = viewer.page.getByRole('navigation', { name: 'Skills & tools' })
     await expect(row.getByRole('link', { name: 'Setups' })).toBeVisible()
     await expect(row.getByRole('link', { name: 'Write a skill' })).toHaveCount(0)
     expect(viewer.errors).toEqual([])
@@ -327,7 +327,7 @@ try {
     await deepLink.page.goto(`${base}/hosting`)
     await expect(deepLink.page.getByRole('heading', { level: 1 })).toHaveCount(1)
     await expect(deepLink.page.getByRole('heading', { level: 1, name: 'Write a skill', exact: true })).toBeVisible()
-    await expect(deepLink.page.locator('.page-heading').getByText('Skills & distribution', { exact: true })).toBeVisible()
+    await expect(deepLink.page.locator('.page-heading').getByText('Skills & tools', { exact: true })).toBeVisible()
     expect(deepLink.errors).toEqual([])
     await deepLink.context.close()
 
@@ -364,7 +364,7 @@ try {
   if (run('phone menu')) {
     const { context, page, errors } = await open({ width: 390 })
     await page.goto(`${base}/shared`)
-    const row = page.getByRole('navigation', { name: 'Skills & distribution' })
+    const row = page.getByRole('navigation', { name: 'Skills & tools' })
     const menu = row.locator('details.mobile')
     await expect(menu.locator('summary')).toBeVisible()
     await expect(menu.locator('summary')).toContainText('Lists')

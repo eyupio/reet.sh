@@ -1,6 +1,6 @@
 <script lang="ts">
   // Cline's billing source, in one place: the sources reet knows, the saved default, and the star that
-  // saves or clears it. Start an agent, Give Gaffer an outcome and the Gaffer settings crew use this same control.
+  // saves or clears it. Start an agent, New Factory outcome and the Gaffer settings crew use this same control.
   import { saveProfile, UnauthorizedError } from './api'
   import { KNOWN_SOURCES, sourceLabel, sourceOptions } from './clineSource'
 

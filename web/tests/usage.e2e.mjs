@@ -61,7 +61,7 @@ try {
       const { page, context, errors } = await open({ width, height: 860, touch })
       await page.goto(`${base}/`)
       await page.getByRole('button', { name: /^More/ }).first().click()
-      const more = page.getByRole('dialog', { name: 'More' })
+      const more = page.getByRole('navigation', { name: 'More pages' })
       const item = more.getByRole('link', { name: 'Usage', exact: true })
       await expect(item).toHaveAttribute('href', '/usage')
       await item.click()

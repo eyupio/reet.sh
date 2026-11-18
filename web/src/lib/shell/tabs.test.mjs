@@ -38,7 +38,7 @@ test('an empty query shows nothing, and the list is capped after sorting', () =>
   assert.deepEqual(jumpMatches(many, 'skill').map((i) => i.label), ['skill-00', 'skill-01', 'skill-02', 'skill-03', 'skill-04', 'skill-05', 'skill-06', 'skill-07'])
 })
 
-const SKILLS = 'Skills & distribution'
+const SKILLS = 'Skills & tools'
 const HELP = 'Help & community'
 const WORKSPACE = 'Workspace'
 const tab = (label, group, current = false) => ({ href: `/${label}`, label, current, group })

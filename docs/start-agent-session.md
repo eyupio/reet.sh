@@ -41,7 +41,7 @@ says so and Start waits.
 
 ## Reusable prompts
 
-Open **Prompts** under **More → Skills & distribution** to save instructions you use
+Open **Prompts** under **More → Skills & tools** to save instructions you use
 often. Prompts are private to your account. You can search, organise by category,
 duplicate, edit or delete them, and export or import JSON. Import creates new entries;
 it does not overwrite existing prompts. Each account can keep up to 200 prompts, with
@@ -110,7 +110,7 @@ account; the controller and machines no longer count live sessions.
 - **Sessions → New agent session.** It appears under **Your sessions** in the sessions sidebar,
   in a machine's menu next to **New terminal**, and as **✦ Start a new agent session** in the empty
   or ended workspace beside **✦ Start a new Terminal session** and, where the account has
-  Gaffer, **✦ Give Gaffer an outcome**. Each opens its settings dialog, except the Factory
+  Gaffer, **✦ New Factory outcome**. Each opens its settings dialog, except the Factory
   outcome, which opens the Factory page with its outcome dialog ready.
   The machine you were on is preselected; the project is still a deliberate choice. On success the new
   session opens in the workspace.

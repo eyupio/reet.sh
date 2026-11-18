@@ -223,7 +223,7 @@ repositories. You can still type one." from the API) and is never asked.
 
 ## Temporary projects
 
-A repository picked with **A repository from GitHub…** in **Start an agent**, Home's launch bar or Factory's **Give Gaffer an outcome**
+A repository picked with **A repository from GitHub…** in **Start an agent**, Home's launch bar or Factory's **New Factory outcome**
 ([Start an agent session](start-agent-session.md), [Gaffer](gaffer-ai.md#give-gaffer-an-outcome)) is cloned for that
 start and saved as a **temporary** project: clone it, work in it, remove it. Its card says so ("acme/site · temporary")
 and its spoken name ends in "temporary". A repository that is already a project on that machine is used as it is and

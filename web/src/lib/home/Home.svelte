@@ -338,6 +338,7 @@
   const continueOffline = $derived((health ?? []).filter(m => m.state !== 'connected' && continueSessions.some(s => s.agentId === m.agentId)).map(m => ({agentId: m.agentId, host: m.host})))
   const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
   const showWorkbench = $derived(sessions !== undefined && !sessionsFailed && !scope && continueGroups.length === 0)
+  const workbenchVisible = $derived(homeView === 'continue' && showWorkbench)
   // A genuinely empty account starts with useful choices. Existing work, explicit view preferences and project handoffs
   // keep their view; a failed backlog read is not mistaken for an empty one. This automatic choice is never persisted.
   $effect(() => {
@@ -610,10 +611,10 @@
         <span class="break" aria-hidden="true"></span>
         {#if narrow && (projects ?? []).length}<span class="picker"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} group={scope?.kind === 'group' ? scopeName : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></span>{/if}
         <span class="plan-slot"><FleetPlanMeters machines={terminals} caption="Plans" max={3}/></span>
-        <div class="home-controls">
-          {#if accounts}<button type="button" class="btn home-outcome" onclick={event => { notice = null; factoryStart = { opener: event.currentTarget } }}>Give Gaffer an outcome</button>{/if}
+        {#if !workbenchVisible}<div class="home-controls">
+          {#if accounts}<button type="button" class="btn home-outcome" onclick={event => { notice = null; factoryStart = { opener: event.currentTarget } }}>New Factory outcome</button>{/if}
           <button type="button" class="btn primary home-start" onclick={event => { notice = null; projectStart = { opener: event.currentTarget } }}>New session</button>
-        </div>
+        </div>{/if}
       {:else}
         <p class="welcome-note">Your sessions and plans.</p>
         <div class="workspace-summary"><span>{connected.length} {connected.length === 1 ? 'machine' : 'machines'} connected</span></div>

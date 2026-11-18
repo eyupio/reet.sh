@@ -6,7 +6,7 @@
   import BottomTabs from './BottomTabs.svelte'
   import { chromeFocus } from './chrome.svelte'
   import JumpSearch from './JumpSearch.svelte'
-  import MoreSheet from './MoreSheet.svelte'
+  import MoreNavigation from './MoreNavigation.svelte'
   import TopTabs from './TopTabs.svelte'
   import type { JumpItem, Tab } from './tabs'
   import type { WaitingEntry } from '../home/homeWaiting'
@@ -46,11 +46,14 @@
   const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
   const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
 
+  const moreId = $props.id()
   let moreOpen = $state(false)
   let moreOpener = $state<HTMLElement>()
   let moreAll = $state(false)
-  // The More sheet lists what is out of view: the overflow tabs and More, or every page from the terminal's slim bar on a phone.
-  const sheetItems = $derived(moreAll ? [...tabs, ...more] : [...visibleOverflow, ...more])
+  // The slim header has no bottom bar, so its More button also reaches the main pages.
+  const moreItems = $derived((moreAll ? tabs : visibleOverflow).map(tab => ({
+    ...tab, group: tab.href === '/skills' ? 'Skills & tools' : 'Main pages',
+  })).concat(more.map(tab => ({ ...tab, group: tab.group ?? 'Main pages' }))))
   let searchOpen = $state(false)
   let searchButton = $state<HTMLButtonElement>()
   let input = $state<HTMLInputElement>()
@@ -60,7 +63,7 @@
   const editing = $derived(searchFocused || chromeFocus.launch || chromeFocus.session)
   const barHidden = $derived(keyboardChrome(searchFocused ? 'search' : chromeFocus.launch ? 'launch' : chromeFocus.session ? 'session' : null, keyboardOpen))
 
-  function openMore(opener: HTMLElement, all = false) { moreOpener = opener; moreAll = all; moreOpen = true }
+  function openMore(opener: HTMLElement, all = false) { moreOpener = opener; moreAll = all }
   async function openSearch() {
     searchOpen = true
     await tick()
@@ -135,7 +138,7 @@
 
 <div class="shell-bar" class:compact>
   <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
+  <TopTabs {tabs} {bar} {moreId} {moreCurrent} {moreOpen} onmore={openMore} />
   <span class="grow"></span>
   <JumpSearch load={jump} live={jumpLive} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
@@ -145,15 +148,15 @@
   </button>
   {#if bell}<Bell entries={waiting} {onseen} {onanswered} />{/if}
   {#if compact}
-    <button type="button" class="icon compact-more" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
+    <button type="button" class="icon compact-more" class:current={moreCurrent} popovertarget={moreId} aria-expanded={moreOpen}
       aria-label={moreCurrent ? 'More, current page inside' : 'More'} onclick={(event) => openMore(event.currentTarget, true)}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
     </button>
   {/if}
   {@render account?.()}
 </div>
-{#if !compact}<BottomTabs tabs={bar} {moreCurrent} {moreOpen} hidden={barHidden} onmore={openMore} />{/if}
-{#if moreOpen}<MoreSheet items={sheetItems} opener={moreOpener} onclose={() => (moreOpen = false)} />{/if}
+{#if !compact}<BottomTabs tabs={bar} {moreId} {moreCurrent} {moreOpen} hidden={barHidden} onmore={openMore} />{/if}
+<MoreNavigation id={moreId} items={moreItems} opener={moreOpener} bind:open={moreOpen} />
 
 <style>
   .shell-bar { position: relative; display: flex; align-items: center; gap: 28px; height: 60px; line-height: 1.3; padding: 0 24px; }

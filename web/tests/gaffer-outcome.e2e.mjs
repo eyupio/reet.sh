@@ -92,14 +92,14 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
 async function openOutcome(w,direct=false){
   if(direct){
     await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
-    const give=w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByRole('link',{name:'Give Gaffer an outcome',exact:true})
+    const give=w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByRole('link',{name:'New Factory outcome',exact:true})
     await expect(give).toHaveAttribute('href','/factory?outcome=1');await give.click()
   } else {
     await w.page.goto(base+'/factory')
-    await w.page.getByRole('button',{name:'Give Gaffer an outcome',exact:true}).click()
+    await w.page.getByRole('button',{name:'New Factory outcome',exact:true}).click()
   }
   await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
-  return {floor:w.page.locator('[data-floor]'),outcome:w.page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})}
+  return {floor:w.page.locator('[data-floor]'),outcome:w.page.getByRole('dialog',{name:'New Factory outcome',exact:true})}
 }
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
@@ -444,7 +444,7 @@ try {
       await outcome.getByRole('button',{name:'Back',exact:true}).click()
       await expect(outcome.getByRole('textbox',{name:'Outcome',exact:true})).toHaveValue(objective)
       await w.page.keyboard.press('Escape');await expect(outcome).toHaveCount(0)
-      await expect(w.page.getByRole('button',{name:'Give Gaffer an outcome',exact:true})).toBeFocused()
+      await expect(w.page.getByRole('button',{name:'New Factory outcome',exact:true})).toBeFocused()
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`]);expect(f.box.approved).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

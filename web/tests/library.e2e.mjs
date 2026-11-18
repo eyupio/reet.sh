@@ -195,7 +195,7 @@ try {
   await expect(page.getByRole('link',{name:'Write a skill'})).toHaveCount(0)
   expect(asked,'a read-only account asked for the library').toEqual([])
   await page.getByRole('button',{name:'More'}).first().click()
-  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Library'})).toHaveCount(0)
+  await expect(page.getByRole('navigation',{name:'More pages'}).getByRole('link',{name:'Library'})).toHaveCount(0)
   await clean(page,errors,context,390)
   console.log('PASS read-only account')
  }

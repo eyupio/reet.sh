@@ -440,6 +440,14 @@ func (m *syncContractMachine) startForeground() {
 	m.foreground, m.output = true, output
 }
 
+// How long stop waits for a connector to leave by itself. A connector stopped
+// in the middle of a cycle finishes the local work it has in hand first; under
+// the race detector, on a runner busy with other packages' tests, that has
+// taken over two seconds (measured: 3 to 330 ms on a quiet machine, 8.4 s with
+// every core taken many times over, and it still left cleanly). The wait is there to catch a connector that never
+// stops, so it is generous: a slow runner is not a failure.
+const syncContractStopWait = 30 * time.Second
+
 func (m *syncContractMachine) stop() {
 	if m.process != nil {
 		cmd, cancel := m.process, m.cancel
@@ -456,7 +464,7 @@ func (m *syncContractMachine) stop() {
 			if err != nil {
 				m.h.t.Errorf("connector %s did not exit cleanly: %v", m.name, err)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(syncContractStopWait):
 			cancel()
 			<-done
 			m.h.t.Errorf("connector %s did not stop after its input closed", m.name)

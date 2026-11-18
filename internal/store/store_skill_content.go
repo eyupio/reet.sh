@@ -379,6 +379,7 @@ func (s *Store) setSkillContent(uid int64, item string, files []skillbundle.Cont
 	if err != nil {
 		return PrivateSkillResult{}, err
 	}
+	var before string // the item's revision before this write
 	write := PrivateSkillWrite{RequestID: "content_" + id, ExpectedBase: &head, Name: name, Origin: origin, Files: files}
 	return s.savePrivateSkillRevisionWithReceipt(uid, bundle, write, func(tx *sql.Tx) error {
 		var live int
@@ -388,14 +389,10 @@ func (s *Store) setSkillContent(uid int64, item string, files []skillbundle.Cont
 		if live != 1 {
 			return ErrPrivateSkillMissing
 		}
-		return nil
+		// Read before the write binds its revision: only the item's first
+		// content makes reet hold a copy, whatever kind that content is.
+		return tx.QueryRow(`SELECT revision_id FROM library_items WHERE user_id=? AND id=?`, uid, item).Scan(&before)
 	}, nil, func(tx *sql.Tx, result PrivateSkillResult) error {
-		// Whether reet held a copy before this write: only the item's first
-		// content makes it hold one, whatever kind that content is.
-		var before string
-		if err := tx.QueryRow(`SELECT revision_id FROM library_items WHERE user_id=? AND id=?`, uid, item).Scan(&before); err != nil {
-			return err
-		}
 		// A new bundle made an item of its own; fold it into this one.
 		if err := attachLibraryBundle(tx, uid, item, result); err != nil {
 			return err

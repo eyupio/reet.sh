@@ -417,8 +417,9 @@ func TestNoSourceProblemClearsWhenASourceAppears(t *testing.T) {
 	}
 }
 
-// Only a copy landing puts an Archived skill's name on the removal list; an
-// edit or a use-version of its content must not bring back a purged row.
+// Only an item's first content puts an Archived skill's name on the removal
+// list; a later write of any kind (edit, use-version, original, capture) must
+// not bring back a purged row.
 func TestEditOfAnArchivedSkillDoesNotReAddItsRemovalRow(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
@@ -441,11 +442,8 @@ func TestEditOfAnArchivedSkillDoesNotReAddItsRemovalRow(t *testing.T) {
 		if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("seo-audit", kind), PrivateSkillOrigin{Kind: kind, Reference: "https://github.com/a/b"}); err != nil {
 			t.Fatal(err)
 		}
-		if r := skillRemovals(t, s, uid); r["seo-audit"].Reason != "archived" {
-			t.Fatalf("a %s landing did not add the removal row: %+v", kind, r)
-		}
-		if _, err := s.db.Exec(`DELETE FROM skill_removals WHERE user_id=?`, uid); err != nil {
-			t.Fatal(err)
+		if r := skillRemovals(t, s, uid); len(r) != 0 {
+			t.Fatalf("a %s landing on an item that had content re-added the removal row: %+v", kind, r)
 		}
 	}
 }

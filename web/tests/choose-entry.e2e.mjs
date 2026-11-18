@@ -8,7 +8,7 @@ import { owner, openWorkspace } from './helpers/workspace.mjs'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const id=ch=>ch.repeat(32)
-const library=[{id:id('1'),name:'code-review',itemType:'skill',status:'in_use',contentState:'complete'}]
+const library=[{id:id('1'),name:'code-review',itemType:'skill',status:'active',contentState:'complete'}]
 const folder={id:'new-box-agents',host:'new-box',agent:'agents',name:'Shared',skills:[],skillCount:0,complete:true,scannedAt:Date.now(),lastSeen:Date.now()}
 const sync={environments:[folder],machines:[{host:'new-box',groups:[folder],skillCount:0}],agents:[{id:'agent-new',host:'new-box',paused:false,autoUpdate:false,keepSynced:true,lastSeen:Date.now()}],targets:[],jobs:[],runs:[],updateJobs:[]}
 const open=(width,{viewer=false}={})=>openWorkspace(browser,{width,touch:width<600,sync,status:viewer?{user:{...owner,role:'viewer'}}:undefined,routes:{

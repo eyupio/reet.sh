@@ -9,7 +9,7 @@ import { mkdir } from 'node:fs/promises'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const id=ch=>ch.repeat(32)
-const library=[{id:id('1'),name:'code-review',itemType:'skill',status:'in_use',contentState:'complete'},{id:id('2'),name:'api-design',itemType:'skill',status:'in_use',contentState:'complete'},{id:id('3'),name:'draft-notes',itemType:'skill',status:'to_test',contentState:'complete'}]
+const library=[{id:id('1'),name:'code-review',itemType:'skill',status:'active',contentState:'complete'},{id:id('2'),name:'api-design',itemType:'skill',status:'active',contentState:'complete'},{id:id('3'),name:'draft-notes',itemType:'skill',status:'archived',contentState:'complete'}]
 const folder=(n,agent='agents')=>({id:`new-box-${agent}`,host:'new-box',agent,name:agent==='claude'?'Claude Code':'Shared',skills:[],skillCount:0,complete:true,scannedAt:Date.now(),lastSeen:Date.now()})
 
 for(const [width,theme] of [[390,'dark'],[1280,'light']]){
@@ -37,7 +37,7 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
  await expect(folderSelect).toHaveValue('new-box-agents')
  await expect(panel.getByRole('checkbox',{name:'code-review'})).toBeVisible()
  await expect(folderSelect.locator('option')).toHaveCount(2)
- await panel.getByRole('button',{name:'Select all In use'}).click()
+ await panel.getByRole('button',{name:'Select all Active'}).click()
  await panel.getByRole('button',{name:'Save selection'}).click()
  await expect(panel.getByRole('status')).toContainText('Selection saved')
  expect(saved).toEqual([{targetId:'new-box-agents',itemIds:[id('1'),id('2')],version:''}])

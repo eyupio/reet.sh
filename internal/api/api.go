@@ -1594,9 +1594,18 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	} else {
 		sk, err = s.st.UpsertFor(userID, rf, flags)
 		// A scanned copy of a name the library already has is a sighting of
-		// that skill on the machine, not a new source.
+		// that skill on the machine, not a new source. Like any sighting it
+		// never moves the skill's status: flags are set only on a new row, as
+		// for the local row it is written as.
 		if errors.Is(err, store.ErrSkillNameTaken) && item.Host != "" && item.Agent != "" {
-			local = true
+			local, id = true, "local/"+name
+			if _, existed, err = s.st.GetFor(userID, id); err != nil {
+				return id, false, false, err
+			}
+			flags = store.Patch{}
+			if !existed {
+				flags.Used = &used
+			}
 			sk, err = s.st.UpsertLocalFor(userID, name, flags)
 		}
 	}

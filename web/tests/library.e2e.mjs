@@ -9,12 +9,12 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.PL
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const now=Date.now()
 const id=ch=>ch.repeat(32)
-const item=(ch,name,changes={})=>({id:id(ch),name,itemType:'skill',status:'in_use',contentState:'complete',version:3,published:false,aliases:[],...changes})
+const item=(ch,name,changes={})=>({id:id(ch),name,itemType:'skill',status:'active',contentState:'complete',version:3,published:false,aliases:[],...changes})
 const initial=()=>[
  item('1','code-review',{aliases:[{kind:'hosted',reference:'code-review'}],metadata:{liked:true,lists:[{id:1,name:'Daily'}],tags:[{id:1,name:'review'}]}}),
- item('2','api-design',{status:'to_test'}),
- item('3','release-notes',{status:'disabled'}),
- item('4','alpine-setup',{status:'on_shelf'}),
+ item('2','api-design',{status:'archived'}),
+ item('3','release-notes',{status:'archived'}),
+ item('4','alpine-setup',{status:'archived'}),
  item('5','pending-capture',{contentState:'pending_capture'}),
 ]
 const laptop={id:'laptop-shared',host:'Dev laptop',agent:'agents',name:'Shared',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now}
@@ -55,35 +55,37 @@ try {
   // Counts per status, over the whole library.
   const chips=page.getByRole('group',{name:'Filter by status'})
   await expect(chips.getByRole('button',{name:/^All 5$/})).toHaveAttribute('aria-pressed','true')
-  await expect(chips.getByRole('button',{name:/^In use 2$/})).toBeVisible()
-  await expect(chips.getByRole('button',{name:/^Disabled 1$/})).toBeVisible()
+  await expect(chips.getByRole('button',{name:/^Active 2$/})).toBeVisible()
+  await expect(chips.getByRole('button',{name:/^Archived 3$/})).toBeVisible()
   // Library details that migration preserved, and which machines keep each item (saved intent, not installation).
   const review=row(page,'code-review')
   await expect(review).toContainText('Written here · private · Liked · On list Daily · Tagged review')
   await expect(review).toContainText('Selected on Dev laptop, Office desktop')
   await expect(review.getByRole('link',{name:'Choose machines on the Machines page'})).toHaveAttribute('href','/machines')
-  await expect(row(page,'api-design')).toContainText('Selected on Dev laptop, not installed while to test')
+  await expect(row(page,'api-design')).toContainText('Selected on Dev laptop, not installed while archived')
   await expect(row(page,'release-notes')).toContainText('Not selected on any machine')
   await expect(row(page,'pending-capture')).toContainText('Waiting for complete content')
   await expect(review).not.toContainText(/up to date|installed on/i)
-  await expect(review.getByLabel('Status of code-review')).toHaveValue('in_use')
+  await expect(review.getByLabel('Status of code-review')).toHaveValue('active')
   if(width===390&&theme==='dark')await shot(page,'library-page-phone-dark')
   if(width===1280&&theme==='light')await shot(page,'library-page-desktop-light')
   await clean(page,errors,context,width)
   console.log(`PASS populated library at ${width}px ${theme}`)
  }
 
- { // Search and status filter combine, and inactive items stay findable.
+ { // Search and status filter combine, and archived items stay findable.
   const {page,context,errors}=await open(390)
   await page.goto(`${base}/library`)
   await page.getByLabel('Find an item').fill('al')
   await expect(page.locator('.item')).toHaveCount(1)
   await expect(page.getByRole('status').filter({hasText:'1 of 5 items'})).toBeVisible()
-  await page.getByRole('button',{name:/^Disabled/}).click()
-  await expect(page.getByRole('button',{name:/^Disabled/})).toHaveAttribute('aria-pressed','true')
+  await page.getByRole('button',{name:/^Active/}).click()
+  await expect(page.getByRole('button',{name:/^Active/})).toHaveAttribute('aria-pressed','true')
   await expect(page.getByText('No items match.')).toBeVisible()
   await page.getByLabel('Find an item').fill('')
-  await expect(page.locator('.item')).toHaveCount(1)
+  await expect(page.locator('.item')).toHaveCount(2)
+  await page.getByRole('button',{name:/^Archived/}).click()
+  await expect(page.locator('.item')).toHaveCount(3)
   await expect(row(page,'release-notes')).toBeVisible()
   await page.getByRole('button',{name:/^All/}).click()
   await expect(page.locator('.item')).toHaveCount(5)
@@ -93,12 +95,12 @@ try {
 
  { // Changing a status sends the version it was read at, updates the row and keeps its machines.
   const bodies=[]
-  const {page,context,errors}=await open(390,{patch:(request,entry)=>{bodies.push(request.postDataJSON());return {json:{...entry,status:'disabled',version:4}}}})
+  const {page,context,errors}=await open(390,{patch:(request,entry)=>{bodies.push(request.postDataJSON());return {json:{...entry,status:'archived',version:4}}}})
   await page.goto(`${base}/library`)
-  await row(page,'code-review').getByLabel('Status of code-review').selectOption('disabled')
-  await expect(row(page,'code-review')).toContainText('Selected on Dev laptop, Office desktop, not installed while disabled')
-  expect(bodies).toEqual([{status:'disabled',expectedVersion:3}])
-  await expect(row(page,'code-review').getByLabel('Status of code-review')).toHaveValue('disabled')
+  await row(page,'code-review').getByLabel('Status of code-review').selectOption('archived')
+  await expect(row(page,'code-review')).toContainText('Selected on Dev laptop, Office desktop, not installed while archived')
+  expect(bodies).toEqual([{status:'archived',expectedVersion:3}])
+  await expect(row(page,'code-review').getByLabel('Status of code-review')).toHaveValue('archived')
   await clean(page,errors,context,390)
   console.log('PASS status change')
  }
@@ -107,9 +109,9 @@ try {
   let reads=0
   const {page,context,errors}=await open(390,{libraryAnswer:()=>{reads++;return {schemaVersion:1,items:initial()}},patch:()=>({status:409,json:{error:'The library item or location changed. Refresh before retrying.'}})})
   await page.goto(`${base}/library`)
-  await row(page,'api-design').getByLabel('Status of api-design').selectOption('in_use')
+  await row(page,'api-design').getByLabel('Status of api-design').selectOption('active')
   await expect(row(page,'api-design').getByRole('alert')).toContainText('changed somewhere else')
-  await expect(row(page,'api-design').getByLabel('Status of api-design')).toHaveValue('to_test')
+  await expect(row(page,'api-design').getByLabel('Status of api-design')).toHaveValue('archived')
   await expect.poll(()=>reads).toBeGreaterThan(1)
   await clean(page,errors,context,390)
   console.log('PASS stale status change')
@@ -201,10 +203,10 @@ try {
  { // Keyboard: the filter chips and status selects work without a pointer.
   const {page,context,errors}=await open(1280)
   await page.goto(`${base}/library`)
-  await page.getByRole('button',{name:/^To test/}).focus()
+  await page.getByRole('button',{name:/^Archived/}).focus()
   await page.keyboard.press('Space')
-  await expect(page.locator('.item')).toHaveCount(1)
-  await expect(page.getByRole('button',{name:/^To test/})).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.item')).toHaveCount(3)
+  await expect(page.getByRole('button',{name:/^Archived/})).toHaveAttribute('aria-pressed','true')
   await clean(page,errors,context,1280)
   console.log('PASS keyboard')
  }

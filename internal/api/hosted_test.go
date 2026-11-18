@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -290,5 +291,43 @@ func TestLibraryNameAlreadyTakenIsAConflict(t *testing.T) {
 	written := store.HostedSkill{Content: "---\nname: " + name + "\ndescription: Mine\n---\nBody\n"}
 	if code, body := call("PUT", "/api/v2/hosting/skills/"+name, written); code != 409 {
 		t.Fatalf("a written skill took a library name: %d %s", code, body)
+	}
+}
+
+// A machine copy of an Archived skill, reported with a source other than the
+// skill's own, is a sighting: no scan, first or repeated, makes it Active or
+// takes its name off the removal list. Only a person's stage action does.
+func TestRepeatScanOfAnArchivedSkillLeavesItArchived(t *testing.T) {
+	srv, st := newAccountsSrvStore(t, "")
+	owner, _ := st.CreateUser("scans@example.com", "Scans", "member", "hash")
+	st.CreateAPIToken(owner.ID, "test", auth.HashToken("scan-token"))
+	if err := st.ClaimPublishingUsername(owner.ID, "scanner"); err != nil {
+		t.Fatal(err)
+	}
+	name := store.DefaultHostedPrefix + "scanned"
+	if _, err := st.SaveHostedSkill(owner.ID, store.HostedSkill{Slug: name, Content: "---\nname: " + name + "\ndescription: Written\n---\nBody\n"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := st.LibraryFor(owner.ID)
+	if err != nil || len(items) != 1 || items[0].RevisionID == "" {
+		t.Fatal("written skill missing its copy", items, err)
+	}
+	item := items[0]
+	if err = st.SetSkillStatusFor(owner.ID, []string{item.ID}, store.SkillArchived, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	scan := `{"items":[{"name":"` + name + `","source":"someone/else","host":"laptop","agent":"claude","path":"/home/u/.claude/skills"}]}`
+	for i := 1; i <= 3; i++ {
+		if code, body := do(t, srv, "POST", "/api/import", scan, "X-Reet-Token", "scan-token"); code != 200 {
+			t.Fatalf("scan %d: %d %s", i, code, body)
+		}
+		got, err := st.LibraryItemFor(owner.ID, item.ID)
+		if err != nil || got.Status != store.SkillArchived {
+			t.Fatalf("scan %d changed the status: %+v %v", i, got, err)
+		}
+		removals, err := st.SkillRemovalsFor(owner.ID)
+		if err != nil || len(removals) != 1 || removals[0].Name != name || removals[0].Reason != "archived" {
+			t.Fatalf("scan %d changed the removal list: %+v %v", i, removals, err)
+		}
 	}
 }

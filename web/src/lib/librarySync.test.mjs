@@ -152,3 +152,12 @@ test('requests that are not about a library skill never trigger a re-read', () =
   assert.equal(copiesSignature([copy('manual', 'queued', { syncSkillId: undefined })]), '')
   assert.equal(copiesSignature([]), '')
 })
+
+test('a copy whose onward transfer ended for good is done, not copying', () => {
+  // A transfer into a machine that now follows the library ends with no sync run;
+  // the Sync card must not keep saying it is copying.
+  const ended = copy('notes', 'completed', { syncEnded: true, syncError: 'This machine now follows your library; this job is no longer needed.' })
+  assert.deepEqual(libraryNotice([], [ended]), { copying: [], review: [], leftOut: [], leftOutCount: 0 })
+  // One still waiting for its run is still copying.
+  assert.equal(libraryNotice([], [copy('notes', 'completed')]).copying.length, 1)
+})

@@ -1347,6 +1347,8 @@ export async function deleteSetupProfile(name: string): Promise<void> {
 export type ImportPreviewFile = { path: string; bytes: number; digest: string; executable: boolean; blocked?: string }
 export type ImportRequest = {
  syncSkillId?: string; destinationId?: string; syncRunId?: string; syncError?: string;
+ /** The transfer to its destination ended for good, with syncError saying why (that machine now follows the library). */
+ syncEnded?: boolean;
  id: string; requestKey: string; agentId: string; environmentId: string; host: string; agent: string; project: string; name: string
  state: string; bundleId: string; expectedBase: string; createdAt: number; updatedAt: number; expiresAt: number
  previewHash?: string; digest?: string; excluded: string[]; error?: string

@@ -39,6 +39,17 @@ the machine cards, owners, the waiting announcement and the launch bar's recent 
 `web/tests/home-waiting.e2e.mjs` (marked entry and link on Home and in the bell, count and title, Continue working and
 board without desk sessions, phone card, only desk sessions, desk read failing with 503).
 
+**Navigation, same branch.** The owner then asked: "Make desk menu more primary, after factory, before machines and
+accessible", and on the order: "Home, sessions, factory, desks, ...". The tabs (`tabs` in `App.svelte`) now run Home,
+Sessions, Factory, Desks, Machines, Skills (Activity after them without accounts), each on its old condition. Desks
+joined the bar (`barTabs`): the phone's bottom bar is Home, Sessions, Factory, Desks, Machines, More, and a tablet's top
+bar the same; More no longer lists Desks there. `BottomTabs.svelte` gives Desks a split-frame icon and sizes each tab to
+its label (`flex: 1 1 auto`, 1 px padding, labels never wrap) so six fit at 320 px with 14 px labels. Checked in
+`navigation.e2e.mjs`: the order, the bar at 320, 360, 390 and 412 px (44 px targets, no overlap, no clipped label,
+no sideways scroll), Desks current on `/desks` and `/desks/<id>`, Tab order with a focus ring, and the tabs clear of
+Jump and the bell at 651, 834, 1100 and 1280 px. Not checked: a screen reader, and a 320 px phone with a larger
+system font size.
+
 **Not checked.** A real controller and desk (fixtures only); a desk session that is also a pipeline's, beyond the unit
 case; the Projects rail now counts sessions (desk ones included) that the board, narrowed to that project, does not
 show.

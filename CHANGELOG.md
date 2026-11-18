@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Navigation**: the main tabs now read Home, Sessions, Factory, Desks,
+  Machines, Skills. **Desks** is on a phone's bottom bar (Home, Sessions,
+  Factory, Desks, Machines, More) and in a tablet's top bar, instead of under
+  **More**.
 - **Home and desks**: sessions on a desk no longer show in Home's **Continue
   working**, on its planning board or in its count of open sessions; the desk is
   where you see them. A desk session that needs you (an approval, a question, a

@@ -260,14 +260,16 @@
   const homeLayout = $derived((isHome || (isFactory && sessionsAccess && authMode === 'accounts')) && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
-    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
+    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
     ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/desks', label: 'Desks', current: isDesks }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
     ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
-  const barTabs = $derived(tabs.filter(tab => ['/', '/factory', '/sessions', '/machines'].includes(tab.href)))
+  // The phone's bottom bar and a tablet's top bar: Home, Sessions, Factory, Desks and Machines (each where it is offered),
+  // then More, which holds Skills and the rest there.
+  const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/factory', '/desks', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
     ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
     ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & distribution', current: isPrompts }] : []),

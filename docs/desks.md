@@ -11,8 +11,9 @@ or a press on a pane (**Reopen**, **Start**, **Reopen all**, **Continue**).
 
 ## The Desks tab
 
-**Desks** is a top-bar tab on a desktop, after Sessions, for an account that can start sessions (accounts sign-in, not a
-viewer). On a tablet and a phone it is under **More**. Jump lists desks too (not templates).
+**Desks** is a primary tab, after Factory and before Machines, for an account that can start sessions (accounts sign-in,
+not a viewer): in the top bar on a desktop and a tablet, and on the phone's bottom bar (Home, Sessions, Factory, Desks,
+Machines, More). It is marked as the current page on `/desks` and on an open desk. Jump lists desks too (not templates).
 
 - `/desks` opens the desk you last opened in this browser, if it is still there; otherwise the list. The only thing a
   desk keeps in the browser is that one id (`reet.desks.last.<account>` in local storage).

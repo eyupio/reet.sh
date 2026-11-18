@@ -58,8 +58,8 @@ starter prompt as at least two words.").
 
 ## The rail
 
-On a desktop the project list is Home's own left column. The primary tabs (Home, Factory, Sessions, Machines,
-Skills and More) live in the top bar on every signed-in page, as they do on the session screen; they are not
+On a desktop the project list is Home's own left column. The primary tabs (Home, Sessions, Factory, Desks,
+Machines, Skills and More) live in the top bar on every signed-in page, as they do on the session screen; they are not
 part of this panel. The rail starts at 301 px and its separator can widen it to 460 px (240 px minimum), and
 that width is remembered in this browser (`reet.rail.width`). The **Projects** heading carries the fold:
 folded, the rail becomes a 56 px strip with **Add**, **Open the project rail** (marked with a dot, and named,

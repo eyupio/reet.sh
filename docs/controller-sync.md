@@ -154,7 +154,7 @@ A sync job's backup, in `.reet-sync-backups` beside the skills folder of that jo
 reet agent restore --target ID --backup PATH
 ```
 
-It takes only an entry of that target's `.reet-sync-backups/removed-*` or `.reet-backups/YYYY-MM-DD` folder, puts it back in the target's skills folder, and never replaces a skill already there.
+It takes only an entry of a `.reet-sync-backups/removed-*` or `.reet-backups/YYYY-MM-DD` folder beside one of the machine's skills folders (home, Codex's, or an enrolled project's), puts it back in that skills folder, and never replaces a skill already there. The backup's path says where it goes, so it works after the job's saved set is gone; `--target` is checked only while that set still exists. `reet agent restore --list` lists these backups too, each with its exact command.
 
 A killed agent or sync may leave a `.lock` file. Check that the relevant process is no longer running before removing that specific stale lock. Keep any `.result` file for acknowledgment/recovery; the agent drops it only when the controller refuses it permanently (for example because that job has already closed). Do not run multiple workers using copied configuration files.
 

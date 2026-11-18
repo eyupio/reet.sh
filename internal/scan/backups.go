@@ -366,9 +366,34 @@ func pruneBackups(home string, now time.Time, unmanaged []string, keep ...string
 // dated .reet-backups folders and the older .reet-sync-backups/removed-*
 // folders, for the managed skills folders only.
 func listBackups(home string) ([]backupEntry, error) {
-	var out []backupEntry
+	var folders []string
 	for _, rel := range backupFolders {
-		folder := filepath.Join(home, rel)
+		folders = append(folders, filepath.Join(home, rel))
+	}
+	return backupsBeside(folders)
+}
+
+// listJobBackups lists, as listBackups does, the backups beside the skills
+// folders a sync job could also have worked in: Codex's under home, and those
+// of the enrolled projects. It only reads.
+func listJobBackups(home string, projects []string) ([]backupEntry, error) {
+	folders := []string{filepath.Join(home, ".codex", "skills")}
+	for _, p := range projects {
+		for _, d := range projectDirs {
+			folders = append(folders, filepath.Join(p, filepath.FromSlash(d.Dir)))
+		}
+	}
+	return backupsBeside(folders)
+}
+
+// shellQuote quotes s for a POSIX shell.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// backupsBeside lists the backups beside each of folders, newest date first,
+// then in the order folders are given.
+func backupsBeside(folders []string) ([]backupEntry, error) {
+	var out []backupEntry
+	for _, folder := range folders {
 		root, prefix := backupRoot(folder), backupPrefix(folder)
 		for _, date := range dateFolders(root) {
 			dir := filepath.Join(root, date)
@@ -429,8 +454,8 @@ func listBackups(home string) ([]backupEntry, error) {
 		}
 	}
 	order := map[string]int{}
-	for i, rel := range backupFolders {
-		order[filepath.Join(home, rel)] = i
+	for i, folder := range folders {
+		order[folder] = i
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Date != out[j].Date {

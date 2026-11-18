@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,9 +260,7 @@ func TestAgentRestoreExactJobBackup(t *testing.T) {
 	if err = st.RecordInventoryFor(uid, target, true, store.MachineInfo{}); err != nil {
 		t.Fatal(err)
 	}
-	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{}, Mode: "additive"}); err != nil {
-		t.Fatal(err)
-	}
+	// The job's saved set is gone: the backup's own path says where it goes.
 	backup := filepath.Join(c.Projects[0], ".claude", ".reet-sync-backups", "removed-20261101", "extra")
 	writeSkill(t, backup)
 	restore := func(args ...string) error {
@@ -291,6 +290,31 @@ func TestAgentRestoreExactJobBackup(t *testing.T) {
 		if err = restore("--target", target, "--backup", bad); err == nil {
 			t.Fatalf("restored from %s", bad)
 		}
+	}
+	// A target that still has a saved set must be the backup's own folder.
+	homeTarget := store.EnvironmentIDFor(uid, "fixture", "claude", "")
+	if err = st.TouchEnvironmentFor(uid, "fixture", "claude", "", filepath.Join(c.Home, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.RecordInventoryFor(uid, homeTarget, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: homeTarget, SourceID: "shelf", SkillIDs: []string{}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(c.Projects[0], ".claude", ".reet-sync-backups", "removed-20261102", "other")
+	writeSkill(t, other)
+	if err = restore("--target", homeTarget, "--backup", other); err == nil || !strings.Contains(err.Error(), "not from that target's skills folder") {
+		t.Fatalf("restored a backup into another target's folder: %v", err)
+	}
+	if err = restore("--target", target, "--backup", other); err != nil {
+		t.Fatalf("restore with the backup's own target: %v", err)
+	}
+	// A backup beside no skills folder this machine has is refused plainly.
+	stray := filepath.Join(t.TempDir(), "kit", ".reet-sync-backups", "removed-1", "extra")
+	writeSkill(t, stray)
+	if err = restore("--target", target, "--backup", stray); err == nil || !strings.Contains(err.Error(), "can't tell which skills folder") {
+		t.Fatalf("a stray backup: %v", err)
 	}
 	// The name form still works.
 	homeFolder := filepath.Join(c.Home, ".agents", "skills")

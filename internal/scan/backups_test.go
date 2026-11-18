@@ -1047,3 +1047,35 @@ func TestBackupListsAndRestoresALongName(t *testing.T) {
 		})
 	}
 }
+
+// --list shows a sync job's backups beside an enrolled project's skills
+// folders and Codex's too, each with its folder and the exact command that
+// restores it. It only reads.
+func TestAgentRestoreListsJobBackupsOutsideHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	config := filepath.Join(t.TempDir(), "agent.json")
+	hostname, _ := os.Hostname()
+	if err := writePrivate(config, agentConfig{Server: "https://reet.example", Home: home, Hostname: hostname, Projects: []string{project}}); err != nil {
+		t.Fatal(err)
+	}
+	inProject := filepath.Join(project, ".claude", ".reet-sync-backups", "removed-20261101", "extra")
+	inCodex := filepath.Join(home, ".codex", ".reet-sync-backups", "removed-20261101", "codexy")
+	writeSkill(t, inProject)
+	writeSkill(t, inCodex)
+	before := homeTree(t, project)
+	var out bytes.Buffer
+	if err := runAgentRestore([]string{"--config", config, "--list"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"extra  from " + filepath.Join(project, ".claude", "skills") + "  (reet agent restore --backup '" + inProject + "')",
+		"codexy  from " + filepath.Join(home, ".codex", "skills") + "  (reet agent restore --backup '" + inCodex + "')",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("list = %q, want a line with %q", out.String(), want)
+		}
+	}
+	sameTree(t, "project", before, homeTree(t, project))
+}

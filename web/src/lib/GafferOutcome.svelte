@@ -10,7 +10,7 @@
   import { attachmentFromPaste, attachmentMessage } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
   import ClineSourceSelect from './ClineSourceSelect.svelte'
-  import { KNOWN_SOURCES, resolveStartSource } from './clineSource'
+  import { resolveStartSource, sourceOptions } from './clineSource'
   import GafferProse from './GafferProse.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
@@ -122,11 +122,7 @@
   const crewTools = $derived(CREW_TIERS.map(item => crew[item.tier].tool))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
   const approveBlocker = $derived(planBlocker(sessions, room) || partsBlocker(sessions) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
-  const sourceOffered = $derived.by(() => {
-    const ids = KNOWN_SOURCES.map(item => item.id)
-    if (savedSource && !ids.includes(savedSource)) ids.push(savedSource)
-    return ids
-  })
+  const sourceOffered = $derived(sourceOptions({ saved: savedSource }).map(item => item.id))
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
   const chosenSource = $derived(startSource.source)
   const sourceShown = $derived(tool === 'cline' && machine?.capabilities?.acpProvider === true)

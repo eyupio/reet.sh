@@ -78,7 +78,10 @@ test('both agent flows use one source control and one default resolver', () => {
     assert.match(text, /import ClineSourceSelect from '\.\/ClineSourceSelect\.svelte'/, file)
     assert.match(text, /<ClineSourceSelect/, file)
     assert.match(text, /resolveStartSource\(/, file)
+    assert.match(text, /sourceOptions\(/, file)
     assert.match(text, /defaultClineSource/, file)
+    // The options come from the shared builder, not a local copy that could drift.
+    assert.doesNotMatch(text, /KNOWN_SOURCES/, file)
   }
 })
 

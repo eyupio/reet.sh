@@ -543,7 +543,7 @@ stops" for a stage whose plan runs low while it is running.
   never ended for this.
 - **Add pipelines:** a tier's saved backups can be unticked for a pipeline; a stage can be split.
 - **Afterwards:** Add pipelines has a backup choice for each tier (the crew's, none, or its own agent); the crew in
-  settings takes a Cline billing source as text; `gaffer-factory.e2e.mjs` sends a split stage back.
+  settings chooses a Cline billing source from the shared select; `gaffer-factory.e2e.mjs` sends a split stage back.
 - **Not done:** parts running at the same time (the owner chose one after another). Checked with fakes and
   synthetic plan figures only.
 

@@ -448,6 +448,28 @@ try {
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`]);expect(f.box.approved).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
+  // A crew saved with a Cline provider id reet has no label for still shows that source selected, and saving the crew
+  // from the outcome keeps the same id untouched.
+  {
+    const clineMachines=[{...machines[0],capabilities:{...machines[0].capabilities,acpProvider:true,acpAgents:[...machines[0].capabilities.acpAgents,{tool:'cline',adapter:'cline',state:'available'}]}},machines[1]]
+    const savedCrew={light:{},standard:{},heavy:{tool:'cline',model:'',effort:'',provider:'legacy-provider'}}
+    const f=fixture({crew:savedCrew}),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:clineMachines,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await outcome.getByText('Choose who does what',{exact:true}).click()
+      await expect(outcome.getByText('Started from your saved crew.',{exact:true})).toBeVisible()
+      const source=outcome.getByRole('combobox',{name:'Heavy source',exact:true})
+      await expect(source).toHaveValue('legacy-provider')
+      await expect(source.locator('option')).toHaveText(['Cline’s own choice','Usage-Billing','ClinePass','legacy-provider'])
+      await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
+      await expect(outcome.getByText('Saved. New outcomes start from this crew.',{exact:true})).toBeVisible()
+      expect(f.box.crewSaves[0].heavy).toEqual({tool:'cline',model:'',effort:'',provider:'legacy-provider'})
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
   // Gaffer settings reports a saved crew but hands back nothing, and cannot be read at all: either way the dialog says
   // so and leaves the crew to the person, rather than showing blank agent and model fields as if none were saved.
   {

@@ -18,6 +18,16 @@ export function sourceChoices(values: readonly string[]): SourceChoice[] {
   return values.map(id => ({ id, label: sourceLabel(id) }))
 }
 
+export type SourceOptionsInput = { offered?: readonly string[]; saved?: string }
+
+/** Every source a billing select shows: the ones on offer, plus a saved source no list has, labelled as Cline reports
+ *  it, so an id saved by an older reet stays visible and selected instead of disappearing. */
+export function sourceOptions({ offered = KNOWN_SOURCES.map(source => source.id), saved = '' }: SourceOptionsInput = {}): SourceChoice[] {
+  const ids = [...offered]
+  if (saved && !ids.includes(saved)) ids.push(saved)
+  return ids.map(id => ({ id, label: sourceLabel(id) }))
+}
+
 export type StartSourceInput = { explicit?: string; saved?: string; offered: readonly string[] }
 
 /** The source Start an agent opens on: the person's own choice (an empty one is Cline's own), then the saved default

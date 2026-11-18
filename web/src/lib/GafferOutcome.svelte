@@ -10,7 +10,7 @@
   import { attachmentFromPaste, attachmentMessage } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
   import ClineSourceSelect from './ClineSourceSelect.svelte'
-  import { KNOWN_SOURCES, resolveStartSource } from './clineSource'
+  import { resolveStartSource, sourceOptions } from './clineSource'
   import GafferProse from './GafferProse.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
@@ -122,11 +122,7 @@
   const crewTools = $derived(CREW_TIERS.map(item => crew[item.tier].tool))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
   const approveBlocker = $derived(planBlocker(sessions, room) || partsBlocker(sessions) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
-  const sourceOffered = $derived.by(() => {
-    const ids = KNOWN_SOURCES.map(item => item.id)
-    if (savedSource && !ids.includes(savedSource)) ids.push(savedSource)
-    return ids
-  })
+  const sourceOffered = $derived(sourceOptions({ saved: savedSource }).map(item => item.id))
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
   const chosenSource = $derived(startSource.source)
   const sourceShown = $derived(tool === 'cline' && machine?.capabilities?.acpProvider === true)
@@ -431,20 +427,20 @@
                 <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                 <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
-                {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
+                {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={crew[item.tier].source || savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
                 <div class="crew-backup" role="group" aria-label={`${item.label} backup`}>
                   <span class="crew-slot">Backup</span>
                   <select aria-label={`${item.label} backup agent`} bind:value={backups[item.tier].tool} disabled={planning || !tools.length} onchange={() => { backups[item.tier].model = ''; backups[item.tier].effort = ''; backups[item.tier].source = ''; if (!backups[item.tier].tool) more[item.tier] = [] }}><option value="">No backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                   {#if backups[item.tier].tool}
                     <GafferModelSelect label={`${item.label} backup model`} tool={backups[item.tier].tool} bind:value={backups[item.tier].model} machine={offeredFor(backups[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                     <select aria-label={`${item.label} backup effort`} bind:value={backups[item.tier].effort} disabled={planning || efforts(backups[item.tier].tool).length < 2}>{#each efforts(backups[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(backups[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
-                    {#if backups[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} backup source`} value={backups[item.tier].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => backups[item.tier].source = next} onsaved={next => savedSource = next} /></div>{/if}
+                    {#if backups[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} backup source`} value={backups[item.tier].source ?? ''} saved={backups[item.tier].source || savedSource} offered={sourceOffered} disabled={planning} onchange={next => backups[item.tier].source = next} onsaved={next => savedSource = next} /></div>{/if}
                     {#each more[item.tier] as extra, n (n)}
                       <span class="crew-slot">Then</span>
                       <select aria-label={`${item.label} backup ${n + 2} agent`} bind:value={extra.tool} disabled={planning} onchange={() => { if (!extra.tool) more[item.tier] = more[item.tier].filter((_, at) => at !== n); else { extra.model = ''; extra.effort = ''; extra.source = '' } }}><option value="">Remove this backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                       <GafferModelSelect label={`${item.label} backup ${n + 2} model`} tool={extra.tool} bind:value={extra.model} machine={offeredFor(extra.tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                       <select aria-label={`${item.label} backup ${n + 2} effort`} bind:value={extra.effort} disabled={planning || efforts(extra.tool).length < 2}>{#each efforts(extra.tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(extra.tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
-                      {#if extra.tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} backup ${n + 2} source`} value={extra.source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => extra.source = next} onsaved={next => savedSource = next} /></div>{/if}
+                      {#if extra.tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} backup ${n + 2} source`} value={extra.source ?? ''} saved={extra.source || savedSource} offered={sourceOffered} disabled={planning} onchange={next => extra.source = next} onsaved={next => savedSource = next} /></div>{/if}
                     {/each}
                     {#if more[item.tier].length < MAX_BACKUPS - 1}<button class="link crew-more" type="button" disabled={planning} aria-label={`Add another backup for ${item.label}`} onclick={() => more[item.tier] = [...more[item.tier], { tool: tools.find(id => id !== backups[item.tier].tool) ?? tools[0] ?? '', model: '', effort: '' }]}>Add another backup</button>{/if}
                   {:else}<span class="crew-none">Stages stay on the first choice.</span>{/if}

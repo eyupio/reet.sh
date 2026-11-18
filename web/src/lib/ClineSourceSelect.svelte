@@ -1,16 +1,18 @@
 <script lang="ts">
   // Cline's billing source, in one place: the sources reet knows, the saved default, and the star that
-  // saves or clears it. Start an agent and Give Gaffer an outcome use this same control.
+  // saves or clears it. Start an agent, Give Gaffer an outcome and the Gaffer settings crew use this same control.
   import { saveProfile, UnauthorizedError } from './api'
-  import { KNOWN_SOURCES, sourceLabel } from './clineSource'
+  import { KNOWN_SOURCES, sourceLabel, sourceOptions } from './clineSource'
 
-  let { value = '', saved = '', label = 'Source', offered = KNOWN_SOURCES.map(source => source.id), disabled = false, note = '', onchange, onsaved, onsignedout }: {
+  let { value = '', saved = '', label = 'Source', offered = KNOWN_SOURCES.map(source => source.id), disabled = false, note = '', showLabel = true, star = true, onchange, onsaved, onsignedout }: {
     value?: string
     saved?: string
     label?: string
     offered?: readonly string[]
     disabled?: boolean
     note?: string
+    showLabel?: boolean
+    star?: boolean
     onchange?: (value: string) => void
     onsaved?: (saved: string) => void
     onsignedout?: (e: unknown) => void
@@ -18,12 +20,8 @@
 
   const id = $props.id()
   let busy = $state(false), error = $state('')
-  const options = $derived.by(() => {
-    const ids = [...offered]
-    // A saved id Cline reported but reet has no label for is shown as given and still applies.
-    if (saved && !ids.includes(saved)) ids.push(saved)
-    return ids.map(source => ({ id: source, label: sourceLabel(source) }))
-  })
+  // A saved id Cline reported but reet has no label for is shown as given and still applies.
+  const options = $derived(sourceOptions({ offered, saved }))
   const isDefault = $derived(!!value && value === saved)
 
   function pick(event: Event) {
@@ -46,16 +44,16 @@
 </script>
 
 <div class="cline-source">
-  <label for={id}>{label}</label>
+  {#if showLabel}<label for={id}>{label}</label>{/if}
   <div class="source-row">
-    <select {id} value={value} {disabled} onchange={pick}>
+    <select {id} aria-label={showLabel ? undefined : label} value={value} {disabled} onchange={pick}>
       <option value="">Cline’s own choice</option>
       {#each options as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
     </select>
-    <button type="button" class="star" class:on={isDefault} disabled={disabled || !value || busy} aria-pressed={isDefault} aria-label={isDefault ? `${sourceLabel(value)} is the default source. Clear it` : value ? `Make ${sourceLabel(value)} the default source` : 'Make a source the default'} title={isDefault ? 'New Cline sessions start on this source. Click to clear.' : 'Make this the source new Cline sessions start on'} onclick={() => void toggleDefault()}>
+    {#if star}<button type="button" class="star" class:on={isDefault} disabled={disabled || !value || busy} aria-pressed={isDefault} aria-label={isDefault ? `${sourceLabel(value)} is the default source. Clear it` : value ? `Make ${sourceLabel(value)} the default source` : 'Make a source the default'} title={isDefault ? 'New Cline sessions start on this source. Click to clear.' : 'Make this the source new Cline sessions start on'} onclick={() => void toggleDefault()}>
       <svg viewBox="0 0 24 24" width="15" height="15" fill={isDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
       <span>{busy ? 'Saving…' : isDefault ? 'Default' : 'Make default'}</span>
-    </button>
+    </button>{/if}
   </div>
   {#if note}<p class="hint">{note}</p>{/if}
   {#if error}<p class="reason" role="alert">{error}</p>{/if}

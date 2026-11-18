@@ -16,7 +16,7 @@
  import { chatAdapterHint, chatAdapterInstall, HINTED_TOOLS } from './chatAdapter'
  import { accountFor, startHint, type MachineAccounts } from './agentAccounts'
  import { machineAccounts } from './terminal/api'
- import { KNOWN_SOURCES, resolveStartSource } from './clineSource'
+ import { resolveStartSource, sourceOptions } from './clineSource'
  import ClineSourceSelect from './ClineSourceSelect.svelte'
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
@@ -152,11 +152,8 @@
  const sourceShown = $derived(chosenTool === 'cline' && structured && !!machine?.capabilities?.acpProvider)
  // A source reet has no label for still applies: a chat's star saves whatever id Cline reports, and this dialog cannot know
  // what the machine's Cline offers, so a saved id is shown as given. Cline's own refusal at launch is the one that says no.
- const sourceOptions = $derived.by(() => {
-  const saved = accountDefaults?.defaultClineSource ?? ''
-  return saved && !KNOWN_SOURCES.some(choice => choice.id === saved) ? [...KNOWN_SOURCES, { id: saved, label: saved }] : [...KNOWN_SOURCES]
- })
- const startSource = $derived(resolveStartSource({ explicit: explicitSource ? sourceChoice : undefined, saved: accountDefaults?.defaultClineSource, offered: sourceOptions.map(choice => choice.id) }))
+ const sourceOffered = $derived(sourceOptions({ saved: accountDefaults?.defaultClineSource ?? '' }))
+ const startSource = $derived(resolveStartSource({ explicit: explicitSource ? sourceChoice : undefined, saved: accountDefaults?.defaultClineSource, offered: sourceOffered.map(choice => choice.id) }))
  const chosenSource = $derived(startSource.source)
  // Explicit agent > project > account > the favourite marked for the agent > the first available agent. A model and an
  // effort only come with the agent they belong to; a project/account model needs no static hint or machine list.
@@ -948,7 +945,7 @@
 
    {#if sourceShown}
     <div class="field">
-     <ClineSourceSelect label="Source" value={chosenSource} saved={accountDefaults?.defaultClineSource ?? ''} offered={sourceOptions.map(choice => choice.id)} note={startSource.note} disabled={locked} onsignedout={onsignedout}
+     <ClineSourceSelect label="Source" value={chosenSource} saved={accountDefaults?.defaultClineSource ?? ''} offered={sourceOffered.map(choice => choice.id)} note={startSource.note} disabled={locked} onsignedout={onsignedout}
       onchange={next => { sourceChoice = next; explicitSource = true; edited() }} onsaved={rememberSourceDefault} />
     </div>
    {/if}

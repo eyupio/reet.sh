@@ -7,7 +7,7 @@
     type ModelFavourites,
   } from './api'
   import { CATALOGUE } from './catalogue'
-  import { KNOWN_SOURCES } from './clineSource'
+  import ClineSourceSelect from './ClineSourceSelect.svelte'
   import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
   import { PLAN_LIMITS_HELP } from './agentAccounts'
   import { AGENT_ACCOUNTS_DOC_URL } from './links'
@@ -478,14 +478,7 @@
       {/if}
 
       {#if defaultTool === 'cline'}
-        <label><span>Default source</span>
-          <select id="agents-source" aria-label="Default source" bind:value={defaultClineSource} disabled={!canWrite || busy === 'profile'}>
-            <option value="">Cline’s own choice</option>
-            {#each KNOWN_SOURCES as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
-            {#if defaultClineSource && !KNOWN_SOURCES.some(choice => choice.id === defaultClineSource)}<option value={defaultClineSource}>{defaultClineSource}</option>{/if}
-          </select>
-          <small>The billing source new Cline sessions start on.</small>
-        </label>
+        <ClineSourceSelect label="Default source" value={defaultClineSource} saved={defaultClineSource} disabled={!canWrite || busy === 'profile'} star={false} note="The billing source new Cline sessions start on." onchange={next => { defaultClineSource = next; formMessage = '' }} />
       {/if}
 
       <label><span>Base branch for fresh worktrees</span>

@@ -1,4 +1,4 @@
-// Which agents are signed in on a machine, and their plan limits when the account has them on: the machine's settings
+// Which agents are signed in on a machine, and their plan limits (read for every account, with no switch): the machine's settings
 // dialog and the Start dialog's hint. Runs against the built app with every API answer mocked; the reader on the machine,
 // the protocol and the controller have their own Go tests.
 import { chromium, expect } from '@playwright/test'
@@ -43,7 +43,7 @@ async function settings(page) {
 }
 
 try {
-  if (run('sign-ins without plan limits')) {
+  if (run('sign-ins before any plan is read')) {
     reset()
     const {context, page, errors} = await open()
     const dialog = await settings(page)
@@ -52,8 +52,10 @@ try {
     await expect(codex.locator('.sign-in')).toHaveText('No sign-in found on this machine')
     const row = dialog.locator('.sign-ins')
     await expect(row).toContainText('Sign-ins read 3 min ago.')
-    // With the setting off there are no figures, and the page says where to turn them on.
-    await expect(row).toContainText('Plan limits are off. Turn them on in Settings > Agents to see how much of each plan is left.')
+    // An answer without figures (here one kept by a controller from before plan limits were always read, which still
+    // says planLimits:false) shows no figures, and nothing tells the person to turn a switch on: there is none.
+    await expect(row).not.toContainText('Plan limits are off')
+    await expect(row).not.toContainText('Settings > Agents')
     await expect(dialog.locator('.limits')).toHaveCount(0)
     await expect(dialog.locator('.limits-note')).toHaveCount(0)
     expect(reads).toBe(1)
@@ -86,6 +88,10 @@ try {
     await expect(list.getByRole('listitem').nth(0).locator('.limit-meter > span')).toHaveAttribute('style', /width:\s*81%/)
     await expect(dialog.locator('.sign-ins')).not.toContainText('Plan limits are off')
     await expect(claude.locator('.limits-note')).toHaveCount(0)
+    // The figures do not depend on the answer's planLimits flag, which an older controller may still send as false.
+    refreshed = {...answer, planLimits:false, checkedAt:Date.now()}
+    await dialog.getByRole('button', {name:'Check sign-ins', exact:true}).click()
+    await expect(list.getByRole('listitem')).toHaveCount(3)
     // A sign-in that needs renewing keeps the last figures and says what to do; nothing claims they are current.
     refreshed = {...answer, checkedAt:Date.now(), accounts:[{...signIn, limitsState:'renew', limits:figures, limitsAt:now - 12 * minute}, none]}
     await dialog.getByRole('button', {name:'Check sign-ins', exact:true}).click()

@@ -81,6 +81,7 @@
     Library: () => loadPage(() => import('./lib/Library.svelte')),
     SetupProfiles: () => loadPage(() => import('./lib/SetupProfiles.svelte')),
     Prompts: () => loadPage(() => import('./lib/Prompts.svelte')),
+    Usage: () => loadPage(() => import('./lib/UsagePage.svelte')),
     SignIn: () => loadPage(() => import('./lib/SignIn.svelte')),
     SignUp: () => loadPage(() => import('./lib/SignUp.svelte')),
     Notifications: () => loadPage(() => import('./lib/Notifications.svelte')),
@@ -203,6 +204,8 @@
   const isLibrary = location.pathname === '/library'
   const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
   const isPrompts = location.pathname === '/prompts' || location.pathname === '/prompts/'
+  // Usage: each agent's plan left and the tokens its sessions reported, for the accounts that have Sessions.
+  const isUsage = location.pathname === '/usage' || location.pathname === '/usage/'
   // Without Sessions access (a viewer, a token or an open instance) /sessions shows Machines, as /terminals did.
   const isMachines = isSync || isTerminals || isSessions || location.pathname === '/machines' || ['/account/machines', '/account/sync'].includes(location.pathname)
   const isAdmin = location.pathname.startsWith('/admin')
@@ -279,6 +282,7 @@
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: DOCS_URL, label: 'Documentation', group: 'Help & community', current: false },
+    ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }] : []),
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
     ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
@@ -1050,7 +1054,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1285,6 +1289,22 @@
         <RouteSkeleton variant="rows" />
       {:then { default: Page }}
         <Page {canWrite} />
+      {:catch}
+        <PageLoadError />
+      {/await}
+    {/if}
+  {:else if isUsage}
+    {#if authMode !== 'accounts'}
+      <PageHeader group="Workspace" title="Usage needs an account." />
+      <p class="notice bad" role="status">Sign in with an account to see what your agents have used.</p>
+    {:else if !canWrite}
+      <PageHeader group="Workspace" title="Usage needs a writer account." />
+      <p class="notice bad" role="status">Your role can read the workspace, but usage comes from sessions, which a writer's account starts.</p>
+    {:else}
+      {#await pages.Usage()}
+        <RouteSkeleton variant="cards" />
+      {:then { default: Page }}
+        <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} onsignedout={fail} />
       {:catch}
         <PageLoadError />
       {/await}

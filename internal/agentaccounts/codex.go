@@ -71,14 +71,14 @@ func (r *Reader) codex() signIn {
 
 // askCodex reads the allowance of a ChatGPT plan: one or two windows, each a
 // used percentage, its length and when it starts again.
-func askCodex(ctx context.Context, r *Reader, s signIn) ([]terminalproto.AccountLimit, terminalproto.AccountLimitsState, time.Duration) {
+func askCodex(ctx context.Context, r *Reader, s signIn) allowance {
 	headers := map[string]string{}
 	if validHeaderValue(s.accountID) {
 		headers["chatgpt-account-id"] = s.accountID
 	}
 	body, state, wait := r.get(ctx, r.opts.CodexUsageURL, s.token, headers)
 	if state != terminalproto.AccountLimitsRead {
-		return nil, state, wait
+		return allowance{state: state, wait: wait}
 	}
 	type window struct {
 		UsedPercent *float64 `json:"used_percent"`
@@ -93,7 +93,7 @@ func askCodex(ctx context.Context, r *Reader, s signIn) ([]terminalproto.Account
 		} `json:"rate_limit"`
 	}
 	if json.Unmarshal(body, &doc) != nil || doc.RateLimit == nil {
-		return nil, terminalproto.AccountLimitsFailed, 0
+		return allowance{state: terminalproto.AccountLimitsFailed}
 	}
 	now := r.opts.Now()
 	var limits []terminalproto.AccountLimit
@@ -111,9 +111,9 @@ func askCodex(ctx context.Context, r *Reader, s signIn) ([]terminalproto.Account
 		limits = append(limits, limit)
 	}
 	if len(limits) == 0 {
-		return nil, terminalproto.AccountLimitsFailed, 0
+		return allowance{state: terminalproto.AccountLimitsFailed}
 	}
-	return limits, terminalproto.AccountLimitsRead, 0
+	return allowance{limits: limits, state: terminalproto.AccountLimitsRead}
 }
 
 // windowKind names a window by its length: up to six hours is a session, up

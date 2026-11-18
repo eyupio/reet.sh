@@ -53,6 +53,39 @@ func TestAStageUsesItsBackupOnlyWhenItsFirstChoiceRunsLowAndTheBackupHasMore(t *
 	}
 }
 
+// Copilot labels every window it has (Premium, Chat, Completions), and no
+// model's name holds those labels. Such a plan is judged by its tightest
+// window, never read as one with no figures.
+func TestAPlanWithOnlyLabelledWindowsIsJudgedByItsTightest(t *testing.T) {
+	now := time.Now()
+	claude, copilot := store.GafferStageAgent{Tool: "claude", Model: "opus"}, store.GafferStageAgent{Tool: "copilot", Model: "made-up-large"}
+	copilotPlan := func(premium, chat int) terminalproto.AgentAccount {
+		return planAccount("copilot", now, window("month", premium, "Premium"), window("month", chat, "Chat"))
+	}
+	low := planAccount("claude", now, window("week", 88, ""))
+	// A backup that has run out is not chosen.
+	if use, why := balanceChoice([]terminalproto.AgentAccount{low, copilotPlan(100, 20)}, claude, copilot, 0, now); use {
+		t.Errorf("a Copilot backup that has run out was chosen: %q", why)
+	}
+	// A backup with room is chosen, and the reason gives its figure.
+	if use, why := balanceChoice([]terminalproto.AgentAccount{low, copilotPlan(30, 50)}, claude, copilot, 0, now); !use || why != "Claude Code (opus)’s plan had 12% left, so this stage runs on GitHub Copilot (made-up-large), which had 50% left." {
+		t.Errorf("a Copilot backup with room: %v %q", use, why)
+	}
+	// A first choice running low is balanced away.
+	if use, why := balanceChoice([]terminalproto.AgentAccount{copilotPlan(95, 10), planAccount("claude", now, window("week", 30, ""))}, copilot, claude, 0, now); !use || !strings.Contains(why, "GitHub Copilot (made-up-large)’s plan had 5% left") || !strings.Contains(why, "which had 70% left.") {
+		t.Errorf("a Copilot first choice running low: %v %q", use, why)
+	}
+	// A plan-wide window still decides beside one for another model.
+	if use, why := balanceChoice([]terminalproto.AgentAccount{low, planAccount("copilot", now, window("month", 40, ""), window("month", 99, "Premium"))}, claude, copilot, 0, now); !use || !strings.HasSuffix(why, "which had 60% left.") {
+		t.Errorf("a plan-wide window: %v %q", use, why)
+	}
+	// Figures too old to go by are not called no figures.
+	old := planAccount("copilot", now.Add(-7*time.Hour), window("month", 10, "Premium"))
+	if use, why := balanceChoice([]terminalproto.AgentAccount{low, old}, claude, copilot, 0, now); !use || strings.Contains(why, "no plan figures") || !strings.HasSuffix(why, "whose plan figures are too old to go by.") {
+		t.Errorf("a backup with old figures: %v %q", use, why)
+	}
+}
+
 // The controller applies the rule when a stage starts: the session is asked
 // for on the backup, the stage says so and keeps its first choice, and the
 // move is in the activity log.

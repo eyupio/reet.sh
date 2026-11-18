@@ -10,13 +10,20 @@
 //     tokens, so renewing one here could sign the agent out. A token that has
 //     run out is reported as needing renewal, which the agent does itself the
 //     next time it runs.
-//   - No agent is started and no command is run.
+//   - No agent is started and no command is run: a sign-in kept only in a
+//     keychain or keyring, or handed out only by another program's command,
+//     is not read.
 //   - Without Limits nothing is sent anywhere: the answer comes from files.
 package agentaccounts
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -34,8 +41,14 @@ import (
 
 const (
 	// The providers' own endpoints for an account's allowance.
-	claudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
-	codexUsageURL  = "https://chatgpt.com/backend-api/wham/usage"
+	claudeUsageURL   = "https://api.anthropic.com/api/oauth/usage"
+	codexUsageURL    = "https://chatgpt.com/backend-api/wham/usage"
+	openCodeUsageURL = "https://opencode.ai/zen/go/v1/usage"
+	// Antigravity's allowance is asked of the daily endpoint first and, when
+	// that fails for a reason other than the sign-in, once of the stable one.
+	antigravityUsageURL         = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	antigravityFallbackUsageURL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	copilotUserURL              = "https://api.github.com/copilot_internal/user"
 
 	// maxCredentialBytes bounds a sign-in file; real ones are a few kilobytes.
 	maxCredentialBytes = 256 << 10
@@ -55,9 +68,24 @@ const (
 	// tokenMargin treats a token about to run out as run out, so a request
 	// is never sent with one that expires on the way.
 	tokenMargin = 30 * time.Second
-	// requestTimeout bounds one request to a provider.
-	requestTimeout = 10 * time.Second
+	// requestTimeout bounds one request to a provider, and also everything
+	// one agent's allowance takes, a second endpoint or a second token
+	// included, so the answer stays inside the connector's wait. The
+	// providers are asked side by side, so it is also all their time.
+	requestTimeout = 9 * time.Second
+	// filesMargin is the time allowed for the other sign-in files, each a
+	// plain file of at most maxCredentialBytes (maxProfileBytes for Claude's
+	// settings), read one after another, and for putting the answer together.
+	filesMargin = time.Second
 )
+
+// ReadTakesAtMost is the longest a Read takes: the sign-in files are read one
+// after another, OpenCode's store taking up to openCodeStoreWait (1 s) and the
+// rest filesMargin (1 s), then the providers are asked side by side, for
+// requestTimeout (9 s) at most: 1 + 1 + 9 = 11 s. The connector answers a read
+// that takes longer timed out after 12 s, so this leaves a second for the
+// reply.
+const ReadTakesAtMost = openCodeStoreWait + filesMargin + requestTimeout
 
 // Options configure a Reader. The zero value of every field but Home works.
 type Options struct {
@@ -72,8 +100,10 @@ type Options struct {
 	// Client makes the allowance requests. Nil uses a client that follows no
 	// redirect, so a sign-in is never sent on to another host.
 	Client *http.Client
-	// ClaudeUsageURL and CodexUsageURL replace the providers' endpoints in tests.
-	ClaudeUsageURL, CodexUsageURL string
+	// The URL fields replace the providers' endpoints in tests.
+	ClaudeUsageURL, CodexUsageURL, OpenCodeUsageURL  string
+	AntigravityUsageURL, AntigravityFallbackUsageURL string
+	CopilotUserURL                                   string
 	// Now replaces the clock in tests.
 	Now func() time.Time
 }
@@ -88,12 +118,15 @@ type Reader struct {
 
 // remembered is the last allowance read for one agent and account.
 type remembered struct {
-	identity  string
-	limits    []terminalproto.AccountLimit
-	limitsAt  time.Time // when limits were read; zero when none ever were
-	state     terminalproto.AccountLimitsState
-	askedAt   time.Time
-	retryFrom time.Time // a provider's own "not before", after a rate limit
+	identity string
+	// plan and account are what the provider's answer said, for agents whose
+	// files do not say (an OpenCode key, a Copilot plan); empty otherwise.
+	plan, account string
+	limits        []terminalproto.AccountLimit
+	limitsAt      time.Time // when limits were read; zero when none ever were
+	state         terminalproto.AccountLimitsState
+	askedAt       time.Time
+	retryFrom     time.Time // a provider's own "not before", after a rate limit
 }
 
 // New returns a Reader for one machine user.
@@ -110,6 +143,18 @@ func New(opts Options) *Reader {
 	if opts.CodexUsageURL == "" {
 		opts.CodexUsageURL = codexUsageURL
 	}
+	if opts.OpenCodeUsageURL == "" {
+		opts.OpenCodeUsageURL = openCodeUsageURL
+	}
+	if opts.AntigravityUsageURL == "" {
+		opts.AntigravityUsageURL = antigravityUsageURL
+	}
+	if opts.AntigravityFallbackUsageURL == "" {
+		opts.AntigravityFallbackUsageURL = antigravityFallbackUsageURL
+	}
+	if opts.CopilotUserURL == "" {
+		opts.CopilotUserURL = copilotUserURL
+	}
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -121,7 +166,10 @@ func New(opts Options) *Reader {
 type signIn struct {
 	account terminalproto.AgentAccount
 	token   string
-	expires time.Time // zero when the sign-in does not say
+	// alternates are further tokens for the same account, tried in order
+	// when the provider says the one before has no plan (Copilot).
+	alternates []string
+	expires    time.Time // zero when the sign-in does not say
 	// identity tells one account from another, so figures read for one are
 	// never shown for the next.
 	identity string
@@ -129,7 +177,17 @@ type signIn struct {
 	// request where the provider wants it.
 	accountID string
 	// ask reads the allowance with token.
-	ask func(ctx context.Context, r *Reader, s signIn) ([]terminalproto.AccountLimit, terminalproto.AccountLimitsState, time.Duration)
+	ask func(ctx context.Context, r *Reader, s signIn) allowance
+}
+
+// allowance is what asking a provider came to. limits are set only when state
+// is read. plan and account are set only by a provider whose answer names
+// them; they replace what the files said.
+type allowance struct {
+	limits        []terminalproto.AccountLimit
+	state         terminalproto.AccountLimitsState
+	wait          time.Duration // a provider's own "not before", after a rate limit
+	plan, account string
 }
 
 // Read answers for every agent with a reviewed reader, in a fixed order. With
@@ -138,7 +196,7 @@ type signIn struct {
 // read in the last few minutes. It never returns an error: what could not be
 // read is a state.
 func (r *Reader) Read(ctx context.Context, limits, refresh bool) []terminalproto.AgentAccount {
-	readers := []func() signIn{r.claude, r.codex}
+	readers := []func() signIn{r.claude, r.codex, r.openCode, r.antigravity, r.copilot}
 	out := make([]terminalproto.AgentAccount, len(readers))
 	var wg sync.WaitGroup
 	for i, read := range readers {
@@ -176,6 +234,17 @@ func (r *Reader) withLimits(ctx context.Context, s signIn, refresh bool) termina
 
 	answer := func(k remembered) terminalproto.AgentAccount {
 		a.LimitsState = k.state
+		if k.plan != "" {
+			a.Plan = k.plan
+		}
+		if k.account != "" {
+			a.Account = k.account
+		}
+		if k.state == terminalproto.AccountLimitsUnsupported {
+			// The provider says the account has no plan of the kind read
+			// here: there are no figures, old or new, to show for it.
+			return a
+		}
 		if len(k.limits) > 0 {
 			a.Limits, a.LimitsAt = append([]terminalproto.AccountLimit(nil), k.limits...), k.limitsAt.UnixMilli()
 		}
@@ -183,25 +252,36 @@ func (r *Reader) withLimits(ctx context.Context, s signIn, refresh bool) termina
 	}
 	if known {
 		sinceAsk := now.Sub(kept.askedAt)
-		fresh := kept.state == terminalproto.AccountLimitsRead && sinceAsk < freshFor && !refresh
+		// An answer that the account has no plan stands as long as figures do.
+		settled := kept.state == terminalproto.AccountLimitsRead || kept.state == terminalproto.AccountLimitsUnsupported
+		fresh := settled && sinceAsk < freshFor && !refresh
 		tooSoon := sinceAsk < askFloor || now.Before(kept.retryFrom)
-		waiting := kept.state != terminalproto.AccountLimitsRead && sinceAsk < retryAfter && !refresh
+		waiting := !settled && sinceAsk < retryAfter && !refresh
 		if fresh || tooSoon || waiting {
 			return answer(kept)
 		}
 	}
-	next := remembered{identity: s.identity, limits: kept.limits, limitsAt: kept.limitsAt, askedAt: now}
+	// Until a new answer says otherwise, what the last one said of the plan
+	// stands with its figures.
+	next := remembered{identity: s.identity, plan: kept.plan, account: kept.account, limits: kept.limits, limitsAt: kept.limitsAt, askedAt: now}
 	if !s.expires.IsZero() && !s.expires.After(now.Add(tokenMargin)) {
 		// Nothing is sent with a token that has run out, and it is not renewed.
 		next.state = terminalproto.AccountLimitsRenew
 	} else {
-		limits, state, wait := s.ask(ctx, r, s)
-		next.state = state
-		if state == terminalproto.AccountLimitsRead {
-			next.limits, next.limitsAt = limits, now
+		askCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		got := s.ask(askCtx, r, s)
+		cancel()
+		next.state = got.state
+		switch got.state {
+		case terminalproto.AccountLimitsRead:
+			next.limits, next.limitsAt = got.limits, now
+			next.plan, next.account = got.plan, got.account
+		case terminalproto.AccountLimitsUnsupported:
+			next.limits, next.limitsAt = nil, time.Time{}
+			next.plan, next.account = got.plan, got.account
 		}
-		if wait > 0 {
-			next.retryFrom = now.Add(wait)
+		if got.wait > 0 {
+			next.retryFrom = now.Add(got.wait)
 		}
 	}
 	r.mu.Lock()
@@ -215,37 +295,67 @@ func (r *Reader) withLimits(ctx context.Context, s signIn, refresh bool) termina
 // body on 200; otherwise the state the status means and, for a rate limit,
 // how long the provider asked to wait.
 func (r *Reader) get(ctx context.Context, url, token string, headers map[string]string) ([]byte, terminalproto.AccountLimitsState, time.Duration) {
+	got := r.send(ctx, http.MethodGet, url, "Bearer "+token, nil, headers)
+	return got.body, got.state, got.wait
+}
+
+// sent is one provider request's outcome: the body on 200, the HTTP status
+// (zero when no answer came) and the state that status means.
+type sent struct {
+	body   []byte
+	status int
+	state  terminalproto.AccountLimitsState
+	wait   time.Duration
+}
+
+// send makes one request to a provider, with authorization as its
+// Authorization header and body, when there is one, as JSON. The sign-in goes
+// in that header of this one request and nowhere else.
+func (r *Reader) send(ctx context.Context, method, url, authorization string, body []byte, headers map[string]string) sent {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, terminalproto.AccountLimitsFailed, 0
+	var payload io.Reader
+	if body != nil {
+		payload = bytes.NewReader(body)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req, err := http.NewRequestWithContext(ctx, method, url, payload)
+	if err != nil {
+		return sent{state: terminalproto.AccountLimitsFailed}
+	}
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "reet")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 	res, err := r.opts.Client.Do(req)
 	if err != nil {
-		return nil, terminalproto.AccountLimitsFailed, 0
+		return sent{state: terminalproto.AccountLimitsFailed}
 	}
 	defer res.Body.Close()
+	out := sent{status: res.StatusCode}
 	switch res.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return nil, terminalproto.AccountLimitsRefused, 0
+		out.state = terminalproto.AccountLimitsRefused
+		return out
 	case http.StatusTooManyRequests:
-		return nil, terminalproto.AccountLimitsRateLimited, retryAfterHeader(res.Header.Get("Retry-After"))
+		out.state, out.wait = terminalproto.AccountLimitsRateLimited, retryAfterHeader(res.Header.Get("Retry-After"))
+		return out
 	default:
-		return nil, terminalproto.AccountLimitsFailed, 0
+		out.state = terminalproto.AccountLimitsFailed
+		return out
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxUsageBytes+1))
-	if err != nil || len(body) > maxUsageBytes {
-		return nil, terminalproto.AccountLimitsFailed, 0
+	data, err := io.ReadAll(io.LimitReader(res.Body, maxUsageBytes+1))
+	if err != nil || len(data) > maxUsageBytes {
+		out.state = terminalproto.AccountLimitsFailed
+		return out
 	}
-	return body, terminalproto.AccountLimitsRead, 0
+	out.body, out.state = data, terminalproto.AccountLimitsRead
+	return out
 }
 
 // retryAfterHeader reads a Retry-After in seconds, bounded to an hour. A date
@@ -296,9 +406,21 @@ var errUnreadable = errors.New("unreadable")
 
 // readFile reads a plain file of at most limit bytes. A missing file is
 // os.ErrNotExist; anything that is not a plain file, is larger, or cannot be
-// read is errUnreadable.
+// read is errUnreadable. A link is followed only to a plain file.
+//
+// The path is looked at before it is opened: opening a named pipe or a device
+// can wait for ever, and a sign-in path is no place for either. It is opened
+// without waiting too (where the system has that), in case one is put there
+// in between, and looked at again once open.
 func readFile(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, os.ErrNotExist
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
+		return nil, errUnreadable
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|openNoWait, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, os.ErrNotExist
 	}
@@ -306,7 +428,7 @@ func readFile(path string, limit int64) ([]byte, error) {
 		return nil, errUnreadable
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
 		return nil, errUnreadable
 	}
@@ -317,6 +439,28 @@ func readFile(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+// keyMark tells one key from another without keeping the key: a keyed digest
+// under a secret made afresh for this process, so the mark means nothing
+// outside it and cannot be tried against guesses of the key. It is kept in
+// memory only, as part of an identity, where a sign-in has no account name
+// to tell it from the next (an OpenCode key, an Antigravity sign-in without
+// an identity token).
+func keyMark(key string) string {
+	markOnce.Do(func() {
+		if _, err := rand.Read(markSecret[:]); err != nil {
+			panic("agentaccounts: no randomness for the key mark: " + err.Error())
+		}
+	})
+	mac := hmac.New(sha256.New, markSecret[:])
+	mac.Write([]byte(key))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+var (
+	markOnce   sync.Once
+	markSecret [32]byte
+)
+
 // label makes a provider's word safe to show: no control or invisible
 // characters, trimmed, at most max characters. Anything else is dropped whole
 // rather than repaired.
@@ -326,7 +470,7 @@ func label(s string, max int) string {
 		return ""
 	}
 	for _, c := range s {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == ' ' || c == ' ' {
+		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
 			return ""
 		}
 	}

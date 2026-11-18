@@ -139,7 +139,7 @@
       <label for={`${formId}-below`}>Switch to a backup below</label>
       <span class="percent"><input id={`${formId}-below`} type="number" inputmode="numeric" min={BALANCE_MIN_PERCENT} max={BALANCE_MAX_PERCENT} step="5" bind:value={below} disabled={busy} aria-describedby={`${formId}-below-unit`} onblur={() => below = balancePercent(below)}/><span id={`${formId}-below-unit`}>% of the first choice’s plan left</span></span>
     </div>
-    <p class="hint">A stage starts on its tier’s backup when the first choice’s plan has under this much left in its tightest window and the backup’s has more. It needs plan limits to be on for the machine.</p>
+    <p class="hint">A stage starts on its tier’s backup when the first choice’s plan has under this much left in its tightest window and the backup’s has more. It needs the machine to be able to read the agent’s plan.</p>
     <div class="row who" role="group" aria-label="Decisions, when a stage stops"><span class="who-name">Decisions, when a stage stops</span>
       <div class="choice" role="radiogroup" aria-label="Who decides by default">
         <label class:on={!decides}><input type="radio" name={`${formId}-who`} checked={!decides} disabled={busy} onchange={() => decides = false}/>Ask me</label>

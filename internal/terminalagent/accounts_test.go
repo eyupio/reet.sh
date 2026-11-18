@@ -107,7 +107,7 @@ func TestAccountsAnswerTheSignInAndAskForLimitsOnlyWhenAsked(t *testing.T) {
 	}
 	reply := next(t, got, "accounts-plain-0001")
 	body := reply.Body.(terminalproto.AccountsResult)
-	if len(body.Accounts) != 2 || body.Accounts[0].Tool != "claude" || body.Accounts[0].State != terminalproto.AccountSignedIn || body.Accounts[0].Plan != "pro" || body.Accounts[0].LimitsState != terminalproto.AccountLimitsNotAsked {
+	if len(body.Accounts) != 5 || body.Accounts[0].Tool != "claude" || body.Accounts[0].State != terminalproto.AccountSignedIn || body.Accounts[0].Plan != "pro" || body.Accounts[0].LimitsState != terminalproto.AccountLimitsNotAsked {
 		t.Fatalf("sign-in: %+v", body)
 	}
 	if body.Accounts[1].Tool != "codex" || body.Accounts[1].State != terminalproto.AccountNone {
@@ -158,7 +158,7 @@ func TestAccountsOneAtATime(t *testing.T) {
 		t.Fatalf("second request: %+v", body)
 	}
 	close(release)
-	if body := next(t, got, "accounts-first-0001").Body.(terminalproto.AccountsResult); body.Reason != "" || len(body.Accounts) != 2 {
+	if body := next(t, got, "accounts-first-0001").Body.(terminalproto.AccountsResult); body.Reason != "" || len(body.Accounts) != 5 {
 		t.Fatalf("first request: %+v", body)
 	}
 	if err := waitIdle(); err != nil {
@@ -166,5 +166,14 @@ func TestAccountsOneAtATime(t *testing.T) {
 	}
 	if len(entered) != 0 {
 		t.Fatal("the refused request reached the provider")
+	}
+}
+
+// A sign-in read answers inside the connector's wait, with room for the reply:
+// the OpenCode store's wait, the providers' and the other sign-in files' time
+// together are under accountsAnswerAfter.
+func TestASignInReadFitsTheConnectorsWait(t *testing.T) {
+	if agentaccounts.ReadTakesAtMost+time.Second > accountsAnswerAfter {
+		t.Fatalf("a read takes up to %s, the connector answers after %s", agentaccounts.ReadTakesAtMost, accountsAnswerAfter)
 	}
 }

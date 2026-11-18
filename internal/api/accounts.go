@@ -14,10 +14,11 @@ import (
 )
 
 // What a machine says of its agents' sign-ins, kept per account and machine.
-// The machine reads its agents' own sign-in files; when the account has plan
-// limits on it also asks each agent's provider, from the machine, with the
-// agent's own sign-in. No credential reaches the controller: an answer is a
-// state, a name, a plan word and percentages.
+// The machine reads its agents' own sign-in files and asks each agent's
+// provider, from the machine, with the agent's own sign-in, how much of the
+// plan is left. Every account is read this way; there is no switch. No
+// credential reaches the controller: an answer is a state, a name, a plan word
+// and percentages.
 
 const (
 	// accountsStaleAfter is how old a kept answer may be before an ordinary
@@ -48,7 +49,9 @@ func (s *server) accountLimitState() *modelLimits {
 
 // accountsView is what the browser is given. State is "read" for an answer,
 // or why there is none new: offline, update, off, busy or failed; the last
-// kept answer still comes with those. PlanLimits is the account's setting.
+// kept answer still comes with those. PlanLimits is always true: plan limits
+// are read for every account, and an older web bundle that still reads the
+// field shows the figures instead of telling the person to turn them on.
 type accountsView struct {
 	State      string                       `json:"state"`
 	Sentence   string                       `json:"sentence"`
@@ -73,32 +76,15 @@ func accountsSentence(state string) string {
 	return ""
 }
 
-// withoutLimits is an answer as an account with plan limits off is shown it:
-// figures kept from when the setting was on are not shown once it is off.
-func withoutLimits(accounts []terminalproto.AgentAccount) []terminalproto.AgentAccount {
-	out := make([]terminalproto.AgentAccount, len(accounts))
-	for i, a := range accounts {
-		a.Limits, a.LimitsAt = nil, 0
-		if a.LimitsState != terminalproto.AccountLimitsUnsupported {
-			a.LimitsState = terminalproto.AccountLimitsNotAsked
-		}
-		out[i] = a
-	}
-	return out
-}
-
 // accountsAnswer builds the view from the kept answer, if there is one.
-func (s *server) accountsAnswer(uid int64, agent, state string, limits bool) accountsView {
-	view := accountsView{State: state, Sentence: accountsSentence(state), PlanLimits: limits, Accounts: []terminalproto.AgentAccount{}}
+func (s *server) accountsAnswer(uid int64, agent, state string) accountsView {
+	view := accountsView{State: state, Sentence: accountsSentence(state), PlanLimits: true, Accounts: []terminalproto.AgentAccount{}}
 	kept, ok, err := s.st.MachineAccountsFor(uid, agent)
 	if err != nil || !ok {
 		return view
 	}
 	at := kept.CheckedAt
 	view.CheckedAt, view.Accounts = &at, kept.Accounts
-	if !limits {
-		view.Accounts = withoutLimits(kept.Accounts)
-	}
 	return view
 }
 
@@ -130,12 +116,14 @@ func (s *server) accountsReadiness(uid int64, agent string) (string, error) {
 	return "", nil
 }
 
-// readMachineAccounts asks the machine once and keeps what it answers. It
-// returns the state to report: "read" when a new answer was kept.
-func (s *server) readMachineAccounts(ctx context.Context, uid int64, agent string, limits, refresh bool) (string, error) {
+// readMachineAccounts asks the machine once, for the sign-ins and each plan's
+// allowance, and keeps what it answers. Refresh asks the machine to read the
+// allowance afresh rather than serve its own recent figures. It returns the
+// state to report: "read" when a new answer was kept.
+func (s *server) readMachineAccounts(ctx context.Context, uid int64, agent string, refresh bool) (string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, terminalbroker.AccountsCallTimeout)
 	defer cancel()
-	result, err := s.terminals.Accounts(callCtx, uid, agent, terminalproto.Accounts{Limits: limits, Refresh: limits && refresh})
+	result, err := s.terminals.Accounts(callCtx, uid, agent, terminalproto.Accounts{Limits: true, Refresh: refresh})
 	switch {
 	case errors.Is(err, context.Canceled):
 		// The browser went away; nothing is concluded from that.
@@ -174,19 +162,13 @@ func (s *server) machineAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
-	profile, err := s.st.ProfileFor(uid)
-	if err != nil {
-		terminalError(w, err)
-		return
-	}
-	limits := profile.PlanLimits
 	kept, found, err := s.st.MachineAccountsFor(uid, agent)
 	if err != nil {
 		terminalError(w, err)
 		return
 	}
-	if found && time.Since(time.UnixMilli(kept.CheckedAt)) < accountsStaleAfter && (!limits || answeredLimits(kept.Accounts)) {
-		writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, "read", limits))
+	if found && time.Since(time.UnixMilli(kept.CheckedAt)) < accountsStaleAfter && answeredLimits(kept.Accounts) {
+		writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, "read"))
 		return
 	}
 	state, err := s.accountsReadiness(uid, agent)
@@ -195,18 +177,17 @@ func (s *server) machineAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if state == "" {
-		if state, err = s.readMachineAccounts(r.Context(), uid, agent, limits, false); err != nil {
+		if state, err = s.readMachineAccounts(r.Context(), uid, agent, false); err != nil {
 			terminalError(w, err)
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, state, limits))
+	writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, state))
 }
 
 // answeredLimits reports whether a kept answer was made with the allowance
-// asked for: an answer kept while plan limits were off says not_asked for
-// every signed-in plan, and is no answer to an account that has since turned
-// them on.
+// asked for. An answer kept before plan limits were read for every account
+// says not_asked for each signed-in plan, and is read again at once.
 func answeredLimits(accounts []terminalproto.AgentAccount) bool {
 	for _, a := range accounts {
 		if a.State == terminalproto.AccountSignedIn && a.LimitsState == terminalproto.AccountLimitsNotAsked {
@@ -218,7 +199,7 @@ func answeredLimits(accounts []terminalproto.AgentAccount) bool {
 
 // machineAccountsRefresh is the person-pressed read. It is rate limited per
 // account and machine and is the only path that audits. The audit row names
-// the machine and whether the allowance was asked for, never an account.
+// the machine and that the allowance was asked for, never an account.
 func (s *server) machineAccountsRefresh(w http.ResponseWriter, r *http.Request) {
 	agent := r.PathValue("agentId")
 	if !terminalproto.ValidID(agent) {
@@ -226,29 +207,23 @@ func (s *server) machineAccountsRefresh(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	uid := s.uid(r)
-	profile, err := s.st.ProfileFor(uid)
-	if err != nil {
-		terminalError(w, err)
-		return
-	}
-	limits := profile.PlanLimits
 	state, err := s.accountsReadiness(uid, agent)
 	if err != nil {
 		terminalError(w, err)
 		return
 	}
 	if state != "" {
-		writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, state, limits))
+		writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, state))
 		return
 	}
 	if !s.accountLimitState().take(strconv.FormatInt(uid, 10) + "/" + agent) {
 		writeErrCode(w, http.StatusTooManyRequests, "accounts_rate_limited", "", sentenceSlowDown, "")
 		return
 	}
-	if state, err = s.readMachineAccounts(r.Context(), uid, agent, limits, true); err != nil {
+	if state, err = s.readMachineAccounts(r.Context(), uid, agent, true); err != nil {
 		terminalError(w, err)
 		return
 	}
-	s.event(uid, "ui", "machine-accounts-read", "", map[string]any{"machine": agent, "limits": limits, "state": state})
-	writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, state, limits))
+	s.event(uid, "ui", "machine-accounts-read", "", map[string]any{"machine": agent, "limits": true, "state": state})
+	writeJSON(w, http.StatusOK, s.accountsAnswer(uid, agent, state))
 }

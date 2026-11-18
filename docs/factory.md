@@ -143,12 +143,15 @@ tier's agent is yours.
 Each tier can have a **Backup**: a second agent, model and effort.
 
 - A stage starts on its backup when its first choice's plan has under 20% left in its tightest window and the backup's
-  has more, or the backup is signed in with a key. The figure is **Switch to a backup below**, from 5 to 90.
+  has more, or the backup is signed in with no plan figures to go by (a key, or figures over six hours old). The
+  figure is **Switch to a backup below**, from 5 to 90.
+- A window for one model counts only for a stage on that model. A plan whose windows are all for one kind of use, as
+  GitHub Copilot's Premium, Chat and Completions are, is judged by its tightest window.
 - A tier can have up to three backups, tried in the order you give them.
 - A working agent is never interrupted. If a stage's agent stops, or its session ends, with its plan below your
   figure, the stage is run again on its backup in a new session in the same folder and branch, once for a stage.
 - The stage's facts in the detail say **Balanced** with the reason. A finished stage keeps it, and so does History.
-- Balancing needs [plan limits](agent-accounts.md) to be on for the machine, and figures no more than six hours old.
+- Balancing needs the machine to be able to read the agent's [plan](agent-accounts.md), and figures no more than six hours old.
   Without them every stage stays on its first choice.
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer

@@ -5,6 +5,7 @@ import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../pro
 import type { MachineModels } from '../models'
 import type { SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
+import type { UsageAnswer } from '../usage'
 import type { ChatUsage } from '../chatUsage'
 
 /** Live sessions the workspace allows on one machine and across one account (a desk tab can hold nine panes on a machine): the browser's own check before a shell is started. The controller and the machine keep their own limits and answer a refusal past them. */
@@ -150,12 +151,16 @@ export async function machineModels(agentId: string, tool: string, signal?: Abor
 export async function refreshMachineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/models/refresh`, { method: 'POST', signal, body: JSON.stringify({ tool }) })).json()
 }
-/** Which of a machine's agents are signed in and, when the account has plan limits on, how much of each plan is left. The
+/** Which of a machine's agents are signed in and how much of each plan is left. The
  *  controller answers what it kept while that is recent, and otherwise asks the machine once. */
 export async function machineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts`, { signal })).json()
 }
-/** A person asking now: the machine reads its agents' sign-ins again, and fresh limits when the account has them on. */
+/** What the agents reported using in [from, to), for the Usage page. The controller answers from its own record. */
+export async function usageFor(from: number, to: number, signal?: AbortSignal): Promise<UsageAnswer> {
+  return (await terminalRequest(`/api/v2/usage?${new URLSearchParams({ from: String(from), to: String(to) })}`, { signal })).json()
+}
+/** A person asking now: the machine reads its agents' sign-ins and fresh plan limits again. */
 export async function refreshMachineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts/refresh`, { method: 'POST', signal })).json()
 }
@@ -616,8 +621,8 @@ export type StructuredAgent = { tool: string; adapter: string; state: 'available
 /** The adapter each reviewed chat tool must report; a descriptor for any other adapter never makes a tool chat-capable. */
 const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline', antigravity: 'agy' }
 export function isChatTool(tool: string | undefined): boolean { return !!tool && tool in CHAT_ADAPTERS }
-/** The product name shown for a chat tool. */
-export function chatToolName(tool: string | undefined): string { return tool === 'antigravity' ? 'Google Antigravity (AGY)' : tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cline' ? 'Cline' : 'OpenCode' }
+/** The product name shown for a chat tool, and for an agent's plan (Copilot has a plan but no chat). */
+export function chatToolName(tool: string | undefined): string { return tool === 'antigravity' ? 'Google Antigravity (AGY)' : tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cline' ? 'Cline' : tool === 'copilot' ? 'GitHub Copilot' : 'OpenCode' }
 
 export function chatNeedsTrust(tool: string | undefined): boolean { return tool === 'opencode' || tool === 'antigravity' }
 export function chatTrustText(tool: string | undefined): string {

@@ -35,21 +35,34 @@ func (s *Store) migrateTerminalUsage() error {
 
 // AddTerminalSessionUsage records one report: token counts are added to the
 // session's totals, and a context report (size above zero) replaces the last.
-// It is kept only for a session this account owns.
+// A report that carries tokens is also dated (terminal_usage_events), in the
+// same transaction. It is kept only for a session this account owns.
 func (s *Store) AddTerminalSessionUsage(uid int64, session string, input, output, cached, contextUsed, contextSize int64) error {
+	return s.addTerminalSessionUsageAt(uid, session, input, output, cached, contextUsed, contextSize, now())
+}
+
+func (s *Store) addTerminalSessionUsageAt(uid int64, session string, input, output, cached, contextUsed, contextSize, at int64) error {
 	if input < 0 || output < 0 || cached < 0 || contextUsed < 0 || contextSize < 0 {
 		return errors.New("usage cannot be negative")
 	}
-	if _, err := s.TerminalSessionFor(uid, session); err != nil {
+	owned, err := s.TerminalSessionFor(uid, session)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO terminal_session_usage(user_id,session_id,input_tokens,output_tokens,cached_tokens,context_used,context_size,updated_at) VALUES(?,?,?,?,?,?,?,?)
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO terminal_session_usage(user_id,session_id,input_tokens,output_tokens,cached_tokens,context_used,context_size,updated_at) VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id,session_id) DO UPDATE SET
 			input_tokens=input_tokens+excluded.input_tokens, output_tokens=output_tokens+excluded.output_tokens, cached_tokens=cached_tokens+excluded.cached_tokens,
 			context_used=CASE WHEN excluded.context_size>0 THEN excluded.context_used ELSE context_used END,
 			context_size=CASE WHEN excluded.context_size>0 THEN excluded.context_size ELSE context_size END,
-			updated_at=excluded.updated_at`, uid, session, input, output, cached, contextUsed, contextSize, now())
-	return err
+			updated_at=excluded.updated_at`, uid, session, input, output, cached, contextUsed, contextSize, at); err != nil {
+			return err
+		}
+		if input+output+cached == 0 {
+			return nil
+		}
+		return recordUsageEventTx(tx, uid, owned, input, output, cached, at)
+	})
 }
 
 // TerminalSessionUsageFor reads a session's reported usage. A session with no

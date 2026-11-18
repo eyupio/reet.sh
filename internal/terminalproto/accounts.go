@@ -73,7 +73,8 @@ func (s AccountState) Valid() bool {
 type AccountMethod string
 
 const (
-	// AccountSubscription is a sign-in to a plan (Claude, ChatGPT).
+	// AccountSubscription is a sign-in that may carry a plan (Claude,
+	// ChatGPT, OpenCode Go, Antigravity, Copilot); the provider is asked.
 	AccountSubscription AccountMethod = "subscription"
 	// AccountAPIKey is a provider API key; it has no plan allowance to read.
 	AccountAPIKey AccountMethod = "api_key"
@@ -95,7 +96,10 @@ const (
 	// AccountLimitsNotAsked means the request did not ask for the allowance.
 	AccountLimitsNotAsked AccountLimitsState = "not_asked"
 	// AccountLimitsUnsupported means there is no allowance to read: the
-	// sign-in has no plan (an API key).
+	// sign-in has no plan (an API key), or, for a subscription sign-in, the
+	// provider said the account has no plan of the kind reet reads (an
+	// OpenCode key without a Go plan, a GitHub account without Copilot) or
+	// none with a limit.
 	AccountLimitsUnsupported AccountLimitsState = "unsupported"
 	// AccountLimitsRenew means the sign-in's short-lived token has run out.
 	// The agent renews it when it next runs; reet never renews it, because

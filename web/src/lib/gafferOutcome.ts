@@ -612,7 +612,9 @@ export function outcomeAgentUsage(pieces: { stages?: AgentStage[] }[]): { total:
   }
   return { total, byAgent: [...by].map(([tool, tokens]) => ({ tool, tokens })).sort((a, b) => b.tokens - a.tokens || a.tool.localeCompare(b.tool)) }
 }
-const compact = (n: number) => n >= 999_500 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString('en-GB')
+/** A token count in a few characters: 1,234, 12k, 1.2M. */
+export const compactTokens = (n: number): string => n >= 999_500 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString('en-GB')
+const compact = compactTokens
 export function agentTokensText(usage: AgentUsage): string {
   if (!usage.reported) return 'Not reported'
   return usage.cached ? `${compact(usage.tokens)} · ${compact(usage.cached)} cached` : compact(usage.tokens)

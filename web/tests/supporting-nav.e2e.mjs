@@ -343,14 +343,21 @@ try {
     expect(noDesk.errors).toEqual([])
     await noDesk.context.close()
 
-    // A writer who is not an administrator has Teams alone in Workspace: the label, no row.
+    // A writer who is not an administrator has Usage and Teams in Workspace: a row of the two, without administration.
     const writer = await open({ status: { user: { id: 3, name: 'Wren', email: 'wren@example.test', role: 'writer' } }, routes: { '/api/v2/groups': { groups: [] } } })
     await writer.page.goto(`${base}/spaces`)
     await expect(writer.page.getByRole('heading', { level: 1, name: 'Teams & organisations', exact: true })).toBeVisible()
     await expect(writer.page.locator('.page-heading').getByText('Workspace', { exact: true })).toBeVisible()
-    await expect(writer.page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
+    await expect(writer.page.locator('.page-head').getByRole('navigation', { name: 'Workspace' }).getByRole('link')).toHaveText(['Usage', 'Teams & organisations'])
     expect(writer.errors).toEqual([])
     await writer.context.close()
+    // A viewer has no Sessions, so no Usage: Teams alone in Workspace, the label and no row.
+    const reader = await open({ status: { user: { id: 4, name: 'Vic', email: 'vic@example.test', role: 'viewer' } }, routes: { '/api/v2/groups': { groups: [] } } })
+    await reader.page.goto(`${base}/spaces`)
+    await expect(reader.page.getByRole('heading', { level: 1, name: 'Teams & organisations', exact: true })).toBeVisible()
+    await expect(reader.page.locator('.page-heading').getByText('Workspace', { exact: true })).toBeVisible()
+    await expect(reader.page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
+    await reader.context.close()
   }
 
   // A phone: the row folds into one menu that names the current page, opens and closes, and an action closes it before it runs.

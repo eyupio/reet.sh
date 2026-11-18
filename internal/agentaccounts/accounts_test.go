@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -30,9 +32,13 @@ type provider struct {
 	server *httptest.Server
 	mu     sync.Mutex
 	calls  []*http.Request
+	bodies []string
 	status int
 	body   string
 	header http.Header
+	// route, when set, answers in place of status and body, so a test can
+	// answer one token one way and the next another.
+	route func(*http.Request) (int, string)
 }
 
 func newProvider(t *testing.T) *provider {
@@ -40,12 +46,18 @@ func newProvider(t *testing.T) *provider {
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		defer p.mu.Unlock()
+		sent, _ := io.ReadAll(r.Body)
 		p.calls = append(p.calls, r.Clone(context.Background()))
+		p.bodies = append(p.bodies, string(sent))
 		for key, values := range p.header {
 			w.Header()[key] = values
 		}
-		w.WriteHeader(p.status)
-		fmt.Fprint(w, p.body)
+		status, body := p.status, p.body
+		if p.route != nil {
+			status, body = p.route(r)
+		}
+		w.WriteHeader(status)
+		fmt.Fprint(w, body)
 	}))
 	t.Cleanup(p.server.Close)
 	return p
@@ -73,22 +85,40 @@ func (p *provider) last() *http.Request {
 }
 
 type fixture struct {
-	t      *testing.T
-	home   string
-	claude *provider
-	codex  *provider
-	now    time.Time
-	reader *Reader
+	t           *testing.T
+	home        string
+	claude      *provider
+	codex       *provider
+	openCode    *provider
+	antigravity *provider
+	// antigravityStable stands in for Antigravity's second endpoint.
+	antigravityStable *provider
+	copilot           *provider
+	now               time.Time
+	reader            *Reader
 }
 
+// tools is every agent a machine answers for, in its order.
+var tools = []string{"claude", "codex", "opencode", "antigravity", "copilot"}
+
 func newFixture(t *testing.T, env ...string) *fixture {
-	f := &fixture{t: t, home: t.TempDir(), claude: newProvider(t), codex: newProvider(t), now: testNow}
+	f := &fixture{t: t, home: t.TempDir(), claude: newProvider(t), codex: newProvider(t), openCode: newProvider(t),
+		antigravity: newProvider(t), antigravityStable: newProvider(t), copilot: newProvider(t), now: testNow}
 	f.reader = New(Options{
 		Home: f.home, Env: env, GOOS: "linux",
 		ClaudeUsageURL: f.claude.server.URL + "/api/oauth/usage", CodexUsageURL: f.codex.server.URL + "/backend-api/wham/usage",
-		Now: func() time.Time { return f.now },
+		OpenCodeUsageURL:            f.openCode.server.URL + "/zen/go/v1/usage",
+		AntigravityUsageURL:         f.antigravity.server.URL + "/v1internal:retrieveUserQuotaSummary",
+		AntigravityFallbackUsageURL: f.antigravityStable.server.URL + "/v1internal:retrieveUserQuotaSummary",
+		CopilotUserURL:              f.copilot.server.URL + "/copilot_internal/user",
+		Now:                         func() time.Time { return f.now },
 	})
 	return f
+}
+
+// asked is how many requests every stand-in provider had.
+func (f *fixture) asked() int {
+	return f.claude.count() + f.codex.count() + f.openCode.count() + f.antigravity.count() + f.antigravityStable.count() + f.copilot.count()
 }
 
 func (f *fixture) write(rel, body string) {
@@ -102,13 +132,34 @@ func (f *fixture) write(rel, body string) {
 	}
 }
 
-// read answers the two agents and checks the rule that holds for every
-// answer: it is a valid protocol answer and nothing of a credential is in it.
+// read answers Claude Code and Codex; see all.
 func (f *fixture) read(limits, refresh bool) (claude, codex terminalproto.AgentAccount) {
 	f.t.Helper()
+	accounts := f.all(limits, refresh)
+	return accounts["claude"], accounts["codex"]
+}
+
+// one answers one agent; see all.
+func (f *fixture) one(tool string, limits, refresh bool) terminalproto.AgentAccount {
+	f.t.Helper()
+	return f.all(limits, refresh)[tool]
+}
+
+// all answers every agent and checks the rule that holds for every answer:
+// it is a valid protocol answer, in the fixed order, and nothing of a
+// credential is in it.
+func (f *fixture) all(limits, refresh bool) map[string]terminalproto.AgentAccount {
+	f.t.Helper()
 	accounts := f.reader.Read(context.Background(), limits, refresh)
-	if len(accounts) != 2 || accounts[0].Tool != "claude" || accounts[1].Tool != "codex" {
-		f.t.Fatalf("answer is not claude then codex: %+v", accounts)
+	byTool := map[string]terminalproto.AgentAccount{}
+	for i, account := range accounts {
+		if i >= len(tools) || account.Tool != tools[i] {
+			f.t.Fatalf("answer is not %v in order: %+v", tools, accounts)
+		}
+		byTool[account.Tool] = account
+	}
+	if len(accounts) != len(tools) {
+		f.t.Fatalf("answer is not %v: %+v", tools, accounts)
 	}
 	message := terminalproto.Message{Version: terminalproto.Version, RequestID: strings.Repeat("a", 32), Generation: 1, Body: terminalproto.AccountsResult{Accounts: accounts}}
 	wire, err := terminalproto.Encode(message)
@@ -118,7 +169,7 @@ func (f *fixture) read(limits, refresh bool) (claude, codex terminalproto.AgentA
 	if strings.Contains(string(wire), secret) {
 		f.t.Fatalf("a credential is in the answer: %s", wire)
 	}
-	return accounts[0], accounts[1]
+	return byTool
 }
 
 func claudeCredentials(expires time.Time) string {
@@ -144,13 +195,12 @@ const codexUsage = `{"plan_type":"plus","rate_limit":{"allowed":true,"limit_reac
 
 func TestNoSignInIsNoneAndAsksNobody(t *testing.T) {
 	f := newFixture(t)
-	claude, codex := f.read(true, true)
-	for _, a := range []terminalproto.AgentAccount{claude, codex} {
+	for _, a := range f.all(true, true) {
 		if a.State != terminalproto.AccountNone || a.LimitsState != terminalproto.AccountLimitsNotAsked || a.Account != "" || a.Method != "" {
 			t.Fatalf("an agent with no sign-in: %+v", a)
 		}
 	}
-	if f.claude.count()+f.codex.count() != 0 {
+	if f.asked() != 0 {
 		t.Fatal("a provider was asked with no sign-in")
 	}
 }
@@ -464,6 +514,68 @@ func TestWindowKindFollowsItsLength(t *testing.T) {
 	} {
 		if got := windowKind(seconds); got != want {
 			t.Errorf("windowKind(%v) = %s, want %s", seconds, got, want)
+		}
+	}
+}
+
+// The time a read may take is the sum of its parts, and the OpenCode store is
+// given a second of it.
+func TestAReadsTimeIsTheSumOfItsParts(t *testing.T) {
+	if openCodeStoreWait != time.Second || ReadTakesAtMost != openCodeStoreWait+requestTimeout+filesMargin || ReadTakesAtMost > 11*time.Second {
+		t.Fatalf("store %s + providers %s + files %s = %s", openCodeStoreWait, requestTimeout, filesMargin, ReadTakesAtMost)
+	}
+}
+
+// A key's mark is the same for the same key within a process, differs for
+// another key, and does not hold the key.
+func TestAKeysMarkTellsKeysApartWithoutHoldingThem(t *testing.T) {
+	one, other := "sk-one-"+secret, "sk-other-"+secret
+	if keyMark(one) != keyMark(one) {
+		t.Fatal("the same key gave two marks")
+	}
+	if keyMark(one) == keyMark(other) {
+		t.Fatal("two keys gave the same mark")
+	}
+	for _, key := range []string{one, other} {
+		mark := keyMark(key)
+		if mark == "" || strings.Contains(mark, key) || strings.Contains(mark, secret) || strings.Contains(mark, "sk-") {
+			t.Fatalf("the mark %q holds the key", mark)
+		}
+	}
+}
+
+// A provider's word with a control, format or line-breaking character is
+// dropped whole, and so is one too long.
+func TestALabelIsSafeToShowOrDropped(t *testing.T) {
+	for in, want := range map[string]string{
+		" person@example.com ": "person@example.com", "pro": "pro", "": "",
+		"a\u2028b": "", "a\u2029b": "", "a\u202eb": "", "a\u200bb": "", "a\nb": "", "a\x00b": "", "\xff": "",
+		strings.Repeat("x", 33): "",
+	} {
+		if got := label(in, 32); got != want {
+			t.Errorf("label(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The package's own source holds no character a reader cannot see: every
+// such character is written as an escape.
+func TestTheSourceHoldsNoInvisibleCharacters(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatal("no source", err)
+	}
+	for _, name := range files {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			for _, c := range line {
+				if c != '\t' && (unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || unicode.Is(unicode.Zl, c) || unicode.Is(unicode.Zp, c) || (unicode.IsSpace(c) && c != ' ')) {
+					t.Errorf("%s:%d holds %U", name, i+1, c)
+				}
+			}
 		}
 	}
 }

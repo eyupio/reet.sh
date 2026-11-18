@@ -18,6 +18,95 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## USAGE-1: one Usage page for every agent, and plan limits always on (18 November 2026)
+
+The owner asked: "Add a single usage page for all agents, plus on by default." Asked in turn, they chose: the page
+shows **plans plus tokens used** (per agent, the plan left for each account and window, then tokens used by its
+sessions and Factory stages, today, 7 days and 30 days, with the sessions behind them; every agent appears, and one
+that reports nothing says so); plan limits **"Always on, no switch"**; and placement as **an item in the More menu**
+on every screen size, with **"See all usage"** in the plan chips' panel. The primary tabs did not change. The context:
+their agent (OpenCode on a hosted model) has no plan reet can read, so Home showed nothing; the page must never be a
+silent blank.
+
+**Scope change during the work.** The owner then said the plan as described "isn't ideal, it should just work: if a
+user has an agent on a machine, show usage stats", and chose to have machines also read OpenCode (Go/Zen), Antigravity
+and Copilot plans; those readers come from a separate branch. So nothing here names a fixed pair of agents: a block
+draws whatever accounts and windows any machine answers for any tool (scoped and month/day windows included), each
+block leads with its token figure (for an agent with no plan, the only figures there are), and the no-figure sentence
+comes from the answer's states (`planSentence`, `planNote` in `usage.ts`): no sign-in, API key or no plan allowance,
+"<Agent>'s sign-in on <machine> has run out; it renews itself the next time <Agent> runs there", provider slowed down or unreachable (last figures dimmed), terminal access
+off, no connected machine reporting sign-ins, and only where no machine answers for the agent at all, "reet can't read
+this agent's plan". Settings → Agents says "the agents reet can read a plan for" and links to the sign-ins doc.
+
+**Controller.** `AddTerminalSessionUsage` now also writes a dated row to `terminal_usage_events` (user, session,
+machine id, tool, model, structured, at, input, output, cached; index on `(user_id, at)`) in the same transaction as
+the running total, for every report with tokens. The session's latest title, machine name and project are kept in
+`terminal_usage_sessions` (one row per session, updated on each report), so a row survives archiving, forgetting or
+revoking the machine; while the session exists its own current title is shown. Both go with the account (trigger) and
+are pruned on write after 90 days, at most 500 rows per write (as `remote_health_summaries` prunes on write). Archiving
+no longer touches them. `UsageFor` sums per tool (sessions, Factory stages, first event), per session (bounded, 200,
+`more`), and Gaffer's own `gaffer_turns` by provider and model. Factory marks come from the kept outcomes
+(`gaffer_outcomes`, 30 kept): every stage's `sessionId` and a followed session's own. `GET /api/v2/usage?from&to`
+(`internal/api/usage.go`): `terminalAccess(…, true)` + `sameOriginRead`, so it answers with remote terminals off and
+**refuses viewers**, as the session list does; range must end after it starts and be at most 92 days. `agents` lists
+`terminalproto.LaunchTools()` in order (the catalogue mirror, now an ordered list; a terminalhost test keeps it equal to
+`Catalogue`, and `reports` = `chat` when `ReviewedChatTool`, which the same test ties to a preset's ACP adapter).
+
+**Always on.** `internal/api/accounts.go` always asks with `Limits` (refresh with `Refresh`), never strips figures,
+and re-reads a recent answer that says `not_asked`; the view keeps `planLimits:true`. The profile always answers
+`planLimits:true`; `PATCH` accepts it as a no-op and does not audit it; the `plan_limits` column stays, unread and
+unwritten. Balancing reads kept figures as before, so it now works for accounts that never opted in; the hints and
+docs say it needs the machine to be able to read the agent's plan.
+
+**Web.** `/usage`, More → Workspace → Usage for `sessionsAccess`. Period buttons with `aria-pressed`, remembered as
+`reet.usage.period.<userId>`; ranges from the account's time zone (`usage.ts`, DST-safe); quiet refresh each minute
+while visible; table above 700 px, cards below. Plan blocks reuse `planEntries`, `limitLines`, `limitsNote` and
+`machinePlans`. Settings → Agents lost its fieldset; MachineSettings lost its off-state branches. `resetsIn` rounds to the minute
+before splitting hours (it could say "2 h 60 min").
+
+**Tests replaced.** Go: `TestMachineAccountsFirstReadAsksForSignInsOnly` → `…FirstReadAsksForTheAllowance`;
+`…PlanLimitsFollowTheAccountSetting` → `…AnAnswerWithoutTheAllowanceIsReadAgain`; `TestMachineAccountsRefresh`
+rewritten (always fresh figures, audit says limits true); `TestProfilePlanLimitsIsOffUntilTurnedOn` →
+`TestProfilePlanLimitsIsAlwaysOn`; helper `planLimits` → `oldClientPlanLimits`. Browser: in `account.e2e.mjs` the
+blocks "plan limits switch", "a refused plan limits switch puts the box back" and "plan limits switch is read-only for
+a viewer" → "usage note replaces the plan limits switch" and "a viewer sees the usage note without a switch"; in
+`agent-accounts.e2e.mjs` "sign-ins without plan limits" → "sign-ins before any plan is read" (no off hint), plus a
+check that figures show whatever `planLimits` says. The More list grew Usage: `navigation.e2e.mjs`'s three More-list
+assertions now include it, and `supporting-nav.e2e.mjs`'s "a writer has Teams alone in Workspace, no row" became "a
+writer's Workspace row is Usage and Teams" plus "a viewer has Teams alone, no row".
+
+**Data limits.** Totals start when this version is installed (nothing earlier is dated). Reports made while a machine
+is disconnected are lost (never queued). Only chats report: plain terminals, Copilot and machines without
+`acp-usage-v1` count nothing. Factory marks rely on the 30 outcomes kept. Gaffer's figures go when a Gaffer
+conversation is deleted. Events older than 90 days are removed when the same account next reports usage.
+
+**Not checked.** A real controller, machine or provider; a screen reader; a real tablet; the page under a very large
+history (the session list is bounded at 200, the per-tool sums are not).
+
+**Review fixes (PR #840).**
+- Copilot reads only `github.com` and `github.com:<app>` keys; a look-alike host (`github.company.com:…`,
+  `github.comcast.com`) is never read, so its token never reaches api.github.com.
+- Balancing (`planLeft` in `internal/gaffer/outcome_balance.go`) now judges a plan whose windows are all labelled and
+  none for the stage's model (Copilot's Premium, Chat, Completions) by its tightest window, instead of reading it as
+  signed in with no figures. A plan with a plan-wide window is judged as before. A backup whose figures are over six
+  hours old is chosen "whose plan figures are too old to go by", not "has no plan figures". With plan limits always on,
+  a backup agent with a sign-in but no figures at all (a key, or a plan reet cannot read) can still be chosen, "which
+  has no plan figures to run low": that is by design (the person chose it as the backup) but worth knowing.
+- `readFile` looks at a sign-in path before opening it and opens without waiting, so a named pipe or device there is
+  unreadable at once instead of blocking the read (`fifo_test.go`).
+- Time: OpenCode's store wait is 1 s, providers 9 s, other sign-in files 1 s: `agentaccounts.ReadTakesAtMost` = 11 s,
+  a second under the connector's 12 s `accountsAnswerAfter`; a terminalagent test keeps it so.
+- Antigravity asks its second endpoint only on a failure (no answer, 5xx, 404); a 429 is reported rate limited and its
+  Retry-After honoured. With no identity token, an Antigravity sign-in is told from the next by `keyMark` (moved to
+  `accounts.go`) of its refresh token, so a new sign-in is not shown the last one's figures.
+- The "renew" sentence on the Usage page now says the agent renews its own sign-in when it next runs. An agent reported
+  `retired` with figures says reet no longer starts it. The headline's session count is the controller's
+  `sessionCount` (each session once), not the sum of the agents' counts.
+- The OpenCode percentage is read as *used* (`usage.*.percent`). This was not checked against the provider: if the page
+  ever shows an OpenCode plan upside down (full when it is nearly spent), that is the place to look.
+- An answer that an account has no plan with limits stands for five minutes (`freshFor`), like figures; a plan bought
+  in those five minutes shows after them, or after **Check sign-ins** once 30 s have passed.
+
 ## DESK-HOME-1: desk sessions off Home, unless they need you (18 November 2026)
 
 The owner asked: "Do not show desk sessions on the home page." Asked whether a desk session that needs them should still

@@ -41,18 +41,41 @@ func SupportsAgents(features string) bool {
 	return false
 }
 
-// agentOptions lists the agents a connector starts under agents-v2 and the
-// launch options each preset maps to arguments. It mirrors the enabled rows of
-// terminalhost.Catalogue (a test there keeps them equal) so the controller can
-// refuse an option before it reserves a session. Disabled presets (pi, cursor)
-// are absent until the connector starts them.
-var agentOptions = map[string]struct{ effort, model, yolo bool }{
-	"claude":      {effort: true, model: true, yolo: true},
-	"codex":       {effort: true, model: true, yolo: true},
-	"opencode":    {model: true, yolo: true},
-	"cline":       {effort: true, model: true, yolo: true},
-	"antigravity": {effort: true, model: true, yolo: true},
-	"copilot":     {effort: true, model: true, yolo: true},
+// launchAgents lists the agents a connector starts under agents-v2, in the
+// catalogue's order, and the launch options each preset maps to arguments. It
+// mirrors the enabled rows of terminalhost.Catalogue (a test there keeps them
+// equal, order included) so the controller can refuse an option before it
+// reserves a session, and can list every agent it knows in one order. Disabled
+// presets (pi, cursor) are absent until the connector starts them.
+var launchAgents = []struct {
+	id                  string
+	effort, model, yolo bool
+}{
+	{id: "claude", effort: true, model: true, yolo: true},
+	{id: "codex", effort: true, model: true, yolo: true},
+	{id: "opencode", model: true, yolo: true},
+	{id: "cline", effort: true, model: true, yolo: true},
+	{id: "antigravity", effort: true, model: true, yolo: true},
+	{id: "copilot", effort: true, model: true, yolo: true},
+}
+
+// agentOptions is launchAgents by id.
+var agentOptions = func() map[string]struct{ effort, model, yolo bool } {
+	out := make(map[string]struct{ effort, model, yolo bool }, len(launchAgents))
+	for _, a := range launchAgents {
+		out[a.id] = struct{ effort, model, yolo bool }{a.effort, a.model, a.yolo}
+	}
+	return out
+}()
+
+// LaunchTools lists the agents started under agents-v2, in the catalogue's
+// order. The caller owns the slice.
+func LaunchTools() []string {
+	out := make([]string, len(launchAgents))
+	for i, a := range launchAgents {
+		out[i] = a.id
+	}
+	return out
 }
 
 // ValidToolV2 accepts the agents started under agents-v2.

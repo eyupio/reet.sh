@@ -626,11 +626,13 @@ try {
       await expect(below).toHaveValue('20');await below.fill('3');await below.blur();await expect(below).toHaveValue('5');await below.fill('30')
       const who=crew.getByRole('radiogroup',{name:'Who decides by default',exact:true})
       await expect(who.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked();await who.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
-      // A Cline tier can be given the billing source it starts on; any other agent has no such field.
+      // A Cline tier is given its billing source from the known sources; any other agent has no such field.
       const light=crew.getByRole('group',{name:'Light tier',exact:true})
       await light.getByRole('combobox',{name:'Light agent',exact:true}).selectOption('cline')
-      await light.getByRole('textbox',{name:'Light Cline billing source',exact:true}).fill('openrouter')
-      await expect(heavy.getByRole('textbox',{name:/Cline billing source/})).toHaveCount(0)
+      const source=light.getByRole('combobox',{name:'Light Cline billing source',exact:true})
+      await expect(source.getByRole('option')).toHaveCount(3)
+      await source.selectOption('cline-pass')
+      await expect(heavy.getByRole('combobox',{name:/Cline billing source/})).toHaveCount(0)
       // A tier can have a second backup, tried after the first.
       await heavy.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
       await heavy.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true}).selectOption('opencode')
@@ -639,7 +641,7 @@ try {
       await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
       await crew.getByRole('button',{name:'Save crew',exact:true}).click()
       await expect(crew.getByRole('status').filter({hasText:'Saved.'})).toHaveText('Saved. New outcomes start from this crew.')
-      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'model-strong',effort:'high',backup:{tool:'codex',model:'model-backup',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
+      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'model-strong',effort:'high',backup:{tool:'codex',model:'model-backup',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'cline-pass'},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

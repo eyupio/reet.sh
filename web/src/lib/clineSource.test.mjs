@@ -7,7 +7,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const { KNOWN_SOURCES, sourceLabel, sourceChoices, resolveStartSource, creditGuidance } = await import(asURL(compile('./clineSource.ts')))
+const { KNOWN_SOURCES, sourceLabel, sourceChoices, sourceOptions, resolveStartSource, creditGuidance } = await import(asURL(compile('./clineSource.ts')))
 
 test('known sources are labelled and any other id is shown as Cline reports it', () => {
   assert.deepEqual(KNOWN_SOURCES.map(s => s.id), ['cline', 'cline-pass'])
@@ -22,6 +22,27 @@ test('a source is only a choice when there is more than one', () => {
   assert.deepEqual(sourceChoices(['cline', 'cline-pass', 'x-other']), [
     { id: 'cline', label: 'Usage-Billing' }, { id: 'cline-pass', label: 'ClinePass' }, { id: 'x-other', label: 'x-other' },
   ])
+})
+
+test('a billing select is populated from the known sources and keeps a saved one no list has', () => {
+  assert.deepEqual(sourceOptions(), [
+    { id: 'cline', label: 'Usage-Billing' }, { id: 'cline-pass', label: 'ClinePass' },
+  ])
+  // A saved id is shown as Cline reports it, once, and in the list's own order when it is already offered.
+  assert.deepEqual(sourceOptions({ saved: 'x-other' }), [
+    { id: 'cline', label: 'Usage-Billing' }, { id: 'cline-pass', label: 'ClinePass' }, { id: 'x-other', label: 'x-other' },
+  ])
+  assert.deepEqual(sourceOptions({ saved: 'cline-pass' }).map(choice => choice.id), ['cline', 'cline-pass'])
+  // An empty list still leaves a saved value selectable, so a select round-trips what it was given.
+  assert.deepEqual(sourceOptions({ offered: [], saved: 'gone' }), [{ id: 'gone', label: 'gone' }])
+  assert.deepEqual(sourceOptions({ offered: [] }), [])
+})
+
+test('the shared billing select assembles its options in one place', () => {
+  const component = readFileSync(new URL('./ClineSourceSelect.svelte', import.meta.url), 'utf8')
+  assert.match(component, /sourceOptions\(\{ offered, saved \}\)/)
+  assert.match(component, /<option value={choice\.id}>{choice\.label}<\/option>/)
+  assert.match(component, /<select[^>]*value={value}/)
 })
 
 test('the start source is the explicit choice, then the saved default, then Cline’s own', () => {
@@ -59,6 +80,16 @@ test('both agent flows use one source control and one default resolver', () => {
     assert.match(text, /resolveStartSource\(/, file)
     assert.match(text, /defaultClineSource/, file)
   }
+})
+
+test('Gaffer settings chooses a Cline source from the shared select, keeping a saved one', () => {
+  const text = readFileSync(new URL('./GafferCrewSettings.svelte', import.meta.url), 'utf8')
+  assert.match(text, /import ClineSourceSelect from '\.\/ClineSourceSelect\.svelte'/)
+  assert.match(text, /<ClineSourceSelect[^>]*label=\{`\$\{label\} Cline billing source`\}/)
+  assert.match(text, /<ClineSourceSelect[^>]*value=\{row\.source \?\? ''\}/)
+  assert.match(text, /<ClineSourceSelect[^>]*saved=\{row\.source \?\? ''\}/)
+  assert.match(text, /onchange=\{next => \{ row\.source = next \}\}/)
+  assert.doesNotMatch(text, /<input[^>]*class="source"/)
 })
 
 test('the credit hint names the other sources the session offers', () => {

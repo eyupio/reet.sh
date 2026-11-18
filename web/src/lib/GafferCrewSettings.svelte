@@ -11,6 +11,7 @@
   import { agentOptionLabel, crewEffortChoices, crewModelNote, effortUnion, mergeMachineModels } from './crewChoices'
   import type { MachineModels, ModelFavourite } from './models'
   import GafferModelSelect from './GafferModelSelect.svelte'
+  import ClineSourceSelect from './ClineSourceSelect.svelte'
 
   // A crew may be set before a machine connects, so every agent is listed; one no machine runs says so.
   const AGENTS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
@@ -73,7 +74,7 @@
   // An id for a row's descriptions, from the row's label ("Heavy backup 2").
   const idOf = (label: string, what: string) => `${formId}-${label.replace(/\W+/g, '-')}-${what}`
 
-  // A row as it is saved: a Cline row carries its billing source when one was typed.
+  // A row as it is saved: a Cline row carries its billing source when one was chosen.
   const sent = (one: Row) => ({ tool: one.tool, model: one.model.trim(), effort: one.effort.trim(), ...(one.tool === 'cline' && one.source?.trim() ? { provider: one.source.trim() } : {}) })
   const tier = (name: Tier): GafferCrewTier => {
     const one = first[name], two = spare[name], rest = others[name].filter(row => row.tool)
@@ -104,7 +105,7 @@
     {#if effort.unoffered}<span class="caveat" id={idOf(label, 'effort-hint')}>If the agent does not offer this effort, the stage starts on the agent’s default effort.</span>{/if}
     {#if effort.disabled}<span class="sr-only" id={idOf(label, 'effort-none')}>{chatToolName(row.tool)} has no effort setting</span>{/if}
   </span>
-  {#if row.tool === 'cline'}<input class="source" aria-label={`${label} Cline billing source`} placeholder="Cline’s own billing source" value={row.source ?? ''} oninput={event => { row.source = (event.currentTarget as HTMLInputElement).value }} disabled={busy} maxlength="80" autocapitalize="off" spellcheck="false"/>{/if}
+  {#if row.tool === 'cline'}<div class="source"><ClineSourceSelect label={`${label} Cline billing source`} showLabel={false} star={false} value={row.source ?? ''} saved={row.source ?? ''} disabled={busy} onchange={next => { row.source = next }} /></div>{/if}
 {/snippet}
 
 <section class="crew" aria-label="Your Factory crew">
@@ -162,8 +163,8 @@
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
   /* The failed-read line's live region is always there, so a screen reader hears the line when it comes; empty, it takes no room. */
   .live:empty{position:absolute}
-  /* The model select is a component of its own: it takes this form's field colours so the row reads as one. */
-  .tier :global(.model select),.tier :global(.model input){background:var(--card);border-color:var(--line-strong);padding:8px 12px}.tier :global(.model select:hover),.tier :global(.model input:hover){border-color:var(--muted)}.tier :global(.model select:focus),.tier :global(.model input:focus){border-color:var(--accent)}.hint.warn{color:var(--warn)}
+  /* The model and source selects are components of their own: they take this form's field colours so a row reads as one. */
+  .tier :global(.model select),.tier :global(.model input),.tier :global(.cline-source select){background:var(--card);border-color:var(--line-strong);padding:8px 12px}.tier :global(.model select:hover),.tier :global(.model input:hover),.tier :global(.cline-source select:hover){border-color:var(--muted)}.tier :global(.model select:focus),.tier :global(.model input:focus),.tier :global(.cline-source select:focus){border-color:var(--accent)}.hint.warn{color:var(--warn)}
   .link{border:0;background:none;padding:0;font:inherit;font-size:.875rem;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:44px}.link:hover{text-decoration:underline}.more{grid-column:2/-1;justify-self:start}
   .row{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 12px;margin:0;padding:12px 0 0;border:0;border-top:1px solid var(--line);min-width:0}.row label,.who-name{font-weight:600}.who{grid-template-columns:1fr}
   .percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.percent input{width:5.5rem;text-align:right;font-variant-numeric:tabular-nums}

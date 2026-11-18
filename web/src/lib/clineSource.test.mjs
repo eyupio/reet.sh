@@ -92,6 +92,18 @@ test('Gaffer settings chooses a Cline source from the shared select, keeping a s
   assert.doesNotMatch(text, /<input[^>]*class="source"/)
 })
 
+test('Settings chooses a Cline default source from the shared select, keeping a legacy one', () => {
+  const text = readFileSync(new URL('./AgentsSettings.svelte', import.meta.url), 'utf8')
+  assert.match(text, /import ClineSourceSelect from '\.\/ClineSourceSelect\.svelte'/)
+  assert.match(text, /<ClineSourceSelect[^>]*label="Default source"/)
+  assert.match(text, /<ClineSourceSelect[^>]*value=\{defaultClineSource\}/)
+  assert.match(text, /<ClineSourceSelect[^>]*saved=\{defaultClineSource\}/)
+  assert.match(text, /star=\{false\}/)
+  assert.match(text, /onchange=\{next => \{ defaultClineSource = next/)
+  assert.doesNotMatch(text, /<\s*select[^>]*id="agents-source"/)
+  assert.doesNotMatch(text, /import \{ KNOWN_SOURCES \} from '\.\/clineSource'/)
+})
+
 test('the credit hint names the other sources the session offers', () => {
   const lead = 'This source has no credit. Switch to '
   const tail = ', or add credits with Cline, then send a message to continue.'

@@ -109,6 +109,24 @@ test('why there are no new figures is said, with the age of the last ones', () =
   assert.equal(a.limitsNote(signedIn({ limitsState: 'rate_limited', ...kept }), 'Codex', now), "Codex's provider asked reet to slow down. Showing the figures read 12 min ago.")
   assert.equal(a.limitsNote(signedIn({ limitsState: 'failed' }), 'Codex', now), "This machine couldn't read Codex's limits just now.")
   assert.equal(a.limitsNote(signedIn({ method: 'api_key', limitsState: 'unsupported' }), 'Codex', now), 'An API key has no plan limits to read.')
+  // A plan sign-in whose provider said there is no plan with limits on it (an OpenCode key without Go, no Copilot).
+  assert.equal(a.limitsNote(signedIn({ tool: 'copilot', limitsState: 'unsupported' }), 'GitHub Copilot', now), "GitHub Copilot's provider says this account has no plan with limits for reet to read.")
+  assert.equal(a.planLeft(signedIn({ tool: 'copilot', limitsState: 'unsupported' }), now), null)
+})
+
+test('windows kept for part of a plan are named by their scope and length', () => {
+  const lines = a.limitLines(signedIn({ tool: 'copilot', limitsState: 'read', limitsAt: now, limits: [
+    { kind: 'month', label: 'Premium', usedPercent: 60 }, { kind: 'month', label: 'Completions', usedPercent: 25 },
+  ] }), now)
+  assert.deepEqual(lines.map(line => [line.key, line.text]), [['month:Premium', 'Premium this month 40% left'], ['month:Completions', 'Completions this month 75% left']])
+  const other = a.limitLines(signedIn({ tool: 'antigravity', limitsState: 'read', limitsAt: now, limits: [
+    { kind: 'session', usedPercent: 25 }, { kind: 'session', label: 'Other models', usedPercent: 0 }, { kind: 'week', label: 'Other models', usedPercent: 100 },
+  ] }), now)
+  assert.deepEqual(other.map(line => line.text), ['Session 75% left', 'Other models this session 100% left', 'Other models this week 0% left'])
+  // An OpenCode key has no account name: its plan is its machine's.
+  const entries = a.planEntries([{ host: 'studio', answer: { accounts: [signedIn({ tool: 'opencode', account: '', plan: 'go', limitsState: 'read', limitsAt: now, limits: [{ kind: 'month', usedPercent: 3 }] })] } }], now)
+  assert.deepEqual(entries.map(e => e.key), ['opencode@studio'])
+  assert.equal(a.signInLine(entries[0].account), 'Signed in · Go plan')
 })
 
 test('the start hint speaks only when no sign-in was found', () => {

@@ -1,11 +1,14 @@
 # Agent sign-ins and plan limits
 
 A machine can say which of its AI agents are signed in, whose account it is and which plan it is on, and how much of
-each plan's allowance is left: the session window, the week, and any window a plan keeps for one model. This is read
-for every account; there is no switch. Both are read on the machine. No credential reaches the reet
-controller: an answer is a state, a name, a plan word and whole percentages.
+each plan's allowance is left: the session window, the week or the month, and any window a plan keeps for part of
+itself (one model, other models, Copilot's premium requests). This is read for every account; there is no switch. Both
+are read on the machine. No credential reaches the reet controller: an answer is a state, a name, a plan word and whole
+percentages.
 
-Claude Code and Codex are read today. Every other agent shows nothing here: reet cannot tell, and does not guess. The
+Claude Code, Codex, OpenCode (an OpenCode Go plan), Google Antigravity and GitHub Copilot are read, by a machine
+running a reet that reads them; a machine with an older reet reads Claude Code and Codex only, and the controller shows
+whatever each machine reports. Every other agent has no plan figure: reet cannot tell, and does not guess. The
 [Usage page](usage.md) lists every agent and says, for each one with no figure, why.
 
 ## What you see
@@ -41,12 +44,16 @@ vendors' logos.
 
 ## What a machine reads
 
-Sign-in, from files only. Nothing is sent anywhere, no agent is started and no command is run.
+Sign-in, from files only (and, for OpenCode, one variable of reet's own environment). Nothing is sent anywhere, no
+agent is started and no command is run.
 
 | Agent | Sign-in | Account and plan |
 | --- | --- | --- |
 | Claude Code | `.credentials.json` in `~/.claude`, or in the folder `CLAUDE_CONFIG_DIR` names | `oauthAccount` in `~/.claude.json` (inside the folder when it was moved); the plan is the sign-in's `subscriptionType` |
 | Codex | `auth.json` in `~/.codex`, or in the folder `CODEX_HOME` names | the address and plan claims of the identity token; an `OPENAI_API_KEY` there is a sign-in with no plan |
+| OpenCode | its key for OpenCode's own models (`opencode-go`, else `opencode`), from the first of: OpenCode 2's store `opencode.db` in `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode` (or the file `OPENCODE_DB` names), opened read-only and only when it has OpenCode 2's tables; `auth.json` in that folder, not read when that store is there; `OPENCODE_API_KEY` in the environment reet's connector runs with | no name: the account shows as *Signed in*, on its machine; the plan word comes from the provider's answer (*Go*) |
+| Google Antigravity | `antigravity-oauth-token` in `~/.gemini/antigravity-cli`, or in the folder `ANTIGRAVITY_APP_DATA_DIR` names, plain or in its keyring library's `go-keyring-base64:` form | the address claim of the identity token; no plan word |
+| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only; the first login found is the account, and its tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
 
 What this cannot see is said plainly rather than guessed:
 
@@ -54,9 +61,15 @@ What this cannot see is said plainly rather than guessed:
   as *reet can't read this agent's sign-in*, never as signed out.
 - Codex can be set to keep its sign-in in the system keyring. Such a machine reads as *No sign-in found*: the file was
   looked for and is not there.
-- An agent signed in only through an environment variable is not seen.
+- Google Antigravity can keep its sign-in in the desktop keyring (Linux) or the keychain (macOS) instead of its file.
+  reet opens neither, so such a machine reads as *No sign-in found*.
+- GitHub Copilot can be used with only the GitHub CLI's sign-in. Reading that would mean running `gh`, which this
+  reader never does, so a machine without Copilot's own files reads as *No sign-in found*. Only the first GitHub login
+  in Copilot's files is read.
+- An agent signed in only through an environment variable is not seen, except OpenCode's `OPENCODE_API_KEY` when it is
+  set for reet's connector itself.
 - A folder variable that is not an absolute path, a file that is not a plain file, one over 256 KiB or one that does
-  not parse reads as unreadable.
+  not parse reads as unreadable; so does an OpenCode store that cannot be opened or holds a key that does not parse.
 
 Plan limits, for every account. The machine asks the agent's own provider, with the agent's own
 sign-in, from the machine:
@@ -65,10 +78,15 @@ sign-in, from the machine:
 | --- | --- | --- |
 | Claude Code | `GET https://api.anthropic.com/api/oauth/usage` | five hours (session), seven days (week), and the week's share for Opus and for Sonnet when the plan limits them separately |
 | Codex | `GET https://chatgpt.com/backend-api/wham/usage` | the plan's one or two windows, named by their length: up to six hours a session, up to a day and a half a day, up to eight days a week, longer a month |
+| OpenCode | `GET https://opencode.ai/zen/go/v1/usage`, with the key as a bearer token | the Go plan's rolling (session), weekly and monthly windows. A key with no Go plan is answered 403, shown as *no plan with limits to read*, not as an error |
+| Google Antigravity | `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary` with `{}`; when that fails other than by refusing the sign-in, once `https://cloudcode-pa.googleapis.com/…` instead | five hours (session) and the week for the plan's own models, and the same two labelled *Other models*. An answer with no buckets is *no plan with limits to read* |
+| GitHub Copilot | `GET https://api.github.com/copilot_internal/user`, with the token as `Authorization: token …` | the month's premium requests, chats and completions (*Premium*, *Chat*, *Completions*); a window without a limit is left out. A free plan's are worked out from its monthly quotas and what is left of them. An account without Copilot (404 for every token) or with no limited window is *no plan with limits to read* |
 
-These are the endpoints the agents' own clients use for the same figures. They are not published interfaces, so a
-provider may change or close them; when an answer is not in the shape above the machine reports a failure and keeps the
-last figures it read.
+These are the providers' own internal endpoints, the ones the agents' own clients use for the same figures. They are
+not published interfaces and can change or close without notice; when an answer is not in the shape above the machine
+reports a failure and keeps the last figures it read. The Copilot request presents itself as an editor's Copilot Chat
+(its `User-Agent`, `Editor-Version`, `Editor-Plugin-Version` and `X-GitHub-Api-Version` headers), because the endpoint
+answers nothing else. A token is only ever sent to its own provider, and reet never refreshes one.
 
 ## The rules the machine keeps
 
@@ -80,8 +98,9 @@ last figures it read.
 - **No redirect is followed**, so a sign-in is never sent on to another host.
 - **Providers are asked sparingly.** Figures answer for five minutes; a provider is asked at most once in 30 seconds
   for an agent, a pressed **Check sign-ins** included; a failure stands for a minute before an unprompted retry, and a
-  rate limit for as long as the provider's `Retry-After` says, up to an hour. Requests time out after 10 seconds and
-  answers are capped at 256 KiB.
+  rate limit for as long as the provider's `Retry-After` says, up to an hour. An answer that the account has no plan to
+  read stands for five minutes too. Everything one agent's figures take (Antigravity's second endpoint, Copilot's
+  further tokens included) times out after 10 seconds, and answers are capped at 256 KiB.
 - **Another account never inherits figures.** If the signed-in account changes, the remembered figures are dropped.
 - **One read at a time** per machine; a second request is told the machine is busy.
 
@@ -135,8 +154,14 @@ names the machine, the outcome and that limits were asked for, never an account 
 ## What is here, and what is next
 
 Checked with synthetic sign-in files and a stand-in provider only. Nothing was run against a real account, so the
-providers' present answers were not observed: the request and field names follow the agents' own clients. Both
-endpoints were seen to exist: asked with no sign-in, one answered 401 and the other a rate limit, neither not-found.
-Not done: GitHub Copilot, Google
-Antigravity, OpenCode and Cline; the macOS keychain and system keyrings; several accounts for one agent; signing in
-from the browser.
+providers' present answers were not observed: the request and field names follow the agents' own clients. The Claude
+Code and Codex endpoints were seen to exist: asked with no sign-in, one answered 401 and the other a rate limit,
+neither not-found. The OpenCode, Antigravity and Copilot readers have not been tried against their providers or a real
+install of those agents at all.
+
+`unsupported` means an API key, which has no plan, or a plan sign-in whose provider said it has no plan with limits
+to read (an OpenCode key without Go, a GitHub account without Copilot, a plan with every window unlimited).
+
+Not done: Cline; the macOS keychain and system keyrings (Claude Code, Codex and Antigravity can keep a sign-in there);
+the GitHub CLI's sign-in for Copilot; several accounts for one agent; signing in from the browser; limits beside a
+session or in the sessions list.

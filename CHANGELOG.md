@@ -29,6 +29,19 @@ this file existed releases were described on their GitHub release pages.
   earlier was dated. Counts are kept for 90 days; a report made while a machine
   is disconnected is not counted.
 
+- **Plan limits**: a machine now also says whether OpenCode, Google Antigravity
+  and GitHub Copilot are signed in there and how much is
+  left of an OpenCode Go plan (session, week, month), an Antigravity plan
+  (session and week, with **Other models** apart) and a Copilot plan (the
+  month's premium requests, chats and completions). A sign-in with no such plan
+  says so instead of showing figures. Update reet on each machine to get this;
+  a machine with an older reet keeps showing Claude Code and Codex only. These
+  are the providers' own internal endpoints and can change without notice; the
+  Copilot request presents itself as an editor's Copilot Chat because that
+  endpoint answers nothing else. Tokens are only read, only sent to their own
+  provider and never refreshed. Sign-ins kept only in a keyring or keychain, or
+  only by the GitHub CLI, are not read. See
+  [agent sign-ins and plan limits](docs/agent-accounts.md).
 - **Navigation**: the main tabs now read Home, Sessions, Factory, Desks,
   Machines, Skills. **Desks** is on a phone's bottom bar (Home, Sessions,
   Factory, Desks, Machines, More) and in a tablet's top bar, instead of under

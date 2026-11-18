@@ -113,7 +113,8 @@ export function limitsNote(account: AgentAccount | undefined, agent: string, now
     refused: `${agent}'s provider refused the sign-in when asked for its limits.`,
     rate_limited: `${agent}'s provider asked reet to slow down.`,
     failed: `This machine couldn't read ${agent}'s limits just now.`,
-    unsupported: 'An API key has no plan limits to read.',
+    // An API key never has a plan; a sign-in that might have one was asked, and its provider said it has none with a limit.
+    unsupported: account.method === 'api_key' ? 'An API key has no plan limits to read.' : `${agent}'s provider says this account has no plan with limits for reet to read.`,
   }
   const reason = why[account.limitsState]
   if (!reason) return ''

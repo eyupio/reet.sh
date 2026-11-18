@@ -621,8 +621,8 @@ export type StructuredAgent = { tool: string; adapter: string; state: 'available
 /** The adapter each reviewed chat tool must report; a descriptor for any other adapter never makes a tool chat-capable. */
 const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline', antigravity: 'agy' }
 export function isChatTool(tool: string | undefined): boolean { return !!tool && tool in CHAT_ADAPTERS }
-/** The product name shown for a chat tool. */
-export function chatToolName(tool: string | undefined): string { return tool === 'antigravity' ? 'Google Antigravity (AGY)' : tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cline' ? 'Cline' : 'OpenCode' }
+/** The product name shown for a chat tool, and for an agent's plan (Copilot has a plan but no chat). */
+export function chatToolName(tool: string | undefined): string { return tool === 'antigravity' ? 'Google Antigravity (AGY)' : tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cline' ? 'Cline' : tool === 'copilot' ? 'GitHub Copilot' : 'OpenCode' }
 
 export function chatNeedsTrust(tool: string | undefined): boolean { return tool === 'opencode' || tool === 'antigravity' }
 export function chatTrustText(tool: string | undefined): string {

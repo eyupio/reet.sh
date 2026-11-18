@@ -118,11 +118,11 @@ func cleanReportText(v string, max int) string {
 type reportedRow struct{ state, digest, detail string }
 
 // RecordSkillReportFor replaces the machine's rows with the report (a row's at
-// stays the time it was first seen in its state), adds an
-// activity line for each change from what it reported before, and records
-// the removals the report confirms. A deleted name is forgotten once every
-// unpaused machine on the new protocol has confirmed it or 30 days have
-// passed; an archived name stays on the list.
+// stays the time it was first seen in its state), keeps the backup of each
+// edited copy (SkillBackupsFor), adds an activity line for each change from
+// what it reported before, and records the removals the report confirms. A
+// deleted name is forgotten once every unpaused machine on the new protocol
+// has confirmed it or 30 days have passed; an archived name stays on the list.
 func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport, now time.Time) error {
 	at := now.UnixMilli()
 	return s.withTx(func(tx *sql.Tx) error {
@@ -180,6 +180,11 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			blocked = rep.Blocked
 		}
 		if _, err = tx.Exec(`INSERT INTO machine_skill_reports(user_id,agent_id,version,blocked) VALUES(?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET version=excluded.version,blocked=excluded.blocked`, uid, agentID, cleanReportText(rep.Version, 128), blocked); err != nil {
+			return err
+		}
+		// Before the entries are folded into one per folder and name, so the
+		// backup of every edited copy is kept.
+		if err = recordSkillBackupsTx(tx, uid, agentID, rep.Entries, at); err != nil {
 			return err
 		}
 		present := map[string]bool{}
@@ -267,7 +272,11 @@ func skillActivityFor(host string, cur, old reportedRow, had, onRemovalList bool
 		switch {
 		case had && old.state == "removed" && onRemovalList:
 			return "removed again", "it came back on " + host
-		case had && old.state == "installed":
+		case had && old.state == "edited" && old.digest == cur.digest:
+			// The edited report put reet's copy back and said so; this is
+			// the same copy, not a second install.
+			return "", ""
+		case had && (old.state == "installed" || old.state == "edited"):
 			return "updated", cur.digest
 		}
 		return "installed", cur.digest

@@ -5,15 +5,15 @@
 Signing in lands on **Home** (`/`). Every figure on it comes from a record that exists today; anything without one is
 left out or says so in words.
 
-**The tabs.** A desktop (1100 px and wider) shows Home, Factory, Sessions, Desks, Machines and Skills in the top bar
+**The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Factory, Desks, Machines and Skills in the top bar
 (Factory and Desks for an accounts sign-in that can start sessions), with
 **Jump to a session, project, skill or machine**, the bell and the account menu. Activity is a section of the account page at
 `/account/activity`; the old `/activity` address opens it. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
-Home, Factory, Sessions and Machines in the top bar, with **More** beside them for the rest (Desks included) and a search
-button for Jump. A phone has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Factory,
-Sessions, Machines and More, with Desks under More. While
+Home, Sessions, Factory, Desks and Machines in the top bar, with **More** beside them for the rest and a search
+button for Jump. A phone has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Sessions,
+Factory, Desks, Machines and More (six fit from 320 px, labels at 14 px); More does not repeat them. While
 the phone keyboard is up for Jump, the bottom bar steps aside, and Jump's results end above the keyboard. Sessions and
 the bell are for a writer in accounts mode only. Jump lists sessions, folder projects, shelf skills and machines; a
 skill row carries its saved sync intent, and choosing it brings that card into view on the shelf.

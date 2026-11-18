@@ -334,7 +334,9 @@ try {
   const links = await nav.getByRole('link').allTextContents()
   const at = links.map(t => t.trim()).indexOf('Desks')
   expect(at).toBeGreaterThan(0)
-  expect(links[at - 1].trim()).toBe('Sessions')
+  // After Factory and before Machines (the owner's order: Home, Sessions, Factory, Desks, Machines).
+  expect(links[at - 1].trim()).toBe('Factory')
+  expect(links[at + 1].trim()).toBe('Machines')
   await expect(nav.getByRole('link', { name: 'Desks' })).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveTitle(/^Desks · reet\.sh/)
   console.log('ok - Desks is in the top bar')
@@ -754,7 +756,9 @@ try {
   }
   console.log('ok - the desk is fitted above an on-screen keyboard')
 
-  // ── loading another page does not read the desks ──
+  // ── loading another page reads only the desk list, never a desk ──
+  // Home (and the bell on every other page) reads the list to keep desk sessions off Home and to mark one that waits;
+  // with nothing waiting on a desk, no desk itself is read.
   {
     reset()
     const reads = []
@@ -763,14 +767,16 @@ try {
     await page.goto(`${base}/`)
     await expect(nav.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page')
     await page.waitForLoadState('networkidle')
-    expect(reads).toEqual([])
+    expect(reads.length).toBeGreaterThan(0)
+    expect(reads.map(url => new URL(url).pathname).filter(path => path !== '/api/v2/desks')).toEqual([])
+    reads.length = 0
     // Jump reads them once it is opened, to offer each desk.
     await page.getByRole('combobox', { name: 'Jump to a session, project, skill or machine' }).fill('prod')
     await expect(page.getByRole('listbox', { name: 'Jump results' }).getByRole('option', { name: /prod deploy/ })).toHaveAttribute('href', '/desks/desk-prod')
     expect(reads.length).toBeGreaterThan(0)
     page.off('request', note)
   }
-  console.log('ok - loading another page does not read the desks')
+  console.log('ok - loading another page reads only the desk list, never a desk')
 
   // ── splits right by key and saves the tree ──
   reset()
@@ -2276,9 +2282,10 @@ try {
     await expect(row('b').locator('.colour-name')).toHaveText('Blue')
     await expect(row('a').locator('.colour-name')).toHaveText('Red')
     await page.waitForLoadState('networkidle')
-    // The list once, then each desk that holds a listed session once: no read per row, none of the empty desk and none
-    // of the desk whose session is not listed.
-    expect(reads.filter(p => p === '/api/v2/desks')).toHaveLength(1)
+    // The list once for the page (and once for the bell, which marks a waiting desk session with its desk), then each
+    // desk that holds a listed session once: no read per row, none of the empty desk and none of the desk whose session
+    // is not listed (nothing waits here, so the bell reads no desk of its own).
+    expect(reads.filter(p => p === '/api/v2/desks')).toHaveLength(2)
     expect(reads.filter(p => p !== '/api/v2/desks').sort()).toEqual(['/api/v2/desks/desk-prod', '/api/v2/desks/desk-split'])
     page.off('request', note)
     if (shots) {

@@ -34,9 +34,9 @@ try {
   await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   const top = await tabs(page).getByRole('link').allInnerTexts()
-  expect(top.map(t=>t.trim())).toEqual(['Home','Factory','Sessions','Desks','Machines','Skills'])
+  expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Factory','Desks','Machines','Skills'])
   await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
-  for (const [name,href] of [['Home','/'],['Sessions','/sessions'],['Machines','/machines'],['Skills','/skills']])
+  for (const [name,href] of [['Home','/'],['Sessions','/sessions'],['Factory','/factory'],['Desks','/desks'],['Machines','/machines'],['Skills','/skills']])
    await expect(tabs(page).getByRole('link',{name,exact:true})).toHaveAttribute('href',href)
   // Activity is no longer a top-level tab: it lives inside the account.
   await expect(tabs(page).getByRole('link',{name:'Activity',exact:true})).toHaveCount(0)
@@ -127,19 +127,28 @@ try {
   await context.close()
  }
 
- // A phone has four tabs along the bottom: Home, Sessions, Machines and More, 64 px tall with 44 px targets; More lists the rest.
- if (run('phone shows four bottom tabs and More lists the rest')) {
-  for (const width of [320,390]) {
+ // A phone has six items along the bottom: Home, Sessions, Factory, Desks, Machines and More, 64 px tall with 44 px targets
+ // that neither overlap nor clip their labels at any phone width; More lists the rest (not Desks: it is on the bar).
+ if (run('phone shows six bottom items and More lists the rest')) {
+  for (const width of [320,360,390,412]) {
    const {context,page,errors} = await open({width,touch:true})
    await page.goto(base)
    await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
    const bar = tabs(page)
    const items = await bar.locator(':scope a, :scope button').allInnerTexts()
-   expect(items.map(t=>t.trim())).toEqual(['Home','Factory','Sessions','Machines','More'])
-   const m = await bar.evaluate(el=>{const r=el.getBoundingClientRect();return{bottom:r.bottom,height:r.height,targets:[...el.querySelectorAll('a,button')].map(a=>{const b=a.getBoundingClientRect();return[b.width,b.height]})}})
+   expect(items.map(t=>t.trim())).toEqual(['Home','Sessions','Factory','Desks','Machines','More'])
+   await expect(bar.getByRole('link',{name:'Desks',exact:true})).toHaveAttribute('href','/desks')
+   const m = await bar.evaluate(el=>{const r=el.getBoundingClientRect();return{bottom:r.bottom,height:r.height,targets:[...el.querySelectorAll('a,button')].map(a=>{const b=a.getBoundingClientRect(),label=a.querySelector('span'),l=label.getBoundingClientRect();return{name:label.textContent.trim(),left:b.left,right:b.right,w:b.width,h:b.height,labelLeft:l.left,labelRight:l.right,clipped:label.scrollWidth>label.clientWidth+0.5,size:parseFloat(getComputedStyle(label).fontSize)}})}})
    expect(m.height).toBeGreaterThanOrEqual(64)
    expect(Math.round(m.bottom)).toBe(812)
-   for (const [w,h] of m.targets) { expect(w).toBeGreaterThanOrEqual(44); expect(h).toBeGreaterThanOrEqual(44) }
+   m.targets.forEach((t,i)=>{
+    expect(t.w,`${t.name} width at ${width}px`).toBeGreaterThanOrEqual(44); expect(t.h,`${t.name} height at ${width}px`).toBeGreaterThanOrEqual(44)
+    expect(t.size,`${t.name} label size at ${width}px`).toBeGreaterThanOrEqual(14)
+    expect(t.clipped,`${t.name} label clipped at ${width}px`).toBe(false)
+    expect(t.labelLeft,`${t.name} label inside its tab at ${width}px`).toBeGreaterThanOrEqual(t.left-0.5); expect(t.labelRight).toBeLessThanOrEqual(t.right+0.5)
+    if(i)expect(t.left,`${t.name} clear of ${m.targets[i-1].name} at ${width}px`).toBeGreaterThanOrEqual(m.targets[i-1].right-0.5)
+   })
+   expect(m.targets.at(-1).right).toBeLessThanOrEqual(width+0.5)
    await expect(bar.getByRole('link',{name:'Home'})).toHaveAttribute('aria-current','page')
    // The top bar holds the logo, Jump, the bell and the account; no desktop tabs.
    const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
@@ -158,7 +167,8 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Desks','Skills','Library','Prompts','Setups','Lists','Write a skill','Community','Support','Documentation','Teams & organisations','Instance administration'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Community','Support','Documentation','Teams & organisations','Instance administration'])
+   await expect(more.getByRole('link',{name:'Desks',exact:true})).toHaveCount(0)
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -172,11 +182,11 @@ try {
    expect(errors).toEqual([])
    await context.close()
   }
-  // A tablet keeps the four tabs at the top, with More there too.
+  // A tablet keeps the bar's five tabs at the top, with More there too.
   const {context,page} = await open({width:834,touch:true})
   await page.goto(base)
   const items = await tabs(page).locator(':scope a, :scope button').evaluateAll(els=>els.filter(e=>e.getClientRects().length).map(e=>e.textContent.trim()))
-  expect(items).toEqual(['Home','Factory','Sessions','Machines','More'])
+  expect(items).toEqual(['Home','Sessions','Factory','Desks','Machines','More'])
   const top = await tabs(page).evaluate(el=>el.getBoundingClientRect().top)
   expect(top).toBeLessThan(80)
   await tabs(page).getByRole('button',{name:'More'}).click()
@@ -193,6 +203,46 @@ try {
   const field = await wide.page.locator('.jump').boundingBox()
   expect(field.height).toBeGreaterThanOrEqual(44)
   await wide.context.close()
+ }
+
+ // Desks is a primary tab like its neighbours: a link in the main navigation, current on /desks and on a desk, reached by
+ // Tab in the order it is drawn, with a visible focus ring. At 1100 px and on a narrow tablet the tabs stay clear of Jump.
+ if (run('desks is a primary tab')) {
+  const {context,page,errors} = await open({width:1440})
+  for (const path of ['/desks','/desks/d1']) {
+   await page.goto(`${base}${path}`)
+   await expect(tabs(page).getByRole('link',{name:'Desks',exact:true})).toHaveAttribute('aria-current','page')
+   await expect(tabs(page).locator('[aria-current="page"]')).toHaveCount(1)
+  }
+  await page.goto(base)
+  const order = []
+  await tabs(page).getByRole('link',{name:'Home',exact:true}).focus()
+  for (let i = 0; i < 6; i++) {
+   order.push(await page.evaluate(()=>document.activeElement.textContent.trim()))
+   if (order.at(-1) === 'Desks') {
+    const ring = await page.evaluate(()=>{const s=getComputedStyle(document.activeElement);return{style:s.outlineStyle,width:parseFloat(s.outlineWidth)}})
+    expect(ring.style).not.toBe('none'); expect(ring.width).toBeGreaterThanOrEqual(2)
+   }
+   await page.keyboard.press('Tab')
+  }
+  expect(order).toEqual(['Home','Sessions','Factory','Desks','Machines','Skills'])
+  for (const width of [1100,1280,1099,950,834,799,700,651]) {
+   await page.setViewportSize({width,height:812})
+   // The page settles into the new width's layout (Home's rail and columns follow it) before it is measured.
+   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),{message:`no sideways scroll at ${width}px`}).toBe(true)
+   const fit = await page.evaluate(()=>{
+    const nav=document.querySelector('.shell-bar > .top-tabs')
+    const shown=[...nav.querySelectorAll('a,.more')].filter(e=>e.getClientRects().length).map(e=>e.getBoundingClientRect())
+    const after=[...document.querySelectorAll('.shell-bar > .jump, .shell-bar > .search-button, .shell-bar > .bell')].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.getBoundingClientRect()).filter(r=>r.width)
+    return {right:Math.max(...shown.map(r=>r.right)),next:Math.min(...after.map(r=>r.left)),overflow:nav.scrollWidth-nav.clientWidth,scroll:document.documentElement.scrollWidth<=innerWidth,widths:shown.map(r=>r.width)}
+   })
+   expect(fit.overflow, `the tabs fit inside their own box at ${width}px`).toBeLessThanOrEqual(0)
+   expect(fit.right, `tabs clear of Jump and the bell at ${width}px`).toBeLessThanOrEqual(fit.next)
+   for (const w of fit.widths) expect(w, `each tab a 44 px target at ${width}px`).toBeGreaterThanOrEqual(44)
+   expect(fit.scroll, `no sideways scroll at ${width}px`).toBe(true)
+  }
+  expect(errors).toEqual([])
+  await context.close()
  }
 
  // Wide touch devices also use the phone bar when landscape leaves little vertical room.
@@ -561,5 +611,5 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- console.log('Navigation: four desktop tabs with Home current, the bell and Jump, four phone tabs with More, every former page reachable, Control gone from More, /control to Home and /terminals to /sessions with its query, /projects to Home and Projects no longer under More, /activity to the account Activity section (its own page on an open instance), no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
+ console.log('Navigation: the desktop tabs in order (Home, Sessions, Factory, Desks, Machines, Skills) with Home current, the bell and Jump, six phone bar items with More fitting at 320 to 412 px, Desks current on a desk and reached by Tab in order with a focus ring, the tabs clear of Jump at 651 to 1280 px, every former page reachable, Control gone from More, /control to Home and /terminals to /sessions with its query, /projects to Home and Projects no longer under More, /activity to the account Activity section (its own page on an open instance), no Sessions or bell for viewers, token and open sign-ins, aria-current, phone search with the keyboard up, notifications in the account menu, one name per area, same-origin fonts.')
 } finally {await browser.close()}

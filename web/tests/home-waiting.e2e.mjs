@@ -69,6 +69,20 @@ function quiet(f){
  f.routes['/api/v2/gaffer/goals']=()=>({goals:[],readAt:Date.now()})
  f.box.sessions=f.box.sessions.filter(s=>s.id===sid).map(s=>({...s,projectId:'p1'}))
 }
+// A desk holding three sessions: an idle one, one asking for an approval and a finished one not yet seen. A template desk
+// lists a session too, which marks nothing. `fail` answers the desk list with 503.
+function onDesk(f,{only=false,fail=false}={}){
+ const base={agentId:'a1',tool:'claude',model:'m',structured:true,createdAt:now-3*3600000,exitCode:null,dir:'/work',projectId:'p2'}
+ const idle={...base,id:'desk-idle',title:'Desk idle shell',state:'running',updatedAt:now-2*MIN,attention:'working'}
+ const ask={...base,id:'desk-ask',title:'Desk deploy check',state:'running',updatedAt:now,attention:'waiting',attentionSource:'chat',changedSinceSeen:true,bellAt:now-5*MIN,pendingPermission:{permissionId:'perm-desk0000001',title:'Run a command',command:'make deploy',path:'',truncated:false,queued:0}}
+ const done={...base,id:'desk-done',title:'Desk finished run',state:'running',updatedAt:now-3*MIN,attention:'finished',attentionSource:'chat',changedSinceSeen:true}
+ if(only){quiet(f);f.box.sessions=[idle,{...done,changedSinceSeen:false}]}else f.box.sessions.push(idle,ask,done)
+ const summary=(id,name,template,sessions)=>({id,name,colour:'',template,position:0,version:3,tabs:1,panes:sessions.length,sessions,hosts:['a1']})
+ f.desks={read:0}
+ f.routes['/api/v2/desks']=()=>{f.desks.read++;return fail?{status:503,json:{error:'unavailable'}}:{desks:[summary('desk1','Front',false,['desk-idle','desk-ask','desk-done']),summary('tpl','Starter',true,['ask-session'])]}}
+ const pane=(id,session)=>({id,name:id,colour:'',host:'a1',session,kind:'shell',dir:'/work',dirAt:now,start:''})
+ f.routes['/api/v2/desks/desk1']={id:'desk1',name:'Front',colour:'',template:false,position:0,version:3,schema:1,doc:{tabs:[{id:'t1',name:'Main',colour:'',root:{split:'row',ratio:0.5,a:{pane:'pa'},b:{pane:'pb'}},zoomed:'',active:'pa',panes:{pa:pane('pa','desk-idle'),pb:pane('pb','desk-ask')}}]}}
+}
 async function open(width,theme='light',change=()=>{},height){
  const f=fixture();change(f)
  const w=await openWorkspace(browser,{width,height:height||(width<500?844:width<1000?1112:900),theme,touch:width<1000,routes:f.routes})
@@ -350,6 +364,89 @@ try{
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
+ // Desk sessions leave Home's session lists; one that needs the person stays in Waiting for you and the bell, once, marked
+ // with its desk and opening on it. A template desk marks nothing.
+ {
+  const w=await open(1440,'light',f=>onDesk(f)),page=w.page
+  try{
+   await expect(entries(page)).toHaveCount(6)
+   const desk=entries(page).filter({hasText:'Desk deploy check'})
+   await expect(desk).toHaveCount(1)
+   await expect(desk.locator('.where')).toHaveText(/^· Session · .*· Desk Front$/)
+   await expect(desk.getByRole('link',{name:'Open Desk deploy check',exact:true})).toHaveAttribute('href','/desks/desk1#pb')
+   await expect(desk.getByRole('button',{name:'Allow once'})).toBeVisible()
+   await expect(entries(page).filter({hasText:'Portal sign-in copy'})).not.toContainText('Desk ')
+   await expect(section(page,'Waiting for you')).not.toContainText('Desk finished run')
+   await expect(section(page,'Waiting for you')).not.toContainText('Desk idle shell')
+   // The head leaves the desk sessions out of the open sessions, and counts the waiting one; the title and the bell agree.
+   await expect(page.locator('.workspace-heading')).toContainText('6 waiting for you · 1 pipeline working · 4 sessions open')
+   await expect.poll(()=>page.title()).toBe('(6) Home · reet.sh')
+   await page.getByRole('button',{name:'Needs you: 6',exact:true}).click()
+   const pop=page.getByRole('banner').getByRole('region',{name:'Needs you'})
+   await expect(pop.locator('.item')).toHaveCount(6)
+   const item=pop.locator('.item',{hasText:'Desk deploy check'})
+   await expect(item).toHaveCount(1)
+   await expect(item.locator('.where')).toHaveText(/Desk Front$/)
+   await expect(item.getByRole('link',{name:'Open Desk deploy check',exact:true})).toHaveAttribute('href','/desks/desk1#pb')
+   await item.scrollIntoViewIfNeeded()
+   await page.screenshot({path:`${shots}/home-desk-bell-1440.png`})
+   await page.keyboard.press('Escape')
+   // The Projects panel's running count leaves the desk sessions out too, so it matches what Home lists.
+   await expect(page.locator('aside.rail')).toContainText('portal')
+   await expect(page.locator('aside.rail')).not.toContainText('5 running')
+   // Neither Continue working nor the board lists a desk session.
+   const views=page.getByRole('group',{name:'Home view',exact:true})
+   await views.getByRole('button',{name:'Continue working',exact:true}).click()
+   const resume=page.getByRole('region',{name:'Continue working',exact:true})
+   await expect(resume.locator('li',{hasText:'Rename tunlx hosts'})).toBeVisible()
+   for(const title of ['Desk idle shell','Desk deploy check','Desk finished run'])await expect(resume).not.toContainText(title)
+   await views.getByRole('button',{name:'Planning board',exact:true}).click()
+   await expect(page.locator('.session-card',{hasText:'Rename tunlx hosts'})).toBeVisible()
+   for(const title of ['Desk idle shell','Desk deploy check','Desk finished run'])await expect(page.locator('.session-card',{hasText:title})).toHaveCount(0)
+   await page.screenshot({path:`${shots}/home-desk-1440.png`,fullPage:true})
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // On a phone the waiting desk session is a card that names its desk and opens on it.
+ {
+  const w=await open(390,'light',f=>onDesk(f)),page=w.page
+  try{
+   const desk=entries(page).filter({hasText:'Desk deploy check'})
+   await expect(desk.locator('.where')).toHaveText(/^Session · .*· Desk Front$/)
+   await expect(desk.getByRole('link',{name:'Open Desk deploy check',exact:true})).toHaveAttribute('href','/desks/desk1#pb')
+   expect(await noSideways(page)).toBe(true)
+   await page.screenshot({path:`${shots}/home-desk-390.png`,fullPage:true})
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // Only desk sessions, none needing the person: Home says nothing is in flight.
+ {
+  const w=await open(1440,'light',f=>onDesk(f,{only:true})),page=w.page
+  try{
+   await expect(section(page,'Waiting for you')).toContainText('Nothing is waiting for you.')
+   await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Continue working',exact:true}).click()
+   await expect(page.getByRole('region',{name:'Nothing in flight.',exact:true})).toBeVisible()
+   await expect(page.locator('.workspace-heading .counts')).toHaveText('0 waiting for you')
+   await expect(page.getByRole('main')).not.toContainText('Desk idle shell')
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // The desks cannot be read: Home works as before desks, every session shown and no new problem line.
+ {
+  const w=await open(1440,'light',f=>onDesk(f,{fail:true})),page=w.page
+  try{
+   await expect(entries(page)).toHaveCount(6)
+   await expect(entries(page).filter({hasText:'Desk deploy check'}).locator('.where')).not.toContainText('Desk Front')
+   await expect(page.locator('.workspace-heading')).toContainText('6 waiting for you · 1 pipeline working · 7 sessions open')
+   await expect(page.locator('aside.rail')).toContainText('5 running')
+   await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Continue working',exact:true}).click()
+   await expect(page.getByRole('region',{name:'Continue working',exact:true})).toContainText('Desk idle shell')
+   expect(w.f.desks.read).toBeGreaterThan(0)
+   await expect(page.locator('.problem')).toHaveCount(0)
+   await expect(page).toHaveURL(`${base}/`)
+   expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
  // The four captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page).
  // Saved only when REET_UI_SCREENSHOTS names a folder.
  if(process.env.REET_UI_SCREENSHOTS){
@@ -373,5 +470,5 @@ try{
   await shoot(390,'dark','390-dark',async()=>{},812)
   console.log('ok - Home captures saved')
  }
- console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, Details a link, the bell listing what it counts with links to the Factory, paging back to ten on a new project, ok')
+ console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, Details a link, the bell listing what it counts with links to the Factory, paging back to ten on a new project, desk sessions off the lists but a waiting one in the list and the bell marked with its desk and opening on it, only desk sessions nothing in flight, a failed desk read changing nothing, ok')
 }finally{await browser.close()}

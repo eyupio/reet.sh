@@ -27,6 +27,8 @@
   import { readSections, writeSections } from '../factory/sectionMemory'
   import { waitingSummary, workingSummary, type WaitingEntry } from './homeWaiting'
   import { whatWaits } from './whatWaits'
+  import { deskPaneReader, offDesks, type DeskRef } from './deskSessions'
+  import { getDesk, listDesks } from '../desks/api'
   import { keepFocusIn } from '../shell/keepFocus'
   import { short } from '../gafferOutcome'
   import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
@@ -115,6 +117,13 @@
   // The Factory's pipelines that are not archived: the ones waiting for the person join Home's list, the working ones
   // have a section of their own.
   let factoryRecords = $state<Outcome[]>([])
+  // The desks, read with the rest: a session on a desk leaves Continue working, the board and the head's count of open
+  // sessions, and when it needs the person it stays in Waiting for you, marked with its desk. A failed read keeps the desks
+  // last read and says nothing (Home works without them); until one has been read, no session counts as a desk session.
+  let desks = $state<DeskRef[] | undefined>()
+  // The pane each waiting desk session is in, so its link opens the desk there (read only for those desks).
+  let deskPanes = $state<Map<string, string>>(new Map())
+  const readPanes = deskPaneReader(getDesk)
   let readOnce = false
   const life = new AbortController()
   const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(POLL_MS)])
@@ -122,12 +131,15 @@
   const emptySync: SyncState = { environments: [], targets: [], agents: [], jobs: [] }
   const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now, terminals ?? []))
   const owners = $derived(sessionOwners(sessions ?? [], projects ?? []))
-  const running = $derived(projectRunning(sessions ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
   // What waits for the person, by the one rule every page uses (whatWaits): Factory items, sessions and Gaffer's goals
   // together, oldest first. The bell and the title count all of it; the page shows what is in the chosen project or group.
-  const waits = $derived(whatWaits(sessions ?? [], now, owners, health ?? [], factoryRecords, followups?.goals))
+  const waits = $derived(whatWaits(sessions ?? [], now, owners, health ?? [], factoryRecords, followups?.goals, { desks, panes: deskPanes }))
+  // Home's session lists leave desk sessions out (a Factory pipeline's session is its Factory item, and stays as it is).
+  const listed = $derived(sessions && offDesks(sessions, desks, new Set(factory.keys())))
+  // The Projects panel counts what Home lists: a session on a desk is left out, as it is from the lists (`listed`).
+  const running = $derived(projectRunning(listed ?? []))
   const needs = $derived(waits.cards)
   const items = $derived(waits.items)
   const allWaiting = $derived(waits.entries)
@@ -153,7 +165,7 @@
     return counts
   })
   const LIVE_STATES = new Set(['creating', 'running', 'end_requested'])
-  const openSessions = $derived((sessions ?? []).filter(s => LIVE_STATES.has(s.state) && inScope(s.projectId ?? '')).length)
+  const openSessions = $derived((listed ?? []).filter(s => LIVE_STATES.has(s.state) && inScope(s.projectId ?? '')).length)
   const countsLine = $derived([
     `${waiting.length} waiting for you`,
     working.length ? `${working.length} ${working.length === 1 ? 'pipeline' : 'pipelines'} working` : '',
@@ -250,7 +262,7 @@
     loading = true
     const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
-      const [h, y, s, p, g, t, f, o] = await Promise.allSettled([
+      const [h, y, s, p, g, t, f, o, d] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
@@ -262,6 +274,7 @@
         // The Factory's pipelines, read with the sessions so a pipeline's session is never shown twice while one is late.
         // A failed read keeps the last pipelines and says so; 403 and 404 are an account without Gaffer, and stay quiet.
         writer && accounts ? listGafferOutcomes(bounded()) : Promise.resolve(undefined),
+        writer ? listDesks(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
       if ([h, y, s, p, g, t, f, o].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
@@ -286,11 +299,19 @@
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
         if (g.status === 'fulfilled' && g.value) { groups = g.value; groupsFailed = false } else { failed = true; groupsFailed = groups === undefined }
         if (t.status === 'fulfilled' && t.value) terminals = t.value; else failed = true
+        // Never a problem line nor a sign-out: without the desks Home shows every session, as it did before desks.
+        if (d.status === 'fulfilled' && d.value) desks = d.value
       }
       now = at
       problem = failed ? (readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds.")
         : factoryFailed ? (readOnce ? 'The Factory could not be read; showing what was last read.' : 'The Factory could not be read. Home tries again every 15 seconds.') : ''
       readOnce = true
+      if (writer && desks) {
+        // The panes of the desks holding a session that waits (each desk read once per version).
+        const wanted = new Set(waits.entries.flatMap(entry => entry.source !== 'factory' && entry.desk ? [entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId] : []))
+        const panes = await readPanes(desks, wanted, bounded())
+        if (!stale()) deskPanes = panes
+      }
     } finally {
       if (mine === generation) loading = false
     }
@@ -312,7 +333,7 @@
     homeView = view
     try { localStorage.setItem(`reet.home.view.${userId}`, view) } catch { /* The view still works for this visit. */ }
   }
-  const continueSessions = $derived((sessions ?? []).filter(s => scopedIds === undefined || scopedIds.includes(s.projectId ?? '')))
+  const continueSessions = $derived((listed ?? []).filter(s => scopedIds === undefined || scopedIds.includes(s.projectId ?? '')))
   const continueGroups = $derived(inFlight(continueSessions, owners, health ?? [], continueGroup, now))
   const continueOffline = $derived((health ?? []).filter(m => m.state !== 'connected' && continueSessions.some(s => s.agentId === m.agentId)).map(m => ({agentId: m.agentId, host: m.host})))
   const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
@@ -560,8 +581,8 @@
       permission={entry.approval} sessionId={pair.piece.sessionId ?? ''} usable={choice => usable(choice, pair.piece)}
       onchoose={choice => choices?.choose(choice, pair.record, pair.piece)} detailsHref={pipelineHref(entry.item)} ondetails={() => location.assign(pipelineHref(entry.item))} onanswered={answered}/>
   {/if}
-  {:else if entry.source === 'session'}<SessionWaitingItem card={entry.card} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>
-  {:else}<SessionWaitingItem goal={entry.goal} layout={narrow ? 'card' : 'row'}/>{/if}
+  {:else if entry.source === 'session'}<SessionWaitingItem card={entry.card} desk={entry.desk?.name} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>
+  {:else}<SessionWaitingItem goal={entry.goal} desk={entry.desk?.name} layout={narrow ? 'card' : 'row'}/>{/if}
 {/snippet}
 
 <div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
@@ -635,7 +656,7 @@
       </div>
       {/if}
       <div hidden={homeView !== 'board'}>
-      <SessionBoard bind:this={board} embedded {factory} {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault} {factorySessionEndDefault} onbacklog={count => (backlogCount = count)}
+      <SessionBoard bind:this={board} embedded {factory} {userId} sessions={listed} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault} {factorySessionEndDefault} onbacklog={count => (backlogCount = count)}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>

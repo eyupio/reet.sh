@@ -27,7 +27,8 @@
     /** Called after an approval on a card was answered, so the lists are read again. */
     onanswered?: () => void | Promise<void>
     compact: boolean
-    /** The tabs a tablet and a phone keep in view (Home, Sessions, Machines); the rest of `tabs` move into More there. */
+    /** The tabs a tablet and a phone keep in view (Home, Sessions, Factory, Desks, Machines); the rest of `tabs` move into
+     *  More there, so More never repeats one of these. */
     bar: Tab[]
     /** Secondary pages, grouped in More at every screen size. */
     more: Tab[]

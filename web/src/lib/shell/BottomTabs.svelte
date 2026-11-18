@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Tab } from './tabs'
-  // The phone's tab bar: Home, Sessions, Machines and More, 64 px tall plus the safe area, each target at least 44 px. It
+  // The phone's tab bar: Home, Sessions, Factory, Desks, Machines and More (each where the account has it), 64 px tall plus
+  // the safe area, each target at least 44 px, labels at 14 px and never cut: each tab is as wide as its label and shares
+  // what is left, so six fit at 320 px. It
   // shows only on a phone (PHONE_SCREEN in terminal/sizing.ts) and steps aside while the keyboard is up for a field that
   // asks it to (keyboardChrome: Jump, the launch prompt, the session's terminal). More's list is final: Skills (and Activity, only
   // on an instance without accounts: with accounts it is a section of the account page), then Setups, Lists, Community,
@@ -10,6 +12,8 @@
     '/': 'M3 11l9-8 9 8v10H3z',
     '/factory': 'M3 21V10l6 4V10l6 4V4h6v17zM7 17h2M12 17h2M17 17h2',
     '/sessions': 'M4 6h16M4 12h16M4 18h10',
+    // A desk: a frame split into panes.
+    '/desks': 'M3 5h18v14H3zM12 5v14M12 12h9',
     '/machines': 'M5 5h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zM8 21h8M12 17v4',
   }
 </script>
@@ -39,8 +43,8 @@
     .bottom-tabs.hidden { display: none; }
   }
   a, button {
-    flex: 1 1 0; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-    padding: 0; border: 0; background: none; color: var(--muted); font: 400 0.875rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
+    flex: 1 1 auto; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: 0 1px; border: 0; background: none; color: var(--muted); font: 400 0.875rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
   }
   a[aria-current='page'], button.current { position: relative; color: var(--accent-text); font-weight: 600; }
   /* Not colour alone: a bar along the top edge marks the current tab, or More when the page in view is inside it. */
@@ -49,4 +53,5 @@
   }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 10px; }
   svg { width: 22px; height: 22px; }
+  span { white-space: nowrap; }
 </style>

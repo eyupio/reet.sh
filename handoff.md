@@ -18,6 +18,44 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## DESK-HOME-1: desk sessions off Home, unless they need you (18 November 2026)
+
+The owner asked: "Do not show desk sessions on the home page." Asked whether a desk session that needs them should still
+show, they chose: "Yes, only when it needs you".
+
+**What was built.** Home reads the desk list with its other reads (`listDesks` in the same `Promise.allSettled` batch).
+`offDesks` (`web/src/lib/home/deskSessions.ts`) takes a session on a non-template desk out of Continue working, the
+Planning board and the head's "n sessions open", so a person whose only sessions are on desks sees **Nothing in
+flight.** A Factory pipeline's session is kept (it is its Factory item). What needs the person is unchanged:
+`whatWaits` takes the desks too and marks a waiting session (or a Gaffer goal on one) with `desk`, its link becoming
+`/desks/<id>#<pane>`; `deskPaneReader` reads only the desks that hold a waiting session, once per desk version, and
+without the pane the link is `/desks/<id>`. `SessionWaitingItem` and the bell add " · Desk <name>" to the place. The bell
+off Home (`loadAttention` in `App.svelte`) reads the desks the same way (desk reads are plain fetches and never drive the
+progress bar). A failed desk read keeps the last desks, never signs out and never adds a problem line; before any read
+no session counts as a desk session. The Projects rail's running counts leave desk sessions out too (the owner's choice, so the
+panel matches what Home lists). Left as they were, deliberately: the rail's worktrees,
+the machine cards, owners, the waiting announcement and the launch bar's recent models still see every session.
+
+**Checked.** Unit: `deskSessions.test.mjs`, four new cases in `whatWaits.test.mjs`. Browser: four new blocks in
+`web/tests/home-waiting.e2e.mjs` (marked entry and link on Home and in the bell, count and title, Continue working and
+board without desk sessions, phone card, only desk sessions, desk read failing with 503).
+
+**Navigation, same branch.** The owner then asked: "Make desk menu more primary, after factory, before machines and
+accessible", and on the order: "Home, sessions, factory, desks, ...". The tabs (`tabs` in `App.svelte`) now run Home,
+Sessions, Factory, Desks, Machines, Skills (Activity after them without accounts), each on its old condition. Desks
+joined the bar (`barTabs`): the phone's bottom bar is Home, Sessions, Factory, Desks, Machines, More, and a tablet's top
+bar the same; More no longer lists Desks there. `BottomTabs.svelte` gives Desks a split-frame icon and sizes each tab to
+its label (`flex: 1 1 auto`, 1 px padding, labels never wrap) so six fit at 320 px with 14 px labels. On a tablet
+`TopTabs.svelte` sets the tabs 2 px apart with 10 px padding (six overflowed their box by 43 px at 834 px) and every
+top tab is at least 44 px wide. Checked in
+`navigation.e2e.mjs`: the order, the bar at 320, 360, 390 and 412 px (44 px targets, no overlap, no clipped label,
+no sideways scroll), Desks current on `/desks` and `/desks/<id>`, Tab order with a focus ring, and the tabs clear of
+Jump and the bell at 651, 834, 1100 and 1280 px. Not checked: a screen reader, and a 320 px phone with a larger
+system font size.
+
+**Not checked.** A real controller and desk (fixtures only); a desk session that is also a pipeline's, beyond the unit
+case.
+
 ## CREW-CHOICES-1: the crew chosen from what the machines offer, and an effort that is not offered (17 November 2026)
 
 The owner asked, with a picture of Gaffer settings → **Your Factory crew**: "The gaffer settings need a dynamically

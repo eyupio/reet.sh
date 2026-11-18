@@ -11,8 +11,9 @@ or a press on a pane (**Reopen**, **Start**, **Reopen all**, **Continue**).
 
 ## The Desks tab
 
-**Desks** is a top-bar tab on a desktop, after Sessions, for an account that can start sessions (accounts sign-in, not a
-viewer). On a tablet and a phone it is under **More**. Jump lists desks too (not templates).
+**Desks** is a primary tab, after Factory and before Machines, for an account that can start sessions (accounts sign-in,
+not a viewer): in the top bar on a desktop and a tablet, and on the phone's bottom bar (Home, Sessions, Factory, Desks,
+Machines, More). It is marked as the current page on `/desks` and on an open desk. Jump lists desks too (not templates).
 
 - `/desks` opens the desk you last opened in this browser, if it is still there; otherwise the list. The only thing a
   desk keeps in the browser is that one id (`reet.desks.last.<account>` in local storage).
@@ -363,6 +364,10 @@ Templates count towards the 50 desks.
   running sessions that are not already on this desk.
 - **The desk chip.** Sessions shows the desk a session is on as a chip after the row's words; it opens the desk at that
   pane.
+- **Home leaves desk sessions out.** A session on a desk is not in Home's Continue working, its planning board or its
+  count of open sessions. When it needs you (an approval, a question, a failure, work to review) it is still in
+  **Waiting for you** and the bell, marked "Desk" and the desk's name, and its **Open** opens the desk at its pane. A
+  template's sessions do not count, and a Factory pipeline's session shows as its pipeline.
 
 A session can be in only one pane across all your desks.
 

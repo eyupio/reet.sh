@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Tab } from './tabs'
   // The tabs along the top bar: a nav of links, not an ARIA tablist (each one changes the page). A desktop shows every tab;
-  // a tablet shows the bar's tabs (Home, Sessions, Machines) and More, which opens the rest. A phone hides this row and uses
+  // a tablet shows the bar's tabs (Home, Sessions, Factory, Desks, Machines) and More, which opens the rest. A phone hides this row and uses
   // the bottom tab bar instead. More opens secondary navigation at every width.
   let { tabs, bar, moreCurrent, moreOpen, onmore }: {
     tabs: Tab[]; bar: Tab[]; moreCurrent: boolean; moreOpen: boolean; onmore: (opener: HTMLElement) => void
@@ -20,7 +20,7 @@
 <style>
   .top-tabs { display: flex; align-items: stretch; align-self: stretch; gap: 4px; min-width: 0; }
   a, .more {
-    position: relative; display: flex; align-items: center; min-height: 44px; padding: 0 14px;
+    position: relative; display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 14px;
     border: 0; background: none; color: var(--muted); font: 400 14px/1 var(--sans); text-decoration: none; white-space: nowrap; cursor: pointer;
   }
   a:hover, .more:hover { color: var(--ink); }
@@ -30,15 +30,17 @@
   }
   a:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 8px; }
   .more { display: flex; }
-  /* Tablet: Home, Sessions, Machines and More. */
+  /* Tablet: Home, Sessions, Factory, Desks, Machines and More. */
   @media (max-width: 1099.98px) {
     a.wide { display: none; }
     .more { display: flex; }
-    a, .more { padding: 0 14px; font-size: 15px; }
+    /* Six with Desks in the bar: closer together than a desktop's, so they stay clear of Jump and the bell at 834 px. */
+    .top-tabs { gap: 2px; }
+    a, .more { padding: 0 10px; font-size: 15px; }
   }
   /* Six tabs with Desks and More: a small desktop tightens them so none runs under Jump or the bell. */
   @media (min-width: 1100px) and (max-width: 1279.98px) { a, .more { padding: 0 9px; } }
-  /* Five tabs with Factory: a narrow tablet gets tighter padding so none runs under Jump or the bell. */
+  /* Six with Factory, Desks and More: a narrow tablet gets tighter padding so none runs under Jump or the bell. */
   @media (min-width: 651px) and (max-width: 799px) { .top-tabs { gap: 2px; } a, .more { padding: 0 5px; font-size: 14px; } }
   /* Phone: the bottom tab bar takes over. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

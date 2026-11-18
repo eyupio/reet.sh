@@ -66,6 +66,8 @@ await page.route('**/api/**',async route=>{
  // The bell reads the Factory's outcomes and Gaffer's goals on every page; this account has neither.
  else if(path==='/api/v2/gaffer/outcomes'&&method==='GET')data={outcomes:[]}
  else if(path==='/api/v2/gaffer/goals'&&method==='GET')data={goals:[]}
+ // The bell reads the desks too, to mark a waiting session on one; this account has none.
+ else if(path==='/api/v2/desks'&&method==='GET')data={desks:[]}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  await route.fulfill({json:data})
 })

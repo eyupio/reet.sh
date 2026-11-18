@@ -9,9 +9,11 @@
   // where, one sentence, buttons). `row` is one line on a wide screen, in the columns WaitingItem uses (the stages
   // column stays empty), and a row narrower than ROW_MIN of its own width is drawn as a card. Given a `goal` instead of a
   // `card`, it is a Gaffer goal that needs review on a session: chip Gaffer, Gaffer's words, and Open.
-  let { card: given, goal, layout, onseen, onanswered }: {
+  let { card: given, goal, desk = '', layout, onseen, onanswered }: {
     card?: NeedCard
     goal?: GoalNeed
+    /** The name of the desk the session is on: its place then says so, and its link (already) opens the desk. */
+    desk?: string
     layout: 'card' | 'row'
     onseen?: (sessionId: string) => void | Promise<void>
     onanswered?: () => void | Promise<void>
@@ -43,11 +45,12 @@
     }).catch(() => { /* keep the place alone when the machine cannot answer */ })
     return () => { current = false }
   })
-  const where = $derived.by(() => {
+  const place = $derived.by(() => {
     if (typeof changed !== 'number') return card.where
     const files = `${changed} ${changed === 1 ? 'file' : 'files'} changed`
     return card.where ? `${files} · ${card.where}` : files
   })
+  const where = $derived([place, desk ? `Desk ${desk}` : ''].filter(Boolean).join(' · '))
 
   const ROW_MIN = 720
   let holderWidth = $state(0)

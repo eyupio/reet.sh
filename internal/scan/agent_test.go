@@ -1,12 +1,14 @@
 package scan
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/meta"
@@ -227,5 +229,79 @@ func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
 	}
 	if !reported {
 		t.Fatalf("apply left the inventory stale: %+v", envs)
+	}
+}
+
+// The Sync page's restore command for an old sync job's backup names the job's
+// target and the exact backup: it puts that backup back where it was taken
+// from, a project's folder included, and never over what is there now.
+func TestAgentRestoreExactJobBackup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("REET_TOKEN", "")
+	project := t.TempDir()
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
+	defer srv.Close()
+	cfg := filepath.Join(t.TempDir(), "agent.json")
+	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply", "--skip-terminal-setup"}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := loadAgentConfig(cfg)
+	target := store.EnvironmentIDFor(uid, "fixture", "claude", c.Projects[0])
+	if err = st.TouchEnvironmentFor(uid, "fixture", "claude", c.Projects[0], filepath.Join(c.Projects[0], ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.RecordInventoryFor(uid, target, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(c.Projects[0], ".claude", ".reet-sync-backups", "removed-20261101", "extra")
+	writeSkill(t, backup)
+	restore := func(args ...string) error {
+		var out bytes.Buffer
+		return runAgentRestore(append([]string{"--config", cfg}, args...), &out)
+	}
+	if err = restore("--target", target, "--backup", backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(c.Projects[0], ".claude", "skills", "extra", "SKILL.md")); err != nil {
+		t.Fatal("the job backup was not restored to its project folder")
+	}
+	// Never over what is there now.
+	writeSkill(t, backup)
+	if err = restore("--target", target, "--backup", backup); err == nil {
+		t.Fatal("restored over an existing skill")
+	}
+	if _, err = os.Stat(filepath.Join(backup, "SKILL.md")); err != nil {
+		t.Fatal("a refused restore moved the backup")
+	}
+	// Only a backup in a backups folder of that target, named plainly.
+	for _, bad := range []string{
+		filepath.Join(c.Projects[0], ".claude", "skills", "extra"),
+		filepath.Join(c.Projects[0], ".claude", ".reet-sync-backups", "removed-20261101", "..", "removed-20261101", "extra"),
+		filepath.Join(t.TempDir(), ".reet-sync-backups", "removed-1", "extra"),
+	} {
+		if err = restore("--target", target, "--backup", bad); err == nil {
+			t.Fatalf("restored from %s", bad)
+		}
+	}
+	// The name form still works.
+	homeFolder := filepath.Join(c.Home, ".agents", "skills")
+	writeSkill(t, filepath.Join(homeFolder, "alpha"))
+	if _, err = backupSkill(homeFolder, "alpha", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err = restore("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(homeFolder, "alpha", "SKILL.md")); err != nil {
+		t.Fatal("the name form did not restore")
 	}
 }

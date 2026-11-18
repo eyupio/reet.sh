@@ -305,7 +305,7 @@ input and are not added to `client.env`.
 - `scan`, `sync`, `agent enroll` and text `doctor` share token resolution and the
   explicit `--env-file` option. Sync can reuse enrollment credentials only for the
   enrolled server; explicit credentials take precedence.
-- `sync` asks for a missing target ID. `agent restore` takes a skill name or `--list`. Enrollment still creates its private enrollment file
+- `sync` asks for a missing target ID. `agent restore` takes a skill name, `--list`, or the `--target ID --backup PATH` a sync job's restore command names. Enrollment still creates its private enrollment file
   through the existing enrollment flow.
 - `backup open` asks for its input file and the password or key required by that
   archive. Escrow commands ask for missing paths and passphrases. `backup restore`

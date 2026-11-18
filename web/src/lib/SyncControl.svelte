@@ -115,7 +115,8 @@
   }
   function isUnknownSkill(skill: SyncSkill): boolean { return !skill.source || skill.sourceType === 'local' }
   function quote(v: string) { return "'" + v.replaceAll("'", "'\\''") + "'" }
-  function restoreCommand(backup: string) { return `reet agent restore ${quote(backup.split(/[\\/]/).filter(Boolean).pop() ?? '')}` }
+  // A job's backup is named exactly, with its target, so it goes back to the folder it came from, a project's included.
+  function restoreCommand(targetId: string, backup: string) { return `reet agent restore --target ${quote(targetId)} --backup ${quote(backup)}` }
   function cli(item: SyncTarget) { return `reet sync --server ${quote(location.origin)} --env ${quote(item.target.host)} --target ${quote(item.target.id)}` }
   function preferred(id: string): string {
     const skill = candidates.find(s => s.id === id)
@@ -607,7 +608,7 @@
           <summary>Restore removed skills</summary>
           <p class="hint">Run this on the machine. It never overwrites a skill you already have. To see every backup, run <code>reet agent restore --list</code>.</p>
           {#each entry.job.plan.backups as backup}
-            <div class="command"><code>{restoreCommand(backup)}</code><CopyButton text={restoreCommand(backup)} label="Copy restore command" /></div>
+            <div class="command"><code>{restoreCommand(entry.job.targetId, backup)}</code><CopyButton text={restoreCommand(entry.job.targetId, backup)} label="Copy restore command" /></div>
           {/each}
         </details>
       {/if}

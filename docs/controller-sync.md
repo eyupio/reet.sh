@@ -148,6 +148,14 @@ reet agent restore NAME [--date YYYY-MM-DD]
 
 Without `--date`, restore uses the newest date that holds NAME; if that date has it from more than one folder, each is restored. Restore moves the entry back into the folder it came from, refuses to overwrite an existing skill, and restores a symlink as a symlink. Review the desired set afterward so the next sync does not remove it again.
 
+A sync job's backup, in `.reet-sync-backups` beside the skills folder of that job's target (a project's included), is restored exactly by the command its job card shows:
+
+```sh
+reet agent restore --target ID --backup PATH
+```
+
+It takes only an entry of that target's `.reet-sync-backups/removed-*` or `.reet-backups/YYYY-MM-DD` folder, puts it back in the target's skills folder, and never replaces a skill already there.
+
 A killed agent or sync may leave a `.lock` file. Check that the relevant process is no longer running before removing that specific stale lock. Keep any `.result` file for acknowledgment/recovery; the agent drops it only when the controller refuses it permanently (for example because that job has already closed). Do not run multiple workers using copied configuration files.
 
 Renaming an enrolled machine preserves its identity and mode/baseline, cancels old queued approvals, and requires a new preview. Renaming during a running job is rejected. Two active enrolled installations cannot be merged; revoke one enrollment first if consolidating duplicate reports.

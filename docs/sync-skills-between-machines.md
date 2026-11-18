@@ -35,7 +35,7 @@ This guide covers the explicit preview-and-approve path in **Advanced sync**: sc
 
 - It installs, replaces or removes skills in the folders your tools read.
 - It shows a concrete plan before anything changes.
-- It keeps a backup of a replaced local copy under `.reet-sync-backups`.
+- It keeps a backup of a replaced local copy under `.reet-sync-backups`. To get one back, run `reet agent restore NAME` on that machine. `reet agent restore --list` shows what is there.
 - It matches skills by identity and source, not by file contents or upstream commit.
 - It does not publish private skills, upload arbitrary local files, or change a machine that has not opted in to remote apply.
 

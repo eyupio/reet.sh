@@ -33,9 +33,12 @@ func runAgentRestore(args []string, out io.Writer) error {
 	if fs.NArg() != 0 || (*list && name != "") || (!*list && name == "") {
 		return errors.New("usage: reet agent restore --list | reet agent restore NAME [--date YYYY-MM-DD]")
 	}
-	home := ""
+	// The enrolled projects are left alone, as the agent leaves them. With no
+	// enrollment there are none to know of; Codex's folder and a custom
+	// config folder are left alone either way.
+	home, projects := "", []string(nil)
 	if c, err := loadAgentConfig(*config); err == nil {
-		home = c.Home
+		home, projects = c.Home, c.Projects
 	}
 	if home == "" {
 		h, err := os.UserHomeDir()
@@ -57,7 +60,7 @@ func runAgentRestore(args []string, out io.Writer) error {
 		}
 		return nil
 	}
-	restored, err := restoreBackup(home, name, *date)
+	restored, err := restoreBackup(home, name, *date, projects...)
 	for _, p := range restored { // what was put back is said even when a later folder failed
 		fmt.Fprintf(out, "Restored %s\n", p)
 	}

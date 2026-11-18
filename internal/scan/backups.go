@@ -420,6 +420,17 @@ func listBackups(home string) ([]backupEntry, error) {
 	return out, nil
 }
 
+// leftAloneWhy says why reet leaves the managed folder alone, or "" when it
+// does not.
+func leftAloneWhy(home string, roots []managedRoot, folder string) string {
+	for i, f := range managedFolders {
+		if filepath.Join(home, filepath.FromSlash(f.Dir)) == folder {
+			return roots[i].why
+		}
+	}
+	return ""
+}
+
 // clashStem returns name without a trailing -N (N at least 2), the suffix
 // backupSkill adds when a backup of the name is already there.
 func clashStem(name string) (string, bool) {
@@ -438,9 +449,10 @@ func clashStem(name string) (string, bool) {
 // returns the restored paths. With no date it uses the newest date holding the
 // name; within a date, per folder, it takes the newest copy. If that date
 // holds the name from several folders, every one is restored, and nothing
-// moves if any target exists. If a move then fails part-way, the paths
-// already restored are returned with the error.
-func restoreBackup(home, name, date string) ([]string, error) {
+// moves if any target exists or is a folder reet leaves alone (see
+// managedRoots, given the enrolled projects as unmanaged). If a move then
+// fails part-way, the paths already restored are returned with the error.
+func restoreBackup(home, name, date string, unmanaged ...string) ([]string, error) {
 	if !validBackupName(name) {
 		return nil, fmt.Errorf("%q is not a plain skill name", name)
 	}
@@ -470,8 +482,12 @@ func restoreBackup(home, name, date string) ([]string, error) {
 	if len(found) == 0 {
 		return nil, fmt.Errorf("no backup of %q found", name)
 	}
+	roots := managedRoots(home, unmanaged)
 	var dests []string
 	for _, b := range found {
+		if why := leftAloneWhy(home, roots, b.Folder); why != "" {
+			return nil, fmt.Errorf("%s; nothing was restored, and the backup stays in %s", why, b.Path)
+		}
 		dest := filepath.Join(b.Folder, name)
 		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
 			return nil, fmt.Errorf("%s already exists; restore never overwrites an installed skill", dest)

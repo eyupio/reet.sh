@@ -929,3 +929,64 @@ func TestPruneBackupsBesideAFolderHandledUnderAnother(t *testing.T) {
 		t.Fatalf("a recent backup was pruned: %v", err)
 	}
 }
+
+// A restore never writes into a folder reet leaves alone. Here
+// ~/.claude/skills was linked into an enrolled project after its backup was
+// made, so restoring there would write into the project.
+func TestAgentRestoreRefusesAFolderReetLeavesAlone(t *testing.T) {
+	config := enrolledMachine(t, "http://127.0.0.1:1")
+	c := loaded(t, config)
+	project := filepath.Join(c.Home, "work", "app")
+	c.Projects = []string{project}
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(c.Home, ".claude", "skills")
+	writeSkill(t, filepath.Join(claude, "alpha"))
+	backup, err := backupSkill(claude, "alpha", backupNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(claude); err != nil {
+		t.Fatal(err)
+	}
+	mkdirs(t, c.Home, "work/app/.claude/skills")
+	symlink(t, filepath.Join(project, ".claude", "skills"), claude)
+	before := homeTree(t, project)
+	var out bytes.Buffer
+	err = runAgentRestore([]string{"--config=" + config, "alpha"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "~/.claude/skills leads into a project folder, so reet leaves it alone") {
+		t.Errorf("err = %v", err)
+	}
+	sameTree(t, "project", before, homeTree(t, project))
+	if _, err := os.Stat(filepath.Join(backup, "SKILL.md")); err != nil {
+		t.Fatalf("the backup moved: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("printed %q", out.String())
+	}
+}
+
+// With no enrolled agent there are no projects to know of, but Codex's folder
+// and a custom config folder are still left alone.
+func TestAgentRestoreWithoutEnrollmentStillLeavesCodexAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claude := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, filepath.Join(claude, "alpha"))
+	if _, err := backupSkill(claude, "alpha", backupNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(claude); err != nil {
+		t.Fatal(err)
+	}
+	mkdirs(t, home, ".codex/skills")
+	symlink(t, filepath.Join("..", ".codex", "skills"), claude)
+	before := homeTree(t, filepath.Join(home, ".codex"))
+	var out bytes.Buffer
+	err := runAgentRestore([]string{"--config=" + filepath.Join(t.TempDir(), "none.json"), "alpha"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "~/.claude/skills leads into Codex's skills folder, so reet leaves it alone") {
+		t.Errorf("err = %v", err)
+	}
+	sameTree(t, ".codex", before, homeTree(t, filepath.Join(home, ".codex")))
+}

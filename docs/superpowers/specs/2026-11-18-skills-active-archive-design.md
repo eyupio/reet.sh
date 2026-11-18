@@ -81,6 +81,9 @@ What is true today (18 November 2026, `9c03201`):
 | How to build it | **Replace the engine with a plain reconcile loop** (approach B below). |
 | How a public skill's files get into reet | **The controller fetches them from GitHub** once, as a bundle every machine installs. |
 | A skill edited on a machine | **reet's copy wins.** The edit is backed up and replaced, with **Use this version** to adopt it. |
+| What an imported skill is | **A reet.sh skill.** Its original link is kept as a reference only, never the source for installing it or for its prompt. |
+| Editing and updating an imported skill | **Editable**, like one you wrote. **Update from original** is on request: it shows what changed and replaces the content only when confirmed; earlier versions stay in its history. |
+| Whether an imported skill is public | **Private until published**, like one you wrote. Its public page credits the original link. |
 
 ## Approaches considered
 
@@ -147,7 +150,10 @@ Skills                                       [Paste a skills.sh link…] [Add]
   of the new skills: each with **Keep** and **Archive**, plus **Keep all**. Home's *Waiting for you* lists the same
   item.
 - **Kept:** search, sort, tags, likes, notes, lists (as a filter and as *Add to list*), bulk select (Archive,
-  Delete, Restore, Tag), adding by link, Copy install command and Copy prompt.
+  Delete, Restore, Tag), adding by link, Copy prompt, and Copy install command on published skills (see *Every skill
+  is a reet.sh skill*).
+- **Added to an opened skill:** **Edit**, **Publish**, the *Imported from* or *Kept from* reference and, on an
+  imported skill, **Update from original**.
 - **Gone:** the In use / To test / Parked stages and their tabs, Board view, the *Set to sync to…* line, per-machine
   Add now and Remove…, the install-location, *Only on one machine* and sync-state filters, and Link source to sync.
 - **The session skill picker** offers Active skills only.
@@ -355,15 +361,15 @@ Skills, Sync and *Adding skills* sections. The superseded specs in `docs/superpo
 
 Both are the owner's decisions, made after the engine map.
 
-- **The controller fetches public skills from GitHub.** When a skill is added by link, or refreshed, the controller
-  downloads its folder once and stores it as a private revision, a bundle with a digest. Every machine installs
-  those bytes. Machines no longer need Node or `npx`. This is a new outbound fetch from the controller; today it
-  only reads skills.sh pages. The README's *Nothing is sent to skills.sh…* line and `SECURITY.md` say so.
+- **The controller fetches public skills from GitHub.** When a skill is imported by link, or updated from its
+  original, the controller downloads its folder once and stores it as a private revision, a bundle with a digest.
+  Every machine installs those bytes. Machines no longer need Node or `npx`. This is a new outbound fetch from the
+  controller; today it only reads skills.sh pages. The README's *Nothing is sent to skills.sh…* line and
+  `SECURITY.md` say so.
   - **Size and safety limits** are today's private-bundle limits: 2 MiB, 100 supporting files, and the
     credential-path and key-material checks in `internal/skillimport`.
   - **Failures.** A skill that cannot be fetched (repository gone, too large, rate limited) is added with a visible
     *Couldn't fetch the files · Retry* line, and it reaches no machine until it can be fetched.
-  - **Refresh** fetches again. If the files changed, it makes a new revision, which reaches every machine.
 - **reet's copy wins over an edit made on a machine.** When an Active skill's copy on a machine differs from reet's
   revision, the machine backs it up and installs reet's revision.
   - The activity says *askme was edited on ThinkPad; reet's copy put back*, with **Use this version**.
@@ -371,6 +377,34 @@ Both are the owner's decisions, made after the engine map.
     it.
   - Edits never flow back automatically, so `library_edits.go`, `library_bases`, `library_edit_events` and the
     Differences view go.
+
+## Every skill is a reet.sh skill
+
+The owner's rule for imports, applied to all three ways a skill arrives: once it is in the library, it is a reet.sh
+skill with its own content in reet. Where it came from is a reference, never a source.
+
+| How it arrived | Its reference | Content |
+| --- | --- | --- |
+| Written in reet | none | Written there |
+| Imported by link | the original link, e.g. *Imported from github.com/owner/repo* | Fetched once by the controller |
+| Kept from a machine | the machine and folder, e.g. *Kept from Elitebook* | Captured from that machine |
+
+- **Editing.** Every skill can be edited in **Write a skill**, imported ones included. Each save is a new revision
+  that reaches every machine. Earlier revisions stay in the skill's history (`GET /api/v2/library-history/{item}`)
+  and can be put back.
+- **Update from original** is offered only on an imported skill, and only when asked. It fetches the original
+  again and shows which files changed. It replaces the content as a new revision only when the person confirms.
+  If they edited the skill since importing it, the confirmation says those edits will be replaced and remain in
+  history. Nothing checks the original on a schedule.
+- **Private until published.** Every skill is private to its owner until they publish it, the same switch written
+  skills have today. An imported skill's public page credits the original link.
+- **Copy prompt** becomes *Use the {name} skill: {description}*, because an Active skill is already on every
+  machine. Today it runs `npx skills use <original link>` (`installPrompt` in `web/src/lib/install.ts`).
+- **Copy install command** points at reet's copy of a published skill, at its public reet.sh URL. It is not offered
+  on a private skill, which no one else can fetch. Today it runs `npx skills add <original link>` (`installCommand`
+  in the same file).
+- **Install sources go.** `sourceURL`, `.skill-lock.json` provenance and the *Link source to sync* action stop
+  deciding how anything is installed. The original link becomes a display field.
 
 ## Left to the builder
 
@@ -418,7 +452,10 @@ not deleted.
 - an agent without the new protocol gets no skill work
 - fetches a public skill into a bundle (against a stub GitHub), refuses one over the limits or carrying credentials,
   and shows a fetch failure with Retry
-- Refresh makes a new revision only when the files changed
+- Update from original shows the changed files, makes a new revision only on confirmation and only when the files
+  changed, and warns when it would replace the person's edits
+- an imported skill is private until published; Copy prompt never contains the original link; Copy install command
+  is offered only on a published skill and points at reet's URL
 - an `edited` report offers **Use this version**, which captures the backup as a new revision that reaches every
   machine
 

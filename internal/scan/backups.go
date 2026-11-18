@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,57 @@ var backupFolders = []string{
 	".config/opencode/skills",
 }
 
-type backupEntry struct{ Name, Folder, Path, Date string }
+type backupEntry struct {
+	Name, Folder, Path, Date string
+	At                       int64  // Unix ms the backup was taken; 0 when unknown
+	legacy                   bool   // lives in .reet-sync-backups/removed-*
+	index                    string // base name in the date folder's index.json
+}
+
+const backupIndexFile = "index.json"
+
+type indexRecord struct {
+	Name   string `json:"name"`
+	Folder string `json:"folder"`
+	At     int64  `json:"at"`
+}
+
+type backupIndex struct {
+	Entries map[string]indexRecord `json:"entries"`
+}
+
+// readBackupIndex returns the date folder's index; a missing or corrupt
+// index reads as empty so listing falls back to parsing entry names.
+func readBackupIndex(dir string) backupIndex {
+	var idx backupIndex
+	b, err := os.ReadFile(filepath.Join(dir, backupIndexFile))
+	if err != nil || json.Unmarshal(b, &idx) != nil || idx.Entries == nil {
+		return backupIndex{Entries: map[string]indexRecord{}}
+	}
+	return idx
+}
+
+func writeBackupIndex(dir string, idx backupIndex) error {
+	b, err := json.Marshal(idx)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".index-*.tmp")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(b)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), filepath.Join(dir, backupIndexFile))
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
+}
 
 func backupRoot(folder string) string {
 	return filepath.Join(filepath.Dir(folder), ".reet-backups")
@@ -73,6 +124,11 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 	}
 	if err := moveEntry(src, dest); err != nil {
 		return "", err
+	}
+	idx := readBackupIndex(dir)
+	idx.Entries[filepath.Base(dest)] = indexRecord{Name: name, Folder: folder, At: now.UnixMilli()}
+	if err := writeBackupIndex(dir, idx); err != nil {
+		return dest, fmt.Errorf("backed up to %s but could not record its name: %w", dest, err)
 	}
 	return dest, nil
 }
@@ -180,23 +236,60 @@ func pruneBackups(home string, now time.Time) error {
 	return errors.Join(errs...)
 }
 
-// listBackups returns every backup under home, newest date first.
+// listBackups returns every backup under home, newest date first: the
+// dated .reet-backups folders and the older .reet-sync-backups/removed-*
+// folders, for the managed skills folders only.
 func listBackups(home string) ([]backupEntry, error) {
 	var out []backupEntry
 	for _, rel := range backupFolders {
 		folder := filepath.Join(home, rel)
 		root, prefix := backupRoot(folder), backupPrefix(folder)
 		for _, date := range dateFolders(root) {
-			entries, err := os.ReadDir(filepath.Join(root, date))
+			dir := filepath.Join(root, date)
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return nil, err
+			}
+			idx := readBackupIndex(dir)
+			for _, e := range entries {
+				if e.Name() == backupIndexFile {
+					continue
+				}
+				b := backupEntry{Folder: folder, Path: filepath.Join(dir, e.Name()), Date: date, index: e.Name()}
+				if rec, ok := idx.Entries[e.Name()]; ok && validBackupName(rec.Name) {
+					b.Name, b.At = rec.Name, rec.At
+				} else if name := strings.TrimPrefix(e.Name(), prefix); name != e.Name() && validBackupName(name) {
+					b.Name = name
+				} else {
+					continue
+				}
+				out = append(out, b)
+			}
+		}
+		legacy := filepath.Join(filepath.Dir(folder), ".reet-sync-backups")
+		if !isRealDir(legacy) {
+			continue
+		}
+		groups, err := os.ReadDir(legacy)
+		if err != nil {
+			return nil, err
+		}
+		for _, g := range groups {
+			dir := filepath.Join(legacy, g.Name())
+			st, err := os.Lstat(dir)
+			if !strings.HasPrefix(g.Name(), "removed-") || err != nil || !st.IsDir() {
+				continue
+			}
+			entries, err := os.ReadDir(dir)
 			if err != nil {
 				return nil, err
 			}
 			for _, e := range entries {
-				name := strings.TrimPrefix(e.Name(), prefix)
-				if name == e.Name() || !validBackupName(name) {
+				if !validBackupName(e.Name()) {
 					continue
 				}
-				out = append(out, backupEntry{Name: name, Folder: folder, Path: filepath.Join(root, date, e.Name()), Date: date})
+				out = append(out, backupEntry{Name: e.Name(), Folder: folder, Path: filepath.Join(dir, e.Name()),
+					Date: st.ModTime().Format(backupDateLayout), At: st.ModTime().UnixMilli(), legacy: true})
 			}
 		}
 	}
@@ -211,15 +304,22 @@ func listBackups(home string) ([]backupEntry, error) {
 		if out[i].Folder != out[j].Folder {
 			return order[out[i].Folder] < order[out[j].Folder]
 		}
-		return out[i].Name < out[j].Name
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		if out[i].At != out[j].At {
+			return out[i].At > out[j].At
+		}
+		return out[i].Path > out[j].Path
 	})
 	return out, nil
 }
 
 // restoreBackup moves the named backup back into the folder it came from and
 // returns the restored path. With no date it uses the newest date holding the
-// name. If that date holds the name from several folders, every one is
-// restored (one path per line), and nothing moves if any target exists.
+// name; within a date, per folder, it takes the newest copy. If that date
+// holds the name from several folders, every one is restored (one path per
+// line), and nothing moves if any target exists.
 func restoreBackup(home, name, date string) (string, error) {
 	if !validBackupName(name) {
 		return "", fmt.Errorf("%q is not a plain skill name", name)
@@ -232,14 +332,20 @@ func restoreBackup(home, name, date string) (string, error) {
 		return "", err
 	}
 	var found []backupEntry
-	for _, b := range all { // newest date first
+	for _, b := range all { // newest date first; within a folder, newest copy first
 		if b.Name != name || (date != "" && b.Date != date) {
 			continue
 		}
 		if len(found) > 0 && b.Date != found[0].Date {
 			break
 		}
-		found = append(found, b)
+		dup := false
+		for _, f := range found {
+			dup = dup || f.Folder == b.Folder
+		}
+		if !dup {
+			found = append(found, b)
+		}
 	}
 	if len(found) == 0 {
 		return "", fmt.Errorf("no backup of %q found", name)
@@ -258,6 +364,16 @@ func restoreBackup(home, name, date string) (string, error) {
 		}
 		if err := moveEntry(b.Path, dests[i]); err != nil {
 			return "", err
+		}
+		dir := filepath.Dir(b.Path)
+		if b.legacy {
+			_ = os.Remove(dir) // only if now empty
+			continue
+		}
+		idx := readBackupIndex(dir)
+		if _, ok := idx.Entries[b.index]; ok {
+			delete(idx.Entries, b.index)
+			_ = writeBackupIndex(dir, idx)
 		}
 	}
 	return strings.Join(dests, "\n"), nil

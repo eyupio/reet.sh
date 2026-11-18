@@ -248,3 +248,87 @@ func TestAgentRestoreCommand(t *testing.T) {
 		t.Fatal("expected usage error")
 	}
 }
+
+func TestBackupClashListsAndRestoresNewestUnderRealName(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	for _, body := range []string{"older", "newer"} {
+		if err := os.MkdirAll(filepath.Join(folder, "foo"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(folder, "foo", "SKILL.md"), []byte(body), 0644)
+		if _, err := backupSkill(folder, "foo", backupNow.Add(time.Duration(len(body))*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := listBackups(home)
+	if err != nil || len(entries) != 2 || entries[0].Name != "foo" || entries[1].Name != "foo" {
+		t.Fatalf("list = %+v, %v", entries, err)
+	}
+	if _, err := restoreBackup(home, "foo", ""); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(folder, "foo", "SKILL.md")); string(b) != "newer" {
+		t.Fatalf("restored %q, want the newer copy", b)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", ".reet-backups", "2026-11-18", ".claude-foo-2")); !os.IsNotExist(err) {
+		t.Fatal("restored entry still present")
+	}
+	// The older copy is left; with foo installed again a second restore refuses.
+	if _, err := restoreBackup(home, "foo", "2026-11-18"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected refusal, got %v", err)
+	}
+	if left, _ := listBackups(home); len(left) != 1 || left[0].Name != "foo" {
+		t.Fatalf("left = %+v", left)
+	}
+}
+
+func TestBackupCorruptIndexStillLists(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".cursor", "skills")
+	writeSkill(t, filepath.Join(folder, "alpha"))
+	got, err := backupSkill(folder, "alpha", backupNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(got), "index.json"), []byte("{not json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := listBackups(home)
+	if err != nil || len(entries) != 1 || entries[0].Name != "alpha" || entries[0].Folder != folder {
+		t.Fatalf("list = %+v, %v", entries, err)
+	}
+}
+
+func TestListBackupsLegacyRemovedEntries(t *testing.T) {
+	home := t.TempDir()
+	removed := filepath.Join(home, ".claude", ".reet-sync-backups", "removed-abc")
+	writeSkill(t, filepath.Join(removed, "foo"))
+	when := backupNow.AddDate(0, 0, -60)
+	if err := os.Chtimes(removed, when, when); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := listBackups(home)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("list = %+v, %v", entries, err)
+	}
+	if want := when.Local().Format("2006-01-02"); entries[0].Date != want || entries[0].Name != "foo" {
+		t.Fatalf("entry = %+v, want date %s", entries[0], want)
+	}
+	if err := pruneBackups(home, backupNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(removed, "foo", "SKILL.md")); err != nil {
+		t.Fatal("prune touched a legacy backup")
+	}
+	got, err := restoreBackup(home, "foo", "")
+	if err != nil || got != filepath.Join(home, ".claude", "skills", "foo") {
+		t.Fatalf("restore = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(got, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(removed); !os.IsNotExist(err) {
+		t.Fatal("empty removed-* folder kept")
+	}
+}

@@ -26,8 +26,8 @@ func (s *Store) libraryRootIdentityFor(uid int64, host, agent, project, name str
 func (s *Store) RecordLibraryObservationFor(uid int64, itemID, host, agent, project, path string) (string, error) {
 	id := "library/" + itemID
 	err := s.withTx(func(tx *sql.Tx) error {
-		var name, status string
-		if err := tx.QueryRow(`SELECT name,status FROM library_items WHERE user_id=? AND id=? AND deleted_at=0`, uid, itemID).Scan(&name, &status); err != nil {
+		var name string
+		if err := tx.QueryRow(`SELECT name FROM library_items WHERE user_id=? AND id=? AND deleted_at=0`, uid, itemID).Scan(&name); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?) ON CONFLICT(id) DO NOTHING`, id, "local", name, "local", "", name, now(), now()); err != nil {
@@ -36,7 +36,7 @@ func (s *Store) RecordLibraryObservationFor(uid int64, itemID, host, agent, proj
 		if _, err := tx.Exec(`INSERT INTO library_aliases VALUES(?,'shelf',?,?) ON CONFLICT(user_id,kind,reference) DO NOTHING`, uid, id, itemID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at) VALUES(?,?,0,?,0,'',?,?) ON CONFLICT(user_id,skill_id) DO NOTHING`, uid, id, status == LibraryToTest, now(), now())
+		_, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at) VALUES(?,?,0,0,0,'',?,?) ON CONFLICT(user_id,skill_id) DO NOTHING`, uid, id, now(), now())
 		return err
 	})
 	if err != nil {

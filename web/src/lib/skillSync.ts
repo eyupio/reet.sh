@@ -47,7 +47,7 @@ function fold(hosts: string[]): string {
 /** One short line for a card: "Not set to sync", "Set to sync to a, b" or "Pending on b · synced to a". */
 const HELD_WHY: Record<SyncHeld['reason'], string> = {
   content: 'waiting for a saved copy in reet',
-  status: 'not installed until it is In use',
+  status: 'not installed while it is Archived',
   duplicate: 'another selected skill has the same name',
 }
 

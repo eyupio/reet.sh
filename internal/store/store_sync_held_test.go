@@ -16,9 +16,13 @@ func TestSyncTargetsReportSelectedItemsHeldBack(t *testing.T) {
 			item = candidate
 		}
 	}
-	if item.ID == "" || item.Status == LibraryInUse {
-		t.Fatalf("fixture item must exist and not be in use: %+v", item)
+	if item.ID == "" {
+		t.Fatalf("fixture item must exist: %+v", item)
 	}
+	if err := s.SetLibraryStatusFor(uid, item.ID, SkillArchived, item.Version); err != nil {
+		t.Fatal(err)
+	}
+	item, _ = s.LibraryItemFor(uid, item.ID)
 	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
 	if err != nil {
 		t.Fatal(err)
@@ -45,9 +49,9 @@ func TestSyncTargetsReportSelectedItemsHeldBack(t *testing.T) {
 		return nil
 	}
 	if got := held(); len(got) != 1 || got[0].ItemID != item.ID || got[0].Reason != "status" || got[0].Name != "managed" {
-		t.Fatalf("selected item that is not in use was not reported as held: %+v", got)
+		t.Fatalf("selected Archived item was not reported as held: %+v", got)
 	}
-	if err := s.SetLibraryStatusFor(uid, item.ID, LibraryInUse, item.Version); err != nil {
+	if err := s.SetLibraryStatusFor(uid, item.ID, SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	if got := held(); len(got) != 0 {

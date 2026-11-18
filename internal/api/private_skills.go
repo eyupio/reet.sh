@@ -59,6 +59,8 @@ func privateSkillError(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "Private skill unavailable.")
 	case errors.Is(err, store.ErrPrivateSkillConflict):
 		writeErr(w, 409, "The skill head changed or this request ID was used for a different write. Read the current head before submitting a new revision.")
+	case errors.Is(err, store.ErrSkillNameTaken):
+		writeErr(w, 409, "A skill with that name is already in your library.")
 	case errors.Is(err, store.ErrPrivateSkillCapacity):
 		writeErr(w, 409, "Private skill storage limit reached (128 bundles, 256 revisions or 64 MiB of unique file bytes per account).")
 	default:

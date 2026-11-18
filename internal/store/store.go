@@ -539,6 +539,14 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateSkillStates(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateSkillReports(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := stampSchemaVersion(db); err != nil {
 		db.Close()
 		return nil, err

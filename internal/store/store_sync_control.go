@@ -414,6 +414,7 @@ func (s *Store) migrateSyncAgents() error {
 		{"source_commit", "source_commit TEXT NOT NULL DEFAULT ''"},
 		{"auto_update", "auto_update INTEGER NOT NULL DEFAULT 1"},
 		{"keep_synced", "keep_synced INTEGER NOT NULL DEFAULT 0"},
+		{"skills_protocol", "skills_protocol INTEGER NOT NULL DEFAULT 0"},
 	} {
 		ok, err := hasColumn(s.db, "sync_agents", c.name)
 		if err != nil {
@@ -481,6 +482,13 @@ func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
 	var a SyncAgent
 	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
 	return a, err
+}
+
+// SetAgentSkillsProtocolFor records the skills protocol an agent announced in
+// X-Reet-Skills-Protocol. An agent below 2 gets no skill work.
+func (s *Store) SetAgentSkillsProtocolFor(uid int64, agentID string, protocol int) error {
+	_, err := s.db.Exec(`UPDATE sync_agents SET skills_protocol=? WHERE id=? AND user_id=?`, protocol, agentID, uid)
+	return err
 }
 
 func (s *Store) SyncAgentsFor(uid int64) ([]SyncAgent, error) {

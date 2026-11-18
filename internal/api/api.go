@@ -1086,14 +1086,10 @@ func (s *server) eventRequest(r *http.Request, action, skillID string, detail an
 
 func stageLabel(sk store.Skill) string {
 	switch sk.Status {
-	case store.LibraryInUse:
-		return "In use"
-	case store.LibraryToTest:
-		return "To test"
-	case store.LibraryOnShelf:
-		return "Parked"
-	case store.LibraryDisabled:
-		return "Disabled"
+	case store.SkillActive:
+		return "Active"
+	case store.SkillArchived:
+		return "Archived"
 	}
 	if sk.Used {
 		return "In use"
@@ -1295,16 +1291,14 @@ func compactTagNames(sk store.Skill) []string {
 	return names
 }
 
+// stageKey keeps the keys the Skills page reads until it shows Active and
+// Archived: an Active skill reads as In use and an Archived one as Parked.
 func stageKey(sk store.Skill) string {
 	switch sk.Status {
-	case store.LibraryInUse:
+	case store.SkillActive:
 		return "use"
-	case store.LibraryToTest:
-		return "try"
-	case store.LibraryOnShelf:
+	case store.SkillArchived:
 		return "shelf"
-	case store.LibraryDisabled:
-		return "disabled"
 	}
 	if sk.Used {
 		return "use"
@@ -1342,6 +1336,10 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, in.Patch)
+	if errors.Is(err, store.ErrSkillNameTaken) {
+		writeErr(w, 409, "A skill with that name is already in your library.")
+		return
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1596,6 +1594,21 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		sk, err = s.st.UpsertLocalFor(userID, name, flags)
 	} else {
 		sk, err = s.st.UpsertFor(userID, rf, flags)
+		// A scanned copy of a name the library already has is a sighting of
+		// that skill on the machine, not a new source. Like any sighting it
+		// never moves the skill's status: flags are set only on a new row, as
+		// for the local row it is written as.
+		if errors.Is(err, store.ErrSkillNameTaken) && item.Host != "" && item.Agent != "" {
+			local, id = true, "local/"+name
+			if _, existed, err = s.st.GetFor(userID, id); err != nil {
+				return id, false, false, err
+			}
+			flags = store.Patch{}
+			if !existed {
+				flags.Used = &used
+			}
+			sk, err = s.st.UpsertLocalFor(userID, name, flags)
+		}
 	}
 	if err != nil {
 		return id, false, false, err
@@ -3112,6 +3125,10 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		((p.Liked != nil && old.Liked) || (p.Bookmarked != nil && old.Bookmarked) || (p.Used != nil && old.Used))
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, p)
+	if errors.Is(err, store.ErrSkillNameTaken) {
+		quickPage(w, 409, "A skill with that name is already in your library")
+		return
+	}
 	if err != nil {
 		quickPage(w, 500, "Could not save")
 		return

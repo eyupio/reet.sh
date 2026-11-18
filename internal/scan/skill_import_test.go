@@ -145,6 +145,20 @@ func TestSkillImportTwoEnrolledMachinesVerifiedRetryAndIsolation(t *testing.T) {
 	var revisions []store.PrivateSkillResult
 	for _, machine := range []string{"first", "second"} {
 		cfg, root := importLocalFixture(t, srv.URL)
+		// Each machine's skill has its own name: the library refuses a second
+		// item with a name it already has.
+		name := "demo"
+		if machine == "second" {
+			name = "demo-second"
+			renamed := filepath.Join(filepath.Dir(root), name)
+			if err = os.Rename(root, renamed); err != nil {
+				t.Fatal(err)
+			}
+			root = renamed
+			if err = os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\r\nname: "+name+"\r\ndescription: Useful instructions\r\n---\r\nPrivate machine instructions.\r\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		c, err := loadAgentConfig(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -168,7 +182,7 @@ func TestSkillImportTwoEnrolledMachinesVerifiedRetryAndIsolation(t *testing.T) {
 		if err = os.WriteFile(filepath.Join(root, ".env"), []byte("PRIVATE_KEY=excluded"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		args := []string{"skill", "import", "--config", cfg, "--name", "demo", "--exclude", ".env", "--upload", "--yes", "--request-id", "import_request_" + machine}
+		args := []string{"skill", "import", "--config", cfg, "--name", name, "--exclude", ".env", "--upload", "--yes", "--request-id", "import_request_" + machine}
 		var out bytes.Buffer
 		if err = runAgentInput(args, strings.NewReader(""), &out, "test"); err != nil {
 			t.Fatal(err, out.String())

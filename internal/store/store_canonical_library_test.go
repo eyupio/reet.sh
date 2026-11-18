@@ -36,8 +36,8 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := canonicalItems(t, s, uid)
-	if len(items) != 1 || items[0].Status != LibraryToTest || items[0].Published || items[0].RevisionID == "" {
-		t.Fatalf("private authoring did not create one inactive complete item: %+v", items)
+	if len(items) != 1 || items[0].Status != SkillActive || items[0].Published || items[0].RevisionID == "" {
+		t.Fatalf("private authoring did not create one Active complete item: %+v", items)
 	}
 	first := items[0]
 	rf, err := ref.ParseAt("https://reet.example/writer/demo", "reet.example")
@@ -66,7 +66,7 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 	if item.Metadata == nil || !item.Metadata.Liked || !item.Metadata.Bookmarked || item.Metadata.Notes != notes || len(item.Metadata.Lists) != 1 || len(item.Metadata.Tags) == 0 {
 		t.Fatalf("organisation not projected: %+v", item)
 	}
-	if err = s.SetLibraryStatusFor(uid, item.ID, LibraryDisabled, item.Version); err != nil {
+	if err = s.SetLibraryStatusFor(uid, item.ID, SkillArchived, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
@@ -74,35 +74,36 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
-	if item.Status != LibraryDisabled || item.Metadata.Used || !item.Metadata.Bookmarked {
-		t.Fatalf("organisation reset disabled status: %+v", item)
+	if item.Status != SkillArchived || item.Metadata.Used || !item.Metadata.Bookmarked {
+		t.Fatalf("organisation reset archived status: %+v", item)
 	}
-	if item.Metadata.Status != LibraryDisabled || item.Metadata.LibraryItemID != item.ID {
+	if item.Metadata.Status != SkillArchived || item.Metadata.LibraryItemID != item.ID {
 		t.Fatal("legacy metadata did not expose authoritative identity/status")
 	}
-	disabled, _, err := s.ListFor(uid, Filter{Stage: "disabled"})
-	if err != nil || len(disabled) != 1 {
-		t.Fatal("disabled stage is not readable through legacy APIs", disabled, err)
+	archived, _, err := s.ListFor(uid, Filter{Stage: "archived"})
+	if err != nil || len(archived) != 1 {
+		t.Fatal("archived status is not readable through legacy APIs", archived, err)
 	}
-	trying, _, err := s.ListFor(uid, Filter{Stage: "try"})
-	if err != nil || len(trying) != 0 {
-		t.Fatal("disabled item was classified as To test", trying, err)
+	active, _, err := s.ListFor(uid, Filter{Stage: "active"})
+	if err != nil || len(active) != 0 {
+		t.Fatal("archived item was classified as Active", active, err)
 	}
-	if err = s.SetLibraryStatusFor(uid, item.ID, LibraryInUse, first.Version); !errors.Is(err, ErrLibraryConflict) {
+	if err = s.SetLibraryStatusFor(uid, item.ID, SkillActive, first.Version); !errors.Is(err, ErrLibraryConflict) {
 		t.Fatal("stale lifecycle write accepted", err)
 	}
+	// A stage set on the shelf moves the status: To test is Active.
 	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Used: &no, Bookmarked: &yes}, false); err != nil {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
-	if item.Status != LibraryToTest {
+	if item.Status != SkillActive {
 		t.Fatal("explicit legacy stage did not update canonical status", item.Status)
 	}
 	if _, err = s.PatchManyFor(uid, []string{rf.ID}, Patch{Used: &yes}); err != nil {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
-	if item.Status != LibraryInUse {
+	if item.Status != SkillActive {
 		t.Fatal("bulk lifecycle diverged", item.Status)
 	}
 	// Organisation alone never creates a machine selection.
@@ -116,7 +117,7 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := canonicalItems(t, s, uid)[0]
-	if second.ID != first.ID || second.RevisionID == first.RevisionID || second.Status != LibraryInUse || !second.Published || second.Metadata.Notes != notes || len(second.Metadata.Lists) != 1 {
+	if second.ID != first.ID || second.RevisionID == first.RevisionID || second.Status != SkillActive || !second.Published || second.Metadata.Notes != notes || len(second.Metadata.Lists) != 1 {
 		t.Fatalf("edit/publication changed identity, status or metadata: %+v", second)
 	}
 	if _, err = s.hostedPrivateSource(uid, canonicalHostedFixture("demo", "first version")); !errors.Is(err, ErrPrivateSkillConflict) {
@@ -134,7 +135,7 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 	if _, err = s.SaveHostedSkill(uid, skill); err != nil {
 		t.Fatal(err)
 	}
-	if got := canonicalItems(t, s, uid); len(got) != 1 || got[0].ID != first.ID || got[0].Published || got[0].Status != LibraryInUse {
+	if got := canonicalItems(t, s, uid); len(got) != 1 || got[0].ID != first.ID || got[0].Published || got[0].Status != SkillActive {
 		t.Fatal("unpublishing changed lifecycle or identity", got)
 	}
 	newRef, err := ref.ParseAt("https://reet.example/writer/renamed", "reet.example")
@@ -216,16 +217,17 @@ func TestCanonicalLibraryLocationIdentityIsolationAndPartialCapture(t *testing.T
 	if _, err = s.RegisterLibraryLocationFor(uid, a.ID, location2); err != nil {
 		t.Fatal(err)
 	}
+	// One live item per name: a second location's copy of demo is refused,
+	// not merged into the first and not kept as a second item.
 	secondIn := in
 	secondIn.LocationID = location2.ID
 	secondIn.RequestID = "location_create_0002"
-	second, err := s.ImportLibraryLocationFor(uid, a.ID, secondIn)
-	if err != nil {
-		t.Fatal(err)
+	if _, err = s.ImportLibraryLocationFor(uid, a.ID, secondIn); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a second location made a second item named demo", err)
 	}
 	items := canonicalItems(t, s, uid)
-	if len(items) != 2 || items[0].ID == items[1].ID || first.Bundle.ID == second.Bundle.ID {
-		t.Fatal("same-name locations were silently merged", items)
+	if len(items) != 1 || items[0].BundleID != first.Bundle.ID {
+		t.Fatal("the refused location changed the library", items)
 	}
 	bad := in
 	bad.Name = "broken"
@@ -257,7 +259,7 @@ func TestCanonicalLibraryLocationIdentityIsolationAndPartialCapture(t *testing.T
 	if err != nil || len(entries) != 1 || entries[0].RevisionID != updated.Revision.ID {
 		t.Fatal("late receipt moved the canonical head backwards", entries, err)
 	}
-	if len(canonicalItems(t, s, uid)) != 2 {
+	if len(canonicalItems(t, s, uid)) != 1 {
 		t.Fatal("failed capture changed healthy items")
 	}
 	if _, err = s.ImportLibraryLocationFor(uid+999, a.ID, in); err == nil {
@@ -390,7 +392,7 @@ func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.
 	for _, item := range items {
 		statuses[item.Name] = item.Status
 	}
-	for name, want := range map[string]string{"skill-0": LibraryInUse, "skill-1": LibraryToTest, "skill-2": LibraryOnShelf, "private-draft": LibraryToTest} {
+	for name, want := range map[string]string{"skill-0": SkillActive, "skill-1": SkillActive, "skill-2": SkillArchived, "private-draft": SkillActive} {
 		if statuses[name] != want {
 			t.Fatal(name, statuses[name], want)
 		}
@@ -539,8 +541,8 @@ func TestCanonicalLibraryTypedContentCannotEnterSkillOnlyTargets(t *testing.T) {
 	}
 }
 
-// A linked library item is the single source for a name. A machine capture of
-// the same name is an observation of that item, not a second library entry, so
+// A linked library item is the single source for a name. Capturing a machine
+// copy of the same name is refused rather than made a second library entry, so
 // the Library shows the linked item once and sync keeps maintaining it.
 func TestCanonicalLibraryShowsOneEntryWhenAMachineCopyDuplicatesALinkedSkill(t *testing.T) {
 	s, uid, agent, _ := observationFixture(t)
@@ -550,8 +552,8 @@ func TestCanonicalLibraryShowsOneEntryWhenAMachineCopyDuplicatesALinkedSkill(t *
 	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); err != nil {
-		t.Fatal(err)
+	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a machine copy of a library name was captured as a second item", err)
 	}
 	items, err := s.LibraryViewFor(uid)
 	if err != nil {
@@ -576,9 +578,8 @@ func TestCanonicalLibraryShowsOneEntryWhenAMachineCopyDuplicatesALinkedSkill(t *
 }
 
 // A skill that exists only on a machine can still be added to the library by
-// hand. Adding a linked item of the same name later makes that item the single
-// source, so the manual copy is no longer a second entry.
-func TestCanonicalLibraryKeepsAManuallyAddedMachineCopyUntilALinkedSourceExists(t *testing.T) {
+// hand. It then holds its name, so a written skill cannot take it.
+func TestCanonicalLibraryKeepsAManuallyAddedMachineCopyAndItsName(t *testing.T) {
 	s, uid, agent, _ := observationFixture(t)
 	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); err != nil {
 		t.Fatal(err)
@@ -593,21 +594,21 @@ func TestCanonicalLibraryKeepsAManuallyAddedMachineCopyUntilALinkedSourceExists(
 	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
-		t.Fatal(err)
+	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a written skill took the manual copy's name", err)
 	}
 	items, err = s.LibraryViewFor(uid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || !hasAlias(items[0], "hosted") {
-		t.Fatalf("the linked source did not replace the manual copy: %+v", items)
+	if len(items) != 1 || hasAlias(items[0], "hosted") {
+		t.Fatalf("the manual copy was replaced: %+v", items)
 	}
 }
 
-// Two machine copies with their own explicit locations are separate items, not
-// duplicates: only a linked item makes an unlinked copy of the same name fold.
-func TestCanonicalLibraryKeepsDistinctUnlinkedSameNameCopies(t *testing.T) {
+// One live item per name: a second machine location's copy of a name the
+// library already has is refused, so the library keeps the first one only.
+func TestCanonicalLibraryRefusesASecondUnlinkedCopyOfAName(t *testing.T) {
 	s, uid, agent, _ := observationFixture(t)
 	base := ""
 	for i, id := range []string{strings.Repeat("e", 32), strings.Repeat("f", 32)} {
@@ -617,16 +618,20 @@ func TestCanonicalLibraryKeepsDistinctUnlinkedSameNameCopies(t *testing.T) {
 		}
 		fixture := machineImportFixture(t)
 		in := LibraryLocationImport{LocationID: id, Name: "demo", RequestID: fmt.Sprintf("location_duplicate_%04d", i), ExpectedBase: &base, Files: fixture.Files}
-		if _, err := s.ImportLibraryLocationFor(uid, agent.ID, in); err != nil {
+		_, err := s.ImportLibraryLocationFor(uid, agent.ID, in)
+		if i == 0 && err != nil {
 			t.Fatal(err)
+		}
+		if i == 1 && !errors.Is(err, ErrSkillNameTaken) {
+			t.Fatal("a second copy named demo was made an item", err)
 		}
 	}
 	items, err := s.LibraryViewFor(uid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("unlinked same-name copies were folded: %+v", items)
+	if len(items) != 1 {
+		t.Fatalf("want the first copy only: %+v", items)
 	}
 }
 
@@ -640,16 +645,18 @@ func hasAlias(item LibraryItem, kind string) bool {
 }
 
 // Selection and scheduler code reads LibraryFor, so it must keep the manual
-// copy even when the Library view folds it under a linked same-name item.
+// copy even when the Library view folds it under a linked same-name item. Such
+// a copy is left from before names were unique: the low-level private write
+// below makes one without the name check every library path now applies.
 func TestCanonicalLibraryForKeepsEveryItemForSelection(t *testing.T) {
-	s, uid, agent, _ := observationFixture(t)
+	s, uid, _, _ := observationFixture(t)
 	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); err != nil {
+	if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite("legacy_duplicate_0001", "", "left from before")); err != nil {
 		t.Fatal(err)
 	}
 	all, err := s.LibraryFor(uid)
@@ -668,9 +675,9 @@ func TestCanonicalLibraryForKeepsEveryItemForSelection(t *testing.T) {
 	}
 }
 
-// More than one linked source for one name is a real conflict the sync library
-// settles; the Library view must not pick a winner by itself.
-func TestCanonicalLibraryViewKeepsTwoLinkedSources(t *testing.T) {
+// No two library items share a name: a linked copy of a written skill's name is
+// refused, and a copy sighted on a machine joins that skill.
+func TestCanonicalLibraryRefusesALinkedCopyAndJoinsAMachineSighting(t *testing.T) {
 	s, uid, _, _ := observationFixture(t)
 	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
 		t.Fatal(err)
@@ -683,15 +690,21 @@ func TestCanonicalLibraryViewKeepsTwoLinkedSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	yes := true
-	if _, err := s.UpsertFor(uid, r, Patch{Used: &yes}); err != nil {
+	if _, err := s.UpsertFor(uid, r, Patch{Used: &yes}); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a linked copy of the written skill's name was accepted", err)
+	}
+	if _, ok, err := s.GetFor(uid, r.ID); err != nil || ok {
+		t.Fatal("the refused link is on the shelf", err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "demo", Patch{}); err != nil {
 		t.Fatal(err)
 	}
 	view, err := s.LibraryViewFor(uid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view) != 2 {
-		t.Fatalf("the view chose between two linked sources: %+v", view)
+	if len(view) != 1 || !hasAlias(view[0], "hosted") || !hasAlias(view[0], "shelf") {
+		t.Fatalf("the machine sighting did not join the written skill: %+v", view)
 	}
 }
 
@@ -749,7 +762,7 @@ func TestListCanonicalFoldsAnUnlinkedCopyOfALinkedSkill(t *testing.T) {
 	}
 }
 
-func TestListCanonicalKeepsAManualCopyAndTwoLinkedSources(t *testing.T) {
+func TestListCanonicalKeepsAManualCopyAndOneLinkedSourcePerName(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	if _, err := s.UpsertLocalFor(uid, "solo", Patch{}); err != nil {
@@ -764,12 +777,12 @@ func TestListCanonicalKeepsAManualCopyAndTwoLinkedSources(t *testing.T) {
 	if _, err := s.UpsertFor(uid, first, Patch{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpsertFor(uid, second, Patch{}); err != nil {
-		t.Fatal(err)
+	if _, err := s.UpsertFor(uid, second, Patch{}); !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatal("a second linked source took the name demo", err)
 	}
 	both, counts, err := s.ListFor(uid, Filter{Canonical: true})
-	if err != nil || len(both) != 3 || counts.All != 3 {
-		t.Fatalf("two linked sources were folded: %+v %+v %v", both, counts, err)
+	if err != nil || len(both) != 2 || counts.All != 2 {
+		t.Fatalf("want the manual copy and one linked source: %+v %+v %v", both, counts, err)
 	}
 }
 

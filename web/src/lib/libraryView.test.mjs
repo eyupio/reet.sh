@@ -6,30 +6,30 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./libraryView.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
 const { STATUSES, statusLabel, filterLibrary, statusCounts, machinesByItem, itemNotes, receiptLine, differenceFileLine, differenceSummary } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
-const item = (name, changes = {}) => ({ id: name.padEnd(32, '0'), name, itemType: 'skill', status: 'in_use', contentState: 'complete', version: 1, ...changes })
-const library = [item('alpha'), item('beta', { status: 'to_test' }), item('gamma', { status: 'disabled' }), item('delta', { status: 'on_shelf' }), item('Alpine', { status: 'in_use' })]
+const item = (name, changes = {}) => ({ id: name.padEnd(32, '0'), name, itemType: 'skill', status: 'active', contentState: 'complete', version: 1, ...changes })
+const library = [item('alpha'), item('beta', { status: 'archived' }), item('gamma', { status: 'archived' }), item('delta', { status: 'archived' }), item('Alpine', { status: 'active' })]
 
-test('the four statuses keep the product’s plain words', () => {
-  assert.deepEqual(STATUSES.map(s => s.label), ['In use', 'To test', 'Parked', 'Disabled'])
-  assert.equal(statusLabel('on_shelf'), 'Parked')
+test('the two statuses keep the product’s plain words', () => {
+  assert.deepEqual(STATUSES.map(s => s.label), ['Active', 'Archived'])
+  assert.equal(statusLabel('archived'), 'Archived')
   assert.equal(statusLabel('something_new'), 'something new', 'an unknown status is shown readably, never dropped')
 })
 
 test('search is case-insensitive over the name and combines with the status filter', () => {
   assert.deepEqual(filterLibrary(library, 'AL', 'all').map(i => i.name), ['alpha', 'Alpine'])
-  assert.deepEqual(filterLibrary(library, 'al', 'in_use').map(i => i.name), ['alpha', 'Alpine'])
-  assert.deepEqual(filterLibrary(library, 'al', 'disabled').map(i => i.name), [])
-  assert.deepEqual(filterLibrary(library, '  ', 'to_test').map(i => i.name), ['beta'])
+  assert.deepEqual(filterLibrary(library, 'al', 'active').map(i => i.name), ['alpha', 'Alpine'])
+  assert.deepEqual(filterLibrary(library, 'al', 'archived').map(i => i.name), [])
+  assert.deepEqual(filterLibrary(library, '  ', 'archived').map(i => i.name), ['beta', 'gamma', 'delta'])
 })
 
-test('inactive items stay findable: every status can be filtered to and nothing is hidden by All', () => {
+test('archived items stay findable: every status can be filtered to and nothing is hidden by All', () => {
   assert.equal(filterLibrary(library, '', 'all').length, library.length)
-  for (const status of ['in_use', 'to_test', 'on_shelf', 'disabled']) assert.ok(filterLibrary(library, '', status).length > 0, status)
+  for (const status of ['active', 'archived']) assert.ok(filterLibrary(library, '', status).length > 0, status)
 })
 
 test('counts per status always add up to the whole library, search ignored', () => {
   const counts = statusCounts(library)
-  assert.deepEqual(counts, { all: 5, in_use: 2, to_test: 1, on_shelf: 1, disabled: 1 })
+  assert.deepEqual(counts, { all: 5, active: 2, archived: 3 })
 })
 
 test('machines per item come from saved selections, one entry per machine, sorted', () => {

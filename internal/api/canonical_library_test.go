@@ -65,7 +65,9 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 	if err == nil {
 		t.Fatal("malformed skill should produce a partial-capture exit")
 	}
-	if !strings.Contains(string(output), `"imported":4`) || !strings.Contains(string(output), `"import_failed"`) {
+	// The second copy of twins is refused, as the library already has the
+	// name; the healthy imports still finish.
+	if !strings.Contains(string(output), `"imported":3`) || !strings.Contains(string(output), `"name":"broken","code":"import_failed"`) || !strings.Contains(string(output), `"name":"`+syncContractName("twins")+`","code":"import_failed"`) {
 		t.Fatalf("healthy imports did not finish independently: %s", output)
 	}
 	var library struct {
@@ -75,8 +77,8 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 	if err = json.Unmarshal([]byte(raw), &library); err != nil {
 		t.Fatal(err)
 	}
-	if len(library.Items) != 4 {
-		t.Fatalf("want four independent complete imports, got %d", len(library.Items))
+	if len(library.Items) != 3 {
+		t.Fatalf("want three independent complete imports, got %d", len(library.Items))
 	}
 	twins := 0
 	m.stop()
@@ -85,8 +87,8 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 		if item.Name == syncContractName("twins") {
 			twins++
 		}
-		if item.Status != store.LibraryToTest || item.RevisionID == "" {
-			t.Fatal("new capture was activated or incomplete", item)
+		if item.Status != store.SkillActive || item.RevisionID == "" {
+			t.Fatal("new capture was not Active or was incomplete", item)
 		}
 		var revision store.PrivateSkillRevision
 		body := h.mustRequest(http.MethodGet, "/api/v2/skill-bundles/"+item.BundleID+"/revisions/"+item.RevisionID, nil)
@@ -102,8 +104,8 @@ func TestCanonicalLibraryCLIImportsLocationsWithSourceOffline(t *testing.T) {
 			}
 		}
 	}
-	if twins != 2 {
-		t.Fatal("same-name imports were collapsed")
+	if twins != 1 {
+		t.Fatal("one name became more than one library item")
 	}
 	targets, err := h.st.SyncTargetsFor(h.uid)
 	if err != nil || len(targets) != 0 {
@@ -119,20 +121,20 @@ func TestCanonicalLibraryAPIPreservesAccountAndLifecycleBoundaries(t *testing.T)
 		t.Fatal(items, err)
 	}
 	item := items[0]
-	code, _ := h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "disabled", "expectedVersion": item.Version})
+	code, _ := h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "archived", "expectedVersion": item.Version})
 	if code != 200 {
 		t.Fatal("canonical lifecycle patch failed", code)
 	}
-	code, _ = h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "in_use", "expectedVersion": item.Version})
+	code, _ = h.request(http.MethodPatch, "/api/v2/library/"+item.ID, map[string]any{"status": "active", "expectedVersion": item.Version})
 	if code != 409 {
 		t.Fatal("stale lifecycle patch accepted", code)
 	}
 	// A first publication, repeated save and unpublication must each retain an
-	// existing Disabled stage, even when they create/show the legacy shelf row.
+	// existing Archived status, even when they create/show the legacy shelf row.
 	for _, published := range []bool{true, true, false} {
 		h.mustRequest(http.MethodPut, "/api/v2/hosting/skills/reet-lifecycle", store.HostedSkill{Content: syncContractContent("lifecycle", "updated private contents"), Published: published})
 		current, err := h.st.LibraryFor(h.uid)
-		if err != nil || len(current) != 1 || current[0].ID != item.ID || current[0].Status != store.LibraryDisabled || current[0].Published != published {
+		if err != nil || len(current) != 1 || current[0].ID != item.ID || current[0].Status != store.SkillArchived || current[0].Published != published {
 			t.Fatal("visibility reset canonical lifecycle", current, err)
 		}
 	}
@@ -179,7 +181,7 @@ func TestCanonicalLibraryTypedPrivateAPI(t *testing.T) {
 		Items []map[string]any `json:"items"`
 	}
 	code, body = h.request(http.MethodGet, "/api/v2/library", nil)
-	if code != 200 || json.Unmarshal([]byte(body), &library) != nil || len(library.Items) != 1 || library.Items[0]["itemType"] != "agent_definition" || library.Items[0]["status"] != "to_test" {
+	if code != 200 || json.Unmarshal([]byte(body), &library) != nil || len(library.Items) != 1 || library.Items[0]["itemType"] != "agent_definition" || library.Items[0]["status"] != "active" {
 		t.Fatalf("typed capture missing from canonical library: %d %s", code, body)
 	}
 }

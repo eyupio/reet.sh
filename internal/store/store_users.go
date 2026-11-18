@@ -246,9 +246,9 @@ type attachMode struct {
 // libraryStatusCode reads library_items.status as a small integer so a listing
 // does not allocate a string per row for a value from a fixed set; the CHECK
 // constraint on the column names exactly the values in libraryStatuses.
-const libraryStatusCode = `CASE i.status WHEN 'in_use' THEN 1 WHEN 'to_test' THEN 2 WHEN 'on_shelf' THEN 3 WHEN 'disabled' THEN 4 ELSE 0 END`
+const libraryStatusCode = `CASE i.status WHEN 'active' THEN 1 WHEN 'archived' THEN 2 ELSE 0 END`
 
-var libraryStatuses = [...]string{"", LibraryInUse, LibraryToTest, LibraryOnShelf, LibraryDisabled}
+var libraryStatuses = [...]string{"", SkillActive, SkillArchived}
 
 // attachMetaForMode loads tags, environments and (with mode.library) the
 // canonical library item for skills, which all belong to userID. With
@@ -486,15 +486,15 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	if clause, ok := tabWhere[f.Tab]; ok {
 		q += clause
 	}
+	// The old stages read as the new statuses: In use as Active, Parked as
+	// Archived. Nothing is To test or Disabled any more.
 	switch f.Stage {
-	case "use":
-		q += ` AND ` + canonicalShelfStatus + `='in_use'`
-	case "try":
-		q += ` AND ` + canonicalShelfStatus + `='to_test'`
-	case "shelf":
-		q += ` AND ` + canonicalShelfStatus + `='on_shelf'`
-	case "disabled":
-		q += ` AND ` + canonicalShelfStatus + `='disabled'`
+	case "active", "use":
+		q += ` AND ` + canonicalShelfStatus + `='active'`
+	case "archived", "shelf":
+		q += ` AND ` + canonicalShelfStatus + `='archived'`
+	case "try", "disabled":
+		q += ` AND 0`
 	}
 	for _, id := range f.Tags {
 		q += ` AND EXISTS (SELECT 1 FROM skill_tags st WHERE st.user_id=? AND st.skill_id=sh.skill_id AND st.tag_id=? AND st.hidden=0)`
@@ -605,28 +605,52 @@ func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error
 	return s.upsertFor(userID, "local/"+name, "local", name, "local", "", name, f)
 }
 
+// upsertFor adds a skill to the shelf or switches on its flags. A pasted or
+// linked source cannot take a name the library already has; a machine
+// sighting (a local row) joins the skill of its name instead.
 func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string, f Patch) (Skill, error) {
 	t := now()
 	notes := ""
 	if f.Notes != nil {
 		notes = *f.Notes
 	}
-	if _, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?)
+	err := s.withTx(func(tx *sql.Tx) error {
+		var existed int
+		if err := tx.QueryRow(`SELECT count(*) FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&existed); err != nil {
+			return err
+		}
+		if typ != "local" {
+			if err := linkedSkillNameFree(tx, userID, id, slug); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?)
 		ON CONFLICT(id) DO NOTHING`, id, source, slug, typ, url, name, t, t); err != nil {
-		return Skill{}, err
-	}
-	if _, err := s.db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id,skill_id) DO UPDATE SET
 			updated_at=CASE WHEN (shelf.liked=0 AND excluded.liked=1) OR (shelf.bookmarked=0 AND excluded.bookmarked=1) OR (shelf.used=0 AND excluded.used=1) THEN excluded.updated_at ELSE shelf.updated_at END,
 			liked=shelf.liked OR excluded.liked, bookmarked=shelf.bookmarked OR excluded.bookmarked, used=shelf.used OR excluded.used`,
-		userID, id, b2i(f.Liked), b2i(f.Bookmarked), b2i(f.Used), notes, t, t); err != nil {
-		return Skill{}, err
-	}
-	if f.Notes != nil {
-		if _, err := s.db.Exec(`UPDATE shelf SET notes=? WHERE user_id=? AND skill_id=?`, *f.Notes, userID, id); err != nil {
-			return Skill{}, err
+			userID, id, b2i(f.Liked), b2i(f.Bookmarked), b2i(f.Used), notes, t, t); err != nil {
+			return err
 		}
+		if f.Notes != nil {
+			if _, err := tx.Exec(`UPDATE shelf SET notes=? WHERE user_id=? AND skill_id=?`, *f.Notes, userID, id); err != nil {
+				return err
+			}
+		}
+		// Marking a skill already on the shelf In use or To test makes it
+		// Active. A new row keeps the status of the item it made or joined, so
+		// a sighting of an Archived skill stays Archived.
+		if existed > 0 && ((f.Used != nil && *f.Used) || (f.Bookmarked != nil && *f.Bookmarked)) {
+			return shelfStageStatusTx(tx, userID, id, time.Now())
+		}
+		return nil
+	})
+	if err != nil {
+		return Skill{}, err
 	}
 	_ = s.applyTopicsFor(userID, id)
 	sk, _, err := s.GetFor(userID, id)
@@ -649,7 +673,7 @@ func (s *Store) PatchFor(userID int64, id string, p Patch) (Skill, error) {
 			return ErrNotFound
 		}
 		if p.Used != nil || p.Bookmarked != nil {
-			return syncLibraryShelfStatus(tx, userID, id)
+			return shelfStageStatusTx(tx, userID, id, time.Now())
 		}
 		return nil
 	})
@@ -732,6 +756,13 @@ func (s *Store) ResolveFor(userID int64, oldID string, r ref.Ref) (Skill, error)
 	if !ok {
 		return Skill{}, ErrNotFound
 	}
+	// Linking a copy to its source keeps it the same library skill: the source
+	// becomes another reference of the item that holds the name.
+	if old.LibraryItemID != "" {
+		if _, err = s.db.Exec(`INSERT OR IGNORE INTO library_aliases(user_id,kind,reference,item_id) SELECT user_id,'shelf',?,id FROM library_items WHERE user_id=? AND id=? AND deleted_at=0 AND lower(name)=lower(?)`, r.ID, userID, old.LibraryItemID, r.Slug); err != nil {
+			return Skill{}, err
+		}
+	}
 	nk, err := s.UpsertFor(userID, r, Patch{Liked: &old.Liked, Bookmarked: &old.Bookmarked, Used: &old.Used})
 	if err != nil {
 		return Skill{}, err
@@ -780,14 +811,12 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 			return err
 		}
 		n, err = res.RowsAffected()
-		if err != nil {
+		if err != nil || (p.Used == nil && p.Bookmarked == nil) {
 			return err
 		}
-		if p.Used != nil || p.Bookmarked != nil {
-			for _, id := range ids {
-				if err = syncLibraryShelfStatus(tx, userID, id); err != nil {
-					return err
-				}
+		for _, id := range ids {
+			if err = shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
+				return err
 			}
 		}
 		return nil

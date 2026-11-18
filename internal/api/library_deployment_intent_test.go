@@ -28,7 +28,7 @@ func TestLibraryDeploymentIntentConnectorFence(t *testing.T) {
 	if _, err = st.SaveLibrarySelectionFor(uid, store.LibrarySelection{TargetID: target, ItemIDs: []string{item.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	if err = st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+	if err = st.SetLibraryStatusFor(uid, item.ID, store.SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	in := store.LibraryDeploymentCheck{TargetID: target, LibraryBase: store.LibraryBase{BindingID: strings.Repeat("a", 64), ItemID: item.ID, RevisionID: item.RevisionID}}
@@ -61,7 +61,7 @@ func TestLibraryDeploymentIntentConnectorFence(t *testing.T) {
 		t.Fatal(intent, err)
 	}
 	item, _ = st.LibraryItemFor(uid, item.ID)
-	if err = st.SetLibraryStatusFor(uid, item.ID, store.LibraryToTest, item.Version); err != nil {
+	if err = st.SetLibraryStatusFor(uid, item.ID, store.SkillArchived, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	in.Generation = intent.Generation
@@ -137,7 +137,7 @@ func TestLibraryRestoreEndpointsConnectorFence(t *testing.T) {
 	if _, err = st.SaveLibrarySelectionFor(uid, store.LibrarySelection{TargetID: target, ItemIDs: []string{item.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	if err = st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+	if err = st.SetLibraryStatusFor(uid, item.ID, store.SkillActive, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	base := store.LibraryBase{BindingID: strings.Repeat("a", 64), ItemID: item.ID, RevisionID: item.RevisionID}

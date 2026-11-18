@@ -6,10 +6,8 @@ import type { LibraryItem, LibraryReceipt } from './api'
  * inferred about what is installed, which the Machines page reports.
  */
 export const STATUSES = [
-  { id: 'in_use', label: 'In use' },
-  { id: 'to_test', label: 'To test' },
-  { id: 'on_shelf', label: 'Parked' },
-  { id: 'disabled', label: 'Disabled' },
+  { id: 'active', label: 'Active' },
+  { id: 'archived', label: 'Archived' },
 ] as const
 
 export type StatusFilter = 'all' | (typeof STATUSES)[number]['id']
@@ -26,7 +24,7 @@ export function filterLibrary(items: LibraryItem[], query: string, status: Statu
 
 /** Per-status totals over the whole library, whatever is searched. */
 export function statusCounts(items: LibraryItem[]): Record<'all' | (typeof STATUSES)[number]['id'], number> {
-  const counts = { all: items.length, in_use: 0, to_test: 0, on_shelf: 0, disabled: 0 }
+  const counts = { all: items.length, active: 0, archived: 0 }
   for (const item of items) if (item.status in counts) counts[item.status as keyof typeof counts]++
   return counts
 }

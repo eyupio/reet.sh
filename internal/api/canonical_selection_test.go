@@ -228,10 +228,10 @@ func TestCanonicalImportedSourceEditsAndBlockedItemIsolation(t *testing.T) {
 	}
 	ids := []string{}
 	for _, item := range items {
-		if item.Name == "reet-imported" && (item.ID != reportedID || item.Status != store.LibraryInUse) {
+		if item.Name == "reet-imported" && (item.ID != reportedID || item.Status != store.SkillActive) {
 			t.Fatal("first capture lost reported identity/status", item, reportedID)
 		}
-		if err := h.st.SetLibraryStatusFor(h.uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+		if err := h.st.SetLibraryStatusFor(h.uid, item.ID, store.SkillActive, item.Version); err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, item.ID)
@@ -473,16 +473,10 @@ func TestSimpleSyncContractSelectedItemsOnly(t *testing.T) {
 	}
 }
 
-func TestSimpleSyncContractInactiveAuthoredSkillsStayOffMachines(t *testing.T) {
+func TestSimpleSyncContractArchivedAuthoredSkillsStayOffMachines(t *testing.T) {
 	h := newSyncContractHarness(t)
-	h.hosted("private-draft", "not activated", false, false)
-	toTest := h.hosted("published-to-test", "not activated", true, false)
-	skill, found, err := h.st.GetFor(h.uid, toTest.ID)
-	if err != nil || !found || skill.Used || !skill.Bookmarked {
-		t.Fatalf("fixture is not an authored To test skill: %+v, found=%t: %v", skill, found, err)
-	}
-	h.hosted("shelved", "kept on shelf", false, false)
-	h.hosted("disabled", "kept disabled", false, false)
+	h.hosted("private-draft", "archived", false, false)
+	h.hosted("published", "archived", true, false)
 	items, err := h.st.LibraryFor(h.uid)
 	if err != nil {
 		t.Fatal(err)
@@ -490,26 +484,17 @@ func TestSimpleSyncContractInactiveAuthoredSkillsStayOffMachines(t *testing.T) {
 	ids := []string{}
 	for _, item := range items {
 		ids = append(ids, item.ID)
-		status := ""
-		if item.Name == "reet-shelved" {
-			status = store.LibraryOnShelf
-		}
-		if item.Name == "reet-disabled" {
-			status = store.LibraryDisabled
-		}
-		if status != "" {
-			if err := h.st.SetLibraryStatusFor(h.uid, item.ID, status, item.Version); err != nil {
-				t.Fatal(err)
-			}
+		if err := h.st.SetLibraryStatusFor(h.uid, item.ID, store.SkillArchived, item.Version); err != nil {
+			t.Fatal(err)
 		}
 	}
 	m := h.machine("inactive-machine")
 	h.rounds(1, m)
 	h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, m.name, "agents", ""), ItemIDs: ids})
 	h.rounds(6, m)
-	for _, name := range []string{"private-draft", "published-to-test", "shelved", "disabled"} {
+	for _, name := range []string{"private-draft", "published"} {
 		if _, err := os.Stat(m.path(name, "SKILL.md")); !os.IsNotExist(err) {
-			t.Errorf("inactive authored skill %s was installed: %v", name, err)
+			t.Errorf("archived authored skill %s was installed: %v", name, err)
 		}
 	}
 }

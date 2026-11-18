@@ -11,11 +11,11 @@ const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const now=Date.now()
 const id=ch=>ch.repeat(32)
 const library=[
- {id:id('1'),name:'installed-item',itemType:'skill',status:'in_use',contentState:'complete'},
- {id:id('2'),name:'waiting-item',itemType:'skill',status:'in_use',contentState:'complete'},
- {id:id('3'),name:'problem-item',itemType:'skill',status:'in_use',contentState:'complete'},
- {id:id('4'),name:'inactive-item',itemType:'skill',status:'to_test',contentState:'complete'},
- {id:id('5'),name:'unselected-item',itemType:'skill',status:'in_use',contentState:'complete'},
+ {id:id('1'),name:'installed-item',itemType:'skill',status:'active',contentState:'complete'},
+ {id:id('2'),name:'waiting-item',itemType:'skill',status:'active',contentState:'complete'},
+ {id:id('3'),name:'problem-item',itemType:'skill',status:'active',contentState:'complete'},
+ {id:id('4'),name:'inactive-item',itemType:'skill',status:'archived',contentState:'complete'},
+ {id:id('5'),name:'unselected-item',itemType:'skill',status:'active',contentState:'complete'},
 ]
 const desired=name=>({id:`hosted/x/${name}`,itemId:library.find(item=>item.name===name).id,name,slug:name,source:`private:${id('b')}:${id('c')}:${id('d')}`,sourceType:'private'})
 const env={id:'laptop-shared',host:'Dev laptop',agent:'agents',name:'Shared',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now}

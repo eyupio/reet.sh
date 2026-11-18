@@ -166,3 +166,17 @@ func TestPrivateSkillAPIDoesNotExposeDefaultOwnerInLegacyModes(t *testing.T) {
 		})
 	}
 }
+
+func TestPrivateSkillAPIRefusesANameAlreadyInTheLibrary(t *testing.T) {
+	srv, st, _, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+	srv.SetRemoteTerminals(false)
+	if _, err := st.UpsertLocalFor(uid, "demo", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	w := privateSkillHTTP(t, srv, "POST", "/api/v2/skill-bundles", privateSkillBody("api_taken_name_0001", "", "BODY"), cookie, "https://reet.example", "")
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "already in your library") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

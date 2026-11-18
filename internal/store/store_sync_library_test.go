@@ -427,7 +427,7 @@ func TestDedupeLibraryConflictsKeepsTheSavedPlanCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := s.UpsertFor(uid, mustRef(t, "c/d/improve"), Patch{})
+	second, err := legacyUpsert(t, s, uid, mustRef(t, "c/d/improve"))
 	if err != nil {
 		t.Fatal(err)
 	}

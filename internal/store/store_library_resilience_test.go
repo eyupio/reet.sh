@@ -9,8 +9,35 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 )
+
+// legacyShelfCopy puts a linked copy on the shelf the way rows from before
+// names were unique sit there: a second source of a name the library already
+// has, which UpsertFor now refuses.
+func legacyShelfCopy(t *testing.T, s *Store, uid int64, r ref.Ref) Skill {
+	t.Helper()
+	at := now()
+	if _, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?) ON CONFLICT(id) DO NOTHING`, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at) VALUES(?,?,0,0,0,'',?,?)`, uid, r.ID, at, at); err != nil {
+		t.Fatal(err)
+	}
+	sk, ok, err := s.GetFor(uid, r.ID)
+	if err != nil || !ok {
+		t.Fatal("legacy shelf copy missing", err)
+	}
+	return sk
+}
+
+// legacyUpsert is legacyShelfCopy in UpsertFor's shape, for the old sync
+// engine's fixtures that hold more than one source of a name.
+func legacyUpsert(t *testing.T, s *Store, uid int64, r ref.Ref) (Skill, error) {
+	t.Helper()
+	return legacyShelfCopy(t, s, uid, r), nil
+}
 
 // libraryFixture is the state an account is in when it presses Sync all
 // machines: one laptop with a complete home-folder scan, the shared library on,
@@ -63,7 +90,7 @@ func TestSyncAllMachinesChoosesOneCopyOfADuplicatedName(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, in := range []string{"c/d/one", "e/f/two"} {
-		if _, err := s.UpsertFor(uid, mustRef(t, in), Patch{}); err != nil {
+		if _, err := legacyUpsert(t, s, uid, mustRef(t, in)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,15 +136,9 @@ func TestDuplicateNameWithoutAPlanKeepsTheOldestCopy(t *testing.T) {
 	if _, err := s.db.Exec(`DELETE FROM skills WHERE id=?`, "a/b/one"); err != nil {
 		t.Fatal(err)
 	}
-	older, err := s.UpsertFor(uid, mustRef(t, "z/y/one"), Patch{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	older := legacyShelfCopy(t, s, uid, mustRef(t, "z/y/one"))
 	time.Sleep(5 * time.Millisecond)
-	newer, err := s.UpsertFor(uid, mustRef(t, "a/b/one"), Patch{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	newer := legacyShelfCopy(t, s, uid, mustRef(t, "a/b/one"))
 
 	view, err := s.SyncLibraryViewFor(uid, "owner")
 	if err != nil {
@@ -134,19 +155,17 @@ func TestDuplicateNameWithoutAPlanKeepsTheOldestCopy(t *testing.T) {
 }
 
 // A skill the account wrote itself outranks a third-party copy of the name when
-// no saved plan says otherwise.
+// no saved plan says otherwise. The library now refuses that copy, so it is one
+// left on the shelf from before names were unique.
 func TestDuplicateNamePrefersTheAccountsOwnWrittenSkill(t *testing.T) {
 	s, uid, _ := libraryFixture(t)
 	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpsertFor(uid, mustRef(t, "x/y/reet-notes"), Patch{}); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(5 * time.Millisecond)
 	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-notes", Content: "---\nname: reet-notes\ndescription: Mine\n---\nBody\n"}); err != nil {
 		t.Fatal(err)
 	}
+	legacyShelfCopy(t, s, uid, mustRef(t, "x/y/reet-notes"))
 	view, err := s.SyncLibraryViewFor(uid, "owner")
 	if err != nil {
 		t.Fatal(err)

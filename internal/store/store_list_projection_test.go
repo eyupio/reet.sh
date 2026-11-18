@@ -72,7 +72,7 @@ func TestListForWholeLibraryMatchesPagedProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetLibraryStatusFor(owner.ID, item.ID, LibraryDisabled, item.Version); err != nil {
+	if err := s.SetLibraryStatusFor(owner.ID, item.ID, SkillArchived, item.Version); err != nil {
 		t.Fatal(err)
 	}
 	// A hidden skill stays on the shelf but out of listings; its tags, item and
@@ -139,7 +139,7 @@ func TestListForWholeLibraryMatchesPagedProjection(t *testing.T) {
 				t.Fatalf("%s: whole listing %+v, GetFor %+v", k.ID, got, want)
 			}
 		}
-		want := map[string]string{ids[0]: LibraryOnShelf, ids[1]: LibraryInUse, ids[2]: LibraryToTest, ids[3]: LibraryDisabled}
+		want := map[string]string{ids[0]: SkillActive, ids[1]: SkillActive, ids[2]: SkillActive, ids[3]: SkillArchived}
 		if !reflect.DeepEqual(statuses, want) {
 			t.Fatalf("compact=%v: statuses %v, want %v", compact, statuses, want)
 		}

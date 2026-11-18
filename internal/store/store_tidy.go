@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -444,7 +445,7 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 				return 0, nil, err
 			}
 			if change.Used != nil || change.Bookmarked != nil {
-				if err := syncLibraryShelfStatus(tx, userID, id); err != nil {
+				if err := shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
 					return 0, nil, err
 				}
 			}

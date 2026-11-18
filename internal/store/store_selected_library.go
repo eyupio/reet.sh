@@ -77,7 +77,7 @@ func (s *Store) refreshSelectedLibrary(uid int64, role string, agent SyncAgent) 
 		if e != nil && e != sql.ErrNoRows {
 			return e
 		}
-		if status == LibraryInUse && sk.Problem == "" && sk.Source != "" && sk.SourceType != "local" {
+		if status == SkillActive && sk.Problem == "" && sk.Source != "" && sk.SourceType != "local" {
 			eligible[sk.ID] = sk
 		}
 	}

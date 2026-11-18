@@ -197,7 +197,10 @@ func (s *Store) ImportLibraryLocationFor(uid int64, enrollment string, in Librar
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO library_bases VALUES(?,?,?,?,?) ON CONFLICT(user_id,enrollment_id,binding_id) DO UPDATE SET revision_id=excluded.revision_id,item_id=excluded.item_id`, uid, enrollment, secretHash("root:"+in.LocationID+":"+in.Name), id, result.Revision.ID)
-		return err
+		if err != nil {
+			return err
+		}
+		return refuseSecondSkillName(tx, uid, result)
 	})
 	if err == nil {
 		result.ItemID, _, _, err = libraryLocationBinding(s.db, uid, reference)

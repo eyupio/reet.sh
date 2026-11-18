@@ -123,6 +123,10 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saved, err := s.st.SaveHostedSkill(s.uid(r), sk)
+	if errors.Is(err, store.ErrSkillNameTaken) {
+		writeErr(w, 409, err.Error())
+		return
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -207,7 +211,7 @@ func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "skill not found")
 		return
 	}
-	if errors.Is(err, store.ErrHostedNameTaken) {
+	if errors.Is(err, store.ErrHostedNameTaken) || errors.Is(err, store.ErrSkillNameTaken) {
 		writeErr(w, 409, err.Error())
 		return
 	}

@@ -6,7 +6,7 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.PL
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const now=Date.now()
 const scope={id:'offline-shared',host:'Offline laptop',agent:'agents',name:'Shared',skills:[],skillCount:0,complete:false,scannedAt:0,lastSeen:0}
-const items=[{id:'a'.repeat(32),name:'selected'.repeat(10).slice(0,64),itemType:'skill',status:'in_use',contentState:'complete'},{id:'b'.repeat(32),name:'Skill to test',itemType:'skill',status:'to_test',contentState:'complete'},{id:'c'.repeat(32),name:'Waiting capture',itemType:'skill',status:'in_use',contentState:'pending_capture'}]
+const items=[{id:'a'.repeat(32),name:'selected'.repeat(10).slice(0,64),itemType:'skill',status:'active',contentState:'complete'},{id:'b'.repeat(32),name:'Archived skill',itemType:'skill',status:'archived',contentState:'complete'},{id:'c'.repeat(32),name:'Waiting capture',itemType:'skill',status:'active',contentState:'pending_capture'}]
 try {
  for (const width of [320,390,1280]) {
   const saved=[]
@@ -24,8 +24,8 @@ try {
   await expect(panel).toBeVisible()
   await panel.getByLabel('Machine folder').selectOption(scope.id)
   await expect(panel.getByRole('button',{name:'Save selection'})).toBeVisible()
-  await expect(panel.getByRole('checkbox',{name:'Skill to test'})).toBeDisabled()
-  await panel.getByRole('button',{name:'Select all In use'}).click()
+  await expect(panel.getByRole('checkbox',{name:'Archived skill'})).toBeDisabled()
+  await panel.getByRole('button',{name:'Select all Active'}).click()
   await panel.getByRole('button',{name:'Save selection'}).click()
   await expect(panel.getByRole('status')).toContainText('Selection saved')
   expect(saved).toEqual([{targetId:scope.id,itemIds:[items[0].id,items[2].id],version:''}])
@@ -69,8 +69,8 @@ try {
   await expect(panel).toContainText('Each AI tool on this machine keeps its skills in its own folder. Pick the folder, then tick the skills it should have.')
   await expect(panel.getByLabel('Machine folder')).toHaveValue(scope.id)
   await expect(panel.getByLabel('Machine folder').locator('option')).toHaveCount(multiple ? 3 : 2)
-  await expect(panel.getByRole('checkbox',{name:'Skill to test'})).toBeDisabled()
-  await panel.getByRole('button',{name:'Select all In use'}).click()
+  await expect(panel.getByRole('checkbox',{name:'Archived skill'})).toBeDisabled()
+  await panel.getByRole('button',{name:'Select all Active'}).click()
   refuse=true
   await panel.getByRole('button',{name:'Save selection'}).click()
   await expect(panel.getByRole('alert')).toContainText('Selection could not be saved')

@@ -298,7 +298,7 @@ func TestInstallRefusals(t *testing.T) {
 			}
 		}},
 		{"already installed", "already-installed", "This skill is already on laptop for claude.", func(t *testing.T, e *installEnv, in *InstallRequest) {
-			e.s.UpsertFor(e.uid, mustRef(t, "a/b/pdf"), Patch{})
+			legacyShelfCopy(t, e.s, e.uid, mustRef(t, "a/b/pdf"))
 			if err := e.s.RecordEnvironmentFor(e.uid, "a/b/pdf", "laptop", "claude", "", "/home/u/.claude/skills", ""); err != nil {
 				t.Fatal(err)
 			}

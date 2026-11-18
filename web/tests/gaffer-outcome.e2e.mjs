@@ -117,6 +117,9 @@ try {
       await expect(need).toBeVisible();await expect(need).toHaveClass(/hint/)
       const steps=outcome.getByRole('list',{name:'Steps',exact:true})
       await expect(steps.locator('[aria-current="step"]')).toHaveText('1Outcome')
+      // Gaffer settings has no crew yet: the dialog says so, unobtrusively, instead of showing blank agent and model fields.
+      const savedSettings=outcome.getByRole('region',{name:'Your Gaffer settings',exact:true})
+      await expect(savedSettings).toContainText('No crew is saved in Gaffer settings yet.')
       await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
       await expect(outcome.getByText('Choose the project the sessions work in.',{exact:true})).toBeVisible()
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-attic')
@@ -409,6 +412,15 @@ try {
     watch(w,f.box)
     try {
       const {outcome}=await openOutcome(w)
+      // The saved crew is read when the dialog opens and shown tier by tier before anything is submitted: the agent and
+      // model already chosen in Gaffer settings, including a tier this machine cannot run.
+      const fromSettings=outcome.getByRole('region',{name:'Your Gaffer settings',exact:true})
+      await expect(fromSettings).toContainText('Heavy')
+      await expect(fromSettings).toContainText('Agent Claude Code')
+      await expect(fromSettings).toContainText('Model opus')
+      await expect(fromSettings).toContainText('Light')
+      await expect(fromSettings).toContainText('Agent Codex')
+      await expect(fromSettings).toContainText('Model gone')
       await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
       await outcome.getByText('Choose who does what',{exact:true}).click()

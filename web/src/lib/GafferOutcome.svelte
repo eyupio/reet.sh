@@ -21,7 +21,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
@@ -141,8 +141,12 @@
   // The crew the person saved for their account is where the dialog starts, for the tiers this machine can run. It is
   // applied once, when the machine's agents are known; after that the crew here is theirs to change for this outcome.
   let savedCrew = $state<GafferCrew | null>(null), crewApplied = false, crewSaving = $state(false), crewNote = $state('')
+  // Whether Gaffer settings has a saved crew, and what it holds, is read once when the dialog opens: the summary below
+  // shows the saved agent and model for each tier before the person submits, without a second copy of the data.
+  let crewRead = $state<'reading' | 'saved' | 'empty' | 'failed'>('reading')
+  const savedSettings = $derived(savedCrewRows(savedCrew))
   // The saved default for who decides is where this dialog starts; the person still chooses for this outcome.
-  onMount(() => { void getGafferCrew().then(answer => { if (answer.saved) { savedCrew = answer.crew; if (answer.crew.gafferDecides) automation = true } }).catch(() => {}) })
+  onMount(() => { void getGafferCrew(life.signal).then(answer => { if (life.signal.aborted) return; if (answer.saved) { savedCrew = answer.crew; crewRead = 'saved'; if (answer.crew.gafferDecides) automation = true } else crewRead = 'empty' }).catch(() => { if (!life.signal.aborted) crewRead = 'failed' }) })
   $effect(() => {
     if (crewApplied || !savedCrew || !tools.length || !tool) return
     crewApplied = true
@@ -400,6 +404,24 @@
             </select></label>
             {#if sourceShown}<div class="source-field"><ClineSourceSelect label="Source" value={chosenSource} saved={savedSource} offered={sourceOffered} note={startSource.note} disabled={planning} onchange={pickSource} onsaved={next => savedSource = next} /></div>{/if}
           </div>
+          {#if crewRead !== 'reading'}
+            <section class="saved-crew" aria-label="Your Gaffer settings">
+              <h3>Your Gaffer settings</h3>
+              {#if savedSettings.length}
+                <dl class="saved-crew-list">
+                  {#each savedSettings as row (row.tier)}<div>
+                    <dt>{row.label}</dt>
+                    <dd><span class="saved-part">Agent</span> {chatToolName(row.tool)}<span class="saved-sep" aria-hidden="true">·</span><span class="saved-part">Model</span> {row.model || 'Agent’s default model'}</dd>
+                  </div>{/each}
+                </dl>
+                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. Every stage uses its tier’s choice; you can change them for this outcome below.</p>
+              {:else if crewRead === 'failed'}
+                <p class="hint">Your Gaffer settings could not be read. Each stage will use the agent and model you choose below. <a href="/account/gaffer">Open Gaffer settings</a>.</p>
+              {:else}
+                <p class="hint">No crew is saved in <a href="/account/gaffer">Gaffer settings</a> yet. Each stage will use the agent and model you choose below.</p>
+              {/if}
+            </section>
+          {/if}
           <details class="limit-editor crew"><summary>{crewTools.every(id => id === tool) && CREW_TIERS.every(item => crew[item.tier].model.trim() === model.trim() && (crew[item.tier].effort ?? '') === effort) ? 'One agent does every stage' : 'A crew does the stages'} <span>Choose who does what</span></summary>
             <p class="hint">Right tool for the job. Each stage has a tier: Heavy for careful judgement, Standard for ordinary building, Light for routine work. Say here which agent, model and effort each tier means. Gaffer’s plan puts a stage on another tier where the work calls for it, and you can change any stage below. Every stage runs in a session of its own.</p>
             <div class="crew-rows">
@@ -569,6 +591,15 @@
   .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.crew-slot{align-self:start;line-height:44px;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-none{grid-column:3/-1;align-self:start;line-height:44px;font-size:0.875rem;color:var(--muted)}.crew-row select{width:100%;min-width:0}
   .balance{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.balance label{font-weight:600;line-height:1.3}.percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--ink)}.percent input{width:5.5rem;min-height:44px;text-align:right;font-variant-numeric:tabular-nums}.balance+.hint{margin-top:8px}@media(max-width:479px){.balance{grid-template-columns:1fr}}
   .crew-more{grid-column:2/-1;justify-self:start;min-height:44px;font-size:0.875rem}
+  .saved-crew{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .saved-crew h3{margin:0;font:600 14px var(--sans)}
+  .saved-crew-list{margin:0;display:grid;gap:4px}
+  .saved-crew-list>div{display:grid;grid-template-columns:5.5rem minmax(0,1fr);gap:2px 10px;align-items:baseline}
+  .saved-crew-list dt{font-weight:600}
+  .saved-crew-list dd{margin:0;min-width:0;overflow-wrap:anywhere;color:var(--ink-soft)}
+  .saved-part{font-size:0.875rem;color:var(--muted)}
+  .saved-sep{margin:0 6px;color:var(--muted)}
+  @media(max-width:479px){.saved-crew-list>div{grid-template-columns:4.5rem minmax(0,1fr)}}
   .stage-spare{display:block;color:var(--muted)}.stage-splitter{font-size:0.875rem;white-space:nowrap}
   .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1.25fr) minmax(0,1.05fr);gap:8px 10px;align-items:start}.crew-row+.crew-row{padding-top:12px;border-top:1px solid var(--line)}.crew-source{grid-column:2/-1}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}

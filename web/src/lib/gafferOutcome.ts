@@ -263,6 +263,15 @@ export const CREW_TIERS: { tier: CrewTier; label: string; does: string }[] = [
   { tier: 'light', label: 'Light', does: 'Routine work: by default pull request, babysitting and merge. A cheaper model does fine.' },
 ]
 export const tierLabel = (tier: string): string => CREW_TIERS.find(item => item.tier === tier)?.label ?? tier
+/** The crew saved in Gaffer settings as the outcome dialog shows it at the time it opens: one row per tier that names
+ *  an agent, heaviest first, with the model saved beside it. Empty when no crew has been saved. */
+export function savedCrewRows(crew: Partial<Record<CrewTier, { tool?: string; model?: string }>> | null | undefined): { tier: CrewTier; label: string; tool: string; model: string }[] {
+  return CREW_TIERS.flatMap(item => {
+    const member = crew?.[item.tier]
+    const tool = (member?.tool ?? '').trim()
+    return tool ? [{ tier: item.tier, label: item.label, tool, model: (member?.model ?? '').trim() }] : []
+  })
+}
 const isTier = (tier: unknown): tier is CrewTier => tier === 'heavy' || tier === 'standard' || tier === 'light'
 /** The tier a stage has until Gaffer or the person says otherwise. */
 export const defaultTier = (kind: string): CrewTier => STAGES.find(stage => stage.kind === kind)?.tier ?? 'standard'

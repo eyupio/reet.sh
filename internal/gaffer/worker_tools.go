@@ -32,9 +32,9 @@ var stageQuestionTool = elicore.Tool{Name: goalQuestionTool.Name, Description: "
 // of it. On a real run the plan stage's handover said a ranked shortlist had
 // been written "in the session"; the code stage started in a session of its
 // own and was asked to fix items it had never been shown.
-const stageHandoverRule = " The next stage may run in a session of its own, with a different agent that cannot read this session: the handover is all it gets. When the deliverable is text in the session (a plan, a design, a review's findings), put its substance in the handover: each item or decision in order, numbered as the worker numbered it, with the files it names and what is to be done. Do not merely say that a plan was written."
+const stageHandoverRule = " The next stage may run in a session of its own, with a different agent that cannot read this session: the handover is all it gets. When the deliverable is text in the session (a plan, a design, a review's findings), put its substance in the handover: each item or decision in order, numbered as the worker numbered it, with the files it names and what is to be done. Do not merely say that a plan was written. The handover holds up to 4,000 UTF-8 bytes: keep to the substance, not the worker's wording."
 
-var handOverTool = elicore.Tool{Name: "hand_over", Description: "Say that this pipeline stage's deliverable is finished, with a short handover for whoever does the next stage: what was done, where it is, and anything left open. Whoever does the next stage may not be able to read this session, so a plan or design is handed over as its content, not as a remark that it exists. Use it only when the worker's own reports show the stage is done. It does not merge, approve or start anything you choose.", Parameters: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":2000}},"required":["summary"],"additionalProperties":false}`)}
+var handOverTool = elicore.Tool{Name: "hand_over", Description: "Say that this pipeline stage's deliverable is finished, with a short handover for whoever does the next stage: what was done, where it is, and anything left open. Whoever does the next stage may not be able to read this session, so a plan or design is handed over as its content, not as a remark that it exists. Use it only when the worker's own reports show the stage is done. It does not merge, approve or start anything you choose.", Parameters: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":4000}},"required":["summary"],"additionalProperties":false}`)}
 
 var moveOnTool = elicore.Tool{Name: "move_on", Description: "Move this pipeline to its next stage because the user, in their current message, told you to. It closes the stage in hand and the controller starts the next one. It does not merge or approve anything.", Parameters: json.RawMessage(`{"type":"object","properties":{"note":{"type":"string","maxLength":600,"description":"One line for whoever does the next stage: what the user said and what was left unfinished, if anything."}}}`)}
 
@@ -68,9 +68,15 @@ func goalQuestion(call elicore.ToolCall) (string, *store.GafferGoalAdvice, error
 	if err := d.Decode(&in); err != nil {
 		return "", nil, errors.New("The goal question was malformed. No worker instruction was queued.")
 	}
+	// A handover carries a finished plan or design to the next stage, so it
+	// has more room than a question to the person.
+	limit, what := 2000, "The goal question must contain one summary of up to 2,000 UTF-8 bytes."
+	if call.Name == handOverTool.Name {
+		limit, what = maxHandoverBytes, "The handover must be one summary of up to 4,000 UTF-8 bytes."
+	}
 	var extra any
-	if d.Decode(&extra) != io.EOF || !store.ValidWorkerText(in.Summary) || len(in.Summary) > 2000 {
-		return "", nil, errors.New("The goal question must contain one summary of up to 2,000 UTF-8 bytes.")
+	if d.Decode(&extra) != io.EOF || !store.ValidWorkerText(in.Summary) || len(in.Summary) > limit {
+		return "", nil, errors.New(what)
 	}
 	// A recommendation that is not one of the person's choices, or has no
 	// reason, is dropped: the question still reaches them, without advice.

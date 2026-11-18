@@ -428,20 +428,21 @@ func clashStem(name string) (string, bool) {
 }
 
 // restoreBackup moves the named backup back into the folder it came from and
-// returns the restored path. With no date it uses the newest date holding the
+// returns the restored paths. With no date it uses the newest date holding the
 // name; within a date, per folder, it takes the newest copy. If that date
-// holds the name from several folders, every one is restored (one path per
-// line), and nothing moves if any target exists.
-func restoreBackup(home, name, date string) (string, error) {
+// holds the name from several folders, every one is restored, and nothing
+// moves if any target exists. If a move then fails part-way, the paths
+// already restored are returned with the error.
+func restoreBackup(home, name, date string) ([]string, error) {
 	if !validBackupName(name) {
-		return "", fmt.Errorf("%q is not a plain skill name", name)
+		return nil, fmt.Errorf("%q is not a plain skill name", name)
 	}
 	if date != "" && !validBackupDate(date) {
-		return "", fmt.Errorf("%q is not a date; use YYYY-MM-DD", date)
+		return nil, fmt.Errorf("%q is not a date; use YYYY-MM-DD", date)
 	}
 	all, err := listBackups(home)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var found []backupEntry
 	for _, b := range all { // newest date first; within a folder, newest copy first
@@ -460,23 +461,25 @@ func restoreBackup(home, name, date string) (string, error) {
 		}
 	}
 	if len(found) == 0 {
-		return "", fmt.Errorf("no backup of %q found", name)
+		return nil, fmt.Errorf("no backup of %q found", name)
 	}
 	var dests []string
 	for _, b := range found {
 		dest := filepath.Join(b.Folder, name)
 		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
-			return "", fmt.Errorf("%s already exists; restore never overwrites an installed skill", dest)
+			return nil, fmt.Errorf("%s already exists; restore never overwrites an installed skill", dest)
 		}
 		dests = append(dests, dest)
 	}
+	var restored []string
 	for i, b := range found {
 		if err := os.MkdirAll(b.Folder, 0755); err != nil {
-			return "", err
+			return restored, err
 		}
 		if err := moveEntry(b.Path, dests[i]); err != nil {
-			return "", err
+			return restored, err
 		}
+		restored = append(restored, dests[i])
 		dir := filepath.Dir(b.Path)
 		if b.legacy {
 			_ = os.Remove(dir) // only if now empty
@@ -488,5 +491,5 @@ func restoreBackup(home, name, date string) (string, error) {
 			_ = writeBackupIndex(dir, idx)
 		}
 	}
-	return strings.Join(dests, "\n"), nil
+	return restored, nil
 }

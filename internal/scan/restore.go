@@ -58,9 +58,8 @@ func runAgentRestore(args []string, out io.Writer) error {
 		return nil
 	}
 	restored, err := restoreBackup(home, name, *date)
-	if err != nil {
-		return err
+	for _, p := range restored { // what was put back is said even when a later folder failed
+		fmt.Fprintf(out, "Restored %s\n", p)
 	}
-	fmt.Fprintf(out, "Restored %s\n", restored)
-	return nil
+	return err
 }

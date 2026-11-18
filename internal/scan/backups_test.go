@@ -165,10 +165,10 @@ func TestRestoreBackupByNameAndDate(t *testing.T) {
 	}
 
 	got, err := restoreBackup(home, "alpha", "2026-11-16")
-	if err != nil || got != filepath.Join(folder, "alpha") {
+	if err != nil || len(got) != 1 || got[0] != filepath.Join(folder, "alpha") {
 		t.Fatalf("restore = %q, %v", got, err)
 	}
-	if _, err := os.Stat(filepath.Join(got, "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(got[0], "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := restoreBackup(home, "alpha", ""); err == nil || !strings.Contains(err.Error(), "already exists") {
@@ -200,7 +200,7 @@ func TestRestoreBackupSymlinkAndNewestDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l, err := os.Readlink(got); err != nil || l != shared {
+	if l, err := os.Readlink(got[0]); err != nil || l != shared {
 		t.Fatalf("restored link = %q, %v", l, err)
 	}
 }
@@ -329,10 +329,10 @@ func TestListBackupsLegacyRemovedEntries(t *testing.T) {
 		t.Fatal("prune touched a legacy backup")
 	}
 	got, err := restoreBackup(home, "foo", "")
-	if err != nil || got != filepath.Join(home, ".claude", "skills", "foo") {
+	if err != nil || len(got) != 1 || got[0] != filepath.Join(home, ".claude", "skills", "foo") {
 		t.Fatalf("restore = %q, %v", got, err)
 	}
-	if _, err := os.Stat(filepath.Join(got, "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(got[0], "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(removed); !os.IsNotExist(err) {
@@ -437,10 +437,10 @@ func TestBackupAndRestoreALongNameAcrossDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := restoreBackup(home, name, "")
-	if err != nil || got != filepath.Join(folder, name) {
+	if err != nil || len(got) != 1 || got[0] != filepath.Join(folder, name) {
 		t.Fatalf("restore = %q, %v", got, err)
 	}
-	if b, err := os.ReadFile(filepath.Join(got, "SKILL.md")); err != nil || string(b) != "body" {
+	if b, err := os.ReadFile(filepath.Join(got[0], "SKILL.md")); err != nil || string(b) != "body" {
 		t.Fatalf("restored %q %v", b, err)
 	}
 }
@@ -813,5 +813,97 @@ func TestCopyEntryNeverReplacesWhatAppearsBeforeItIsMovedIn(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(root); len(entries) != 2 {
 		t.Fatalf("left %v", entries)
+	}
+}
+
+// A skill backed up from two folders is restored to both, one path each.
+func TestRestoreBackupReturnsOnePathPerFolder(t *testing.T) {
+	home := t.TempDir()
+	var want []string
+	for _, rel := range []string{".agents/skills", ".claude/skills"} {
+		folder := filepath.Join(home, filepath.FromSlash(rel))
+		writeSkill(t, filepath.Join(folder, "alpha"))
+		if _, err := backupSkill(folder, "alpha", backupNow); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, filepath.Join(folder, "alpha"))
+	}
+	got, err := restoreBackup(home, "alpha", "")
+	if err != nil || strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("restore = %q, %v; want %q", got, err, want)
+	}
+}
+
+// A restore across several folders that fails part-way says what it had
+// already put back, and the command prints that before the error.
+func TestRestoreBackupSaysWhatItRestoredBeforeItFailed(t *testing.T) {
+	setup := func(t *testing.T) (home, agents, claude string) {
+		home = t.TempDir()
+		t.Setenv("HOME", home)
+		agents = filepath.Join(home, ".agents", "skills")
+		claude = filepath.Join(home, ".claude", "skills")
+		for _, folder := range []string{agents, claude} {
+			writeSkill(t, filepath.Join(folder, "alpha"))
+			if _, err := backupSkill(folder, "alpha", backupNow); err != nil {
+				t.Fatal(err)
+			}
+		}
+		was := renameEntry
+		t.Cleanup(func() { renameEntry = was })
+		renameEntry = func(src, dest string) error {
+			if dest == filepath.Join(claude, "alpha") {
+				return errors.New("disk on fire")
+			}
+			return was(src, dest)
+		}
+		return home, agents, claude
+	}
+	t.Run("function", func(t *testing.T) {
+		home, agents, claude := setup(t)
+		got, err := restoreBackup(home, "alpha", "")
+		if err == nil || !strings.Contains(err.Error(), "disk on fire") {
+			t.Fatalf("err = %v", err)
+		}
+		if len(got) != 1 || got[0] != filepath.Join(agents, "alpha") {
+			t.Fatalf("restored = %q, want just the first folder", got)
+		}
+		if _, err := os.Stat(filepath.Join(agents, "alpha", "SKILL.md")); err != nil {
+			t.Fatal(err)
+		}
+		if left, _ := listBackups(home); len(left) != 1 || left[0].Folder != claude {
+			t.Fatalf("left = %+v", left)
+		}
+	})
+	t.Run("command", func(t *testing.T) {
+		_, agents, _ := setup(t)
+		var out bytes.Buffer
+		err := runAgentRestore([]string{"--config=" + filepath.Join(t.TempDir(), "none.json"), "alpha"}, &out)
+		if err == nil || !strings.Contains(err.Error(), "disk on fire") {
+			t.Fatalf("command err = %v", err)
+		}
+		if want := "Restored " + filepath.Join(agents, "alpha") + "\n"; out.String() != want {
+			t.Fatalf("command printed %q, want %q", out.String(), want)
+		}
+	})
+}
+
+func TestAgentRestoreCommandPrintsOneLinePerPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var want string
+	for _, rel := range []string{".agents/skills", ".cursor/skills"} {
+		folder := filepath.Join(home, filepath.FromSlash(rel))
+		writeSkill(t, filepath.Join(folder, "alpha"))
+		if _, err := backupSkill(folder, "alpha", backupNow); err != nil {
+			t.Fatal(err)
+		}
+		want += "Restored " + filepath.Join(folder, "alpha") + "\n"
+	}
+	var out bytes.Buffer
+	if err := runAgentRestore([]string{"--config=" + filepath.Join(t.TempDir(), "none.json"), "alpha"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != want {
+		t.Fatalf("printed %q, want %q", out.String(), want)
 	}
 }

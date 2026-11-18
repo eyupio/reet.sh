@@ -44,7 +44,9 @@ accessible", and on the order: "Home, sessions, factory, desks, ...". The tabs (
 Sessions, Factory, Desks, Machines, Skills (Activity after them without accounts), each on its old condition. Desks
 joined the bar (`barTabs`): the phone's bottom bar is Home, Sessions, Factory, Desks, Machines, More, and a tablet's top
 bar the same; More no longer lists Desks there. `BottomTabs.svelte` gives Desks a split-frame icon and sizes each tab to
-its label (`flex: 1 1 auto`, 1 px padding, labels never wrap) so six fit at 320 px with 14 px labels. Checked in
+its label (`flex: 1 1 auto`, 1 px padding, labels never wrap) so six fit at 320 px with 14 px labels. On a tablet
+`TopTabs.svelte` sets the tabs 2 px apart with 10 px padding (six overflowed their box by 43 px at 834 px) and every
+top tab is at least 44 px wide. Checked in
 `navigation.e2e.mjs`: the order, the bar at 320, 360, 390 and 412 px (44 px targets, no overlap, no clipped label,
 no sideways scroll), Desks current on `/desks` and `/desks/<id>`, Tab order with a focus ring, and the tabs clear of
 Jump and the bell at 651, 834, 1100 and 1280 px. Not checked: a screen reader, and a 320 px phone with a larger

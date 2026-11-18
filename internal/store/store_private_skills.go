@@ -17,10 +17,14 @@ import (
 )
 
 const (
-	MaxPrivateSkillBundles   = 128
-	MaxPrivateSkillRevisions = 256
-	MaxPrivateSkillBytes     = 64 << 20
+	MaxPrivateSkillBundles   = 1024
+	MaxPrivateSkillRevisions = 4096
+	MaxPrivateSkillBytes     = 1 << 30
 )
+
+// privateSkillByteLimit is MaxPrivateSkillBytes; tests lower it to fill the
+// bound without writing a gibibyte.
+var privateSkillByteLimit int64 = MaxPrivateSkillBytes
 
 var (
 	ErrPrivateSkillInvalid  = errors.New("invalid private skill revision")
@@ -131,8 +135,9 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 	if !validRequest {
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
-	validKind := in.Origin.Kind == "user" || in.Origin.Kind == "import" || in.Origin.Kind == "fork"
-	if !validKind {
+	switch in.Origin.Kind {
+	case "user", "import", "fork", "original", "capture", "edit", "use-version":
+	default:
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
 	validReference := len(in.Origin.Reference) <= 2048 && utf8.ValidString(in.Origin.Reference)
@@ -325,7 +330,7 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		bytesFull := func() (bool, error) {
 			var total int64
 			err := tx.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM private_skill_blobs WHERE user_id=?`, uid).Scan(&total)
-			return total > MaxPrivateSkillBytes, err
+			return total > privateSkillByteLimit, err
 		}
 		full, e = bytesFull()
 		if e == nil && full {

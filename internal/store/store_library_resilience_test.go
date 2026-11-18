@@ -283,6 +283,7 @@ func TestPrivateStorageFreesSupersededRevisionsInsteadOfFillingUp(t *testing.T) 
 // The 64 MiB bound is about stored bytes. Bytes only superseded revisions hold
 // are freed when a write needs the room.
 func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
+	lowerByteLimit(t)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	first, err := s.SavePrivateSkillRevisionFor(uid, "", bigRevision("bytes_req_0000000", "", 0))
@@ -290,7 +291,7 @@ func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	head := first.Revision.ID
-	for i := 1; i <= MaxPrivateSkillBytes/(1536*1024); i++ {
+	for i := 1; i <= int(privateSkillByteLimit/(1536*1024)); i++ {
 		saved, err := s.SavePrivateSkillRevisionFor(uid, first.Bundle.ID, bigRevision(fmt.Sprintf("bytes_req_%07d", i), head, i))
 		if err != nil {
 			t.Fatalf("edit %d of a single large skill was refused: %v", i, err)
@@ -301,7 +302,7 @@ func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
 	if err = s.db.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM private_skill_blobs WHERE user_id=?`, uid).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	if total > MaxPrivateSkillBytes {
+	if total > privateSkillByteLimit {
 		t.Fatalf("stored bytes exceed the bound: %d", total)
 	}
 }
@@ -329,9 +330,10 @@ func TestPrivateStorageStillRefusesWhenEverySlotHoldsALiveSkill(t *testing.T) {
 // Bytes no revision refers to any more were stranded for good, because nothing
 // ever deleted a blob. They no longer count against the account.
 func TestPrivateStorageFreesBlobsNoRevisionUses(t *testing.T) {
+	lowerByteLimit(t)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
-	if _, err := s.db.Exec(`INSERT INTO private_skill_blobs(user_id,digest,data) VALUES(?,?,zeroblob(?))`, uid, strings.Repeat("a", 64), MaxPrivateSkillBytes); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO private_skill_blobs(user_id,digest,data) VALUES(?,?,zeroblob(?))`, uid, strings.Repeat("a", 64), privateSkillByteLimit); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite("orphan_blob_00001", "", "fits once the orphan is freed")); err != nil {

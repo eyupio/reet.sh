@@ -381,7 +381,7 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 		if held {
 			fromMachine := origin == "machine"
 			switch {
-			case problem != "" && fromMachine:
+			case problem != "" && origin != "imported":
 				h.State, h.Reason = "copy-failed", problem
 			case problem != "":
 				h.State, h.Reason = "fetch-failed", problem

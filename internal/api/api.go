@@ -36,6 +36,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
+	"github.com/eyupio/reet.sh/internal/skillfetch"
 	"github.com/eyupio/reet.sh/internal/softwaremirror"
 	"github.com/eyupio/reet.sh/internal/softwarerun"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -76,6 +77,14 @@ type server struct {
 	mail           *mail.Mailer
 	notify         *notify.Service
 	releases       *agentupdate.Checker
+
+	// skillFetcher gets public skills for the reet copy; skillCopies waits for
+	// the background runs (tests only) and the rest keeps them one per account.
+	skillFetcher     SkillFetcher
+	skillCopyMu      sync.Mutex
+	skillCopyRunning map[int64]bool
+	skillCopyAgain   map[int64]bool
+	skillCopies      sync.WaitGroup
 
 	sso                *oidc.Provider
 	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time
@@ -342,9 +351,15 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		stop:         make(chan struct{}),
 		ctx:          ctx,
 		cancel:       cancel,
+
+		skillCopyRunning: map[int64]bool{}, skillCopyAgain: map[int64]bool{},
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.skillFetcher == nil {
+		// The default fetcher guards its addresses and honours proxies.
+		s.skillFetcher = skillfetch.Fetcher{}
 	}
 	if s.sso != nil {
 		// The environment seeds the owner's single sign-on settings once; after
@@ -442,6 +457,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v2/environments/merge", s.requireWriter(s.mergeEnvironments))
 	mux.HandleFunc("POST /api/v2/skills/bulk", s.requireWriter(s.bulkUpdateSkills))
 	mux.HandleFunc("GET /api/v2/skills/duplicates", s.findDuplicates)
+	s.registerSkillCopies(mux)
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("POST /api/v2/tags", s.requireWriter(s.createTag))
 	mux.HandleFunc("PATCH /api/v2/tags/{id}", s.requireWriter(s.renameTagScoped))
@@ -1345,6 +1361,7 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
+	s.kickSkillCopies(s.uid(r))
 	s.eventRequest(r, "add", sk.ID, map[string]any{"name": sk.Name, "created": !existed})
 	writeJSON(w, 200, struct {
 		store.Skill

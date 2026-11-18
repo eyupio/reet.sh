@@ -62,7 +62,7 @@ func privateSkillError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrSkillNameTaken):
 		writeErr(w, 409, "A skill with that name is already in your library.")
 	case errors.Is(err, store.ErrPrivateSkillCapacity):
-		writeErr(w, 409, "Private skill storage limit reached (128 bundles, 256 revisions or 64 MiB of unique file bytes per account).")
+		writeErr(w, 409, "Private skill storage limit reached (1,024 bundles, 4,096 revisions or 1 GiB of unique file bytes per account).")
 	default:
 		writeErr(w, 500, "Could not access private skill storage.")
 	}

@@ -273,6 +273,7 @@ func TestPrivateSkillsRollbackRolesAndBounds(t *testing.T) {
 }
 
 func TestPrivateSkillsCapacityIsOwnedAndTransactional(t *testing.T) {
+	lowerByteLimit(t)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	// Existing account usage at the bound; SQL fixture avoids allocating 64 MiB in Go.
@@ -281,7 +282,7 @@ func TestPrivateSkillsCapacityIsOwnedAndTransactional(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec(`INSERT INTO private_skill_blobs(user_id,digest,data) VALUES(?,?,zeroblob(?))`, uid, strings.Repeat("a", 64), MaxPrivateSkillBytes); err != nil {
+	if _, err = s.db.Exec(`INSERT INTO private_skill_blobs(user_id,digest,data) VALUES(?,?,zeroblob(?))`, uid, strings.Repeat("a", 64), privateSkillByteLimit); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.db.Exec(`INSERT INTO private_skill_revision_files(user_id,bundle_id,revision_id,path,digest,executable) VALUES(?,?,?,?,?,0)`, uid, held.Bundle.ID, held.Revision.ID, "assets/huge.bin", strings.Repeat("a", 64)); err != nil {
@@ -415,14 +416,14 @@ func TestPrivateSkillsBundleAndRevisionCountBounds(t *testing.T) {
 				t.Fatal(err)
 			}
 			if bound == "bundles" {
-				_, err = s.db.Exec(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<127) INSERT INTO private_skill_bundles(user_id,id,name,head,created_at) SELECT ?,printf('%032x',x),'existing','',1 FROM n`, uid)
+				_, err = s.db.Exec(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<1023) INSERT INTO private_skill_bundles(user_id,id,name,head,created_at) SELECT ?,printf('%032x',x),'existing','',1 FROM n`, uid)
 			} else {
-				_, err = s.db.Exec(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<255) INSERT INTO private_skill_revisions(user_id,bundle_id,id,parent,request_id,fingerprint,manifest,manifest_digest,origin,created_at) SELECT ?,?,printf('%032x',x),'',printf('existing_request_%016x',x),'fixture','{}','fixture','{}',1 FROM n`, uid, first.Bundle.ID)
+				_, err = s.db.Exec(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<4095) INSERT INTO private_skill_revisions(user_id,bundle_id,id,parent,request_id,fingerprint,manifest,manifest_digest,origin,created_at) SELECT ?,?,printf('%032x',x),'',printf('existing_request_%016x',x),'fixture','{}','fixture','{}',1 FROM n`, uid, first.Bundle.ID)
 				if err == nil {
 					// Superseded history is freed on demand, so the bound only holds for
 					// revisions something still uses. Bind each fixture revision as a
 					// written skill's sync source to make all of them live.
-					_, err = s.db.Exec(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<255) INSERT INTO hosted_sync_sources(user_id,slug,bundle_id,revision_id,digest) SELECT ?,printf('written-%d',x),?,printf('%032x',x),'fixture' FROM n`, uid, first.Bundle.ID)
+					_, err = s.db.Exec(`WITH RECURSIVE n(x) AS(SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<4095) INSERT INTO hosted_sync_sources(user_id,slug,bundle_id,revision_id,digest) SELECT ?,printf('written-%d',x),?,printf('%032x',x),'fixture' FROM n`, uid, first.Bundle.ID)
 				}
 			}
 			if err != nil {
@@ -478,4 +479,12 @@ func TestPrivateSkillsOwnedCopyAndAccountDeletion(t *testing.T) {
 	if counts := privateCounts(t, s); !reflect.DeepEqual(counts, []int{0, 0, 0, 0}) {
 		t.Fatal("account deletion retained private data", counts)
 	}
+}
+
+// lowerByteLimit makes the stored-bytes bound small enough to fill in a test.
+func lowerByteLimit(t *testing.T) {
+	t.Helper()
+	old := privateSkillByteLimit
+	privateSkillByteLimit = 64 << 20
+	t.Cleanup(func() { privateSkillByteLimit = old })
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 )
 
@@ -29,6 +30,13 @@ func validEpisode(episode string) bool {
 func (s *Store) QueueLibraryRestoreSyncFor(uid int64, enrollment string, in LibraryDeploymentCheck) (queued bool, err error) {
 	in.Generation = ""
 	err = s.withTx(func(tx *sql.Tx) error {
+		// A machine that follows the library has its skills put back by
+		// reconcile, so there is nothing to queue.
+		if e := refuseJobsForSkillsAgentTx(tx, uid, enrollment); errors.Is(e, ErrAgentFollowsLibrary) {
+			return nil
+		} else if e != nil {
+			return e
+		}
 		intent, e := libraryDeploymentIntentTx(tx, uid, enrollment, in)
 		if e != nil {
 			return e

@@ -137,6 +137,12 @@ func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {
 	s.importMu.Lock()
 	defer s.importMu.Unlock()
 	in.Origin = requestOrigin(r)
+	// Before anything is written: a machine that follows the library takes
+	// no saved set.
+	if err := s.st.SyncTargetFollowsLibraryFor(s.uid(r), in.TargetID); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
 	if err := s.st.SaveDesiredFor(s.uid(r), s.role(r), in); err != nil {
 		writeErr(w, 409, err.Error())
 		return

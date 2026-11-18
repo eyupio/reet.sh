@@ -294,8 +294,19 @@ func TestMachineSkillSyncDoesNotAdvanceToAMachineThatFollowsTheLibrary(t *testin
 		t.Fatal(err)
 	}
 	current, err := s.RemoteImportFor(uid, r.ID)
-	if err != nil || current.SyncRunID != "" || current.SyncError != ErrAgentFollowsLibrary.Error() {
+	if err != nil || current.SyncRunID != "" || !current.SyncEnded || current.SyncError != "This machine now follows your library; this job is no longer needed." {
 		t.Fatalf("transfer: %+v %v", current, err)
+	}
+	// It has ended for good: it is not taken up again, even by a machine
+	// that goes back to an older reet.
+	if _, err = s.db.Exec(`UPDATE sync_agents SET skills_protocol=0 WHERE id=?`, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.AdvanceMachineSkillSyncs(uid, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s.RemoteImportFor(uid, r.ID); again.SyncRunID != "" || !again.SyncEnded {
+		t.Fatalf("an ended transfer was taken up again: %+v", again)
 	}
 	if targets, _ := s.SyncTargetsFor(uid); len(targets) != 0 {
 		t.Fatalf("a saved set was written for it: %+v", targets)

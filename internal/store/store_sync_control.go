@@ -507,7 +507,36 @@ const SkillsNeedNewerController = "needs-newer-controller"
 
 // ErrAgentFollowsLibrary refuses job-based sync for a machine on the skills
 // protocol: its skills follow the library.
-var ErrAgentFollowsLibrary = errors.New("This machine now follows your library, so it takes no sync jobs.")
+var ErrAgentFollowsLibrary = errors.New("This machine now follows your library, so it takes no sync jobs. Make the skill Active and it reaches every machine.")
+
+// FollowsLibraryError is ErrAgentFollowsLibrary for a machine the person
+// named, said with its name.
+type FollowsLibraryError struct{ Host string }
+
+func (e FollowsLibraryError) Error() string {
+	return e.Host + " follows your library. Make the skill Active to put it on every machine."
+}
+
+func (e FollowsLibraryError) Is(target error) bool { return target == ErrAgentFollowsLibrary }
+
+// SyncTargetFollowsLibraryFor refuses, before anything is written, a saved
+// set for a folder on a machine that follows the library. It returns nil for
+// any other folder, or one reet does not know.
+func (s *Store) SyncTargetFollowsLibraryFor(uid int64, targetID string) error {
+	var host string
+	err := s.db.QueryRow(`SELECT host FROM environments WHERE id=? AND user_id=?`, targetID, uid).Scan(&host)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	follows, err := s.HostOnSkillsProtocolFor(uid, host)
+	if err != nil || !follows {
+		return err
+	}
+	return FollowsLibraryError{Host: host}
+}
 
 // SetSkillsProtocol sets the agent's skills protocol and the state it gives.
 func (a *SyncAgent) SetSkillsProtocol(protocol int) {

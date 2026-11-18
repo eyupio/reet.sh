@@ -187,7 +187,7 @@ func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 			t.Fatalf("the scan job: %+v", j)
 		}
 	}
-	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "follows your library") {
+	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "follows your library, so it takes no sync jobs. Make the skill Active and it reaches every machine.") {
 		t.Fatalf("queueing a scan: %d %s", code, raw)
 	}
 }
@@ -675,5 +675,50 @@ func TestPollFromANewerAgentGetsOnlyUpdates(t *testing.T) {
 				t.Fatalf("a newer agent was counted: %+v", h)
 			}
 		}
+	}
+}
+
+// `reet scan --dir PATH` is a person importing a folder on purpose: its
+// sightings (agent "other") keep today's import on any machine.
+func TestScanOfAnExtraFolderStillMakesLibraryItems(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", true)
+	e.scanItems(t, "elitebook", scanItem{Name: "from-a-folder", Host: "elitebook", Agent: "other", Path: "kit"})
+	if _, ok := e.libraryNames(t)["from-a-folder"]; !ok {
+		t.Fatal("a --dir sighting made no item")
+	}
+}
+
+// Asking reet to sync one machine that follows the library, as "Install on"
+// and Machines' "Add skill" do, is refused with what to do instead; the page
+// shows the server's words.
+func TestSyncOneMachineThatFollowsTheLibraryIsRefused(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", true)
+	code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/library", `{"agentId":"`+e.agent.ID+`"}`, "X-Reet-Token", "fixture-owner")
+	if code != 409 || !strings.Contains(raw, "elitebook follows your library. Make the skill Active to put it on every machine.") {
+		t.Fatalf("sync one machine: %d %s", code, raw)
+	}
+}
+
+// A saved set for a machine that follows the library is refused before
+// anything is written, so no stray set is left behind.
+func TestSaveDesiredRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", true)
+	if err := e.st.TouchEnvironmentFor(e.uid, "elitebook", "agents", "", "/home/u/.agents/skills"); err != nil {
+		t.Fatal(err)
+	}
+	env := store.EnvironmentIDFor(e.uid, "elitebook", "agents", "")
+	if err := e.st.RecordInventoryFor(e.uid, env, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"targetId": env, "sourceId": "shelf", "listId": 0, "skillIds": []string{}, "mode": "additive", "revision": ""})
+	code, raw := doClient(t, e.srv.Client(), e.srv, "PUT", "/api/v2/sync/desired", string(body), "X-Reet-Token", "fixture-owner")
+	if code != 409 || !strings.Contains(raw, "elitebook follows your library. Make the skill Active to put it on every machine.") {
+		t.Fatalf("save a set: %d %s", code, raw)
+	}
+	if targets, err := e.st.SyncTargetsFor(e.uid); err != nil || len(targets) != 0 {
+		t.Fatalf("a set was written: %+v %v", targets, err)
 	}
 }

@@ -34,15 +34,22 @@ const (
 	skillsProtocolMax = 999
 )
 
+// scanHomeAgents are the agents whose home skills folders an inventory scan
+// reads (homeDirs in internal/scan): the four reet manages, and Codex's,
+// which reet leaves alone.
+var scanHomeAgents = map[string]bool{"agents": true, "claude": true, "cursor": true, "codex": true, "opencode": true}
+
 // scanMakesItems says, for each sighting in an inventory scan from machine,
 // whether it may make a library item of a name the library does not have. A
-// machine on the skills protocol reports the skills in its home skills
-// folders with its skills report, and a name reet does not know is New on a
-// machine there until the person keeps it, so the scan makes nothing of it
-// from any of its home folders, Codex's included. The same goes for a skill
-// one of its lock files names with no folder: it is no skill reet has, and
-// the scan reports it from the machine's home. Older agents, project folders
-// and names typed into the import keep today's import.
+// machine on the skills protocol reports the skills in its managed folders
+// with its skills report, and a name reet does not know is New on a machine
+// there until the person keeps it, so the scan makes nothing of it from any
+// of its home folders. Codex's folder is left alone, so a skill only there
+// appears nowhere. The same goes for a skill one of its lock files names with
+// no folder: it is no skill reet has, and the scan reports it from the
+// machine's home. Older agents, project folders, a folder the person scans
+// with --dir (agent "other") and names typed into the import keep today's
+// import.
 func (s *server) scanMakesItems(uid int64, machine string) func(importItem) (bool, error) {
 	known := map[string]bool{}
 	onProtocol := func(host string) (bool, error) {
@@ -59,7 +66,7 @@ func (s *server) scanMakesItems(uid int64, machine string) func(importItem) (boo
 	return func(item importItem) (bool, error) {
 		host := ""
 		switch {
-		case item.Host != "" && item.Project == "":
+		case item.Host != "" && item.Project == "" && scanHomeAgents[item.Agent]:
 			host = item.Host
 		case item.Host == "" && item.Agent == "" && strings.TrimSpace(item.Source) != "":
 			host = machine

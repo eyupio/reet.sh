@@ -437,6 +437,9 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 		if len(selected) == 0 {
 			return ErrNotFound
 		}
+		if selected[0].SkillsProtocol >= CurrentSkillsProtocol {
+			return FollowsLibraryError{Host: selected[0].Host}
+		}
 		agents = selected
 	}
 	if err := s.SetSyncLibraryOrigin(uid, origin); err != nil {

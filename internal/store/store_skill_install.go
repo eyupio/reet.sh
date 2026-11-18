@@ -130,6 +130,13 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if err != nil {
 			return err
 		}
+		// Before the scan check: a machine that follows the library takes no
+		// install, so a scan would not help.
+		if err = refuseJobsForSkillsAgentTx(tx, uid, in.AgentID); errors.Is(err, ErrAgentFollowsLibrary) {
+			return installRefused("follows-library", host+" follows your library and already has every Active skill. Make this skill Active and it goes to every machine.")
+		} else if err != nil {
+			return err
+		}
 		var envID, dir string
 		var complete bool
 		var scanned int64
@@ -159,11 +166,6 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 			seen >= time.Now().Add(-installAgentOnline).UnixMilli()
 		if !online {
 			return offline
-		}
-		if err = refuseJobsForSkillsAgentTx(tx, uid, in.AgentID); errors.Is(err, ErrAgentFollowsLibrary) {
-			return installRefused("follows-library", host+" now follows your library, so every Active skill is already there. Add this skill to your library to put it on "+host+".")
-		} else if err != nil {
-			return err
 		}
 		var skill SyncSkill
 		found := false

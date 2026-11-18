@@ -429,7 +429,7 @@ func TestJobBasedSyncRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
 	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.QueueSyncJob(uid, a.ID, "", "scan"); !errors.Is(err, ErrAgentFollowsLibrary) {
+	if _, err = s.QueueSyncJob(uid, a.ID, "", "scan"); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "This machine now follows your library, so it takes no sync jobs. Make the skill Active and it reaches every machine." {
 		t.Fatalf("queue a scan: %v", err)
 	}
 	if err = s.withTx(func(tx *sql.Tx) error {
@@ -441,7 +441,9 @@ func TestJobBasedSyncRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
 	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err != nil {
 		t.Fatalf("queue an update: %v", err)
 	}
-	if err = s.SyncLibraryMachineFor(uid, "owner", "https://reet.example", a.ID); err != nil {
+	// Syncing that one machine is refused, saying what to do instead; syncing
+	// all machines leaves it out.
+	if err = s.SyncLibraryMachineFor(uid, "owner", "https://reet.example", a.ID); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "laptop follows your library. Make the skill Active to put it on every machine." {
 		t.Fatalf("sync one machine that follows the library: %v", err)
 	}
 	if err = s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {

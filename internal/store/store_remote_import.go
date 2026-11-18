@@ -21,6 +21,7 @@ type RemoteImport struct {
 	SyncSkillID   string `json:"syncSkillId,omitempty"`
 	DestinationID string `json:"destinationId,omitempty"`
 	SyncRunID     string `json:"syncRunId,omitempty"`
+	SyncEnded     bool   `json:"syncEnded,omitempty"`
 	// Chosen marks a copy a person asked for by name from one machine (taking
 	// its version of a library item). It needs no second approval when every
 	// file is allowed.

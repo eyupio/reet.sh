@@ -202,6 +202,15 @@ func TestTerminalSkillInstallErrorCodesAndStatuses(t *testing.T) {
 			f.raw(t, `INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,'shelf','Shelf','[]','rev1',1)`, f.uid, f.env)
 			f.raw(t, `INSERT INTO sync_policies(target_id,follow_source) VALUES(?,1) ON CONFLICT(target_id) DO UPDATE SET follow_source=1`, f.env)
 		}, "reet:pdf", "laptop's skills follow another machine, so this skill would be removed the next time it syncs."},
+		{"follows-library", "follows-library", 409, func(t *testing.T, f *installFx) {
+			f.raw(t, `UPDATE sync_agents SET skills_protocol=2 WHERE id=?`, f.agent.ID)
+		}, "reet:pdf", "laptop follows your library and already has every Active skill. Make this skill Active and it goes to every machine."},
+		// A machine that follows the library is told so even when its scan is
+		// old: a scan would not let it install anything.
+		{"follows-library before the scan", "follows-library", 409, func(t *testing.T, f *installFx) {
+			f.raw(t, `UPDATE sync_agents SET skills_protocol=2 WHERE id=?`, f.agent.ID)
+			f.raw(t, `DELETE FROM environment_scans`)
+		}, "reet:pdf", "laptop follows your library and already has every Active skill. Make this skill Active and it goes to every machine."},
 		{"install-in-progress", "install-in-progress", 409, func(t *testing.T, f *installFx) {
 			if code, raw := f.install(`{"skill":"reet:docx"}`); code != 200 {
 				t.Fatal(code, raw)

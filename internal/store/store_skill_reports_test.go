@@ -622,3 +622,28 @@ func TestReportNewOnMachinesKeepsFirstSightingAcrossReports(t *testing.T) {
 		t.Fatalf("after coming back: %+v", got)
 	}
 }
+
+// A report the agent cut short does not confirm a removal by leaving a name
+// out: the name may be among the entries it did not send.
+func TestCutReportConfirmsNoRemoval(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "demo", false)
+	a := reportAgent(t, s, uid, "elitebook")
+	if err := s.DeleteSkillsFor(uid, []string{item.id}, false, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	cut := SkillReportEntry{Name: SkillReportCutName, State: "failed", Detail: SkillReportCutDetail}
+	reportOf(t, s, uid, a, reportT0.Add(time.Minute), installedAt("other", "d1"), cut)
+	if r := skillRemovals(t, s, uid); r["demo"].Reason != "deleted" {
+		t.Fatalf("a cut report confirmed the removal: %+v", r)
+	}
+	if !(SkillReport{Entries: []SkillReportEntry{cut}}).Cut() || (SkillReport{Entries: []SkillReportEntry{installedAt("x", "d")}}).Cut() {
+		t.Fatal("Cut misreads a report")
+	}
+	// The same report, whole, confirms it.
+	reportOf(t, s, uid, a, reportT0.Add(2*time.Minute), installedAt("other", "d1"))
+	if r := skillRemovals(t, s, uid); len(r) != 0 {
+		t.Fatalf("a whole report did not confirm: %+v", r)
+	}
+}

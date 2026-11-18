@@ -14,7 +14,7 @@ func installErrorStatus(code string) int {
 	switch code {
 	case "missing", "unavailable", "no-scan", "unsupported-agent", "connector-offline":
 		return http.StatusUnprocessableEntity
-	case "follows-source", "slug-conflict", "install-in-progress", "already-installed", "cannot-cancel":
+	case "follows-source", "follows-library", "slug-conflict", "install-in-progress", "already-installed", "cannot-cancel":
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError

@@ -1749,7 +1749,9 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			errs = append(errs, err.Error())
 		case id == "":
-			// New on a machine: its skills report carries it, not the scan.
+			// A sighting the scan makes no item of. From a managed folder it
+			// is New on a machine through the skills report; from Codex's
+			// folder, which reet leaves alone, it appears nowhere.
 		case wasIgnored:
 			ignoredCount++
 		default:

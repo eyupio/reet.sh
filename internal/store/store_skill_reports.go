@@ -30,6 +30,24 @@ type SkillReport struct {
 	Entries          []SkillReportEntry
 }
 
+// A report an agent cut to the controller's cap ends with a failed entry of
+// this name and detail, with no folder.
+const (
+	SkillReportCutName   = "(not reported)"
+	SkillReportCutDetail = "Too many skills to report; some are not shown."
+)
+
+// Cut reports whether the agent left entries out of r: a name missing from
+// it may still be on the machine.
+func (r SkillReport) Cut() bool {
+	for _, e := range r.Entries {
+		if e.Folder == "" && e.Name == SkillReportCutName && e.State == "failed" {
+			return true
+		}
+	}
+	return false
+}
+
 type MachineSkillState struct {
 	Host    string `json:"host"`
 	AgentID string `json:"agentId"`
@@ -226,10 +244,14 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 		if _, err = tx.Exec(`DELETE FROM skill_activity WHERE user_id=? AND rowid NOT IN (SELECT rowid FROM skill_activity WHERE user_id=? ORDER BY at DESC,rowid DESC LIMIT ?)`, uid, uid, skillActivityKept); err != nil {
 			return err
 		}
+		cut := rep.Cut()
 		for name := range removals {
 			if present[name] {
 				// It is back on this machine, so an earlier confirmation is void.
 				_, err = tx.Exec(`DELETE FROM skill_removal_confirms WHERE user_id=? AND name=? AND agent_id=?`, uid, name, agentID)
+			} else if cut {
+				// A name a cut report leaves out may be among what it left out.
+				continue
 			} else {
 				_, err = tx.Exec(`INSERT INTO skill_removal_confirms(user_id,name,agent_id,at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING`, uid, name, agentID, at)
 			}

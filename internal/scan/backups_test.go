@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 var backupNow = time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
@@ -989,4 +990,45 @@ func TestAgentRestoreWithoutEnrollmentStillLeavesCodexAlone(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 	sameTree(t, ".codex", before, homeTree(t, filepath.Join(home, ".codex")))
+}
+
+// A skill whose name with the backup prefix would be too long for a file
+// name is still backed up, under a shortened name that ends in a hash of the
+// whole name, and lists and restores under its real name.
+func TestBackupListsAndRestoresALongName(t *testing.T) {
+	for _, c := range []struct{ what, name string }{
+		{"one byte a letter", strings.Repeat("c", 255)},
+		{"letters of two bytes", "x" + strings.Repeat("é", 127)},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			home := t.TempDir()
+			folder := filepath.Join(home, ".claude", "skills")
+			var dests []string
+			for i := 0; i < 2; i++ {
+				writeSkill(t, filepath.Join(folder, c.name))
+				dest, err := backupSkill(folder, c.name, backupNow)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if base := filepath.Base(dest); len(base) > 255 || !utf8.ValidString(base) {
+					t.Fatalf("backup named %q (%d bytes)", base, len(base))
+				}
+				dests = append(dests, dest)
+			}
+			if dests[0] == dests[1] {
+				t.Fatalf("both backups are %s", dests[0])
+			}
+			list, err := listBackups(home)
+			if err != nil || len(list) != 2 || list[0].Name != c.name || list[1].Name != c.name {
+				t.Fatalf("list = %+v, %v", list, err)
+			}
+			got, err := restoreBackup(home, c.name, "")
+			if err != nil || len(got) != 1 || got[0] != filepath.Join(folder, c.name) {
+				t.Fatalf("restore = %q, %v", got, err)
+			}
+			if _, err := os.Stat(filepath.Join(folder, c.name, "SKILL.md")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

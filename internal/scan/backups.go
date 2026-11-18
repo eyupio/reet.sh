@@ -1,6 +1,8 @@
 package scan
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // backupRetentionDays is how many days a backed-up skill is kept before the
@@ -118,15 +121,15 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 			return "", err
 		}
 	}
-	base := backupPrefix(folder) + name
-	dest := filepath.Join(dir, base)
+	prefix := backupPrefix(folder)
+	dest := filepath.Join(dir, backupEntryName(prefix, name, 1))
 	for n := 2; ; n++ {
 		if _, err := os.Lstat(dest); os.IsNotExist(err) {
 			break
 		} else if err != nil {
 			return "", err
 		}
-		dest = filepath.Join(dir, fmt.Sprintf("%s-%d", base, n))
+		dest = filepath.Join(dir, backupEntryName(prefix, name, n))
 	}
 	if err := moveEntry(src, dest); err != nil {
 		return "", err
@@ -139,6 +142,31 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 		log.Printf("backed up to %s but could not record its name: %v", dest, err)
 	}
 	return dest, nil
+}
+
+// maxEntryName is the longest name a file system takes for one entry.
+const maxEntryName = 255
+
+// backupEntryName names the n-th backup of name in a date folder, n being 1
+// for the first: <prefix><name>, then <prefix><name>-2 and so on. When that
+// would be too long for a file name, the name is cut short, on a character
+// boundary, and ends in a hash of the whole name, so it still names this
+// skill alone. index.json keeps the real name for listing and restore.
+func backupEntryName(prefix, name string, n int) string {
+	suffix := ""
+	if n > 1 {
+		suffix = "-" + strconv.Itoa(n)
+	}
+	if len(prefix)+len(name)+len(suffix) <= maxEntryName {
+		return prefix + name + suffix
+	}
+	sum := sha256.Sum256([]byte(name))
+	tag := "-" + hex.EncodeToString(sum[:6])
+	keep := max(maxEntryName-len(prefix)-len(tag)-len(suffix), 0)
+	for keep > 0 && !utf8.RuneStart(name[keep]) {
+		keep--
+	}
+	return prefix + name[:keep] + tag + suffix
 }
 
 // ensureRealDir makes dir, one level, when it is missing, and refuses it when

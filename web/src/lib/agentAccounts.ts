@@ -12,7 +12,7 @@ export type MachineAccounts = { state: 'read' | 'offline' | 'update' | 'off' | '
 export type LimitLine = { key: string; name: string; left: number; low: boolean; text: string; resets: string }
 
 /** What reet reads of each agent's plan, said once for Settings > Agents and the Usage page. */
-export const PLAN_LIMITS_HELP = "Each of your machines with terminal access on uses an agent's own sign-in to ask that agent's provider how much of your plan is left. The sign-in stays on the machine and is never renewed by reet; the controller is sent the account's name, the plan and percentages. Claude Code and Codex are read today."
+export const PLAN_LIMITS_HELP = "Each of your machines with terminal access on uses an agent's own sign-in to ask that agent's provider how much of your plan is left. The sign-in stays on the machine and is never renewed by reet; the controller is sent the account's name, the plan and percentages. This is done for the agents reet can read a plan for."
 
 /** At or under this share of a window left, the figure is marked low. */
 export const LOW_LIMIT_PERCENT = 15
@@ -41,8 +41,9 @@ export function resetsIn(at: number | undefined, now: number): string {
   const left = at - now
   if (left <= 0) return 'reset due'
   if (left < MINUTE) return 'resets in under a minute'
-  if (left < HOUR) return `resets in ${Math.round(left / MINUTE)} min`
-  if (left < DAY) { const h = Math.floor(left / HOUR), m = Math.round((left - h * HOUR) / MINUTE); return `resets in ${h} h${m ? ` ${m} min` : ''}` }
+  if (Math.round(left / MINUTE) < 60) return `resets in ${Math.round(left / MINUTE)} min`
+  // Rounded to the minute first, so 2 h 59.6 min reads 3 h, never 2 h 60 min.
+  if (left < DAY) { const minutes = Math.round(left / MINUTE), h = Math.floor(minutes / 60), m = minutes % 60; return `resets in ${h} h${m ? ` ${m} min` : ''}` }
   const d = Math.floor(left / DAY), h = Math.round((left - d * DAY) / HOUR)
   return `resets in ${d} ${d === 1 ? 'day' : 'days'}${d === 1 && h ? ` ${h} h` : ''}`
 }

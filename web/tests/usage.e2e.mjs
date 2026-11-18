@@ -17,6 +17,10 @@ const machine = (agentId, host, reads = true, over = {}) => ({ agentId, host, re
 const accounts = list => ({ state: 'read', sentence: '', planLimits: true, checkedAt: now, accounts: list })
 const claudePlan = { tool: 'claude', state: 'signed_in', method: 'subscription', account: 'sam@example.test', plan: 'max', limitsState: 'read', limitsAt: now - 3 * minute, limits: [{ kind: 'session', usedPercent: 19, resetsAt: now + 2 * hour + 10 * minute }, { kind: 'week', usedPercent: 90, resetsAt: now + 3 * day }] }
 const codexKey = { tool: 'codex', state: 'signed_in', method: 'api_key', limitsState: 'unsupported' }
+// Any agent a machine reads can carry windows: the blocks draw whatever arrives, scoped and monthly windows included.
+const opencodePlan = { tool: 'opencode', state: 'signed_in', method: 'subscription', account: 'sam-go', plan: 'go', limitsState: 'read', limitsAt: now - minute, limits: [{ kind: 'session', usedPercent: 10, resetsAt: now + 3 * hour }, { kind: 'week', usedPercent: 50 }, { kind: 'month', usedPercent: 25, resetsAt: now + 12 * day }] }
+const copilotPlan = { tool: 'copilot', state: 'signed_in', method: 'subscription', account: 'sam-gh', plan: 'pro', limitsState: 'read', limitsAt: now - minute, limits: [{ kind: 'month', label: 'Premium', usedPercent: 30 }, { kind: 'month', label: 'Chat', usedPercent: 0 }, { kind: 'month', label: 'Completions', usedPercent: 95 }] }
+const agyPlan = { tool: 'antigravity', state: 'signed_in', method: 'subscription', account: 'sam@example.test', plan: 'pro', limitsState: 'rate_limited', limitsAt: now - 12 * minute, limits: [{ kind: 'week', label: 'Other models', usedPercent: 40 }] }
 const AGENTS = [['claude', 'Claude Code', 'chat'], ['codex', 'Codex', 'chat'], ['opencode', 'OpenCode', 'chat'], ['cline', 'Cline', 'chat'], ['antigravity', 'Google Antigravity (AGY)', 'chat'], ['copilot', 'GitHub Copilot', 'terminal_only']]
 const zero = () => AGENTS.map(([tool, name, reports]) => ({ tool, name, reports, input: 0, output: 0, cached: 0, sessions: 0, factoryStages: 0 }))
 const session = (id, over = {}) => ({ id, title: `Session ${id}`, tool: 'claude', model: 'made-up-large', agentId: 'a1', host: 'studio', projectId: null, structured: true, state: 'ended', archived: false, factory: false, input: 1000, output: 200, cached: 0, lastAt: now - 10 * minute, contextUsed: 0, contextSize: 0, ...over })
@@ -39,7 +43,7 @@ function figures(from, to, { since = now - 20 * day, more = false } = {}) {
   }
 }
 
-async function open({ width = 1440, height = 900, touch = false, theme = 'light', machines = [machine('a1', 'studio'), machine('a2', 'laptop')], plans = { a1: accounts([claudePlan, codexKey]), a2: accounts([]) }, usage = (from, to) => figures(from, to), scale } = {}) {
+async function open({ width = 1440, height = 900, touch = false, theme = 'light', machines = [machine('a1', 'studio'), machine('a2', 'laptop')], plans = { a1: accounts([claudePlan, codexKey, opencodePlan, copilotPlan, agyPlan]), a2: accounts([]) }, usage = (from, to) => figures(from, to), scale } = {}) {
   const asked = [], reads = []
   const opened = await openWorkspace(browser, { width, height, touch, theme, scale, terminalStatus: active, terminalMachines: machines, sessionFocus: false, routes: {
     '/api/v2/usage': request => { const q = new URL(request.url()).searchParams, from = Number(q.get('from')), to = Number(q.get('to')); asked.push({ from, to }); return usage(from, to, asked.length) },
@@ -87,10 +91,20 @@ try {
     await expect(claude.locator('.source').first()).toHaveText('Read on studio 3 min ago.')
     // An API key, an agent whose plan reet cannot read, and one that runs only in a terminal.
     await expect(block(page, 'codex').locator('[data-plan-why]')).toHaveText('Signed in with an API key on studio: there is no plan allowance to read.')
-    await expect(block(page, 'opencode').locator('[data-plan-why]')).toHaveText("reet can't read this agent's plan. Only Claude Code's and Codex's are read today.")
+    // OpenCode, Copilot and Antigravity plans are drawn like any other: session, week and month; scoped monthly windows;
+    // a scoped window kept from a read the provider slowed down, dimmed, with that line.
+    await expect(block(page, 'opencode').locator('.windows .words')).toHaveText([/^Session 90% left · resets in 3 h$/, 'Week 50% left', /^Month 75% left · resets in 1[12] days$/])
+    await expect(block(page, 'copilot').locator('.windows .words')).toHaveText(['Premium this month 70% left', 'Chat this month 100% left', 'Completions this month 5% left'])
+    await expect(block(page, 'copilot').locator('.windows li').nth(2)).toHaveClass(/low/)
+    await expect(block(page, 'antigravity').locator('.windows .words')).toHaveText(['Other models this week 60% left'])
+    await expect(block(page, 'antigravity').locator('.plan')).toHaveClass(/stale/)
+    await expect(block(page, 'antigravity').locator('[data-plan-note]')).toHaveText("Google Antigravity (AGY)'s provider asked reet to slow down. Showing the figures read 12 min ago.")
+    // Cline: no machine answers for it, so reet cannot read its plan.
+    await expect(block(page, 'cline').locator('[data-plan-why]')).toHaveText("reet can't read this agent's plan.")
     await expect(block(page, 'copilot').locator('[data-tokens]')).toHaveText('GitHub Copilot runs only in a terminal here, which reports no token counts.')
     // Tokens for the period, and an agent that reported nothing in it.
-    await expect(claude.locator('[data-tokens] .line')).toHaveText('100k tokens · 2 sessions · 1 Factory stage')
+    await expect(claude.locator('[data-tokens] [data-figure]')).toHaveText('100k tokens')
+    await expect(claude.locator('[data-tokens] .line')).toHaveText('2 sessions · 1 Factory stage')
     await expect(claude.locator('[data-tokens] .detail')).toHaveText('Input 90k · Output 10k')
     await expect(block(page, 'cline').locator('[data-tokens]')).toHaveText('No tokens reported in this period.')
     // Gaffer, per provider and model.
@@ -105,10 +119,12 @@ try {
 
   if (run('sentences')) {
     // No sign-in, and a read that failed: each said in one sentence, from what the machines answered.
-    const { page, context } = await open({ machines: [machine('a1', 'studio')], plans: { a1: accounts([{ ...claudePlan, limitsState: 'failed', limits: undefined, limitsAt: undefined }, { tool: 'codex', state: 'none', limitsState: 'not_asked' }]) } })
+    const { page, context } = await open({ machines: [machine('a1', 'studio')], plans: { a1: accounts([{ ...claudePlan, limitsState: 'failed', limits: undefined, limitsAt: undefined }, { tool: 'codex', state: 'none', limitsState: 'not_asked' }, { ...opencodePlan, limitsState: 'renew', limits: undefined, limitsAt: undefined }]) } })
     await page.goto(`${base}/usage`)
-    await expect(block(page, 'claude').locator('[data-plan-why]')).toHaveText("The latest read on studio failed: this machine couldn't read Claude Code's limits just now.")
+    await expect(block(page, 'claude').locator('[data-plan-why]')).toHaveText("Claude Code's provider could not be reached from studio just now.")
     await expect(block(page, 'codex').locator('[data-plan-why]')).toHaveText('No sign-in found on studio.')
+    // A sign-in that has expired, with no figures kept: say how to sign in again.
+    await expect(block(page, 'opencode').locator('[data-plan-why]')).toHaveText('Open OpenCode on studio to sign in again.')
     await context.close()
     // A machine with terminal access off, and an older reet.
     const off = await open({ machines: [machine('a1', 'studio', false, { terminalEnabled: false })], plans: {} })
@@ -118,7 +134,7 @@ try {
     await off.context.close()
     const none = await open({ machines: [], plans: {} })
     await none.page.goto(`${base}/usage`)
-    await expect(block(none.page, 'codex').locator('[data-plan-why]')).toHaveText('No machine is connected that could read Codex’s sign-in.')
+    await expect(block(none.page, 'codex').locator('[data-plan-why]')).toHaveText('No connected machine reports sign-ins.')
     await none.context.close()
   }
 
@@ -142,7 +158,10 @@ try {
     expect(asked).toHaveLength(2)
     expect(asked[1].to).toBe(today.to)
     expect(asked[1].to - asked[1].from).toBeGreaterThanOrEqual(7 * day - hour); expect(asked[1].to - asked[1].from).toBeLessThanOrEqual(7 * day + hour)
-    await expect(block(page, 'claude').locator('[data-tokens] .line')).toHaveText('1.2M tokens · 14 sessions · 3 Factory stages')
+    await expect(block(page, 'claude').locator('[data-tokens] [data-figure]')).toHaveText('1.2M tokens')
+    await expect(block(page, 'claude').locator('[data-tokens] .line')).toHaveText('14 sessions · 3 Factory stages')
+    // OpenCode, with no plan on this account's other fixture, still has its own figure for the period.
+    await expect(block(page, 'opencode').locator('[data-tokens] [data-figure]')).toHaveText('400k tokens')
     await expect(block(page, 'claude').locator('[data-tokens] .detail')).toHaveText('Input 1.1M · Output 100k · Cached 900k')
     // Remembered across a reload, per account.
     await page.reload()
@@ -218,7 +237,7 @@ try {
     await expect(page.getByRole('alert')).toContainText('Usage could not be read.')
     expect(asked.length).toBe(2)
     await expect(totals).toHaveText('100k tokens across 2 sessions')
-    await expect(block(page, 'claude').locator('[data-tokens] .line')).toHaveText('100k tokens · 2 sessions · 1 Factory stage')
+    await expect(block(page, 'claude').locator('[data-tokens] .line')).toHaveText('2 sessions · 1 Factory stage')
     down = false
     await page.getByRole('button', { name: 'Try again' }).click()
     await expect(page.getByRole('alert')).toHaveCount(0)

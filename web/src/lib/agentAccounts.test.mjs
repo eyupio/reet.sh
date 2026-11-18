@@ -89,6 +89,9 @@ test('a reset is worded by how far off it is', () => {
   assert.equal(a.resetsIn(now + 40 * 1000, now), 'resets in under a minute')
   assert.equal(a.resetsIn(now + 5 * minute, now), 'resets in 5 min')
   assert.equal(a.resetsIn(now + hour, now), 'resets in 1 h')
+  // Rounded to the minute before it is split, so a window a few seconds short of a whole hour never reads 60 min.
+  assert.equal(a.resetsIn(now + 3 * hour - 20 * 1000, now), 'resets in 3 h')
+  assert.equal(a.resetsIn(now + hour - 20 * 1000, now), 'resets in 1 h')
   assert.equal(a.resetsIn(now + 26 * hour, now), 'resets in 1 day 2 h')
   assert.equal(a.resetsIn(now + 2 * day, now), 'resets in 2 days')
   assert.equal(a.resetsIn(now - minute, now), 'reset due')

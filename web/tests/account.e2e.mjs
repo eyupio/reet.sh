@@ -212,7 +212,9 @@ try {
     await expect(page.locator('[data-plan-limits]')).toHaveCount(0)
     await expect(page.getByRole('checkbox', {name:"Show how much of each agent's plan is left"})).toHaveCount(0)
     const note = page.locator('[data-usage-note]')
-    await expect(note.getByText(/uses an agent's own sign-in to ask that agent's provider how much of your plan is left\..*The sign-in stays on the machine and is never renewed by reet.*Claude Code and Codex are read today\./)).toBeVisible()
+    await expect(note.getByText(/uses an agent's own sign-in to ask that agent's provider how much of your plan is left\..*The sign-in stays on the machine and is never renewed by reet.*for the agents reet can read a plan for\./)).toBeVisible()
+    await expect(note).not.toContainText('Claude Code and Codex')
+    await expect(note.getByRole('link', {name:/Which agents reet can read/})).toHaveAttribute('href', /docs\/agent-accounts\.md$/)
     await expect(note).not.toContainText('Off until you turn it on')
     await expect(note.getByRole('link', {name:'See all usage'})).toHaveAttribute('href', '/usage')
     // The chats' own switches are untouched by it.

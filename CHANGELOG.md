@@ -13,15 +13,16 @@ this file existed releases were described on their GitHub release pages.
   a machine, an API key with no plan to read, an agent whose plan reet cannot
   read, a read that failed, or terminal access off. The **Plan limits** panel
   opened from the plan chips links to it with **See all usage**.
-- **Plan limits are always on**: each machine now reads how much of Claude
-  Code's and Codex's plans is left for every account. The switch in **Settings
+- **Plan limits are always on**: each machine now reads how much of each
+  agent's plan is left for every account, for the agents reet can read a plan
+  for. The switch in **Settings
   → Agents** is gone; in its place a short note under **Usage** says what is
   read and links to the page. Balancing a Factory stage to its backup now needs
   only that the machine can read the agent's plan.
 
   **Upgrading**: after this upgrade every machine with terminal access on asks
-  Claude Code's and Codex's providers, from the machine and with the agent's own
-  sign-in, how much of each plan is left, for every account, including accounts
+  the providers of the agents reet can read a plan for, from the machine and
+  with the agent's own sign-in, how much of each plan is left, for every account, including accounts
   that had never turned plan limits on. The sign-in stays on the machine; the
   controller is sent the account's name, the plan and percentages, as before.
   Token totals on the Usage page start from the day of the upgrade: nothing

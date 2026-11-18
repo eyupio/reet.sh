@@ -28,6 +28,16 @@ on every screen size, with **"See all usage"** in the plan chips' panel. The pri
 their agent (OpenCode on a hosted model) has no plan reet can read, so Home showed nothing; the page must never be a
 silent blank.
 
+**Scope change during the work.** The owner then said the plan as described "isn't ideal, it should just work: if a
+user has an agent on a machine, show usage stats", and chose to have machines also read OpenCode (Go/Zen), Antigravity
+and Copilot plans; those readers come from a separate branch. So nothing here names a fixed pair of agents: a block
+draws whatever accounts and windows any machine answers for any tool (scoped and month/day windows included), each
+block leads with its token figure (for an agent with no plan, the only figures there are), and the no-figure sentence
+comes from the answer's states (`planSentence`, `planNote` in `usage.ts`): no sign-in, API key or no plan allowance,
+"Open <Agent> on <machine> to sign in again", provider slowed down or unreachable (last figures dimmed), terminal access
+off, no connected machine reporting sign-ins, and only where no machine answers for the agent at all, "reet can't read
+this agent's plan". Settings → Agents says "the agents reet can read a plan for" and links to the sign-ins doc.
+
 **Controller.** `AddTerminalSessionUsage` now also writes a dated row to `terminal_usage_events` (user, session,
 machine id, tool, model, structured, at, input, output, cached; index on `(user_id, at)`) in the same transaction as
 the running total, for every report with tokens. The session's latest title, machine name and project are kept in
@@ -51,7 +61,8 @@ docs say it needs the machine to be able to read the agent's plan.
 **Web.** `/usage`, More → Workspace → Usage for `sessionsAccess`. Period buttons with `aria-pressed`, remembered as
 `reet.usage.period.<userId>`; ranges from the account's time zone (`usage.ts`, DST-safe); quiet refresh each minute
 while visible; table above 700 px, cards below. Plan blocks reuse `planEntries`, `limitLines`, `limitsNote` and
-`machinePlans`. Settings → Agents lost its fieldset; MachineSettings lost its off-state branches.
+`machinePlans`. Settings → Agents lost its fieldset; MachineSettings lost its off-state branches. `resetsIn` rounds to the minute
+before splitting hours (it could say "2 h 60 min").
 
 **Tests replaced.** Go: `TestMachineAccountsFirstReadAsksForSignInsOnly` → `…FirstReadAsksForTheAllowance`;
 `…PlanLimitsFollowTheAccountSetting` → `…AnAnswerWithoutTheAllowanceIsReadAgain`; `TestMachineAccountsRefresh`
@@ -60,7 +71,9 @@ rewritten (always fresh figures, audit says limits true); `TestProfilePlanLimits
 blocks "plan limits switch", "a refused plan limits switch puts the box back" and "plan limits switch is read-only for
 a viewer" → "usage note replaces the plan limits switch" and "a viewer sees the usage note without a switch"; in
 `agent-accounts.e2e.mjs` "sign-ins without plan limits" → "sign-ins before any plan is read" (no off hint), plus a
-check that figures show whatever `planLimits` says.
+check that figures show whatever `planLimits` says. The More list grew Usage: `navigation.e2e.mjs`'s three More-list
+assertions now include it, and `supporting-nav.e2e.mjs`'s "a writer has Teams alone in Workspace, no row" became "a
+writer's Workspace row is Usage and Teams" plus "a viewer has Teams alone, no row".
 
 **Data limits.** Totals start when this version is installed (nothing earlier is dated). Reports made while a machine
 is disconnected are lost (never queued). Only chats report: plain terminals, Copilot and machines without

@@ -2,7 +2,7 @@
 // each agent used, and, for an agent with no plan figures, the one sentence that says why. Pure on purpose: the unit test
 // loads this file with the two self-contained modules it borrows from.
 import { compactTokens } from './gafferOutcome'
-import { limitLines, limitsNote, planEntries, type AgentAccount, type MachineAccounts, type PlanEntry } from './agentAccounts'
+import { limitLines, planEntries, readAgo, type AgentAccount, type MachineAccounts, type PlanEntry } from './agentAccounts'
 
 export type UsagePeriod = 'today' | 'week' | 'month'
 export const PERIODS: { id: UsagePeriod; label: string; days: number }[] = [
@@ -18,9 +18,6 @@ export type UsageAnswer = { from: number; to: number; since: number; agents: Usa
 
 /** One machine as the page knows it: whether it reads sign-ins, whether terminal access is off, and its last answer. */
 export type MachinePlanRead = { host: string; reads: boolean; terminalOff: boolean; answer: MachineAccounts | null; error?: boolean }
-
-/** The agents whose plan reet reads today. */
-export const PLAN_TOOLS = ['claude', 'codex']
 
 export const tokens = compactTokens
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-GB')} ${n === 1 ? one : many}`
@@ -78,14 +75,15 @@ export function totalsLine(answer: UsageAnswer, timeZone: string, dateFormat = '
   return `${tokens(total)} ${total === 1 ? 'token' : 'tokens'} across ${plural(sessions, 'session')}${since}`
 }
 
-/** What one agent used in the period, as a line and a quieter detail; or why there is nothing. */
-export function agentTokens(agent: UsageAgent): { line: string; detail: string } {
-  if (agent.reports === 'terminal_only') return { line: `${agent.name} runs only in a terminal here, which reports no token counts.`, detail: '' }
+/** What one agent used in the period: the figure itself (the most prominent thing for an agent with no plan to read),
+ *  the sessions behind it, and a quieter detail; or, with no figure, the sentence that says why. */
+export function agentTokens(agent: UsageAgent): { figure: string; line: string; detail: string } {
+  if (agent.reports === 'terminal_only') return { figure: '', line: `${agent.name} runs only in a terminal here, which reports no token counts.`, detail: '' }
   const total = spent(agent)
-  if (!total && !agent.cached && !agent.sessions) return { line: 'No tokens reported in this period.', detail: '' }
+  if (!total && !agent.cached && !agent.sessions) return { figure: '', line: 'No tokens reported in this period.', detail: '' }
   const factory = agent.factoryStages ? ` · ${plural(agent.factoryStages, 'Factory stage')}` : ''
   const detail = [`Input ${tokens(agent.input || 0)}`, `Output ${tokens(agent.output || 0)}`, ...(agent.cached ? [`Cached ${tokens(agent.cached)}`] : [])].join(' · ')
-  return { line: `${tokens(total)} ${total === 1 ? 'token' : 'tokens'} · ${plural(agent.sessions, 'session')}${factory}`, detail }
+  return { figure: `${tokens(total)} ${total === 1 ? 'token' : 'tokens'}`, line: `${plural(agent.sessions, 'session')}${factory}`, detail }
 }
 
 /** The plans signed in for an agent across the machines, one per account (the freshest read wins, as the chips do). */
@@ -100,10 +98,32 @@ export function planLines(entry: PlanEntry, now: number): { key: string; name: s
 
 const orList = (hosts: string[]) => hosts.length <= 1 ? hosts.join('') : `${hosts.slice(0, -1).join(', ')} or ${hosts[hosts.length - 1]}`
 
-/** Why an agent has no plan figure, in one sentence, from what the machines said. Asked only when there is none. */
+/** Why the latest read of a signed-in plan has no new figures, in the page's words; '' when it has. Figures kept from
+ *  before are still shown, dimmed, under this line. */
+function readProblem(account: AgentAccount, name: string, host: string): string {
+  switch (account.limitsState) {
+    case 'renew': return `Open ${name} on ${host} to sign in again.`
+    case 'refused': return `${name}'s provider refused the sign-in on ${host} when asked for the plan.`
+    case 'rate_limited': return `${name}'s provider asked reet to slow down.`
+    case 'failed': return `${name}'s provider could not be reached from ${host} just now.`
+  }
+  return ''
+}
+
+/** The line under a plan whose latest read failed, with how old the figures shown are; '' when they are current. */
+export function planNote(entry: PlanEntry, name: string, now: number): string {
+  const problem = readProblem(entry.account, name, entry.host)
+  if (!problem) return ''
+  const age = readAgo(entry.account.limitsAt, now)
+  return age ? `${problem} Showing the figures read ${age}.` : problem
+}
+
+/** Why an agent has no plan figure, in one sentence chosen from what the machines answered for it. Nothing here
+ *  depends on which agent it is: any agent a machine reads appears in its answer, and one no machine answers for is one
+ *  reet cannot read there (the machine's reet is too old for it, or reet has no reader for it). */
 export function planSentence(tool: string, name: string, machines: MachinePlanRead[], now: number): string {
-  if (!PLAN_TOOLS.includes(tool)) return "reet can't read this agent's plan. Only Claude Code's and Codex's are read today."
-  if (!machines.length) return `No machine is connected that could read ${name}’s sign-in.`
+  void now
+  if (!machines.length) return 'No connected machine reports sign-ins.'
   const reading = machines.filter(m => m.reads)
   if (!reading.length) {
     const off = machines.filter(m => m.terminalOff)
@@ -111,24 +131,28 @@ export function planSentence(tool: string, name: string, machines: MachinePlanRe
     return `Update reet on ${orList(machines.map(m => m.host))} to see which agents are signed in.`
   }
   const found = reading.map(m => ({ machine: m, account: m.answer?.accounts?.find(a => a.tool === tool) as AgentAccount | undefined }))
-  // A read that failed says why first: it is the one thing the person may be able to fix.
-  for (const { machine, account } of found) {
-    if (account?.state !== 'signed_in' || account.method === 'api_key') continue
-    const note = limitsNote(account, name, now)
-    if (!note || account.limitsState === 'unsupported') continue
-    return `The latest read on ${machine.host} failed: ${note.startsWith(name) ? note : note[0].toLowerCase() + note.slice(1)}`
-  }
-  const key = found.find(f => f.account?.state === 'signed_in' && f.account.method === 'api_key')
-  if (key) return `Signed in with an API key on ${key.machine.host}: there is no plan allowance to read.`
+  const signedIn = found.filter(f => f.account?.state === 'signed_in')
+  // A sign-in to renew first, then a read that failed: they are what the person may be able to fix.
+  const renew = signedIn.find(f => f.account!.limitsState === 'renew')
+  if (renew) return readProblem(renew.account!, name, renew.machine.host)
+  const problem = signedIn.find(f => readProblem(f.account!, name, f.machine.host))
+  if (problem) return readProblem(problem.account!, name, problem.machine.host)
+  const noPlan = signedIn.find(f => f.account!.method === 'api_key' || f.account!.limitsState === 'unsupported')
+  if (noPlan) return noPlan.account!.method === 'api_key'
+    ? `Signed in with an API key on ${noPlan.machine.host}: there is no plan allowance to read.`
+    : `Signed in on ${noPlan.machine.host}, but the account has no plan allowance to read.`
   const unreadable = found.filter(f => f.account?.state === 'unreadable')
   if (unreadable.length) return `reet can't read ${name}'s sign-in on ${orList(unreadable.map(f => f.machine.host))}.`
-  const waiting = found.find(f => f.account?.state === 'signed_in')
+  const waiting = signedIn[0]
   if (waiting) return `${waiting.machine.host} has not read the plan yet. It reads it the next time it is asked.`
+  const none = found.filter(f => f.account?.state === 'none')
+  if (none.length) return `No sign-in found on ${orList(none.map(f => f.machine.host))}.`
   const failed = found.find(f => f.machine.error)
   if (failed) return `reet couldn't ask ${failed.machine.host} for its sign-ins just now.`
-  const said = found.find(f => !f.account && f.machine.answer && f.machine.answer.state !== 'read' && f.machine.answer.sentence)
+  const said = found.find(f => f.machine.answer && f.machine.answer.state !== 'read' && f.machine.answer.sentence && !f.machine.answer.accounts?.length)
   if (said) return `${said.machine.host}: ${said.machine.answer!.sentence}`
-  return `No sign-in found on ${orList(found.map(f => f.machine.host))}.`
+  // Every machine answered, and none said anything of this agent.
+  return "reet can't read this agent's plan."
 }
 
 /** How much of a session's context window was left at its last report. '' when the agent never said. */

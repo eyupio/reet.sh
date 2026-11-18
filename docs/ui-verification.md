@@ -10,8 +10,11 @@ switch is replaced by a sentence under **Usage** and the same link. Fixtures onl
   changes in London (25 October 2026) and New York (8 March 2026); the totals line with and without "counted since";
   each agent's tokens line; each plan sentence; the remembered period with storage that throws.
 - `node web/tests/usage.e2e.mjs` (job `phone-chat` in `terminal-browser.yml`): the More item and its landing at 1440
-  and 390; every agent block in the catalogue's order with the right sentence for a plan account, an API-key sign-in,
-  no sign-in, an unreadable agent, a terminal-only agent, a failed read, terminal access off and no machine; the
+  and 390; every agent block in the catalogue's order, tokens first, with plans drawn for any agent that has windows
+  (Claude Code session and week; OpenCode session, week and month; Copilot three monthly scoped windows; Antigravity a
+  scoped "Other models" window kept from a slowed-down read, dimmed with its line) and the right sentence for an
+  API-key sign-in, no sign-in, an expired sign-in, an agent no machine answers for (Cline), a terminal-only agent's
+  tokens, a failed read, terminal access off and no machine; the
   period switch changing the request's range and the totals, remembered across a reload; the sessions table, and its
   cards at 390 with 44 px links; the Factory and removed-from-history marks; the empty account; a quiet refresh that
   fails keeping the last figures, then **Try again**; a refused read signing out; **See all usage** from Home's chips;
@@ -22,8 +25,9 @@ switch is replaced by a sentence under **Usage** and the same link. Fixtures onl
 
 Captures, at device scale 2, each looked at:
 
-- ![Usage at 1440, light](images/ui/usage-1440-light.png) — six agent blocks in three columns, the Claude plan with
-  its low week window in the warning colour, the sessions table with numbers right-aligned.
+- ![Usage at 1440, light](images/ui/usage-1440-light.png) — six agent blocks in three columns, each led by its token
+  figure; plans for Claude Code, OpenCode, Antigravity and Copilot with their scoped and monthly windows, low windows in
+  the warning colour and the Antigravity figures dimmed; the sessions table with numbers right-aligned.
 - ![Usage at 834, dark](images/ui/usage-834-dark.png) — two columns of agents; the table fits without scrolling. The
   first capture broke model names at their hyphens over three lines; the model column now keeps one line and the
   last-activity column wraps instead.
@@ -31,7 +35,8 @@ Captures, at device scale 2, each looked at:
   because a full-page capture draws fixed bars where the window was.
 
 Also fixed after looking: an agent's sentence once read "Google Antigravity (AGY)'s plan"; it now says "this
-agent's plan". Not checked: a screen reader, a real tablet, and a real account's figures.
+agent's plan". A reset 2 h 59.6 min away read "resets in 2 h 60 min"; `resetsIn` now rounds to the minute before
+splitting (a unit case in `agentAccounts.test.mjs`). Not checked: a screen reader, a real tablet, and a real account's figures.
 
 ## Your Factory crew: choices from the machines (17 November 2026)
 

@@ -7,12 +7,12 @@
   import Skeleton from './Skeleton.svelte'
   import AgentMark from './AgentMark.svelte'
   import { UnauthorizedError } from './api'
-  import { limitsNote, readAgo } from './agentAccounts'
+  import { readAgo } from './agentAccounts'
   import { machinePlans } from './planLimits'
   import { formatWhen } from './time'
   import { terminalMachines, TerminalError, usageFor } from './terminal/api'
   import {
-    PERIODS, agentPlans, agentTokens, contextLeftText, keepPeriod, periodRange, planLines, planSentence, readPeriod,
+    PERIODS, agentPlans, agentTokens, contextLeftText, keepPeriod, periodRange, planLines, planNote, planSentence, readPeriod,
     sessionHref, sessionTitle, tokens, totalsLine, type MachinePlanRead, type UsageAnswer, type UsagePeriod,
   } from './usage'
 
@@ -131,10 +131,16 @@
           {@const used = agentTokens(agent)}
           <section class="card agent" data-usage-agent={agent.tool} aria-labelledby={`usage-agent-${agent.tool}`}>
             <h3 id={`usage-agent-${agent.tool}`}><AgentMark tool={agent.tool} size={20} /><span>{agent.name}</span></h3>
+            <div class="spent" data-tokens>
+              {#if used.figure}<p class="figure" data-figure>{used.figure}</p>{/if}
+              <p class="line">{used.line}</p>
+              {#if used.detail}<p class="detail">{used.detail}</p>{/if}
+            </div>
             <div class="plans" data-plans>
+              <h4>Plan left</h4>
               {#if plans.length}
                 {#each plans as entry (entry.key)}
-                  {@const note = limitsNote(entry.account, agent.name, now)}
+                  {@const note = planNote(entry, agent.name, now)}
                   <div class="plan" class:stale={entry.stale} data-plan={entry.account.account ?? entry.host}>
                     <p class="who">
                       {#if entry.account.account}<span class="account">{entry.account.account}</span>{/if}
@@ -149,18 +155,16 @@
                       {/each}
                     </ul>
                     <p class="source">Read on {entry.host}{readAgo(entry.account.limitsAt, now) ? ` ${readAgo(entry.account.limitsAt, now)}` : ''}.</p>
-                    {#if note}<p class="source note">{note}</p>{/if}
+                    {#if note}<p class="source note" data-plan-note>{note}</p>{/if}
                   </div>
                 {/each}
-              {:else if machines || machinesFailed || !['claude', 'codex'].includes(agent.tool)}
-                <p class="why" data-plan-why>{machinesFailed && !machines ? (['claude', 'codex'].includes(agent.tool) ? 'Your machines could not be read just now, so neither could their sign-ins.' : planSentence(agent.tool, agent.name, [], now)) : planSentence(agent.tool, agent.name, machines ?? [], now)}</p>
+              {:else if machines}
+                <p class="why" data-plan-why>{planSentence(agent.tool, agent.name, machines, now)}</p>
+              {:else if machinesFailed}
+                <p class="why" data-plan-why>Your machines could not be read just now, so neither could their sign-ins.</p>
               {:else}
                 <p class="why muted">Reading sign-ins…</p>
               {/if}
-            </div>
-            <div class="spent" data-tokens>
-              <p class="line">{used.line}</p>
-              {#if used.detail}<p class="detail">{used.detail}</p>{/if}
             </div>
           </section>
         {/each}
@@ -277,9 +281,12 @@
   .source, .why, .detail, .more, .removed { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .why { color: var(--ink); }
   .why.muted { color: var(--muted); }
-  .spent { padding-top: 10px; border-top: 1px solid var(--line-soft); }
+  .spent { display: grid; gap: 2px; }
+  .figure { margin: 0; font: 600 1.5rem/1.2 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .plans { padding-top: 10px; border-top: 1px solid var(--line-soft); }
+  h4 { margin: 0; color: var(--muted); font: 600 14px/1.3 var(--sans); }
   .line { margin: 0; font-variant-numeric: tabular-nums; }
-  .spent .detail { margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .spent .detail { font-variant-numeric: tabular-nums; }
   .muted { color: var(--muted); }
 
   .models { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }

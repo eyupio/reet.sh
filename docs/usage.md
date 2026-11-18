@@ -15,16 +15,21 @@ It is for accounts that can start sessions (the same accounts that have the Sess
   total, for example *1.6M tokens across 21 sessions*; when the period starts before reet began counting it adds
   *counted since 18 Nov*. With nothing counted at all it says *Nothing has been counted yet. reet counts what your
   agents report from now on.*
-- **One block per agent**, in the order reet lists its agents.
+- **One block per agent**, in the order reet lists its agents. Each starts with the tokens its sessions reported
+  in the period, which for an agent with no plan to read (OpenCode on a hosted model, say) are the only figures there
+  are.
   - **Plan left.** Each account signed in for the agent across your machines, with its plan and each window in
-    words (*Session 81% left · resets in 2 h 10 min*) and a meter, and which machine read it and when. The same account
-    on two machines is one line, from the machine that read it last. See
-    [agent sign-ins and plan limits](agent-accounts.md) for how this is read.
-  - **Where there is no figure**, one sentence chosen from what the machines said: no machine is connected that could
-    read the sign-in; *No sign-in found on studio*; *Signed in with an API key on studio: there is no plan allowance to
-    read*; *reet can't read this agent's plan* (every agent but Claude Code and Codex today); the latest read failed,
-    with the reason; terminal access is off on the machine; or reet on the machine needs updating.
-  - **Tokens.** *1.2M tokens · 14 sessions · 3 Factory stages*, with input, output and cached tokens on a second line.
+    words (*Session 81% left · resets in 2 h 10 min*, *Premium this month 70% left*) and a meter, and which machine read
+    it and when. The same account on two machines is one line, from the machine that read it last.
+  - **Where there is no figure**, one sentence chosen from what the machines answered for that agent: no connected
+    machine reports sign-ins; *No sign-in found on studio*; signed in with an API key, or to an account with no plan
+    allowance to read; *Open OpenCode on studio to sign in again* when the sign-in has expired; the provider asked reet
+    to slow down or could not be reached (the last figures stay, dimmed, under that line); terminal access is off on
+    the machine; or reet on the machine needs updating. Only when no machine answers for the agent at all (its reet is
+    too old to read that agent, or reet has no reader for it) does it say *reet can't read this agent's plan*. Which
+    agents reet can read a plan for is listed in [agent sign-ins and plan limits](agent-accounts.md).
+  - **Tokens.** *1.2M tokens*, then *14 sessions · 3 Factory stages*, with input, output and cached tokens on a
+    third line.
     An agent that reported nothing in the period says *No tokens reported in this period.* GitHub Copilot says it runs
     only in a terminal here, which reports no token counts.
 - **Gaffer.** Gaffer's own requests to its model provider in the period, per provider and model, with the number of

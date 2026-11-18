@@ -10,6 +10,7 @@
   import { KNOWN_SOURCES } from './clineSource'
   import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
   import { PLAN_LIMITS_HELP } from './agentAccounts'
+  import { AGENT_ACCOUNTS_DOC_URL } from './links'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -517,7 +518,7 @@
   <section class="usage" data-usage-note aria-labelledby="agents-usage-title">
     <h3 id="agents-usage-title">Usage</h3>
     <p class="muted">{PLAN_LIMITS_HELP}</p>
-    <p class="see"><a href="/usage">See all usage</a></p>
+    <p class="see"><a href="/usage">See all usage</a><a href={AGENT_ACCOUNTS_DOC_URL} target="_blank" rel="noopener noreferrer">Which agents reet can read<span class="vh"> (opens in a new tab)</span></a></p>
   </section>
 
   <h3>Favourite models</h3>
@@ -616,7 +617,7 @@
   .picker .value { min-width: 0; overflow-wrap: anywhere; }
   .picker .chev { flex: none; color: var(--muted); }
   .formacts { display: flex; justify-content: flex-end; }
-  .usage .see { margin: 4px 0 0; }
+  .usage .see { display: flex; flex-wrap: wrap; gap: 0 20px; margin: 4px 0 0; }
   .usage .see a { display: inline-flex; align-items: center; min-height: 32px; color: var(--accent-text); }
   .usage .see a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   @media (pointer: coarse) { .usage .see a { min-height: 44px; } }

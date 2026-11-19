@@ -339,3 +339,54 @@ func TestBuildSessionSkillsListsAProjectSkillAsNativeAndAGlobalOneFromTheGlobalA
 		}
 	}
 }
+
+func projectSkill(agent, project, name string) store.ObservedProjectSkill {
+	return store.ObservedProjectSkill{Agent: agent, Project: project, Name: name}
+}
+
+// A skill a repository holds for several agents is insertable when one of
+// them is the session's, whichever copy is observed first.
+func TestBuildSessionSkillsPrefersTheProjectCopyNativeToTheSession(t *testing.T) {
+	got := buildSessionSkills("opencode", "box", "/work/my repo", "agent-box", nil, nil,
+		projectSkill("claude", "/work/my repo", "release"), projectSkill("opencode", "/work/my repo", "release"))
+	if len(got.Skills) != 1 {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	s := got.Skills[0]
+	if !s.Native || s.Agent != "opencode" || s.Invocation != "Use the release skill." {
+		t.Fatalf("release: %+v", s)
+	}
+	if strings.ContainsAny(s.ID, " /") {
+		t.Fatalf("the option id carries the path: %q", s.ID)
+	}
+}
+
+// A library skill on the machine only for another agent becomes insertable
+// when the session's project has a copy native to the session's tool.
+func TestBuildSessionSkillsUpgradesALibrarySkillWithANativeProjectCopy(t *testing.T) {
+	skills := []store.Skill{tsSkill("lib", "release", "release", tsEnv("box", "claude", 1))}
+	got := buildSessionSkills("opencode", "box", "/work/app", "agent-box", skills, nil, projectSkill("opencode", "/work/app", "release"))
+	if len(got.Skills) != 1 {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	if s := got.Skills[0]; s.ID != "lib" || !s.Native || s.Agent != "opencode" || s.Invocation != "Use the release skill: release desc." {
+		t.Fatalf("release: %+v", s)
+	}
+}
+
+// A home-folder skill New on this machine keeps its row and its Keep when the
+// repository has a skill of the same name, whose copy stays insertable.
+func TestBuildSessionSkillsKeepsANewSkillBesideAProjectCopy(t *testing.T) {
+	news := []store.NewSkill{{Name: "release", Copies: []store.NewSkillCopy{{AgentID: "agent-box", Folder: "~/.claude/skills"}}}}
+	got := buildSessionSkills("claude", "box", "/work/app", "agent-box", nil, news, projectSkill("claude", "/work/app", "release"))
+	if len(got.Skills) != 2 {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	project, found := got.Skills[0], got.Skills[1]
+	if project.Source != "machine" || !project.Native || project.Invocation != "Use the release skill." {
+		t.Fatalf("the project's copy: %+v", project)
+	}
+	if found.Source != "new" || found.ID != "new:release" {
+		t.Fatalf("the new skill: %+v", found)
+	}
+}

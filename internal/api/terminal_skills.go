@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -131,8 +133,27 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 	out := SessionSkills{Skills: []SessionSkill{}, Host: host, AgentID: agentID}
 	isNative := func(agent string) bool { return agent == tool || agent == "agents" }
 
-	installed := map[string]bool{}
-	var native, other, found []SessionSkill
+	// One entry per name, from the library or the session's project. A name
+	// seen more than once keeps the copy native to the session's tool, so it
+	// stays insertable however the copies are ordered.
+	byName := map[string]*SessionSkill{}
+	var listed []*SessionSkill
+	library := map[string]bool{}
+	offer := func(entry SessionSkill, description string) {
+		key := strings.ToLower(entry.Name)
+		if entry.Native {
+			entry.Invocation = skillInvocation(tool, entry.Name, description)
+		}
+		if had := byName[key]; had != nil {
+			if !had.Native && entry.Native {
+				had.Agent, had.Native, had.Invocation = entry.Agent, true, skillInvocation(tool, had.Name, firstNonEmpty(had.Description, description))
+			}
+			return
+		}
+		e := entry
+		byName[key] = &e
+		listed = append(listed, &e)
+	}
 	for _, sk := range skills {
 		var here []store.Environment
 		for _, e := range sk.Environments {
@@ -149,7 +170,7 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 		if len(here) == 0 {
 			continue
 		}
-		installed[strings.ToLower(sk.Name)] = true
+		library[strings.ToLower(sk.Name)] = true
 		agent := here[0].Agent
 		hasNative := false
 		for _, e := range here {
@@ -158,35 +179,31 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 				break
 			}
 		}
-		entry := SessionSkill{
-			ID: sk.ID, Name: sk.Name, Description: sk.Description,
-			Source: "machine", Agent: agent, Native: hasNative, OnMachine: true,
-		}
-		if hasNative {
-			entry.Invocation = skillInvocation(tool, sk.Name, sk.Description)
-			native = append(native, entry)
-		} else {
-			other = append(other, entry)
-		}
+		offer(SessionSkill{ID: sk.ID, Name: sk.Name, Description: sk.Description, Source: "machine", Agent: agent, Native: hasNative, OnMachine: true}, sk.Description)
 	}
 	// The session's project's own skills, as the machine observes them: they
 	// belong to the repository, so the library has no item of them and they
-	// need no Keep. One the library has is listed above already.
+	// need no Keep. A project copy native to the session's tool makes a
+	// library entry of that name insertable too.
 	for _, p := range projects {
-		if installed[strings.ToLower(p.Name)] || !inProject(dir, p.Project) {
+		if !inProject(dir, p.Project) {
 			continue
 		}
-		installed[strings.ToLower(p.Name)] = true
-		entry := SessionSkill{ID: "project:" + p.Project + "/" + p.Name, Name: p.Name, Source: "machine", Agent: p.Agent, Native: isNative(p.Agent), OnMachine: true}
-		if entry.Native {
-			entry.Invocation = skillInvocation(tool, p.Name, "")
-			native = append(native, entry)
+		sum := sha256.Sum256([]byte(p.Project + "\x00" + p.Name))
+		offer(SessionSkill{ID: "project:" + hex.EncodeToString(sum[:8]), Name: p.Name, Source: "machine", Agent: p.Agent, Native: isNative(p.Agent), OnMachine: true}, "")
+	}
+	var native, other, found []SessionSkill
+	for _, e := range listed {
+		if e.Native {
+			native = append(native, *e)
 		} else {
-			other = append(other, entry)
+			other = append(other, *e)
 		}
 	}
+	// A skill New on this machine keeps its row and its Keep even when the
+	// repository has a skill of that name: the project's copy is listed above.
 	for _, n := range news {
-		if installed[strings.ToLower(n.Name)] || agentID == "" {
+		if library[strings.ToLower(n.Name)] || agentID == "" {
 			continue
 		}
 		agent, hasNative, here := "", false, false
@@ -224,6 +241,15 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 		out.Skills = append(out.Skills, group...)
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // terminalSessionSkills lists the skills a running session can use: those

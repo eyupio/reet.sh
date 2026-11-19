@@ -562,3 +562,41 @@ func TestTerminalSessionSkillsListsObservedProjectSkills(t *testing.T) {
 		t.Fatalf("listing made library items: %d -> %d %v", len(before), len(after), err)
 	}
 }
+
+// R46: an Archived library skill is not offered, but a repository's own copy
+// of that name belongs to the repository and is listed.
+func TestTerminalSessionSkillsListsTheProjectCopyOfAnArchivedSkill(t *testing.T) {
+	f := installFixture(t)
+	caps, err := f.st.BeginRemoteConnectionFor(f.uid, f.agent.ID, terminalbroker.ID(), terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "tester", TerminalEnabled: true, Readiness: terminalproto.Ready})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, _, err := f.st.ReserveTerminalCreateFor(f.uid, f.agent.ID, terminalbroker.ID(), caps.Generation, terminalproto.Create{Title: "App", Tool: "claude", Dir: "/work/app", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.session = created.ID
+	f.rescanInstall(t, "pdf")
+	if err = f.st.SetSkillStatusFor(f.uid, []string{f.itemNamed(t, "pdf").ID}, store.SkillArchived, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.st.TouchEnvironmentFor(f.uid, f.agent.Host, "claude", "/work/app", "/work/app/.claude/skills"); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.st.RecordInventoryFor(f.uid, store.EnvironmentIDFor(f.uid, f.agent.Host, "claude", "/work/app"), true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	grant, err := f.st.PrepareContentObservationFor(f.uid, f.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := contentobs.Skill{Name: "pdf", SchemaVersion: skillbundle.SchemaVersion, Algorithm: skillbundle.Algorithm, ModeSemantics: skillbundle.ModeSemantics, Complete: true, Digest: strings.Repeat("a", 64), Files: 1, Bytes: 12}
+	if err = f.st.RecordContentObservationFor(f.uid, f.agent.ID, contentobs.Report{SchemaVersion: 1, ScanID: grant.ScanID, ObservedAt: time.Now().UnixMilli(), Scopes: []contentobs.Scope{{Agent: "claude", Project: "/work/app", Complete: true, Skills: []contentobs.Skill{skill}}}}); err != nil {
+		t.Fatal(err)
+	}
+	got := f.catalogue(t)
+	pdf := sessionSkillByName(got.Skills, "pdf")
+	if pdf == nil || !strings.HasPrefix(pdf.ID, "project:") || !pdf.Native || pdf.Invocation != "Use the pdf skill." {
+		t.Fatalf("the repository's pdf: %+v (all %+v)", pdf, got.Skills)
+	}
+}

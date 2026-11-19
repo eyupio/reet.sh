@@ -1016,3 +1016,33 @@ func TestSkillsPageLoadsPastAnUnreadableUseVersionRequest(t *testing.T) {
 		})
 	}
 }
+
+// The bookmarklets' Add (and an old bookmark's "used") add a skills.sh page's skill to the library like the Skills
+// page's Add: a new one is Active, one already there keeps its state, and the popup says which, without stage words.
+func TestQuickAddLeavesAnArchivedSkillArchived(t *testing.T) {
+	e := newReconcileEnv(t)
+	code, body := e.owner(t, "GET", "/quick?action=save&url="+findSkills, "")
+	if code != 200 || !strings.Contains(body, "Added find-skills") {
+		t.Fatalf("add: %d %s", code, body)
+	}
+	id := e.page(t, "active").row(t, "find-skills").ID
+	if code, raw := e.owner(t, "POST", "/api/v2/skills/status", `{"ids":["`+id+`"],"status":"archived"}`); code != 200 {
+		t.Fatalf("archive: %d %s", code, raw)
+	}
+	for _, action := range []string{"save", "used"} {
+		code, body = e.owner(t, "GET", "/quick?action="+action+"&url="+findSkills, "")
+		if code != 200 || !strings.Contains(body, "find-skills is already in your library") || strings.Contains(body, "used") {
+			t.Fatalf("%s again: %d %s", action, code, body)
+		}
+		if it := e.item(t, id); it.Status != store.SkillArchived {
+			t.Fatalf("%s brought the archived skill back: %+v", action, it)
+		}
+	}
+	code, body = e.owner(t, "GET", "/quick?action=used&url=https://www.skills.sh/anthropics/skills/pdf", "")
+	if code != 200 || !strings.Contains(body, "Added pdf") {
+		t.Fatalf("an old bookmark's used adds: %d %s", code, body)
+	}
+	if r := e.page(t, "active").row(t, "pdf"); r.Status != "active" {
+		t.Fatalf("a new skill is Active: %+v", r)
+	}
+}

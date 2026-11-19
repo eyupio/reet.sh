@@ -3170,14 +3170,15 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	yes := true
 	var p store.Patch
-	var verb, alreadyVerb, actionName string
+	var actionName string
+	// Like adds the skill if need be and likes it. Save is the bookmarklet's Add: like the Skills page's Add it sets no
+	// stage, so a new skill is Active and one already in the library keeps its state (Restore is the way back from
+	// Archived). Old bookmarks still send "used", which does the same.
 	switch q.Get("action") {
 	case "like":
-		p.Liked, verb, alreadyVerb, actionName = &yes, "Liked", "Already liked", "like"
-	case "save":
-		p.Bookmarked, verb, alreadyVerb, actionName = &yes, "Saved", "Already saved", "stage"
-	case "used":
-		p.Used, verb, alreadyVerb, actionName = &yes, "Marked as used", "Already marked as used", "stage"
+		p.Liked, actionName = &yes, "like"
+	case "save", "used":
+		actionName = "add"
 	default:
 		quickPage(w, 400, "Unknown action")
 		return
@@ -3192,8 +3193,7 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		quickPage(w, 500, "Could not save")
 		return
 	}
-	already := found &&
-		((p.Liked != nil && old.Liked) || (p.Bookmarked != nil && old.Bookmarked) || (p.Used != nil && old.Used))
+	already := found && (actionName == "add" || old.Liked)
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.UpsertFor(s.uid(r), rf, p)
 	if errors.Is(err, store.ErrSkillNameTaken) {
@@ -3205,15 +3205,20 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
-	detail := map[string]any{"name": sk.Name, "already": already}
-	if actionName == "stage" {
-		detail["from"] = stageLabel(old)
-		detail["to"] = stageLabel(sk)
+	if !found {
+		s.kickSkillCopies(s.uid(r))
 	}
-	s.event(s.uid(r), "quick", actionName, sk.ID, detail)
-	msg := verb + ": " + sk.Name
-	if already {
-		msg = alreadyVerb + ": " + sk.Name
+	s.event(s.uid(r), "quick", actionName, sk.ID, map[string]any{"name": sk.Name, "already": already})
+	var msg string
+	switch {
+	case actionName == "like" && already:
+		msg = "Already liked: " + sk.Name
+	case actionName == "like":
+		msg = "Liked: " + sk.Name
+	case already:
+		msg = sk.Name + " is already in your library"
+	default:
+		msg = "Added " + sk.Name
 	}
 	quickPage(w, 200, msg)
 }

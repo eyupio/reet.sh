@@ -1957,7 +1957,8 @@ type skillController struct {
 	desired      *store.DesiredState
 	revisions    map[string]store.PrivateSkillRevision
 	reportStatus int
-	protocol     int // the skills protocol the poll reply names for the machine
+	protocol     int      // the skills protocol the poll reply names for the machine
+	retry        []string // names the next poll reply asks the machine to try again, once
 	polls        []polled
 	attempts     int
 	reports      []store.SkillReport
@@ -1982,6 +1983,9 @@ func newSkillController(t *testing.T) *skillController {
 			reply := map[string]any{"agent": map[string]any{"id": testMachineID, "host": "studio", "skillsProtocol": c.protocol}}
 			if c.desired != nil {
 				reply["desired"] = c.desired
+			}
+			if len(c.retry) > 0 {
+				reply["retry"], c.retry = c.retry, nil
 			}
 			json.NewEncoder(w).Encode(reply)
 		case r.URL.Path == "/api/v2/sync/skills/report":
@@ -2024,6 +2028,12 @@ func (c *skillController) setDesired(d *store.DesiredState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.desired = d
+}
+
+func (c *skillController) setRetry(names ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.retry = names
 }
 
 func (c *skillController) setProtocol(p int) {
@@ -2129,6 +2139,67 @@ func TestAgentCycleReconcilesFromCachedDesired(t *testing.T) {
 	}
 	if _, _, _, fetches := srv.counts(); fetches != 1 {
 		t.Fatalf("fetched %d times", fetches)
+	}
+}
+
+// A failed install waits before it is tried again; a Retry from the
+// controller ends the wait for the names it carries, so the machine tries them
+// that cycle, and reports again even when nothing changed.
+func TestAgentCycleRetryEndsTheWaitAndReportsAgain(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	home := loaded(t, config).Home
+	a, aFiles := skillBundle(t, "alpha", "first")
+	a.Bundle, a.Revision = strings.Repeat("1", 32), strings.Repeat("2", 32)
+	b, _ := skillBundle(t, "beta", "second")
+	b.Bundle, b.Revision = strings.Repeat("3", 32), strings.Repeat("4", 32)
+	// Neither revision is served yet: both installs fail and wait.
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a, b}})
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if e := entryOf(t, srv.lastReport(t), "~/.agents/skills", "alpha"); e.State != "failed" {
+		t.Fatalf("first pass: %+v", e)
+	}
+	_, _, reports, fetches := srv.counts()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, r, f := srv.counts(); f != fetches || r != reports {
+		t.Fatalf("a waiting install was fetched (%d → %d) or an unchanged report sent (%d → %d)", fetches, f, reports, r)
+	}
+	// Retry while it still fails: alpha is fetched again, beta still waits,
+	// and the report goes again though it says the same.
+	srv.setRetry("ALPHA")
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	_, _, r, f := srv.counts()
+	if f != fetches+1 || r != reports+1 {
+		t.Fatalf("retry: fetches %d → %d, reports %d → %d", fetches, f, reports, r)
+	}
+	// The retry is spent: the next cycle waits again.
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, r2, f2 := srv.counts(); f2 != f || r2 != r {
+		t.Fatalf("a spent retry tried again: fetches %d → %d, reports %d → %d", f, f2, r, r2)
+	}
+	// Once the files can be had, a Retry installs alpha that cycle.
+	srv.serve(t, a, aFiles)
+	srv.setRetry("alpha")
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if got := folderDigest(t, filepath.Join(home, ".agents", "skills", "alpha")); got != a.Digest {
+		t.Fatal("alpha was not installed on the cycle the retry came")
+	}
+	rep := srv.lastReport(t)
+	if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "installed" {
+		t.Fatalf("after the retry: %+v", e)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "beta"); e.State != "failed" {
+		t.Fatalf("beta, not retried: %+v", e)
 	}
 }
 

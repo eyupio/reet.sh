@@ -628,6 +628,9 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		Agent   store.SyncAgent
 		Job     *store.SyncJob
 		Desired *store.DesiredState
+		// Retry names skills someone asked to have tried again now: their
+		// waits end this cycle. The controller sends each request once.
+		Retry []string
 	}
 	if err := agentRequestContext(ctx, c, "/api/v2/sync/poll", map[string]string{"skillsVersion": skillsVersion}, &reply, version); err != nil {
 		return err
@@ -643,7 +646,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	// two would undo each other.
 	var skillErr error
 	if reply.Agent.SkillsProtocol == store.CurrentSkillsProtocol {
-		skillErr = reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now(), out)
+		skillErr = reconcileAgentSkills(ctx, c, config, reply.Desired, cached, reply.Retry, version, time.Now(), out)
 	}
 	scanAll := func() error {
 		dirs := append([]string{c.Home}, c.Projects...)

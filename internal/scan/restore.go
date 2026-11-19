@@ -198,9 +198,12 @@ func restoreJobBackup(c agentConfig, targetID, backup string) (string, error) {
 	}
 	if kind == ".reet-sync-backups" {
 		_ = os.Remove(group) // only if now empty
-	} else if idx := readBackupIndex(group); idx.Entries[entry] != (indexRecord{}) {
-		delete(idx.Entries, entry)
-		_ = writeBackupIndex(group, idx)
+	} else {
+		_ = updateBackupIndex(group, func(idx *backupIndex) bool {
+			_, ok := idx.Entries[entry]
+			delete(idx.Entries, entry)
+			return ok
+		})
 	}
 	return dest, nil
 }

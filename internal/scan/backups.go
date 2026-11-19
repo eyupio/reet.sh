@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/filelock"
 )
 
 // backupRetentionDays is how many days a backed-up skill is kept before the
@@ -63,6 +65,39 @@ func readBackupIndex(dir string) backupIndex {
 		return backupIndex{Entries: map[string]indexRecord{}}
 	}
 	return idx
+}
+
+// backupIndexLock is the lock file for the index.json of the date folder
+// dir, in the .reet-backups folder above it, where listing and pruning, which
+// read only date folders, never take it for a backup.
+func backupIndexLock(dir string) string {
+	return filepath.Join(filepath.Dir(dir), ".index.lock")
+}
+
+// updateBackupIndex reads the index of the date folder dir, changes it and
+// writes it back while holding its lock, so a backup and a restore in two
+// processes (the agent and reet agent restore) do not lose each other's
+// entries. It waits a few seconds for the lock, then goes ahead without it:
+// listing falls back to an entry's own name, so a lost record is never a
+// lost backup.
+func updateBackupIndex(dir string, change func(*backupIndex) bool) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		f, err := filelock.Acquire(backupIndexLock(dir))
+		if err == nil {
+			defer f.Close()
+			break
+		}
+		if !errors.Is(err, filelock.ErrLocked) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	idx := readBackupIndex(dir)
+	if !change(&idx) {
+		return nil
+	}
+	return writeBackupIndex(dir, idx)
 }
 
 func writeBackupIndex(dir string, idx backupIndex) error {
@@ -141,9 +176,11 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 	if moveErr != nil && !errors.As(moveErr, &left) {
 		return "", moveErr
 	}
-	idx := readBackupIndex(dir)
-	idx.Entries[filepath.Base(dest)] = indexRecord{Name: name, Folder: folder, At: now.UnixMilli()}
-	if err := writeBackupIndex(dir, idx); err != nil {
+	err := updateBackupIndex(dir, func(idx *backupIndex) bool {
+		idx.Entries[filepath.Base(dest)] = indexRecord{Name: name, Folder: folder, At: now.UnixMilli()}
+		return true
+	})
+	if err != nil {
 		// The skill is safely in its backup, and listing falls back to the
 		// entry's name, so this is a warning and not a failure.
 		log.Printf("backed up to %s but could not record its name: %v", dest, err)
@@ -662,11 +699,11 @@ func restoreBackup(home, name, date string, unmanaged ...string) ([]string, erro
 			_ = os.Remove(dir) // only if now empty
 			continue
 		}
-		idx := readBackupIndex(dir)
-		if _, ok := idx.Entries[b.index]; ok {
+		_ = updateBackupIndex(dir, func(idx *backupIndex) bool {
+			_, ok := idx.Entries[b.index]
 			delete(idx.Entries, b.index)
-			_ = writeBackupIndex(dir, idx)
-		}
+			return ok
+		})
 	}
 	return restored, nil
 }

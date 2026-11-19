@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/filelock"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -1283,5 +1284,39 @@ func TestBackupAcrossDevicesWhoseSourceCannotGoIsStillABackup(t *testing.T) {
 	}
 	if idx := readBackupIndex(filepath.Dir(dest)); idx.Entries[filepath.Base(dest)].Name != "alpha" {
 		t.Fatalf("the backup was not indexed: %+v", idx.Entries)
+	}
+}
+
+// Backup, restore and reet agent restore change a date folder's index.json
+// under one lock, so two processes cannot lose each other's entries.
+func TestBackupIndexIsChangedUnderItsLock(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, filepath.Join(folder, "first"))
+	if _, err := backupSkill(folder, "first", backupNow); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(backupRoot(folder), backupNow.Format(backupDateLayout))
+	held, err := filelock.Acquire(backupIndexLock(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, filepath.Join(folder, "second"))
+	done := make(chan error, 1)
+	go func() { _, err := backupSkill(folder, "second", backupNow); done <- err }()
+	time.Sleep(150 * time.Millisecond)
+	if _, ok := readBackupIndex(dir).Entries[".claude-second"]; ok {
+		t.Fatal("the index was written while another process held its lock")
+	}
+	held.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	idx := readBackupIndex(dir)
+	if _, ok := idx.Entries[".claude-second"]; !ok {
+		t.Fatalf("index after the lock was let go: %+v", idx.Entries)
+	}
+	if _, ok := idx.Entries[".claude-first"]; !ok {
+		t.Fatalf("an earlier entry was lost: %+v", idx.Entries)
 	}
 }

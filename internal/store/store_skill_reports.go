@@ -379,6 +379,13 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 	return health, err
 }
 
+// SkillWorkFor is what the machines that follow the library are doing at
+// now, as the Skills page's header counts it.
+func (s *Store) SkillWorkFor(uid int64, now time.Time) (SkillWork, error) {
+	_, work, err := s.skillHealthAndWork(uid, now)
+	return work, err
+}
+
 // SkillWork is what the machines that follow the library are doing, over
 // every skill they have to install or take off, deleted ones still on the
 // removal list included. Each machine is counted once: in Failed when it
@@ -466,7 +473,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 			reported[id] = map[string][]reportedRow{}
 		}
 		reported[id][name] = append(reported[id][name], r)
-		if r.state != "removed" && r.state != "failed" && !slices.Contains(hostsOf[name], host) {
+		if r.state != "removed" && r.state != "failed" && r.state != skillRetrying && !slices.Contains(hostsOf[name], host) {
 			hostsOf[name] = append(hostsOf[name], host)
 		}
 	}

@@ -551,6 +551,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateSkillRetries(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateSkillBackups(); err != nil {
 		db.Close()
 		return nil, err

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -81,6 +82,69 @@ func (s *server) scanMakesItems(uid int64, machine string) func(importItem) (boo
 
 func (s *server) registerSkillReconcile(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/skills/report", s.requireWriter(s.reportSkills))
+	mux.HandleFunc("GET /api/v2/sync/skills", s.syncSkillsState)
+	mux.HandleFunc("POST /api/v2/sync/skills/retry", s.requireWriter(s.retrySyncSkills))
+}
+
+// syncActivityShown is how many activity lines the Sync page shows.
+const syncActivityShown = 50
+
+// syncSkillsState is the Sync page: each machine, what it is doing, and what
+// the machines did, newest first. work is what the Skills page's header
+// counts, for the page's one sentence; active is how many skills go on every
+// machine.
+func (s *server) syncSkillsState(w http.ResponseWriter, r *http.Request) {
+	uid, now := s.uid(r), time.Now()
+	machines, err := s.st.SyncMachinesFor(uid, now)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	work, err := s.st.SkillWorkFor(uid, now)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	desired, err := s.st.DesiredSkillsFor(uid, now)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	activity, err := s.st.SkillActivityFor(uid, syncActivityShown)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"machines": machines, "activity": activity, "work": work, "active": len(desired.Active)})
+}
+
+// retrySyncSkills asks a machine to try failed skills again on its next poll.
+func (s *server) retrySyncSkills(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AgentID string   `json:"agentId"`
+		Names   []string `json:"names"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	names, err := s.st.RequestSkillRetryFor(s.uid(r), in.AgentID, in.Names, time.Now())
+	var refused store.SkillRetryRefused
+	switch {
+	case errors.Is(err, store.ErrNoSuchMachine):
+		writeErr(w, 404, err.Error())
+		return
+	case errors.As(err, &refused) && len(in.Names) == 0:
+		writeErr(w, 400, err.Error())
+		return
+	case errors.As(err, &refused):
+		writeErr(w, 409, err.Error())
+		return
+	case err != nil:
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.eventRequest(r, "sync-skills-retry", "", map[string]any{"agent": in.AgentID, "names": names})
+	writeJSON(w, 200, map[string]any{"names": names})
 }
 
 // announcedSkillsProtocol is the skills protocol the request's agent speaks:
@@ -141,6 +205,16 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 		}
 		if desired.Version != in.SkillsVersion {
 			reply["desired"] = desired
+		}
+		// Asked once: a retry handed over is gone, whatever the machine
+		// then does with it.
+		retry, err := s.st.TakeSkillRetriesFor(uid, a.ID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if len(retry) > 0 {
+			reply["retry"] = retry
 		}
 		if s.skillPollKicks.due(uid) {
 			s.kickSkillCopies(uid)

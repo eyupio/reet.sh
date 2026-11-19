@@ -100,9 +100,12 @@
   const write = <T,>(fn: () => Promise<T>) => page.write(fn)
   const fail = (e: unknown) => page.fail(e)
 
-  function say(text: string, undo?: () => Promise<void>) {
+  // The server keeps a deleted skill for Undo for a minute (store.SkillUndoWindow); a Delete's toast closes a little
+  // before, counted from when the page heard the delete went through.
+  const DELETE_UNDO_MS = 55000
+  function say(text: string, undo?: () => Promise<void>, undoFor?: number) {
     const id = ++toastSeq
-    toast = { id, text, undo: undo && (async () => {
+    toast = { id, text, undoFor, undo: undo && (async () => {
       toast = null
       try { await undo() } catch (e) { fail(e) }
     }) }
@@ -230,7 +233,7 @@
       readAfterGrace()
       void read(other(tab), true)
       await focusRow(ids[0], keepAct())
-    })
+    }, DELETE_UNDO_MS)
   }
 
   async function retry(row: SkillRow) {
@@ -454,7 +457,8 @@
       <h1>Skills<span aria-hidden="true">.</span></h1>
       <p class="lede">{lede}</p>
     </div>
-    {#if page.readOk}<a class="sync-chip" href="/sync" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</a>{/if}
+    <!-- Not a link until the Sync page reads the machines as this line does: its older view could say otherwise. -->
+    {#if page.readOk}<p class="sync-chip" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</p>{/if}
   </header>
 
   {#if canWrite}
@@ -585,13 +589,12 @@
   h1 { margin: 0; font: 600 clamp(2.5rem, 5vw, 3.5rem)/1 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 0; color: var(--ink-soft); font-size: 1.0625rem; line-height: 1.5; }
   .sync-chip {
-    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 999px; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; padding: 0 16px; border-radius: 999px; text-decoration: none;
     font-weight: 600; font-size: 0.9375rem; border: 1px solid var(--line); background: var(--card); color: var(--muted);
   }
   .sync-chip[data-tone='ok'] { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--card)); }
   .sync-chip[data-tone='work'] { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, var(--line)); background: color-mix(in srgb, var(--info) 8%, var(--card)); }
   .sync-chip[data-tone='bad'] { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); background: color-mix(in srgb, var(--bad) 8%, var(--card)); }
-  .sync-chip:hover { text-decoration: underline; text-underline-offset: 3px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 
   .add { display: flex; gap: 10px; flex-wrap: wrap; }

@@ -38,7 +38,9 @@ try {
   await page.goto(`${base}/skills`)
   await expect(page.locator('[data-skill="demo/toolkit/code-review"]')).toBeVisible()
   await expect(page.getByRole('tab',{name:/^Active/})).toContainText('1')
-  await expect(page.locator('.sync-chip')).toHaveAttribute('href','/sync')
+  // The line about the machines is not a link: the older Sync page could say otherwise.
+  await expect(page.locator('.sync-chip')).toBeVisible()
+  await expect(page.locator('.sync-chip')).not.toHaveAttribute('href', /.*/)
   await expect(page.locator('main').getByRole('link',{name:'Write a skill',exact:true})).not.toHaveClass(/primary/)
   await context.close()
  }

@@ -3,7 +3,9 @@
   // while the pointer or keyboard is on it. One live region holds it, so each new message is read out. Ctrl+Z (⌘Z on a
   // Mac) is Undo from anywhere on the page but a text field or an open dialog, which keep their own: focus moves on to
   // the next row after a change, a long way from the toast.
-  export type UndoMessage = { id: number; text: string; undo?: () => void }
+  // `undoFor`, when set, is how long Undo works on the server (a Delete's undo window): the toast closes then, whoever
+  // is holding it open, rather than offer an Undo that would fail. Archive and Restore have no such limit.
+  export type UndoMessage = { id: number; text: string; undo?: () => void; undoFor?: number }
 
   let { toast, raised = false, onclose }: {
     toast: UndoMessage | null
@@ -33,6 +35,12 @@
     const id = toast?.id
     if (id) close(id, SHOW_MS)
     return () => clearTimeout(timer)
+  })
+  $effect(() => {
+    const id = toast?.id, limit = toast?.undoFor
+    if (!id || !limit) return
+    const ends = setTimeout(() => { if (toast?.id === id) onclose() }, limit)
+    return () => clearTimeout(ends)
   })
   function hold() { clearTimeout(timer) }
   function release() { if (toast) close(toast.id, SHOW_MS / 2) }

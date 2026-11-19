@@ -792,6 +792,35 @@ try {
   await context.close()
  }
 
+ // The server keeps a deleted skill for Undo for a minute: a toast held open by the pointer closes when that window
+ // ends rather than offer an Undo that would fail. Archive's Undo has no such window, so its toast waits.
+ if (run('undo window')) {
+  const w = world()
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:routes(w)})
+  await page.clock.install()
+  await page.goto(`${base}/skills`)
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 200))
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await expect(toast(page)).toContainText('Archived seo-bing')
+  await toast(page).hover()
+  await page.clock.fastForward(90000)
+  await expect(toast(page)).toContainText('Archived seo-bing')
+  await page.mouse.move(5, 5)
+  await page.clock.fastForward(9000)
+  await expect(toast(page)).toHaveCount(0)
+  await row(page, 'svg-animations').getByRole('button', {name:'Delete svg-animations'}).click()
+  await expect(toast(page)).toContainText('Deleted svg-animations')
+  await toast(page).hover()
+  await page.clock.fastForward(30000)
+  await expect(toast(page)).toContainText('Deleted svg-animations')
+  await page.clock.fastForward(30000)
+  await expect(toast(page)).toHaveCount(0)
+  expect(posts(w, 'undelete')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A machine's failure is retried by the machine itself, so its row says so and offers no Retry (a Retry that only the
  // machine could act on would do nothing). A fetch that failed has Retry, which posts the skill and says it is trying
  // again only when the server retried something.

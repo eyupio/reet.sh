@@ -194,6 +194,13 @@ func TestEngineDropMigration(t *testing.T) {
 		if err = s.db.QueryRow(`SELECT count(*) FROM library_migrations WHERE name='skills-engine-drop-v1'`).Scan(&marked); err != nil || marked != 1 {
 			t.Fatalf("open %d: migration record %d, %v", run, marked, err)
 		}
+		// A release from before the drop would misread this database (it
+		// reads the shelf's flags), so the data format says so: a copy of it
+		// is refused by such a release instead of restored.
+		var format int
+		if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&format); err != nil || format < 4 {
+			t.Fatalf("open %d: data format %d, %v", run, format, err)
+		}
 		if err = s.Close(); err != nil {
 			t.Fatal(err)
 		}

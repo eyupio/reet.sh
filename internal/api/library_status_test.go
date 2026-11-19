@@ -79,3 +79,26 @@ func TestNewSkillsReadsWhatWaitsForKeep(t *testing.T) {
 		t.Fatalf("new: %d %s", code, raw)
 	}
 }
+
+// Saving a skill the library already has applies the status chosen, and the
+// answer says the status it now has, so the page never claims one it lacks.
+func TestSaveOfASkillAlreadyInTheLibraryAppliesTheChosenStatus(t *testing.T) {
+	e := newReconcileEnv(t)
+	if code, raw := e.owner(t, "POST", "/api/skills", `{"input":"a/b/twice","status":"archived"}`); code != 200 || !strings.Contains(raw, `"status":"archived"`) {
+		t.Fatalf("first save: %d %s", code, raw)
+	}
+	code, raw := e.owner(t, "POST", "/api/skills", `{"input":"a/b/twice","status":"active"}`)
+	if code != 200 || !strings.Contains(raw, `"status":"active"`) || !strings.Contains(raw, `"created":false`) {
+		t.Fatalf("save again as active: %d %s", code, raw)
+	}
+	if got := e.libraryNames(t)["twice"]; got.Status != "active" {
+		t.Fatalf("twice stayed %s", got.Status)
+	}
+	code, raw = e.owner(t, "POST", "/api/skills", `{"input":"a/b/twice","status":"archived"}`)
+	if code != 200 || !strings.Contains(raw, `"status":"archived"`) {
+		t.Fatalf("save again as archived: %d %s", code, raw)
+	}
+	if got := e.libraryNames(t)["twice"]; got.Status != "archived" {
+		t.Fatalf("twice is %s", got.Status)
+	}
+}

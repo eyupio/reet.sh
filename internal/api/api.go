@@ -1351,8 +1351,9 @@ func stageKey(sk store.Skill) string {
 func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Input string `json:"input"`
-		// Status is what a new skill starts as: active (the default) or
-		// archived, as Community's Save offers. An existing one keeps its own.
+		// Status is the library status the person chose, active or
+		// archived, as Community's Save offers: a new skill starts with it,
+		// and one the library has moves to it. Empty keeps today's add.
 		Status string `json:"status"`
 		store.Patch
 	}
@@ -1386,7 +1387,14 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		in.Bookmarked = &test
 	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
-	sk, err := s.st.AddFor(s.uid(r), rf, in.Patch)
+	var sk store.Skill
+	if in.Status != "" {
+		// The status the person chose, applied in the same transaction:
+		// a new skill starts with it, one the library has moves to it.
+		sk, err = s.st.AddWithStatusFor(s.uid(r), rf, in.Patch, in.Status)
+	} else {
+		sk, err = s.st.AddFor(s.uid(r), rf, in.Patch)
+	}
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		writeErr(w, 409, "A skill with that name is already in your library.")
 		return
@@ -1394,17 +1402,6 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
-	}
-	if !existed && in.Status == store.SkillArchived {
-		if sk.LibraryItemID == "" {
-			writeErr(w, 500, "the new skill has no library item to archive")
-			return
-		}
-		if err = s.st.ArchiveNewSkillFor(s.uid(r), sk.LibraryItemID, s.skillNow()); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		sk.Status = store.SkillArchived
 	}
 	s.enqueue(rf)
 	s.kickSkillCopies(s.uid(r))

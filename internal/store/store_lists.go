@@ -8,7 +8,6 @@ import (
 	"errors"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 )
@@ -632,22 +631,13 @@ func (s *Store) AddListToShelf(userID, listID int64, status string) (int, error)
 		if !errors.Is(err, sql.ErrNoRows) {
 			return n, err
 		}
-		// A skill whose name the library already has is already there.
-		if _, err := s.UpsertFor(userID, it, Patch{}); errors.Is(err, ErrSkillNameTaken) {
+		// A skill whose name the library already has is already there. A new
+		// one is added with the chosen status in one transaction, so an
+		// Archived one is never sent to a machine as Active.
+		if _, err := s.upsertForRevive(userID, it.ID, it.Source, it.Slug, it.SourceType, it.URL, it.Slug, Patch{}, false, status); errors.Is(err, ErrSkillNameTaken) {
 			continue
 		} else if err != nil {
 			return n, err
-		}
-		// A new item starts Active; an Archived one is archived before any
-		// machine is sent it.
-		if status == SkillArchived {
-			id, err := libraryAliasID(s.db, userID, "shelf", it.ID)
-			if err != nil {
-				return n, err
-			}
-			if err = s.ArchiveNewSkillFor(userID, id, time.Now()); err != nil {
-				return n, err
-			}
 		}
 		n++
 	}

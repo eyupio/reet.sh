@@ -607,7 +607,18 @@ func (s *Store) UpsertFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
 // is still waiting to be purged comes back (see reviveShelfItemTx), where a
 // machine's sighting through UpsertFor leaves it deleted.
 func (s *Store) AddFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
-	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true)
+	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true, "")
+}
+
+// AddWithStatusFor is AddFor with the library status the person chose,
+// active or archived, applied in the same transaction. A skill new to the
+// library starts with it and was never anything else, so it has no grace
+// period; one the library has moves to it as Archive or Restore would.
+func (s *Store) AddWithStatusFor(userID int64, r ref.Ref, f Patch, status string) (Skill, error) {
+	if !validLibraryStatus(status) {
+		return Skill{}, ErrPrivateSkillInvalid
+	}
+	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true, status)
 }
 
 func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error) {
@@ -618,10 +629,10 @@ func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error
 // linked source cannot take a name the library already has; a machine
 // sighting (a local row) joins the skill of its name instead.
 func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string, f Patch) (Skill, error) {
-	return s.upsertForRevive(userID, id, source, slug, typ, url, name, f, false)
+	return s.upsertForRevive(userID, id, source, slug, typ, url, name, f, false, "")
 }
 
-func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name string, f Patch, revive bool) (Skill, error) {
+func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name string, f Patch, revive bool, status string) (Skill, error) {
 	t := now()
 	notes := ""
 	if f.Notes != nil {
@@ -637,6 +648,11 @@ func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name s
 				return err
 			}
 		}
+		_, aliasErr := libraryAliasID(tx, userID, "shelf", id)
+		if aliasErr != nil && !errors.Is(aliasErr, sql.ErrNoRows) {
+			return aliasErr
+		}
+		fresh := aliasErr != nil
 		if _, err := tx.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?)
 		ON CONFLICT(id) DO NOTHING`, id, source, slug, typ, url, name, t, t); err != nil {
 			return err
@@ -658,6 +674,23 @@ func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name s
 			if err := reviveShelfItemTx(tx, userID, id); err != nil {
 				return err
 			}
+		}
+		if status != "" {
+			item, err := libraryAliasID(tx, userID, "shelf", id)
+			if err != nil {
+				return err
+			}
+			it, err := skillStateItemTx(tx, userID, item)
+			if err != nil {
+				return err
+			}
+			if err = setSkillStatusTx(tx, userID, it, status, time.Now()); err != nil {
+				return err
+			}
+			if fresh {
+				_, err = tx.Exec(`UPDATE library_items SET prev_status='' WHERE user_id=? AND id=?`, userID, item)
+			}
+			return err
 		}
 		// Marking a skill already on the shelf In use or To test makes it
 		// Active. A new row keeps the status of the item it made or joined, so

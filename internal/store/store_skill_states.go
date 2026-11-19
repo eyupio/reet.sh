@@ -887,26 +887,3 @@ func (s *Store) RestoreParkedSkillsFor(uid int64, at time.Time) error {
 		return dismissSkillUpgradeNoticeTx(tx, uid)
 	})
 }
-
-// ArchiveNewSkillFor archives an item that was added Active a moment ago, as
-// Community's Save and a list's Add all do when the person chose Archived. It
-// was never Active anywhere, so it has no grace period.
-func (s *Store) ArchiveNewSkillFor(uid int64, id string, at time.Time) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		if err := privateSkillOwner(tx, uid); err != nil {
-			return err
-		}
-		it, err := skillStateItemTx(tx, uid, id)
-		if err == nil && it.deletedAt != 0 {
-			err = ErrPrivateSkillMissing
-		}
-		if err != nil {
-			return err
-		}
-		if err = setSkillStatusTx(tx, uid, it, SkillArchived, at); err != nil {
-			return err
-		}
-		_, err = tx.Exec(`UPDATE library_items SET prev_status='' WHERE user_id=? AND id=?`, uid, id)
-		return err
-	})
-}

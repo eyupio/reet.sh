@@ -2,7 +2,6 @@ package store
 
 import (
 	"testing"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 )
@@ -66,11 +65,22 @@ func TestAddListToShelfUsesStatus(t *testing.T) {
 	}
 }
 
-// A skill added straight into Archived was never Active anywhere: it has no
-// grace period in which machines would still be sent it as Active.
-func TestArchiveNewSkillHasNoGrace(t *testing.T) {
+// A skill added straight into Archived is made Archived in the transaction
+// that adds it: if archiving fails, nothing is left behind, Active or
+// otherwise, and a skill added Archived never has a grace period in which
+// machines would be sent it as Active.
+func TestAddArchivedIsOneTransaction(t *testing.T) {
 	s := newStore(t)
-	owner, err := s.DefaultOwner()
+	ownerUser, err := s.CreateUser("atomic-owner@example.com", "owner", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readerUser, err := s.CreateUser("atomic-reader@example.com", "reader", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, reader := ownerUser.ID, readerUser.ID
+	list, err := s.CreateList(owner, "Picks", "", "private")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,15 +91,26 @@ func TestArchiveNewSkillHasNoGrace(t *testing.T) {
 	if _, err = s.UpsertFor(owner, r, Patch{}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := libraryAliasID(s.db, owner, "shelf", r.ID)
-	if err != nil {
+	if err = s.AddListSkill(list.ID, r.ID, "", owner); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.ArchiveNewSkillFor(owner, id, time.Now()); err != nil {
+	if _, err = s.db.Exec(`CREATE TRIGGER test_refuse_archive BEFORE UPDATE OF status ON library_items WHEN NEW.status='archived' BEGIN SELECT RAISE(ABORT,'refused'); END`); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = s.AddListToShelf(reader, list.ID, SkillArchived); err == nil {
+		t.Fatal("the refused archive was not reported")
+	}
+	if items, err := s.LibraryFor(reader); err != nil || len(items) != 0 {
+		t.Fatalf("a half-added skill was left behind: %+v %v", items, err)
+	}
+	if _, err = s.db.Exec(`DROP TRIGGER test_refuse_archive`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.AddListToShelf(reader, list.ID, SkillArchived); err != nil || n != 1 {
+		t.Fatalf("added %d: %v", n, err)
 	}
 	var status, prev string
-	if err = s.db.QueryRow(`SELECT status,prev_status FROM library_items WHERE id=?`, id).Scan(&status, &prev); err != nil {
+	if err = s.db.QueryRow(`SELECT i.status,i.prev_status FROM library_items i JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=?`, reader, r.ID).Scan(&status, &prev); err != nil {
 		t.Fatal(err)
 	}
 	if status != SkillArchived || prev != "" {

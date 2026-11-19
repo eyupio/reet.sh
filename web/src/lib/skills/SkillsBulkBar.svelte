@@ -17,15 +17,27 @@
   let tagDraft = $state('')
   let bar = $state<HTMLElement>()
 
-  // A toolbar: the arrow keys, Home and End move along its buttons. A text field keeps its own keys.
+  // A toolbar: one Tab stop, the control last used in the bar (at first its first one that works), and the arrow
+  // keys, Home and End to move along it. A text field keeps its own keys.
+  let current = $state<HTMLElement | null>(null)
+  const controls = () => (bar ? [...bar.querySelectorAll<HTMLElement>('input, button:not(:disabled)')] : [])
+  $effect(() => {
+    void [tagging, count, current]
+    const list = controls()
+    const stop = current && list.includes(current) ? current : list[0]
+    for (const el of list) el.tabIndex = el === stop ? 0 : -1
+  })
   function keys(e: KeyboardEvent) {
-    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key) || !(e.target instanceof HTMLButtonElement) || !bar) return
-    const buttons = [...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
-    const at = buttons.indexOf(e.target)
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key) || !(e.target instanceof HTMLButtonElement)) return
+    const list = controls()
+    const at = list.indexOf(e.target)
     if (at < 0) return
-    const to = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (at + (e.key === 'ArrowRight' ? 1 : buttons.length - 1)) % buttons.length
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : (at + (e.key === 'ArrowRight' ? 1 : list.length - 1)) % list.length
     e.preventDefault()
-    buttons[to].focus()
+    list[to].focus()
+  }
+  function focused(e: FocusEvent) {
+    if (e.target instanceof HTMLElement && controls().includes(e.target)) current = e.target
   }
 
   function addTag(e: SubmitEvent) {
@@ -36,7 +48,7 @@
   }
 </script>
 
-<div class="bulk" role="toolbar" aria-label="Selected skills" tabindex="-1" bind:this={bar} onkeydown={keys}>
+<div class="bulk" role="toolbar" aria-label="Selected skills" tabindex="-1" bind:this={bar} onkeydown={keys} onfocusin={focused}>
   <strong>{count === 1 ? '1 selected' : `${count} selected`}</strong>
   {#if tagging}
     <form onsubmit={addTag}>

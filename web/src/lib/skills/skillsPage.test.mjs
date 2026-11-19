@@ -94,9 +94,26 @@ test('deleteConfirm covers both cases together and several rows', () => {
   assert.equal(many.title, 'Delete 5 skills?')
   assert.equal(many.body, 'You wrote a, d and e. reet has no copy of b. Deleting removes them from your machines, along with your writing and the public links of d; each machine keeps a backup for 30 days.')
   const four = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', yours: true }), row({ name: 'c', yours: true }), row({ name: 'd', yours: true })])
-  assert.equal(four.body, 'You wrote a, b, c and 1 more. Deleting removes them from your machines, along with your writing.')
+  assert.equal(four.body, 'You wrote a, b, c and 1 more. Deleting removes them from your machines, along with your writing; each machine keeps a backup for 30 days.')
   for (const d of [w1(), both, many, four]) assert.ok(!d.body.includes('nothing can bring it back'))
   function w1() { return deleteConfirm([row({ hasCopy: false })]) }
+})
+
+test('deleteConfirm says which of several skills come off the machines, and never that an Archived one does', () => {
+  const off = h('off')
+  // Active a and Archived b, both written: only a comes off the machines.
+  const mixed = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', yours: true, status: 'archived', health: off })])
+  assert.equal(mixed.body, 'You wrote a and b. Deleting removes them, along with your writing. a comes off your machines; each machine keeps a backup for 30 days.')
+  // An Archived skill still coming off a machine is on it until then.
+  const leaving = deleteConfirm([row({ name: 'a', yours: true, status: 'archived', health: h('removing', { pending: 1, hosts: ['studio'] }) }), row({ name: 'b', yours: true, status: 'archived', health: off }), row({ name: 'c', hasCopy: false })])
+  assert.equal(leaving.body, 'You wrote a and b. reet has no copy of c. Deleting removes them, along with your writing. a and c come off your machines; each machine keeps a backup for 30 days.')
+  // None of them is on a machine: no backup is promised.
+  const archived = deleteConfirm([row({ name: 'a', yours: true, published: true, status: 'archived', health: off }), row({ name: 'b', hasCopy: false, status: 'archived', health: off })])
+  assert.equal(archived.body, "You wrote a. reet has no copy of b. Deleting removes them, along with your writing and the public links of a. They're already off your machines.")
+  // One Archived skill reet has no copy of, off every machine.
+  assert.equal(deleteConfirm([row({ hasCopy: false, status: 'archived', health: off })]).body, "reet has no copy of this skill. Deleting removes it. It's already off your machines.")
+  // An Archived skill reet could not copy stays on its machine until it is deleted.
+  assert.equal(deleteConfirm([row({ hasCopy: false, status: 'archived', health: h('copy-failed', { hosts: ['Elitebook'] }) })]).body, 'reet has no copy of this skill. Deleting removes it from your machines; each machine keeps a backup for 30 days.')
 })
 
 test('copyPrompt never carries a link', () => {

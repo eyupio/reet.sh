@@ -8,7 +8,7 @@
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
   import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
-  import { deleteConfirm, focusAfterRemoval, pausedSentence, syncSentence, toastText } from './skillsPage'
+  import { deleteConfirm, focusAfterRemoval, onMachines, pausedSentence, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
   import { skillsExport } from './exportFilters.svelte'
 
@@ -222,8 +222,7 @@
     endSelecting()
     if (ids.includes(openId)) openId = ''
     await refocus(order, ids, keepAct())
-    const onMachines = targets.some(r => r.status === 'active' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health.state))
-    say(pruneText('deleted', names, onMachines), async () => {
+    say(pruneText('deleted', names, targets.some(onMachines)), async () => {
       // The undelete answers with no page: its tab is read again once no write is on its way, and focus waits for that,
       // so it lands on the row brought back even when another change was on its way.
       const tab = page.tab

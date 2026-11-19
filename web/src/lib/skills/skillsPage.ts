@@ -71,9 +71,12 @@ export function focusAfterRemoval(order: string[], removed: string[]): string | 
   return null
 }
 
-/** Whether a skill is on any machine: an Active one is, and so is an Archived one still coming off. */
-function onMachines(r: SkillRow): boolean {
-  return r.status !== 'archived' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health?.state)
+/**
+ * Whether a skill is on any machine: an Active one is, and so is an Archived one still coming off, or one reet is
+ * copying or could not copy, which stays on its machine until it is deleted.
+ */
+export function onMachines(r: Pick<SkillRow, 'status' | 'health'>): boolean {
+  return r.status !== 'archived' || ['removing', 'offline', 'failed', 'blocked', 'copying', 'copy-failed', 'needs-update'].includes(r.health?.state)
 }
 
 function nameList(names: string[]): string {
@@ -100,14 +103,17 @@ export function deleteConfirm(rows: SkillRow[]): { title: string; body: string; 
     const fromMachines = onMachines(rows[0]) ? `${links.length ? ',' : ''} and the skill from your machines; ${backup}` : ''
     if (written.length && noCopy.length) parts.push(`Deleting removes ${writing}${fromMachines}.`)
     else if (written.length) parts.push(`Deleting it removes ${writing}${fromMachines}.`)
-    else parts.push(`Deleting removes it from your machines; ${backup}.`)
+    else if (onMachines(rows[0])) parts.push(`Deleting removes it from your machines; ${backup}.`)
+    else parts.push("Deleting removes it. It's already off your machines.")
   } else {
     if (written.length) parts.push(`You wrote ${nameList(written.map(r => r.name))}.`)
     if (noCopy.length) parts.push(`reet has no copy of ${nameList(noCopy.map(r => r.name))}.`)
-    let end = 'Deleting removes them from your machines'
-    if (written.length) end += links.length ? `, along with your writing and the public links of ${nameList(links.map(r => r.name))}` : ', along with your writing'
-    if (noCopy.length) end += `; ${backup}`
-    parts.push(end + '.')
+    // Only the skills on a machine come off one, and only those leave a backup there.
+    const on = rows.filter(onMachines)
+    const along = !written.length ? '' : links.length ? `, along with your writing and the public links of ${nameList(links.map(r => r.name))}` : ', along with your writing'
+    if (on.length === rows.length) parts.push(`Deleting removes them from your machines${along}; ${backup}.`)
+    else if (on.length) parts.push(`Deleting removes them${along}. ${nameList(on.map(r => r.name))} ${on.length === 1 ? 'comes' : 'come'} off your machines; ${backup}.`)
+    else parts.push(`Deleting removes them${along}. They're already off your machines.`)
   }
   return { title, body: parts.join(' '), writtenConfirmed: written.length > 0, noCopyConfirmed: noCopy.length > 0 }
 }

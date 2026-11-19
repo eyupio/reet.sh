@@ -10,7 +10,8 @@ try {
   const w={rows:[],found:[{name:'improve',copies:[{agentId:'a0',host:'Elitebook',folder:'~/.agents/skills'}],digestsDiffer:false}],posts:[]}
   const fixture=await openWorkspace(browser,{width,height:900,touch:width===390,routes:{
    '/api/v2/skills':req=>skillsPageOf(w.rows,new URL(req.url()).searchParams.get('status')||'active',{newOnMachines:w.found,machines:2}),
-   '/api/v2/skills/new':req=>{const body=req.postDataJSON();w.posts.push(body);w.found=[];w.rows=[skillRow('improve',{originKind:'kept',origin:'Elitebook',hasCopy:false,health:health('copying',{hosts:['Elitebook']})})];return {items:['item-improve']}},
+   // Home's and the bell's read of the new skills, then Keep.
+   '/api/v2/skills/new':req=>{if(req.method()==='GET')return {newOnMachines:w.found};const body=req.postDataJSON();w.posts.push(body);w.found=[];w.rows=[skillRow('improve',{originKind:'kept',origin:'Elitebook',hasCopy:false,health:health('copying',{hosts:['Elitebook']})})];return {items:['item-improve']}},
   }})
   const {page}=fixture
   // Nothing spreads before the person says so: the skill waits in the banner, not in the list.

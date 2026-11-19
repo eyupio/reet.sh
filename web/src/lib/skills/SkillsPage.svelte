@@ -194,7 +194,7 @@
     if (!claim(ids, 'delete')) return
     const names = targets.map(r => r.name), from = page.tab
     try {
-      await page.write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }), () => page.takeOff(from, ids))
+      await page.write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }), () => page.takeOff(from, ids), { shared: true })
     } catch (e) {
       // The server knows better than the page: it refused a skill you wrote, or one reet has no copy of. The same
       // dialog asks, and the delete goes again with that flag only once the person agrees. A refusal for a flag already
@@ -227,7 +227,7 @@
       // so it lands on the row brought back even when another change was on its way.
       const tab = page.tab
       page.release(ids)
-      await page.write(() => undeleteSkills(ids), () => page.markStale(tab))
+      await page.write(() => undeleteSkills(ids), () => page.markStale(tab), { shared: true })
       await page.settled()
       readAfterGrace()
       void read(other(tab), true)
@@ -306,7 +306,7 @@
     adding = true
     addError = ''
     try {
-      const added = await write(() => addSkill(value))
+      const added = await page.write(() => addSkill(value), undefined, { shared: true })
       addInput = ''
       say(!added.created && added.status === 'archived' ? `${added.name} is in your library as Archived. Restore it to put it back on your machines.`
         : !added.created ? `${added.name} is already in your library.`
@@ -331,7 +331,7 @@
     const parked = (page.held.archived ?? []).filter(r => r.upgradedFrom === 'parked')
     const ids = parked.map(r => r.id)
     try {
-      await page.write(() => skillNotice('restore-parked'), () => page.takeOff('archived', ids))
+      await page.write(() => skillNotice('restore-parked'), () => page.takeOff('archived', ids), { shared: true })
     } catch (e) {
       fail(e)
       return
@@ -453,7 +453,8 @@
       void read(page.tab, true)
       void read(other(page.tab), true)
     }, POLL_MS)
-    const changed = () => { void read(page.tab, true); void read(other(page.tab), true) }
+    // Another part of the app changed the library. A change this page made itself is already on it.
+    const changed = (e: Event) => { if (page.own(e)) return; void read(page.tab, true); void read(other(page.tab), true) }
     window.addEventListener('reet-shelf-changed', changed)
     return () => {
       page.destroyed = true
@@ -590,7 +591,7 @@
 
 {#if reviewOpen}
   <NewOnMachineDialog items={page.newOnMachines} onerror={fail}
-    ondecided={() => { void read(page.tab, true); void read(other(page.tab), true); readAfterGrace() }}
+    ondecided={() => { page.announce(); void read(page.tab, true); void read(other(page.tab), true); readAfterGrace() }}
     onclose={() => { reviewOpen = false; void tick().then(() => focusQuietly(reviewEl ?? tabEls[page.tab])) }} />
 {/if}
 

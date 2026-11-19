@@ -115,8 +115,12 @@ export class SkillsPageState {
     }
   }
 
-  /** `done` hears the answer and the write's number. Once no write is on its way, stale tabs are read again. */
-  async write<T>(fn: () => Promise<T>, done?: (out: T, seq: number) => void): Promise<T> {
+  /**
+   * `done` hears the answer and the write's number. Once no write is on its way, stale tabs are read again. `shared`
+   * marks a write that changes what the rest of the app lists (an add, a delete or its undo, a status change): once it
+   * answers, the rest of the app (the Jump list) is told to read the library again. A like, a note or a tag is not.
+   */
+  async write<T>(fn: () => Promise<T>, done?: (out: T, seq: number) => void, { shared = false }: { shared?: boolean } = {}): Promise<T> {
     const seq = ++this.#started
     this.#generation++
     this.writing++
@@ -124,8 +128,7 @@ export class SkillsPageState {
       const out = await fn()
       this.error = ''
       done?.(out, seq)
-      // The rest of the app (the Jump list) reads the library again.
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('reet-shelf-changed'))
+      if (shared) this.announce()
       return out
     } finally {
       this.writing--
@@ -137,6 +140,16 @@ export class SkillsPageState {
         for (const wake of this.#idle.splice(0)) wake()
       }
     }
+  }
+
+  /** Tells the rest of the app the library changed. The event names this page, which does not read itself again for it. */
+  announce() {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('reet-shelf-changed', { detail: { from: this } }))
+  }
+
+  /** Whether a reet-shelf-changed event is this page's own. */
+  own(e: Event): boolean {
+    return e instanceof CustomEvent && e.detail?.from === this
   }
 
   /**
@@ -232,7 +245,7 @@ export class SkillsPageState {
         this.apply(data, status)
       }
       if (this.#started > seq) this.markStale(status)
-    })
+    }, { shared: true })
   }
 
   fail(e: unknown) {

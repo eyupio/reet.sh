@@ -218,19 +218,34 @@ func (s *server) skillsDelete(w http.ResponseWriter, r *http.Request) {
 		skillsPageError(w, err)
 		return
 	}
-	noCopy, written := []string{}, []string{}
+	noCopy, written, pages := []string{}, []string{}, 0
 	for _, it := range items {
 		if !it.HasCopy {
 			noCopy = append(noCopy, it.Name)
 		}
 		if it.Written {
 			written = append(written, it.Name)
+			if it.Published {
+				pages++
+			}
 		}
 	}
 	if len(written) > 0 && !in.WrittenConfirmed {
-		msg := "You wrote " + strings.Join(written, ", ") + ". Deleting it deletes your writing and its public page too."
+		// A public page is mentioned only where there is one.
+		them := "it"
 		if len(written) > 1 {
-			msg = "You wrote " + strings.Join(written, ", ") + ". Deleting them deletes your writing and their public pages too."
+			them = "them"
+		}
+		msg := "You wrote " + nameList(written) + ". Deleting " + them + " deletes your writing"
+		switch {
+		case pages == 0:
+			msg += " too."
+		case len(written) == 1:
+			msg += " and its public page too."
+		case pages == 1:
+			msg += " and a public page too."
+		default:
+			msg += " and their public pages too."
 		}
 		writeJSON(w, 409, map[string]any{"code": "written", "names": written, "error": msg, "message": msg})
 		return
@@ -274,7 +289,7 @@ func writeNoCopy(w http.ResponseWriter, names []string) {
 // skill the person wrote, or of one reet holds no copy of (err says which).
 // It says plainly that nothing was removed, and how to go ahead where one can.
 func writeNotRemoved(w http.ResponseWriter, err error, names []string) {
-	list := strings.Join(names, ", ")
+	list := nameList(names)
 	if errors.Is(err, store.ErrSkillWritten) {
 		msg := "You wrote " + list + ". Delete it from Write a skill."
 		if len(names) > 1 {
@@ -287,8 +302,23 @@ func writeNotRemoved(w http.ResponseWriter, err error, names []string) {
 	if len(names) > 1 {
 		msg = "reet has no copy of " + list + ", so they were not removed. Removing them deletes them from every machine, which keeps a backup for 30 days."
 	}
-	writeJSON(w, 409, map[string]any{"code": "no-copy", "names": names, "error": msg, "message": msg,
-		"hint": "Remove it again with noCopyConfirmed to delete it from every machine."})
+	hint := "Remove it again with noCopyConfirmed to delete it from every machine."
+	if len(names) > 1 {
+		hint = "Remove them again with noCopyConfirmed to delete them from every machine."
+	}
+	writeJSON(w, 409, map[string]any{"code": "no-copy", "names": names, "error": msg, "message": msg, "hint": hint})
+}
+
+// nameList names skills in a sentence: up to three, then how many more.
+// The full list goes in a refusal's names.
+func nameList(names []string) string {
+	switch {
+	case len(names) <= 1:
+		return strings.Join(names, "")
+	case len(names) <= 3:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+	return strings.Join(names[:3], ", ") + fmt.Sprintf(" and %d more", len(names)-3)
 }
 
 // skillsUndelete is Undo of Delete: body {"ids":[…]}.

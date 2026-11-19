@@ -70,10 +70,10 @@ type SkillsPage struct {
 }
 
 // SkillItemRef is a library skill a page action names. Written says the
-// person wrote it (origin written).
+// person wrote it (origin written), and Published that it has a public page.
 type SkillItemRef struct {
-	ID, Name, Status string
-	HasCopy, Written bool
+	ID, Name, Status            string
+	HasCopy, Written, Published bool
 }
 
 // skillDescriptionRead is how much of a SKILL.md is read for its
@@ -404,7 +404,9 @@ func (s *Store) SkillItemsFor(uid int64, ids []string) ([]SkillItemRef, error) {
 	out := make([]SkillItemRef, 0, len(ids))
 	for _, id := range ids {
 		var r SkillItemRef
-		err := s.db.QueryRow(`SELECT id,name,status,revision_id<>'',origin='written' FROM library_items WHERE user_id=? AND id=? AND item_type=? AND deleted_at=0 AND `+privateSkillAccount, uid, id, LibrarySkill, uid).Scan(&r.ID, &r.Name, &r.Status, &r.HasCopy, &r.Written)
+		err := s.db.QueryRow(`SELECT i.id,i.name,i.status,i.revision_id<>'',i.origin='written',
+ EXISTS(SELECT 1 FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' AND h.published=1)
+ FROM library_items i WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND `+privateSkillAccount, uid, id, LibrarySkill, uid).Scan(&r.ID, &r.Name, &r.Status, &r.HasCopy, &r.Written, &r.Published)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPrivateSkillMissing
 		}

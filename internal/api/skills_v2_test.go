@@ -918,3 +918,48 @@ func TestUseVersionRefusesALongItem(t *testing.T) {
 		t.Fatalf("a 65-byte item: %d %s", code, raw)
 	}
 }
+
+// A refusal of many skills names three of them and counts the rest; the
+// full list is in names.
+func TestOldRemoveRefusalNamesAFewAndCountsTheRest(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.fetch.set("", errors.New("offline"))
+	ids := []string{}
+	for _, name := range []string{"one", "two", "three", "four", "five"} {
+		e.linkedSkill(t, "a/b/"+name)
+		ids = append(ids, `"a/b/`+name+`"`)
+	}
+	code, raw := e.owner(t, "POST", "/api/skills/remove", `{"ids":[`+strings.Join(ids, ",")+`]}`)
+	var refusal struct {
+		Code, Error string
+		Names       []string
+	}
+	if err := json.Unmarshal([]byte(raw), &refusal); err != nil || code != 409 || len(refusal.Names) != 5 ||
+		refusal.Error != "reet has no copy of one, two, three and 2 more, so they were not removed. Removing them deletes them from every machine, which keeps a backup for 30 days." {
+		t.Fatalf("%d %s", code, raw)
+	}
+}
+
+// Delete's refusal of a skill the person wrote mentions its public page
+// only when it has one.
+func TestSkillsPageDeleteOfAWrittenSkillMentionsItsPageOnlyWhenPublished(t *testing.T) {
+	e := newReconcileEnv(t)
+	draft := e.writtenSkill(t, "draft")
+	code, raw := e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+draft+`"]}`)
+	if code != 409 || !strings.Contains(raw, `"error":"You wrote draft. Deleting it deletes your writing too."`) {
+		t.Fatalf("unpublished: %d %s", code, raw)
+	}
+	published := e.writtenSkill(t, "shared")
+	body := `{"content":"---\nname: shared\ndescription: Written in reet\n---\nBody.\n","published":true}`
+	if code, raw = e.owner(t, "PUT", "/api/v2/hosting/skills/shared", body); code != 200 {
+		t.Fatalf("publish: %d %s", code, raw)
+	}
+	code, raw = e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+published+`"]}`)
+	if code != 409 || !strings.Contains(raw, `"error":"You wrote shared. Deleting it deletes your writing and its public page too."`) {
+		t.Fatalf("published: %d %s", code, raw)
+	}
+	code, raw = e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+draft+`","`+published+`"]}`)
+	if code != 409 || !strings.Contains(raw, `"error":"You wrote draft and shared. Deleting them deletes your writing and a public page too."`) {
+		t.Fatalf("both: %d %s", code, raw)
+	}
+}

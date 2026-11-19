@@ -26,7 +26,6 @@
   } from './lib/api'
   import AccountMenu from './lib/AccountMenu.svelte'
   import WebMCP from './lib/WebMCP.svelte'
-  import HostedShelf from './lib/HostedShelf.svelte'
   import BootSkeleton from './lib/BootSkeleton.svelte'
   import RouteSkeleton from './lib/RouteSkeleton.svelte'
   import PageLoadError from './lib/PageLoadError.svelte'

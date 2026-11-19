@@ -45,6 +45,12 @@ test('retrySkill sends the items body', async () => {
 
 // The old shelf's Remove dialogs went with it: the Skills page deletes through deleteSkills, with the one dialog
 // deleteConfirm words (its sentences, backups included, are tested in skills/skillsPage.test.mjs).
+// The old shelf's written-skills block went with it; importing it anyway put it in the app's first download.
+test('the app no longer loads the old shelf blocks', () => {
+  const app = readFileSync(new URL('../App.svelte', import.meta.url), 'utf8')
+  for (const old of ['HostedShelf', 'SkillCard', 'BulkBar', 'MachineSkillSync']) assert.ok(!app.includes(old), `App.svelte still names ${old}`)
+})
+
 test('the Skills page deletes with the dialog deleteConfirm chooses, and the old Remove is gone', () => {
   const app = readFileSync(new URL('../App.svelte', import.meta.url), 'utf8')
   const page = readFileSync(new URL('./skills/SkillsPage.svelte', import.meta.url), 'utf8')

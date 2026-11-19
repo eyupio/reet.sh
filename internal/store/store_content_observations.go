@@ -195,10 +195,11 @@ type ObservedProjectSkill struct {
 }
 
 // ObservedProjectSkillsFor lists the skills machine agent last observed in
-// its project folders, from inventories still current. It only reads: a
+// its project folders, from complete inventories still current, leaving out
+// a skill read only in part or with issues. It only reads: a
 // project's skills belong to its repository and never become library items.
 func (s *Store) ObservedProjectSkillsFor(uid int64, agent string) ([]ObservedProjectSkill, error) {
-	rows, err := s.db.Query(`SELECT o.agent,o.project,o.skills FROM content_observation_scopes o JOIN sync_agents a ON a.id=o.agent_id AND a.user_id=o.user_id JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE AND e.agent=o.agent AND e.project=o.project JOIN environment_scans sc ON sc.env_id=e.id WHERE o.agent_id=? AND o.user_id=? AND o.project<>'' AND o.inventory_revision=sc.inventory_revision ORDER BY o.project,o.agent`, agent, uid)
+	rows, err := s.db.Query(`SELECT o.agent,o.project,o.skills FROM content_observation_scopes o JOIN sync_agents a ON a.id=o.agent_id AND a.user_id=o.user_id JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE AND e.agent=o.agent AND e.project=o.project JOIN environment_scans sc ON sc.env_id=e.id WHERE o.agent_id=? AND o.user_id=? AND o.project<>'' AND o.inventory_revision=sc.inventory_revision AND o.complete=1 AND sc.complete=1 ORDER BY o.project,o.agent`, agent, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +216,10 @@ func (s *Store) ObservedProjectSkillsFor(uid int64, agent string) ([]ObservedPro
 			return nil, err
 		}
 		for _, sk := range skills {
+			// A skill read only in part, or with issues, is left out.
+			if !sk.Complete || len(sk.Issues) > 0 {
+				continue
+			}
 			out = append(out, ObservedProjectSkill{Agent: scope.Agent, Project: scope.Project, Name: sk.Name})
 		}
 	}

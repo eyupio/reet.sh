@@ -206,10 +206,7 @@
       {#if row.health.machines.length}
         <ul class="machines" aria-label={`Machines for ${row.name}`}>
           {#each row.health.machines as m (m.host)}
-            <li>
-              <span class="mline"><span class="host">{m.host}</span><span class="state" data-tone={TONES[m.state] ?? 'off'}><span class="dot" aria-hidden="true"></span>{STATES[m.state] ?? m.state}</span></span>
-              {#if m.detail}<span class="mdetail">{m.detail}</span>{/if}
-            </li>
+            <li><span class="mline"><span class="host">{m.host}</span><span class="state" data-tone={TONES[m.state] ?? 'off'}><span class="dot" aria-hidden="true"></span>{STATES[m.state] ?? m.state}</span></span>{#if m.detail}<span class="mdetail">{m.detail}</span>{/if}</li>
           {/each}
         </ul>
       {:else}

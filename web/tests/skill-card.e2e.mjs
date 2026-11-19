@@ -81,7 +81,8 @@ try {
   await name.click()
   await expect(name).toHaveAttribute('aria-expanded', 'true')
   const list = page.getByRole('list', {name:'Machines for seo-cluster'})
-  await expect(list.getByRole('listitem')).toHaveText(['ElitebookInstalled', 'ThinkPadFailed: no write access', 'studioInstalling'])
+  // Each machine, its state, and why when it failed, on a line of its own.
+  await expect(list.getByRole('listitem')).toHaveText([/^Elitebook\s*Installed$/, /^ThinkPad\s*Failed\s*no write access$/, /^studio\s*Installing$/])
   await name.click()
   await expect(list).toHaveCount(0)
   expect(errors).toEqual([])

@@ -69,6 +69,8 @@ browser closing. `cd web && npm run check`; the full `start-agent.e2e.mjs` passe
 
 **Docs.** [docs/start-agent-session.md](docs/start-agent-session.md) and README name the browser.
 
+**Merged.** [#848](https://github.com/eyupio/reet.sh/pull/848) as `28c22e4b`.
+
 ## USAGE-1: one Usage page for every agent, and plan limits always on (18 November 2026)
 
 The owner asked: "Add a single usage page for all agents, plus on by default." Asked in turn, they chose: the page

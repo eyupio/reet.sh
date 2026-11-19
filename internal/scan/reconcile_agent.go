@@ -329,11 +329,17 @@ func postSkillReport(ctx context.Context, c agentConfig, config string, rep stor
 // time, so the agent never sends one.
 const skillReportMaxEntries = 8192
 
+// skillReportMaxBytes is the most a report's JSON body may take, well under
+// the controller's 8 MiB body limit (skillReportMaxEntries KiB), so long
+// details and paths cannot make a report it refuses every time.
+const skillReportMaxBytes = 6 << 20
+
 // skillReportCut is the entry that ends a report cut to the cap; the
 // controller reads it as SkillReport.Cut.
 var skillReportCut = store.SkillReportEntry{Name: store.SkillReportCutName, State: "failed", Detail: store.SkillReportCutDetail}
 
-// capSkillReport keeps rep within skillReportMaxEntries. Past it, the report
+// capSkillReport keeps rep within skillReportMaxEntries and
+// skillReportMaxBytes. Past either, the report
 // carries entries in a stable order, by folder and name, that keeps each
 // skill's entries in the order they were made: first every entry that names
 // a backup, which may be the only record of someone's work; then every entry
@@ -341,7 +347,11 @@ var skillReportCut = store.SkillReportEntry{Name: store.SkillReportCutName, Stat
 // confirming the removal; then the first of the rest; and last one failed
 // entry saying some are not shown.
 func capSkillReport(rep store.SkillReport, removals []store.DesiredRemoval) store.SkillReport {
-	if len(rep.Entries) <= skillReportMaxEntries {
+	size := func(v any) int {
+		b, _ := json.Marshal(v)
+		return len(b) + 1 // and the comma before it
+	}
+	if len(rep.Entries) <= skillReportMaxEntries && size(rep) <= skillReportMaxBytes {
 		return rep
 	}
 	entries := slices.Clone(rep.Entries)
@@ -361,12 +371,16 @@ func capSkillReport(rep store.SkillReport, removals []store.DesiredRemoval) stor
 		func(store.SkillReportEntry) bool { return true },
 	}
 	room := skillReportMaxEntries - 1
+	bytesLeft := skillReportMaxBytes - size(store.SkillReport{Version: rep.Version, Blocked: rep.Blocked, Entries: []store.SkillReportEntry{skillReportCut}})
 	keep := make([]bool, len(entries))
 	for _, wants := range wanted {
 		for i, e := range entries {
 			if room > 0 && !keep[i] && wants(e) {
-				keep[i] = true
-				room--
+				if n := size(e); n <= bytesLeft {
+					keep[i] = true
+					room--
+					bytesLeft -= n
+				}
 			}
 		}
 	}

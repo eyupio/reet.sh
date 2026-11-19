@@ -2909,3 +2909,34 @@ func TestSkillInventoryReportsAnUnreadableFolderAsFailed(t *testing.T) {
 		}
 	}
 }
+
+// A report is cut by size as well as by count, well under the controller's
+// 8 MiB body limit, keeping the same order: backups first, then removals.
+func TestCapSkillReportKeepsTheBodyUnderTheControllersLimit(t *testing.T) {
+	long := strings.Repeat("x", 4<<10)
+	var entries []store.SkillReportEntry
+	for i := range 3000 {
+		entries = append(entries, store.SkillReportEntry{Folder: "~/.agents/skills", Name: fmt.Sprintf("a%04d", i), State: "failed", Detail: long})
+	}
+	entries = append(entries,
+		store.SkillReportEntry{Folder: "~/.agents/skills", Name: "zz-edited", State: "edited", Digest: strings.Repeat("e", 64), Backup: "~/.agents/.reet-backups/2026-11-19/.agents-zz-edited", Detail: long},
+		store.SkillReportEntry{Folder: "~/.agents/skills", Name: "zz-archived", State: "installed", Detail: long})
+	cut := capSkillReport(store.SkillReport{Version: "v1", Entries: entries}, []store.DesiredRemoval{{Name: "zz-archived", Reason: "archived"}})
+	b, err := json.Marshal(cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > skillReportMaxBytes {
+		t.Fatalf("a %d-byte report is over %d", len(b), skillReportMaxBytes)
+	}
+	if n := len(cut.Entries); n < 2 || cut.Entries[n-1] != skillReportCut {
+		t.Fatalf("the cut report does not end with the cut entry: %d entries", n)
+	}
+	names := map[string]bool{}
+	for _, e := range cut.Entries {
+		names[e.Name] = true
+	}
+	if !names["zz-edited"] || !names["zz-archived"] {
+		t.Fatal("the backup or the removal was left out")
+	}
+}

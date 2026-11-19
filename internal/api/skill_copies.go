@@ -402,7 +402,21 @@ func (s *server) originalChanges(ctx context.Context, uid int64, item string) (s
 	if err != nil {
 		return skillbundle.Diff{}, "", "", false, err
 	}
-	return skillbundle.Compare(current, &res.Manifest), res.Manifest.Digest, revision, edited, nil
+	return compareWithCopy(current, &res.Manifest), res.Manifest.Digest, revision, edited, nil
+}
+
+// compareWithCopy compares reet's copy of a skill with its original. A skill
+// with no copy yet (current is nil) gets every file of the original as new.
+func compareWithCopy(current, original *skillbundle.Manifest) skillbundle.Diff {
+	if current != nil || original == nil {
+		return skillbundle.Compare(current, original)
+	}
+	diff := skillbundle.Diff{State: "changed", Changes: []skillbundle.Change{}}
+	for _, f := range original.Files {
+		file := f
+		diff.Changes = append(diff.Changes, skillbundle.Change{Path: file.Path, Kind: "added", After: &file})
+	}
+	return diff
 }
 
 func originalError(w http.ResponseWriter, err error) {
@@ -453,13 +467,16 @@ func (s *server) skillOriginalChanges(w http.ResponseWriter, r *http.Request) {
 // at the revision that was compared (409 otherwise) and differs from reet's copy.
 func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Digest   string `json:"digest"`
-		Revision string `json:"revision"`
+		Digest string `json:"digest"`
+		// Revision is the revision GET compared against: "" for a skill
+		// that had no content, whose update is then its first fetch. It
+		// must be sent either way.
+		Revision *string `json:"revision"`
 	}
 	if !decodeStrictJSON(w, r, skillCopyBodyLimit, &in, "Invalid or oversized update request.") {
 		return
 	}
-	if in.Revision == "" {
+	if in.Revision == nil {
 		writeErr(w, 400, "Say which revision you looked at. Review the changes again.")
 		return
 	}
@@ -477,7 +494,9 @@ func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "The original changed since you looked at it. Review the changes again.")
 		return
 	}
-	if revision != in.Revision {
+	// A revision of "" is accepted only while the skill still has no content;
+	// content that landed meanwhile makes it stale like any other.
+	if revision != *in.Revision {
 		writeErr(w, 409, "The skill changed since you looked at it. Review the changes again.")
 		return
 	}
@@ -486,11 +505,11 @@ func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 		originalError(w, err)
 		return
 	}
-	if skillbundle.Compare(current, &res.Manifest).State == "equal" {
+	if compareWithCopy(current, &res.Manifest).State == "equal" {
 		writeJSON(w, 200, map[string]any{"updated": false, "digest": res.Manifest.Digest, "edited": edited})
 		return
 	}
-	if _, err = s.st.SetSkillContentFromFor(uid, item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin}, in.Revision); err != nil {
+	if _, err = s.st.SetSkillContentFromFor(uid, item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin}, *in.Revision); err != nil {
 		if errors.Is(err, store.ErrPrivateSkillConflict) {
 			writeErr(w, 409, "The skill changed since you looked at it. Review the changes again.")
 			return

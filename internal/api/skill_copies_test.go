@@ -327,10 +327,12 @@ func TestOriginalRefusesWhenTheSkillChangedDuringTheDownload(t *testing.T) {
 		t.Fatalf("GET original: %d %s", code, body)
 	}
 	url := "/api/v2/skills/" + item + "/original"
-	for _, in := range []string{`{"digest":"` + r.Digest + `"}`, `{"digest":"` + r.Digest + `","revision":""}`} {
-		if code, body := do(t, e.srv, "POST", url, in); code != 400 {
-			t.Fatalf("a missing revision is a 400: %d %s", code, body)
-		}
+	if code, body := do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`"}`); code != 400 {
+		t.Fatalf("a missing revision is a 400: %d %s", code, body)
+	}
+	// Revision "" says the person looked at a skill with no content; this one has some (ruling R38).
+	if code, body := do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`","revision":""}`); code != 409 {
+		t.Fatalf("revision \"\" for a skill with content is stale: %d %s", code, body)
 	}
 	// An edit lands after the person looked, before they confirmed.
 	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: find-skills\ndescription: Mine\n---\nedited during the download\n")}}
@@ -710,5 +712,81 @@ func TestOriginalDownloadsAreLimitedPerAccount(t *testing.T) {
 	}
 	if code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", ""); code != 200 {
 		t.Fatalf("after they finished: %d %s", code, body)
+	}
+}
+
+// An imported skill reet could not fetch has no content, so GET /original
+// compares against nothing and answers revision "". Update from original is
+// then its first fetch: POST with revision "" is accepted while the skill still
+// has no content (ruling R38).
+func TestOriginalUpdateIsTheFirstFetchOfASkillWithoutContent(t *testing.T) {
+	e := newCopyEnv(t)
+	e.fetch.set("", skillfetch.ErrNotFound)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	if li, err := e.st.LibraryItemFor(e.uid, item); err != nil || li.RevisionID != "" {
+		t.Fatalf("the failed fetch must leave no content: %+v %v", li, err)
+	}
+	e.fetch.set("v1", nil)
+	url := "/api/v2/skills/" + item + "/original"
+	var r struct {
+		Changes  []struct{ Path, Kind string }
+		Digest   string
+		Revision string
+	}
+	code, body := do(t, e.srv, "GET", url, "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil || r.Revision != "" || r.Digest == "" || len(r.Changes) != 1 || r.Changes[0].Kind != "added" {
+		t.Fatalf("GET original of a skill with no content: %d %s", code, body)
+	}
+	// A missing revision is still a 400: the client must say what it looked at.
+	if code, body := do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`"}`); code != 400 {
+		t.Fatalf("a missing revision: %d %s", code, body)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`","revision":""}`)
+	if code != 200 || !strings.Contains(body, `"updated":true`) {
+		t.Fatalf("the first fetch through Update from original: %d %s", code, body)
+	}
+	li, err := e.st.LibraryItemFor(e.uid, item)
+	if err != nil || li.RevisionID == "" {
+		t.Fatalf("the skill must now have content: %+v %v", li, err)
+	}
+	// Now that it has content, revision "" says the person looked at nothing.
+	if code, body := do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`","revision":""}`); code != 409 {
+		t.Fatalf("revision \"\" once the skill has content: %d %s", code, body)
+	}
+}
+
+// Content that lands after the person looked at a skill with no content (the
+// background fetch, say) makes their revision "" stale: 409, and the content
+// that landed stays.
+func TestOriginalFirstFetchRefusedWhenContentLandedMeanwhile(t *testing.T) {
+	e := newCopyEnv(t)
+	e.fetch.set("", skillfetch.ErrNotFound)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	e.fetch.set("v1", nil)
+	url := "/api/v2/skills/" + item + "/original"
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", url, "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil || r.Revision != "" {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: find-skills\ndescription: Finds skills\n---\nv1\n")}}
+	landed, err := e.st.SetSkillContentFor(e.uid, item, files, store.PrivateSkillOrigin{Kind: "original", Reference: findSkillsOrigin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"digest":"`+r.Digest+`","revision":""}`)
+	if code != 409 || !strings.Contains(body, "changed") {
+		t.Fatalf("content landed meanwhile: %d %s", code, body)
+	}
+	if li, err := e.st.LibraryItemFor(e.uid, item); err != nil || li.RevisionID != landed.Revision.ID {
+		t.Fatalf("the content that landed must stay the head: %+v %v", li, err)
 	}
 }

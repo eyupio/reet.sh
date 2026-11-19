@@ -22,6 +22,14 @@ test('one adopted file reads as "1 file", and a release without a name still rea
   assert.equal(eventLabel(event('skill-content-release', { receiptId: 'a'.repeat(48) })), 'Released ownership of a skill')
   assert.equal(eventLabel(event('skill-content-release')), 'Released ownership of a skill')
 })
+// The bookmarklet's Add (already) and the Skills page's Add (created) record a skill that was in the library already;
+// the activity says so rather than "Added".
+test('an Add of a skill already in the library says it was there', () => {
+  assert.equal(eventLabel(event('add', { name: 'demo', already: true })), 'demo was already in your library')
+  assert.equal(eventLabel(event('add', { name: 'demo', created: false })), 'demo was already in your library')
+  assert.equal(eventLabel(event('add', { name: 'demo', already: false })), 'Added demo')
+  assert.equal(eventLabel(event('add', { name: 'demo', created: true })), 'Added demo')
+})
 test('other activity labels are unchanged', () => {
   assert.equal(eventLabel(event('add', { name: 'demo' })), 'Added demo')
   assert.equal(eventLabel(event('merge-machines', { from: 'old', to: 'new' })), 'Consolidated machine old as new')

@@ -27,7 +27,7 @@ type Detail = {
   from?: string
   to?: string
   imported?: number
-  created?: number
+  created?: number | boolean
   ignored?: number
   pruned?: number
   restored?: number
@@ -170,7 +170,8 @@ export function eventLabel(e: Event): string {
     case 'sync-agent-update': return `Queued a reet update for ${d.name || 'a machine'}`
     case 'sync-agent-auto-update': return `Queued a reet update for ${d.name || 'a machine'} automatically`
     case 'add':
-      return `Added ${name}`
+      // A skill already in the library, added again (the bookmarklet's Add says `already`, the Skills page's `created`).
+      return d.already || d.created === false ? `${name} was already in your library` : `Added ${name}`
     case 'like':
       return `Liked ${name}`
     case 'unlike':

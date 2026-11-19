@@ -264,11 +264,11 @@ library, or **Archived**, kept in reet and on no machine.
 
 | Tool | What happens on your machines |
 | --- | --- |
-| `reet_list_skills` | Nothing. `status: "active"` or `"archived"` narrows the list, and each skill carries its `status`. |
-| `reet_list_archived` | Nothing. Lists Archived skills, each with its library `id`, its `shelfId` (the ID the other tools take, where it has one) and `counts` of Active and Archived skills. |
+| `reet_list_skills` | Nothing. `status: "active"` or `"archived"` narrows the list, and each skill carries its `status`. A skill with no shelf entry, such as one you wrote and never published, is listed by its library id, with no likes, tags or machines, so a filter on those leaves it out. |
+| `reet_list_archived` | Nothing. Lists Archived skills, each with its library `id`, its `shelfId` (its ID in `reet_list_skills`, where it has one) and `counts` of Active and Archived skills. Its `name` is the skill's folder name, the name machines know it by; `reet_list_skills` shows the display name. |
 | `reet_update_skill` | `status: "archived"` takes the skill off every machine, and each machine keeps a backup for 30 days. `status: "active"` installs it on every machine again. Likes and notes change nothing on machines. |
 | `reet_restore_skill` | Makes an Archived skill Active: it is installed on every machine again. |
-| `reet_bulk_update_skills` | The same as `reet_update_skill`, for up to 500 skills, with a dry run. |
+| `reet_bulk_update_skills` | The same as `reet_update_skill`, for up to 500 skills, with a dry run. An archived skill reet has no copy of is copied in first, as on the Skills page. |
 | `reet_remove_skill` | Deletes the skill: it is removed from every machine, and each machine keeps a backup for 30 days. |
 | `reet_add_skill` | A new skill is Active and installed on every machine, unless `status: "archived"`. |
 

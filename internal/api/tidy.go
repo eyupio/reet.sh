@@ -554,7 +554,16 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !in.DryRun {
-		s.eventRequest(r, "bulk-update", "", map[string]any{"count": updated, "failed": failed, "add_tags": in.AddTags, "remove_tag_ids": in.RemoveTagIDs, "list": in.AddToListID})
+		detail := map[string]any{"count": updated, "failed": failed, "add_tags": in.AddTags, "remove_tag_ids": in.RemoveTagIDs, "list": in.AddToListID}
+		if in.Status != "" {
+			detail["status"] = in.Status
+		}
+		s.eventRequest(r, "bulk-update", "", detail)
+		// As the Skills page's Archive does: a skill reet has no copy of is
+		// copied in before it leaves any machine.
+		if in.Status != "" || in.Stage != "" {
+			s.kickSkillCopies(s.uid(r))
+		}
 	}
 	writeJSON(w, 200, map[string]any{"dry_run": in.DryRun, "updated": updated, "failed": failed, "results": results})
 }

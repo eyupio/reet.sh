@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/ref"
+	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -114,5 +116,83 @@ func TestMCPSkillToolsArchiveRestoreAndDelete(t *testing.T) {
 	}
 	if got := mcpData(t, session, "reet_remove_skill", map[string]any{"id": shelf}); got["deleted"] != float64(1) || e.live(t, item) {
 		t.Fatalf("delete: %+v", got)
+	}
+}
+
+// Archiving many skills at once does what the Skills page's Archive does: a
+// skill reet has no copy of is copied in before it leaves any machine, and
+// the event says which status they went to.
+func TestBulkStatusStartsTheCopyPassAndSaysTheStatus(t *testing.T) {
+	e := newReconcileEnv(t)
+	r, err := ref.Parse("vercel-labs/skills/find-skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.st.UpsertFor(e.uid, r, store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	skills, _, err := e.st.ListFor(e.uid, store.Filter{})
+	if err != nil || len(skills) != 1 {
+		t.Fatal(skills, err)
+	}
+	item := skills[0].LibraryItemID
+	if items, err := e.st.SkillItemsFor(e.uid, []string{item}); err != nil || items[0].HasCopy {
+		t.Fatalf("the skill started with a copy: %+v %v", items, err)
+	}
+	if code, raw := e.owner(t, "POST", "/api/v2/skills/bulk", `{"ids":["`+skills[0].ID+`"],"status":"archived","dry_run":true}`); code != 200 {
+		t.Fatalf("dry run: %d %s", code, raw)
+	}
+	e.settle()
+	if items, _ := e.st.SkillItemsFor(e.uid, []string{item}); items[0].HasCopy || items[0].Status != "active" {
+		t.Fatalf("a dry run changed something: %+v", items[0])
+	}
+	if code, raw := e.owner(t, "POST", "/api/v2/skills/bulk", `{"ids":["`+skills[0].ID+`"],"status":"archived"}`); code != 200 {
+		t.Fatalf("bulk archive: %d %s", code, raw)
+	}
+	e.settle()
+	items, err := e.st.SkillItemsFor(e.uid, []string{item})
+	if err != nil || items[0].Status != "archived" || !items[0].HasCopy {
+		t.Fatalf("bulk archive did not copy the skill in: %+v %v", items, err)
+	}
+	code, raw := e.owner(t, "GET", "/api/events?action=bulk-update&limit=5", "")
+	if code != 200 || !strings.Contains(raw, `\"status\":\"archived\"`) {
+		t.Fatalf("the bulk event does not say the status: %d %s", code, raw)
+	}
+}
+
+// Ruling R47: reet_list_skills also lists library skills with no shelf row,
+// such as one this account wrote and never published, by their library id,
+// so an agent can find what it can archive or delete.
+func TestMCPListSkillsIncludesLibrarySkillsWithNoShelfRow(t *testing.T) {
+	e := newReconcileEnv(t)
+	session := e.mcpWriteSession(t)
+	written := e.writtenSkill(t, "alpha")
+	find := func(args map[string]any) map[string]any {
+		t.Helper()
+		for _, raw := range mcpData(t, session, "reet_list_skills", args)["items"].([]any) {
+			if sk := raw.(map[string]any); sk["id"] == written {
+				return sk
+			}
+		}
+		return nil
+	}
+	sk := find(map[string]any{"status": "active"})
+	if sk == nil || sk["name"] != "alpha" || sk["status"] != "active" {
+		t.Fatalf("the written skill is not listed as active: %+v", sk)
+	}
+	if sk = find(map[string]any{"q": "alph", "compact": true}); sk == nil || sk["status"] != "active" || sk["sourceType"] != "written" {
+		t.Fatalf("a search does not find the written skill: %+v", sk)
+	}
+	if find(map[string]any{"status": "archived"}) != nil || find(map[string]any{"tab": "liked"}) != nil {
+		t.Fatal("the written skill is listed under a filter it does not match")
+	}
+	if got := mcpData(t, session, "reet_get_skill", map[string]any{"id": written}); got["name"] != "alpha" {
+		t.Fatalf("get_skill by library id: %+v", got)
+	}
+	if got := mcpData(t, session, "reet_update_skill", map[string]any{"id": written, "status": "archived"}); got["status"] != "archived" {
+		t.Fatalf("archive by library id: %+v", got)
+	}
+	if find(map[string]any{"status": "archived"}) == nil || find(map[string]any{"status": "active"}) != nil {
+		t.Fatal("the archived written skill is not listed as archived")
 	}
 }

@@ -447,3 +447,30 @@ func (s *Store) DeletedSkillItemsFor(uid int64, ids []string) error {
 	}
 	return nil
 }
+
+// LibrarySkillsWithoutShelfFor lists the live library skills no visible shelf
+// row stands for, such as one written in reet and never published, as skills
+// keyed by their library id, in name order. SourceType says how each arrived
+// (written, imported or kept). The shelf listing does not show them.
+func (s *Store) LibrarySkillsWithoutShelfFor(uid int64) ([]Skill, error) {
+	rows, err := s.db.Query(`SELECT i.id,i.name,i.status,i.origin,i.created_at,i.updated_at,
+ COALESCE((SELECT h.description FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' ORDER BY h.slug LIMIT 1),'')
+ FROM library_items i WHERE i.user_id=? AND i.item_type=? AND i.deleted_at=0 AND `+privateSkillAccount+`
+ AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference JOIN skills k ON k.id=a.reference AND k.hidden=0 WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf')
+ ORDER BY lower(i.name),i.id`, uid, LibrarySkill, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Skill{}
+	for rows.Next() {
+		var sk Skill
+		var origin string
+		if err = rows.Scan(&sk.ID, &sk.Name, &sk.Status, &origin, &sk.CreatedAt, &sk.UpdatedAt, &sk.Description); err != nil {
+			return nil, err
+		}
+		sk.LibraryItemID, sk.Slug, sk.SourceType = sk.ID, sk.Name, skillOriginKind(origin, false)
+		out = append(out, sk)
+	}
+	return out, rows.Err()
+}

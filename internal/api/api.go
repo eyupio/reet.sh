@@ -1244,6 +1244,9 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 	filter.Compact = compact
 	filter.Canonical = canonicalShelfListing(filter)
 	skills, counts, err := s.st.ListFor(s.uid(r), filter)
+	if err == nil && q.Get("library") == "1" {
+		skills, err = s.withLibraryOnlySkills(s.uid(r), filter, skills)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1313,6 +1316,60 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"skills": skills, "counts": counts})
+}
+
+// withLibraryOnlySkills adds, for library=1 (the MCP tools), the library
+// skills no shelf row stands for, such as one written and never published,
+// keyed by library id (ruling R47). They have no likes, tags or machines, so
+// a filter on those leaves them out; text matches name, id and description.
+// The whole list is put back in the listing's order. A paged listing is left
+// as it is.
+func (s *server) withLibraryOnlySkills(uid int64, f store.Filter, skills []store.Skill) ([]store.Skill, error) {
+	if f.Limit > 0 || f.Offset > 0 || (f.Tab != "" && f.Tab != "all") || len(f.Tags) > 0 || f.Env != "" || f.Machine != "" || f.Only != "" || f.SourceType != "" {
+		return skills, nil
+	}
+	switch f.Stage {
+	case "", store.SkillActive, store.SkillArchived:
+	default:
+		return skills, nil
+	}
+	term := strings.ToLower(strings.TrimSpace(f.Query))
+	if strings.Contains(term, "#") {
+		return skills, nil
+	}
+	extra, err := s.st.LibrarySkillsWithoutShelfFor(uid)
+	if err != nil || len(extra) == 0 {
+		return skills, err
+	}
+	for _, sk := range extra {
+		if f.Stage != "" && sk.Status != f.Stage {
+			continue
+		}
+		if term != "" && !strings.Contains(strings.ToLower(sk.Name+"\n"+sk.ID+"\n"+sk.Description), term) {
+			continue
+		}
+		if f.Compact {
+			sk.Tags = []store.Tag{}
+		}
+		skills = append(skills, sk)
+	}
+	sort.SliceStable(skills, func(i, j int) bool {
+		a, b := skills[i], skills[j]
+		switch f.Sort {
+		case "name":
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		case "installs":
+			if a.Installs != b.Installs {
+				return a.Installs > b.Installs
+			}
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		}
+		if a.UpdatedAt != b.UpdatedAt {
+			return a.UpdatedAt > b.UpdatedAt
+		}
+		return a.CreatedAt > b.CreatedAt
+	})
+	return skills, nil
 }
 
 // compactSkill is the default compact listing shape. A struct marshals much

@@ -428,6 +428,8 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	case "reet_list_skills", "reet_get_skill":
 		path = "/api/skills"
 		collectionKey = "skills"
+		// Library skills no shelf row stands for are listed too, by library id.
+		query.Set("library", "1")
 		for _, key := range []string{"q", "tab", "status", "sort", "env", "machine", "only"} {
 			if v := str(key); v != "" {
 				query.Set(key, v)
@@ -575,7 +577,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				return sk, nil
 			}
 		}
-		return nil, errors.New("skill not found in this account's library")
+		return nil, errMCPSkillNotFound
 	case "reet_list_skills":
 		meta["counts"] = data["counts"]
 	case "reet_list_environments":

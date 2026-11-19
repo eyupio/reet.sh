@@ -1306,7 +1306,7 @@
   {
     "name": "reet_list_skills",
     "title": "Search your skills",
-    "description": "Search your skills’ names, IDs, descriptions and notes. Each skill’s status is active (on every machine that follows the library) or archived (kept in reet and taken off every machine). Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, status, liked, tags and environment_count; use it to page a large library. Does not change anything. Example: {status:\"archived\",compact:true,limit:100}. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
+    "description": "Search your skills’ names, IDs, descriptions and notes. A skill with no shelf entry, such as one written in reet and never published, is listed by its library id. Each skill’s status is active (on every machine that follows the library) or archived (kept in reet and taken off every machine). Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, status, liked, tags and environment_count; use it to page a large library. Does not change anything. Example: {status:\"archived\",compact:true,limit:100}. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5923,7 +5923,7 @@
   {
     "name": "reet_list_archived",
     "title": "List Archived skills",
-    "description": "List your Archived skills: kept in reet and on no machine. Each machine kept a backup for 30 days of what archiving took off it. Each item has its library id, its shelfId (the ID other tools take) where it has one, name, description, where it came from, whether reet holds a copy, and its health. counts gives how many skills are Active and Archived. Restore one with reet_restore_skill. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
+    "description": "List your Archived skills: kept in reet and on no machine. Each machine kept a backup for 30 days of what archiving took off it. Each item has its library id; its shelfId, where it has one: shelfId is its ID in reet_list_skills, which shows the skill’s display name; name is the skill’s folder name, the name machines know it by; and its description, where it came from, whether reet holds a copy, and its health. counts gives how many skills are Active and Archived. Restore one with reet_restore_skill. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
     "inputSchema": {
       "type": "object",
       "properties": {

@@ -980,3 +980,45 @@ func TestListForLeavesOutDeletedSkills(t *testing.T) {
 		t.Fatalf("Undo did not bring it back: %v", got)
 	}
 }
+
+// LibrarySkillsWithoutShelfFor lists live library skills no shelf row stands
+// for, such as one written and never published, with their status, and
+// leaves out deleted ones and skills a shelf row stands for.
+func TestLibrarySkillsWithoutShelfFor(t *testing.T) {
+	s := newStore(t)
+	uid, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := ref.Parse("demo/skills/shelved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.UpsertFor(uid, r, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	for _, slug := range []string{"alpha", "beta"} {
+		if _, err = s.SaveHostedSkill(uid, HostedSkill{Slug: slug, Content: "---\nname: " + slug + "\ndescription: Written " + slug + "\n---\nBody.\n"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.LibrarySkillsWithoutShelfFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Name != "alpha" || got[1].Name != "beta" || got[0].ID != got[0].LibraryItemID || got[0].Status != SkillActive || got[0].SourceType != "written" || got[0].Description != "Written alpha" {
+		t.Fatalf("library skills without a shelf row: %+v", got)
+	}
+	if err = s.SetSkillStatusFor(uid, []string{got[0].ID}, SkillArchived, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DeleteSkillsFor(uid, []string{got[1].ID}, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.LibrarySkillsWithoutShelfFor(uid); err != nil || len(got) != 1 || got[0].Name != "alpha" || got[0].Status != SkillArchived {
+		t.Fatalf("after archive and delete: %+v %v", got, err)
+	}
+}

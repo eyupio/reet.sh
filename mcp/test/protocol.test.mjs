@@ -49,6 +49,9 @@ test('skill tools speak Active, Archived and Delete, and say what happens on mac
     assert.match(byName[name].description, /backup for 30 days/, name);
   }
   assert.match(byName.reet_restore_skill.description, /every machine/);
+  // list_archived says which name it shows and how its rows join reet_list_skills.
+  assert.match(byName.reet_list_archived.description, /name is the skill’s folder name/);
+  assert.match(byName.reet_list_archived.description, /shelfId is its ID in reet_list_skills/);
   assert.doesNotMatch(byName.reet_merge_machines.description, /sync plans/);
 });
 
@@ -124,6 +127,25 @@ test('shelf mutation, tags, event history, archive, restore and delete round tri
   assert.ok(!(await call(client, 'list_skills', { status: 'active', limit: 100 })).items.some(s => s.id === added.id));
   assert.ok(!(await call(client, 'list_archived', { limit: 100 })).items.some(s => s.shelfId === added.id));
   await assert.rejects(call(client, 'restore_skill', { id: 'demo/skills/never-added' }), /not found/);
+  await assert.rejects(call(client, 'get_skill', { id: 'demo/skills/never-added' }), { message: 'Skill not found in this account’s library. Use reet_list_skills or reet_list_archived to find its ID.' });
+});
+
+test('a skill written in reet and never published is listed by its library id, and archived and deleted by it', async () => {
+  const put = await fetch(`${api.url}/api/v2/hosting/skills/reet-field-notes`, {
+    method: 'PUT', headers: { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: '---\nname: reet-field-notes\ndescription: Written in reet\n---\nBody.\n', files: {} }),
+  });
+  assert.equal(put.status, 200, await put.text());
+  const listed = (await call(client, 'list_skills', { status: 'active', limit: 100 })).items.find(s => s.name === 'reet-field-notes');
+  assert.match(listed.id, /^[0-9a-f]{32}$/);
+  assert.equal(listed.status, 'active');
+  assert.equal((await call(client, 'list_skills', { q: 'field-notes', compact: true })).items[0].id, listed.id);
+  assert.equal((await call(client, 'get_skill', { id: listed.id })).name, 'reet-field-notes');
+  assert.equal((await call(client, 'update_skill', { id: listed.id, status: 'archived' })).status, 'archived');
+  assert.ok((await call(client, 'list_skills', { status: 'archived' })).items.some(s => s.id === listed.id));
+  await assert.rejects(call(client, 'remove_skill', { id: listed.id }), /HTTP 409 \[written\]: You wrote reet-field-notes\. Deleting it deletes your writing too\. Delete it again with writtenConfirmed/);
+  assert.deepEqual(await call(client, 'remove_skill', { id: listed.id, writtenConfirmed: true }), { deleted: 1 });
+  assert.ok(!(await call(client, 'list_skills', { limit: 100 })).items.some(s => s.id === listed.id));
 });
 
 test('personal list creation and list notes use the real API contracts', async () => {

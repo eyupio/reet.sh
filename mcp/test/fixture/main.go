@@ -94,6 +94,8 @@ func main() {
 			check(st.AddListSkill(l.ID, "demo/skills/"+slug, "Review before adoption", uid))
 		}
 	}
+	// A publishing username lets the tests write a skill in reet.
+	check(st.ClaimPublishingUsername(uid, "fixture"))
 	mode := api.AuthToken
 	if len(os.Args) > 1 && os.Args[1] == "accounts" {
 		mode = api.AuthAccounts

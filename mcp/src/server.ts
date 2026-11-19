@@ -158,7 +158,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     confirm: confirmed,
   }, factoryConnectionRequired, { write: true });
 
-  tool('list_skills', 'Search your skills', 'Search your skills’ names, IDs, descriptions and notes. Each skill’s status is active (on every machine that follows the library) or archived (kept in reet and taken off every machine). Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, status, liked, tags and environment_count; use it to page a large library. Does not change anything. Example: {status:"archived",compact:true,limit:100}.', {
+  tool('list_skills', 'Search your skills', 'Search your skills’ names, IDs, descriptions and notes. A skill with no shelf entry, such as one written in reet and never published, is listed by its library id. Each skill’s status is active (on every machine that follows the library) or archived (kept in reet and taken off every machine). Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, status, liked, tags and environment_count; use it to page a large library. Does not change anything. Example: {status:"archived",compact:true,limit:100}.', {
     ...pagination,
     q: z.string().max(500).optional().describe('Search text, e.g. testing #development.'),
     tab: z.enum(['all', 'liked']).optional().describe('Optional flag filter.'),
@@ -176,14 +176,16 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     for (const tag of tags ?? []) query.append('tag', String(tag));
     // The compact shape is always named field by field, so it carries status and no retired stage flags.
     if (compact || fields?.length) query.set('fields', (fields?.length ? fields : compactFields).join(','));
+    // Library skills no shelf row stands for, such as one written and never published, are listed too, by library id.
+    query.set('library', '1');
     const data = await client.request('/api/skills', 'GET', undefined, query);
     return page(collection(data, 'skills'), { limit, offset }, { counts: data.counts });
   });
 
   tool('get_skill', 'Get a skill', 'Get one of your skills by exact ID, including its status, notes, likes, tags and environments. Use reet_list_skills to discover IDs. Does not change anything.', { id }, async ({ id }) => {
-    const data = await client.request('/api/skills', 'GET', undefined, new URLSearchParams({ q: id }));
+    const data = await client.request('/api/skills', 'GET', undefined, new URLSearchParams({ q: id, library: '1' }));
     const skill = collection(data, 'skills').find(skill => skill.id === id);
-    if (!skill) throw new Error('Skill not found on this account’s shelf. Use reet_list_skills to find its exact ID.');
+    if (!skill) throw new Error('Skill not found in this account’s library. Use reet_list_skills or reet_list_archived to find its ID.');
     return skill;
   });
 
@@ -403,7 +405,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return client.request('/api/events', 'GET', undefined, query);
   });
 
-  tool('list_archived', 'List Archived skills', 'List your Archived skills: kept in reet and on no machine. Each machine kept a backup for 30 days of what archiving took off it. Each item has its library id, its shelfId (the ID other tools take) where it has one, name, description, where it came from, whether reet holds a copy, and its health. counts gives how many skills are Active and Archived. Restore one with reet_restore_skill. Does not change anything.', pagination, async args => {
+  tool('list_archived', 'List Archived skills', 'List your Archived skills: kept in reet and on no machine. Each machine kept a backup for 30 days of what archiving took off it. Each item has its library id; its shelfId, where it has one: shelfId is its ID in reet_list_skills, which shows the skill’s display name; name is the skill’s folder name, the name machines know it by; and its description, where it came from, whether reet holds a copy, and its health. counts gives how many skills are Active and Archived. Restore one with reet_restore_skill. Does not change anything.', pagination, async args => {
     const data = await client.request('/api/v2/skills', 'GET', undefined, new URLSearchParams({ status: 'archived' }));
     return page(collection(data, 'skills'), args, { counts: data.counts });
   });

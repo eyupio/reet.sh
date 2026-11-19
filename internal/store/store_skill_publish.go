@@ -90,6 +90,26 @@ func (s *Store) RefreshHostedSkillFor(uid int64, item string) error {
 	})
 }
 
+// refreshHostedTx brings the item's hosted skill, when it has one, up to the
+// item's head revision, keeping it public or private as it was. Content a
+// public page can't serve (SkillPublishProblem) leaves the page as it was
+// rather than refusing the content; RefreshHostedSkillFor says why.
+func refreshHostedTx(tx *sql.Tx, uid int64, item string) error {
+	slug, hosted, err := itemHostedSlugTx(tx, uid, item)
+	if err != nil || !hosted {
+		return err
+	}
+	var published bool
+	if err = tx.QueryRow(`SELECT published FROM hosted_skills WHERE user_id=? AND slug=?`, uid, slug).Scan(&published); err != nil {
+		return err
+	}
+	err = hostedFromHeadTx(tx, uid, item, slug, published)
+	if errors.As(err, new(SkillPublishProblem)) {
+		return nil
+	}
+	return err
+}
+
 // itemHostedSlugTx is the item's name in the owner's hosted skills, when it
 // has a hosted skill.
 func itemHostedSlugTx(tx *sql.Tx, uid int64, item string) (string, bool, error) {

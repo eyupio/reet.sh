@@ -88,12 +88,30 @@ func (s *server) hostedUsername(w http.ResponseWriter, r *http.Request) {
 	s.hostedList(w, r)
 }
 
+// refuseNotWritten answers 409 when slug is the public page of a library skill
+// the person did not write in Write a skill, which changes only from Skills.
+func (s *server) refuseNotWritten(w http.ResponseWriter, r *http.Request, slug string) bool {
+	other, err := s.st.HostedSkillNotWritten(s.uid(r), slug)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return true
+	}
+	if other {
+		writeErr(w, 409, store.ErrHostedNotWritten.Error())
+		return true
+	}
+	return false
+}
+
 func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 	var sk store.HostedSkill
 	if !decode(w, r, &sk) {
 		return
 	}
 	sk.Slug = r.PathValue("slug")
+	if s.refuseNotWritten(w, r, sk.Slug) {
+		return
+	}
 	if err := store.ValidateHostedSkill(&sk); err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -177,6 +195,9 @@ func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := r.PathValue("slug")
+	if s.refuseNotWritten(w, r, slug) {
+		return
+	}
 	name := strings.ToLower(strings.TrimSpace(in.Name))
 	if !store.ValidHostedName(name) {
 		writeErr(w, 400, "skill names must use lowercase letters, numbers and single hyphens (up to 64 characters)")
@@ -228,6 +249,9 @@ func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) hostedDelete(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
+	if s.refuseNotWritten(w, r, slug) {
+		return
+	}
 	skillID := ""
 	if username, err := s.st.PublishingUsername(s.uid(r)); err == nil && username != "" {
 		if rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host); err == nil {

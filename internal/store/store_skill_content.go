@@ -414,6 +414,11 @@ func (s *Store) setSkillContent(uid int64, item string, files []skillbundle.Cont
 // list. A later write to an Archived skill is not a first copy, so it leaves
 // the list alone: a row that was purged stays gone.
 func skillCopyLandedTx(tx *sql.Tx, uid int64, item, originRef string, copied bool) error {
+	// A skill with a public page (or a draft of one) keeps it at its head, so
+	// the page and Write a skill never hold a version the library moved past.
+	if err := refreshHostedTx(tx, uid, item); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`UPDATE library_items SET copy_problem='' WHERE user_id=? AND id=?`, uid, item); err != nil {
 		return err
 	}

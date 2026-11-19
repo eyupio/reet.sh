@@ -194,8 +194,15 @@ const hostedCols = `slug,description,content,files,published,created_at,updated_
 // and waiting out its undo window, so its public page goes at once.
 const hostedNotDeleted = `NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=h.user_id AND a.kind='hosted' AND a.reference=h.slug AND i.deleted_at<>0)`
 
+// hostedWritten leaves out the public page of a library skill the person did
+// not write (an import or a machine's skill they published from the Skills
+// page): that skill is its library entry, not a skill of Write a skill's.
+const hostedWritten = `NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=h.user_id AND a.kind='hosted' AND a.reference=h.slug AND i.origin<>'written')`
+
+// HostedSkillsFor is the skills the person wrote in Write a skill, drafts
+// included. The public pages of other library skills are not among them.
 func (s *Store) HostedSkillsFor(userID int64) ([]HostedSkill, error) {
-	rows, err := s.db.Query(`SELECT `+hostedCols+` FROM hosted_skills h WHERE user_id=? AND `+hostedNotDeleted+` ORDER BY slug`, userID)
+	rows, err := s.db.Query(`SELECT `+hostedCols+` FROM hosted_skills h WHERE user_id=? AND `+hostedNotDeleted+` AND `+hostedWritten+` ORDER BY slug`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -317,6 +324,18 @@ func (s *Store) SetHostedSkillVisible(id string, visible bool) error {
 	}
 	_, err := s.db.Exec(`UPDATE skills SET hidden=? WHERE id=?`, hidden, id)
 	return err
+}
+
+// ErrHostedNotWritten refuses a Write a skill change to the public page of a
+// library skill the person did not write there.
+var ErrHostedNotWritten = errors.New("You didn't write this skill here: it came into your library from elsewhere. Archive or delete it from Skills, and publish or unpublish it there.")
+
+// HostedSkillNotWritten says whether slug is the public page of a library
+// skill the person did not write in Write a skill.
+func (s *Store) HostedSkillNotWritten(userID int64, slug string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='hosted' AND a.reference=? AND i.origin<>'written' AND i.deleted_at=0`, userID, slug).Scan(&n)
+	return n > 0, err
 }
 
 func (s *Store) HostedSkillExists(userID int64, slug string) (bool, error) {

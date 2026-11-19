@@ -1365,3 +1365,98 @@ func TestPublishWrittenSkillAsWriteASkillDoes(t *testing.T) {
 		t.Fatalf("Unpublish takes the public entry off the shelf, as Write a skill's does: %s", shelf())
 	}
 }
+
+// publishedImport adds find-skills by link, claims the username sam and
+// publishes it, as the opened skill does.
+func publishedImport(t *testing.T, e copyEnv) string {
+	t.Helper()
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	item := e.item(t)
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/publish", `{"public":true}`); code != 200 {
+		t.Fatalf("publish: %d %s", code, body)
+	}
+	return item
+}
+
+// A published skill's page follows every new head, not only an edit through
+// Write a skill: here Update from original.
+func TestPublishedSkillFollowsUpdateFromOriginal(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	e.fetch.set("v2 from the original", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`); code != 200 || !strings.Contains(body, `"updated":true`) {
+		t.Fatalf("update: %d %s", code, body)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); !strings.Contains(md, "v2 from the original") {
+		t.Fatalf("the public page must follow the update: %s", md)
+	}
+}
+
+// A published import is still one entry in the shared library: its link on
+// the shelf, with no second hosted entry of the same name.
+func TestPublishedImportIsOneLibraryEntry(t *testing.T) {
+	e := newCopyEnv(t)
+	publishedImport(t, e)
+	if err := e.st.SetSyncLibraryOrigin(e.uid, e.srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	view, err := e.st.SyncLibraryViewFor(e.uid, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Duplicates) != 0 {
+		t.Fatalf("publishing made a duplicate: %+v", view.Duplicates)
+	}
+	named := 0
+	for _, sk := range view.Skills {
+		if sk.Slug == "find-skills" {
+			named++
+			if strings.Contains(sk.ID, "/sam/") {
+				t.Fatalf("the library entry must be the import, not its public page: %+v", sk)
+			}
+		}
+	}
+	if named != 1 {
+		t.Fatalf("one entry for find-skills: %+v", view.Skills)
+	}
+}
+
+// Write a skill holds the skills written there. A published import is not
+// one: it is not listed, and its public page can't be saved over, renamed or
+// deleted from there.
+func TestWriteASkillLeavesPublishedImportsAlone(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	if _, body := do(t, e.srv, "GET", "/api/v2/hosting", ""); strings.Contains(body, "find-skills") {
+		t.Fatalf("Write a skill lists the import: %s", body)
+	}
+	save := `{"content":"---\nname: find-skills\ndescription: Mine now.\n---\n\nOverwritten.\n","files":{},"published":true}`
+	for _, c := range []struct{ method, path, body string }{
+		{"PUT", "/api/v2/hosting/skills/find-skills", save},
+		{"POST", "/api/v2/hosting/skills/find-skills/rename", `{"name":"reet-other"}`},
+		{"DELETE", "/api/v2/hosting/skills/find-skills", ""},
+	} {
+		code, body := do(t, e.srv, c.method, c.path, c.body)
+		if code != 409 || !strings.Contains(body, "Archive or delete it from Skills") {
+			t.Fatalf("%s %s: %d %s", c.method, c.path, code, body)
+		}
+	}
+	if items, err := e.st.SkillItemsFor(e.uid, []string{item}); err != nil || len(items) != 1 {
+		t.Fatalf("the import must still be in the library: %v", err)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); strings.Contains(md, "Overwritten") {
+		t.Fatalf("the public page must be the library's copy: %s", md)
+	}
+}
+

@@ -3216,7 +3216,7 @@ func markdownItem(name, link, desc string) string {
 var (
 	markdownLinkRe = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
 	htmlTagRe      = regexp.MustCompile(`<!--.*?-->|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>`)
-	markdownEscape = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `<`, `\<`, `>`, `\>`).Replace
+	markdownEscape = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `<`, `\<`, `>`, `\>`, `*`, `\*`, `_`, `\_`, "`", "\\`", `#`, `\#`).Replace
 )
 
 // markdownText is a description as one line of Markdown text. It comes from a skill's SKILL.md, often someone else's,

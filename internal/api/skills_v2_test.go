@@ -1152,3 +1152,12 @@ func TestExportMarkdownEscapesNamesLinksAndDescriptions(t *testing.T) {
 		t.Fatalf("a link that is not a web address: %s", md)
 	}
 }
+
+// Emphasis, code and heading marks in a name or description stay plain text.
+func TestExportMarkdownEscapesEmphasisCodeAndHeadings(t *testing.T) {
+	md := skillRowsMarkdown([]store.SkillPageRow{{Name: "my_skill *beta*", OriginKind: "machine", Description: "# Big `code` and _under_ **bold**"}}, store.SkillActive)
+	want := "- my\\_skill \\*beta\\* — \\# Big \\`code\\` and \\_under\\_ \\*\\*bold\\*\\*"
+	if !slices.Contains(strings.Split(md, "\n"), want) {
+		t.Fatalf("got:\n%s\nwant the line:\n%s", md, want)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -178,8 +179,11 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 		if o, ok := edited[strings.ToLower(r.Name)]; ok {
 			on := o.on
 			r.EditedOn = &on
+			// A request reet cannot read leaves the reason empty rather than
+			// the whole page unread.
 			if r.EditedOnProblem, err = s.useVersionProblem(uid, r.ID, on, o.backup); err != nil {
-				return page, err
+				log.Printf("skills page: reading the last Use this version of %s: %v", r.Name, err)
+				r.EditedOnProblem, err = "", nil
 			}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -961,5 +962,30 @@ func TestSkillsPageDeleteOfAWrittenSkillMentionsItsPageOnlyWhenPublished(t *test
 	code, raw = e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+draft+`","`+published+`"]}`)
 	if code != 409 || !strings.Contains(raw, `"error":"You wrote draft and shared. Deleting them deletes your writing and a public page too."`) {
 		t.Fatalf("both: %d %s", code, raw)
+	}
+}
+
+// A stored capture request reet cannot read leaves that skill's reason
+// empty; the rest of the page still loads.
+func TestSkillsPageLoadsPastAnUnreadableUseVersionRequest(t *testing.T) {
+	for name, data := range map[string]string{
+		"not JSON":  `{not json`,
+		"bad shape": `{"useVersionItem":"%s","backupPath":"~/.agents/.reet-backups/2026-11-18/agents-demo","state":5}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newReconcileEnv(t)
+			item := e.writtenSkill(t, "demo")
+			e.editedOn(t, "demo", "~/.agents/.reet-backups/2026-11-18/agents-demo")
+			if strings.Contains(data, "%s") {
+				data = fmt.Sprintf(data, item)
+			}
+			if _, err := e.db(t).Exec(`INSERT INTO machine_import_requests(id,user_id,agent_id,request_key,state,data,created_at) VALUES('broken',?,?,'broken-request-key','reviewing',?,1)`, e.uid, e.agent.ID, data); err != nil {
+				t.Fatal(err)
+			}
+			r := e.page(t, "active").row(t, "demo")
+			if r.EditedOn == nil || r.EditedOnProblem != "" {
+				t.Fatalf("row: %+v %q", r.EditedOn, r.EditedOnProblem)
+			}
+		})
 	}
 }

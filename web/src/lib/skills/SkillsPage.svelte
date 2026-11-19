@@ -27,8 +27,10 @@
   // brings the header's line up to date without waiting for the next poll.
   const GRACE_MS = 10000
   let graceTimer: ReturnType<typeof setTimeout> | undefined
+  // A change that answers after the page has gone sets no timer: nothing would clear it.
   function readAfterGrace() {
     clearTimeout(graceTimer)
+    if (page.destroyed) return
     graceTimer = setTimeout(() => { void read(page.tab, true); void read(other(page.tab), true) }, GRACE_MS + 1000)
   }
 
@@ -415,6 +417,7 @@
     const changed = () => { void read(page.tab, true); void read(other(page.tab), true) }
     window.addEventListener('reet-shelf-changed', changed)
     return () => {
+      page.destroyed = true
       clearInterval(poll)
       clearTimeout(graceTimer)
       window.removeEventListener('reet-shelf-changed', changed)

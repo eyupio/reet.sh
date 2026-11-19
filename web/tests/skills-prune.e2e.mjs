@@ -649,6 +649,38 @@ try {
   }
  }
 
+ // The page gone (the sign-in screen took its place) while a change was on its way: when the change answers, the page
+ // starts no reads, neither at once nor after the grace period.
+ if (run('unmount')) {
+  const w = world()
+  const r = routes(w)
+  const status = r['/api/v2/skills/status']
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  r['/api/v2/skills/status'] = async req => { const answer = status(req); await held; return answer }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.clock.install()
+  await page.goto(`${base}/skills`)
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 200))
+  const sent = page.waitForRequest(req => new URL(req.url()).pathname === '/api/v2/skills/status')
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await sent
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('reet-signed-out')))
+  await expect(page.locator('.skills-page')).toHaveCount(0)
+  const reads = []
+  page.on('request', req => { const u = new URL(req.url()); if (u.pathname === '/api/v2/skills' && req.method() === 'GET') reads.push(u.search) })
+  const answered = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v2/skills/status')
+  release()
+  await answered
+  await page.waitForTimeout(300)
+  await page.clock.fastForward(12000)
+  await page.waitForTimeout(300)
+  expect(reads, 'reads the gone page started').toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

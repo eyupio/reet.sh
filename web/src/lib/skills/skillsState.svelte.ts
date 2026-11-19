@@ -42,6 +42,8 @@ export class SkillsPageState {
   sort = $state<Sort>('name')
 
   writing = 0
+  /** The page has gone: an answer that lands after that starts no read. */
+  destroyed = false
   #generation = 0
   // Writes are numbered as they start. `#finishedPage` is the newest one with page data (Archive, Restore and their
   // Undo) whose answer has been shown.
@@ -90,6 +92,7 @@ export class SkillsPageState {
    * that works clears whatever the page last said had gone wrong.
    */
   async read(status: Tab, quiet = false): Promise<boolean> {
+    if (this.destroyed) return false
     const at = this.#generation
     try {
       const data = await loadSkillsPage(status)

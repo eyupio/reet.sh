@@ -75,13 +75,14 @@ async function pressAfterSaving(page) {
 }
 
 try {
-  // The Skills header: nothing to start, one line about the machines that opens Sync. The page stays where it is.
+  // The Skills header: nothing to start, one line about the machines, which is plain text while the older Sync page could
+  // say otherwise. The page stays where it is.
   if (run('header')) {
     for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
       const { context, page, presses, errors } = await open({ width, height: width === 390 ? 812 : 900, touch: width === 390, theme })
       await page.goto(`${base}/skills`)
       await expect(chip(page)).toHaveText('Everything is in sync.')
-      await expect(chip(page)).toHaveAttribute('href', '/sync')
+      await expect(page.locator('main a.sync-chip')).toHaveCount(0)
       await expect(page.getByRole('link', { name: 'Sync all machines' })).toHaveCount(0)
       await expect(syncButton(page)).toHaveCount(0)
       expect(presses).toEqual([])
@@ -165,7 +166,7 @@ try {
     }
   }
 
-  // No machine yet: the header says so and opens Sync, which leads to adding one; adding a skill says only that it is in.
+  // No machine yet: the header says so, as plain text, and clicking it goes nowhere; adding a skill says only that it is in.
   if (run('no machine')) {
     const empty = { environments: [], machines: [], agents: [], targets: [], jobs: [], runs: [], updateJobs: [] }
     const { context, page, presses } = await open({ width: 1280, sync: empty })
@@ -175,7 +176,7 @@ try {
     await page.getByRole('button', { name: 'Add', exact: true }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Added fresh to your library.' })).toBeVisible()
     await chip(page).click()
-    await page.waitForURL(/\/sync$/)
+    expect(new URL(page.url()).pathname).toBe('/skills')
     expect(presses).toEqual([])
     await context.close()
   }
@@ -220,12 +221,13 @@ try {
     await context.close()
   }
 
-  // A read-only account cannot change the library, so it is not handed a button that would be refused. It still opens
-  // Sync to read where things stand.
+  // A read-only account cannot change the library, so it is not handed a button that would be refused. It still reads
+  // the line about the machines.
   if (run('read-only')) {
     const { context, page, presses } = await open({ width: 1280, status: { user: { id: 2, name: 'Reader', role: 'viewer' } } })
     await page.goto(`${base}/skills`)
-    await expect(chip(page)).toHaveAttribute('href', '/sync')
+    await expect(chip(page)).toBeVisible()
+    await expect(page.locator('main a.sync-chip')).toHaveCount(0)
     await expect(page.locator(`[data-skill="${one.id}"]`)).toBeVisible()
     await expect(syncButton(page)).toHaveCount(0)
     await expect(page.getByLabel('Add a skill', { exact: true })).toHaveCount(0)

@@ -20,12 +20,13 @@ const states = [
  ['ok', h('ok'), 'On all 3 machines', 'ok', false],
  ['installing', h('installing', {pending:2}), 'Installing on 2 of 3', 'work', false],
  ['removing', h('removing', {pending:1, hosts:['ThinkPad']}), 'Coming off ThinkPad', 'work', false],
- ['failed', h('failed', {pending:1, hosts:['ThinkPad'], reason:'no write access'}), 'Failed on ThinkPad', 'bad', true],
+ // A machine's failure is retried by the machine itself; until it can be asked to at once, the row offers no Retry.
+ ['failed', h('failed', {pending:1, hosts:['ThinkPad'], reason:'no write access'}), 'Failed on ThinkPad · it tries again on its own', 'bad', false],
  // An Active skill on a machine that is off is waiting to go on it; an Archived one is waiting to come off (below).
  ['offline', h('offline', {pending:1, hosts:['studio']}), "Installing on studio when it's back online", 'work', false],
  ['blocked', h('blocked', {pending:1, hosts:['ThinkPad']}), "Can't write skills on ThinkPad", 'bad', false],
  ['copying', h('copying', {hosts:['Elitebook']}), 'Copying into reet from Elitebook', 'work', false],
- ['copy-failed', h('copy-failed', {hosts:['Elitebook'], reason:'over 8 MiB'}), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', false],
+ ['copy-failed', h('copy-failed', {hosts:['Elitebook'], reason:'over 8 MiB'}), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', true],
  ['getting', h('getting', {hosts:['Elitebook']}), 'Getting a copy from Elitebook', 'work', false],
  ['fetch-failed', h('fetch-failed'), "Couldn't fetch the files", 'bad', true],
  ['needs-update', h('needs-update', {hosts:['ThinkPad']}), 'Update reet on ThinkPad to keep its skills in sync', 'bad', false],

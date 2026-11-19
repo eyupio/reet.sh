@@ -28,6 +28,10 @@ const skillCopyBodyLimit = 64 << 10
 // page that draws again does not download it again. A POST always fetches.
 const skillOriginalTTL = 60 * time.Second
 
+// skillOriginalPerAccount is how many originals one account downloads at a
+// time; a request beyond it is told to wait (429).
+const skillOriginalPerAccount = 2
+
 // skillOriginalCacheMax bounds the remembered originals; only manifests are
 // kept, which are small.
 const skillOriginalCacheMax = 128
@@ -123,6 +127,29 @@ func (noSkillFetcher) Fetch(context.Context, ref.Ref) (skillfetch.Result, error)
 }
 
 var errNoOriginal = errors.New("this skill has no original link to update from")
+
+var errOriginalBusy = errors.New("this account is already downloading originals")
+
+// originalSlot takes one of the account's download slots, or reports there is
+// none free; release gives it back.
+func (s *server) originalSlot(uid int64) (release func(), ok bool) {
+	s.originalMu.Lock()
+	defer s.originalMu.Unlock()
+	if s.originalRunning[uid] >= skillOriginalPerAccount {
+		return nil, false
+	}
+	if s.originalRunning == nil {
+		s.originalRunning = map[int64]int{}
+	}
+	s.originalRunning[uid]++
+	return func() {
+		s.originalMu.Lock()
+		defer s.originalMu.Unlock()
+		if s.originalRunning[uid]--; s.originalRunning[uid] <= 0 {
+			delete(s.originalRunning, uid)
+		}
+	}, true
+}
 
 func (s *server) registerSkillCopies(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/skills/retry", s.requireWriter(s.retrySkillCopies))
@@ -348,6 +375,11 @@ func (s *server) fetchOriginal(ctx context.Context, uid int64, item string, cach
 			return skillfetch.Result{Manifest: m}, current, li.RevisionID, nil
 		}
 	}
+	release, ok := s.originalSlot(uid)
+	if !ok {
+		return none, nil, "", errOriginalBusy
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(ctx, skillFetchTimeout)
 	defer cancel()
 	res, err := s.skillFetcher.Fetch(ctx, r)
@@ -377,6 +409,8 @@ func originalError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errNoOriginal), errors.Is(err, store.ErrPrivateSkillMissing):
 		writeErr(w, 404, "This skill has no original link to update from.")
+	case errors.Is(err, errOriginalBusy):
+		writeErr(w, http.StatusTooManyRequests, "reet is already getting originals for you. Try again in a moment.")
 	case errors.Is(err, skillfetch.ErrNotFound):
 		writeErr(w, 502, "The skill is no longer at its original link.")
 	case errors.Is(err, skillfetch.ErrTooLarge):

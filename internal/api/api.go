@@ -88,6 +88,8 @@ type server struct {
 	skillCopyAgain   map[int64]bool
 	skillCopies      sync.WaitGroup
 	original         originalCache
+	originalMu       sync.Mutex
+	originalRunning  map[int64]int // originals each account is downloading now
 	originalTTL      time.Duration
 	skillPollKicks   pollKicks
 	// skillClock is when the Skills page's changes are made (tests only).

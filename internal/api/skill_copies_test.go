@@ -672,3 +672,43 @@ func TestAddingADeletedSkillAgainPutsItBack(t *testing.T) {
 		t.Fatalf("desired after adding again: %+v", d)
 	}
 }
+
+// Asking for originals downloads each one, so an account gets a couple at a
+// time: one more while they run is told to wait, and gets nothing fetched.
+func TestOriginalDownloadsAreLimitedPerAccount(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	gate := make(chan struct{})
+	e.fetch.setGate(gate)
+	before := e.fetch.callCount()
+	done := make(chan int, skillOriginalPerAccount)
+	for range skillOriginalPerAccount {
+		go func() {
+			code, _ := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+			done <- code
+		}()
+	}
+	for deadline := time.Now().Add(5 * time.Second); e.fetch.callCount() < before+skillOriginalPerAccount; {
+		if time.Now().After(deadline) {
+			t.Fatalf("the first downloads did not start: %d", e.fetch.callCount()-before)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 429 || e.fetch.callCount() != before+skillOriginalPerAccount {
+		t.Fatalf("one more while they run: %d %s, %d fetches", code, body, e.fetch.callCount()-before)
+	}
+	close(gate)
+	for range skillOriginalPerAccount {
+		if code := <-done; code != 200 {
+			t.Fatalf("a first download: %d", code)
+		}
+	}
+	if code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", ""); code != 200 {
+		t.Fatalf("after they finished: %d %s", code, body)
+	}
+}

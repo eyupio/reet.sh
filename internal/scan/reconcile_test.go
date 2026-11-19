@@ -2940,3 +2940,24 @@ func TestCapSkillReportKeepsTheBodyUnderTheControllersLimit(t *testing.T) {
 		t.Fatal("the backup or the removal was left out")
 	}
 }
+
+// Records not yet reported belong to this machine's enrollment, not to an
+// address: when the controller moves (reet agent set-server) they go to it.
+// Another enrollment's are not used.
+func TestUnsentRecordsFollowTheEnrollmentToANewAddress(t *testing.T) {
+	config := enrolledMachine(t, "https://new.example")
+	c := loaded(t, config)
+	entry := store.SkillReportEntry{Folder: "~/.agents/skills", Name: "gone", State: "removed", Backup: "~/.agents/.reet-backups/2026-11-19/.agents-gone"}
+	if err := writePrivate(config+".unsent", unsentCache{Server: "https://old.example", Agent: c.ID, Entries: []store.SkillReportEntry{entry}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readUnsentSkills(config, c); len(got) != 1 || got[0] != entry {
+		t.Fatalf("records kept for the old address: %+v", got)
+	}
+	if err := writePrivate(config+".unsent", unsentCache{Server: c.Server, Agent: "another", Entries: []store.SkillReportEntry{entry}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readUnsentSkills(config, c); len(got) != 0 {
+		t.Fatalf("another enrollment's records were used: %+v", got)
+	}
+}

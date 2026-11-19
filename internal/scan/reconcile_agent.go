@@ -132,13 +132,17 @@ type unsentCache struct {
 // record is never dropped to make room. It is room for a whole library.
 const unsentKept = 4096
 
+// readUnsentSkills reads the records kept until reported. They belong to
+// this machine's enrollment, whatever address the controller had: a
+// controller that moved (reet agent set-server) keeps the enrollment and
+// gets them. Another enrollment's are not used.
 func readUnsentSkills(config string, c agentConfig) []store.SkillReportEntry {
 	b, err := os.ReadFile(config + ".unsent")
 	if err != nil {
 		return nil
 	}
 	var kept unsentCache
-	if json.Unmarshal(b, &kept) != nil || kept.Server != c.Server || kept.Agent != c.ID {
+	if json.Unmarshal(b, &kept) != nil || kept.Agent != c.ID {
 		return nil
 	}
 	return kept.Entries

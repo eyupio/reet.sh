@@ -262,7 +262,12 @@ try {
   await expect(detail.getByText(/The public page still shows/)).toHaveCount(0)
   await page.route('**/api/v2/skills/item-seo-cluster/original', route => route.request().method() === 'GET'
    ? route.fulfill({json:w.original})
-   : route.fulfill({json:{updated:true, digest:'digest-2', edited:false, publicProblem:'The public page still shows the version before: seo-cluster can\'t be published yet: the SKILL.md name must match the skill name in the URL.'}}))
+   : (() => {
+    // As the server does: the answer and every later read of the row carry the problem.
+    const publicProblem = 'The public page still shows the version before: seo-cluster can\'t be published yet: the SKILL.md name must match the skill name in the URL.'
+    w.rows = w.rows.map(r => r.name === 'seo-cluster' ? {...r, publicProblem} : r)
+    return route.fulfill({json:{updated:true, digest:'digest-2', edited:false, publicProblem}})
+   })())
   await detail.getByRole('button', {name:'Update from original'}).click()
   await page.getByRole('dialog', {name:'Update seo-cluster from its original?'}).getByRole('button', {name:'Update from original'}).click()
   await expect(detail.getByText("The public page still shows the version before: seo-cluster can't be published yet: the SKILL.md name must match the skill name in the URL.")).toBeVisible()

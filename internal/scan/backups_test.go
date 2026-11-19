@@ -1256,3 +1256,32 @@ func TestRestoreSaysAnArchivedSkillComesOffAgain(t *testing.T) {
 		t.Fatalf("said a skill the library keeps comes off: %s", out.String())
 	}
 }
+
+// A move across devices that copied the whole skill but could not then remove
+// all of the original still made a backup: it is indexed and its path given,
+// so the record of what it holds is kept, and the error says the original is
+// still partly there.
+func TestBackupAcrossDevicesWhoseSourceCannotGoIsStillABackup(t *testing.T) {
+	wasRename, wasRemove := renameEntry, removeAllEntry
+	t.Cleanup(func() { renameEntry, removeAllEntry = wasRename, wasRemove })
+	renameEntry = func(src, dest string) error {
+		return &os.LinkError{Op: "rename", Old: src, New: dest, Err: syscall.EXDEV}
+	}
+	removeAllEntry = func(p string) error {
+		_ = os.Remove(filepath.Join(p, "SKILL.md"))
+		return errors.New("device busy")
+	}
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, filepath.Join(folder, "alpha"))
+	dest, err := backupSkill(folder, "alpha", backupNow)
+	if dest == "" || err == nil || !strings.Contains(err.Error(), "device busy") {
+		t.Fatalf("backup = %q, %v", dest, err)
+	}
+	if b, rerr := os.ReadFile(filepath.Join(dest, "SKILL.md")); rerr != nil || string(b) != "body" {
+		t.Fatalf("the backup is not whole: %q %v", b, rerr)
+	}
+	if idx := readBackupIndex(filepath.Dir(dest)); idx.Entries[filepath.Base(dest)].Name != "alpha" {
+		t.Fatalf("the backup was not indexed: %+v", idx.Entries)
+	}
+}

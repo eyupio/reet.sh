@@ -105,7 +105,8 @@ func validBackupDate(date string) bool {
 }
 
 // backupSkill moves folder/name into a dated backup beside the folder and
-// returns where it went. A symlink moves as a symlink.
+// returns where it went. A symlink moves as a symlink. A path comes back with
+// an error when the backup is whole but the original is still partly there.
 func backupSkill(folder, name string, now time.Time) (string, error) {
 	if !validBackupName(name) {
 		return "", fmt.Errorf("refusing to back up %q: not a plain skill name", name)
@@ -132,8 +133,13 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 		}
 		dest = filepath.Join(dir, backupEntryName(prefix, name, n))
 	}
-	if err := moveEntry(src, dest); err != nil {
-		return "", err
+	// A move across devices that copied all of the skill but could not remove
+	// all of the original still made a whole backup: it is indexed and its
+	// path returned with the error, so the record of it is not lost.
+	var left *sourceLeftError
+	moveErr := moveEntry(src, dest)
+	if moveErr != nil && !errors.As(moveErr, &left) {
+		return "", moveErr
 	}
 	idx := readBackupIndex(dir)
 	idx.Entries[filepath.Base(dest)] = indexRecord{Name: name, Folder: folder, At: now.UnixMilli()}
@@ -142,7 +148,7 @@ func backupSkill(folder, name string, now time.Time) (string, error) {
 		// entry's name, so this is a warning and not a failure.
 		log.Printf("backed up to %s but could not record its name: %v", dest, err)
 	}
-	return dest, nil
+	return dest, moveErr
 }
 
 // maxEntryName is the longest name a file system takes for one entry.
@@ -205,8 +211,23 @@ func moveEntryCopying(src, dest string) (bool, error) {
 	if err = copyEntry(src, dest); err != nil {
 		return true, err
 	}
-	return true, os.RemoveAll(src)
+	if err = removeAllEntry(src); err != nil {
+		return true, &sourceLeftError{err}
+	}
+	return true, nil
 }
+
+// removeAllEntry removes what a move across devices copied; tests replace it.
+var removeAllEntry = os.RemoveAll
+
+// sourceLeftError is a move across devices that copied the whole entry to
+// its destination but could not then remove all of the original.
+type sourceLeftError struct{ err error }
+
+func (e *sourceLeftError) Error() string {
+	return "copied, but the original could not all be removed: " + e.err.Error()
+}
+func (e *sourceLeftError) Unwrap() error { return e.err }
 
 // copyEntry copies a file, directory tree or symlink to dest; symlinks stay
 // links. The copy is made in a hidden .reet-copy-* folder beside dest and

@@ -270,6 +270,35 @@ try {
   await context.close()
  }
 
+ // Every row let go of while the Add tag step is open: Escape in the field, or Cancel, puts focus on the bar's first
+ // control that still works (its Cancel), never on an Add tag that cannot be used, so focus stays in the bar.
+ if (run('tag deselected')) {
+  const {context, page, errors} = await open()
+  await page.getByRole('button', {name:'Select', exact:true}).click()
+  const pick = page.getByRole('checkbox', {name:'Select seo-bing'})
+  await pick.check()
+  const bar = page.getByRole('toolbar', {name:'Selected skills'})
+  for (const close of ['Escape', 'Cancel']) {
+   await bar.getByRole('button', {name:'Add tag', exact:true}).click()
+   const field = bar.getByLabel('Tag the selected skills')
+   await expect(field).toBeFocused()
+   await pick.uncheck()
+   await expect(bar).toContainText('0 selected')
+   if (close === 'Escape') {
+    await field.focus()
+    await page.keyboard.press('Escape')
+   } else {
+    await bar.getByRole('button', {name:'Cancel', exact:true}).click()
+   }
+   await expect(field).toHaveCount(0)
+   await expect(bar.getByRole('button', {name:'Add tag', exact:true})).toBeDisabled()
+   await expect(bar.getByRole('button', {name:'Cancel', exact:true}), `focus after ${close}`).toBeFocused()
+   await pick.check()
+  }
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // On the Archived tab: Restore sends its request and stays on Archived; the upgrade notice's Restore the Parked ones
  // sends its own.
  if (run('archived')) {

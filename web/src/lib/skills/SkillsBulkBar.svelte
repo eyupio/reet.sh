@@ -47,12 +47,15 @@
     if (e.target instanceof HTMLElement && controls().includes(e.target)) current = e.target
   }
 
-  // Cancel (or Escape in the field) closes the step with nothing typed kept, and puts focus back on Add tag.
+  // Cancel (or Escape in the field) closes the step with nothing typed kept, and puts focus back on Add tag. When every
+  // row was let go of meanwhile, Add tag cannot be used, so focus goes to the bar's first control that can (its Cancel,
+  // which always can) rather than falling out of the page.
   async function stopTagging() {
     tagging = false
     tagDraft = ''
     await tick()
-    tagButton?.focus()
+    const to = tagButton && !tagButton.disabled ? tagButton : controls()[0]
+    to?.focus()
   }
 
   function addTag(e: SubmitEvent) {

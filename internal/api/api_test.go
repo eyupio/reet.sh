@@ -73,6 +73,27 @@ func doClient(t *testing.T, client *http.Client, srv *httptest.Server, method, p
 	return resp.StatusCode, string(b)
 }
 
+// quickPost submits the bookmarklet's confirm page: a same-origin form POST
+// to /quick (with ?t= when the page carried a token).
+func quickPost(t *testing.T, client *http.Client, srv *httptest.Server, query, action, skill string, hdr ...string) (int, string) {
+	t.Helper()
+	form := url.Values{"action": {action}, "url": {skill}}
+	req, _ := http.NewRequest("POST", srv.URL+"/quick"+query, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	for i := 0; i+1 < len(hdr); i += 2 {
+		req.Header.Set(hdr[i], hdr[i+1])
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
 func deadFetcher(t *testing.T) meta.Fetcher {
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", 500) }))
 	t.Cleanup(dead.Close)
@@ -284,18 +305,49 @@ func TestResolveAndDelete(t *testing.T) {
 
 func TestQuickLike(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
-	code, body := do(t, srv, "GET", "/quick?action=like&url="+findSkills, "")
+	code, body := quickPost(t, srv.Client(), srv, "", "like", findSkills)
 	if code != 200 || !strings.Contains(body, "Liked") {
 		t.Fatalf("%d %s", code, body)
 	}
 	if l := list(t, srv, "?tab=liked"); len(l.Skills) != 1 {
 		t.Fatalf("%+v", l)
 	}
-	if _, body := do(t, srv, "GET", "/quick?action=like&url="+findSkills, ""); !strings.Contains(body, "Already liked") {
+	if _, body := quickPost(t, srv.Client(), srv, "", "like", findSkills); !strings.Contains(body, "Already liked") {
 		t.Fatalf("second like: %s", body)
 	}
-	if code, _ := do(t, srv, "GET", "/quick?action=like&url=https://example.com/a/b/c", ""); code != 400 {
+	if code, _ := quickPost(t, srv.Client(), srv, "", "like", "https://example.com/a/b/c"); code != 400 {
 		t.Fatalf("foreign url: %d", code)
+	}
+	if code, _ := do(t, srv, "GET", "/quick?action=like&url=https://example.com/a/b/c", ""); code != 400 {
+		t.Fatalf("foreign url, asked: %d", code)
+	}
+}
+
+// Opening /quick only asks: another website can open it in the visitor's
+// browser, so a GET adds nothing. The page's button posts back to /quick,
+// and a post from anywhere but this reet's own page is refused.
+func TestQuickAsksBeforeItAdds(t *testing.T) {
+	srv := newSrv(t, deadFetcher(t), "")
+	code, body := do(t, srv, "GET", "/quick?action=save&url="+findSkills, "")
+	if code != 200 || !strings.Contains(body, `<form method="post" action="/quick">`) || !strings.Contains(body, "Add find-skills</button>") {
+		t.Fatalf("confirm page: %d %s", code, body)
+	}
+	if l := list(t, srv, ""); len(l.Skills) != 0 {
+		t.Fatalf("opening /quick added a skill: %+v", l)
+	}
+	for _, hdr := range [][]string{{"Sec-Fetch-Site", "cross-site"}, {"Sec-Fetch-Site", "same-site"}, {"Origin", "https://evil.example"}, {"Origin", "null"}} {
+		if code, body := quickPost(t, srv.Client(), srv, "", "save", findSkills, hdr...); code != 403 {
+			t.Fatalf("a post with %v: %d %s", hdr, code, body)
+		}
+	}
+	if l := list(t, srv, ""); len(l.Skills) != 0 {
+		t.Fatalf("a refused post added a skill: %+v", l)
+	}
+	if code, body := quickPost(t, srv.Client(), srv, "", "save", findSkills); code != 200 || !strings.Contains(body, "Added find-skills") {
+		t.Fatalf("the confirm page's post: %d %s", code, body)
+	}
+	if l := list(t, srv, ""); len(l.Skills) != 1 {
+		t.Fatalf("after the post: %+v", l)
 	}
 }
 
@@ -338,8 +390,15 @@ func TestAuthRequired(t *testing.T) {
 	if code, _ := do(t, srv, "GET", "/api/skills", "", "X-Reet-Token", "s3cret"); code != 200 {
 		t.Fatalf("header: %d", code)
 	}
-	if code, _ := do(t, srv, "GET", "/quick?t=s3cret&action=save&url="+findSkills, ""); code != 200 {
-		t.Fatalf("quick query token: %d", code)
+	code, body := do(t, srv, "GET", "/quick?t=s3cret&action=save&url="+findSkills, "")
+	if code != 200 || !strings.Contains(body, `action="/quick?t=s3cret"`) {
+		t.Fatalf("quick query token: %d %s", code, body)
+	}
+	if code, _ := quickPost(t, srv.Client(), srv, "", "save", findSkills); code != 401 {
+		t.Fatalf("quick post without the token: %d", code)
+	}
+	if code, _ := quickPost(t, srv.Client(), srv, "?t=s3cret", "save", findSkills); code != 200 {
+		t.Fatalf("quick post with the query token: %d", code)
 	}
 	if code, _ := do(t, srv, "GET", "/healthz", ""); code != 200 {
 		t.Fatalf("healthz: %d", code)

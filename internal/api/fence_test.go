@@ -129,7 +129,7 @@ func TestAFencedControllerRefusesWritesWith423AndKeepsReading(t *testing.T) {
 		t.Fatalf("a fenced write: %d %s", r.code, r.text)
 	}
 	// Every kind of write is refused, not only PATCH, and not only under /api/v2.
-	for _, c := range [][2]string{{"POST", "/api/v2/lists"}, {"PUT", "/api/v2/maintenance/worktrees"}, {"DELETE", "/api/v2/admin/backups/items/x"}, {"GET", "/quick?action=save"}} {
+	for _, c := range [][2]string{{"POST", "/api/v2/lists"}, {"PUT", "/api/v2/maintenance/worktrees"}, {"DELETE", "/api/v2/admin/backups/items/x"}, {"POST", "/quick"}} {
 		if r := tg.fenceCall(t, c[0], c[1], "owner-token", ""); r.code != http.StatusLocked {
 			t.Fatalf("%s %s: %d %s", c[0], c[1], r.code, r.text)
 		}

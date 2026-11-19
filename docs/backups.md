@@ -479,8 +479,8 @@ before a change is refused; it tells them nothing the 423 does not.
 
 - **Every write is refused with 423 (Locked)**, with a message that says the
   controller has moved, when, and to where when the owner said. Writes include
-  `/quick`, which saves through a `GET`, and every MCP tool that changes
-  something; MCP reads still work, and so do all other reads.
+  the bookmarklet's `POST /quick` (its `GET` only asks), and every MCP tool that
+  changes something; MCP reads still work, and so do all other reads.
 - **Exempt:** the owner's backup settings (`PATCH /api/v2/admin/backups`), run
   (`POST .../backups/run`), download and verify, so a final copy can be taken and
   checked; the fence's own `POST` and `DELETE`; and signing in and out. Sign-in is

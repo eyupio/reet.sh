@@ -1022,7 +1022,7 @@ func TestSkillsPageLoadsPastAnUnreadableUseVersionRequest(t *testing.T) {
 // page's Add: a new one is Active, one already there keeps its state, and the popup says which, without stage words.
 func TestQuickAddLeavesAnArchivedSkillArchived(t *testing.T) {
 	e := newReconcileEnv(t)
-	code, body := e.owner(t, "GET", "/quick?action=save&url="+findSkills, "")
+	code, body := quickPost(t, e.srv.Client(), e.srv, "", "save", findSkills, "X-Reet-Token", "fixture-owner")
 	if code != 200 || !strings.Contains(body, "Added find-skills") {
 		t.Fatalf("add: %d %s", code, body)
 	}
@@ -1031,7 +1031,7 @@ func TestQuickAddLeavesAnArchivedSkillArchived(t *testing.T) {
 		t.Fatalf("archive: %d %s", code, raw)
 	}
 	for _, action := range []string{"save", "used"} {
-		code, body = e.owner(t, "GET", "/quick?action="+action+"&url="+findSkills, "")
+		code, body = quickPost(t, e.srv.Client(), e.srv, "", action, findSkills, "X-Reet-Token", "fixture-owner")
 		if code != 200 || !strings.Contains(body, "find-skills is already in your library") || strings.Contains(body, "used") {
 			t.Fatalf("%s again: %d %s", action, code, body)
 		}
@@ -1039,7 +1039,7 @@ func TestQuickAddLeavesAnArchivedSkillArchived(t *testing.T) {
 			t.Fatalf("%s brought the archived skill back: %+v", action, it)
 		}
 	}
-	code, body = e.owner(t, "GET", "/quick?action=used&url=https://www.skills.sh/anthropics/skills/pdf", "")
+	code, body = quickPost(t, e.srv.Client(), e.srv, "", "used", "https://www.skills.sh/anthropics/skills/pdf", "X-Reet-Token", "fixture-owner")
 	if code != 200 || !strings.Contains(body, "Added pdf") {
 		t.Fatalf("an old bookmark's used adds: %d %s", code, body)
 	}

@@ -528,6 +528,8 @@ export type SkillRow = {
   health: SkillHealth
   upgradedFrom?: 'parked' | 'removed'
   editedOn?: { agentId: string; host: string }
+  /** When the skill came into the library, in Unix milliseconds. */
+  createdAt?: number
   /** Why Use this version could not take editedOn's copy, when it tried: for example a file reet won't copy. */
   editedOnProblem?: string
 }

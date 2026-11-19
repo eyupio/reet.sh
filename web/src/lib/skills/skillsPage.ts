@@ -209,3 +209,12 @@ export function savedSkillNotice(renamed: boolean, published: boolean): string {
   if (renamed) return published ? `Renamed and published. The public URL and install command changed; existing installs are untouched. ${library}` : 'Renamed. Update any private links you shared.'
   return published ? `Skill published. ${library}` : 'Draft saved. Only you can see it.'
 }
+
+/** When a skill came into the library, as the opened skill shows it beside where it came from: "12 Nov", with the year
+ *  when it is not this year's; '' without a date. */
+export function arrivedOn(ts: number | undefined, now = Date.now()): string {
+  if (!ts) return ''
+  const when = new Date(ts)
+  const sameYear = when.getFullYear() === new Date(now).getFullYear()
+  return when.toLocaleDateString('en-GB', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
+}

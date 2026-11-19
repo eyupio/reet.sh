@@ -4,7 +4,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import CopyButton from '../CopyButton.svelte'
   import UpdateFromOriginalDialog from './UpdateFromOriginalDialog.svelte'
-  import { copyPrompt, installCommandFor } from './skillsPage'
+  import { arrivedOn, copyPrompt, installCommandFor } from './skillsPage'
 
   // A skill, opened: where it is on each machine, its tags and lists, where it came from, its notes and what to do with
   // it. Nothing here chooses machines: it reports them. Each write goes through the page (the props below), which keeps
@@ -182,6 +182,7 @@
 
   const install = $derived(installCommandFor(row))
   const editHref = $derived(row.originKind === 'written' ? `/hosting?edit=${encodeURIComponent(row.name)}` : `/hosting?item=${encodeURIComponent(row.id)}`)
+  const arrived = $derived(arrivedOn(row.createdAt))
   const link = $derived(/^https?:\/\//i.test(row.origin) ? row.origin : '')
   const linkText = $derived(row.origin.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, ''))
   const STATES: Record<string, string> = { ok: 'Installed', off: 'Off', installing: 'Installing', removing: 'Removing', failed: 'Failed', offline: 'Offline', blocked: "Can't write skills here" }
@@ -256,11 +257,7 @@
       {#if row.originKind === 'imported' || row.originKind === 'kept'}
         <section aria-labelledby={`${uid}-origin`}>
           <h4 id={`${uid}-origin`}>{row.originKind === 'imported' ? 'Imported from' : 'Kept from'}</h4>
-          {#if link}
-            <p class="origin"><a href={link} target="_blank" rel="noopener noreferrer">{linkText}</a></p>
-          {:else}
-            <p class="origin">{row.origin || (row.originKind === 'kept' ? 'a machine' : 'a link')}</p>
-          {/if}
+          <p class="origin">{#if link}<a href={link} target="_blank" rel="noopener noreferrer">{linkText}</a>{:else}<span>{row.origin || (row.originKind === 'kept' ? 'a machine' : 'a link')}</span>{/if}{#if arrived}<span class="when">{` · ${arrived}`}</span>{/if}</p>
           <p class="hint">For reference. reet installs its own copy.</p>
           {#if row.originKind === 'imported' && canWrite}<button type="button" class="link" bind:this={updateButton} onclick={() => { problem = ''; updating = true }}>Update from original</button>{/if}
         </section>

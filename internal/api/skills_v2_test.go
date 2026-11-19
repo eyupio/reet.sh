@@ -44,6 +44,7 @@ type pageRow struct {
 		Host    string `json:"host"`
 	} `json:"editedOn"`
 	EditedOnProblem string `json:"editedOnProblem"`
+	CreatedAt       int64  `json:"createdAt"`
 }
 
 // pageData mirrors SkillsPageData in web/src/lib/api.ts.
@@ -1481,5 +1482,24 @@ func TestContentSaveSaysWhenThePublicPageCouldNotFollow(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the edit must be recorded: %+v", events)
+	}
+}
+
+// Each row carries when the skill came into the library, which the opened
+// skill shows beside where it came from.
+func TestSkillsPageRowsSayWhenTheSkillArrived(t *testing.T) {
+	e := newCopyEnv(t)
+	before := time.Now().Add(-time.Second).UnixMilli()
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	code, raw := do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+	var p pageData
+	if code != 200 || json.Unmarshal([]byte(raw), &p) != nil || len(p.Skills) != 1 {
+		t.Fatalf("page: %d %s", code, raw)
+	}
+	if at := p.Skills[0].CreatedAt; at < before || at > time.Now().UnixMilli() {
+		t.Fatalf("createdAt %d is not when it was added", at)
 	}
 }

@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
+const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
@@ -185,4 +185,12 @@ test('pausedSentence names a paused machine, or counts several, and says nothing
   assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 2 }), 'Sync is paused on 2 machines.')
   assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 0 }), '')
   assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0 }), '')
+})
+
+test('arrivedOn: day and month this year, with the year otherwise, and nothing without a date', () => {
+  const now = Date.UTC(2026, 10, 19, 12)
+  assert.equal(arrivedOn(Date.UTC(2026, 10, 12, 12), now), '12 Nov')
+  assert.equal(arrivedOn(Date.UTC(2025, 2, 3, 12), now), '3 Mar 2025')
+  assert.equal(arrivedOn(0, now), '')
+  assert.equal(arrivedOn(undefined, now), '')
 })

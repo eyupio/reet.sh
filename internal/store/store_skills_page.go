@@ -42,6 +42,9 @@ type SkillPageRow struct {
 	// EditedOnProblem says, in plain words, why Use this version could not
 	// take the edited copy EditedOn names, when it tried and could not.
 	EditedOnProblem string `json:"editedOnProblem,omitempty"`
+	// CreatedAt is when the skill came into the library, in Unix
+	// milliseconds: when it was imported, kept or first written.
+	CreatedAt int64 `json:"createdAt"`
 	// HostedSlug is the written skill's name in the owner's hosted skills,
 	// from which the API makes PublicURL.
 	HostedSlug string `json:"-"`
@@ -92,7 +95,7 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	if !validLibraryStatus(status) {
 		return page, ErrPrivateSkillInvalid
 	}
-	rows, err := s.db.Query(`SELECT i.id,i.name,i.status,i.origin,i.origin_ref,i.revision_id<>'',i.upgraded_from,
+	rows, err := s.db.Query(`SELECT i.id,i.name,i.status,i.origin,i.origin_ref,i.revision_id<>'',i.upgraded_from,i.created_at,
  COALESCE((SELECT a.reference FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference JOIN skills k ON k.id=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' ORDER BY k.hidden,k.source_type='local',a.reference LIMIT 1),''),
  COALESCE((SELECT h.slug FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' ORDER BY h.slug LIMIT 1),''),
  EXISTS(SELECT 1 FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' AND h.published=1),
@@ -108,7 +111,7 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 		var r SkillPageRow
 		var origin, originRef, hostedDescription string
 		var linked bool
-		if err = rows.Scan(&r.ID, &r.Name, &r.Status, &origin, &originRef, &r.HasCopy, &r.UpgradedFrom, &r.ShelfID, &r.HostedSlug, &r.Published, &hostedDescription, &linked); err != nil {
+		if err = rows.Scan(&r.ID, &r.Name, &r.Status, &origin, &originRef, &r.HasCopy, &r.UpgradedFrom, &r.CreatedAt, &r.ShelfID, &r.HostedSlug, &r.Published, &hostedDescription, &linked); err != nil {
 			break
 		}
 		r.OriginKind = skillOriginKind(origin, linked)

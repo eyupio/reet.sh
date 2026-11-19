@@ -12,8 +12,11 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import { copyText } from './clipboard'
-  import { installCommand } from './install'
+  import { copyPrompt, installCommand } from './install'
   import { fmt } from './shelf'
+  import AddStatusDialog from './AddStatusDialog.svelte'
+  import { addAllTitle, addedNotice, type AddStatus } from './addStatus'
+  import { loadSkillsPage } from './api'
 
   let {
     id, canWrite, userRole, onerror,
@@ -44,7 +47,13 @@
 
   const link = $derived(detail?.slug ? `${location.origin}/l/${detail.slug}` : '')
   const available = $derived(shelf.filter((s) => !(detail?.skills ?? []).some((x) => x.id === s.id)))
-  const commands = $derived((detail?.skills ?? []).map(installCommand).filter((x): x is string => Boolean(x)))
+  // The ids in the person's library. A list skill they have comes from reet's copy, so it offers Copy prompt and is
+  // left out of the install commands, which name each original.
+  let mine = $state<string[]>([])
+  const inLibrary = (skill: Skill) => mine.includes(skill.id)
+  const commands = $derived((detail?.skills ?? []).filter(skill => !inLibrary(skill)).map(installCommand).filter((x): x is string => Boolean(x)))
+  // Add all asks first: how many skills, on how many machines (null when that could not be read).
+  let adding = $state<{ count: number; machines: number | null } | null>(null)
 
   onMount(() => {
     document.title = 'List · reet.sh'
@@ -100,7 +109,9 @@
 
   async function loadShelf() {
     try {
-      shelf = (await listSkills({ tab: 'all', q: '', sort: 'name' })).skills.filter((s) => s.sourceType !== 'local')
+      const all = (await listSkills({ tab: 'all', q: '', sort: 'name' })).skills
+      mine = all.map((s) => s.id)
+      shelf = all.filter((s) => s.sourceType !== 'local')
     } catch {
       /* the paste field still works when the shelf cannot be read */
     }
@@ -173,11 +184,28 @@
     }
   }
 
-  async function addAll() {
+  async function askAddAll() {
+    const count = (detail?.skills ?? []).filter(skill => !inLibrary(skill)).length
+    if (count === 0) { say(addedNotice(0, 'active')); return }
+    busy = true
+    let machines: number | null = null
+    try {
+      machines = (await loadSkillsPage('active')).machines
+    } catch {
+      /* the question names no number of machines */
+    } finally {
+      busy = false
+    }
+    adding = { count, machines }
+  }
+
+  async function addAll(status: AddStatus) {
+    adding = null
     busy = true
     try {
-      const r = await addListToShelf(id)
-      say(r.added === 0 ? 'Every skill was already in your library. Nothing changed.' : `Added ${r.added} ${r.added === 1 ? 'skill' : 'skills'} to your library as Active · going on every machine`)
+      const r = await addListToShelf(id, status)
+      say(addedNotice(r.added, status))
+      void loadShelf()
     } catch (e) {
       fail(e)
     } finally {
@@ -319,7 +347,7 @@
 
     <div class="actions">
       {#if canWrite}
-        <button type="button" class="btn primary" onclick={addAll} disabled={busy || detail.skillCount === 0}>Add all to my library</button>
+        <button type="button" class="btn primary" onclick={askAddAll} disabled={busy || detail.skillCount === 0}>Add all to my library</button>
       {/if}
       <a class="btn" href={`/machines?view=compare&list=${id}`}>Prepare a machine</a>
       <button type="button" class="btn" onclick={copyAll} disabled={!commands.length}>Copy install commands</button>
@@ -477,7 +505,9 @@
             {/if}
 
             <div class="entry-actions">
-              {#if installCommand(skill)}
+              {#if inLibrary(skill)}
+                <CopyButton text={copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact />
+              {:else if installCommand(skill)}
                 <div class="command"><code>{installCommand(skill)}</code><CopyButton text={installCommand(skill)!} compact /></div>
               {/if}
               {#if detail.canEdit}
@@ -490,6 +520,11 @@
       </ol>
     {/if}
   </article>
+{/if}
+
+{#if adding}
+  <AddStatusDialog title={(status) => addAllTitle(adding?.count ?? 0, adding?.machines ?? null, status)} body="Active puts them on every machine. Archived keeps them in your library, off your machines." confirmLabel="Add all"
+    onconfirm={(status) => void addAll(status)} oncancel={() => (adding = null)} />
 {/if}
 
 {#if confirmDelete}

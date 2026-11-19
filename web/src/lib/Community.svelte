@@ -1,7 +1,7 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
-  import { getCommunity, addSkill, type ListSkill, type SharedList } from './api'
+  import { getCommunity, addSkill, listSkills, type ListSkill, type SharedList } from './api'
   import {
     communityCountLabel, filterCommunityLists, filterCommunitySkills, type CommunityTab,
   } from './community'
@@ -9,13 +9,21 @@
   import CollectionPanel from './CollectionPanel.svelte'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { installCommand } from './install'
+  import { copyPrompt, installCommand } from './install'
   import { t } from './copy'
+  import AddStatusDialog from './AddStatusDialog.svelte'
+  import { savedNotice, type AddStatus } from './addStatus'
 
   let { canSave = false }: { canSave?: boolean } = $props()
 
   let saving = $state('')
   let saved = $state<string[]>([])
+  // The skill whose Save is asking Active or Archived.
+  let choosing = $state<ListSkill | null>(null)
+  // The skills already in the person's library. Theirs comes from reet's copy, so it offers Copy prompt, never the
+  // original's install command.
+  let mine = $state<string[]>([])
+  const inLibrary = (skill: ListSkill) => mine.includes(skill.id) || saved.includes(skill.id)
   let notice = $state('')
   let actionError = $state('')
   let lists = $state<SharedList[]>([])
@@ -34,14 +42,14 @@
   ))
   const countText = $derived(loading ? 'Reading the community…' : error ? 'Community unavailable' : countLabel)
 
-  async function save(skill: ListSkill) {
+  async function save(skill: ListSkill, status: AddStatus) {
     if (saving) return
     saving = skill.id
     actionError = ''
     try {
-      await addSkill(skill.id, { bookmarked: true })
+      await addSkill(skill.id, { status })
       saved = [...saved, skill.id]
-      notice = `Saved ${skill.name} to your library.`
+      notice = savedNotice(skill.name, status)
     } catch (e) {
       actionError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -52,6 +60,7 @@
   async function load() {
     loading = true
     error = ''
+    if (canSave) void listSkills({ tab: 'all', q: '', sort: 'name' }).then(r => { mine = (r.skills ?? []).map(skill => skill.id) }, () => { /* the install commands stay */ })
     try {
       const r = await getCommunity()
       lists = r.lists
@@ -140,15 +149,21 @@
           </div>
           <div class="actions">
             {#if canSave}
-              <button type="button" class="btn" disabled={!!saving || saved.includes(skill.id)} onclick={() => save(skill)}>{saved.includes(skill.id) ? 'Saved to your library' : saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
+              <button type="button" class="btn" disabled={!!saving || saved.includes(skill.id)} onclick={() => { notice = ''; choosing = skill }}>{saved.includes(skill.id) ? 'Saved to your library' : saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
             {:else}<a class="btn" href="/skills">Open your library to save</a>{/if}
-            {#if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
+            {#if inLibrary(skill)}<CopyButton text={copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} />
+            {:else if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
           </div>
         </div>
       {/each}
     </div>
   {/if}
 </CollectionPanel>
+
+{#if choosing}
+  <AddStatusDialog title={() => `Save ${choosing?.name ?? 'this skill'} to your library`} body="Active puts it on every machine. Archived keeps it in your library, off your machines." confirmLabel="Save"
+    onconfirm={(status) => { const skill = choosing; choosing = null; if (skill) void save(skill, status) }} oncancel={() => (choosing = null)} />
+{/if}
 
 <p class="hint">This community contains lists explicitly published on this reet site. It does not expose private collections or search other reet servers.</p>
 <style>

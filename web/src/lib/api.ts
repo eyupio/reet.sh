@@ -840,8 +840,8 @@ export async function removeListMember(id: number, userId: number): Promise<List
 export async function transferList(id: number, userId: number): Promise<ListDetail> {
   return (await req(`/api/v2/lists/${id}/transfer`, { method: 'POST', body: json({ userId }) })).json()
 }
-export async function addListToShelf(id: number): Promise<{ added: number }> {
-  return (await req(`/api/v2/lists/${id}/add-to-shelf`, { method: 'POST', body: json({}) })).json()
+export async function addListToShelf(id: number, status: 'active' | 'archived' = 'active'): Promise<{ added: number }> {
+  return (await req(`/api/v2/lists/${id}/add-to-shelf`, { method: 'POST', body: json({ status }) })).json()
 }
 export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()

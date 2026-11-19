@@ -1,7 +1,7 @@
 // The public Community page: one collection surface, honest tab counts, a recoverable
 // empty search and a phone layout that keeps every control reachable.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { openWorkspace, skill, skillsPageOf } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -41,9 +41,68 @@ try {
     await expect(count(page)).toHaveText('3 skills')
     await expect(page.getByRole('button', { name: 'Save to your library' })).toHaveCount(3)
     await expect(page.getByRole('button', { name: 'Copy install command' })).toHaveCount(3)
-    await page.getByRole('button', { name: 'Save to your library' }).first().click()
-    await expect(page.getByRole('button', { name: 'Saved to your library' })).toBeVisible()
-    await expect(page.getByRole('status').filter({ hasText: 'Saved pdf to your library.' })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // Save asks Active or Archived, with Active preselected, and sends the one chosen.
+  if (run('save as active or archived')) {
+    const posts = []
+    const library = (request) => {
+      if (request.method() === 'POST') { const body = request.postDataJSON(); posts.push(body); return { ...skill(body.input.split('/').pop()), id: body.input, created: true } }
+      return { skills: [], counts: { all: 0, used: 0, liked: 0, bookmarked: 0 } }
+    }
+    for (const [choice, notice] of [['Active', 'Saved pdf to your library as Active · going on every machine'], ['Archived', 'Saved pdf to your library as Archived · kept off your machines']]) {
+      posts.length = 0
+      const { context, page, errors } = await open({ routes: { '/api/community': community, '/api/skills': library } })
+      await page.goto(`${base}/community`)
+      await tab(page, /^Skills/).click()
+      await page.getByRole('button', { name: 'Save to your library' }).first().click()
+      const dialog = page.getByRole('dialog', { name: 'Save pdf to your library' })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByRole('radio', { name: /^Active/ })).toBeChecked()
+      await expect(dialog.getByRole('radio', { name: /^Archived/ })).not.toBeChecked()
+      expect(posts).toEqual([])
+      await dialog.getByRole('radio', { name: new RegExp(`^${choice}`) }).check()
+      await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(page.getByRole('status').filter({ hasText: notice })).toBeVisible()
+      expect(posts).toEqual([{ input: 'demo/toolkit/pdf', status: choice.toLowerCase() }])
+      await expect(page.getByRole('button', { name: 'Saved to your library' })).toBeVisible()
+      // reet's copy is the one to use now: Copy prompt, not the original's install command.
+      await expect(page.getByRole('button', { name: 'Copy prompt for pdf' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Copy install command' })).toHaveCount(2)
+      expect(errors).toEqual([])
+      await context.close()
+    }
+  }
+
+  // A list's Add all says how many skills go on how many machines before it sends anything.
+  if (run('add all asks first')) {
+    const names = ['pdf', 'docx', 'xlsx', 'pptx', 'csv', 'sql', 'charts', 'notes', 'review', 'release', 'changelog', 'readme']
+    const detail = { id: 7, ownerId: 1, ownerName: 'Sam', name: 'Launch checklist', description: 'Everything for a release week.', visibility: 'public', slug: 'launch-checklist', role: 'reader', skillCount: 12, memberCount: 2, createdAt: now, updatedAt: now, skills: names.map(name => ({ ...skill(name), useCount: 0, memberCount: 2, note: '' })), members: [], linkEnabled: true, canEdit: false, canManage: false, canTransfer: false }
+    const posts = []
+    const { context, page, errors } = await open({ routes: {
+      '/api/v2/lists/7': detail,
+      '/api/v2/skills': skillsPageOf([], 'active', { machines: 3 }),
+      '/api/v2/lists/7/add-to-shelf': request => { posts.push(request.postDataJSON()); return { added: 12 } },
+    } })
+    await page.goto(`${base}/lists/7`)
+    await page.getByRole('button', { name: 'Add all to my library' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Put 12 skills on all 3 machines?' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('radio', { name: /^Active/ })).toBeChecked()
+    expect(posts).toEqual([])
+    await dialog.getByRole('radio', { name: /^Archived/ }).check()
+    await expect(page.getByRole('dialog', { name: 'Add 12 skills to your library as Archived?' })).toBeVisible()
+    await page.getByRole('dialog').getByRole('radio', { name: /^Active/ }).check()
+    await page.getByRole('dialog', { name: 'Put 12 skills on all 3 machines?' }).getByRole('button', { name: 'Add all', exact: true }).click()
+    await expect(page.getByText('Added 12 skills to your library as Active · going on every machine')).toBeVisible()
+    expect(posts).toEqual([{ status: 'active' }])
+    // Cancel sends nothing.
+    await page.getByRole('button', { name: 'Add all to my library' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(posts).toHaveLength(1)
     expect(errors).toEqual([])
     await context.close()
   }

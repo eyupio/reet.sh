@@ -24,6 +24,8 @@ await page.route('**/api/**',async route=>{
  if(path==='/api/v2/auth/status')data={mode:'accounts',user:{id:1,name:'Demo operator',email:'demo@example.test',role:viewer?'viewer':'owner'}}
  else if(path==='/api/v2/profile')data={profile:{theme:'light',shelfView:'list',cardsExpanded:false}}
  else if(path==='/api/skills')data={skills,counts:{all:3,used:3,liked:0,bookmarked:0}}
+ else if(path==='/api/v2/skills'&&request.method()==='GET'){const status=new URL(request.url()).searchParams.get('status')||'active';data={skills:status==='active'?skills.map(s=>({id:s.id,shelfId:s.id,name:s.name,description:s.description,status:'active',originKind:'imported',origin:s.url,yours:false,published:false,hasCopy:true,liked:false,notes:'',tags:[],lists:[],health:{state:'ok',pending:0,total:2,hosts:[],machines:[]}})):[],counts:{active:skills.length,archived:0},newOnMachines:[],machines:2,notice:null}}
+ else if(path==='/api/ignored')data={ignored:[]}
  else if(path==='/api/environments')data={environments,machines:snapshot.machines}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
@@ -194,7 +196,8 @@ try {
  await noOverflow()
  await page.goto(`${base}/skills`)
  await expect(page.getByRole('heading',{name:'Skills',exact:true})).toBeVisible()
- await expect(page.getByRole('link',{name:'Create a skill',exact:true})).toBeVisible()
+ await expect(page.locator('main').getByRole('link',{name:'Write a skill',exact:true})).toBeVisible()
+ await expect(page.locator('[data-skill="demo/toolkit/code-review"]')).toBeVisible()
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  // The older address for Sync shows the Sync page; with a machine it is a link into the plan controls.

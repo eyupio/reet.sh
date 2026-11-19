@@ -1,8 +1,8 @@
-// A written skill appears once on the Skills page: drafts in the writing block,
-// published skills as shelf cards with an edit link. The authoring page names
-// the machines for every skill.
+// A written skill appears once on the Skills page, as yours, whether it is a
+// draft or published: writing it made it a library skill. The authoring page
+// names the machines for every skill.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { openWorkspace, skill, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -23,7 +23,7 @@ const sync = {
 }
 
 try {
-  if (run('one card and Machines')) {
+  if (run('one row and Machines')) {
     let hosted = [asHosted('reet-published', true), asHosted('reet-draft', false)]
     let shelf = [asShelf(hosted[0])]
     const saveHosted = request => {
@@ -42,23 +42,18 @@ try {
         '/api/v2/hosting': () => ({ username: 'sam', prefix: 'reet-', skills: hosted }),
         '/api/v2/hosting/skills/reet-draft': saveHosted,
         '/api/v2/hosting/skills/reet-published': saveHosted,
+        '/api/v2/skills': request => skillsPageOf(hosted.map(h => skillRow(h.slug, { shelfId: h.published ? id(h.slug) : '', originKind: 'written', origin: '', yours: true, published: h.published, description: h.description })), new URL(request.url()).searchParams.get('status') || 'active'),
       },
     })
 
+    // Each written skill is one row, draft or published, marked as yours; there is no separate drafts block.
     await page.goto(`${base}/skills`)
-    await expect(page.getByRole('heading', { name: /Your drafts/ })).toBeVisible()
-    await expect(page.locator('.hosted-list')).toContainText('reet-draft')
-    await expect(page.locator('.hosted-list')).not.toContainText('reet-published')
-    await expect(page.locator(`li.skill[data-skill="${id('reet-published')}"]`)).toHaveCount(1)
-
-    const card = page.locator(`li.skill[data-skill="${id('reet-published')}"]`)
-    await card.getByRole('button', { name: 'More actions for reet-published' }).click()
-    await expect(page.getByRole('menuitem', { name: 'Edit written skill' })).toHaveAttribute('href', '/hosting?edit=reet-published')
-    await page.keyboard.press('Escape')
-
-    await page.getByRole('button', { name: 'Publish & share' }).click()
-    await expect(page.locator('.hosted-list')).not.toContainText('reet-draft')
-    await expect(page.locator(`li.skill[data-skill="${id('reet-draft')}"]`)).toHaveCount(1)
+    for (const slug of ['reet-published', 'reet-draft']) {
+      await expect(page.locator(`[data-skill="item-${slug}"]`)).toHaveCount(1)
+      await expect(page.locator(`[data-skill="item-${slug}"]`)).toContainText('written by you')
+    }
+    await expect(page.locator('[data-skill]')).toHaveCount(2)
+    await expect(page.getByRole('heading', { name: /Your drafts/ })).toHaveCount(0)
 
     await page.goto(`${base}/hosting`)
     await expect(page.getByText('Machines: Set to sync to dev-laptop', { exact: true })).toBeVisible()
@@ -67,9 +62,10 @@ try {
     await page.locator('.skill-choice').filter({ hasText: 'reet-published' }).click()
     await page.locator('.publish input[type=checkbox]').uncheck()
     await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
+    // Unpublished, it is still the one row.
     await page.goto(`${base}/skills`)
-    await expect(page.locator('.hosted-list')).toContainText('reet-published')
-    await expect(page.locator(`li.skill[data-skill="${id('reet-published')}"]`)).toHaveCount(0)
+    await expect(page.locator('[data-skill="item-reet-published"]')).toHaveCount(1)
+    await expect(page.locator('[data-skill]')).toHaveCount(2)
 
     expect(errors).toEqual([])
     expect(state.unexpected).toEqual([])
@@ -78,4 +74,4 @@ try {
 } finally {
   await browser.close()
 }
-console.log('Written skill record: drafts once, published on the shelf with an edit link, and Machines on the authoring page.')
+console.log('Written skill record: each written skill once on the Skills page as yours, draft or published, and Machines on the authoring page.')

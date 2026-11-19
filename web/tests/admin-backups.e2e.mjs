@@ -580,10 +580,10 @@ try {
         : { status: 423, json: { error: 'This controller has moved, so it no longer accepts changes.', code: 'controller_moved', fenced: true, since: now, movedTo: 'https://reet.new.example' } }
       const { context, page } = await open({ routes: fencedRoutes, status: { user: { id: 3, name: 'Mo', email: 'mo@example.test', role: 'member' } } })
       await page.goto(`${base}/skills`)
-      await page.getByLabel('Skill install command, URL or slug').fill('demo/toolkit/pdf')
+      await page.getByLabel('Add a skill', { exact: true }).fill('demo/toolkit/pdf')
       await expect(page.locator('.fence-strip')).toHaveCount(0)
       expect(seen.fenceReads).toBe(0)
-      await page.getByRole('button', { name: 'Add to library' }).click()
+      await page.getByRole('button', { name: 'Add', exact: true }).click()
       await expect(page.locator('.fence-strip')).toContainText('It has moved to https://reet.new.example.')
       await expect(page.locator('.fence-strip').getByRole('link')).toHaveCount(0)
       expect(seen.fenceReads).toBe(0)

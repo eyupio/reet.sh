@@ -1,9 +1,11 @@
-// Sync all machines is one press wherever it is offered: the Skills header, the toast after adding a skill and the notice
-// after saving a skill you wrote. Each does the whole job where it is, and none opens the Sync page for a second click.
-// With no machine to sync to, or on a read-only account, it still opens Sync, which says what is missing.
+// Machines follow the library, so the Skills page has nothing to start: its header says where the machines stand in one
+// line and opens Sync, and adding a skill says it is going on every machine without leaving the page. Sync all machines
+// is one press where it is still offered, the notice after saving a skill you wrote: it does the whole job there, says
+// where things stand or why it was refused, and never opens the Sync page for a second click. With no machine, or on a
+// read-only account, the Skills page still opens Sync, which says what is missing.
 import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { openWorkspace, skill, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -45,6 +47,8 @@ async function open(options, answer) {
       '/api/skills': request => request.method() === 'POST'
         ? { ...skill('fresh'), created: true }
         : { skills: [one], counts: { all: 1, used: 0, liked: 0, bookmarked: 0 } },
+      // The Skills page: review, on every machine that follows the library.
+      '/api/v2/skills': request => skillsPageOf([skillRow('review', { id: one.id, shelfId: one.id, health: { state: 'ok', pending: 0, total: sync.agents.length, hosts: [], machines: [] } })], new URL(request.url()).searchParams.get('status') || 'active', { machines: sync.agents.length }),
       ...options.routes,
     },
   })
@@ -59,20 +63,29 @@ const capture = async (page, name) => {
 }
 const dock = page => page.getByRole('complementary', { name: 'Sync activity' })
 const syncButton = page => page.getByRole('button', { name: 'Sync all machines', exact: true })
+const chip = page => page.locator('main .sync-chip')
+// A skill being written, and the press its save notice offers on the Write a skill page.
+const hosted = { slug: 'reet-review', description: 'Reviews code', content: '---\nname: reet-review\ndescription: Reviews code\n---\nReview carefully.', files: {}, published: false, createdAt: now, updatedAt: now }
+const writing = { hosting: { username: 'sam', prefix: 'reet-', skills: [hosted] }, routes: { '/api/v2/hosting/skills/reet-review': request => request.postDataJSON() } }
+async function pressAfterSaving(page) {
+  await page.goto(`${base}/hosting`)
+  await page.locator('.skill-choice').filter({ hasText: 'reet-review' }).click()
+  await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: 'Ready for your machines.' }).getByRole('button', { name: 'Sync all machines' }).click()
+}
 
 try {
-  // The Skills header: one press, and the activity dock follows it live. The page stays where it is.
+  // The Skills header: nothing to start, one line about the machines that opens Sync. The page stays where it is.
   if (run('header')) {
     for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
       const { context, page, presses, errors } = await open({ width, height: width === 390 ? 812 : 900, touch: width === 390, theme })
       await page.goto(`${base}/skills`)
-      await expect(page.getByRole('link', { name: 'Sync all machines' }), 'a button, not a link to another page').toHaveCount(0)
-      await syncButton(page).click()
-      await expect(dock(page)).toContainText('Syncing your machines')
-      await expect(dock(page)).toContainText('All connected machines')
-      expect(presses).toEqual([{}])
+      await expect(chip(page)).toHaveText('Everything is in sync.')
+      await expect(chip(page)).toHaveAttribute('href', '/sync')
+      await expect(page.getByRole('link', { name: 'Sync all machines' })).toHaveCount(0)
+      await expect(syncButton(page)).toHaveCount(0)
+      expect(presses).toEqual([])
       expect(new URL(page.url()).pathname).toBe('/skills')
-      await expect(syncButton(page)).toBeEnabled()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await capture(page, `in-place-header-${width}-${theme}`)
       expect(errors).toEqual([])
@@ -82,9 +95,8 @@ try {
 
   // Nothing to do: one line says where things stand, and nothing pretends to be working.
   if (run('already in sync')) {
-    const { context, page, presses } = await open({ width: 1280 }, current)
-    await page.goto(`${base}/skills`)
-    await syncButton(page).click()
+    const { context, page, presses } = await open({ width: 1280, ...writing }, current)
+    await pressAfterSaving(page)
     const toast = page.getByRole('status').filter({ hasText: 'Everything is in sync.' })
     await expect(toast).toContainText("Desktop will catch up when it's back online.")
     await expect(dock(page)).toHaveCount(0)
@@ -93,31 +105,30 @@ try {
     await context.close()
   }
 
-  // A refusal says why, in words, on whichever page the button is on, and the button is ready to try again.
+  // A refusal says why, in words, where the button is, and the button is ready to try again.
   if (run('refused')) {
-    const { context, page } = await open({ width: 1280 }, () => ({ status: 409, json: { error: 'The library needs a source conflict resolved.' } }))
-    await page.goto(`${base}/skills`)
-    await syncButton(page).click()
+    const { context, page } = await open({ width: 1280, ...writing }, () => ({ status: 409, json: { error: 'The library needs a source conflict resolved.' } }))
+    await pressAfterSaving(page)
     await expect(page.getByRole('alert').filter({ hasText: 'The library needs a source conflict resolved.' })).toBeVisible()
-    await expect(syncButton(page)).toBeEnabled()
+    await expect(page.getByRole('status').filter({ hasText: 'Ready for your machines.' }).getByRole('button', { name: 'Sync all machines' })).toBeEnabled()
     await expect(dock(page)).toHaveCount(0)
     await context.close()
   }
 
-  // After adding a skill the toast offers the same press. It syncs where it is.
+  // After adding a skill the toast says it is going on every machine: there is nothing to press, and the page stays.
   if (run('toast')) {
     for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
       const { context, page, presses, errors } = await open({ width, height: width === 390 ? 812 : 900, touch: width === 390, theme })
       await page.goto(`${base}/skills`)
-      await page.getByLabel('Skill install command, URL or slug').fill('skills.sh/demo/toolkit/fresh')
-      await page.getByRole('button', { name: 'Add to library' }).click()
-      const toast = page.getByRole('status').filter({ hasText: 'Ready for your machines.' })
-      await expect(toast).toContainText('Added fresh to your library.')
+      await page.getByLabel('Add a skill', { exact: true }).fill('skills.sh/demo/toolkit/fresh')
+      await page.getByRole('button', { name: 'Add', exact: true }).click()
+      const toast = page.getByRole('status').filter({ hasText: 'Added fresh · going on every machine' })
+      await expect(toast).toBeVisible()
+      await expect(toast.getByRole('button', { name: 'Sync all machines' })).toHaveCount(0)
       await capture(page, `in-place-toast-${width}-${theme}`)
-      await toast.getByRole('button', { name: 'Sync all machines' }).click()
-      await expect(dock(page)).toContainText('Syncing your machines')
-      expect(presses).toEqual([{}])
+      expect(presses).toEqual([])
       expect(new URL(page.url()).pathname).toBe('/skills')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       expect(errors).toEqual([])
       await context.close()
     }
@@ -154,15 +165,16 @@ try {
     }
   }
 
-  // No machine yet: there is nothing to sync to, so the header and the toast still open Sync, which leads to adding one.
+  // No machine yet: the header says so and opens Sync, which leads to adding one; adding a skill says only that it is in.
   if (run('no machine')) {
     const empty = { environments: [], machines: [], agents: [], targets: [], jobs: [], runs: [], updateJobs: [] }
     const { context, page, presses } = await open({ width: 1280, sync: empty })
     await page.goto(`${base}/skills`)
-    await expect(page.getByRole('link', { name: 'Sync all machines' })).toHaveAttribute('href', '/sync')
-    await page.getByLabel('Skill install command, URL or slug').fill('skills.sh/demo/toolkit/fresh')
-    await page.getByRole('button', { name: 'Add to library' }).click()
-    await page.getByRole('status').filter({ hasText: 'Ready for your machines.' }).getByRole('button', { name: 'Sync all machines' }).click()
+    await expect(chip(page)).toHaveText('No machines yet')
+    await page.getByLabel('Add a skill', { exact: true }).fill('skills.sh/demo/toolkit/fresh')
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Added fresh to your library.' })).toBeVisible()
+    await chip(page).click()
     await page.waitForURL(/\/sync$/)
     expect(presses).toEqual([])
     await context.close()
@@ -179,8 +191,9 @@ try {
     // The press starts a run; the next read of the sync state is the failed attempt.
     let pressed = false
     const { context, page } = await open({
-      width: 390,
+      width: 390, hosting: writing.hosting,
       routes: {
+        ...writing.routes,
         '/api/v2/sync': () => pressed ? failed() : behind(),
         '/api/v2/sync/source-conflicts/resolve': request => {
           const body = request.postDataJSON()
@@ -190,8 +203,7 @@ try {
         '/api/v2/sync/run': () => { calls.push('run'); return working() },
       },
     }, () => { pressed = true; return working() })
-    await page.goto(`${base}/skills`)
-    await syncButton(page).click()
+    await pressAfterSaving(page)
     const panel = dock(page)
     await panel.getByRole('button', { name: /Sync failed on Laptop.*Open sync activity/ }).click()
     await expect(panel).toContainText('Laptop already has a copy of review that came from somewhere else, in the shared skills folder, so reet did not overwrite it.')
@@ -208,16 +220,20 @@ try {
     await context.close()
   }
 
-  // A read-only account cannot sync, so it is not handed a button that would be refused. It still opens Sync to read where things stand.
+  // A read-only account cannot change the library, so it is not handed a button that would be refused. It still opens
+  // Sync to read where things stand.
   if (run('read-only')) {
     const { context, page, presses } = await open({ width: 1280, status: { user: { id: 2, name: 'Reader', role: 'viewer' } } })
     await page.goto(`${base}/skills`)
-    await expect(page.getByRole('link', { name: 'Sync all machines' })).toHaveAttribute('href', '/sync')
+    await expect(chip(page)).toHaveAttribute('href', '/sync')
+    await expect(page.locator(`[data-skill="${one.id}"]`)).toBeVisible()
     await expect(syncButton(page)).toHaveCount(0)
+    await expect(page.getByLabel('Add a skill', { exact: true })).toHaveCount(0)
+    await expect(page.locator('[data-act]')).toHaveCount(0)
     expect(presses).toEqual([])
     await context.close()
   }
 } finally {
   await browser.close()
 }
-console.log('Sync in place: the Skills header, the add-skill toast and the written-skill notice each sync every machine without leaving the page; no machine or a read-only account still opens Sync.')
+console.log('Sync in place: the Skills header says where the machines stand and opens Sync, adding a skill says it is going on every machine, the written-skill notice syncs every machine without leaving the page and says where things stand or why not; no machine or a read-only account still opens Sync.')

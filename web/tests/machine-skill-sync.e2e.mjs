@@ -1,49 +1,44 @@
+// A skill found on only one machine reaches the others once it is kept: the review takes reet's copy from the machine it
+// was found on, and the skill's row follows the copy and the installs live, on desktop and phone.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill, machineWith } from './helpers/workspace.mjs'
+import { openWorkspace, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
+const health=(state,over={})=>({state,pending:0,total:2,hosts:[],machines:[],...over})
 try {
  for(const width of [390,1280]) {
-  const local={...skill('improve'),id:'local/improve',source:'',sourceType:'local',url:'',used:true}
-  const source=machineWith('Elitebook',[local]),dest=machineWith('PROD_Snicket',[])
-  const inventory={environments:[...source.environments,...dest.environments],machines:[...source.machines,...dest.machines]}
-  const sync={...inventory,agents:['Elitebook','PROD_Snicket'].map((host,i)=>({id:`a${i}`,host,lastSeen:Date.now(),paused:false,keepSynced:true})),targets:[],jobs:[],runs:[]}
-  let request=null
-  const writes=[]
-  const fixture=await openWorkspace(browser,{width,height:900,touch:width===390,skills:[local],sync,inventory,routes:{
-   '/api/v2/sync/candidates':{skills:[local]},
-   '/api/ignored':{skills:[]},
-   '/api/v2/skill-imports':()=>({requests:request?[request]:[],capabilities:[]}),
-   '/api/v2/sync/from-machine':req=>{const body=req.postDataJSON();writes.push(body);request={id:'copy1',syncSkillId:local.id,destinationId:dest.environments[0].id,environmentId:source.environments[0].id,host:'Elitebook',agent:'agents',name:'improve',state:'previewing',createdAt:Date.now(),updatedAt:Date.now()};return request},
-   '/api/v2/skill-imports/copy1':()=>request,
+  const w={rows:[],found:[{name:'improve',copies:[{agentId:'a0',host:'Elitebook',folder:'~/.agents/skills'}],digestsDiffer:false}],posts:[]}
+  const fixture=await openWorkspace(browser,{width,height:900,touch:width===390,routes:{
+   '/api/v2/skills':req=>skillsPageOf(w.rows,new URL(req.url()).searchParams.get('status')||'active',{newOnMachines:w.found,machines:2}),
+   '/api/v2/skills/new':req=>{const body=req.postDataJSON();w.posts.push(body);w.found=[];w.rows=[skillRow('improve',{originKind:'kept',origin:'Elitebook',hasCopy:false,health:health('copying',{hosts:['Elitebook']})})];return {items:['item-improve']}},
   }})
   const {page}=fixture
+  // Nothing spreads before the person says so: the skill waits in the banner, not in the list.
   await page.goto(`${base}/skills`)
-  await expect(page.getByText('Available from your machines',{exact:true})).toBeVisible()
-  await expect(page.getByRole('button',{name:'Link source to sync',exact:true})).not.toBeVisible()
-  await page.getByRole('button',{name:/Install improve on PROD_Snicket/}).click()
-  const dialog=page.getByRole('dialog',{name:'Sync improve',exact:true})
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('heading',{name:'Reading improve from Elitebook'})).toBeVisible()
-  expect(writes).toHaveLength(1)
-  expect(writes[0]).toMatchObject({skillId:'local/improve',destination:'PROD_Snicket',sourceId:source.environments[0].id})
-  request={...request,state:'failed',error:'source_changed'}
-  await expect(dialog.getByRole('heading',{name:'Sync needs attention'})).toBeVisible({timeout:7000})
-  await dialog.getByRole('button',{name:'Fix and try again',exact:true}).click()
-  await expect(dialog.getByRole('heading',{name:'Reading improve from Elitebook'})).toBeVisible()
-  expect(writes).toHaveLength(2)
-  expect(writes[1].requestKey).not.toBe(writes[0].requestKey)
-  request={...request,state:'completed',syncRunId:'transfer_copy1'}
-  sync.runs=[{id:'transfer_copy1',status:'running',targets:[request.destinationId]}]
-  sync.jobs=[{id:'install1',targetId:request.destinationId,status:'running',message:'Installing improve · 1 of 1',createdAt:Date.now()}]
-  await expect(dialog.getByRole('heading',{name:'Installing on PROD_Snicket'})).toBeVisible({timeout:7000})
-  await expect(dialog.getByRole('status')).toHaveText('Installing improve · 1 of 1')
-  sync.runs[0].status='completed'
-  await expect(dialog.getByRole('heading',{name:'improve is on PROD_Snicket'})).toBeVisible({timeout:7000})
+  const banner=page.getByRole('region',{name:'New on a machine'})
+  await expect(banner).toContainText('1 new skill turned up on Elitebook')
+  await expect(page.locator('[data-skill]')).toHaveCount(0)
+  await banner.getByRole('button',{name:'Review'}).click()
+  const dialog=page.getByRole('dialog',{name:'New on Elitebook'})
+  await dialog.getByRole('button',{name:'Keep improve'}).click()
+  await expect(dialog).toContainText('All sorted.')
+  expect(w.posts).toEqual([{names:['improve'],action:'keep'}])
+  await dialog.getByRole('button',{name:'Close'}).click()
+  // reet copies it in from Elitebook, then the other machine installs it, and the row says so as it goes.
+  const row=page.locator('[data-skill="item-improve"]')
+  await expect(row.locator('.health')).toHaveText('Copying into reet from Elitebook')
+  await expect(banner).toHaveCount(0)
+  const refresh=()=>page.evaluate(()=>window.dispatchEvent(new Event('reet-shelf-changed')))
+  w.rows=[{...w.rows[0],hasCopy:true,health:health('installing',{pending:1,hosts:['PROD_Snicket']})}]
+  await refresh()
+  await expect(row.locator('.health')).toHaveText('Installing on 1 of 2')
+  w.rows=[{...w.rows[0],health:health('ok')}]
+  await refresh()
+  await expect(row.locator('.health')).toHaveText('On all 2 machines')
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   expect(fixture.errors).toEqual([])
   expect(fixture.state.unexpected).toEqual([])
   await fixture.context.close()
  }
- console.log('Machine-only skills can sync through a private copy, with live transfer/install progress on desktop and phone.')
+ console.log('Machine-only skills reach every machine once kept: reet copies them in from where they were found, with live install progress on desktop and phone.')
 } finally {await browser.close()}

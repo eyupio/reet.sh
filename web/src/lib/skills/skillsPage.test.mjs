@@ -49,6 +49,7 @@ test('an offline machine waits to install an Active skill and to remove an Archi
   assert.deepEqual(healthLine(offline, 'active'), { text: "Installing on studio when it's back online", tone: 'work', retry: false })
   assert.deepEqual(healthLine(offline, 'archived'), { text: "Removing from studio when it's back online", tone: 'work', retry: false })
   assert.equal(healthLine(h('offline', { pending: 2, hosts: ['studio', 'pi'] }), 'active').text, "Installing on 2 machines when they're back online")
+  assert.equal(healthLine(h('offline', { pending: 2, hosts: ['studio', 'pi'] }), 'archived').text, "Removing from 2 machines when they're back online")
 })
 
 test('toastText', () => {

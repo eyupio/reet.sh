@@ -24,7 +24,7 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
       return line(`Failed on ${where}`, 'bad', true)
     case 'offline':
       if (status === 'active') return line(`Installing on ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
-      return line(`Removing from ${where} when it's back online`, 'work')
+      return line(`Removing from ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
     case 'blocked':
       return line(`Can't write skills on ${where}`, 'bad')
     case 'copying':

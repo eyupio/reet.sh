@@ -132,7 +132,7 @@
         <p>Paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. New skills become Active and go on every machine; ones already in your library keep their state. Likes and notes are kept.</p>
         <label class="vh" for="import-box">Skills to import</label>
         <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
-        <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as Active</button>
+        <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import</button>
       </section>
       {#if !noBookmarklets}
         <section class="tool-card" aria-labelledby="bookmarklets-title">

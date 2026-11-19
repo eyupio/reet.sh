@@ -53,7 +53,7 @@ try {
    await expect(page.getByRole('heading',{name:'Library tools'})).toBeVisible()
    await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
    await expect(page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
-   await expect(page.getByRole('button',{name:'Import as Active'})).toBeVisible()
+   await expect(page.getByRole('button',{name:'Import',exact:true})).toBeVisible()
    await expect(page.locator('#tools-panel')).not.toContainText(/in use|to test/i)
    // The bookmarklets add a skills.sh page to the library, or like it; there are no stages to put it in.
    await expect(page.locator('#tools-panel .links a')).toHaveText(['♡ Like on reet', '+ Add to reet'])
@@ -73,7 +73,7 @@ try {
   await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
   await expect(page.locator('#tools-panel')).toContainText('New skills become Active and go on every machine; ones already in your library keep their state.')
   await page.getByLabel('Skills to import').fill('code-review\nanthropics/skills/pdf\nfind-skills')
-  await page.getByRole('button',{name:'Import as Active'}).click()
+  await page.getByRole('button',{name:'Import',exact:true}).click()
   await expect(page.getByRole('status').filter({hasText:'Imported 2 new as Active; 1 already in your library kept its state'})).toBeVisible()
   expect(sent).toEqual({text:'code-review\nanthropics/skills/pdf\nfind-skills'})
   expect(errors).toEqual([])

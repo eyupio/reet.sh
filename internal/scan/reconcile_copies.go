@@ -50,13 +50,30 @@ func readCopyDigest(dir string) copyDigest {
 // ~/.agents/skills, where reet keeps the copy Cursor, OpenCode and the skills
 // CLI link to; nothing outside the managed folders is read.
 func (r *reconciler) copyAt(f *folderRun, name string) copyDigest {
+	return r.copyThrough(f, name, false)
+}
+
+// sameAs says whether the copy at name holds the revision digest. Only here,
+// where the name is an Active skill reet is checking, is a link out of the
+// managed folders (a dotfiles folder, say) read, to tell whether it already
+// holds reet's revision: it is then left as it is. The pass never changes
+// what such a link leads to; it moves only the link itself.
+func (r *reconciler) sameAs(f *folderRun, name, digest string) bool {
+	return r.copyThrough(f, name, true).is(digest)
+}
+
+func (r *reconciler) copyThrough(f *folderRun, name string, readOut bool) copyDigest {
 	p := filepath.Join(f.dir, name)
 	st, err := os.Lstat(p)
 	if err != nil {
 		return copyDigest{}
 	}
 	if st.Mode()&os.ModeSymlink != 0 {
-		if p = r.sharedTarget(f.real, p); p == "" {
+		if shared := r.sharedTarget(f.real, p); shared != "" {
+			p = shared
+		} else if !readOut {
+			return copyDigest{}
+		} else if p, err = filepath.EvalSymlinks(p); err != nil {
 			return copyDigest{}
 		}
 		if st, err = os.Lstat(p); err != nil {

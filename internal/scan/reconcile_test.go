@@ -2974,3 +2974,31 @@ func TestReconcileMatchesNamesWhateverTheirUnicodeForm(t *testing.T) {
 		t.Fatalf("the decomposed copy of an archived skill stayed: %+v", rep.Entries)
 	}
 }
+
+// A link in a managed folder to a copy outside them (a dotfiles folder, say)
+// that holds reet's revision is read, without being followed for any change,
+// and left as it is: it is not taken for an edit and replaced.
+func TestReconcileLeavesALinkToAnIdenticalCopyOutsideTheFolders(t *testing.T) {
+	home := t.TempDir()
+	mkdirs(t, home, ".claude/skills")
+	a, aFiles := skillBundle(t, "alpha", "first")
+	outside := filepath.Join(t.TempDir(), "dotfiles", "alpha")
+	placeFiles(t, outside, aFiles)
+	link := filepath.Join(home, ".claude", "skills", "alpha")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	stub := &stubBundles{files: map[string][]skillbundle.ContentFile{"alpha": aFiles}}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}}, map[string]string{"~/.claude/skills/alpha": a.Digest}, stub.fetch, reconcileNow)
+	if target, err := os.Readlink(link); err != nil || target != outside {
+		t.Fatalf("the link was replaced: %q %v; report %+v", target, err, rep.Entries)
+	}
+	for _, e := range rep.Entries {
+		if e.State == "edited" {
+			t.Fatalf("an identical linked copy was taken for an edit: %+v", e)
+		}
+	}
+	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "installed" {
+		t.Fatalf("entry %+v", e)
+	}
+}

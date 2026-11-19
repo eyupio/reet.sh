@@ -65,7 +65,7 @@ func skillInventory(home string, d store.DesiredState, unmanaged []string) store
 		for _, lower := range slices.Sorted(maps.Keys(names)) {
 			for _, name := range names[lower] {
 				if a, ok := want[lower]; ok {
-					if r.copyAt(f, name).is(a.Digest) {
+					if r.sameAs(f, name, a.Digest) {
 						r.add(f.label, a.Name, "installed", a.Digest, "", "")
 					} else {
 						r.add(f.label, a.Name, "failed", "", "allow-apply is off", "")

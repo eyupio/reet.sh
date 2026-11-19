@@ -356,7 +356,7 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 	key := f.rel + "/" + skillKey(a.Name)
 	keep := ""
 	for _, name := range matches {
-		if r.copyAt(f, name).is(a.Digest) && (keep == "" || name == a.Name) {
+		if r.sameAs(f, name, a.Digest) && (keep == "" || name == a.Name) {
 			keep = name
 		}
 	}

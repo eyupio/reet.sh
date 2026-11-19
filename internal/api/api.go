@@ -1351,9 +1351,16 @@ func stageKey(sk store.Skill) string {
 func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Input string `json:"input"`
+		// Status is what a new skill starts as: active (the default) or
+		// archived, as Community's Save offers. An existing one keeps its own.
+		Status string `json:"status"`
 		store.Patch
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	if in.Status != "" && in.Status != store.SkillActive && in.Status != store.SkillArchived {
+		writeErr(w, 400, "status must be active or archived")
 		return
 	}
 	rf, err := s.parseSkillInput(r, in.Input)
@@ -1387,6 +1394,17 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	if !existed && in.Status == store.SkillArchived {
+		if sk.LibraryItemID == "" {
+			writeErr(w, 500, "the new skill has no library item to archive")
+			return
+		}
+		if err = s.st.ArchiveNewSkillFor(s.uid(r), sk.LibraryItemID, s.skillNow()); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		sk.Status = store.SkillArchived
 	}
 	s.enqueue(rf)
 	s.kickSkillCopies(s.uid(r))

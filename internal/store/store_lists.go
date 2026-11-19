@@ -8,6 +8,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 )
@@ -595,8 +596,13 @@ func (s *Store) TransferList(listID, targetID int64) error {
 	})
 }
 
-// AddListToShelf adds missing list skills to the shelf as To test and reports how many were added.
-func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
+// AddListToShelf adds missing list skills to the library with status, Active
+// or Archived, and reports how many were added. A skill whose name the library
+// already has is left as it is.
+func (s *Store) AddListToShelf(userID, listID int64, status string) (int, error) {
+	if !validLibraryStatus(status) {
+		return 0, ErrPrivateSkillInvalid
+	}
 	rows, err := s.db.Query(`SELECT s.id,s.source,s.slug,s.source_type,s.url
 		FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=?`, listID)
 	if err != nil {
@@ -616,7 +622,6 @@ func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
 		return 0, err
 	}
 	rows.Close()
-	yes := true
 	n := 0
 	for _, it := range items {
 		var exists int
@@ -628,10 +633,21 @@ func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
 			return n, err
 		}
 		// A skill whose name the library already has is already there.
-		if _, err := s.UpsertFor(userID, it, Patch{Bookmarked: &yes}); errors.Is(err, ErrSkillNameTaken) {
+		if _, err := s.UpsertFor(userID, it, Patch{}); errors.Is(err, ErrSkillNameTaken) {
 			continue
 		} else if err != nil {
 			return n, err
+		}
+		// A new item starts Active; an Archived one is archived before any
+		// machine is sent it.
+		if status == SkillArchived {
+			id, err := libraryAliasID(s.db, userID, "shelf", it.ID)
+			if err != nil {
+				return n, err
+			}
+			if err = s.ArchiveNewSkillFor(userID, id, time.Now()); err != nil {
+				return n, err
+			}
 		}
 		n++
 	}

@@ -146,7 +146,7 @@ reet agent restore --list
 reet agent restore NAME [--date YYYY-MM-DD]
 ```
 
-Without `--date`, restore uses the newest date that holds NAME; if that date has it from more than one folder, each is restored. Restore moves the entry back into the folder it came from, refuses to overwrite an existing skill, and restores a symlink as a symlink. Review the desired set afterward so the next sync does not remove it again.
+Without `--date`, restore uses the newest date that holds NAME (matched without case); if that date has it from more than one folder, each is restored. Restore moves the entry back into the folder it came from, refuses to overwrite an existing skill, and restores a symlink as a symlink. When reet's own copy is already there (the usual case after an edited copy was replaced), restore refuses, names each backup it left in place, and says how to keep that version: copy it somewhere outside the skills folders. On a machine that follows the library, the library decides what stays: a skill that is Archived or Deleted there is taken off again on the agent's next pass, and restore says so. To keep it on your machines, Restore it on the Skills page.
 
 A sync job's backup, in `.reet-sync-backups` beside the skills folder of that job's target (a project's included), is restored exactly by the command its job card shows:
 

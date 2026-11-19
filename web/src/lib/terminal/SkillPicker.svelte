@@ -176,7 +176,7 @@
   .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--muted); }
   .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
-  .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .install { align-self: flex-start; min-height: 44px; margin: 0 0 6px 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   .option { display: flex; flex-direction: column; gap: 2px; min-height: 40px; justify-content: center; padding: 6px 10px; border-radius: 8px; color: var(--ink); cursor: pointer; }
   .option:hover, .option:focus-visible { background: var(--tint); }
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -189,13 +189,12 @@
   .note, .seen { margin: 0; padding: 4px 10px; font-size: 14px; color: var(--muted); }
   .note p { margin: 0 0 8px; }
   .seen { font-size: 14px; }
-  .review { color: var(--accent); font-weight: 600; }
-  .review:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .retry { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .review { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-text); font-weight: 600; }
+  .review:focus-visible, .install:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .retry { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   @media (max-width: 560px) { .card { border-radius: 12px; } }
   @media (pointer: coarse) {
     .option { min-height: 44px; padding: 8px 12px; }
     .filter, .retry, .install { min-height: 44px; }
-    .review { display: inline-flex; align-items: center; min-height: 44px; }
   }
 </style>

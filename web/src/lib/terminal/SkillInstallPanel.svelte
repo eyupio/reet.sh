@@ -65,14 +65,10 @@
   p { margin: 0; font-size: 14px; line-height: 1.45; }
   .status { min-height: 1.45em; color: var(--ink); font-size: 14px; }
   .status:empty { min-height: 0; }
-  a { color: var(--accent); font-weight: 600; }
+  a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-text); font-weight: 600; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  button { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   button:disabled { opacity: 0.55; cursor: default; }
   button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (pointer: coarse) {
-    button { min-height: 44px; }
-    a { display: inline-flex; align-items: center; min-height: 44px; }
-  }
 </style>

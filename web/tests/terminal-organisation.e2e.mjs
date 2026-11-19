@@ -346,6 +346,8 @@ try{
  await expect(skillPicker.getByText('New on this machine',{exact:true})).toBeVisible()
  await expect(skillPicker.getByRole('button',{name:'Keep reet-notes',exact:true})).toBeVisible()
  await expect(skillPicker.getByRole('link',{name:'Review new skills on the Skills page'})).toHaveAttribute('href','/skills?review=new')
+ // With a mouse too, Keep and the review link are 44 px targets.
+ for(const target of [skillPicker.getByRole('button',{name:'Keep reet-notes',exact:true}),skillPicker.getByRole('link',{name:'Review new skills on the Skills page'})])expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
  await skillFilter.fill('pd')
  await skillPicker.getByRole('option',{name:/pdf/}).click()
  await expect(skillPicker).toHaveCount(0)

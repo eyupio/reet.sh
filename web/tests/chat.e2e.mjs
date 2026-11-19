@@ -610,6 +610,14 @@ try {
   // Each row with an action is its own single-option listbox with the action outside it.
   await expect(picker.getByRole('listbox')).toHaveCount(2)
   await expect(picker.locator('[role=listbox] button, [role=listbox] a')).toHaveCount(0)
+  // In the list too: Keep and the review link are 44 px targets that read at 4.5:1 in dark.
+  const theme = name => page.evaluate(value => { document.documentElement.dataset.theme = value }, name)
+  await theme('dark')
+  for (const target of [keepButton, picker.getByRole('link', { name: 'Review new skills on the Skills page' })]) {
+    expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    expect(await contrastOf(target)).toBeGreaterThanOrEqual(4.5)
+  }
+  await theme('light')
   // Keyboard only: Tab from the filter reaches Keep, Enter opens the panel with Keep focused, and nothing is sent until it is pressed.
   await expect(pickerFilter).toBeFocused()
   await page.keyboard.press('Tab')
@@ -618,6 +626,15 @@ try {
   await expect(panelOf.getByText("reet keeps dev-laptop's copy of cq in your library and puts it on every machine.")).toBeVisible()
   await expect(panelOf.getByRole('button', { name: 'Keep', exact: true })).toBeFocused()
   expect(keeps).toEqual([])
+  // Keep and the review link are 44 px targets and read at 4.5:1 in dark, in the list and in the panel.
+  await theme('dark')
+  for (const target of [panelOf.getByRole('button', { name: 'Cancel', exact: true }), panelOf.getByRole('link', { name: 'Review new skills on the Skills page' })]) {
+    expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    expect(await contrastOf(target)).toBeGreaterThanOrEqual(4.5)
+  }
+  expect((await panelOf.getByRole('button', { name: 'Keep', exact: true }).boundingBox()).height).toBeGreaterThanOrEqual(44)
+  expect(await contrastOf(panelOf.getByRole('button', { name: 'Keep', exact: true }))).toBeGreaterThanOrEqual(4.5)
+  await theme('light')
   // Cancel returns to the list, focus on the filter, having sent nothing.
   await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(panelOf).toHaveCount(0)

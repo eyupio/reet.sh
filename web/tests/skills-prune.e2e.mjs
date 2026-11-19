@@ -78,6 +78,10 @@ const row = (page, name) => page.locator(`[data-skill="item-${name}"]`)
 const tab = (page, name) => page.getByRole('tablist', {name:'Skill state'}).getByRole('tab', {name:new RegExp(`^${name}`)})
 const toast = page => page.getByRole('status').filter({has:page.getByRole('button', {name:'Undo'})})
 const posts = (w, kind) => w.posts.filter(p => p[0] === kind).map(p => p[1])
+// Visible text under 14 px inside every element matching selector.
+const under14 = (page, selector) => page.evaluate(sel => [...document.querySelectorAll(sel)].flatMap(root => [root, ...root.querySelectorAll('*')])
+ .filter(el => el.checkVisibility() && [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 14)
+ .map(el => `${el.tagName} "${el.textContent.trim().slice(0, 30)}"`), selector)
 
 try {
  // Archive the 2nd of 6: the tab, the scroll position and the place in the list all stay; focus is on the next row.
@@ -1076,8 +1080,26 @@ try {
   for (const [width, theme] of [[390,'light'],[390,'dark'],[1024,'light'],[1440,'dark']]) {
    const {context, page, errors} = await open({width, height:844, theme, touch:width === 390})
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px ${theme}`).toBe(true)
-   const small = await page.locator('.skills-page').evaluate(root => [...root.querySelectorAll('*')].filter(el => el.checkVisibility() && [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(el).fontSize) < 14).map(el => `${el.tagName} "${el.textContent.trim().slice(0, 30)}"`))
+   const small = await under14(page, '.skills-page')
    expect(small, `text under 14 px at ${width}px ${theme}`).toEqual([])
+   // The opened row, the bulk bar, the toast and the Delete dialog hold no text under 14 px either.
+   await row(page, 'reet-babysit').getByRole('button', {name:'reet-babysit', exact:true}).click()
+   expect(await under14(page, '[data-skill="item-reet-babysit"] .detail'), `opened row text under 14 px at ${width}px ${theme}`).toEqual([])
+   await row(page, 'reet-babysit').getByRole('button', {name:'reet-babysit', exact:true}).click()
+   await page.getByRole('button', {name:'Select', exact:true}).click()
+   await page.getByRole('checkbox', {name:'Select seo-bing'}).check()
+   expect(await under14(page, '.bulk'), `bulk bar text under 14 px at ${width}px ${theme}`).toEqual([])
+   await page.getByRole('button', {name:'Select', exact:true}).click()
+   await row(page, 'reet-babysit').getByRole('button', {name:'Delete reet-babysit'}).click()
+   await expect(page.getByRole('dialog', {name:'Delete reet-babysit?'})).toBeVisible()
+   expect(await under14(page, 'dialog[open]'), `dialog text under 14 px at ${width}px ${theme}`).toEqual([])
+   await page.keyboard.press('Escape')
+   await expect(page.getByRole('dialog', {name:'Delete reet-babysit?'})).toHaveCount(0)
+   await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Archive ui-ux-pro-max'}).click()
+   await expect(toast(page)).toBeVisible()
+   expect(await under14(page, '.toast-region'), `toast text under 14 px at ${width}px ${theme}`).toEqual([])
+   await toast(page).getByRole('button', {name:/^Undo/}).click()
+   await expect(row(page, 'ui-ux-pro-max')).toBeVisible()
    if (width === 390) {
     for (const button of await page.locator('[data-skill] button').all()) {
      const box = await button.boundingBox()

@@ -7,7 +7,7 @@
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
   import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
-  import { deleteConfirm, focusAfterRemoval, syncSentence, toastText } from './skillsPage'
+  import { deleteConfirm, focusAfterRemoval, machineWork, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
 
   // The Skills page: Active and Archived, one list, pruning in place. Archive, Delete and Restore never switch the tab,
@@ -45,29 +45,11 @@
   // Rows with a change on its way, so a second press on the same row is not sent twice.
   const pending = new Set<string>()
 
-  // The machines that need a look and those still working, from every row the page holds.
+  // The machines that need a look and what the rest are doing, from every row the page holds.
   const sync = $derived.by(() => {
-    const failed = new Set<string>(), working = new Set<string>()
-    let failedSomewhere = false, workingSomewhere = false
-    for (const r of page.everyRow) {
-      const h = r.health
-      if (h.machines.length) {
-        for (const m of h.machines) {
-          if (m.state === 'failed' || m.state === 'blocked') failed.add(m.host)
-          else if (m.state === 'installing' || m.state === 'removing' || m.state === 'offline') working.add(m.host)
-        }
-      } else if (h.state === 'failed' || h.state === 'blocked' || h.state === 'needs-update') {
-        for (const host of h.hosts) failed.add(host)
-        failedSomewhere ||= h.hosts.length === 0
-      } else if (h.state === 'installing' || h.state === 'removing' || h.state === 'offline') {
-        for (const host of h.hosts) working.add(host)
-        workingSomewhere ||= h.hosts.length === 0
-      }
-    }
-    for (const host of failed) working.delete(host)
-    const m = { failed: Math.max(failed.size, failedSomewhere ? 1 : 0), working: Math.max(working.size, workingSomewhere ? 1 : 0) }
-    if (!m.failed && !m.working && page.machines === 0) return { text: 'No machines yet', tone: 'off' }
-    return { text: syncSentence(m), tone: m.failed ? 'bad' : m.working ? 'work' : 'ok' }
+    const work = machineWork(page.everyRow)
+    if (!work.failed && !work.updating && page.machines === 0) return { text: 'No machines yet', tone: 'off' }
+    return { text: syncSentence(work), tone: work.failed ? 'bad' : work.updating ? 'work' : 'ok' }
   })
 
   const lede = $derived(page.machines === 0

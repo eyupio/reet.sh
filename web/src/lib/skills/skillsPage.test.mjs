@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence } = page
+const { healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, machineWork } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
@@ -101,8 +101,28 @@ test('installCommandFor', () => {
   assert.equal(cmd, 'npx skills@1.7.4 add https://reet.sh/s/demo --skill demo')
 })
 
-test('syncSentence', () => {
-  assert.equal(syncSentence({ failed: 0, working: 0 }), 'Everything is in sync.')
-  assert.equal(syncSentence({ failed: 0, working: 2 }), 'Installing on 2 machines…')
-  assert.equal(syncSentence({ failed: 1, working: 0 }), '1 machine needs a look.')
+test('syncSentence says installing, coming off or updating, and failures first', () => {
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0 }), 'Everything is in sync.')
+  assert.equal(syncSentence({ failed: 0, installing: 2, removing: 0 }), 'Installing on 2 machines…')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 2 }), 'Coming off 2 machines…')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 1 }), 'Coming off 1 machine…')
+  assert.equal(syncSentence({ failed: 0, installing: 2, removing: 1 }), 'Updating 3 machines…')
+  // A machine that both installs and removes is one machine being updated.
+  assert.equal(syncSentence({ failed: 0, installing: 3, removing: 3, updating: 3 }), 'Updating 3 machines…')
+  assert.equal(syncSentence({ failed: 1, installing: 2, removing: 2 }), '1 machine needs a look.')
+  assert.equal(syncSentence({ failed: 2, installing: 0, removing: 0 }), '2 machines need a look.')
+})
+
+test('machineWork counts each machine once: installs apart from removals, offline as coming off, failures first', () => {
+  const m = (host, state) => ({ host, state })
+  const of = (...healths) => machineWork(healths.map(health => row({ health })))
+  assert.deepEqual(of(h('ok', { total: 3 })), { failed: 0, installing: 0, removing: 0, updating: 0 })
+  assert.deepEqual(of(h('removing', { machines: [m('A', 'removing'), m('B', 'removing'), m('C', 'offline')] })), { failed: 0, installing: 0, removing: 3, updating: 3 })
+  assert.deepEqual(of(h('installing', { machines: [m('A', 'installing')] }), h('removing', { machines: [m('A', 'removing'), m('B', 'removing')] })), { failed: 0, installing: 1, removing: 2, updating: 2 })
+  // A machine with a failure needs a look, and is not counted as working as well.
+  assert.deepEqual(of(h('failed', { machines: [m('A', 'failed'), m('B', 'installing')] }), h('installing', { machines: [m('A', 'installing')] })), { failed: 1, installing: 1, removing: 0, updating: 1 })
+  // Without each machine's line, the row's hosts say where; with none, it is somewhere.
+  assert.deepEqual(of(h('offline', { hosts: ['studio'] })), { failed: 0, installing: 0, removing: 1, updating: 1 })
+  assert.deepEqual(of(h('installing', { pending: 2 })), { failed: 0, installing: 1, removing: 0, updating: 1 })
+  assert.deepEqual(of(h('needs-update'), h('blocked', { hosts: ['ThinkPad'] })), { failed: 2, installing: 0, removing: 0, updating: 0 })
 })

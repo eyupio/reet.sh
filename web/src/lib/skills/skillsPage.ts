@@ -115,8 +115,40 @@ export function installCommandFor(row: SkillRow): string | null {
   return installCommand({ sourceType: 'hosted', url: row.publicUrl, name: row.name, slug: row.name } as unknown as Skill)
 }
 
-export function syncSentence(m: { failed: number; working: number }): string {
+export type MachineWork = { failed: number; installing: number; removing: number; updating?: number }
+
+/**
+ * One sentence for the machines: those that need a look come first, then what the rest are doing. `installing` and
+ * `removing` count machines; `updating` is how many machines do either, each once, which is what the sentence counts
+ * when installs and removals mix (without it, the two are added).
+ */
+export function syncSentence(m: MachineWork): string {
   if (m.failed > 0) return `${machines(m.failed)} ${m.failed === 1 ? 'needs' : 'need'} a look.`
-  if (m.working > 0) return `Installing on ${machines(m.working)}…`
+  if (m.installing > 0 && m.removing > 0) return `Updating ${machines(m.updating ?? m.installing + m.removing)}…`
+  if (m.installing > 0) return `Installing on ${machines(m.installing)}…`
+  if (m.removing > 0) return `Coming off ${machines(m.removing)}…`
   return 'Everything is in sync.'
+}
+
+/**
+ * What the machines are doing, from the skills' health: each machine counted once as needing a look (a failure, no
+ * write access, or an older reet), and otherwise as installing, as removing (an offline machine is waiting to remove),
+ * or both. A row with no per-machine line counts its hosts; rows that name none count as one machine somewhere.
+ */
+export function machineWork(rows: Pick<SkillRow, 'health'>[]): Required<MachineWork> {
+  const failed = new Set<string>(), installing = new Set<string>(), removing = new Set<string>()
+  const put = (state: string, host: string) => {
+    if (state === 'failed' || state === 'blocked' || state === 'needs-update') failed.add(host)
+    else if (state === 'installing') installing.add(host)
+    else if (state === 'removing' || state === 'offline') removing.add(host)
+  }
+  for (const { health: h } of rows) {
+    if (h.machines.length) for (const m of h.machines) put(m.state, m.host)
+    else if (h.hosts.length) for (const host of h.hosts) put(h.state, host)
+    // Rows that name no machine stand for one machine, apart from every named one.
+    else put(h.state, '\u0000somewhere')
+  }
+  for (const host of failed) { installing.delete(host); removing.delete(host) }
+  const updating = new Set([...installing, ...removing]).size
+  return { failed: failed.size, installing: installing.size, removing: removing.size, updating }
 }

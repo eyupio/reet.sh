@@ -207,6 +207,33 @@ try {
   await context.close()
  }
 
+ // The header's line says what the machines are doing: coming off after an Archive, installing after an Undo, updating
+ // when both happen at once.
+ if (run('chip')) {
+  const on = state => ['Elitebook','ThinkPad','studio'].map(host => ({host, state}))
+  const w = {rows:[skillRow('alpha'), skillRow('beta'), skillRow('gamma')], deleted:[], posts:[], noCopy:new Set(), notice:null}
+  const r = routes(w)
+  r['/api/v2/skills/status'] = req => {
+   const b = req.postDataJSON(); w.posts.push(['status', b])
+   w.rows = w.rows.map(x => b.ids.includes(x.id) ? {...x, status:b.status, health:{state:b.status === 'archived' ? 'removing' : 'installing', pending:3, total:3, hosts:[], machines:on(b.status === 'archived' ? 'removing' : 'installing')}} : x)
+   return skillsPageOf(w.rows, b.tab || b.status)
+  }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  const chip = page.locator('main .sync-chip')
+  await expect(chip).toHaveText('Everything is in sync.')
+  await row(page, 'beta').getByRole('button', {name:'Archive beta'}).click()
+  await expect(toast(page)).toContainText('Archived beta · coming off 3 machines')
+  await expect(chip).toHaveText('Coming off 3 machines…')
+  await expect(chip).toHaveAttribute('data-tone', 'work')
+  await toast(page).getByRole('button', {name:/^Undo/}).click()
+  await expect(chip).toHaveText('Installing on 3 machines…')
+  await row(page, 'gamma').getByRole('button', {name:'Archive gamma'}).click()
+  await expect(chip).toHaveText('Updating 3 machines…')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A Jump result lands on the row and brings it into view.
  if (run('jump')) {
   const w = world()

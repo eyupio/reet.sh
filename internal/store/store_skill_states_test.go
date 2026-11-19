@@ -919,3 +919,64 @@ func TestSkillStatesUndoWindowBoundary(t *testing.T) {
 		t.Fatalf("purge must remove an item deleted exactly the window ago: %+v", got)
 	}
 }
+
+// A deleted skill's shelf entry is gone from the listing, and the status
+// filters, until Undo brings it back; the purge removes it for good later.
+func TestListForLeavesOutDeletedSkills(t *testing.T) {
+	s := newStore(t)
+	uid, err := s.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"demo/skills/kept", "demo/skills/gone"} {
+		r, err := ref.Parse(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.UpsertFor(uid, r, Patch{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listed := func(f Filter) []string {
+		t.Helper()
+		skills, counts, err := s.ListFor(uid, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := []string{}
+		for _, sk := range skills {
+			out = append(out, sk.ID)
+		}
+		if f.Stage == "" && f.Query == "" && counts.All != len(out) {
+			t.Fatalf("count %d for %v", counts.All, out)
+		}
+		return out
+	}
+	item := ""
+	skills, _, err := s.ListFor(uid, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range skills {
+		if sk.ID == "demo/skills/gone" {
+			item = sk.LibraryItemID
+		}
+	}
+	if err = s.DeleteSkillsFor(uid, []string{item}, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []Filter{{}, {Stage: SkillActive}, {Stage: SkillArchived}, {Query: "gone"}} {
+		if got := listed(f); strings.Contains(strings.Join(got, ","), "gone") {
+			t.Fatalf("%+v lists the deleted skill: %v", f, got)
+		}
+	}
+	if got := listed(Filter{}); len(got) != 1 || got[0] != "demo/skills/kept" {
+		t.Fatalf("the kept skill went too: %v", got)
+	}
+	if err = s.UndeleteSkillsFor(uid, []string{item}); err != nil {
+		t.Fatal(err)
+	}
+	if got := listed(Filter{Stage: SkillActive}); len(got) != 2 {
+		t.Fatalf("Undo did not bring it back: %v", got)
+	}
+}

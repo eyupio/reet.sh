@@ -456,6 +456,9 @@ func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 	return one[0], true, nil
 }
 
+// liveShelfRow keeps out shelf rows whose library skill is deleted.
+const liveShelfRow = ` AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id AND i.deleted_at<>0)`
+
 func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	if f.Machine != "" {
 		host, err := s.ResolveMachineHostFor(userID, f.Machine)
@@ -464,9 +467,11 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		}
 		f.Machine = host
 	}
-	canonical := ""
+	// A shelf row whose library skill was deleted is gone from the listing
+	// until Undo brings the skill back; the purge removes the row later.
+	canonical := liveShelfRow
 	if f.Canonical {
-		canonical = ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
+		canonical += ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
 	}
 	var c Counts
 	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)

@@ -43,6 +43,12 @@ the server or fixture implementation and made no write tool calls.
 | 9 | Desktop plan's extra ID located in accessible lists | 6 |
 | 10 | Sum of shelf install counts for desktop missing IDs | 3 |
 
+Tasks 1, 3, 4, 7, 9 and 10 were reworded when the sync plan tool and the
+shelf stages were removed: they now ask about inventories and the Active status
+instead of a saved sync target and *saved for testing*. Their answers are
+unchanged, and they were checked by hand against the fixture, not by a new
+evaluator run. The record above is of the earlier wording.
+
 This verifies task solvability and expected answers. It is not a model accuracy
 benchmark: no automated LLM evaluation harness or paid model calls were run.
 The separate `npm test` suite verifies protocol and API behavior without an LLM.

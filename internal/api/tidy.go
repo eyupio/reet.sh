@@ -446,6 +446,7 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 			SourceType string  `json:"source_type"`
 			Env        string  `json:"env"`
 			Stage      string  `json:"stage"`
+			Status     string  `json:"status"`
 			Sort       string  `json:"sort"`
 			Tags       []int64 `json:"tags"`
 			Untagged   bool    `json:"untagged"`
@@ -453,18 +454,34 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		AddTags      []string `json:"add_tags"`
 		RemoveTagIDs []int64  `json:"remove_tag_ids"`
 		Stage        string   `json:"stage"`
-		Liked        *bool    `json:"liked"`
-		Bookmarked   *bool    `json:"bookmarked"`
-		AddToListID  int64    `json:"add_to_list_id"`
-		DryRun       bool     `json:"dry_run"`
+		// Status (active or archived) is the library status the MCP tools
+		// set; it stands for the stage In use or Parked.
+		Status      string `json:"status"`
+		Liked       *bool  `json:"liked"`
+		Bookmarked  *bool  `json:"bookmarked"`
+		AddToListID int64  `json:"add_to_list_id"`
+		DryRun      bool   `json:"dry_run"`
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	if in.Filter.Status != "" {
+		in.Filter.Stage = in.Filter.Status
+	}
+	switch in.Status {
+	case "":
+	case store.SkillActive:
+		in.Stage = "use"
+	case store.SkillArchived:
+		in.Stage = "shelf"
+	default:
+		writeErrCode(w, 400, errInvalidArgument, "status", "status must be active or archived", "Use active or archived.")
 		return
 	}
 	ids := uniqueStrings(in.IDs)
 	filtered := in.Filter.Q != "" || in.Filter.SourceType != "" || in.Filter.Env != "" || in.Filter.Stage != "" || len(in.Filter.Tags) > 0 || in.Filter.Untagged
 	if len(ids) == 0 && !filtered {
-		writeErrCode(w, 400, errInvalidArgument, "ids", "supply ids or a filter", "Use ids from reet_list_skills, or filter by q, source_type, env, stage, tags or untagged.")
+		writeErrCode(w, 400, errInvalidArgument, "ids", "supply ids or a filter", "Use ids from reet_list_skills, or filter by q, source_type, env, status, tags or untagged.")
 		return
 	}
 	if len(ids) > 500 {

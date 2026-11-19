@@ -16,11 +16,12 @@ const pagination = {
 };
 const patch = {
   liked: z.boolean().optional().describe('Like or unlike this skill.'),
-  bookmarked: z.boolean().optional().describe('Save for testing. Stage is try when bookmarked and not used.'),
-  used: z.boolean().optional().describe('Mark in use; takes precedence over bookmarked when deriving stage.'),
   notes: z.string().max(20_000).optional().describe('Personal notes. Replaces existing notes; empty string clears them.'),
 };
-const compactFields = ['id', 'name', 'source', 'sourceType', 'stage', 'liked', 'bookmarked', 'tags', 'environment_count'] as const;
+// A library skill is Active, on every machine that follows the library, or Archived, kept in reet and on no machine.
+const status = z.enum(['active', 'archived']);
+const compactFields = ['id', 'name', 'source', 'sourceType', 'status', 'liked', 'tags', 'environment_count'] as const;
+const skillOrItemId = id.describe('The skill’s ID from reet_list_skills, or its library ID from reet_list_archived.');
 
 export interface MCPForwarder {
   allowedTools: Set<string>;
@@ -58,6 +59,28 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
         return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'reet.sh request failed.' }] };
       }
     });
+  }
+
+  // The shelf skill an exact ID names, from the same listing reet_get_skill reads.
+  async function shelfSkill(shelfId: string): Promise<JsonObject> {
+    const data = await client.request('/api/skills', 'GET', undefined, new URLSearchParams({ q: shelfId }));
+    const skill = collection(data, 'skills').find(skill => skill.id === shelfId);
+    if (!skill) throw new Error('Skill not found in this account’s library. Use reet_list_skills or reet_list_archived to find its ID.');
+    return skill;
+  }
+  // The library item a tool acts on: a skill ID from reet_list_skills, or a library id from reet_list_archived.
+  async function librarySkill(id: string): Promise<{ item: string; shelf: string }> {
+    const data = await client.request('/api/skills', 'GET', undefined, new URLSearchParams({ q: id }));
+    const skill = collection(data, 'skills').find(skill => skill.id === id);
+    if (skill) {
+      if (typeof skill.libraryItemId !== 'string' || !skill.libraryItemId) throw new Error('That skill is not in your library, so it has no status to change. Add it again with reet_add_skill.');
+      return { item: skill.libraryItemId, shelf: id };
+    }
+    for (const tab of ['active', 'archived']) {
+      const row = collection(await client.request('/api/v2/skills', 'GET', undefined, new URLSearchParams({ status: tab })), 'skills').find(row => row.id === id);
+      if (row) return { item: id, shelf: typeof row.shelfId === 'string' ? row.shelfId : '' };
+    }
+    throw new Error('Skill not found in this account’s library. Use reet_list_skills or reet_list_archived to find its ID.');
   }
 
   const contextConnectionRequired = async (): Promise<JsonObject> => {
@@ -135,48 +158,63 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     confirm: confirmed,
   }, factoryConnectionRequired, { write: true });
 
-  tool('list_skills', 'Search the shelf', 'Search personal shelf names, IDs, descriptions and notes. Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, stage, liked, bookmarked, tags and environment_count; use it to page a large shelf. Does not change anything. Example: {stage:"try",compact:true,limit:100}.', {
+  tool('list_skills', 'Search your skills', 'Search your skills’ names, IDs, descriptions and notes. Each skill’s status is active (on every machine that follows the library) or archived (kept in reet and taken off every machine). Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, status, liked, tags and environment_count; use it to page a large library. Does not change anything. Example: {status:"archived",compact:true,limit:100}.', {
     ...pagination,
     q: z.string().max(500).optional().describe('Search text, e.g. testing #development.'),
-    tab: z.enum(['all', 'liked', 'bookmarked', 'used']).optional().describe('Optional flag filter.'),
-    stage: z.enum(['shelf', 'try', 'use', 'disabled']).optional().describe('On shelf, to test, in use, or disabled. Reads the canonical library lifecycle.'),
+    tab: z.enum(['all', 'liked']).optional().describe('Optional flag filter.'),
+    status: status.optional().describe('Only Active skills, on every machine that follows the library, or only Archived ones, kept in reet and on no machine.'),
     sort: z.enum(['recent', 'name', 'installs']).default('recent').describe('Order by last update, name, or install popularity.'),
     tags: z.array(z.number().int().positive()).max(50).optional().describe('Require every tag ID; discover IDs using reet_list_tags.'),
     env: environmentId.optional(),
     machine: z.string().max(255).optional().describe('Exact host name, e.g. sam-mbp.'),
     only: z.literal('one-machine').optional().describe('Only skills installed on a single machine.'),
     compact: z.boolean().default(false).describe('Return the compact skill shape; recommended for large shelves.'),
-    fields: z.array(z.enum(compactFields)).max(9).optional().describe('Compact fields to include; implies compact=true.'),
+    fields: z.array(z.enum(compactFields)).max(8).optional().describe('Compact fields to include; implies compact=true.'),
   }, async ({ limit, offset, tags, compact, fields, ...filters }) => {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) if (value !== undefined) query.set(key, String(value));
     for (const tag of tags ?? []) query.append('tag', String(tag));
-    if (compact) query.set('compact', '1');
-    if (fields?.length) query.set('fields', fields.join(','));
+    // The compact shape is always named field by field, so it carries status and no retired stage flags.
+    if (compact || fields?.length) query.set('fields', (fields?.length ? fields : compactFields).join(','));
     const data = await client.request('/api/skills', 'GET', undefined, query);
     return page(collection(data, 'skills'), { limit, offset }, { counts: data.counts });
   });
 
-  tool('get_skill', 'Get a shelf skill', 'Get one personal shelf skill by exact ID, including notes, flags, tags and environments. Use reet_list_skills to discover IDs. Does not change anything.', { id }, async ({ id }) => {
+  tool('get_skill', 'Get a skill', 'Get one of your skills by exact ID, including its status, notes, likes, tags and environments. Use reet_list_skills to discover IDs. Does not change anything.', { id }, async ({ id }) => {
     const data = await client.request('/api/skills', 'GET', undefined, new URLSearchParams({ q: id }));
     const skill = collection(data, 'skills').find(skill => skill.id === id);
     if (!skill) throw new Error('Skill not found on this account’s shelf. Use reet_list_skills to find its exact ID.');
     return skill;
   });
 
-  tool('add_skill', 'Add a shelf skill', 'Add a skills.sh URL or owner/repo/skill reference. Existing skills keep unspecified flags and notes; ignored entries are unignored. Metadata fetch is queued by reet.sh. A new skill is Active: reet gets its files and installs it on every machine that follows the library. Does not add local files. Returns the skill and created flag.', {
+  tool('add_skill', 'Add a skill', 'Add a skills.sh URL or owner/repo/skill reference. Existing skills keep unspecified likes and notes. Metadata fetch is queued by reet.sh. A new skill is Active unless status is archived: reet gets its files and installs it on every machine that follows the library. With status archived it is kept in reet and goes on no machine. Does not add local files. Returns the skill and created flag.', {
     input: z.string().trim().min(1).max(1000).describe('e.g. anthropics/skills/mcp-builder or https://skills.sh/anthropics/skills/mcp-builder'), ...patch,
+    status: status.optional().describe('active puts it on every machine that follows the library; archived keeps it in reet only. Omit for active, or to leave a skill already in the library as it is.'),
   }, async args => client.request('/api/skills', 'POST', args), { write: true, destructive: true });
 
-  tool('update_skill', 'Update shelf flags or notes', 'Change only supplied fields. For stage shelf set used=false, bookmarked=false; try: used=false, bookmarked=true; use: used=true. The stage changes the skill on machines: try or use makes it Active, so it is installed on every machine that follows the library; shelf archives it, so it is taken off those machines, each of which keeps a backup for 30 days. Does not edit tags or lists. Returns the updated skill.', { id, ...patch }, async args => {
-    if (Object.keys(args).length === 1) throw new Error('Supply at least one of liked, bookmarked, used or notes.');
-    return client.request('/api/skill', 'PATCH', args);
+  tool('update_skill', 'Update a skill', 'Change only the fields supplied: liked, notes or status. status archived archives the skill: it is taken off every machine, each of which keeps a backup for 30 days, and it stays in reet to restore. status active makes it Active again, so it is installed on every machine that follows the library. Does not edit tags or lists. Returns the updated skill.', { id: skillOrItemId, ...patch, status: status.optional().describe('archived takes it off every machine (each keeps a backup for 30 days); active puts it back on every machine that follows the library.') }, async ({ id, status, ...fields }) => {
+    if (status === undefined && Object.keys(fields).length === 0) throw new Error('Supply at least one of liked, notes or status.');
+    const skill = await librarySkill(id);
+    if (!skill.shelf && Object.keys(fields).length) throw new Error('That skill has no likes or notes to change: it is not on your shelf. Only its status can change.');
+    const data = status === undefined ? {} : await client.request('/api/v2/skills/status', 'POST', { ids: [skill.item], status });
+    if (!skill.shelf) {
+      // A skill with no shelf entry, such as one this account wrote and never published, is its library row.
+      const row = collection(data, 'skills').find(row => row.id === skill.item);
+      if (!row) throw new Error('The status changed, but the skill could not be read back. Read it with reet_list_archived before changing it again.');
+      return row;
+    }
+    if (Object.keys(fields).length) return client.request('/api/skill', 'PATCH', { id: skill.shelf, ...fields });
+    return shelfSkill(skill.shelf);
   }, { write: true, destructive: true, idempotent: true });
 
-  tool('remove_skill', 'Remove a shelf skill', 'Remove this account’s shelf entry, including personal notes and flags, and delete the library skill it stands for: it is taken off every connected machine, each of which keeps a backup for 30 days, and its name is free again. A skill this account wrote is refused with HTTP 409 [written] and nothing changes: delete it from Write a skill. When reet has no copy of the skill, removing deletes it from every machine and only those 30-day backups remain, so the call fails with HTTP 409 [no-copy] unless noCopyConfirmed=true. ignore=true also prevents reimport by future scans. Returns {ok:true}.', {
-    id, ignore: z.boolean().default(false).describe('Also add to this account’s ignored list.'),
-    noCopyConfirmed: z.boolean().default(false).describe('Remove it even when reet has no copy: it is deleted from every machine, and each machine keeps a backup for 30 days.'),
-  }, async ({ id, ignore, noCopyConfirmed }) => client.request('/api/skill', 'DELETE', undefined, new URLSearchParams({ id, ignore: ignore ? '1' : '0', noCopyConfirmed: noCopyConfirmed ? '1' : '0' })), { write: true, destructive: true, idempotent: true });
+  tool('remove_skill', 'Delete a skill', 'Delete a skill from your library: it is removed from every machine, each of which keeps a backup for 30 days, and its name is free again. To take it off the machines but keep it in reet, archive it with reet_update_skill instead. When reet has no copy of the skill, only those backups remain, so the call fails with HTTP 409 [no-copy] unless noCopyConfirmed=true. Deleting a skill this account wrote also deletes the writing and any public page, so it fails with HTTP 409 [written] unless writtenConfirmed=true. A refused call changes nothing. Returns {deleted:1}.', {
+    id: skillOrItemId,
+    noCopyConfirmed: z.boolean().default(false).describe('Delete it even when reet has no copy: it is removed from every machine, and each machine keeps a backup for 30 days.'),
+    writtenConfirmed: z.boolean().default(false).describe('Delete it even though this account wrote it: the writing and any public page go too.'),
+  }, async ({ id, noCopyConfirmed, writtenConfirmed }) => {
+    const skill = await librarySkill(id);
+    return client.request('/api/v2/skills/delete', 'POST', { ids: [skill.item], noCopyConfirmed, writtenConfirmed });
+  }, { write: true, destructive: true });
 
   tool('list_tags', 'List shelf tags', 'List tag IDs, names and shelf counts. Use IDs with reet_list_skills, reet_tag_skill or reet_bulk_update_skills. Does not change anything.', pagination, async args => {
     return page(collection(await client.request('/api/tags'), 'tags'), args);
@@ -254,7 +292,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return { dry_run: false, host, environments: summary, skillCount, applied: true };
   }, { write: true, destructive: true, idempotent: true });
 
-  tool('merge_machines', 'Merge two machines', 'Merge one machine name into another so a renamed host is not counted twice. Dry run by default; set confirm=true to apply. Moves environments, sync plans and aliases from the source host to the target host; shelf skills, lists and tags are unchanged.', {
+  tool('merge_machines', 'Merge two machines', 'Merge one machine name into another so a renamed host is not counted twice. Dry run by default; set confirm=true to apply. Moves environments and aliases from the source host to the target host; skills, lists and tags are unchanged.', {
     from: z.string().trim().min(1).max(255).describe('Host name to merge away.'),
     to: z.string().trim().min(1).max(255).describe('Host name to keep.'),
     confirm: z.boolean().default(false).describe('Apply the change. false returns a preview only.'),
@@ -266,10 +304,6 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     await client.request('/api/v2/machines/merge', 'POST', { from, to });
     return { dry_run: false, from, to, applied: true };
   }, { write: true, destructive: true });
-
-  tool('list_sync_targets', 'Inspect saved sync plans', 'Read saved sync targets and desired/missing/extra inventories. Does not create a plan or apply installs/removals; use reet sync locally to preview and confirm changes. Returns a page of sync target objects.', pagination, async args => {
-    return page(collection(await client.request('/api/v2/sync'), 'targets'), args);
-  });
 
   tool('list_lists', 'Find accessible shared lists', 'List personal and shared lists this account can access, with role and skill counts. Search matches name and description. Does not change list membership or sharing.', {
     ...pagination, q: z.string().max(500).optional().describe('Case-insensitive name or description search.'),
@@ -330,22 +364,21 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return { id: data.id, name: data.name, skillCount: data.skillCount };
   }, { write: true, destructive: true, idempotent: true });
 
-  tool('bulk_update_skills', 'Update many skills at once', 'Apply flags, a stage, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. A stage changes the skills on machines: try or use makes them Active, so they are installed on every machine that follows the library; shelf archives them, so they are taken off those machines, each of which keeps a backup for 30 days. Does not edit notes or delete skills.', {
+  tool('bulk_update_skills', 'Update many skills at once', 'Apply a like, a status, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. status active installs the skills on every machine that follows the library; status archived archives them: they are taken off every machine, each of which keeps a backup for 30 days. Does not edit notes or delete skills.', {
     ids: z.array(id).max(500).optional().describe('Exact shelf skill IDs; omit when using filter.'),
     filter: z.object({
       q: z.string().max(500).optional().describe('Search text.'),
       source_type: z.string().max(50).optional().describe('e.g. local, github, hosted or well-known.'),
       env: environmentId.optional(),
-      stage: z.enum(['shelf', 'try', 'use']).optional(),
+      status: status.optional().describe('Only Active or only Archived skills.'),
       sort: z.enum(['recent', 'name', 'installs']).optional(),
       tags: z.array(z.number().int().positive()).max(50).optional().describe('Require every tag ID.'),
       untagged: z.boolean().optional().describe('Only skills with no visible tags.'),
     }).strict().optional().describe('Select skills instead of listing ids.'),
     add_tags: z.array(z.string().trim().min(1).max(100)).max(50).default([]).describe('Tag names to add.'),
     remove_tag_ids: z.array(z.number().int().positive()).max(50).default([]).describe('Tag IDs to remove.'),
-    stage: z.enum(['shelf', 'try', 'use']).optional().describe('Set the same stage for every skill.'),
+    status: status.optional().describe('Set the same status for every skill: active puts them on every machine that follows the library, archived takes them off every machine.'),
     liked: z.boolean().optional(),
-    bookmarked: z.boolean().optional(),
     add_to_list_id: z.number().int().positive().optional().describe('Also add every skill to this list.'),
     dry_run: z.boolean().default(false).describe('Preview the per-item result without changing anything.'),
   }, async body => {
@@ -370,12 +403,16 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return client.request('/api/events', 'GET', undefined, query);
   });
 
-  tool('list_ignored', 'List ignored skills', 'List shelf entries excluded from scanner import, with reason and timestamp. Does not change anything.', pagination, async args => {
-    return page(collection(await client.request('/api/ignored'), 'ignored'), args);
+  tool('list_archived', 'List Archived skills', 'List your Archived skills: kept in reet and on no machine. Each machine kept a backup for 30 days of what archiving took off it. Each item has its library id, its shelfId (the ID other tools take) where it has one, name, description, where it came from, whether reet holds a copy, and its health. counts gives how many skills are Active and Archived. Restore one with reet_restore_skill. Does not change anything.', pagination, async args => {
+    const data = await client.request('/api/v2/skills', 'GET', undefined, new URLSearchParams({ status: 'archived' }));
+    return page(collection(data, 'skills'), args, { counts: data.counts });
   });
 
-  tool('unignore_skill', 'Allow future skill imports', 'Remove a skill from the ignored list. Future scans can import it again; this does not add it to the shelf now. Returns {ok:true}.', { id }, async ({ id }) => {
-    return client.request('/api/skill/ignore', 'DELETE', undefined, new URLSearchParams({ id }));
+  tool('restore_skill', 'Restore an Archived skill', 'Make an Archived skill Active again: reet installs it on every machine that follows the library. Each machine kept a backup for 30 days when the skill was archived; restoring leaves that backup where it is. Takes the library id from reet_list_archived or the skill’s ID. Returns the skill’s id, shelfId, name and status.', { id: skillOrItemId }, async ({ id }) => {
+    const skill = await librarySkill(id);
+    const data = await client.request('/api/v2/skills/status', 'POST', { ids: [skill.item], status: 'active' });
+    const row = collection(data, 'skills').find(row => row.id === skill.item);
+    return { id: skill.item, shelfId: row?.shelfId ?? skill.shelf, name: row?.name ?? '', status: 'active' };
   }, { write: true, idempotent: true });
 
   return server;

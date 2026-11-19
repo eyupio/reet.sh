@@ -58,6 +58,15 @@ func main() {
 		check(st.SetMeta(rf.ID, e.name, e.notes, e.installs, e.installs/10, []int64{1, 2, 3}))
 		check(st.AddSkillTagsFor(uid, rf.ID, e.tags))
 	}
+	// Copy Desk is Archived and the rest Active, so a status filter keeps a
+	// different set for each.
+	skills, _, err := st.ListFor(uid, store.Filter{})
+	check(err)
+	for _, sk := range skills {
+		if sk.ID == "demo/skills/copy" {
+			check(st.SetSkillStatusFor(uid, []string{sk.LibraryItemID}, store.SkillArchived, time.Now()))
+		}
+	}
 	for _, env := range []struct {
 		host, agent string
 		skills      []string
@@ -72,7 +81,6 @@ func main() {
 		}
 		check(st.RecordInventoryFor(uid, store.EnvironmentIDFor(uid, env.host, env.agent, ""), env.complete, store.MachineInfo{Host: env.host, OS: "linux", Arch: "amd64", Version: "fixture"}))
 	}
-	check(st.SaveSyncTargetFor(uid, store.EnvironmentIDFor(uid, "laptop", "codex", ""), store.EnvironmentIDFor(uid, "desktop", "claude", "")))
 	for _, list := range []struct {
 		name   string
 		skills []string
@@ -86,7 +94,6 @@ func main() {
 			check(st.AddListSkill(l.ID, "demo/skills/"+slug, "Review before adoption", uid))
 		}
 	}
-	check(st.IgnoreFor(uid, "demo/skills/retired", "Retired Helper", "Replaced in the fixture"))
 	mode := api.AuthToken
 	if len(os.Args) > 1 && os.Args[1] == "accounts" {
 		mode = api.AuthAccounts

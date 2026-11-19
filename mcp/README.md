@@ -73,33 +73,36 @@ defaults, mutation hints and return information. Successful calls return
 | `start_outcome`, `add_pipelines`, `tell_pipeline_agent`, `send_pipeline_back` | Management-only. Start an outcome or add pipelines (real agent sessions, ordinary approvals, never YOLO), queue an instruction for a pipeline's agent, or have a stage done again. Starting, adding and sending back need `confirm: true`. |
 | `move_pipeline_on`, `retry_pipeline`, `set_pipeline_merge`, `approve_pipeline_merge`, `stop_outcome`, `report_outcome` | Management-only Factory controls, the same calls the Factory page makes. Moving on, approving a merge and stopping need `confirm: true`; approving also needs `seen_updated_at`, the pipeline's `updated_at` as read, and is refused if the pipeline has changed since. `set_pipeline_merge` can only make a pipeline wait for approval. |
 | `list_context_access`, `get_context` | List only explicitly shared scopes, then read one bounded controller-retained snapshot. Requires a scoped MCP credential and separate per-client grants; legacy API-token/anonymous stdio context reads are unavailable. |
-| `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine. `compact: true` returns a small shape for paging large shelves. |
+| `list_skills`, `get_skill` | Search your skills by text, status (`active` or `archived`), like, tags, environment or machine. `compact: true` returns a small shape for paging a large library. |
 | `find_duplicates` | Group skills by normalised name and upstream source, flag local/upstream pairs and suggest a canonical ID. Read-only. |
-| `add_skill`, `update_skill`, `remove_skill` | Capture references and edit personal flags/notes. `remove_skill` removes the entry and deletes the library skill from every machine (each keeps a 30-day backup), optionally ignoring future scanner imports; when reet has no copy it is refused with HTTP 409 `[no-copy]` unless `noCopyConfirmed: true`. A skill you wrote is refused with HTTP 409 `[written]`; delete it from Write a skill. |
+| `add_skill`, `update_skill`, `remove_skill` | Add a reference (Active, or Archived with `status: "archived"`), change a skill's like, notes or status, or delete it. `update_skill` with `status: "archived"` takes the skill off every machine, each of which keeps a backup for 30 days; `status: "active"` puts it back. `remove_skill` deletes the skill: it is removed from every machine, each of which keeps a backup for 30 days. When reet has no copy it is refused with HTTP 409 `[no-copy]` unless `noCopyConfirmed: true`; a skill you wrote is refused with HTTP 409 `[written]` unless `writtenConfirmed: true`, since your writing and any public page go too. |
+| `list_archived`, `restore_skill` | List Archived skills (kept in reet, on no machine), with their library `id` and `shelfId`, and make one Active again, which installs it on every machine that follows the library. |
 | `list_tags`, `tag_skill`, `create_tag` | Discover tag IDs; add names or remove IDs on a skill; create an empty tag. |
 | `rename_tag`, `delete_tag` | Rename a tag, or delete it from this account after a dry run and confirmation. |
 | `list_environments`, `get_environment` | Read scan summaries and paginated inventories, including scan time and completeness. Filter by `empty_only` and `agent`. |
 | `delete_environment`, `merge_environments` | Preview and apply environment-report deletion or merge. Defaults to dry run; deletion refuses non-empty reports, and reports that hold ownership records, unless `force`; merge refuses reports that hold private skill pins or ownership records. |
-| `list_sync_targets` | Inspect saved desired/missing/extra plans without applying changes. |
 | `list_lists`, `get_list` | Find accessible lists and read skills, list notes and permissions. |
 | `create_list`, `update_list`, `delete_list` | Create a personal list, rename/describe it, or delete it after a dry run and confirmation. |
 | `add_list_skill`, `add_list_skills`, `remove_list_skill` | Add one or many skills (including `local/...` on personal lists) and remove one. Pass `id` for a shelf skill or `input` for an `owner/repo/skill` reference; `add_list_skill` requires exactly one. |
-| `bulk_update_skills` | Apply flags, a stage, tags and a list membership to up to 500 skills by ID or filter, with an optional dry run. |
+| `bulk_update_skills` | Apply a like, a status, tags and a list membership to up to 500 skills by ID or filter, with an optional dry run. Archiving takes the skills off every machine, each of which keeps a backup for 30 days. |
 | `forget_machine`, `merge_machines` | Remove a machine's scanned environments, or merge a renamed host into another. Dry run unless `confirm=true`; `forget_machine` refuses machines that still list skills unless `force=true`. Shelf skills, lists and tags are never touched. |
 | `list_events` | Read audit activity with `skill`, `action`, `source` and `before`/`after` cursors. MCP changes carry the client name. |
-| `list_ignored`, `unignore_skill` | Inspect scanner exclusions and allow future imports. |
+
+`list_ignored`, `unignore_skill` and `list_sync_targets` were removed. Use
+`list_archived` and `restore_skill` in place of the ignore list: a skill you
+don't want on your machines is Archived. There are no sync plans to read:
+every connected machine follows the library.
 
 The account role and list permissions are enforced by reet.sh for every request.
 Use the web UI for sharing/audience changes, administration, backups and tokens.
-Use `reet scan` and `reet sync` locally for filesystem discovery and confirmed
-installs/removals. Scan completeness and timestamps matter: an incomplete or old
-inventory cannot prove that a skill is absent today.
+Use `reet scan` locally for filesystem discovery. Scan completeness and
+timestamps matter: an incomplete or old inventory cannot prove that a skill is
+absent today.
 
-Stages derive from flags: `use` means used, `try` means bookmarked but not used,
-and `shelf` means neither. `liked` is independent. Updates preserve unspecified
-fields; personal notes and shared list notes are separate. Removing a shelf entry
-discards its personal notes and flags. Adding an existing reference can replace
-explicitly supplied fields and removes its ignored status.
+A skill is Active, on every machine that follows the library, or Archived, kept
+in reet and on no machine. `liked` is independent. Updates preserve unspecified
+fields; personal notes and shared list notes are separate. Adding an existing
+reference can replace explicitly supplied fields.
 
 ## Context sharing
 
@@ -149,11 +152,11 @@ start or grant background supervision.
 
 Try these requests in your MCP client:
 
-- “Find the skills I saved to test, ordered by popularity, and show their notes.”
+- “Find my Archived skills, ordered by popularity, and show their notes.”
 - “Find my Backend tag, then show liked skills with that tag on my laptop.”
-- “Read my laptop and desktop inventories and the saved sync plan; explain missing skills and any incomplete scans.”
+- “Read my laptop and desktop inventories; explain which skills differ and any incomplete scans.”
 - “Add `anthropics/skills/mcp-builder` to my shelf with a note to review its transport examples.”
-- “Move that skill to To test while keeping its existing notes and liked flag.”
+- “Archive that skill while keeping its existing notes and liked flag.”
 - “Create a personal list called Agent tooling and add mcp-builder with a list note about evaluation coverage.”
 - “Add `local/seo-audit` to my personal list, and tell me if a name is ambiguous.”
 - “Preview deleting the empty reet-server environments older than a week, then apply it.”
@@ -167,7 +170,7 @@ Collection tools accept `limit` (1–100, default 20) and `offset`. Follow
 `next_offset` until `has_more` is false. Pages also include `total_count` and
 `count`; a shortened page adds `truncated` and `truncated_reason`. `list_events`
 pages with `before`/`after` event-ID cursors and returns `next_before` and
-`next_after`. Shelf `counts` describe all flags in the account; the page's
+`next_after`. `counts` describe the whole account; the page's
 `total_count` describes the filtered results.
 
 Most upstream collection APIs do not support pagination. The bridge fetches
@@ -176,9 +179,8 @@ therefore intended for personal and team shelves rather than unbounded exports.
 Responses are capped at **25,000 characters**. Pages shrink to fit and still
 advance the cursor; `compact: true` is the recommended way to page a large shelf.
 Individual oversized records fail with a clear message; use a narrower filter or
-shorten notes in the web UI. Nested sync-plan inventories
-are returned intact and may hit this cap; inspect environments separately in
-that case. Concurrent shelf changes can move records between offset pages.
+shorten notes in the web UI. Concurrent changes can move records between
+offset pages.
 
 Requests time out after 30 seconds. Errors explain how to resolve authentication,
 permission, missing-resource, rate-limit, connectivity and JSON response problems.

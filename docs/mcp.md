@@ -31,8 +31,8 @@ Every account, including viewers, has its own **MCP access** section:
 | Control | Effect |
 | --- | --- |
 | Enable / pause all access | Enables or blocks OAuth, bearer credentials and browser tools for your account. |
-| Read only | Search shelf metadata and personal notes, tags, inventories, saved sync plans, accessible lists, recent activity and ignored entries. |
-| Read & manage | Also add, edit or remove shelf skills and notes, edit tags, create personal lists, add list skills and unignore entries. |
+| Read only | Search your skills, Archived ones included, with personal notes, tags, inventories, accessible lists and recent activity. |
+| Read & manage | Also add skills, archive, restore or delete them, edit notes and tags, create personal lists and add list skills. Archiving or deleting a skill takes it off every machine. |
 | Pause / resume a client | Blocks or restores that connection without changing its credential. |
 | Manage | Rename a connection, reduce its permissions, or change a manual token's expiry. Manual bearer permissions can also be increased within the account's role; reconnect OAuth clients to renew authorization. |
 | Replace token | Invalidates a manual bearer's old secret immediately and shows one replacement. OAuth clients reconnect through their own sign-in flow. |
@@ -236,16 +236,16 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 48 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover sixteen tools and management
-connections forty-eight, including the two separately granted context reads,
+The 47 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover fifteen tools and management
+connections forty-seven, including the two separately granted context reads,
 three management-only worker messaging tools and the thirteen Factory tools
 (three reads and ten management-only controls).
-Viewer accounts retain eleven shelf-read tools.
+Viewer accounts retain ten read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.
-`reet_list_skills` has `compact: true` (or `fields`) for large shelves; it
-returns only id, name, source, sourceType, stage, liked, bookmarked, tags and
+`reet_list_skills` has `compact: true` (or `fields`) for large libraries; it
+returns only id, name, source, sourceType, status, liked, tags and
 environment_count. A page shortened to fit the limit says so in `truncated` and
 `truncated_reason`; follow `next_offset` for the rest.
 If a change succeeds but its response exceeds the limit, the error explicitly
@@ -256,6 +256,39 @@ by `action`, `source` and skill. Changes made through MCP are recorded with
 `source: "mcp"` and the client name in the event detail.
 Inventories include scan time and completeness: an old or incomplete scan does
 not prove what is installed today.
+
+## Active, Archived and Delete
+
+A skill in your library is **Active**, on every machine that follows the
+library, or **Archived**, kept in reet and on no machine.
+
+| Tool | What happens on your machines |
+| --- | --- |
+| `reet_list_skills` | Nothing. `status: "active"` or `"archived"` narrows the list, and each skill carries its `status`. |
+| `reet_list_archived` | Nothing. Lists Archived skills, each with its library `id`, its `shelfId` (the ID the other tools take, where it has one) and `counts` of Active and Archived skills. |
+| `reet_update_skill` | `status: "archived"` takes the skill off every machine, and each machine keeps a backup for 30 days. `status: "active"` installs it on every machine again. Likes and notes change nothing on machines. |
+| `reet_restore_skill` | Makes an Archived skill Active: it is installed on every machine again. |
+| `reet_bulk_update_skills` | The same as `reet_update_skill`, for up to 500 skills, with a dry run. |
+| `reet_remove_skill` | Deletes the skill: it is removed from every machine, and each machine keeps a backup for 30 days. |
+| `reet_add_skill` | A new skill is Active and installed on every machine, unless `status: "archived"`. |
+
+`reet_update_skill`, `reet_restore_skill` and `reet_remove_skill` take a skill's
+ID from `reet_list_skills` or its library `id` from `reet_list_archived`.
+`reet_remove_skill` changes nothing and answers HTTP 409 when the delete needs
+your say-so: `[no-copy]` when reet holds no copy of the skill, so only the
+machines' backups would remain (pass `noCopyConfirmed: true`), and `[written]`
+for a skill you wrote, whose writing and any public page go with it (pass
+`writtenConfirmed: true`). These are the Skills page's own Archive, Restore and
+Delete.
+
+**Removed tools.** `reet_list_ignored` and `reet_unignore_skill` are gone with
+the ignore list: use `reet_list_archived` and `reet_restore_skill`, since a skill
+you don't want on your machines is now Archived. `reet_list_sync_targets` is
+gone with saved sync plans: every connected machine follows the library, so read
+`reet_list_skills` with `status` instead. Calling a removed tool fails as an
+unknown tool. `reet_list_skills` and `reet_bulk_update_skills` take `status` in
+place of `stage`, and `reet_update_skill` takes `status` in place of `used` and
+`bookmarked`. `reet_remove_skill` no longer takes `ignore`.
 
 Environment reports can be deleted or merged by ID. Deletes and merges default
 to a dry run and need `confirm: true`. A delete refuses a report that still has skills

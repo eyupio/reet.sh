@@ -3,10 +3,12 @@ import { z } from 'zod';
 // Preserve evolving API fields while declaring the stable fields agents use.
 const jsonObject = <S extends z.ZodRawShape>(shape: S) => z.object(shape).catchall(z.json());
 const named = { id: z.string(), name: z.string() };
+const status = z.enum(['active', 'archived']);
 const skill = jsonObject({
-  ...named, notes: z.string(), liked: z.boolean(), bookmarked: z.boolean(), used: z.boolean(),
-  installs: z.number(),
+  ...named, notes: z.string(), liked: z.boolean(), installs: z.number(), status: status.optional(),
 });
+// A library skill as the Skills page lists it: id is its library id, shelfId the ID other tools take ('' when it has none).
+const librarySkill = jsonObject({ ...named, shelfId: z.string(), status, hasCopy: z.boolean() });
 const skillSummary = jsonObject(named);
 const inventorySkill = jsonObject(named);
 const list = jsonObject({ id: z.number().int(), name: z.string(), skillCount: z.number().int() });
@@ -22,8 +24,8 @@ export const outputs: Record<string, z.ZodType> = {
   list_skills: page(skillSummary),
   get_skill: skill,
   add_skill: skill.extend({ created: z.boolean() }),
-  update_skill: skill,
-  remove_skill: z.object({ ok: z.boolean() }),
+  update_skill: jsonObject({ ...named, notes: z.string(), liked: z.boolean(), status }),
+  remove_skill: z.object({ deleted: z.number().int() }),
   list_tags: page(tag),
   tag_skill: skill,
   create_tag: tag,
@@ -35,7 +37,6 @@ export const outputs: Record<string, z.ZodType> = {
   merge_environments: jsonObject({ dry_run: z.boolean(), from: z.any(), to: z.any(), skills_moved: z.number().int() }),
   forget_machine: jsonObject({ dry_run: z.boolean(), host: z.string(), environments: z.array(jsonObject(named)), skillCount: z.number().int(), applied: z.boolean() }),
   merge_machines: z.object({ dry_run: z.boolean(), from: z.string(), to: z.string(), applied: z.boolean() }),
-  list_sync_targets: page(jsonObject({ target: jsonObject(named), sourceId: z.string(), desired: z.array(inventorySkill), missing: z.array(inventorySkill), extra: z.array(inventorySkill) })),
   list_lists: page(list),
   get_list: page(skill).extend({ list }),
   create_list: list.extend({ visibility: z.string(), skills: z.array(skill).nullable() }),
@@ -47,6 +48,6 @@ export const outputs: Record<string, z.ZodType> = {
   bulk_update_skills: jsonObject({ dry_run: z.boolean(), updated: z.number().int(), failed: z.number().int(), results: z.array(jsonObject({ id: z.string(), ok: z.boolean() })) }),
   find_duplicates: jsonObject({ groups: z.array(jsonObject({ kind: z.string(), key: z.string(), suggestedCanonicalId: z.string(), skills: z.array(jsonObject(named)) })), total_groups: z.number().int(), total_skills: z.number().int() }),
   list_events: jsonObject({ events: z.array(jsonObject({ id: z.number().int(), at: z.number(), source: z.string(), action: z.string() })), limit: z.number().int().optional(), has_more: z.boolean().optional(), next_before: z.number().int().nullable().optional(), next_after: z.number().int().nullable().optional() }),
-  list_ignored: page(inventorySkill),
-  unignore_skill: z.object({ ok: z.boolean() }),
+  list_archived: page(librarySkill).extend({ counts: z.object({ active: z.number().int(), archived: z.number().int() }) }),
+  restore_skill: z.object({ id: z.string(), shelfId: z.string(), name: z.string(), status: z.literal('active') }),
 };

@@ -1206,6 +1206,11 @@ func filterFromRequest(r *http.Request) store.Filter {
 		Only:    q.Get("only"),
 		Stage:   q.Get("stage"),
 	}
+	// status (active or archived) is the library status the MCP tools filter
+	// on; the store reads it as the stage of the same name.
+	if status := q.Get("status"); status != "" {
+		f.Stage = status
+	}
 	for _, raw := range q["tag"] {
 		for _, part := range strings.Split(raw, ",") {
 			if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil {
@@ -1247,14 +1252,14 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		fields := []string{"id", "name", "source", "sourceType", "stage", "liked", "bookmarked", "tags", "environment_count"}
 		if raw := strings.TrimSpace(q.Get("fields")); raw != "" {
 			fields = nil
-			allowed := map[string]bool{"id": true, "name": true, "source": true, "sourceType": true, "stage": true, "liked": true, "bookmarked": true, "tags": true, "environment_count": true}
+			allowed := map[string]bool{"id": true, "name": true, "source": true, "sourceType": true, "status": true, "stage": true, "liked": true, "bookmarked": true, "tags": true, "environment_count": true}
 			for _, field := range strings.Split(raw, ",") {
 				field = strings.TrimSpace(field)
 				if field == "" {
 					continue
 				}
 				if !allowed[field] {
-					writeErrCode(w, 400, errInvalidField, "fields", "unknown compact field: "+field, "Use id, name, source, sourceType, stage, liked, bookmarked, tags or environment_count.")
+					writeErrCode(w, 400, errInvalidField, "fields", "unknown compact field: "+field, "Use id, name, source, sourceType, status, liked, tags or environment_count.")
 					return
 				}
 				fields = append(fields, field)
@@ -1288,6 +1293,8 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 					row["source"] = sk.Source
 				case "sourceType":
 					row["sourceType"] = sk.SourceType
+				case "status":
+					row["status"] = sk.Status
 				case "stage":
 					row["stage"] = stageKey(sk)
 				case "liked":

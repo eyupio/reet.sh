@@ -202,7 +202,7 @@ func TestMCPTidyTools(t *testing.T) {
 	tag := mcpData(t, session, "reet_create_tag", map[string]any{"name": "Tidy tag"})
 	tagID := int(tag["id"].(float64))
 	bulk := mcpData(t, session, "reet_bulk_update_skills", map[string]any{
-		"ids": []string{"local/seo-audit", "demo/skills/private"}, "add_tags": []string{"Bulk"}, "stage": "try",
+		"ids": []string{"local/seo-audit", "demo/skills/private"}, "add_tags": []string{"Bulk"}, "status": "active",
 	})
 	if int(bulk["updated"].(float64)) != 2 || int(bulk["failed"].(float64)) != 0 {
 		t.Fatalf("bulk update: %+v", bulk)
@@ -291,9 +291,15 @@ func TestMCPCompactSkillsFitsOnePage(t *testing.T) {
 		t.Fatalf("compact page truncated: %+v", data)
 	}
 	first := data["items"].([]any)[0].(map[string]any)
-	for _, key := range []string{"id", "name", "source", "sourceType", "stage", "liked", "bookmarked", "tags", "environment_count"} {
+	for _, key := range []string{"id", "name", "source", "sourceType", "status", "liked", "tags", "environment_count"} {
 		if _, ok := first[key]; !ok {
 			t.Fatalf("compact item missing %s: %+v", key, first)
+		}
+	}
+	// The retired stage flags are not part of the compact shape any more.
+	for _, key := range []string{"stage", "bookmarked"} {
+		if _, ok := first[key]; ok {
+			t.Fatalf("compact item still has %s: %+v", key, first)
 		}
 	}
 	if _, ok := first["notes"]; ok {

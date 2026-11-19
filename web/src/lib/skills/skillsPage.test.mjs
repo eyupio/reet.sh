@@ -70,10 +70,15 @@ test('focusAfterRemoval', () => {
 test('deleteConfirm', () => {
   const w = deleteConfirm([row({ name: 'reet-babysit', yours: true })])
   assert.equal(w.title, 'Delete reet-babysit?')
-  assert.equal(w.body, 'You wrote this one. Deleting it removes your writing, as well as the skill on your machines.')
+  assert.equal(w.body, 'You wrote this one. Deleting it removes your writing and the skill from your machines; each machine keeps a backup for 30 days.')
   assert.deepEqual([w.writtenConfirmed, w.noCopyConfirmed], [true, false])
   const wp = deleteConfirm([row({ yours: true, published: true })])
-  assert.equal(wp.body, 'You wrote this one. Deleting it removes your writing and its public link, as well as the skill on your machines.')
+  assert.equal(wp.body, 'You wrote this one. Deleting it removes your writing and its public link, and the skill from your machines; each machine keeps a backup for 30 days.')
+  // An Archived skill is on no machine: the dialog does not say Delete takes it off them.
+  const wa = deleteConfirm([row({ yours: true, status: 'archived', health: h('off') })])
+  assert.equal(wa.body, 'You wrote this one. Deleting it removes your writing.')
+  const wpa = deleteConfirm([row({ yours: true, published: true, status: 'archived', health: h('off') })])
+  assert.equal(wpa.body, 'You wrote this one. Deleting it removes your writing and its public link.')
   const n = deleteConfirm([row({ hasCopy: false })])
   assert.equal(n.body, 'reet has no copy of this skill. Deleting removes it from your machines; each machine keeps a backup for 30 days.')
   assert.deepEqual([n.writtenConfirmed, n.noCopyConfirmed], [false, true])
@@ -83,7 +88,7 @@ test('deleteConfirm', () => {
 
 test('deleteConfirm covers both cases together and several rows', () => {
   const both = deleteConfirm([row({ name: 'a', yours: true, hasCopy: false, published: true })])
-  assert.equal(both.body, 'You wrote this one. reet has no copy of this skill. Deleting removes your writing and its public link and the skill from your machines; each machine keeps a backup for 30 days.')
+  assert.equal(both.body, 'You wrote this one. reet has no copy of this skill. Deleting removes your writing and its public link, and the skill from your machines; each machine keeps a backup for 30 days.')
   assert.deepEqual([both.writtenConfirmed, both.noCopyConfirmed], [true, true])
   const many = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', hasCopy: false }), row({ name: 'c' }), row({ name: 'd', yours: true, published: true }), row({ name: 'e', yours: true })])
   assert.equal(many.title, 'Delete 5 skills?')

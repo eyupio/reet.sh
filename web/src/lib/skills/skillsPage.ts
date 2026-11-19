@@ -71,6 +71,11 @@ export function focusAfterRemoval(order: string[], removed: string[]): string | 
   return null
 }
 
+/** Whether a skill is on any machine: an Active one is, and so is an Archived one still coming off. */
+function onMachines(r: SkillRow): boolean {
+  return r.status !== 'archived' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health?.state)
+}
+
 function nameList(names: string[]): string {
   if (names.length <= 3) return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]
   return `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
@@ -92,8 +97,9 @@ export function deleteConfirm(rows: SkillRow[]): { title: string; body: string; 
     if (written.length) parts.push('You wrote this one.')
     if (noCopy.length) parts.push('reet has no copy of this skill.')
     const writing = links.length ? 'your writing and its public link' : 'your writing'
-    if (written.length && noCopy.length) parts.push(`Deleting removes ${writing} and the skill from your machines; ${backup}.`)
-    else if (written.length) parts.push(`Deleting it removes ${writing}, as well as the skill on your machines.`)
+    const fromMachines = onMachines(rows[0]) ? `${links.length ? ',' : ''} and the skill from your machines; ${backup}` : ''
+    if (written.length && noCopy.length) parts.push(`Deleting removes ${writing}${fromMachines}.`)
+    else if (written.length) parts.push(`Deleting it removes ${writing}${fromMachines}.`)
     else parts.push(`Deleting removes it from your machines; ${backup}.`)
   } else {
     if (written.length) parts.push(`You wrote ${nameList(written.map(r => r.name))}.`)

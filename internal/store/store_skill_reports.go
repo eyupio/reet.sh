@@ -384,7 +384,9 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 // the skills protocol gets no skill work at all: NeedsUpdate counts the
 // unpaused ones, and NeedsUpdateHost names it when there is just one. Nor
 // does one above it, newer than this controller: NeedsNewerController and
-// NeedsNewerControllerHost count and name those the same way.
+// NeedsNewerControllerHost count and name those the same way. A paused
+// machine is left alone: Paused counts them, whatever their protocol, and
+// PausedHost names the one when there is just one.
 type SkillWork struct {
 	Failed                   int    `json:"failed"`
 	Installing               int    `json:"installing"`
@@ -394,6 +396,8 @@ type SkillWork struct {
 	NeedsUpdateHost          string `json:"needsUpdateHost,omitempty"`
 	NeedsNewerController     int    `json:"needsNewerController"`
 	NeedsNewerControllerHost string `json:"needsNewerControllerHost,omitempty"`
+	Paused                   int    `json:"paused"`
+	PausedHost               string `json:"pausedHost,omitempty"`
 }
 
 // skillHealthAndWork reads each skill's health and the machines' work in
@@ -475,6 +479,9 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		return nil, work, err
 	}
 	if work.NeedsNewerController, work.NeedsNewerControllerHost, err = machinesOffProtocol(q, uid, true); err != nil {
+		return nil, work, err
+	}
+	if work.Paused, work.PausedHost, err = countedHosts(q, `SELECT host FROM sync_agents WHERE user_id=? AND paused=1 ORDER BY host,id`, uid); err != nil {
 		return nil, work, err
 	}
 	removalNames := map[string]bool{}
@@ -595,7 +602,13 @@ func machinesOffProtocol(q privateSkillQuery, uid int64, newer bool) (int, strin
 	if newer {
 		query = `SELECT host FROM sync_agents WHERE user_id=? AND paused=0 AND skills_protocol>? ORDER BY host,id`
 	}
-	rows, err := q.Query(query, uid, CurrentSkillsProtocol)
+	return countedHosts(q, query, uid, CurrentSkillsProtocol)
+}
+
+// countedHosts counts the machines query lists, by host, and names the one
+// when there is just one.
+func countedHosts(q privateSkillQuery, query string, args ...any) (int, string, error) {
+	rows, err := q.Query(query, args...)
 	if err != nil {
 		return 0, "", err
 	}

@@ -844,3 +844,39 @@ func TestReportNewOnMachinesSkipsPausedAndOffProtocolMachines(t *testing.T) {
 		t.Fatalf("kept a skill only a paused machine reported: %+v", kept)
 	}
 }
+
+// A paused machine is left alone, and the page says so: work counts paused
+// machines, whatever their skills protocol, and names the one when there is
+// just one.
+func TestSkillsPageWorkCountsPausedMachines(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	work := func() SkillWork {
+		t.Helper()
+		page, err := s.SkillsPageFor(uid, SkillActive, reportT0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Work
+	}
+	a := reportAgent(t, s, uid, "elitebook")
+	if w := work(); w.Paused != 0 || w.PausedHost != "" {
+		t.Fatalf("nothing paused: %+v", w)
+	}
+	if err := s.ControlSyncAgent(uid, a, "pause"); err != nil {
+		t.Fatal(err)
+	}
+	if w := work(); w.Paused != 1 || w.PausedHost != "elitebook" {
+		t.Fatalf("elitebook paused: %+v", w)
+	}
+	old, _, err := s.EnrollSyncAgentBuild(uid, "thinkpad", "0.9", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ControlSyncAgent(uid, old.ID, "pause"); err != nil {
+		t.Fatal(err)
+	}
+	if w := work(); w.Paused != 2 || w.PausedHost != "" {
+		t.Fatalf("two paused, neither named: %+v", w)
+	}
+}

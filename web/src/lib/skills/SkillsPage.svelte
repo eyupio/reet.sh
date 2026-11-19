@@ -410,6 +410,12 @@
   async function start() {
     const params = new URLSearchParams(location.search)
     const jump = params.get('skill') ?? ''
+    if (jump) {
+      // The jump is spent once read: a reload or a shared link lands on the page, not on this row again.
+      params.delete('skill')
+      const rest = params.toString()
+      history.replaceState(history.state, '', `${location.pathname}${rest ? `?${rest}` : ''}${location.hash}`)
+    }
     await read('active')
     page.loaded = true
     const archived = read('archived', true)

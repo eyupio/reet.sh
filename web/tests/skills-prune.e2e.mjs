@@ -1025,6 +1025,12 @@ try {
   await page.goto(`${base}/skills?skill=${encodeURIComponent('item-writing-plans')}`)
   await expect(row(page, 'writing-plans')).toBeInViewport()
   await expect(row(page, 'writing-plans')).toHaveClass(/flash/)
+  // The jump is spent: a reload does not jump again.
+  await expect.poll(() => new URL(page.url()).searchParams.has('skill')).toBe(false)
+  // A change here is a change to the library the Jump list reads: it reads it again.
+  const listed = page.waitForRequest(req => new URL(req.url()).pathname === '/api/skills' && req.method() === 'GET')
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await listed
   expect(errors).toEqual([])
   await context.close()
  }

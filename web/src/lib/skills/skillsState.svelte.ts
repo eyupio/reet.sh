@@ -124,6 +124,8 @@ export class SkillsPageState {
       const out = await fn()
       this.error = ''
       done?.(out, seq)
+      // The rest of the app (the Jump list) reads the library again.
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('reet-shelf-changed'))
       return out
     } finally {
       this.writing--

@@ -43,7 +43,7 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	window := libraryRestoreDebounce
 
 	// An intact bundle records nothing.
-	observeLibraryDeletions(&state, start)
+	observeLibraryDeletions(&state, "", start)
 	if len(state.Missing) != 0 {
 		t.Fatal("intact bundle recorded as missing", state.Missing)
 	}
@@ -54,14 +54,14 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	if err := os.Rename(missing, missing+".tmp"); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, start)
+	observeLibraryDeletions(&state, "", start)
 	if len(state.Missing) != 1 || state.Missing[0].stable(window) {
 		t.Fatal("first sighting was already stable", state.Missing)
 	}
 	if err := os.Rename(missing+".tmp", missing); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, start.Add(window*2))
+	observeLibraryDeletions(&state, "", start.Add(window*2))
 	if len(state.Missing) != 0 {
 		t.Fatal("a file that came back kept its deletion record", state.Missing)
 	}
@@ -70,12 +70,12 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, start.Add(window*3))
-	observeLibraryDeletions(&state, start.Add(window*3+window/2))
+	observeLibraryDeletions(&state, "", start.Add(window*3))
+	observeLibraryDeletions(&state, "", start.Add(window*3+window/2))
 	if state.Missing[0].stable(window) || state.Missing[0].Count != 2 {
 		t.Fatal("stable before the window elapsed", state.Missing)
 	}
-	observeLibraryDeletions(&state, start.Add(window*4+time.Second))
+	observeLibraryDeletions(&state, "", start.Add(window*4+time.Second))
 	if len(state.Missing) != 1 || !state.Missing[0].stable(window) || state.Missing[0].Whole || len(state.Missing[0].Files) != 1 || state.Missing[0].Files[0] != "reference.txt" {
 		t.Fatal("a persisting deletion was not classified as stable", state.Missing)
 	}
@@ -84,7 +84,7 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	if err := os.Remove(filepath.Join(path, "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, start.Add(window*5))
+	observeLibraryDeletions(&state, "", start.Add(window*5))
 	if len(state.Missing) != 1 || state.Missing[0].Count != 1 || state.Missing[0].stable(window) || len(state.Missing[0].Files) != 2 {
 		t.Fatal("a changed deletion did not restart the debounce", state.Missing)
 	}
@@ -107,7 +107,7 @@ func TestWholeDirectoryDeletionAndOwnershipBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0)
-	observeLibraryDeletions(&state, now)
+	observeLibraryDeletions(&state, "", now)
 	// Only the verified, non-source, non-removing binding is a deletion; the
 	// others were never present on disk and must not be treated as managed.
 	if len(state.Missing) != 1 || state.Missing[0].Path != path || !state.Missing[0].Whole {
@@ -372,5 +372,25 @@ func TestDeletedEntryFileIsHeldThenRestored(t *testing.T) {
 	state, _ := loadLibraryState(config, c)
 	if len(state.Restores) != 1 || len(state.Missing) != 0 {
 		t.Fatal("restore receipt", state.Missing, state.Restores)
+	}
+}
+
+// On a machine that follows the library, a copy in a managed home folder is
+// the reconcile pass's: the old engine's deletion observer leaves it alone,
+// so a skill the library took off is never asked back.
+func TestDeletionObserverSkipsManagedHomeCopiesWhenFollowingTheLibrary(t *testing.T) {
+	home := t.TempDir()
+	binding, path := restoreBinding(t, filepath.Join(home, ".claude", "skills"))
+	if err := os.Remove(filepath.Join(path, "reference.txt")); err != nil {
+		t.Fatal(err)
+	}
+	state := libraryLocalState{Bindings: []libraryBinding{binding}}
+	observeLibraryDeletions(&state, home, time.Unix(1_800_000_000, 0))
+	if len(state.Missing) != 0 {
+		t.Fatalf("a managed home copy was observed: %+v", state.Missing)
+	}
+	observeLibraryDeletions(&state, "", time.Unix(1_800_000_000, 0))
+	if len(state.Missing) != 1 {
+		t.Fatalf("without a managed home, the deletion is observed: %+v", state.Missing)
 	}
 }

@@ -279,7 +279,7 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 		}
 	}
 	// Observing a deletion is read-only; it keeps the debounce moving between jobs.
-	if observeLibraryDeletions(&state, time.Now()) {
+	if observeLibraryDeletions(&state, managedHome, time.Now()) {
 		if err = writePrivate(config+".library", state); err != nil {
 			return err
 		}

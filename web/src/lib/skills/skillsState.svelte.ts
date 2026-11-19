@@ -15,8 +15,8 @@ const rank = (r: SkillRow) => ({ bad: 0, work: 1, ok: 2, off: 3 })[healthLine(r.
  * in SkillsPage.svelte.
  *
  * A write moves `generation` on as it starts and as it ends, so a read that was on its way while the write ran never
- * puts back what the write changed. Writes answer in any order: the page shows an answer only when no newer write has
- * already answered (writePage).
+ * puts back what the write changed. Writes answer in any order: the page shows a page answer only when no newer page
+ * answer has been shown, and when another write answered first, the tab is read again (writePage).
  */
 export class SkillsPageState {
   tab = $state<Tab>('active')
@@ -41,9 +41,11 @@ export class SkillsPageState {
 
   writing = 0
   #generation = 0
-  // Writes are numbered as they start; `#finished` is the newest one whose answer has come back.
+  // Writes are numbered as they start. `#finishedAny` is the newest write of any kind whose answer has come back;
+  // `#finishedPage` the newest of those that answer with page data (Archive, Restore and their Undo).
   #started = 0
-  #finished = 0
+  #finishedAny = 0
+  #finishedPage = 0
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -91,32 +93,41 @@ export class SkillsPageState {
     }
   }
 
-  /** `done` hears the answer, and whether it is the newest: no write that started after it has answered yet. */
-  async write<T>(fn: () => Promise<T>, done?: (out: T, newest: boolean) => void): Promise<T> {
+  /** `done` hears the answer and the write's number. */
+  async write<T>(fn: () => Promise<T>, done?: (out: T, seq: number) => void): Promise<T> {
     const seq = ++this.#started
     this.#generation++
     this.writing++
     try {
       const out = await fn()
       this.error = ''
-      done?.(out, seq > this.#finished)
+      done?.(out, seq)
       return out
     } finally {
-      this.#finished = Math.max(this.#finished, seq)
+      this.#finishedAny = Math.max(this.#finishedAny, seq)
       this.writing--
       this.#generation++
     }
   }
 
   /**
-   * A write that answers with a tab of the page (Archive, Restore and their Undo). The newest answer is shown; an older
-   * one that comes back after it only takes its own rows out of the list.
+   * A write that answers with a tab of the page (Archive, Restore and their Undo). Its answer is shown unless a newer
+   * page answer has been shown already, when it only takes its own rows out of the list. Only page answers count as
+   * newer: a Like or a Delete that answers first must not hold back an Undo. When any write that started after this one
+   * answered first, this answer may not show that write's change, so the tab is read again.
    */
   async writePage(fn: () => Promise<SkillsPageData>, status: Tab, without: string[] = []): Promise<void> {
-    await this.write(fn, (data, newest) => {
-      if (newest) this.apply(data, status, without)
-      else this.held[status] = (this.held[status] ?? []).filter(r => !without.includes(r.id))
+    let stale = false
+    await this.write(fn, (data, seq) => {
+      if (seq > this.#finishedPage) {
+        this.#finishedPage = seq
+        this.apply(data, status, without)
+      } else {
+        this.held[status] = (this.held[status] ?? []).filter(r => !without.includes(r.id))
+      }
+      stale = this.#finishedAny > seq
     })
+    if (stale) void this.read(status, true)
   }
 
   fail(e: unknown) {

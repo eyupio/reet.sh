@@ -57,6 +57,11 @@ const skillStatesCopy = `INSERT INTO library_items_v2(user_id,id,item_type,name,
 // library_status_projection mirrored the shelf flags and are not.
 var skillStatesTriggers = []string{"library_shelf_insert", "library_shelf_stage", "library_status_projection", "library_hosted_insert", "library_hosted_update", "library_hosted_delete", "library_bundle_delete", "library_intent_fence"}
 
+// libraryItemState finds an account's deleted and Archived items without
+// reading the others, for the listings that leave out the first and count the
+// second (liveShelfRow, archivedShelfRows).
+const libraryItemState = `CREATE INDEX IF NOT EXISTS library_item_state ON library_items(user_id,deleted_at,status)`
+
 func (s *Store) migrateSkillStates() error {
 	return s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
@@ -77,7 +82,7 @@ func (s *Store) migrateSkillStates() error {
 				return err
 			}
 		}
-		for _, stmt := range append([]string{libraryItemProjection, libraryIntentFence}, canonicalLibraryTriggers...) {
+		for _, stmt := range append([]string{libraryItemProjection, libraryItemState, libraryIntentFence}, canonicalLibraryTriggers...) {
 			if _, err := tx.Exec(stmt); err != nil {
 				return err
 			}

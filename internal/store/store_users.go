@@ -456,8 +456,15 @@ func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 	return one[0], true, nil
 }
 
-// liveShelfRow keeps out shelf rows whose library skill is deleted.
-const liveShelfRow = ` AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id AND i.deleted_at<>0)`
+// liveShelfRow keeps out shelf rows whose library skill is deleted, and
+// archivedShelfRows are the shelf rows whose skill is Archived. Each takes
+// the user's id. Both are subqueries SQLite reads once per listing, not once
+// per row, starting from library_item_state: deleted and Archived skills are
+// few, and a listing reads every shelf row of the account.
+const (
+	liveShelfRow      = ` AND sh.skill_id NOT IN (SELECT a.reference FROM library_items i INDEXED BY library_item_state JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' WHERE i.user_id=? AND i.deleted_at>0)`
+	archivedShelfRows = `(SELECT a.reference FROM library_items i INDEXED BY library_item_state JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' WHERE i.user_id=? AND i.deleted_at=0 AND i.status='archived')`
+)
 
 // LibraryCounts counts a listing's skills over the whole library, whatever
 // the filter: all of them, the liked ones, and how many are Active and
@@ -496,21 +503,25 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, LibraryCounts, error) 
 	// A shelf row whose library skill was deleted is gone from the listing
 	// until Undo brings the skill back; the purge removes the row later.
 	canonical := liveShelfRow
+	canonicalArgs := []any{userID}
 	if f.Canonical {
 		canonical += ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
 	}
 	var c LibraryCounts
-	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(st='active'),0),COALESCE(SUM(st='archived'),0)
-		FROM (SELECT sh.liked,`+canonicalShelfStatus+` AS st FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical+`) sh`, userID).Scan(&c.All, &c.Liked, &c.Active, &c.Archived); err != nil {
+	// A shelf row whose skill has no library item yet reads as Active, as
+	// the item it gets starts.
+	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.skill_id IN `+archivedShelfRows+`),0)
+		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical, append([]any{userID, userID}, canonicalArgs...)...).Scan(&c.All, &c.Liked, &c.Archived); err != nil {
 		return nil, c, err
 	}
+	c.Active = c.All - c.Archived
 	// An unpaged list attaches the canonical item and status after its rows are
 	// read (attachMode.library), by user range when it is the whole library:
 	// a join is evaluated for every matching row and costs more than one range
 	// read. A page selects its rows first and joins the metadata for those only.
 	paged := f.Limit > 0 || f.Offset > 0
 	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0` + canonical
-	args := []any{userID}
+	args := append([]any{userID}, canonicalArgs...)
 	tabWhere := map[string]string{
 		"liked":      ` AND sh.liked=1`,
 		"bookmarked": ` AND sh.bookmarked=1`,
@@ -523,9 +534,11 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, LibraryCounts, error) 
 	// Archived. Nothing is To test or Disabled any more.
 	switch f.Stage {
 	case "active", "use":
-		q += ` AND ` + canonicalShelfStatus + `='active'`
+		q += ` AND sh.skill_id NOT IN ` + archivedShelfRows
+		args = append(args, userID)
 	case "archived", "shelf":
-		q += ` AND ` + canonicalShelfStatus + `='archived'`
+		q += ` AND sh.skill_id IN ` + archivedShelfRows
+		args = append(args, userID)
 	case "try", "disabled":
 		q += ` AND 0`
 	}

@@ -141,8 +141,6 @@ const shelfAliasBackfill = `INSERT INTO library_aliases(user_id,kind,reference,i
 const shelfItemBackfill = `INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,created_at,updated_at)
  SELECT sh.user_id,a.item_id,'skill',k.slug,CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END,sh.created_at,sh.updated_at FROM shelf sh JOIN skills k ON k.id=sh.skill_id JOIN library_aliases a ON a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id`
 
-const canonicalShelfStatus = `COALESCE((SELECT i.status FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id),'active')`
-
 // Bare legacy import copies have not been adopted: retaining them forever would
 // turn old transfer attempts into quota-consuming library entries. Only a
 // trusted binding/explicit upload, or user/fork origin, claims their content.

@@ -472,8 +472,8 @@ export async function addSkill(input: string, flags: Flags = {}): Promise<AddRes
 export async function patchSkill(id: string, flags: Flags): Promise<Skill> {
   return (await req('/api/skill', { method: 'PATCH', body: json({ id, ...flags }) })).json()
 }
-export async function removeSkill(id: string, ignore = false): Promise<void> {
-  await req(`/api/skill?id=${encodeURIComponent(id)}${ignore ? '&ignore=1' : ''}`, { method: 'DELETE' })
+export async function removeSkill(id: string, ignore = false, noCopyConfirmed = false): Promise<void> {
+  await req(`/api/skill?id=${encodeURIComponent(id)}${ignore ? '&ignore=1' : ''}${noCopyConfirmed ? '&noCopyConfirmed=1' : ''}`, { method: 'DELETE' })
 }
 export async function patchSkills(ids: string[], flags: Flags): Promise<{ updated: number }> {
   return (await req('/api/skills', { method: 'PATCH', body: json({ ids, ...flags }) })).json()
@@ -481,8 +481,23 @@ export async function patchSkills(ids: string[], flags: Flags): Promise<{ update
 export async function tagSkills(ids: string[], add: string[], remove: number[]): Promise<{ tagged: number }> {
   return (await req('/api/skills/tags', { method: 'POST', body: json({ ids, add, remove }) })).json()
 }
-export async function removeSkills(ids: string[], ignore = false): Promise<{ removed: number }> {
-  return (await req('/api/skills/remove', { method: 'POST', body: json({ ids, ignore }) })).json()
+export async function removeSkills(ids: string[], ignore = false, noCopyConfirmed = false): Promise<{ removed: number }> {
+  return (await req('/api/skills/remove', { method: 'POST', body: json(noCopyConfirmed ? { ids, ignore, noCopyConfirmed } : { ids, ignore }) })).json()
+}
+/**
+ * Runs an old Remove. When it is refused because reet has no copy (code 'no-copy'), it asks once, and if confirmed
+ * runs it again confirmed. It says whether anything was removed. Any other refusal, 'written' included, is thrown.
+ */
+export async function removeConfirmingNoCopy(remove: (noCopyConfirmed: boolean) => Promise<unknown>, confirm: (refusal: ApiError) => Promise<boolean>): Promise<boolean> {
+  try {
+    await remove(false)
+    return true
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.code !== 'no-copy') throw e
+    if (!(await confirm(e))) return false
+  }
+  await remove(true)
+  return true
 }
 export async function refreshSkill(id: string): Promise<RefreshResult> {
   return (await req('/api/skill/refresh', { method: 'POST', body: json({ id }) })).json()

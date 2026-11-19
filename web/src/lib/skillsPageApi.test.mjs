@@ -59,3 +59,52 @@ test('setSkillStatus names the tab the person is on, when given', async () => {
   await api.setSkillStatus(['a'], 'active')
   assert.deepEqual(calls[0].body, { ids: ['a'], status: 'active' })
 })
+
+// replies stubs fetch with one answer per request, in order.
+function replies(...answers) {
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init, body: init?.body ? JSON.parse(init.body) : undefined })
+    const [status, body] = answers[Math.min(calls.length - 1, answers.length - 1)]
+    return new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+  return calls
+}
+const noCopy = [409, { code: 'no-copy', names: ['cq'], error: 'reet has no copy of cq, so it was not removed.' }]
+
+test('the old Remove can confirm a removal reet has no copy of', async () => {
+  let calls = replies([204])
+  await api.removeSkill('local/cq', true, true)
+  assert.equal(calls[0].url, '/api/skill?id=local%2Fcq&ignore=1&noCopyConfirmed=1')
+  calls = replies([204])
+  await api.removeSkill('local/cq')
+  assert.equal(calls[0].url, '/api/skill?id=local%2Fcq')
+  calls = replies([200, { removed: 2 }])
+  await api.removeSkills(['a', 'b'], false, true)
+  assert.deepEqual(calls[0].body, { ids: ['a', 'b'], ignore: false, noCopyConfirmed: true })
+})
+
+test('a no-copy refusal asks once and, confirmed, removes it confirmed', async () => {
+  let asked = []
+  let calls = replies(noCopy, [204])
+  const removed = await api.removeConfirmingNoCopy(c => api.removeSkill('local/cq', false, c), async e => { asked.push(e.names); return true })
+  assert.equal(removed, true)
+  assert.deepEqual(asked, [['cq']])
+  assert.deepEqual(calls.map(c => c.url), ['/api/skill?id=local%2Fcq', '/api/skill?id=local%2Fcq&noCopyConfirmed=1'])
+
+  asked = []
+  calls = replies(noCopy, [204])
+  assert.equal(await api.removeConfirmingNoCopy(c => api.removeSkill('local/cq', false, c), async e => { asked.push(e.names); return false }), false)
+  assert.equal(calls.length, 1, 'declined: nothing more is sent')
+
+  calls = replies([409, { code: 'written', names: ['mine'], error: 'You wrote mine. Delete it from Write a skill.' }])
+  await assert.rejects(api.removeConfirmingNoCopy(c => api.removeSkill('hosted/x/mine', false, c), async () => true),
+    e => e.code === 'written' && e.message === 'You wrote mine. Delete it from Write a skill.')
+  assert.equal(calls.length, 1, 'written is shown as it is, never retried')
+})
+
+test('the old page asks before a no-copy Remove, single and bulk', () => {
+  const app = readFileSync(new URL('../App.svelte', import.meta.url), 'utf8')
+  assert.ok(app.includes('removeConfirmingNoCopy((c) => removeSkill(s.id, ignore, c)'))
+  assert.ok(app.includes('removeConfirmingNoCopy((c) => removeSkills(removed.map((s) => s.id), false, c)'))
+})

@@ -22,8 +22,8 @@
   import { onMount, setContext, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
-    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, syncLibraryMachines, tagSkills, takeThemeChoice, UnauthorizedError,
-    type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
+    patchSkill, patchSkills, refreshSkill, removeConfirmingNoCopy, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, syncLibraryMachines, tagSkills, takeThemeChoice, UnauthorizedError,
+    type ApiError, type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import AccountMenu from './lib/AccountMenu.svelte'
   import WebMCP from './lib/WebMCP.svelte'
@@ -154,6 +154,7 @@
   let lastPicked = $state<number | null>(null)
   let bulkBusy = $state(false)
   let bulkRemoveOpen = $state(false)
+  let noCopyAsk = $state<{ title: string; body: string; resolve: (yes: boolean) => void } | null>(null)
   let bulkRemoving = $state<Skill[]>([])
 
   const origin = location.origin
@@ -876,7 +877,7 @@
     if (!removed.length) return
     bulkBusy = true
     try {
-      await removeSkills(removed.map((s) => s.id))
+      if (!(await removeConfirmingNoCopy((c) => removeSkills(removed.map((s) => s.id), false, c), askNoCopy))) return
       selecting = false
       selected = []
       lastPicked = null
@@ -1024,9 +1025,18 @@
     void doRemove(s, false)
   }
 
+  // askNoCopy asks once before an old Remove deletes skills reet has no copy of.
+  function askNoCopy(refusal: ApiError): Promise<boolean> {
+    const what = refusal.names.length === 1 ? refusal.names[0] : `${refusal.names.length} skills`
+    const body = refusal.names.length === 1
+      ? `reet has no copy of ${what}. Removing it deletes it from every machine, which keeps a backup for 30 days.`
+      : `reet has no copy of ${what}. Removing them deletes them from every machine, which keeps a backup for 30 days.`
+    return new Promise((resolve) => (noCopyAsk = { title: `Remove ${what} anyway?`, body, resolve }))
+  }
+
   async function doRemove(s: Skill, ignore: boolean) {
     try {
-      await removeSkill(s.id, ignore)
+      if (!(await removeConfirmingNoCopy((c) => removeSkill(s.id, ignore, c), askNoCopy))) return
       await reloadAll()
       search?.focus()
       showToast(ignore ? `Removed ${s.name} and ignored future scans` : `Removed ${s.name}`, 'Undo', async () => {
@@ -1635,6 +1645,17 @@
     onconfirm={() => { const skill = removePending!; removePending = null; void doRemove(skill, false) }}
     onsecondary={() => { const skill = removePending!; removePending = null; void doRemove(skill, true) }}
     oncancel={() => (removePending = null)}
+  />
+{/if}
+
+{#if noCopyAsk}
+  <ConfirmDialog
+    title={noCopyAsk.title}
+    body={noCopyAsk.body}
+    confirmLabel="Remove"
+    danger
+    onconfirm={() => { const ask = noCopyAsk!; noCopyAsk = null; ask.resolve(true) }}
+    oncancel={() => { const ask = noCopyAsk!; noCopyAsk = null; ask.resolve(false) }}
   />
 {/if}
 

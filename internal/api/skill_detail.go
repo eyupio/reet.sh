@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -95,15 +96,17 @@ func (s *server) skillContentSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"revision": res.Revision.ID}
-	// The content is saved whatever happens here; a public page that cannot
-	// follow keeps what it showed, and the person is told why.
-	if err := s.st.RefreshHostedSkillFor(uid, item); err != nil {
+	// The content is saved whatever happens here. The save brought a public
+	// page up to it already; this says why when it could not, so the person
+	// knows the page still shows the version before.
+	if err := s.refreshHosted(uid, item); err != nil {
 		var problem store.SkillPublishProblem
-		if !errors.As(err, &problem) {
-			writeErr(w, 500, "Saved, but the public page could not be updated.")
-			return
+		if errors.As(err, &problem) {
+			out["publicProblem"] = "Saved. The public page still shows the version before: " + problem.Reason
+		} else {
+			log.Printf("skill edit: public page of %s: %v", item, err)
+			out["publicProblem"] = "Saved. The public page could not be brought up to date just now; it shows the version before until the next save."
 		}
-		out["publicProblem"] = "Saved. The public page still shows the version before: " + problem.Reason
 	}
 	s.eventRequest(r, "skill-edit", item, map[string]any{"revision": res.Revision.ID})
 	writeJSON(w, 200, out)

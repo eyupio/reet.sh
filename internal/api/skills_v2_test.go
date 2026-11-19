@@ -1460,3 +1460,26 @@ func TestWriteASkillLeavesPublishedImportsAlone(t *testing.T) {
 	}
 }
 
+// A content edit that saved answers 200 even when its public page could not
+// follow, says so, and is recorded.
+func TestContentSaveSaysWhenThePublicPageCouldNotFollow(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	e.api.s.refreshHosted = func(int64, string) error { return errors.New("database is locked") }
+	got := getContent(t, e, item)
+	code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nsaved anyway\n")
+	if code != 200 || !strings.Contains(body, `"publicProblem"`) {
+		t.Fatalf("a saved edit is a 200 with the page's problem: %d %s", code, body)
+	}
+	events, err := e.st.ListEventsFor(e.uid, 20, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ev := range events {
+		found = found || ev.Action == "skill-edit"
+	}
+	if !found {
+		t.Fatalf("the edit must be recorded: %+v", events)
+	}
+}

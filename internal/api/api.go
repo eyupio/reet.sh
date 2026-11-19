@@ -82,7 +82,10 @@ type server struct {
 
 	// skillFetcher gets public skills for the reet copy; skillCopies waits for
 	// the background runs (tests only) and the rest keeps them one per account.
-	skillFetcher     SkillFetcher
+	skillFetcher SkillFetcher
+	// refreshHosted checks a skill's public page follows its head after a
+	// content save; tests replace it to make it fail.
+	refreshHosted    func(uid int64, item string) error
 	skillCopyMu      sync.Mutex
 	skillCopyRunning map[int64]bool
 	skillCopyAgain   map[int64]bool
@@ -368,6 +371,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		skillCopyRunning: map[int64]bool{}, skillCopyAgain: map[int64]bool{},
 		originalTTL: skillOriginalTTL,
 	}
+	s.refreshHosted = st.RefreshHostedSkillFor
 	for _, opt := range opts {
 		opt(s)
 	}

@@ -111,5 +111,5 @@ test('the Skills page asks before a no-copy or written Delete the server refused
   const page = readFileSync(new URL('./skills/SkillsPage.svelte', import.meta.url), 'utf8')
   assert.ok(page.includes("if ((code === 'written' && !flags.written) || (code === 'no-copy' && !flags.noCopy))"), 'a refusal opens the dialog only for a flag not yet sent')
   assert.ok(page.includes('ondelete={r => askDelete([r])}'), 'one row')
-  assert.ok(page.includes('onclick={() => askDelete(selectedRows())}'), 'the selection')
+  assert.ok(page.includes('ondelete={() => askDelete(selectedRows())}'), 'the selection, from the bulk bar')
 })

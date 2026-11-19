@@ -40,6 +40,7 @@
   import Toast from './lib/Toast.svelte'
   import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
   import Tools from './lib/Tools.svelte'
+  import { skillsExport } from './lib/skills/exportFilters.svelte'
 
   // Each route keeps its code outside the shell, including the public and sign-in screens.
   const pages = {
@@ -915,7 +916,7 @@
     {:then { default: Page }}
       <Page {canWrite} />
       {#if canWrite}
-        <Tools onchange={toolsChanged} {ok} fail={toolsFail} {token} canManageTags={isAdminUser} filters={{ tab: 'all', q: '', sort: 'name' }} />
+        <Tools onchange={toolsChanged} {ok} fail={toolsFail} {token} canManageTags={isAdminUser} filters={skillsExport} />
       {/if}
     {:catch}
       <PageLoadError />

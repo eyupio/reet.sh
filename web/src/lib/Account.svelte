@@ -386,7 +386,7 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   {#if section === 'profile'}
-    <CollectionPanel label="Your preferences" count="12 preferences">
+    <CollectionPanel label="Your preferences" count="10 preferences">
       {#snippet actions()}
         <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
       {/snippet}
@@ -443,7 +443,7 @@
           </div>
         </fieldset>
         <fieldset>
-          <legend>Library and terminal</legend>
+          <legend>Terminal and Factory</legend>
           <div class="grid2">
             <label class="wide"><span>When stopping a terminal session</span>
               <select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select>
@@ -456,14 +456,6 @@
             <label class="wide"><span>When stopping a session in a Factory pipeline</span>
               <select aria-label="Factory session-end default" bind:value={profileForm.factorySessionEndMode}><option value="delete">Stop following it and delete the outcome</option><option value="archive">Stop following it and archive the outcome</option><option value="leave">Leave the outcome alone</option></select>
               <small>This sets the end dialog’s default; it can be changed for each session. Deleting erases the outcome’s report and totals for good; the sessions and pull requests it started are not touched.</small>
-            </label>
-            <label><span>Default library layout</span>
-              <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
-              <small>Switching List/Board in your library also saves this preference.</small>
-            </label>
-            <label><span>Default skill cards</span>
-              <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
-              <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
             </label>
           </div>
         </fieldset>

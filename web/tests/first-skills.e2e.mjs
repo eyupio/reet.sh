@@ -44,7 +44,8 @@ try {
  }
 
  // The library tools sit under the Skills list, whether it is empty or not: restore and import stay reachable, and the
- // bookmarklets are offered there once.
+ // bookmarklets are offered there once. Their words match what they do now: an import makes skills Active, and nothing
+ // removes a skill "and ignores it" any more.
  if (run('tools')) {
   for (const skills of [[], [skill('code-review')]]) {
    const {context,page} = await open({width:1440,skills})
@@ -52,10 +53,35 @@ try {
    await expect(page.getByRole('heading',{name:'Library tools'})).toBeVisible()
    await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
    await expect(page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
+   await expect(page.getByRole('button',{name:'Import as Active'})).toBeVisible()
+   await expect(page.locator('#tools-panel')).not.toContainText('in use')
+   await expect(page.getByText('Nothing ignored.',{exact:true})).toBeVisible()
    await expect(page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Keep a good find'})).toHaveCount(1)
    await context.close()
   }
+ }
+
+ // Markdown and CSV follow what the Skills page shows: its tab, search, Liked and tag.
+ if (run('export')) {
+  const rows = [skillRow('seo-sxo',{status:'archived',liked:true,tags:[{id:4,name:'seo'}]}), skillRow('code-review')]
+  let asked = null
+  const {context,page,errors} = await open({width:1440,routes:{
+   '/api/v2/skills': req => skillsPageOf(rows, new URL(req.url()).searchParams.get('status') || 'active'),
+   '/api/export': req => { asked = Object.fromEntries(new URL(req.url()).searchParams); return {exported:true} },
+  }})
+  await page.goto(`${base}/skills`)
+  await page.getByRole('tab',{name:/^Archived/}).click()
+  await page.getByRole('searchbox',{name:'Search skills'}).fill('seo')
+  await page.getByRole('button',{name:'Liked'}).click()
+  await page.getByRole('combobox',{name:'Tag'}).selectOption('seo')
+  await expect(page.locator('[data-skill="item-seo-sxo"]')).toBeVisible()
+  await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
+  await page.getByLabel('Format').selectOption('csv')
+  await page.getByRole('button',{name:'Download'}).click()
+  await expect.poll(() => asked).toEqual({format:'csv', tab:'liked', q:'seo', sort:'name', stage:'archived', tag:'4'})
+  expect(errors).toEqual([])
+  await context.close()
  }
 
  // While the list loads it shows placeholder rows rather than a bare "Loading…" line, and they give way to the skills.

@@ -40,10 +40,13 @@ try {
   if (run('panel and save')) {
     const { context, page, errors, patches } = await open({})
     await page.goto(`${base}/account/profile`)
-    await expect(count(page)).toHaveText('12 preferences')
-    for (const name of ['Identity', 'Appearance', 'Library and terminal', 'Publishing']) {
+    await expect(count(page)).toHaveText('10 preferences')
+    for (const name of ['Identity', 'Appearance', 'Terminal and Factory', 'Publishing']) {
       await expect(page.getByRole('group', { name })).toBeVisible()
     }
+    // The Skills page has no board and no cards to expand: their defaults are gone from here.
+    await expect(page.getByText('Default library layout')).toHaveCount(0)
+    await expect(page.getByText('Default skill cards')).toHaveCount(0)
 
     await page.locator('#profile-form input[autocomplete="name"]').fill('Sam Taylor')
     const form = page.locator('#profile-form')
@@ -55,15 +58,13 @@ try {
     await form.getByLabel('Dates').selectOption('dmy')
     await form.getByLabel('Terminal history default').selectOption({ label: 'Remove from history after it ends' })
     await form.getByLabel('Factory session-end default').selectOption({ label: 'Leave the outcome alone' })
-    await form.getByLabel('Default library layout').selectOption('board')
-    await form.getByLabel('Default skill cards').selectOption({ label: 'Expanded — all details' })
     await form.getByLabel('Your skill name prefix').fill('acme-')
     await panel(page).getByRole('button', { name: 'Save profile' }).click()
     await expect(page.getByText('Reet, defaults saved. Your preferences follow you to every browser you sign in from.', { exact: true })).toBeVisible()
     expect(patches).toHaveLength(1)
     expect(patches[0]).toMatchObject({
       name: 'Sam Taylor', theme: 'dark', timezone: 'Europe/London', dateFormat: 'dmy',
-      shelfView: 'board', cardsExpanded: true, terminalRemoveOnClose: true, factorySessionEndMode: 'leave', gafferAnimations: false, hostedPrefix: 'acme-',
+      terminalRemoveOnClose: true, factorySessionEndMode: 'leave', gafferAnimations: false, hostedPrefix: 'acme-',
     })
     await page.reload()
     await expect(page.getByLabel('Gaffer animation', { exact: true })).toHaveValue('false')

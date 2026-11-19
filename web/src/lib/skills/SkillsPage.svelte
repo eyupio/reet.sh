@@ -10,6 +10,7 @@
   import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
   import { deleteConfirm, focusAfterRemoval, machineWork, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
+  import { skillsExport } from './exportFilters.svelte'
 
   // The Skills page: Active and Archived, one list, pruning in place. Archive, Delete and Restore never switch the tab,
   // scroll the page or open another one: the row leaves the list where it is, focus moves to the next row's button
@@ -330,6 +331,15 @@
     choose(to)
     tabEls[to]?.focus()
   }
+
+  // Library tools' Markdown and CSV export follows what the page shows.
+  $effect(() => {
+    const tag = page.everyRow.flatMap(r => r.tags).find(t => t.name === page.tagFilter)
+    skillsExport.stage = page.tab
+    skillsExport.tab = page.onlyLiked ? 'liked' : 'all'
+    skillsExport.q = page.q.trim()
+    skillsExport.tags = tag ? [tag.id] : []
+  })
 
   // A filter that hides rows lets go of them.
   $effect(() => {

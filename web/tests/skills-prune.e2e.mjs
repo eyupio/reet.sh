@@ -902,8 +902,8 @@ try {
   await context.close()
  }
 
- // The opened row keeps what the old card had until the full detail lands: notes, edited in place; Copy prompt; Copy
- // install command once a skill is published; and Edit for a skill you wrote.
+ // The opened row keeps what the old card had: notes, edited in place; Copy prompt; Copy install command once a skill
+ // is published; and Edit, by name for a skill you wrote and by library item for any other.
  if (run('opened row')) {
   const {context, page, errors, w} = await open({edit: w => {
    w.rows = [...w.rows, skillRow('hosted-tips', {originKind:'written', origin:'', yours:true, published:true, publicUrl:'https://reet.example/sam/hosted-tips'})]
@@ -934,11 +934,11 @@ try {
   await babysit.getByRole('textbox', {name:'Notes on reet-babysit'}).fill('Changed my mind')
   await page.keyboard.press('Escape')
   await expect(babysit.locator('.note-text')).toHaveText('Run before every merge.')
-  // A published skill offers its install command; one from a link has no Edit.
+  // A published skill offers its install command; one from a link is edited in Write a skill by its library item.
   await row(page, 'hosted-tips').getByRole('button', {name:'hosted-tips', exact:true}).click()
   await expect(row(page, 'hosted-tips').getByRole('button', {name:'Copy install command for hosted-tips'})).toBeVisible()
   await row(page, 'seo-bing').getByRole('button', {name:'seo-bing', exact:true}).click()
-  await expect(row(page, 'seo-bing').getByRole('link', {name:/^Edit/})).toHaveCount(0)
+  await expect(row(page, 'seo-bing').getByRole('link', {name:'Edit seo-bing'})).toHaveAttribute('href', '/hosting?item=item-seo-bing')
   await expect(row(page, 'seo-bing').getByRole('button', {name:'Copy prompt for seo-bing'})).toBeVisible()
   // Every target in the opened row is at least 44 px tall.
   for (const el of await row(page, 'seo-bing').locator('.detail button, .detail a').all()) {

@@ -574,6 +574,32 @@ export async function skillNotice(action: 'dismiss' | 'restore-parked'): Promise
 export async function useMachineVersion(id: string, agentId: string): Promise<void> {
   await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })
 }
+/** What changed at an imported skill's original, against reet's copy: GET /api/v2/skills/{id}/original. revision is
+ *  what the confirmation names: "" for a skill reet has no copy of yet. */
+export type OriginalChanges = { changes: { path: string; kind: 'added' | 'removed' | 'modified' }[]; state: 'equal' | 'changed' | 'unknown'; digest: string; revision: string; edited: boolean }
+export async function originalChanges(id: string): Promise<OriginalChanges> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/original`)).json()
+}
+/** Update from original, confirmed: the digest and revision the changes were shown for. It refuses with 409 when either
+ *  moved on since. updated is false when the original matched reet's copy after all. */
+export async function updateFromOriginal(id: string, digest: string, revision: string): Promise<{ updated: boolean; edited: boolean }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/original`, { method: 'POST', body: json({ digest, revision }) })).json()
+}
+/** Publish or Unpublish a library skill. It throws an ApiError with code 'not-publishable' and the reason when it can't. */
+export async function publishSkill(id: string, isPublic: boolean): Promise<{ published: boolean; publicUrl: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/publish`, { method: 'POST', body: json({ public: isPublic }) })).json()
+}
+/** A library skill's files at its head revision, for Write a skill. data is base64. */
+export type SkillContentFile = { path: string; data: string; executable: boolean }
+export type SkillContent = { id: string; name: string; revision: string; files: SkillContentFile[] }
+export async function getSkillContent(id: string): Promise<SkillContent> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/content`)).json()
+}
+/** Saves an edit as the skill's next revision; revision is the one it edits. publicProblem says why a public page
+ *  could not follow. */
+export async function saveSkillContent(id: string, revision: string, files: SkillContentFile[]): Promise<{ revision: string; publicProblem?: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/content`, { method: 'PUT', body: json({ revision, files }) })).json()
+}
 export async function resolveSkill(id: string, input: string): Promise<Skill> {
   return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }

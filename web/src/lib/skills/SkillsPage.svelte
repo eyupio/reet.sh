@@ -7,7 +7,7 @@
   import NewOnMachineDialog from './NewOnMachineDialog.svelte'
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
-  import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
+  import { addListSkill, addSkill, addSkillTags, ApiError, deleteSkills, patchSkill, publishSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, updateFromOriginal, useMachineVersion, type ListRef, type SkillRow } from '../api'
   import { deleteConfirm, focusAfterRemoval, onMachines, pausedSentence, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
   import { skillsExport } from './exportFilters.svelte'
@@ -265,6 +265,61 @@
       fail(e)
       throw e
     }
+  }
+
+  // The opened row's writes. Each says what happened, and hands a refusal back to the row, which shows it beside what
+  // was pressed; an ended sign-in goes to the page. None of them changes what the rest of the app lists.
+  function refuse(e: unknown): never {
+    if (e instanceof UnauthorizedError) fail(e)
+    throw e
+  }
+  async function tag(row: SkillRow, name: string) {
+    try {
+      const skill = await write(() => addSkillTags(row.shelfId, [name], []))
+      const tags = skill.tags ?? [...row.tags, { id: -Date.now(), name }]
+      page.setRow(row.id, { tags })
+      say(`Sorted. Tagged ${row.name} with ${name}.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function addToList(row: SkillRow, list: ListRef) {
+    try {
+      await write(() => addListSkill(list.id, { id: row.shelfId }))
+      page.setRow(row.id, { lists: [...row.lists.filter(l => l.id !== list.id), list] })
+      say(`Sorted. Added ${row.name} to ${list.name}.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function publish(row: SkillRow, isPublic: boolean) {
+    try {
+      const out = await write(() => publishSkill(row.id, isPublic))
+      page.setRow(row.id, { published: out.published, publicUrl: out.publicUrl || undefined })
+      say(out.published ? `Published ${row.name}. Anyone can install it from its public page.` : `${row.name} is private again. Its public page is gone.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function useVersion(row: SkillRow) {
+    const from = row.editedOn
+    if (!from) return
+    try {
+      await write(() => useMachineVersion(row.id, from.agentId))
+      say(`Asked ${from.host} for its version of ${row.name}. It goes on every machine once it arrives.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function updateOriginal(row: SkillRow, digest: string, revision: string) {
+    let updated: boolean
+    try {
+      updated = (await write(() => updateFromOriginal(row.id, digest, revision))).updated
+    } catch (e) {
+      refuse(e)
+    }
+    say(updated ? (page.machines ? `Updated ${row.name} from its original · going on every machine` : `Updated ${row.name} from its original.`) : `${row.name} already matches its original.`)
+    void read(page.tab, true)
   }
 
   const selectedRows = () => page.shown.filter(r => selected.includes(r.id))
@@ -558,7 +613,14 @@
             onopen={r => (openId = openId === r.id ? '' : r.id)}
             onretry={retry}
             onlike={like}
-            onnotes={saveNotes} />
+            onnotes={saveNotes}
+            tagNames={page.tagNames}
+            ontag={tag}
+            onlist={addToList}
+            onpublish={publish}
+            onuseversion={useVersion}
+            onoriginal={updateOriginal}
+            onerror={fail} />
         {/each}
       </ul>
     {:else}

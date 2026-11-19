@@ -142,6 +142,7 @@ jobs:
           node web/tests/skill-card.e2e.mjs
           node web/tests/skills-prune.e2e.mjs
           node web/tests/skills-new.e2e.mjs
+          node web/tests/skill-open.e2e.mjs
           node web/tests/control.e2e.mjs
           node web/tests/machine-import.e2e.mjs
           node web/tests/skill-content.e2e.mjs

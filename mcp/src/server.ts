@@ -173,9 +173,10 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return client.request('/api/skill', 'PATCH', args);
   }, { write: true, destructive: true, idempotent: true });
 
-  tool('remove_skill', 'Remove a shelf skill', 'Remove this account’s shelf entry, including personal notes and flags. ignore=true also prevents reimport by future scans. Does not delete files from any machine. Returns {ok:true}.', {
+  tool('remove_skill', 'Remove a shelf skill', 'Remove this account’s shelf entry, including personal notes and flags, and delete the library skill it stands for: it is taken off every connected machine, each of which keeps a backup for 30 days, and its name is free again. A skill this account wrote is refused with HTTP 409 [written] and nothing changes: delete it from Write a skill. When reet has no copy of the skill, removing deletes it from every machine and only those 30-day backups remain, so the call fails with HTTP 409 [no-copy] unless noCopyConfirmed=true. ignore=true also prevents reimport by future scans. Returns {ok:true}.', {
     id, ignore: z.boolean().default(false).describe('Also add to this account’s ignored list.'),
-  }, async ({ id, ignore }) => client.request('/api/skill', 'DELETE', undefined, new URLSearchParams({ id, ignore: ignore ? '1' : '0' })), { write: true, destructive: true, idempotent: true });
+    noCopyConfirmed: z.boolean().default(false).describe('Remove it even when reet has no copy: it is deleted from every machine, and each machine keeps a backup for 30 days.'),
+  }, async ({ id, ignore, noCopyConfirmed }) => client.request('/api/skill', 'DELETE', undefined, new URLSearchParams({ id, ignore: ignore ? '1' : '0', noCopyConfirmed: noCopyConfirmed ? '1' : '0' })), { write: true, destructive: true, idempotent: true });
 
   tool('list_tags', 'List shelf tags', 'List tag IDs, names and shelf counts. Use IDs with reet_list_skills, reet_tag_skill or reet_bulk_update_skills. Does not change anything.', pagination, async args => {
     return page(collection(await client.request('/api/tags'), 'tags'), args);

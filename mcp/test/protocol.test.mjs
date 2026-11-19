@@ -67,7 +67,11 @@ test('shelf mutation, tags, event history, ignore and unignore round trip', asyn
   const events = await call(client, 'list_events', { skill: added.id, limit: 2 });
   assert.equal(events.events.length, 2);
   assert.ok(events.events.every(event => event.skillId === added.id));
-  await call(client, 'remove_skill', { id: added.id, ignore: true });
+  // reet has no copy of it, so removing deletes it from every machine: it needs confirming.
+  await assert.rejects(call(client, 'remove_skill', { id: added.id, ignore: true }), /HTTP 409 \[no-copy\].*keeps a backup for 30 days/);
+  assert.ok(!(await call(client, 'list_ignored')).items.some(s => s.id === added.id));
+  assert.equal((await call(client, 'get_skill', { id: added.id })).id, added.id);
+  await call(client, 'remove_skill', { id: added.id, ignore: true, noCopyConfirmed: true });
   assert.ok((await call(client, 'list_ignored')).items.some(s => s.id === added.id));
   await call(client, 'unignore_skill', { id: added.id });
   assert.ok(!(await call(client, 'list_ignored')).items.some(s => s.id === added.id));
@@ -151,7 +155,8 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
     assert.equal(hosted.total_count, 6);
     const added = await call(remote, 'add_skill', { input: 'demo/skills/http-test', notes: 'HTTP round trip' });
     assert.equal(added.created, true);
-    await call(remote, 'remove_skill', { id: added.id });
+    await assert.rejects(call(remote, 'remove_skill', { id: added.id }), /HTTP 409 \[no-copy\].*keeps a backup for 30 days/);
+    await call(remote, 'remove_skill', { id: added.id, noCopyConfirmed: true });
     const response = await fetch(`${accounts.url}/api/skills`, { headers: { Authorization: 'Bearer reet_mcp_fixture_write' } });
     assert.equal(response.status, 403);
   } finally {

@@ -1968,7 +1968,7 @@
   {
     "name": "reet_remove_skill",
     "title": "Remove a shelf skill",
-    "description": "Remove this account’s shelf entry, including personal notes and flags. ignore=true also prevents reimport by future scans. Does not delete files from any machine. Returns {ok:true}. Returns {data: object} as structured content and text.",
+    "description": "Remove this account’s shelf entry, including personal notes and flags, and delete the library skill it stands for: it is taken off every connected machine, each of which keeps a backup for 30 days, and its name is free again. A skill this account wrote is refused with HTTP 409 [written] and nothing changes: delete it from Write a skill. When reet has no copy of the skill, removing deletes it from every machine and only those 30-day backups remain, so the call fails with HTTP 409 [no-copy] unless noCopyConfirmed=true. ignore=true also prevents reimport by future scans. Returns {ok:true}. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1981,6 +1981,11 @@
         "ignore": {
           "default": false,
           "description": "Also add to this account’s ignored list.",
+          "type": "boolean"
+        },
+        "noCopyConfirmed": {
+          "default": false,
+          "description": "Remove it even when reet has no copy: it is deleted from every machine, and each machine keeps a backup for 30 days.",
           "type": "boolean"
         },
         "response_format": {

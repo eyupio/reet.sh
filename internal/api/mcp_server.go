@@ -454,6 +454,11 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		if args["ignore"] == true {
 			query.Set("ignore", "1")
 		}
+		// Without a copy in reet, removing deletes the skill from every
+		// machine; that needs the caller's say-so (409 no-copy otherwise).
+		if args["noCopyConfirmed"] == true {
+			query.Set("noCopyConfirmed", "1")
+		}
 	case "reet_list_tags":
 		path, collectionKey = "/api/tags", "tags"
 	case "reet_tag_skill":

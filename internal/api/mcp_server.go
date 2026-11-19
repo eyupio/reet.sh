@@ -302,7 +302,13 @@ func (s *server) mcpDo(ctx context.Context, api http.Handler, access mcpAccess, 
 				text += ": " + msg
 			}
 			if detail.Hint != "" {
-				text += ". " + detail.Hint
+				// A message that already ends a sentence is not given a
+				// second full stop before the hint.
+				if strings.HasSuffix(text, ".") || strings.HasSuffix(text, "!") || strings.HasSuffix(text, "?") {
+					text += " " + detail.Hint
+				} else {
+					text += ". " + detail.Hint
+				}
 			}
 			return nil, errors.New(text)
 		}

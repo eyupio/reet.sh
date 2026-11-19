@@ -49,7 +49,8 @@ export class ReetClient {
           if (typeof error.code === 'string' && error.code) {
             const message = typeof error.message === 'string' ? error.message : (typeof error.error === 'string' ? error.error : 'request rejected');
             const field = typeof error.field === 'string' && error.field ? ` field=${error.field}` : '';
-            const hint = typeof error.hint === 'string' && error.hint ? `. ${error.hint}` : '';
+            // A message that already ends a sentence is not given a second full stop before the hint.
+            const hint = typeof error.hint === 'string' && error.hint ? `${/[.!?]$/.test(message) ? ' ' : '. '}${error.hint}` : '';
             throw new Error(`reet.sh returned HTTP ${response.status} [${error.code}]${field}: ${message}${hint}`);
           }
         }

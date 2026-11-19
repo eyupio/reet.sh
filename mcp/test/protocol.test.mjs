@@ -68,7 +68,7 @@ test('shelf mutation, tags, event history, ignore and unignore round trip', asyn
   assert.equal(events.events.length, 2);
   assert.ok(events.events.every(event => event.skillId === added.id));
   // reet has no copy of it, so removing deletes it from every machine: it needs confirming.
-  await assert.rejects(call(client, 'remove_skill', { id: added.id, ignore: true }), /HTTP 409 \[no-copy\].*keeps a backup for 30 days/);
+  await assert.rejects(call(client, 'remove_skill', { id: added.id, ignore: true }), { message: 'reet.sh returned HTTP 409 [no-copy]: reet has no copy of new-skill, so it was not removed. Removing it deletes it from every machine, which keeps a backup for 30 days. Remove it again with noCopyConfirmed to delete it from every machine.' });
   assert.ok(!(await call(client, 'list_ignored')).items.some(s => s.id === added.id));
   assert.equal((await call(client, 'get_skill', { id: added.id })).id, added.id);
   await call(client, 'remove_skill', { id: added.id, ignore: true, noCopyConfirmed: true });
@@ -155,7 +155,7 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
     assert.equal(hosted.total_count, 6);
     const added = await call(remote, 'add_skill', { input: 'demo/skills/http-test', notes: 'HTTP round trip' });
     assert.equal(added.created, true);
-    await assert.rejects(call(remote, 'remove_skill', { id: added.id }), /HTTP 409 \[no-copy\].*keeps a backup for 30 days/);
+    await assert.rejects(call(remote, 'remove_skill', { id: added.id }), { message: 'reet.sh returned HTTP 409 [no-copy]: reet has no copy of http-test, so it was not removed. Removing it deletes it from every machine, which keeps a backup for 30 days. Remove it again with noCopyConfirmed to delete it from every machine.' });
     await call(remote, 'remove_skill', { id: added.id, noCopyConfirmed: true });
     const response = await fetch(`${accounts.url}/api/skills`, { headers: { Authorization: 'Bearer reet_mcp_fixture_write' } });
     assert.equal(response.status, 403);

@@ -317,7 +317,7 @@ var hostedPage = template.Must(template.New("hosted").Parse(`<!doctype html>
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{.Skill.Slug}} by {{.Username}} · reet.sh"><meta name="twitter:description" content="{{.Skill.Description}}"><meta name="twitter:image" content="{{.Origin}}/og-image.png">
 <script type="application/ld+json">{{.StructuredData}}</script><style>
 :root{color-scheme:light dark;font-family:system-ui,sans-serif}body{max-width:850px;margin:0 auto;padding:32px 20px;line-height:1.6}a{color:inherit}header{display:flex;justify-content:space-between;gap:16px}h1{overflow-wrap:anywhere;margin-bottom:8px}.muted{opacity:.7}pre{padding:20px;background:light-dark(#f4f3ee,#222);border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-size:.95em}li{overflow-wrap:anywhere}h2{margin-top:32px}nav[aria-label=Breadcrumb]{font-size:.85rem;opacity:.8;margin:0 0 18px}nav[aria-label=Breadcrumb] span{overflow-wrap:anywhere}</style></head>
-<body><header><a href="/">reet.sh</a><a href="/hosting">Host your own skills</a></header><main><nav aria-label="Breadcrumb"><a href="/">reet.sh</a> / <a href="/community">Community</a> / <span>{{.Username}}</span> / <span>{{.Skill.Slug}}</span></nav><p class="muted">Published by {{.Username}} · updated {{.Updated}}</p><h1>{{.Skill.Slug}}</h1><p>{{.Skill.Description}}</p><h2>Install this skill</h2><pre><code>{{.Command}}</code></pre><p><a href="{{.Path}}/SKILL.md">Download SKILL.md</a></p><h2>Skill contents</h2><pre>{{.Skill.Content}}</pre>{{if .Files}}<h2>Supporting files</h2><ul>{{range .Files}}<li><a href="{{$.Path}}/.well-known/agent-skills/{{$.Skill.Slug}}/{{.}}">{{.}}</a></li>{{end}}</ul>{{end}}<p><a href="/community">Browse the public community</a> · <a href="https://github.com/eyupio/reet.sh">Documentation and source</a></p></main></body></html>`))
+<body><header><a href="/">reet.sh</a><a href="/hosting">Host your own skills</a></header><main><nav aria-label="Breadcrumb"><a href="/">reet.sh</a> / <a href="/community">Community</a> / <span>{{.Username}}</span> / <span>{{.Skill.Slug}}</span></nav><p class="muted">Published by {{.Username}} · updated {{.Updated}}</p><h1>{{.Skill.Slug}}</h1><p>{{.Skill.Description}}</p>{{if .ImportedFrom}}<p class="muted">Imported from {{.ImportedFrom}} · <a href="{{.ImportedFrom}}" rel="nofollow noopener noreferrer">see the original</a></p>{{end}}<h2>Install this skill</h2><pre><code>{{.Command}}</code></pre><p><a href="{{.Path}}/SKILL.md">Download SKILL.md</a></p><h2>Skill contents</h2><pre>{{.Skill.Content}}</pre>{{if .Files}}<h2>Supporting files</h2><ul>{{range .Files}}<li><a href="{{$.Path}}/.well-known/agent-skills/{{$.Skill.Slug}}/{{.}}">{{.}}</a></li>{{end}}</ul>{{end}}<p><a href="/community">Browse the public community</a> · <a href="https://github.com/eyupio/reet.sh">Documentation and source</a></p></main></body></html>`))
 
 func (s *server) hostedPublic(w http.ResponseWriter, r *http.Request) {
 	sk, ok := s.publicHosted(w, r)
@@ -359,9 +359,15 @@ func (s *server) hostedPublic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not render skill", 500)
 		return
 	}
+	// An imported skill's page credits the link it was imported from.
+	importedFrom, err := s.st.HostedSkillImportedFrom(r.PathValue("username"), sk.Slug)
+	if err != nil {
+		http.Error(w, "could not render skill", 500)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-	_ = hostedPage.Execute(w, map[string]any{"Skill": sk, "Username": r.PathValue("username"), "Path": p, "Files": files, "Command": "npx " + ref.SkillsCLI + " add " + origin + p, "Origin": origin, "Updated": updated, "StructuredData": template.JS(structured)})
+	_ = hostedPage.Execute(w, map[string]any{"ImportedFrom": importedFrom, "Skill": sk, "Username": r.PathValue("username"), "Path": p, "Files": files, "Command": "npx " + ref.SkillsCLI + " add " + origin + p, "Origin": origin, "Updated": updated, "StructuredData": template.JS(structured)})
 }
 
 func (s *server) parseSkillInput(r *http.Request, input string) (ref.Ref, error) {

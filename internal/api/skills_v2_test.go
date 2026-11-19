@@ -1161,3 +1161,166 @@ func TestExportMarkdownEscapesEmphasisCodeAndHeadings(t *testing.T) {
 		t.Fatalf("got:\n%s\nwant the line:\n%s", md, want)
 	}
 }
+
+// contentReply mirrors SkillContent in web/src/lib/api.ts.
+type contentReply struct {
+	ID       string                    `json:"id"`
+	Name     string                    `json:"name"`
+	Revision string                    `json:"revision"`
+	Files    []skillbundle.ContentFile `json:"files"`
+}
+
+func getContent(t *testing.T, e copyEnv, item string) contentReply {
+	t.Helper()
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/content", "")
+	var r contentReply
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET content: %d %s", code, body)
+	}
+	return r
+}
+
+func putContent(t *testing.T, e copyEnv, item, revision, skillMD string) (int, string) {
+	t.Helper()
+	files, _ := json.Marshal([]skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte(skillMD)}})
+	return do(t, e.srv, "PUT", "/api/v2/skills/"+item+"/content", `{"revision":"`+revision+`","files":`+string(files)+`}`)
+}
+
+// Write a skill edits any library skill: its head revision's files come out,
+// and a save makes a new revision of kind edit that every machine gets.
+func TestSkillContentEditMakesRevision(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	got := getContent(t, e, item)
+	if got.ID != item || got.Name != "find-skills" || got.Revision == "" || len(got.Files) != 1 || got.Files[0].Path != "SKILL.md" || !strings.Contains(string(got.Files[0].Data), "v1") {
+		t.Fatalf("content: %+v", got)
+	}
+	if edited, _ := e.st.SkillEditedSinceImportFor(e.uid, item); edited {
+		t.Fatal("not edited yet")
+	}
+	edit := "---\nname: find-skills\ndescription: Finds skills\n---\nmy own words\n"
+	code, body := putContent(t, e, item, got.Revision, edit)
+	if code != 200 {
+		t.Fatalf("PUT content: %d %s", code, body)
+	}
+	var saved struct{ Revision string }
+	if json.Unmarshal([]byte(body), &saved) != nil || saved.Revision == "" || saved.Revision == got.Revision {
+		t.Fatalf("PUT must answer the new revision: %s", body)
+	}
+	li, err := e.st.LibraryItemFor(e.uid, item)
+	if err != nil || li.RevisionID != saved.Revision {
+		t.Fatalf("the edit must be the head: %+v %v", li, err)
+	}
+	rev, err := e.st.PrivateSkillRevisionFor(e.uid, li.BundleID, li.RevisionID)
+	if err != nil || rev.Origin.Kind != "edit" {
+		t.Fatalf("the revision's kind: %+v %v", rev.Origin, err)
+	}
+	if edited, _ := e.st.SkillEditedSinceImportFor(e.uid, item); !edited {
+		t.Fatal("an edit through Write a skill counts as edited since import")
+	}
+	if after := getContent(t, e, item); after.Revision != saved.Revision || string(after.Files[0].Data) != edit {
+		t.Fatalf("GET after the edit: %+v", after)
+	}
+	// A save against a revision that is no longer the head changes nothing.
+	if code, body := putContent(t, e, item, got.Revision, edit+"again\n"); code != 409 {
+		t.Fatalf("a stale revision: %d %s", code, body)
+	}
+	if code, body := do(t, e.srv, "PUT", "/api/v2/skills/"+item+"/content", `{"files":[]}`); code != 400 {
+		t.Fatalf("a save must say which revision it edits: %d %s", code, body)
+	}
+	if code, _ := putContent(t, e, item, saved.Revision, "no front matter"); code != 400 {
+		t.Fatalf("content that is not a skill: %d", code)
+	}
+	if code, _ := do(t, e.srv, "GET", "/api/v2/skills/nosuchitem/content", ""); code != 404 {
+		t.Fatalf("unknown item: %d", code)
+	}
+}
+
+// Publishing an imported skill serves reet's copy at its public address, and
+// the page credits the original. Unpublishing hides the page again.
+func TestPublishImportedSkillCreditsOriginal(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	url := "/api/v2/skills/" + item + "/publish"
+	code, body := do(t, e.srv, "POST", url, `{"public":true}`)
+	if code != 409 || !strings.Contains(body, "publishing username") {
+		t.Fatalf("publishing needs a publishing username first: %d %s", code, body)
+	}
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"public":true}`)
+	if code != 200 || !strings.Contains(body, `"published":true`) || !strings.Contains(body, `"publicUrl":"`+e.srv.URL+`/sam/find-skills"`) {
+		t.Fatalf("publish: %d %s", code, body)
+	}
+	code, page := do(t, e.srv, "GET", "/sam/find-skills", "")
+	if code != 200 || !strings.Contains(page, "Imported from "+findSkillsOrigin) {
+		t.Fatalf("the public page must credit the original: %d %s", code, page)
+	}
+	if code, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); code != 200 || !strings.Contains(md, "v1") {
+		t.Fatalf("the public page serves reet's copy: %d %s", code, md)
+	}
+	// The skill stays imported and one item: not a skill you wrote.
+	row := func() pageRow {
+		t.Helper()
+		code, raw := do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+		var p pageData
+		if code != 200 || json.Unmarshal([]byte(raw), &p) != nil {
+			t.Fatalf("page: %d %s", code, raw)
+		}
+		if len(p.Skills) != 1 {
+			t.Fatalf("one skill: %+v", p.Skills)
+		}
+		return p.Skills[0]
+	}
+	if r := row(); !r.Published || r.OriginKind != "imported" || r.Yours || r.PublicURL == "" {
+		t.Fatalf("after publish: %+v", r)
+	}
+	// An edit reaches the public page.
+	got := getContent(t, e, item)
+	if code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nedited for everyone\n"); code != 200 {
+		t.Fatalf("edit: %d %s", code, body)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); !strings.Contains(md, "edited for everyone") {
+		t.Fatalf("the public page follows an edit: %s", md)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"public":false}`)
+	if code != 200 || !strings.Contains(body, `"published":false`) {
+		t.Fatalf("unpublish: %d %s", code, body)
+	}
+	if code, _ := do(t, e.srv, "GET", "/sam/find-skills", ""); code != 404 {
+		t.Fatalf("an unpublished skill has no public page: %d", code)
+	}
+	if r := row(); r.Published || r.PublicURL != "" {
+		t.Fatalf("after unpublish: %+v", r)
+	}
+	if code, _ := do(t, e.srv, "POST", url, `{}`); code != 400 {
+		t.Fatalf("publish must say which way: %d", code)
+	}
+}
+
+// A library skill may have a name a machine accepts but a public address
+// does not (my_skill). Publishing it says why, in plain words.
+func TestPublishRefusesANameThatCannotBeHosted(t *testing.T) {
+	e := newCopyEnv(t)
+	e.fetch.setName("My_Skill")
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"https://www.skills.sh/vercel-labs/skills/My_Skill"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	code, body := do(t, e.srv, "POST", "/api/v2/skills/"+e.item(t)+"/publish", `{"public":true}`)
+	if code != 409 || !strings.Contains(body, "lowercase letters, numbers and single hyphens") {
+		t.Fatalf("a name that cannot be hosted: %d %s", code, body)
+	}
+}

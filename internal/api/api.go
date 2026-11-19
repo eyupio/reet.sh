@@ -475,6 +475,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v2/skills/duplicates", s.findDuplicates)
 	s.registerSkillCopies(mux)
 	s.registerSkillsPage(mux)
+	s.registerSkillDetail(mux)
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("POST /api/v2/tags", s.requireWriter(s.createTag))
 	mux.HandleFunc("PATCH /api/v2/tags/{id}", s.requireWriter(s.renameTagScoped))

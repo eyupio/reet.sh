@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
+	"github.com/eyupio/reet.sh/internal/skillfetch"
 )
 
 const (
@@ -136,13 +137,20 @@ func privateSkillOwner(tx *sql.Tx, uid int64) error {
 func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 	validBase := in.ExpectedBase != nil &&
 		(*in.ExpectedBase == "" || privateSkillID.MatchString(*in.ExpectedBase))
-	validRequest := privateSkillRequestID.MatchString(in.RequestID) && validBase && ValidHostedName(in.Name)
-	if !validRequest {
+	// reet's copy of a skill from a link or a machine (original, capture,
+	// import, use-version) takes any name a machine accepts; what a person
+	// writes or forks keeps the hosted rule, which publishing needs.
+	libraryCopy := false
+	switch in.Origin.Kind {
+	case "user", "fork", "edit":
+	case "import", "original", "capture", "use-version":
+		libraryCopy = in.ItemType == LibrarySkill || in.ItemType == ""
+	default:
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
-	switch in.Origin.Kind {
-	case "user", "import", "fork", "original", "capture", "edit", "use-version":
-	default:
+	validName := ValidHostedName(in.Name) || libraryCopy && ValidLibrarySkillName(in.Name)
+	validRequest := privateSkillRequestID.MatchString(in.RequestID) && validBase && validName
+	if !validRequest {
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
 	validReference := len(in.Origin.Reference) <= 2048 && utf8.ValidString(in.Origin.Reference)
@@ -170,7 +178,13 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 			// Validate an isolated copy: hosted validation normalizes line endings, while
 			// private identity and storage must retain the exact submitted bytes/modes.
 			check := HostedSkill{Slug: in.Name, Content: string(f.Data)}
-			if ValidateHostedSkill(&check) != nil {
+			sameName := func(md string) bool { return md == in.Name }
+			if libraryCopy {
+				// A copy's SKILL.md may name it loosely, as a fetch picks its
+				// folder: case, spaces, hyphens and underscores aside.
+				sameName = func(md string) bool { return skillfetch.SameName(md, in.Name) }
+			}
+			if validateSkillContent(&check, sameName) != nil {
 				return m, ErrPrivateSkillInvalid
 			}
 		}

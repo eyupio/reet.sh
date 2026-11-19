@@ -15,6 +15,11 @@ func normalize(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(s)), "-"))
 }
 
+// SameName reports whether two skill names are the same name loosely, as a
+// fetch matches a folder to a skill: case, spaces, hyphens and underscores
+// aside.
+func SameName(a, b string) bool { return normalize(a) == normalize(b) }
+
 func frontMatterName(data []byte) string {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {

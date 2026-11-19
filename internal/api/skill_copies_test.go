@@ -623,3 +623,30 @@ func TestCloseCancelsUnderTheKickLock(t *testing.T) {
 		t.Fatal("Close must cancel the context")
 	}
 }
+
+// The fetch picks the folder by a loose match of the name, so a SKILL.md that
+// names the skill loosely is its own, and is saved.
+func TestFetchedNameThatDiffersOnlyLooselyIsSaved(t *testing.T) {
+	e := newCopyEnv(t)
+	e.fetch.setName("Find Skills")
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	if d, _ := e.st.DesiredSkillsFor(e.uid, time.Now()); len(d.Active) != 1 {
+		t.Fatalf("a loosely matching SKILL.md name was refused: %+v %+v", d, e.health(t))
+	}
+}
+
+// A skill whose name is not a hosted name (here with an underscore and a
+// capital) still gets reet's copy and goes on the machines.
+func TestFetchedSkillWithAnyMachineNameGetsACopy(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"vercel-labs/skills/My_Skill"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	if d, _ := e.st.DesiredSkillsFor(e.uid, time.Now()); len(d.Active) != 1 || d.Active[0].Name != "My_Skill" {
+		t.Fatalf("desired: %+v health %+v", d, e.health(t))
+	}
+}

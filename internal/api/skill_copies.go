@@ -213,7 +213,9 @@ func (s *server) fetchSkillCopy(uid int64, n store.SkillCopyNeed) {
 	res, err := s.skillFetcher.Fetch(ctx, r)
 	problem := ""
 	if err == nil {
-		if got := skillMDName(res.Files); got != "" && got != n.Name {
+		// The fetch picked the folder by a loose match of the name, so the
+		// SKILL.md is compared the same way.
+		if got := skillMDName(res.Files); got != "" && !skillfetch.SameName(got, n.Name) {
 			problem = fmt.Sprintf("The original's SKILL.md is named %q, but this skill is named %q", truncate(got, 64), truncate(n.Name, 64))
 		} else {
 			_, err = s.st.SetSkillContentFor(uid, n.Item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin})

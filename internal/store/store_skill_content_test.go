@@ -493,3 +493,50 @@ func TestEditedArchivedItemThatHadContentAddsNoRemovalRow(t *testing.T) {
 		}
 	}
 }
+
+// A library copy takes any name a machine can hold a skill under (the agent's
+// rule), not only the lowercase-hyphen names hosting needs; its SKILL.md may
+// name it loosely (case, spaces, hyphens and underscores aside).
+func TestLibraryCopyTakesAnyNameAMachineAccepts(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	for _, c := range []struct{ name, mdName string }{
+		{"my_skill", "my_skill"},
+		{"Skill-Creator", "skill-creator"},
+		{"Skill Creator+", "Skill Creator+"},
+	} {
+		id := "item-" + strings.NewReplacer(" ", "-", "+", "p").Replace(strings.ToLower(c.name))
+		if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) VALUES(?,?,?,?,?,?,1,1)`, uid, id, LibrarySkill, c.name, SkillActive, "imported"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetSkillContentFor(uid, id, contentFiles(c.mdName, "Body."), PrivateSkillOrigin{Kind: "original", Reference: "https://github.com/o/r"}); err != nil {
+			t.Fatalf("copy of %q: %v", c.name, err)
+		}
+		if r := skillStateNamed(t, s, uid, c.name); r.revision == "" {
+			t.Fatalf("copy of %q left no revision: %+v", c.name, r)
+		}
+	}
+	// SKILL.md naming another skill is still refused.
+	if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) VALUES(?,?,?,?,?,?,1,1)`, uid, "other", LibrarySkill, "my_other", SkillActive, "imported"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSkillContentFor(uid, "other", contentFiles("something-else", "Body."), PrivateSkillOrigin{Kind: "original"}); !errors.Is(err, ErrPrivateSkillInvalid) {
+		t.Fatalf("SKILL.md naming another skill: %v", err)
+	}
+}
+
+func TestValidLibrarySkillName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"seo-audit": true, "my_skill": true, "Skill-Creator": true, "with space": true, "café": true,
+		"": false, ".": false, "..": false, ".hidden": false, "a/b": false, `a\b`: false, "a\x00b": false,
+		strings.Repeat("a", 255): true, strings.Repeat("a", 256): false,
+	} {
+		if got := ValidLibrarySkillName(name); got != want {
+			t.Errorf("ValidLibrarySkillName(%q) = %v, want %v", name, got, want)
+		}
+	}
+	// Hosting still needs a hosted name.
+	if ValidHostedName("my_skill") {
+		t.Fatal("my_skill became a hosted name")
+	}
+}

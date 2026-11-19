@@ -40,6 +40,15 @@ func ValidHostedName(name string) bool {
 	return len(name) > 0 && len(name) <= 64 && hostedName.MatchString(name)
 }
 
+// ValidLibrarySkillName reports whether a library skill can be named name:
+// any name a machine can keep a skill folder under, the agent's own rule
+// (scan.skillNameProblem): one plain path element, not starting with a dot,
+// with no NUL and at most 255 bytes. reet's copy of an imported or machine
+// skill takes such a name; hosting one (ValidHostedName) needs more.
+func ValidLibrarySkillName(name string) bool {
+	return name != "" && len(name) <= 255 && utf8.ValidString(name) && !strings.HasPrefix(name, ".") && !strings.ContainsAny(name, "/\\\x00")
+}
+
 // NormalizeHostedPrefix accepts a profile prefix such as "acme" or "acme-"
 // and stores it with a single trailing hyphen. An empty result disables the
 // prefix entirely.
@@ -108,6 +117,12 @@ func ValidateHostedSkill(sk *HostedSkill) error {
 	if !ValidHostedName(sk.Slug) {
 		return errors.New("skill names must use lowercase letters, numbers and single hyphens (up to 64 characters)")
 	}
+	return validateSkillContent(sk, func(md string) bool { return md == sk.Slug })
+}
+
+// validateSkillContent checks a skill's SKILL.md and files; sameName says
+// whether the name in its front matter names this skill.
+func validateSkillContent(sk *HostedSkill, sameName func(string) bool) error {
 	md := strings.ReplaceAll(sk.Content, "\r\n", "\n")
 	if !utf8.ValidString(md) || !strings.HasPrefix(md, "---\n") {
 		return errors.New("SKILL.md must start with YAML frontmatter containing name and description")
@@ -123,7 +138,7 @@ func ValidateHostedSkill(sk *HostedSkill) error {
 	if err := yaml.Unmarshal([]byte(md[4:4+end]), &header); err != nil {
 		return errors.New("invalid SKILL.md YAML frontmatter")
 	}
-	if header.Name != sk.Slug {
+	if !sameName(header.Name) {
 		return errors.New("the SKILL.md name must match the skill name in the URL")
 	}
 	header.Description = strings.TrimSpace(header.Description)

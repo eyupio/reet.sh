@@ -650,3 +650,25 @@ func TestFetchedSkillWithAnyMachineNameGetsACopy(t *testing.T) {
 		t.Fatalf("desired: %+v health %+v", d, e.health(t))
 	}
 }
+
+// Adding a skill again straight after deleting it brings it back on the
+// machines rather than leaving it deleted.
+func TestAddingADeletedSkillAgainPutsItBack(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/delete", `{"ids":["`+item+`"]}`); code != 200 {
+		t.Fatalf("delete: %d %s", code, body)
+	}
+	code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`)
+	if code != 200 || !strings.Contains(body, `"created":true`) {
+		t.Fatalf("add again: %d %s", code, body)
+	}
+	e.settle()
+	if d, _ := e.st.DesiredSkillsFor(e.uid, time.Now().Add(time.Minute)); len(d.Active) != 1 || len(d.Remove) != 0 {
+		t.Fatalf("desired after adding again: %+v", d)
+	}
+}

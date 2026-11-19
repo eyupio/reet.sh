@@ -625,6 +625,48 @@ func undeleteShelfItemTx(tx *sql.Tx, uid int64, shelfID string) error {
 	return err
 }
 
+// reviveShelfItemTx brings back the deleted skill a shelf row stands for, when
+// a person adds it again before the purge: inside SkillUndoWindow the item
+// itself is undeleted, with its copy and status; after it, the row stands for
+// a fresh Active item of its name, and the old one is purged alone. A name a
+// live skill has taken meanwhile is refused with ErrSkillNameTaken.
+func reviveShelfItemTx(tx *sql.Tx, uid int64, shelfID string) error {
+	var item string
+	err := tx.QueryRow(`SELECT i.id FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.deleted_at>0`, uid, shelfID).Scan(&item)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	it, err := skillStateItemTx(tx, uid, item)
+	if err != nil {
+		return err
+	}
+	taken, err := skillNameTakenTx(tx, uid, it.itemType, it.name, it.id)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrSkillNameTaken
+	}
+	if it.deletedAt > skillUndoNow()-SkillUndoWindow.Milliseconds() {
+		return undeleteSkillItemTx(tx, uid, it)
+	}
+	fresh, err := privateSkillRandomID()
+	if err != nil {
+		return err
+	}
+	at := now()
+	if _, err = tx.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) SELECT ?,?,'skill',k.slug,'active',CASE WHEN k.source<>'' AND k.source_type<>'local' THEN 'imported' ELSE 'machine' END,?,? FROM skills k WHERE k.id=?`, uid, fresh, at, at, shelfID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`UPDATE library_aliases SET item_id=? WHERE user_id=? AND kind='shelf' AND reference=?`, fresh, uid, shelfID); err != nil {
+		return err
+	}
+	return dropSkillRemovalTx(tx, uid, it)
+}
+
 // UndeleteSkillsFor brings deleted items back within SkillUndoWindow of their
 // deletion; an item deleted longer ago is gone, whether or not purge has run
 // yet. An Archived one goes back on the removal list as archived.

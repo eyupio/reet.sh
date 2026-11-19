@@ -603,6 +603,13 @@ func (s *Store) UpsertFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
 	return s.upsertFor(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f)
 }
 
+// AddFor is UpsertFor for a person adding a skill: a skill they deleted that
+// is still waiting to be purged comes back (see reviveShelfItemTx), where a
+// machine's sighting through UpsertFor leaves it deleted.
+func (s *Store) AddFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
+	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true)
+}
+
 func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error) {
 	return s.upsertFor(userID, "local/"+name, "local", name, "local", "", name, f)
 }
@@ -611,6 +618,10 @@ func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error
 // linked source cannot take a name the library already has; a machine
 // sighting (a local row) joins the skill of its name instead.
 func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string, f Patch) (Skill, error) {
+	return s.upsertForRevive(userID, id, source, slug, typ, url, name, f, false)
+}
+
+func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name string, f Patch, revive bool) (Skill, error) {
 	t := now()
 	notes := ""
 	if f.Notes != nil {
@@ -640,6 +651,11 @@ func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string,
 		}
 		if f.Notes != nil {
 			if _, err := tx.Exec(`UPDATE shelf SET notes=? WHERE user_id=? AND skill_id=?`, *f.Notes, userID, id); err != nil {
+				return err
+			}
+		}
+		if revive {
+			if err := reviveShelfItemTx(tx, userID, id); err != nil {
 				return err
 			}
 		}

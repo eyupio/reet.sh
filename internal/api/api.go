@@ -1354,6 +1354,11 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, existed, err := s.st.GetFor(s.uid(r), rf.ID)
+	if err == nil && existed {
+		// A row whose skill was deleted and waits for its purge is added
+		// afresh: AddFor brings it back.
+		existed, err = s.st.LiveLibrarySkillFor(s.uid(r), "", rf.ID)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1366,7 +1371,7 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		in.Bookmarked = &test
 	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
-	sk, err := s.st.UpsertFor(s.uid(r), rf, in.Patch)
+	sk, err := s.st.AddFor(s.uid(r), rf, in.Patch)
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		writeErr(w, 409, "A skill with that name is already in your library.")
 		return
@@ -3373,7 +3378,7 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 	}
 	already := found && (actionName == "add" || old.Liked)
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
-	sk, err := s.st.UpsertFor(s.uid(r), rf, p)
+	sk, err := s.st.AddFor(s.uid(r), rf, p)
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		quickPage(w, 409, "A skill with that name is already in your library")
 		return

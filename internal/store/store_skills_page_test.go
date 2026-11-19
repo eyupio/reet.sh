@@ -306,3 +306,82 @@ func TestSkillsPageWrittenMatchesTheServer(t *testing.T) {
 		t.Fatalf("page says %s (yours %t); the server's written is %t", row.OriginKind, row.Yours, refs[0].Written)
 	}
 }
+
+// Adding a skill again soon after deleting it brings it back: inside the undo
+// window its deleted item is undeleted, with its copy; later, before the
+// purge, the shelf row stands for a fresh Active item. Either way it is
+// Active and off the removal list, and the purge leaves it alone.
+func TestAddingADeletedSkillAgainBringsItBack(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	ref := mustRef(t, "vercel-labs/skills/find-skills")
+	for _, late := range []bool{false, true} {
+		item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+		if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "Find."), PrivateSkillOrigin{Kind: "original", Reference: "https://github.com/vercel-labs/skills"}); err != nil {
+			t.Fatal(err)
+		}
+		deletedAt := time.Now()
+		if err := s.DeleteSkillsFor(uid, []string{item.id}, false, deletedAt); err != nil {
+			t.Fatal(err)
+		}
+		restore := skillUndoNow
+		if late {
+			skillUndoNow = func() int64 { return deletedAt.Add(SkillUndoWindow + time.Second).UnixMilli() }
+		}
+		_, err := s.AddFor(uid, ref, Patch{})
+		skillUndoNow = restore
+		if err != nil {
+			t.Fatalf("late=%v add again: %v", late, err)
+		}
+		var live []skillStateRow
+		for _, r := range skillStatesNamed(t, s, uid, "find-skills") {
+			if r.deletedAt == 0 {
+				live = append(live, r)
+			}
+		}
+		if len(live) != 1 || live[0].status != SkillActive {
+			t.Fatalf("late=%v after adding again: %+v", late, skillStatesNamed(t, s, uid, "find-skills"))
+		}
+		if !late && (live[0].id != item.id || live[0].revision == "") {
+			t.Fatalf("inside the window the same skill comes back with its copy: %+v", live[0])
+		}
+		if _, ok := skillRemovals(t, s, uid)["find-skills"]; ok {
+			t.Fatalf("late=%v the name stayed on the removal list", late)
+		}
+		if err := s.PurgeDeletedSkillsFor(uid, deletedAt.Add(SkillUndoWindow+time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, _ := s.GetFor(uid, "vercel-labs/skills/find-skills"); !ok {
+			t.Fatalf("late=%v the purge took the row added again", late)
+		}
+		if r := skillStateNamed(t, s, uid, "find-skills"); r.deletedAt != 0 || r.status != SkillActive {
+			t.Fatalf("late=%v after the purge: %+v", late, r)
+		}
+		// Start the next case from nothing.
+		if _, _, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, true, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PurgeDeletedSkillsFor(uid, time.Now().Add(2*SkillUndoWindow)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A machine's sighting of a skill being deleted does not bring it back.
+func TestASightingDoesNotBringADeletedSkillBack(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+	if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "Find."), PrivateSkillOrigin{Kind: "original"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSkillsFor(uid, []string{item.id}, false, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(uid, mustRef(t, "vercel-labs/skills/find-skills"), Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if r := skillStateNamed(t, s, uid, "find-skills"); r.deletedAt == 0 {
+		t.Fatalf("a sighting undeleted the skill: %+v", r)
+	}
+}

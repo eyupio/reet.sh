@@ -314,8 +314,8 @@ func classExportPolicies() []ClassExportPolicy {
 			Reason: "Discovered project instruction files are selected as whole bounded text; global or unlisted instruction locations are not inventoried.",
 		},
 		{
-			Kind: "skills", Selection: "include", Handling: "portable",
-			Reason: "Installed skill folders are selected as whole bounded directories; files are copied into the encrypted snapshot and restored deliberately.",
+			Kind: "skills", Selection: "exclude", Handling: "library",
+			Reason: "Skill folders are not captured or restored: your skills come from your reet library, which puts every Active skill on every machine.",
 		},
 		{
 			Kind: "behavior", Selection: "unsupported", Handling: "not_implemented",

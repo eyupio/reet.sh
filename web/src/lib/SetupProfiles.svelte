@@ -227,7 +227,7 @@
 
 <PageHeader
   title="Setups"
-  lede="Keep a portable record of your agent settings, skills and supported memory. Review coverage before restoring on another machine."
+  lede="Keep a portable record of your agent settings and supported memory; your skills come from your library. Review coverage before restoring on another machine."
 >
  {#snippet actions()}{#if canWrite}<button class="btn primary" onclick={() => creating = !creating} aria-expanded={creating}>Create a setup</button>{/if}{/snippet}
 </PageHeader>

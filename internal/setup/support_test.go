@@ -26,6 +26,11 @@ func TestSupportMatrixCLI(t *testing.T) {
 	if byID["claude"].Settings != "supported" || byID["pi"].MCP != "unsupported" || byID["cursor"].Settings != "unsupported" || byID["codex"].Memory != "supported" {
 		t.Fatalf("wrong support rows: %+v", byID)
 	}
+	for _, row := range matrix.Agents {
+		if row.Skills != "library" || strings.Contains(row.Notes, "skill folders") {
+			t.Fatalf("a Setup still claims skill folders for %s: %+v", row.AgentID, row)
+		}
+	}
 	if len(matrix.Limitations) == 0 || !strings.Contains(strings.Join(matrix.Limitations, " "), "not runtime verification") {
 		t.Fatalf("limitations missing: %+v", matrix)
 	}

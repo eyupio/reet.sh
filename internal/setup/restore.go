@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	pathpkg "path"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -55,6 +54,7 @@ type RestorePlan struct {
 	Unsupported        []RestoreUnsupported `json:"unsupported"`
 	Software           []VerifySoftware     `json:"software,omitempty"`
 	Warnings           []string             `json:"warnings,omitempty"`
+	Notes              []string             `json:"notes,omitempty"`
 	Fingerprint        string               `json:"fingerprint"`
 	Limitations        []string             `json:"limitations"`
 
@@ -78,9 +78,9 @@ type destinationCandidate struct {
 	agentID, scope, path, state string
 }
 
-type destinationSkillCandidate struct {
-	agentID, scope, root, state, kind, source string
-}
+// skippedSkillFoldersNote is what a restore of a Setup holding skill folders
+// says, once, about them.
+const skippedSkillFoldersNote = "Skipped skill folders; your skills come from your library."
 
 // BuildRestorePlan maps a snapshot to a destination and reports conflicts,
 // unsupported items and a stable fingerprint. It writes nothing.
@@ -96,8 +96,7 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			"Preview only: no files are written and no installers or hooks run.",
 			"Destination discovery is metadata-only; an existing source is a conflict even when selected content looks similar.",
 			"Unsupported and omitted components are listed; they are not restore actions.",
-			"Skill folders are mapped by known location and restored file-by-file; symlinked skills and special files are omitted during snapshot capture.",
-			"Existing skills CLI lock files are merged for missing entries only; conflicting sources are left unchanged and reported.",
+			"Skill folders are never restored: your skills come from your reet library.",
 			"Codex memory databases are copied through SQLite's VACUUM INTO. Restore is blocked while a destination WAL or shared-memory sidecar exists.",
 			"No cross-OS translation, dependency resolution or runtime verification has been performed.",
 		},
@@ -167,8 +166,11 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 			action.State, action.Reason = state, reason
 		}
 	}
-	addSkillRestoreActions(&plan, snapshot, destination, actions, files)
-	addSkillLockRestoreActions(&plan, snapshot, destination, actions, files)
+	if len(snapshot.Skills) > 0 {
+		// A Setup saved before skills moved to the library holds skill
+		// folders. None is written, and the plan says so once.
+		plan.Notes = append(plan.Notes, skippedSkillFoldersNote)
+	}
 	addMemoryRestoreActions(&plan, snapshot, destination, actions, files)
 	for _, action := range actions {
 		sort.Strings(action.Components)
@@ -207,229 +209,6 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 	}
 	plan.Fingerprint = restoreFingerprint(plan)
 	return plan
-}
-
-func addSkillRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, destination Report, actions map[string]*RestoreAction, files map[string]restoreFile) {
-	candidates := destinationSkillCandidates(destination)
-	for _, skill := range snapshot.Skills {
-		source := filepath.Join(skill.Root, skill.Name)
-		if skill.Scope == "project" && destination.Project == "" {
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skills", Source: source, Reason: "project_not_selected"})
-			continue
-		}
-		root, ok := matchSkillRoot(candidates, skill)
-		if !ok {
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skills", Source: source, Reason: "destination_location_not_found"})
-			continue
-		}
-		for _, file := range skill.Files {
-			dest := filepath.Join(root.root, skill.Name, filepath.FromSlash(file.Path))
-			if _, exists := files[dest]; exists {
-				plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skills", Source: source, Reason: "duplicate_skill_destination"})
-				continue
-			}
-			state, reason := skillRestoreState(root.state, dest)
-			key := skill.AgentID + "\x00" + dest
-			action := actions[key]
-			if action == nil {
-				action = &RestoreAction{
-					AgentID: skill.AgentID, Components: []string{}, Sources: []string{},
-					Destination: dest, Scope: skill.Scope, Format: "skill",
-					State: state, Reason: reason,
-				}
-				actions[key] = action
-			} else if stateRank(state) > stateRank(action.State) {
-				action.State, action.Reason = state, reason
-			}
-			action.Components = appendUnique(action.Components, "skills")
-			action.Sources = appendUnique(action.Sources, source)
-			files[dest] = restoreFile{agentID: skill.AgentID, format: "skill", data: file.Data, mode: os.FileMode(file.Mode)}
-		}
-	}
-}
-
-func addSkillLockRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, destination Report, actions map[string]*RestoreAction, files map[string]restoreFile) {
-	type lockTarget struct {
-		path, scope string
-		entries     map[string]any
-	}
-	targets := map[string]*lockTarget{}
-	for _, skill := range snapshot.Skills {
-		if skill.Origin == "" {
-			continue
-		}
-		path, scope := "", ""
-		switch skill.Scope {
-		case "global":
-			if destination.Home == "" {
-				continue
-			}
-			path, scope = filepath.Join(destination.Home, ".agents", ".skill-lock.json"), "global"
-		case "project":
-			if destination.Project == "" {
-				continue
-			}
-			path, scope = filepath.Join(destination.Project, "skills-lock.json"), "project"
-		default:
-			continue
-		}
-		target := targets[path]
-		if target == nil {
-			target = &lockTarget{path: path, scope: scope, entries: map[string]any{}}
-			targets[path] = target
-		}
-		if _, exists := target.entries[skill.Name]; exists {
-			continue
-		}
-		entry := map[string]any{"source": skill.Origin, "skillPath": skill.OriginPath}
-		if skill.OriginType != "" {
-			entry["sourceType"] = skill.OriginType
-		}
-		target.entries[skill.Name] = entry
-	}
-	paths := make([]string, 0, len(targets))
-	for path := range targets {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	for _, path := range paths {
-		target := targets[path]
-		lockEntry := restoreFile{
-			agentID: "agents", format: "json",
-			settings: map[string]any{"version": json.Number("3"), "skills": target.entries},
-		}
-		info, err := os.Lstat(path)
-		switch {
-		case os.IsNotExist(err):
-			actions["agents\x00"+path] = &RestoreAction{
-				AgentID: "agents", Components: []string{"skill_lock"}, Sources: []string{path},
-				Destination: path, Scope: target.scope, Format: "json", State: "create",
-			}
-			files[path] = lockEntry
-			continue
-		case err != nil:
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_unavailable"})
-			continue
-		case info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular():
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_unsafe"})
-			continue
-		}
-		data, issue := readConfig(path, info)
-		if issue != "" {
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_" + issue})
-			continue
-		}
-		existing, err := parseSource(data, "json")
-		if err != nil {
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_invalid"})
-			continue
-		}
-		existingSkills, ok := existing["skills"].(map[string]any)
-		if !ok {
-			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_not_a_map"})
-			continue
-		}
-		missing := false
-		for name, entry := range target.entries {
-			if current, exists := existingSkills[name]; exists {
-				currentMap, currentOK := current.(map[string]any)
-				entryMap, entryOK := entry.(map[string]any)
-				bothOK := currentOK && entryOK
-				if bothOK && currentMap["source"] != entryMap["source"] {
-					plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_source_conflict", Count: 1})
-				}
-				continue
-			}
-			existingSkills[name] = entry
-			missing = true
-		}
-		if _, ok := existing["version"]; !ok {
-			existing["version"] = json.Number("3")
-		}
-		existing["skills"] = existingSkills
-		lockEntry.settings = existing
-		files[path] = lockEntry
-		if !missing {
-			continue
-		}
-		lockEntry.baseDigest = sha256Bytes(data)
-		files[path] = lockEntry
-		actions["agents\x00"+path] = &RestoreAction{
-			AgentID: "agents", Components: []string{"skill_lock"}, Sources: []string{path},
-			Destination: path, Scope: target.scope, Format: "json", State: "merge",
-		}
-	}
-}
-
-func destinationSkillCandidates(report Report) []destinationSkillCandidate {
-	seen := map[string]bool{}
-	var out []destinationSkillCandidate
-	for _, agent := range report.Agents {
-		for _, loc := range agent.Locations {
-			if !isSkillLocation(loc.Kind) || loc.Path == "" {
-				continue
-			}
-			key := agent.ID + "\x00" + loc.Scope + "\x00" + loc.Path
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, destinationSkillCandidate{agentID: agent.ID, scope: loc.Scope, root: loc.Path, state: loc.State, kind: loc.Kind, source: loc.Source})
-		}
-	}
-	return out
-}
-
-func matchSkillRoot(candidates []destinationSkillCandidate, skill SetupSkill) (destinationSkillCandidate, bool) {
-	base := sourceBase(skill.Root)
-	best := destinationSkillCandidate{}
-	bestScore := -1
-	for _, candidate := range candidates {
-		matches := candidate.agentID == skill.AgentID && candidate.scope == skill.Scope &&
-			sourceBase(candidate.root) == base
-		if !matches {
-			continue
-		}
-		score := 0
-		if skill.LocationKind != "" && candidate.kind == skill.LocationKind {
-			score += 2
-		}
-		if skill.LocationSource != "" && candidate.source == skill.LocationSource {
-			score += 4
-		} else {
-			explicit := skill.LocationSource != "" && skill.LocationSource != "default"
-			if explicit && candidate.source == "default" {
-				score++
-			}
-		}
-		better := score > bestScore
-		tie := score == bestScore && candidate.root < best.root
-		if better || tie {
-			best, bestScore = candidate, score
-		}
-	}
-	return best, bestScore >= 0
-}
-
-func skillRestoreState(rootState, path string) (string, string) {
-	switch rootState {
-	case "missing", "present":
-	default:
-		return "blocked", "destination_skill_root_" + rootState
-	}
-	info, err := os.Lstat(path)
-	switch {
-	case os.IsNotExist(err):
-		return "create", ""
-	case err != nil:
-		return "blocked", "destination_metadata_unavailable"
-	case info.Mode()&os.ModeSymlink != 0:
-		return "blocked", "destination_symlink"
-	case info.Mode().IsRegular():
-		return "conflict", "destination_source_exists"
-	default:
-		return "blocked", "destination_unsupported"
-	}
 }
 
 func snapshotRestoreComponents(snapshot SetupSnapshot) map[string]restoreComponent {
@@ -632,6 +411,11 @@ func renderRestorePlan(out io.Writer, plan RestorePlan) error {
 	}
 	for _, warning := range plan.Warnings {
 		if _, err := fmt.Fprintf(out, "  warning: %s\n", warning); err != nil {
+			return err
+		}
+	}
+	for _, note := range plan.Notes {
+		if _, err := fmt.Fprintf(out, "  %s\n", note); err != nil {
 			return err
 		}
 	}

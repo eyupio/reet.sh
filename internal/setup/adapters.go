@@ -1,7 +1,9 @@
 package setup
 
 // Keep the registry declarative: adding discovery does not imply that a config
-// format can be parsed, exported or translated to another agent or OS.
+// format can be parsed, exported or translated to another agent or OS. Skill
+// folders are not listed: skills come from the person's reet library, which
+// puts every Active skill on every machine, so a Setup leaves them alone.
 type adapter struct {
 	id, name, command string
 	locations         []locationSpec
@@ -30,17 +32,11 @@ func adapters() []adapter {
 			directory("project", "configuration", ".claude", "", ""),
 			file("project", "instructions", "CLAUDE.md", "", ""),
 			file("project", "mcp_configuration", ".mcp.json", "", ""),
-			directory("global", "skills", ".claude/skills", "CLAUDE_CONFIG_DIR", "skills"),
-			directory("project", "skills", ".claude/skills", "", ""),
 		}},
 		{"codex", "Codex", "codex", []locationSpec{
 			directory("global", "configuration", ".codex", "CODEX_HOME", ""),
 			file("global", "instructions", ".codex/AGENTS.md", "CODEX_HOME", "AGENTS.md"),
-			directory("global", "shared_skills", ".agents/skills", "", ""),
-			directory("global", "skills", ".codex/skills", "CODEX_HOME", "skills"),
 			directory("project", "configuration", ".codex", "", ""),
-			directory("project", "shared_skills", ".agents/skills", "", ""),
-			directory("project", "skills", ".codex/skills", "", ""),
 			file("project", "shared_instructions", "AGENTS.md", "", ""),
 		}},
 		{"opencode", "OpenCode", "opencode", []locationSpec{
@@ -51,23 +47,16 @@ func adapters() []adapter {
 			directory("project", "configuration", ".opencode", "", ""),
 			file("project", "configuration", "opencode.json", "", ""),
 			file("project", "configuration", "opencode.jsonc", "", ""),
-			directory("global", "skills", ".config/opencode/skills", "XDG_CONFIG_HOME", "opencode/skills"),
-			directory("global", "skills", "", "OPENCODE_CONFIG_DIR", "skills"),
-			directory("project", "skills", ".opencode/skills", "", ""),
 		}},
 		{"pi", "Pi", "pi", []locationSpec{
 			directory("global", "configuration", ".pi/agent", "PI_CODING_AGENT_DIR", ""),
 			file("global", "instructions", ".pi/agent/AGENTS.md", "PI_CODING_AGENT_DIR", "AGENTS.md"),
-			directory("global", "skills", ".pi/agent/skills", "PI_CODING_AGENT_DIR", "skills"),
 			directory("project", "configuration", ".pi", "", ""),
-			directory("project", "skills", ".pi/skills", "", ""),
 		}},
 		{"cursor", "Cursor", "cursor", []locationSpec{
 			directory("global", "configuration", ".cursor", "", ""),
 			directory("project", "configuration", ".cursor", "", ""),
 			file("project", "instructions", ".cursorrules", "", ""),
-			directory("global", "skills", ".cursor/skills", "", ""),
-			directory("project", "skills", ".cursor/skills", "", ""),
 		}},
 	}
 }

@@ -190,7 +190,7 @@ func TestExportPolicyClassifiesMemoryHistoryCredentialsHooksAndCaches(t *testing
 	policies := findAgent(t, r, "claude").ExportPolicy
 	want := map[string]struct{ selection, handling string }{
 		"instructions": {"include", "portable"},
-		"skills":       {"include", "portable"},
+		"skills":       {"exclude", "library"},
 		"behavior":     {"unsupported", "not_implemented"},
 		"memory":       {"include", "portable"},
 		"history":      {"opt_in", "not_implemented"},

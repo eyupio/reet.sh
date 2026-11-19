@@ -159,8 +159,10 @@
     readAfterGrace()
     await refocus(order, ids, act)
     say(pruneText(to === 'archived' ? 'archived' : 'restored', names, true), async () => {
+      // The rows go back to the tab they left: off the one in view when that is the other tab.
       const tab = page.tab
-      await page.writePage(() => setSkillStatus(ids, from, tab), tab)
+      page.release(ids)
+      await page.writePage(() => setSkillStatus(ids, from, tab), tab, tab === from ? [] : ids)
       readAfterGrace()
       void read(other(tab), true)
       await focusRow(ids[0], act)
@@ -184,7 +186,7 @@
     if (!claim(ids, 'delete')) return
     const names = targets.map(r => r.name), from = page.tab
     try {
-      await write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }))
+      await page.write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }), () => page.takeOff(from, ids))
     } catch (e) {
       // The server knows better than the page: it refused a skill you wrote, or one reet has no copy of. The same
       // dialog asks, and the delete goes again with that flag only once the person agrees. A refusal for a flag already
@@ -204,7 +206,6 @@
     } finally {
       release(ids)
     }
-    page.held[from] = (page.held[from] ?? []).filter(r => !ids.includes(r.id))
     page.counts = { ...page.counts, [from]: Math.max(0, page.counts[from] - ids.length) }
     // The delete answers with no page: read it now for the counts, and again once the grace is over, when the machines
     // start taking it off and their work counts it.
@@ -217,6 +218,7 @@
     say(pruneText('deleted', names, onMachines), async () => {
       // The undelete answers with no page: its tab is read once no write is on its way, and the row is back for focus.
       const tab = page.tab
+      page.release(ids)
       await page.write(() => undeleteSkills(ids), () => page.markStale(tab))
       await page.catchUp()
       readAfterGrace()
@@ -305,8 +307,9 @@
 
   async function restoreParked() {
     const parked = (page.held.archived ?? []).filter(r => r.upgradedFrom === 'parked')
+    const ids = parked.map(r => r.id)
     try {
-      await write(() => skillNotice('restore-parked'))
+      await page.write(() => skillNotice('restore-parked'), () => page.takeOff('archived', ids))
     } catch (e) {
       fail(e)
       return
@@ -317,10 +320,10 @@
     readAfterGrace()
     focusQuietly(tabEls[page.tab])
     if (!parked.length) return
-    const ids = parked.map(r => r.id)
     say(pruneText('restored', parked.map(r => r.name), true), async () => {
       const tab = page.tab
-      await page.writePage(() => setSkillStatus(ids, 'archived', tab), tab)
+      page.release(ids)
+      await page.writePage(() => setSkillStatus(ids, 'archived', tab), tab, tab === 'archived' ? [] : ids)
       readAfterGrace()
       void read(other(tab), true)
     })

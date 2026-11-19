@@ -678,6 +678,62 @@ try {
   }
  }
 
+ // A row taken off the tab stays off it when an older change's answer, made before it went, lands afterwards: a Delete
+ // while a slow Archive is on its way never shows the deleted row again. Every render of the list is recorded. An
+ // Archive's Undo still brings its row back at once while another change is on its way.
+ if (run('delete flicker')) {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+  {
+   const w = world()
+   const r = routes(w)
+   const status = r['/api/v2/skills/status']
+   r['/api/v2/skills/status'] = async req => { const answer = status(req); await wait(1500); return answer }
+   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+   await page.goto(`${base}/skills`)
+   await expect(row(page, 'svg-animations')).toBeVisible()
+   // Whether the deleted row is in the list, after every change to it.
+   await page.locator('ul.list').evaluate(list => {
+    window.__there = [true]
+    new MutationObserver(() => window.__there.push(!!list.querySelector('[data-skill="item-svg-animations"]'))).observe(list, {childList:true, subtree:true})
+   })
+   const archived = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v2/skills/status')
+   await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+   await row(page, 'svg-animations').getByRole('button', {name:'Delete svg-animations'}).click()
+   await expect(row(page, 'svg-animations')).toHaveCount(0)
+   await archived
+   await expect(row(page, 'seo-bing')).toHaveCount(0)
+   await page.waitForTimeout(800)
+   const there = await page.evaluate(() => window.__there.filter((v, i, all) => v !== all[i - 1]))
+   expect(there, 'the deleted row in the list, render by render').toEqual([true, false])
+   await expect(page.locator('[data-skill]')).toHaveCount(4)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  {
+   const w = world()
+   const r = routes(w)
+   r['/api/skill'] = async req => {
+    const b = req.postDataJSON()
+    w.rows = w.rows.map(x => x.shelfId === b.id ? {...x, liked:b.liked} : x)
+    await wait(3000)
+    return {id:b.id, liked:b.liked}
+   }
+   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+   await page.goto(`${base}/skills`)
+   // The Archive answers while the Like is on its way, so its row is held off the tab when Undo is pressed.
+   await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}).click()
+   await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+   await expect(row(page, 'seo-bing')).toHaveCount(0)
+   await toast(page).getByRole('button', {name:/^Undo/}).click()
+   // Well before the Like answers.
+   await expect(row(page, 'seo-bing'), 'the row the Undo brought back').toBeVisible({timeout:1500})
+   await page.waitForTimeout(2500)
+   await expect(row(page, 'seo-bing')).toBeVisible()
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  // The page gone (the sign-in screen took its place) while a change was on its way: when the change answers, the page
  // starts no reads, neither at once nor after the grace period.
  if (run('unmount')) {

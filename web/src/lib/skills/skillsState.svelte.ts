@@ -18,7 +18,8 @@ const rank = (r: SkillRow) => ({ bad: 0, work: 1, ok: 2, off: 3 })[healthLine(r.
  * puts back what the write changed. Writes answer in any order: the page shows a page answer only when no newer page
  * answer has been shown, and a tab whose answer may miss another write's change is read again once every write has
  * answered (writePage, markStale, catchUp). A change shown ahead of its answer (a Like) is kept over every answer that
- * lands while any write is on its way, so an older answer never flicks the row back (writeRow).
+ * lands while any write is on its way, so an older answer never flicks the row back (writeRow); so is a row a write took
+ * off a tab, until an Undo brings it back (takeOff, release).
  */
 export class SkillsPageState {
   tab = $state<Tab>('active')
@@ -57,6 +58,9 @@ export class SkillsPageState {
   // Each row's latest change shown ahead of its answer (writeRow), put back over any answer that lands while a write is
   // on its way. Let go once none is: by then a tab whose answer may miss one is marked stale and read again.
   #ahead = new Map<string, Partial<SkillRow>>()
+  // Rows a write has taken off a tab (a Delete, an Archive, a Restore), kept off it over any answer that lands while a
+  // write is on its way: an answer to an older write cannot know they went. Let go as #ahead is, or by an Undo.
+  #gone = new Map<string, Tab>()
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -76,7 +80,9 @@ export class SkillsPageState {
   })
 
   apply(data: SkillsPageData, status: Tab, without: string[] = []) {
-    const rows = without.length ? data.skills.filter(r => !without.includes(r.id)) : data.skills
+    const off = new Set(without)
+    for (const [id, tab] of this.#gone) if (tab === status) off.add(id)
+    const rows = off.size ? data.skills.filter(r => !off.has(r.id)) : data.skills
     this.held[status] = this.#ahead.size ? rows.map(r => { const change = this.#ahead.get(r.id); return change ? { ...r, ...change } : r }) : rows
     this.counts = data.counts
     this.newOnMachines = data.newOnMachines ?? []
@@ -122,10 +128,24 @@ export class SkillsPageState {
       this.#generation++
       if (this.writing === 0) {
         this.#ahead.clear()
+        this.#gone.clear()
         if (this.#stale.size) void this.catchUp()
       }
     }
   }
+
+  /**
+   * Takes rows off a tab for a write that has answered (a Delete, an Archive, a Restore): they leave the list now, and
+   * stay off that tab over any answer that lands while a write is on its way. Call it from the write's `done`.
+   */
+  takeOff(status: Tab, ids: string[]) {
+    if (!ids.length) return
+    for (const id of ids) this.#gone.set(id, status)
+    this.held[status] = (this.held[status] ?? []).filter(r => !ids.includes(r.id))
+  }
+
+  /** An Undo brings rows back: answers that land from now on may show them again. */
+  release(ids: string[]) { for (const id of ids) this.#gone.delete(id) }
 
   /**
    * A change to a row's own fields that shows at once, ahead of its answer (a Like). While any write is on its way it
@@ -180,18 +200,17 @@ export class SkillsPageState {
 
   /**
    * A write that answers with a tab of the page (Archive, Restore and their Undo). Its answer is shown unless a newer
-   * page answer has been shown already, when it only takes its own rows out of the list. Only page answers count as
+   * page answer has been shown already; either way its own rows, `without`, are taken off the tab (takeOff). Only page answers count as
    * newer: a Like or a Delete that answers first must not hold back an Undo. Any write that started after this one,
    * answered or not, may be missing from this answer (a Like on its way is undone by it), so the tab is marked stale
    * and read again once every write has answered.
    */
   async writePage(fn: () => Promise<SkillsPageData>, status: Tab, without: string[] = []): Promise<void> {
     await this.write(fn, (data, seq) => {
+      this.takeOff(status, without)
       if (seq > this.#finishedPage) {
         this.#finishedPage = seq
-        this.apply(data, status, without)
-      } else {
-        this.held[status] = (this.held[status] ?? []).filter(r => !without.includes(r.id))
+        this.apply(data, status)
       }
       if (this.#started > seq) this.markStale(status)
     })

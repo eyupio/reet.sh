@@ -63,7 +63,8 @@ export function machineLine(m: SyncMachine, active: number, now = Date.now()): {
     case 'blocked':
       return { text: "Can't write skills here", tone: 'bad' }
     case 'offline':
-      return { text: `Offline · last seen ${m.lastSeen ? agoInText(m.lastSeen, now) : 'never'} · catches up when it's back`, tone: 'off' }
+      // It catches up only on what waits for it.
+      return { text: `Offline · last seen ${m.lastSeen ? agoInText(m.lastSeen, now) : 'never'}${waiting ? " · catches up when it's back" : ''}`, tone: 'off' }
     case 'paused':
       return { text: 'Paused by you · left alone', tone: 'off' }
     case 'needs-update':

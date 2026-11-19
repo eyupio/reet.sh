@@ -50,8 +50,10 @@ test('each machine has a line for its state', () => {
     [m('failed', { failed: [{ name: 'seo-cluster', detail: 'no write access' }] }), '1 skill failed: seo-cluster', 'bad'],
     [m('failed', { failed: [{ name: 'a', detail: '' }, { name: 'b', detail: '' }] }), '2 skills failed: a and b', 'bad'],
     [m('blocked'), "Can't write skills here", 'bad'],
-    [m('offline', { online: false, lastSeen: now - 30 * hour }), "Offline · last seen yesterday · catches up when it's back", 'off'],
-    [m('offline', { online: false, lastSeen: now - 3 * hour }), "Offline · last seen 3 h ago · catches up when it's back", 'off'],
+    [m('offline', { online: false, lastSeen: now - 30 * hour, waiting: ['a'] }), "Offline · last seen yesterday · catches up when it's back", 'off'],
+    [m('offline', { online: false, lastSeen: now - 3 * hour, waiting: ['a', 'b'] }), "Offline · last seen 3 h ago · catches up when it's back", 'off'],
+    // Nothing waits for it, so there is nothing to catch up on.
+    [m('offline', { online: false, lastSeen: now - 3 * hour }), 'Offline · last seen 3 h ago', 'off'],
     [m('paused', { paused: true }), 'Paused by you · left alone', 'off'],
     [m('needs-update', { host: 'old-mac', protocol: 1 }), 'Update reet on old-mac to keep its skills in sync', 'bad'],
     [m('needs-newer-controller', { host: 'future', protocol: 3 }), 'future runs a newer reet than this controller; update the controller to keep its skills in sync', 'bad'],

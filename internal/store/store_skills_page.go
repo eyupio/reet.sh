@@ -94,8 +94,7 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
  COALESCE((SELECT h.slug FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' ORDER BY h.slug LIMIT 1),''),
  EXISTS(SELECT 1 FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' AND h.published=1),
  COALESCE((SELECT h.description FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' ORDER BY h.slug LIMIT 1),''),
- EXISTS(SELECT 1 FROM library_aliases a JOIN skills k ON k.id=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' AND k.source<>'' AND k.source_type<>'local'),
- EXISTS(SELECT 1 FROM library_aliases a LEFT JOIN skills k ON k.id=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND (a.kind='machine_capture' OR (a.kind='shelf' AND k.source_type='local')))
+ EXISTS(SELECT 1 FROM library_aliases a JOIN skills k ON k.id=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' AND k.source<>'' AND k.source_type<>'local')
  FROM library_items i WHERE i.user_id=? AND i.item_type=? AND i.deleted_at=0 AND `+privateSkillAccount+`
  ORDER BY lower(i.name),i.id`, uid, LibrarySkill, uid)
 	if err != nil {
@@ -105,11 +104,11 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	for rows.Next() {
 		var r SkillPageRow
 		var origin, originRef, hostedDescription string
-		var linked, fromMachine bool
-		if err = rows.Scan(&r.ID, &r.Name, &r.Status, &origin, &originRef, &r.HasCopy, &r.UpgradedFrom, &r.ShelfID, &r.HostedSlug, &r.Published, &hostedDescription, &linked, &fromMachine); err != nil {
+		var linked bool
+		if err = rows.Scan(&r.ID, &r.Name, &r.Status, &origin, &originRef, &r.HasCopy, &r.UpgradedFrom, &r.ShelfID, &r.HostedSlug, &r.Published, &hostedDescription, &linked); err != nil {
 			break
 		}
-		r.OriginKind = skillOriginKind(origin, r.HostedSlug != "", linked, fromMachine)
+		r.OriginKind = skillOriginKind(origin, linked)
 		r.Yours = r.OriginKind == "written"
 		r.Origin = skillOriginDisplay(r.OriginKind, originRef)
 		r.Description = hostedDescription
@@ -248,26 +247,21 @@ func (s *Store) useVersionProblem(uid int64, item string, on SkillEditedOn, back
 	return "", nil
 }
 
-// skillOriginKind names how a skill arrived. An item from before origins were
-// recorded is read from what refers to it: a written skill, a link, or a
-// machine's copy; one with none of those had its content put into reet
-// directly, which is the person's own.
-func skillOriginKind(origin string, hosted, linked, fromMachine bool) string {
-	switch origin {
-	case "written", "imported":
-		return origin
-	case "machine":
-		return "kept"
-	}
+// skillOriginKind names how a skill arrived. Written is exactly what Delete
+// and the old Remove treat as written, origin written, so the page asks once
+// where the server does. An item from before origins were recorded is read
+// from what refers to it: a link makes it imported; anything else is kept,
+// as the skill-states upgrade read a skill it could not place.
+func skillOriginKind(origin string, linked bool) string {
 	switch {
-	case hosted:
-		return "written"
+	case origin == "written" || origin == "imported":
+		return origin
+	case origin == "machine":
+		return "kept"
 	case linked:
 		return "imported"
-	case fromMachine:
-		return "kept"
 	}
-	return "written"
+	return "kept"
 }
 
 // skillOriginDisplay is where a skill came from, as the page shows it: an

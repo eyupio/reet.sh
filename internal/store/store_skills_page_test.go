@@ -231,3 +231,33 @@ func TestKeepTakesTheCopyListedFirst(t *testing.T) {
 		t.Fatalf("kept from %s, the page lists %s first", kept[0].AgentID, first.AgentID)
 	}
 }
+
+// The page labels a skill written exactly when Delete and Remove treat it as
+// written: when its origin is written. A skill put into reet with no origin
+// recorded and nothing referring to it reads as kept, as the upgrade read
+// such skills.
+func TestSkillsPageWrittenMatchesTheServer(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	base := ""
+	result, err := s.SaveLibraryContentFor(uid, "", PrivateSkillWrite{RequestID: "upload-without-origin-1", ExpectedBase: &base, Name: "uploaded", Files: contentFiles("uploaded", "Up.")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := skillStateNamed(t, s, uid, "uploaded")
+	if item.origin != "" || item.bundle != result.Bundle.ID {
+		t.Fatalf("fixture: %+v", item)
+	}
+	page, err := s.SkillsPageFor(uid, SkillActive, time.Now())
+	if err != nil || len(page.Skills) != 1 {
+		t.Fatalf("page: %+v %v", page.Skills, err)
+	}
+	refs, err := s.SkillItemsFor(uid, []string{item.id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := page.Skills[0]
+	if row.Yours != refs[0].Written || row.OriginKind != "kept" || row.Yours {
+		t.Fatalf("page says %s (yours %t); the server's written is %t", row.OriginKind, row.Yours, refs[0].Written)
+	}
+}

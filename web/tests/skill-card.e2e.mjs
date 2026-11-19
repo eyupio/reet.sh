@@ -20,8 +20,8 @@ const states = [
  ['ok', h('ok'), 'On all 3 machines', 'ok', false],
  ['installing', h('installing', {pending:2}), 'Installing on 2 of 3', 'work', false],
  ['removing', h('removing', {pending:1, hosts:['ThinkPad']}), 'Coming off ThinkPad', 'work', false],
- // A machine's failure is retried by the machine itself; until it can be asked to at once, the row offers no Retry.
- ['failed', h('failed', {pending:1, hosts:['ThinkPad'], reason:'no write access'}), 'Failed on ThinkPad · it tries again on its own', 'bad', false],
+ // Retry asks the machine it failed on to try it again on its next poll.
+ ['failed', h('failed', {pending:1, hosts:['ThinkPad'], reason:'no write access', machines:[{host:'ThinkPad', agentId:'a-think', state:'failed', detail:'no write access'}]}), 'Failed on ThinkPad', 'bad', true],
  // An Active skill on a machine that is off is waiting to go on it; an Archived one is waiting to come off (below).
  ['offline', h('offline', {pending:1, hosts:['studio']}), "Installing on studio when it's back online", 'work', false],
  ['blocked', h('blocked', {pending:1, hosts:['ThinkPad']}), "Can't write skills on ThinkPad", 'bad', false],

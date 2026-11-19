@@ -21,8 +21,8 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
     case 'removing':
       return line(hosts.length === 1 ? `Coming off ${hosts[0]}` : `Coming off ${machines(h.pending)}`, 'work')
     case 'failed':
-      // The machine tries again by itself; until it can be asked to at once, there is no Retry to offer here.
-      return line(`Failed on ${where} · ${hosts.length > 1 ? 'they try again on their own' : 'it tries again on its own'}`, 'bad')
+      // Retry asks the machines it failed on to try it again on their next poll.
+      return line(`Failed on ${where}`, 'bad', true)
     case 'offline':
       if (status === 'active') return line(`Installing on ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
       return line(`Removing from ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
@@ -43,6 +43,12 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
     default:
       return line('Checking', 'work')
   }
+}
+
+/** What the page says once Retry asked the machines a skill failed on to try it again. */
+export function retryText(name: string, hosts: string[]): string {
+  const where = hosts.length === 1 ? hosts[0] : hosts.length === 2 ? `${hosts[0]} and ${hosts[1]}` : machines(hosts.length)
+  return `Trying ${name} again on ${where}.`
 }
 
 const skillsLabel = (names: string[]) => (names.length === 1 ? names[0] : `${names.length} skills`)

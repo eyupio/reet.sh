@@ -7,8 +7,8 @@
   import NewOnMachineDialog from './NewOnMachineDialog.svelte'
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
-  import { addListSkill, addSkill, addSkillTags, ApiError, deleteSkills, patchSkill, publishSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, updateFromOriginal, useMachineVersion, type ListRef, type SkillRow } from '../api'
-  import { deleteConfirm, focusAfterRemoval, onMachines, pausedSentence, syncSentence, toastText } from './skillsPage'
+  import { addListSkill, addSkill, addSkillTags, ApiError, deleteSkills, patchSkill, publishSkill, retryMachineSkills, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, updateFromOriginal, useMachineVersion, type ListRef, type SkillRow } from '../api'
+  import { deleteConfirm, focusAfterRemoval, onMachines, pausedSentence, retryText, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
   import { skillsExport } from './exportFilters.svelte'
 
@@ -236,11 +236,25 @@
   }
 
   async function retry(row: SkillRow) {
+    if (row.health.state === 'failed') return retryOnMachines(row)
     try {
       const retried = await write(() => retrySkill(row.id))
       // Only a skill the server cleared is tried again now; otherwise it is on its way already.
       say(retried > 0 ? `Trying ${row.name} again.` : `${row.name} is already being tried again.`)
       void read(page.tab)
+    } catch (e) {
+      fail(e)
+    }
+  }
+
+  // A failure on a machine: each machine it failed on is asked to try it again on its next poll.
+  async function retryOnMachines(row: SkillRow) {
+    const failed = row.health.machines.filter(m => m.state === 'failed' && m.agentId)
+    if (!failed.length) return
+    try {
+      await write(() => Promise.all(failed.map(m => retryMachineSkills(m.agentId!, [row.name]))))
+      say(retryText(row.name, failed.map(m => m.host)))
+      void read(page.tab, true)
     } catch (e) {
       fail(e)
     }
@@ -531,8 +545,8 @@
       <h1>Skills<span aria-hidden="true">.</span></h1>
       <p class="lede">{lede}</p>
     </div>
-    <!-- Not a link until the Sync page reads the machines as this line does: its older view could say otherwise. -->
-    {#if page.readOk}<p class="sync-chip" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</p>{/if}
+    <!-- The Sync page reads the machines as this line does: one row each, with what failed and a Retry. -->
+    {#if page.readOk}<a class="sync-chip" href="/sync" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</a>{/if}
   </header>
 
   {#if canWrite}
@@ -676,6 +690,7 @@
   .sync-chip[data-tone='ok'] { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--card)); }
   .sync-chip[data-tone='work'] { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, var(--line)); background: color-mix(in srgb, var(--info) 8%, var(--card)); }
   .sync-chip[data-tone='bad'] { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); background: color-mix(in srgb, var(--bad) 8%, var(--card)); }
+  .sync-chip:hover { text-decoration: underline; text-underline-offset: 3px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 
   .add { display: flex; gap: 10px; flex-wrap: wrap; }

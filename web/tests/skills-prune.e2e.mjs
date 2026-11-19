@@ -16,7 +16,7 @@ function world() {
   rows: [
    skillRow('reet-babysit', {originKind:'written', origin:'', yours:true, description:'Watch a pull request until it is ready to merge.'}),
    skillRow('seo-bing', {description:'Bing Webmaster Tools checks and URL submissions.', tags:[{id:1,name:'seo'}]}),
-   skillRow('seo-cluster', {description:'Group keywords into topic clusters mapped to pages.', health:{state:'failed',pending:1,total:3,hosts:['ThinkPad'],reason:'no write access',machines:[{host:'Elitebook',state:'ok'},{host:'ThinkPad',state:'failed',detail:'no write access'},{host:'studio',state:'ok'}]}}),
+   skillRow('seo-cluster', {description:'Group keywords into topic clusters mapped to pages.', health:{state:'failed',pending:1,total:3,hosts:['ThinkPad'],reason:'no write access',machines:[{host:'Elitebook',agentId:'a-elite',state:'ok'},{host:'ThinkPad',agentId:'a-think',state:'failed',detail:'no write access'},{host:'studio',agentId:'a-studio',state:'ok'}]}}),
    skillRow('svg-animations', {liked:true}),
    skillRow('ui-ux-pro-max'),
    skillRow('writing-plans', {health:{state:'installing',pending:1,total:3,hosts:['studio'],machines:[]}}),
@@ -57,6 +57,7 @@ function routes(w) {
    return {restored:back.length}
   },
   '/api/v2/skills/retry': req => { w.posts.push(['retry', req.postDataJSON()]); return {retried:w.retried ?? 1} },
+  '/api/v2/sync/skills/retry': req => { const b = req.postDataJSON(); w.posts.push(['machine retry', b]); return {names:b.names} },
   '/api/v2/skills/notice': req => {
    const b = req.postDataJSON(); w.posts.push(['notice', b])
    if (b.action === 'restore-parked') w.rows = w.rows.map(r => r.upgradedFrom === 'parked' && r.status === 'archived' ? {...r, status:'active'} : r)
@@ -825,16 +826,18 @@ try {
   await context.close()
  }
 
- // A machine's failure is retried by the machine itself, so its row says so and offers no Retry (a Retry that only the
- // machine could act on would do nothing). A fetch that failed has Retry, which posts the skill and says it is trying
- // again only when the server retried something.
+ // A machine's failure has Retry, which asks each machine it failed on to try it again on its next poll, and says so. A
+ // fetch that failed has Retry, which posts the skill and says it is trying again only when the server retried something.
  if (run('retry')) {
   const fetchFailed = {state:'fetch-failed',pending:0,total:3,hosts:[],reason:'404 from github.com',machines:[]}
   const {context, page, errors, w} = await open({edit: w => { w.rows = w.rows.map(r => r.name === 'svg-animations' ? {...r, health:fetchFailed} : r) }})
   const health = row(page, 'seo-cluster').locator('.health')
-  await expect(health).toContainText('Failed on ThinkPad · it tries again on its own')
+  await expect(health).toContainText('Failed on ThinkPad')
   await expect(health).toHaveAttribute('data-tone', 'bad')
-  await expect(row(page, 'seo-cluster').getByRole('button', {name:/^Retry/})).toHaveCount(0)
+  await row(page, 'seo-cluster').getByRole('button', {name:'Retry seo-cluster'}).click()
+  await expect.poll(() => posts(w, 'machine retry')).toEqual([{agentId:'a-think', names:['seo-cluster']}])
+  await expect(page.getByRole('status').filter({hasText:'Trying seo-cluster again on ThinkPad.'})).toBeVisible()
+  expect(posts(w, 'retry')).toEqual([])
   await expect(row(page, 'writing-plans').locator('.health')).toContainText('Installing on 1 of 3')
   await expect(row(page, 'seo-bing').locator('.health')).toContainText('On all 3 machines')
   await expect(row(page, 'seo-bing').getByRole('button', {name:/^Retry/})).toHaveCount(0)

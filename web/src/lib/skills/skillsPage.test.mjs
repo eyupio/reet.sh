@@ -13,6 +13,12 @@ const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focu
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
 
+test('retryText names the skill and the machines it is tried again on', () => {
+  assert.equal(page.retryText('seo-cluster', ['ThinkPad']), 'Trying seo-cluster again on ThinkPad.')
+  assert.equal(page.retryText('seo-cluster', ['ThinkPad', 'studio']), 'Trying seo-cluster again on ThinkPad and studio.')
+  assert.equal(page.retryText('seo-cluster', ['a', 'b', 'c']), 'Trying seo-cluster again on 3 machines.')
+})
+
 test('healthLine words every state', () => {
   const cases = [
     [h('ok', { total: 3 }), 'On all 3 machines', 'ok', false],
@@ -21,8 +27,8 @@ test('healthLine words every state', () => {
     [h('installing', { pending: 2, total: 3 }), 'Installing on 2 of 3', 'work', false],
     [h('removing', { pending: 3 }), 'Coming off 3 machines', 'work', false],
     [h('removing', { pending: 1, hosts: ['ThinkPad'] }), 'Coming off ThinkPad', 'work', false],
-    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad · it tries again on its own', 'bad', false],
-    [h('failed', { hosts: ['ThinkPad', 'studio'] }), 'Failed on 2 machines · they try again on their own', 'bad', false],
+    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad', 'bad', true],
+    [h('failed', { hosts: ['ThinkPad', 'studio'] }), 'Failed on 2 machines', 'bad', true],
     [h('offline', { hosts: ['studio'] }), "Removing from studio when it's back online", 'work', false],
     [h('blocked', { hosts: ['ThinkPad'] }), "Can't write skills on ThinkPad", 'bad', false],
     [h('copying', { hosts: ['Elitebook'] }), 'Copying into reet from Elitebook', 'work', false],

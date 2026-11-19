@@ -165,6 +165,22 @@ try {
     }
   }
 
+  // With no machine to sync in place, the written-skill notice links to Sync all machines where it still is, on
+  // Advanced sync, not to the Sync page, which has no such action.
+  if (run('written skill, no machine')) {
+    const empty = { environments: [], machines: [], agents: [], targets: [], jobs: [], runs: [], updateJobs: [] }
+    const hosted = { slug: 'reet-review', description: 'Reviews code', content: '---\nname: reet-review\ndescription: Reviews code\n---\nReview carefully.', files: {}, published: false, createdAt: now, updatedAt: now }
+    const { context, page, presses, errors } = await open({ width: 1280, sync: empty, hosting: { username: 'sam', prefix: 'reet-', skills: [hosted] }, routes: { '/api/v2/hosting/skills/reet-review': request => request.postDataJSON() } })
+    await page.goto(`${base}/hosting`)
+    await page.locator('.skill-choice').filter({ hasText: 'reet-review' }).click()
+    await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
+    const notice = page.getByRole('status').filter({ hasText: 'Ready for your machines.' })
+    await expect(notice.getByRole('link', { name: 'Sync all machines' })).toHaveAttribute('href', '/sync/advanced')
+    expect(presses).toEqual([])
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   // No machine yet: the header says so, and clicking it opens Sync; adding a skill says only that it is in.
   if (run('no machine')) {
     const empty = { environments: [], machines: [], agents: [], targets: [], jobs: [], runs: [], updateJobs: [] }

@@ -53,7 +53,7 @@
         </div>
         <div class="actions">
           <a class="btn quiet" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>Edit</a>
-          <a class="btn quiet" href="/sync" title="Drafts sync privately from this reet.sh; nothing is published.">Sync to machines…</a>
+          <a class="btn quiet" href="/sync/advanced" title="Drafts sync privately from this reet.sh; nothing is published.">Sync to machines…</a>
           <button class="btn" disabled={!canWrite || !!saving} onclick={() => void publish(skill)}>{saving === skill.slug ? 'Publishing…' : 'Publish & share'}</button>
         </div>
       </article>

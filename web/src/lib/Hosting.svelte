@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ADVANCED_SYNC } from './syncRoutes'
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, getSkillContent, saveSkillContent, type HostedSkill, type SkillContent } from './api'
@@ -13,7 +14,8 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import { formatWhen } from './time'
 
-  // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to Sync.
+  // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to
+  // where that action still is, Advanced sync: the Sync page has none.
   let { canWrite = true, reports = [], snapshot, onsync, syncing = false, timeZone = '', dateFormat = 'locale' }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState; onsync?: () => void | Promise<void>; syncing?: boolean; timeZone?: string; dateFormat?: string } = $props()
   let username = $state('')
   let prefix = $state('')
@@ -60,7 +62,7 @@
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
   // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
-  const syncHref = $derived(originalSlug ? '/sync' : '')
+  const syncHref = $derived(originalSlug ? ADVANCED_SYNC : '')
   function hostedId(slug: string) { return `hosted/${location.host.toLowerCase()}/${username}/${slug}` }
   function whereLine(skill: HostedSkill) { return writtenSkillWhere(hostedId(skill.slug), snapshot, reports) }
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }

@@ -944,6 +944,18 @@ try {
   await context.close()
  }
 
+ // Adding a skill the library holds as Archived says so, and how to put it back; it does not say it is going on the
+ // machines, nor just that it is already there.
+ if (run('add archived')) {
+  const {context, page, errors} = await open()
+  await page.route('**/api/skills', route => route.fulfill({json: route.request().method() === 'POST' ? {id:'demo/toolkit/seo-sxo', name:'seo-sxo', status:'archived', created:false} : {skills:[], counts:{all:0, used:0, liked:0, bookmarked:0}}}))
+  await page.getByRole('textbox', {name:'Add a skill'}).fill('demo/toolkit/seo-sxo')
+  await page.getByRole('textbox', {name:'Add a skill'}).press('Enter')
+  await expect(page.getByRole('status').filter({hasText:'seo-sxo is in your library as Archived. Restore it to put it back on your machines.'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A paused machine is left alone, and the page says so rather than that there are no machines: alone when every
  // machine is paused, and beside what the others are doing when only some are.
  if (run('paused')) {

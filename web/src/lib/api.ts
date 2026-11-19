@@ -17,6 +17,8 @@ export type Skill = {
   liked: boolean
   bookmarked: boolean
   used: boolean
+  /** The library skill's state, Active or Archived, when the row stands for one. */
+  status?: 'active' | 'archived'
   createdAt: number
   updatedAt: number
   tags?: Tag[]

@@ -309,7 +309,9 @@
     try {
       const added = await write(() => addSkill(value))
       addInput = ''
-      say(!added.created ? `${added.name} is already in your library.` : page.machines ? `Added ${added.name} · going on every machine` : `Added ${added.name} to your library.`)
+      say(!added.created && added.status === 'archived' ? `${added.name} is in your library as Archived. Restore it to put it back on your machines.`
+        : !added.created ? `${added.name} is already in your library.`
+        : page.machines ? `Added ${added.name} · going on every machine` : `Added ${added.name} to your library.`)
       await read(page.tab)
       void read(other(page.tab), true)
     } catch (err) {

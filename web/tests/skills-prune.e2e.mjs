@@ -236,6 +236,40 @@ try {
   await context.close()
  }
 
+ // The bar's Add tag step by keyboard: the field and its buttons are in plain Tab order, an empty field skips the Add tag
+ // it cannot use, Escape cancels, and the field opens empty again.
+ if (run('tag keys')) {
+  const {context, page, errors} = await open()
+  await page.getByRole('button', {name:'Select', exact:true}).click()
+  await page.getByRole('checkbox', {name:'Select seo-bing'}).check()
+  const bar = page.getByRole('toolbar', {name:'Selected skills'})
+  const inBar = () => page.evaluate(() => !!document.activeElement?.closest('[role="toolbar"]'))
+  await bar.getByRole('button', {name:'Add tag', exact:true}).focus()
+  await page.keyboard.press('Enter')
+  const field = bar.getByLabel('Tag the selected skills')
+  await expect(field).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(bar.getByRole('button', {name:'Cancel', exact:true})).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(field).toBeFocused()
+  await page.keyboard.type('seo')
+  await page.keyboard.press('Tab')
+  await expect(bar.getByRole('button', {name:'Add tag', exact:true})).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(bar.getByRole('button', {name:'Cancel', exact:true})).toBeFocused()
+  await page.keyboard.press('Tab')
+  expect(await inBar()).toBe(false)
+  await field.focus()
+  await page.keyboard.press('Escape')
+  await expect(field).toHaveCount(0)
+  await expect(bar.getByRole('button', {name:'Add tag', exact:true})).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(field).toBeFocused()
+  await expect(field).toHaveValue('')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // On the Archived tab: Restore sends its request and stays on Archived; the upgrade notice's Restore the Parked ones
  // sends its own.
  if (run('archived')) {

@@ -48,7 +48,7 @@ test('a missing caret falls back to the end of the prompt, and out-of-range valu
 
 const installSource = readFileSync(new URL('./install.ts', import.meta.url), 'utf8')
 const installCompiled = ts.transpileModule(installSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { useSkillPrompt, installCommand, SKILLS_CLI } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
+const { useSkillPrompt, installCommand, installPrompt, copyPrompt, SKILLS_CLI } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
 
 const skill = over => ({ id: 'local/unslop', name: 'unslop', slug: 'unslop', source: 'local', sourceType: 'local', url: '', ...over })
 
@@ -63,9 +63,14 @@ test('a skill with a description carries it, on one line, so the agent gets its 
   assert.ok(useSkillPrompt(skill({ description: 'word '.repeat(100) })).endsWith('…'))
 })
 
-test('a skill with an install source keeps the fetch-and-run prompt', () => {
-  assert.match(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github' })), /^Run `npx skills@1\.7\.4 use "https:\/\/github\.com\/demo\/toolkit" --skill "unslop"`/)
-  assert.match(useSkillPrompt(skill({ source: '', sourceType: 'hosted', url: 'https://reet.test/demo' })), /^Run `npx skills@1\.7\.4 use "https:\/\/reet\.test\/demo"/)
+test('a library skill is used from reet\'s copy by name, never from its original link', () => {
+  // Every Active skill is on every machine already: the prompt names it, as Copy prompt does.
+  for (const over of [{ source: 'demo/toolkit', sourceType: 'github' }, { source: '', sourceType: 'hosted', url: 'https://reet.test/demo' }, { source: 'demo.example', sourceType: 'well-known' }]) {
+    const text = useSkillPrompt(skill({ ...over, description: 'Tidy prose. See https://github.com/demo/toolkit for more.' }))
+    assert.equal(text, 'Use the unslop skill: Tidy prose.')
+    assert.doesNotMatch(text, /npx|https?:|github\.com/)
+  }
+  assert.equal(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github', description: 'Tidy prose.' })), copyPrompt({ name: 'unslop', description: 'Tidy prose.' }))
 })
 
 test('a skill with neither a source nor a name cannot be used', () => {
@@ -84,7 +89,7 @@ test('a copied install command offers the skill\'s own name when it is not its f
 test('the use prompt names a skill the way the skills CLI finds it', () => {
   // `skills use` takes one selector and matches the skill's own name; the folder name finds nothing
   // for "SVG Logo Designer" on skills 1.7.4, and nothing for "UI/UX Design Review" on any version tried.
-  const run = over => useSkillPrompt(skill({ source: 'rknall/claude-skills', sourceType: 'github', ...over })).split('`')[1]
+  const run = over => installPrompt(skill({ source: 'rknall/claude-skills', sourceType: 'github', ...over })).split('`')[1]
   assert.equal(run({ name: 'SVG Logo Designer', slug: 'svg-logo-designer' }), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "SVG Logo Designer"')
   assert.equal(run({ name: 'UI/UX Design Review', slug: 'uiux-design-review' }), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "UI/UX Design Review"')
   assert.equal(run({}), 'npx skills@1.7.4 use "https://github.com/rknall/claude-skills" --skill "unslop"')

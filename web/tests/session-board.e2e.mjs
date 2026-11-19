@@ -54,7 +54,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
   }
   box.drafts.forEach(d => register(d.id))
   const app = await openWorkspace(browser, { width, height: 1000, theme, touch, terminalMachines: machines, terminalStatus: { configured: true, available: true, reason: '' }, routes,
-    skills: [skill('brainstorm'), skill('polish')] })
+    skills: [skill('brainstorm'), skill('polish'), { ...skill('brainwave'), status: 'archived' }] })
   // Retain coverage of the explicitly saved full-card presentation; compact defaults have their own large-list acceptance.
   await app.page.addInitScript(() => { if (!localStorage.getItem('reet.sessionBoard.1')) localStorage.setItem('reet.sessionBoard.1', JSON.stringify({compact:false})) })
   await app.page.goto(new URL(entry, base).href)
@@ -237,9 +237,13 @@ try {
   await skillSearch.fill('brain')
   const skillList = page.getByRole('listbox', { name: 'Skill' })
   await expect(skillList.getByRole('option', { name: /brainstorm/ })).toBeVisible()
+  // An Archived skill is off every machine, so it is not offered.
+  await expect(skillList.getByRole('option', { name: /brainwave/ })).toHaveCount(0)
   await skillList.getByRole('option', { name: /brainstorm/ }).click()
   const withSkill = await promptBox.inputValue()
-  expect(withSkill).toMatch(/npx skills@[\d.]+ use/)
+  // Every Active skill is on every machine from reet's copy: the prompt names it and never fetches its original link.
+  expect(withSkill).toContain('Use the brainstorm skill: Example skill for UI verification.')
+  expect(withSkill).not.toMatch(/npx skills|github\.com|skills\.sh/)
   await promptBox.fill(`${withSkill}\nKeep the tone calm.`)
   await composer.locator('input[type=file]').setInputFiles({name:'reference.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')})
   await expect(composer.locator('.image')).toHaveCount(1)
@@ -247,7 +251,7 @@ try {
   await expect(composer).toHaveCount(0); await expect(page.locator('.session-card')).toHaveCount(8)
   expect(box.saves[0].images).toHaveLength(1)
   expect(box.saves[0]).toMatchObject({ agentId: 'm2', dir: '/Users/sam/notes', effort: 'high', model: 'opus', projectId: '', title: 'Make session filtering feel effortless' })
-  expect(box.saves[0].prompt).toMatch(/npx skills@[\d.]+ use/)
+  expect(box.saves[0].prompt).toContain('Use the brainstorm skill: Example skill for UI verification.')
   expect(box.saves[0].prompt).toContain('Keep the tone calm.')
   await page.getByRole('button', { name: 'Edit Make session filtering feel effortless', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()

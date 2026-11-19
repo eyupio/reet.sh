@@ -1,5 +1,5 @@
 import type { Skill, SkillHealth, SkillRow } from '../api'
-import { installCommand, skillBlurb } from '../install'
+import { copyPrompt, installCommand } from '../install'
 
 export type Tone = 'ok' | 'work' | 'bad' | 'off'
 
@@ -124,13 +124,8 @@ export function deleteConfirm(rows: SkillRow[]): { title: string; body: string; 
   return { title, body: parts.join(' '), writtenConfirmed: written.length > 0, noCopyConfirmed: noCopy.length > 0 }
 }
 
-/** Words to paste into a prompt to use a skill. It carries the name and description, never a link: a sentence of the description that holds one is left out. */
-export function copyPrompt(row: Pick<SkillRow, 'name' | 'description'>): string {
-  const link = /https?:\/\/|www\.|github\.com/i
-  const kept = (row.description ?? '').split(/(?<=[.!?])\s+/).filter(sentence => !link.test(sentence)).join(' ')
-  const blurb = skillBlurb(kept)
-  return blurb ? `Use the ${row.name} skill: ${blurb}` : `Use the ${row.name} skill.`
-}
+/** Words to paste into a prompt to use a skill: the session prompt pickers use the same words. */
+export { copyPrompt }
 
 /** The command to install a published skill from its public page; null for one that is not published. */
 export function installCommandFor(row: SkillRow): string | null {

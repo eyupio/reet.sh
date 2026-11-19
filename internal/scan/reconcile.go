@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"io/fs"
 	"maps"
 	"os"
@@ -133,7 +134,7 @@ func checkDesired(d store.DesiredState) ([]store.DesiredSkill, []store.DesiredRe
 	seen := map[string]bool{}
 	var active []store.DesiredSkill
 	for _, a := range d.Active {
-		lower := strings.ToLower(a.Name)
+		lower := skillKey(a.Name)
 		switch problem := skillNameProblem(a.Name); {
 		case problem != "":
 			refused = append(refused, store.SkillReportEntry{Name: a.Name, State: "failed", Detail: problem})
@@ -148,7 +149,7 @@ func checkDesired(d store.DesiredState) ([]store.DesiredSkill, []store.DesiredRe
 	}
 	var removals []store.DesiredRemoval
 	for _, rm := range d.Remove {
-		lower := strings.ToLower(rm.Name)
+		lower := skillKey(rm.Name)
 		switch problem := skillNameProblem(rm.Name); {
 		case problem != "":
 			refused = append(refused, store.SkillReportEntry{Name: rm.Name, State: "failed", Detail: problem})
@@ -165,16 +166,21 @@ func checkDesired(d store.DesiredState) ([]store.DesiredSkill, []store.DesiredRe
 func claimedNames(active []store.DesiredSkill, removals []store.DesiredRemoval, refused []store.SkillReportEntry) map[string]bool {
 	claimed := map[string]bool{}
 	for _, a := range active {
-		claimed[strings.ToLower(a.Name)] = true
+		claimed[skillKey(a.Name)] = true
 	}
 	for _, rm := range removals {
-		claimed[strings.ToLower(rm.Name)] = true
+		claimed[skillKey(rm.Name)] = true
 	}
 	for _, e := range refused {
-		claimed[strings.ToLower(e.Name)] = true
+		claimed[skillKey(e.Name)] = true
 	}
 	return claimed
 }
+
+// skillKey is how the pass matches skill names: without case, and in one
+// Unicode form (NFC), since a file system may hand back a name decomposed
+// (NFD) that the controller sends composed.
+func skillKey(name string) string { return strings.ToLower(norm.NFC.String(name)) }
 
 // skillNameProblem says why a name from the controller cannot name an entry
 // in a skills folder, or "" when it can: it must be one plain path element.
@@ -247,7 +253,7 @@ func skillEntries(dir string) (map[string][]string, error) {
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		lower := strings.ToLower(e.Name())
+		lower := skillKey(e.Name())
 		out[lower] = append(out[lower], e.Name())
 	}
 	return out, nil
@@ -263,12 +269,12 @@ func (r *reconciler) leftAlone(f *folderRun, why string, active []store.DesiredS
 		return
 	}
 	for _, a := range active {
-		if len(names[strings.ToLower(a.Name)]) > 0 {
+		if len(names[skillKey(a.Name)]) > 0 {
 			r.fail(f.label, f.rel, a, why, "")
 		}
 	}
 	for _, rm := range removals {
-		if len(names[strings.ToLower(rm.Name)]) > 0 {
+		if len(names[skillKey(rm.Name)]) > 0 {
 			r.add(f.label, rm.Name, "failed", "", why, "")
 		}
 	}
@@ -299,13 +305,13 @@ func (r *reconciler) folder(f *folderRun, active []store.DesiredSkill, removals 
 		return
 	}
 	for _, a := range active {
-		r.activeSkill(f, a, names[strings.ToLower(a.Name)])
+		r.activeSkill(f, a, names[skillKey(a.Name)])
 	}
 	if f.rel == sharedSkillsDir && f.real != "" {
 		r.sharedReal = f.real
 	}
 	for _, rm := range removals {
-		for _, name := range names[strings.ToLower(rm.Name)] {
+		for _, name := range names[skillKey(rm.Name)] {
 			if err := r.writable(f); err != nil {
 				r.add(f.label, rm.Name, "failed", "", err.Error(), "")
 				continue
@@ -347,7 +353,7 @@ var errNoReadBack = errors.New("These files don't read back as reet's copy on th
 // name, in any case, is backed up first. If the new copy cannot then be put
 // in place, the copies backed up for it are put back.
 func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []string) {
-	key := f.rel + "/" + strings.ToLower(a.Name)
+	key := f.rel + "/" + skillKey(a.Name)
 	keep := ""
 	for _, name := range matches {
 		if r.copyAt(f, name).is(a.Digest) && (keep == "" || name == a.Name) {
@@ -369,7 +375,7 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 	if keep == "" {
 		var err error
 		if f.linked {
-			if source = r.shared[strings.ToLower(a.Name)]; source == "" {
+			if source = r.shared[skillKey(a.Name)]; source == "" {
 				r.fail(f.label, f.rel, a, "not installed in ~/"+sharedSkillsDir+" to link to", "")
 				return
 			}
@@ -477,9 +483,9 @@ func (r *reconciler) install(f *folderRun, staging, dest, digest string) error {
 // settle records that reet's copy of a is in place as keep.
 func (r *reconciler) settle(f *folderRun, a store.DesiredSkill, keep string) {
 	if f.rel == sharedSkillsDir {
-		r.shared[strings.ToLower(a.Name)] = keep
+		r.shared[skillKey(a.Name)] = keep
 	}
-	r.next[f.rel+"/"+strings.ToLower(a.Name)] = a.Digest
+	r.next[f.rel+"/"+skillKey(a.Name)] = a.Digest
 }
 
 func (r *reconciler) firstBackup(moved []movedCopy) string {
@@ -491,7 +497,7 @@ func (r *reconciler) firstBackup(moved []movedCopy) string {
 
 // fail reports a failed skill and keeps what reet last installed there.
 func (r *reconciler) fail(label, rel string, a store.DesiredSkill, detail, backup string) {
-	key := rel + "/" + strings.ToLower(a.Name)
+	key := rel + "/" + skillKey(a.Name)
 	if prev, ok := r.installed[key]; ok {
 		r.next[key] = prev
 	}
@@ -542,7 +548,7 @@ func (r *reconciler) failInstall(f *folderRun, a store.DesiredSkill, detail stri
 // rename. ~/.agents/skills is made first when it is missing, only where the
 // pass found it would be. The staged copy must read back with a's digest.
 func (r *reconciler) stage(f *folderRun, a store.DesiredSkill) (string, error) {
-	lower := strings.ToLower(a.Name)
+	lower := skillKey(a.Name)
 	b, ok := r.bundles[lower]
 	if !ok {
 		if b.err = r.ctx.Err(); b.err == nil {

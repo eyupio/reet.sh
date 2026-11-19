@@ -31,11 +31,11 @@ func skillInventory(home string, d store.DesiredState, unmanaged []string) store
 	active, removals, refused := checkDesired(d)
 	want := map[string]store.DesiredSkill{}
 	for _, a := range active {
-		want[strings.ToLower(a.Name)] = a
+		want[skillKey(a.Name)] = a
 	}
 	gone := map[string]string{}
 	for _, rm := range removals {
-		gone[strings.ToLower(rm.Name)] = rm.Name
+		gone[skillKey(rm.Name)] = rm.Name
 	}
 	claimed := claimedNames(active, removals, refused)
 	rep := store.SkillReport{Version: d.Version, Blocked: "allow-apply", Entries: refused}
@@ -160,7 +160,7 @@ func withUnsent(rep store.SkillReport, unsent []store.SkillReportEntry) store.Sk
 	if len(unsent) == 0 {
 		return rep
 	}
-	key := func(e store.SkillReportEntry) string { return e.Folder + "\x00" + strings.ToLower(e.Name) }
+	key := func(e store.SkillReportEntry) string { return e.Folder + "\x00" + skillKey(e.Name) }
 	waiting := map[string][]store.SkillReportEntry{}
 	for _, u := range unsent {
 		waiting[key(u)] = append(waiting[key(u)], u)
@@ -363,15 +363,15 @@ func capSkillReport(rep store.SkillReport, removals []store.DesiredRemoval) stor
 		if c := strings.Compare(a.Folder, b.Folder); c != 0 {
 			return c
 		}
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		return strings.Compare(skillKey(a.Name), skillKey(b.Name))
 	})
 	removing := map[string]bool{}
 	for _, r := range removals {
-		removing[strings.ToLower(r.Name)] = true
+		removing[skillKey(r.Name)] = true
 	}
 	wanted := []func(store.SkillReportEntry) bool{
 		func(e store.SkillReportEntry) bool { return e.Backup != "" },
-		func(e store.SkillReportEntry) bool { return removing[strings.ToLower(e.Name)] },
+		func(e store.SkillReportEntry) bool { return removing[skillKey(e.Name)] },
 		func(store.SkillReportEntry) bool { return true },
 	}
 	room := skillReportMaxEntries - 1

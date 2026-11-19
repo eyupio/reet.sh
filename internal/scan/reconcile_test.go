@@ -2961,3 +2961,16 @@ func TestUnsentRecordsFollowTheEnrollmentToANewAddress(t *testing.T) {
 		t.Fatalf("another enrollment's records were used: %+v", got)
 	}
 }
+
+// A name the file system keeps decomposed (NFD, as macOS may hand it back)
+// is the same skill as the controller's composed (NFC) name.
+func TestReconcileMatchesNamesWhateverTheirUnicodeForm(t *testing.T) {
+	home := t.TempDir()
+	nfd := "café"
+	writeSkill(t, filepath.Join(home, ".agents", "skills", nfd))
+	d := store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "café", Reason: "archived"}}}
+	rep, _ := reconcileSkills(context.Background(), home, d, map[string]string{}, (&stubBundles{}).fetch, reconcileNow)
+	if _, err := os.Lstat(filepath.Join(home, ".agents", "skills", nfd)); !os.IsNotExist(err) {
+		t.Fatalf("the decomposed copy of an archived skill stayed: %+v", rep.Entries)
+	}
+}

@@ -90,6 +90,9 @@
   let itemNotice = $state('')
   const itemFiles = $derived(item ? item.files.filter(f => f.path !== 'SKILL.md') : [])
   const itemDirty = $derived(itemText !== itemBase)
+  // The front matter's name does not rename the skill: machines keep it under the library's name.
+  const itemContentName = $derived(item ? (parseFrontmatter(itemText)?.fields.name ?? '').trim() : '')
+  const itemNameDiffers = $derived(!!item && itemContentName !== '' && itemContentName !== item.name)
   function fromBase64(data: string) {
     const binary = atob(data)
     const bytes = new Uint8Array(binary.length)
@@ -431,7 +434,8 @@
         <div class="form-block">
           <label for="item-content">SKILL.md</label>
           <textarea id="item-content" bind:value={itemText} rows="18" required spellcheck="false" disabled={itemBusy}></textarea>
-          <small>Keep <code>name: {item.name}</code> in the front matter: each machine keeps the skill under that name.</small>
+          <p class="hint">Keep <code>name: {item.name}</code> in the front matter: each machine keeps the skill under that name.</p>
+          {#if itemNameDiffers}<p class="notice warn" role="status">SKILL.md says name: {itemContentName}, but this skill is {item.name}. Saving keeps it {item.name} on every machine; changing the name here does not rename it.</p>{/if}
         </div>
         {#if itemFiles.length}
           <div class="form-block">
@@ -679,6 +683,7 @@
   .dropzone strong { font-size: 1rem; }
   .dropzone span { color: var(--muted); font-size: 0.875rem; }
   .hint { margin: 0; color: var(--muted); font-size: 0.875rem; }
+  .item-editor code { font-size: 0.875rem; }
   .import-list { display: grid; gap: 8px; list-style: none; margin: 4px 0 0; padding: 0; }
   .import-list li { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
   .import-list li.invalid { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: color-mix(in srgb, var(--bad) 5%, var(--card)); }

@@ -12,6 +12,9 @@ const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
 const passed = []
 
+// When seo-cluster came into the library, and how the opened skill writes that date.
+const importedAt = Date.now() - 3600_000
+const importedOn = new Date(importedAt).toLocaleDateString('en-GB', {day:'numeric', month:'short'})
 const machines = [{host:'Elitebook', state:'ok'}, {host:'ThinkPad', state:'failed', detail:'No write access to ~/.claude/skills'}, {host:'studio', state:'ok'}]
 function world() {
  return {
@@ -20,7 +23,7 @@ function world() {
    skillRow('seo-cluster', {description:'Group keywords into topic clusters mapped to pages. Source: https://github.com/demo/toolkit.', origin:'https://github.com/demo/toolkit/seo-cluster',
     tags:[{id:1, name:'seo'}], lists:[{id:7, name:'SEO kit'}], notes:'Run after seo-audit.',
     health:{state:'failed', pending:1, total:3, hosts:['ThinkPad'], machines},
-    editedOn:{agentId:'agent-thinkpad', host:'ThinkPad'}}),
+    editedOn:{agentId:'agent-thinkpad', host:'ThinkPad'}, createdAt:importedAt}),
    skillRow('hosted-tips', {originKind:'written', origin:'', yours:true, published:true, publicUrl:'https://reet.example/sam/hosted-tips'}),
    skillRow('improve-animations', {originKind:'kept', origin:'Elitebook', editedOn:{agentId:'agent-elitebook', host:'Elitebook'}, editedOnProblem:'The copy on Elitebook holds a file over 8 MiB, which reet does not copy.'}),
    skillRow('my_skill', {originKind:'kept', origin:'studio'}),
@@ -109,6 +112,8 @@ try {
   await expect(detail.getByRole('heading', {name:'Imported from'})).toBeVisible()
   await expect(detail.getByRole('link', {name:'github.com/demo/toolkit/seo-cluster'})).toHaveAttribute('href', 'https://github.com/demo/toolkit/seo-cluster')
   await expect(detail.getByText('For reference. reet installs its own copy.')).toBeVisible()
+  // The date it was imported sits beside the link, as in the mock.
+  await expect(detail.locator('.origin')).toHaveText(`github.com/demo/toolkit/seo-cluster · ${importedOn}`)
   await expect(detail.getByRole('button', {name:'Update from original'})).toBeVisible()
   await expect(detail.getByText('Run after seo-audit.')).toBeVisible()
   await expect(detail.getByRole('link', {name:'Edit seo-cluster'})).toHaveAttribute('href', '/hosting?item=item-seo-cluster')
@@ -187,6 +192,14 @@ try {
   await expect(dialog.getByRole('button', {name:'Update from original'})).toHaveCount(0)
   await dialog.getByRole('button', {name:'Close'}).click()
   expect(posts(w, 'original')).toHaveLength(1)
+  // reet has no copy yet: every file of the original is new, and the confirmation names no revision.
+  w.original = {changes:[{path:'SKILL.md', kind:'added'}], state:'changed', digest:'digest-3', revision:'', edited:false}
+  await button.click()
+  await expect(dialog.getByText('reet has no copy of seo-cluster yet, so every file is new.')).toBeVisible()
+  await expect(dialog.getByRole('list', {name:'What changed'}).getByRole('listitem')).toHaveText([/SKILL\.md\s*New/])
+  await dialog.getByRole('button', {name:'Update from original'}).click()
+  await expect(dialog).toHaveCount(0)
+  expect(posts(w, 'original')[1]).toEqual({digest:'digest-3', revision:''})
   expect(errors).toEqual([])
   await context.close()
   passed.push('original')
@@ -317,8 +330,29 @@ try {
   await expect(page.getByRole('status').filter({hasText:'Saved seo-cluster'})).toBeVisible()
   expect(saved.revision).toBe('rev-1')
   expect(saved.files.map(f => [f.path, Buffer.from(f.data, 'base64').toString(), f.executable])).toEqual([['SKILL.md', md + 'Keep clusters small.\n', false], ['scripts/run.sh', 'echo hi\n', true]])
+  // A changed name in the front matter would not rename the skill: it says so.
+  const warning = page.getByText('SKILL.md says name: seo-groups, but this skill is seo-cluster.')
+  await expect(warning).toHaveCount(0)
+  await box.fill(md.replace('name: seo-cluster', 'name: seo-groups'))
+  await expect(warning).toBeVisible()
+  await expect(page.getByRole('status').filter({hasText:'Saving keeps it seo-cluster on every machine'})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
+  // On a phone, light and dark: nothing under 14 px, 44 px targets, no sideways scroll.
+  for (const theme of ['light', 'dark']) {
+   const f = await openWorkspace(browser, {width:390, height:844, theme, touch:true, routes:routes(world())})
+   await f.page.route('**/api/v2/skills/item-seo-cluster/content', route => route.fulfill({json:{id:'item-seo-cluster', name:'seo-cluster', revision:'rev-1', files:[{path:'SKILL.md', data:b64(md.replace('name: seo-cluster', 'name: seo-groups')), executable:false}, {path:'references/a-rather-long-file-name-for-a-phone.md', data:b64('x'), executable:false}]}}))
+   await f.page.goto(`${base}/hosting?item=item-seo-cluster`)
+   await expect(f.page.getByRole('textbox', {name:'SKILL.md'})).toBeVisible()
+   await expect(f.page.getByText('SKILL.md says name: seo-groups, but this skill is seo-cluster.')).toBeVisible()
+   expect(await under14(f.page, '.item-editor'), `Write a skill text under 14 px at 390px ${theme}`).toEqual([])
+   for (const el of await f.page.locator('.item-editor').locator('button, a').all()) {
+    expect((await el.boundingBox()).height, `${await el.textContent()} at 390px ${theme}`).toBeGreaterThanOrEqual(44)
+   }
+   expect(await f.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `no sideways scroll at 390px ${theme}`).toBe(true)
+   expect(f.errors).toEqual([])
+   await f.context.close()
+  }
   passed.push('write a skill')
  }
 

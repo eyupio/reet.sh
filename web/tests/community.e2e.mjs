@@ -49,7 +49,7 @@ try {
   if (run('save as active or archived')) {
     const posts = []
     const library = (request) => {
-      if (request.method() === 'POST') { const body = request.postDataJSON(); posts.push(body); return { ...skill(body.input.split('/').pop()), id: body.input, created: true } }
+      if (request.method() === 'POST') { const body = request.postDataJSON(); posts.push(body); return { json: { ...skill(body.input.split('/').pop()), id: body.input, status: body.status, created: true } } }
       return { skills: [], counts: { all: 0, used: 0, liked: 0, bookmarked: 0 } }
     }
     for (const [choice, notice] of [['Active', 'Saved pdf to your library as Active · going on every machine'], ['Archived', 'Saved pdf to your library as Archived · kept off your machines']]) {
@@ -67,13 +67,38 @@ try {
       await dialog.getByRole('button', { name: 'Save', exact: true }).click()
       await expect(page.getByRole('status').filter({ hasText: notice })).toBeVisible()
       expect(posts).toEqual([{ input: 'demo/toolkit/pdf', status: choice.toLowerCase() }])
-      await expect(page.getByRole('button', { name: 'Saved to your library' })).toBeVisible()
+      await expect(page.locator('.skill-record').first()).toContainText(`In your library · ${choice}`)
       // reet's copy is the one to use now: Copy prompt, not the original's install command.
       await expect(page.getByRole('button', { name: 'Copy prompt for pdf' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Copy install command' })).toHaveCount(2)
       expect(errors).toEqual([])
       await context.close()
     }
+  }
+
+  // A skill already in the library says where it stands there instead of offering Save, and a Save's notice says the
+  // status the server answered, never only the one asked for.
+  if (run('already in the library')) {
+    const posts = []
+    const library = (request) => {
+      if (request.method() === 'POST') { const body = request.postDataJSON(); posts.push(body); return { json: { ...skill('frontend-design'), status: 'archived', created: false } } }
+      return { skills: [{ ...skill('pdf'), status: 'archived' }, { ...skill('code-review'), status: 'active' }], counts: { all: 2, used: 0, liked: 0, bookmarked: 0 } }
+    }
+    const { context, page, errors } = await open({ routes: { '/api/community': community, '/api/skills': library } })
+    await page.goto(`${base}/community`)
+    await tab(page, /^Skills/).click()
+    const row = name => page.locator('.skill-record').filter({ has: page.getByRole('heading', { name, exact: true }) })
+    await expect(row('pdf')).toContainText('In your library · Archived')
+    await expect(row('code-review')).toContainText('In your library · Active')
+    await expect(row('pdf').getByRole('button', { name: /Save/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Save to your library' })).toHaveCount(1)
+    await page.getByRole('button', { name: 'Save to your library' }).click()
+    await page.getByRole('dialog', { name: 'Save frontend-design to your library' }).getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Saved frontend-design to your library as Archived · kept off your machines' })).toBeVisible()
+    expect(posts).toEqual([{ input: 'demo/toolkit/frontend-design', status: 'active' }])
+    await expect(row('frontend-design')).toContainText('In your library · Archived')
+    expect(errors).toEqual([])
+    await context.close()
   }
 
   // A list's Add all says how many skills go on how many machines before it sends anything.

@@ -459,7 +459,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 	}
 	reported := map[string]map[string][]reportedRow{}
 	hostsOf := map[string][]string{} // name -> hosts of the counted machines that have it
-	rows, err = q.Query(`SELECT a.id,a.host,lower(m.name),m.state,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host`, uid)
+	rows, err = q.Query(`SELECT a.id,a.host,lower(m.name),`+reportedState+`,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host`, retryCutoff(now), uid)
 	if err != nil {
 		return nil, work, err
 	}

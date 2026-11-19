@@ -38,6 +38,20 @@ type SyncMachine struct {
 // tried again: it counts as work still to do until the machine reports again.
 const skillRetrying = "retrying"
 
+// skillRetryAnswerWithin is how long a retried skill reads as work still to
+// do. A machine polls every few seconds and reports what it tried that cycle;
+// past this, the poll that carried the retry or the report after it was lost,
+// and the skill reads as failed again, for its earlier reason.
+const skillRetryAnswerWithin = 2 * time.Minute
+
+// reportedState is machine_skills' state as health reads it at a cutoff (a
+// time in Unix ms, its one argument): a retry asked before then and not yet
+// answered reads as failed again. m is machine_skills.
+const reportedState = `CASE WHEN m.state='` + skillRetrying + `' AND m.at<? THEN 'failed' ELSE m.state END`
+
+// retryCutoff is the cutoff reportedState takes at now.
+func retryCutoff(now time.Time) int64 { return now.Add(-skillRetryAnswerWithin).UnixMilli() }
+
 // skillRetryMaxNames bounds one Retry: every skill reet can hold.
 const skillRetryMaxNames = 1024
 
@@ -90,7 +104,7 @@ func (s *Store) SyncMachinesFor(uid int64, now time.Time) ([]SyncMachine, error)
 		return nil, err
 	}
 	reported := map[string]map[string][]reportedRow{}
-	rows, err = tx.Query(`SELECT agent_id,lower(name),state,digest,detail FROM machine_skills WHERE user_id=? ORDER BY folder`, uid)
+	rows, err = tx.Query(`SELECT m.agent_id,lower(m.name),`+reportedState+`,m.digest,m.detail FROM machine_skills m WHERE m.user_id=? ORDER BY m.folder`, retryCutoff(now), uid)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +227,7 @@ func (s *Store) RequestSkillRetryFor(uid int64, agentID string, names []string, 
 			if _, err := tx.Exec(`INSERT INTO skill_retries(user_id,agent_id,name,at) VALUES(?,?,?,?) ON CONFLICT(user_id,agent_id,name) DO UPDATE SET at=excluded.at`, uid, agentID, n, at); err != nil {
 				return err
 			}
-			res, err := tx.Exec(`UPDATE machine_skills SET state=?,detail='',at=? WHERE user_id=? AND agent_id=? AND name=? AND state='failed'`, skillRetrying, at, uid, agentID, n)
+			res, err := tx.Exec(`UPDATE machine_skills SET state=?,at=? WHERE user_id=? AND agent_id=? AND name=? AND state='failed'`, skillRetrying, at, uid, agentID, n)
 			if err != nil {
 				return err
 			}

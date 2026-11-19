@@ -204,3 +204,32 @@ func TestSkillRetryIsRefusedForAnotherAccountOrAMachineThatCannotTry(t *testing.
 		t.Fatalf("below the protocol: %v", err)
 	}
 }
+
+// A retry the machine never answers does not read as installing for ever:
+// once skillRetryAnswerWithin has passed, the failure is back, with its reason.
+func TestSkillRetryUnansweredReadsFailedAgain(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	cluster := savedWrittenSkill(t, s, uid, "seo-cluster", false)
+	thinkpad := reportAgent(t, s, uid, "thinkpad")
+	reportOf(t, s, uid, thinkpad, reportT0, SkillReportEntry{Folder: "~/.claude/skills", Name: "seo-cluster", State: "failed", Detail: "no write access"})
+	if _, err := s.RequestSkillRetryFor(uid, thinkpad, []string{"seo-cluster"}, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	// The machine is seen, but never reports.
+	soon := reportT0.Add(skillRetryAnswerWithin - time.Second)
+	late := reportT0.Add(skillRetryAnswerWithin + time.Second)
+	for _, at := range []time.Time{soon, late} {
+		if _, err := s.db.Exec(`UPDATE sync_agents SET last_seen=? WHERE id=?`, at.UnixMilli(), thinkpad); err != nil {
+			t.Fatal(err)
+		}
+		h := healthOf(t, s, uid, cluster.id, at)
+		m := syncMachineOf(t, s, uid, "thinkpad", at)
+		if at == soon && (h.State != "installing" || m.State != "installing") {
+			t.Fatalf("while the retry may still be answered: %+v %+v", h, m)
+		}
+		if at == late && (h.State != "failed" || h.Reason != "no write access" || m.State != "failed" || len(m.Failed) != 1 || m.Failed[0].Detail != "no write access") {
+			t.Fatalf("an unanswered retry: %+v %+v", h, m)
+		}
+	}
+}

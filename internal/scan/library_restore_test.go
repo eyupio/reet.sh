@@ -43,7 +43,7 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	window := libraryRestoreDebounce
 
 	// An intact bundle records nothing.
-	observeLibraryDeletions(&state, "", start)
+	observeLibraryDeletions(&state, homeFolders{}, start)
 	if len(state.Missing) != 0 {
 		t.Fatal("intact bundle recorded as missing", state.Missing)
 	}
@@ -54,14 +54,14 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	if err := os.Rename(missing, missing+".tmp"); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, "", start)
+	observeLibraryDeletions(&state, homeFolders{}, start)
 	if len(state.Missing) != 1 || state.Missing[0].stable(window) {
 		t.Fatal("first sighting was already stable", state.Missing)
 	}
 	if err := os.Rename(missing+".tmp", missing); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, "", start.Add(window*2))
+	observeLibraryDeletions(&state, homeFolders{}, start.Add(window*2))
 	if len(state.Missing) != 0 {
 		t.Fatal("a file that came back kept its deletion record", state.Missing)
 	}
@@ -70,12 +70,12 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, "", start.Add(window*3))
-	observeLibraryDeletions(&state, "", start.Add(window*3+window/2))
+	observeLibraryDeletions(&state, homeFolders{}, start.Add(window*3))
+	observeLibraryDeletions(&state, homeFolders{}, start.Add(window*3+window/2))
 	if state.Missing[0].stable(window) || state.Missing[0].Count != 2 {
 		t.Fatal("stable before the window elapsed", state.Missing)
 	}
-	observeLibraryDeletions(&state, "", start.Add(window*4+time.Second))
+	observeLibraryDeletions(&state, homeFolders{}, start.Add(window*4+time.Second))
 	if len(state.Missing) != 1 || !state.Missing[0].stable(window) || state.Missing[0].Whole || len(state.Missing[0].Files) != 1 || state.Missing[0].Files[0] != "reference.txt" {
 		t.Fatal("a persisting deletion was not classified as stable", state.Missing)
 	}
@@ -84,7 +84,7 @@ func TestDeletionObservationIsDebounced(t *testing.T) {
 	if err := os.Remove(filepath.Join(path, "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
-	observeLibraryDeletions(&state, "", start.Add(window*5))
+	observeLibraryDeletions(&state, homeFolders{}, start.Add(window*5))
 	if len(state.Missing) != 1 || state.Missing[0].Count != 1 || state.Missing[0].stable(window) || len(state.Missing[0].Files) != 2 {
 		t.Fatal("a changed deletion did not restart the debounce", state.Missing)
 	}
@@ -107,7 +107,7 @@ func TestWholeDirectoryDeletionAndOwnershipBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Unix(1_800_000_000, 0)
-	observeLibraryDeletions(&state, "", now)
+	observeLibraryDeletions(&state, homeFolders{}, now)
 	// Only the verified, non-source, non-removing binding is a deletion; the
 	// others were never present on disk and must not be treated as managed.
 	if len(state.Missing) != 1 || state.Missing[0].Path != path || !state.Missing[0].Whole {
@@ -385,12 +385,43 @@ func TestDeletionObserverSkipsManagedHomeCopiesWhenFollowingTheLibrary(t *testin
 		t.Fatal(err)
 	}
 	state := libraryLocalState{Bindings: []libraryBinding{binding}}
-	observeLibraryDeletions(&state, home, time.Unix(1_800_000_000, 0))
+	observeLibraryDeletions(&state, homeFolders{home: home}, time.Unix(1_800_000_000, 0))
 	if len(state.Missing) != 0 {
 		t.Fatalf("a managed home copy was observed: %+v", state.Missing)
 	}
-	observeLibraryDeletions(&state, "", time.Unix(1_800_000_000, 0))
+	observeLibraryDeletions(&state, homeFolders{}, time.Unix(1_800_000_000, 0))
 	if len(state.Missing) != 1 {
 		t.Fatalf("without a managed home, the deletion is observed: %+v", state.Missing)
+	}
+}
+
+// Only a copy in a managed folder the reconcile pass works in is the pass's.
+// One in a managed folder it leaves alone (here ~/.claude/skills leads into
+// an enrolled project) is not held back from the old engine, which still
+// sends its edits.
+func TestManagedHomeCopyIsOnlyWhereThePassWorks(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(t.TempDir(), "site")
+	if err := os.MkdirAll(filepath.Join(project, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(project, "skills"), filepath.Join(home, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".agents", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := homeFolders{home: home, unmanaged: []string{project}}
+	if !h.holds(filepath.Join(home, ".agents", "skills", "alpha")) {
+		t.Fatal("a copy in ~/.agents/skills is the pass's")
+	}
+	if h.holds(filepath.Join(home, ".claude", "skills", "alpha")) {
+		t.Fatal("a copy in a managed folder the pass leaves alone was held")
+	}
+	if (homeFolders{}).holds(filepath.Join(home, ".agents", "skills", "alpha")) {
+		t.Fatal("with no home, nothing is held")
 	}
 }

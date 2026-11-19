@@ -69,20 +69,43 @@ type libraryLocalState struct {
 	EditPaths map[string]string `json:"editPaths,omitempty"`
 }
 
-// managedHomeCopy says whether path lies in one of the managed folders under
-// home. This build follows the library: there reet's copy wins, so an edit is
-// backed up and reported by the reconcile pass, never sent as a new revision.
-func managedHomeCopy(home, path string) bool {
-	if home == "" || !filepath.IsAbs(path) {
+// homeFolders are the managed folders under home that the reconcile pass
+// works in, with the enrolled projects it leaves alone (unmanaged). The zero
+// value holds nothing: a machine that does not follow the library.
+type homeFolders struct {
+	home      string
+	unmanaged []string
+}
+
+// holds says whether path lies in a managed folder under home that the pass
+// works in. This build follows the library: there reet's copy wins, so an
+// edit is backed up and reported by the reconcile pass, never sent as a new
+// revision. A managed folder the pass leaves alone (see managedRoots) is not
+// its, so a copy there is not held.
+func (h homeFolders) holds(path string) bool {
+	if h.home == "" || !filepath.IsAbs(path) {
 		return false
 	}
-	for _, f := range managedFolders {
-		dir := filepath.Join(home, filepath.FromSlash(f.Dir))
+	roots := managedRoots(h.home, h.unmanaged)
+	for i, f := range managedFolders {
+		if !roots[i].exists || roots[i].why != "" {
+			continue
+		}
+		dir := filepath.Join(h.home, filepath.FromSlash(f.Dir))
 		if within(filepath.Clean(path), dir) || within(resolvePath(path), resolvePath(dir)) {
 			return true
 		}
 	}
 	return false
+}
+
+// followingHome is c's home folders when this machine follows the library,
+// else none.
+func followingHome(config string, c agentConfig) homeFolders {
+	if followsLibrary(config, c) {
+		return homeFolders{home: c.Home, unmanaged: c.Projects}
+	}
+	return homeFolders{}
 }
 
 // skillsProtocolSeen is <config>.skills-protocol: the skills protocol the
@@ -124,12 +147,12 @@ func followsLibrary(config string, c agentConfig) bool {
 // heldEdit says whether a pending edit stays on disk, unsent: one read from a
 // managed home folder, or, for one queued before edits recorded their folder,
 // one of an item with a copy in a managed home folder.
-func (state *libraryLocalState) heldEdit(home string, e store.LibraryEdit) bool {
+func (state *libraryLocalState) heldEdit(home homeFolders, e store.LibraryEdit) bool {
 	if p, ok := state.EditPaths[e.EventID]; ok {
-		return managedHomeCopy(home, p)
+		return home.holds(p)
 	}
 	for _, b := range state.Bindings {
-		if b.ItemID == e.ItemID && managedHomeCopy(home, b.Path) {
+		if b.ItemID == e.ItemID && home.holds(b.Path) {
 			return true
 		}
 	}
@@ -168,8 +191,8 @@ func libraryApplyConsent(config string, c agentConfig) error {
 // Only exact private revisions installed by this enrollment are watched. A
 // missing file is not an edit/deletion; Stage 4 restores it from central content.
 // A copy in a managed home folder under home is not watched: see
-// managedHomeCopy. Edits held unsent do not count against the queue's bounds.
-func captureLibraryEdits(state *libraryLocalState, home string) error {
+// homeFolders.holds. Edits held unsent do not count against the queue's bounds.
+func captureLibraryEdits(state *libraryLocalState, home homeFolders) error {
 	for i := range state.Bindings {
 		binding := &state.Bindings[i]
 		var queuedBytes int64
@@ -186,7 +209,7 @@ func captureLibraryEdits(state *libraryLocalState, home string) error {
 		if queuedBytes >= 64<<20 || queued >= 256 {
 			break
 		}
-		if managedHomeCopy(home, binding.Path) {
+		if home.holds(binding.Path) {
 			continue
 		}
 		if err := safeLibraryParent(binding.Path); err != nil {
@@ -263,11 +286,8 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 		return err
 	}
 	// A machine that follows the library sends no edit made in a managed
-	// home folder: there reet's copy wins (see managedHomeCopy).
-	managedHome := ""
-	if followsLibrary(config, c) {
-		managedHome = c.Home
-	}
+	// home folder: there reet's copy wins (see homeFolders.holds).
+	managedHome := followingHome(config, c)
 	// Capture precedes all network operations: offline edits keep their original
 	// base and calibrated source time through process/controller restarts.
 	if state.CalibratedAt != 0 && c.AllowApply {

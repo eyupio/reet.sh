@@ -190,7 +190,7 @@ func removeLibraryDeployment(ctx context.Context, config string, c agentConfig, 
 		if state.CalibratedAt != 0 {
 			// Captured here as before, so the journal holds the edit; it is
 			// never sent from a managed home folder (see heldEdit).
-			if err := captureLibraryEdits(&capture, ""); err != nil {
+			if err := captureLibraryEdits(&capture, homeFolders{}); err != nil {
 				return err
 			}
 		}

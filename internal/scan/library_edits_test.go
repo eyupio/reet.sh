@@ -33,7 +33,7 @@ func TestLibraryCapturePreservesManagedFileDeletion(t *testing.T) {
 	if err := os.Remove(filepath.Join(path, "reference.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if err := captureLibraryEdits(&state, ""); err != nil {
+	if err := captureLibraryEdits(&state, homeFolders{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(state.Pending) != 0 || state.Bindings[0].Digest != manifest.Digest {

@@ -114,11 +114,11 @@ func missingManagedFiles(binding libraryBinding) (whole bool, files []string, de
 // observeLibraryDeletions advances the debounce for every install this
 // machine is proven to own. It only records what it sees: it never touches the
 // filesystem, and an incomplete view (anything but plain absence) clears the
-// record instead of extending it. A copy in a managed folder under
-// managedHome (this machine's home when it follows the library, else "") is
+// record instead of extending it. A copy managedHome holds (this machine's
+// home folders when it follows the library, else none) is
 // the reconcile pass's, which removes and restores it from the library, so it
 // is not watched here.
-func observeLibraryDeletions(state *libraryLocalState, managedHome string, now time.Time) bool {
+func observeLibraryDeletions(state *libraryLocalState, managedHome homeFolders, now time.Time) bool {
 	at := now.UnixMilli()
 	kept := make([]libraryMissing, 0, len(state.Missing))
 	changed := false
@@ -130,7 +130,7 @@ func observeLibraryDeletions(state *libraryLocalState, managedHome string, now t
 		if binding.Source || binding.Deployment == nil || !binding.Deployment.Verified || binding.Deployment.Removal != nil {
 			continue
 		}
-		if managedHomeCopy(managedHome, binding.Path) {
+		if managedHome.holds(binding.Path) {
 			continue
 		}
 		whole, files, deletion := missingManagedFiles(binding)
@@ -167,10 +167,7 @@ func planLibraryRestores(config string, c agentConfig, target store.SyncTarget, 
 	if err != nil {
 		return nil, nil, err
 	}
-	managedHome := ""
-	if followsLibrary(config, c) {
-		managedHome = c.Home
-	}
+	managedHome := followingHome(config, c)
 	if observeLibraryDeletions(&state, managedHome, time.Now()) {
 		if err := writePrivate(config+".library", state); err != nil {
 			return nil, nil, err

@@ -18,6 +18,7 @@ func TestSimpleSyncContractImportRecoversAfterConnectorRestart(t *testing.T) {
 	h := newLegacySyncContractHarness(t)
 	a, b := h.machine("restart-source"), h.machine("restart-destination")
 	a.localSkill("restart-import", "must survive a connector restart")
+	h.keep("restart-import")
 	previewed := false
 	for range 8 {
 		h.rounds(1, a, b)

@@ -201,6 +201,7 @@ func TestCanonicalImportedSourceEditsAndBlockedItemIsolation(t *testing.T) {
 	h := newSyncContractHarness(t)
 	source, destination := h.machine("root-source"), h.machine("root-destination")
 	source.localSkill("imported", "original imported bytes")
+	h.keep("imported")
 	// Normal connectors report metadata before the first explicit content
 	// capture. That report's identity/status must survive this import.
 	h.rounds(1, source, destination)

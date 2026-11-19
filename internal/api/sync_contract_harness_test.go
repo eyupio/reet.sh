@@ -549,6 +549,17 @@ func (m *syncContractMachine) localSkill(name, text string) {
 	}
 }
 
+// keep is the person bringing a skill found on a machine into the library. A
+// scan only reports what a machine has, so a skill there reaches the other
+// machines only once the person keeps it. These harness machines speak the
+// skills protocol of before, so it is never New on a machine for them: the
+// person names it in an import, which makes its library item, and the scan's
+// sighting of that folder then joins it.
+func (h *syncContractHarness) keep(name string) {
+	h.t.Helper()
+	h.mustRequest(http.MethodPost, "/api/import", map[string]string{"text": syncContractName(name)})
+}
+
 func (m *syncContractMachine) requireFile(name, file, want string) {
 	m.h.t.Helper()
 	got, err := os.ReadFile(m.path(name, file))
@@ -768,6 +779,7 @@ func TestSimpleSyncHarnessLocalContentImport(t *testing.T) {
 	a, b := h.machine("import-source"), h.machine("import-destination")
 	name := "machine-only"
 	a.localSkill(name, "original local instructions")
+	h.keep(name)
 	h.rounds(12, a, b)
 	b.requireFile(name, "SKILL.md", syncContractContent(name, "original local instructions"))
 	b.requireFile(name, "reference.txt", "source-only reference\n")

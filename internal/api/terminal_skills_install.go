@@ -5,38 +5,27 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
-	"github.com/eyupio/reet.sh/internal/terminalbroker"
 )
-
-// installErrorStatus is the HTTP status for a refusal code of the store.
-func installErrorStatus(code string) int {
-	switch code {
-	case "missing", "unavailable", "no-scan", "unsupported-agent", "connector-offline":
-		return http.StatusUnprocessableEntity
-	case "follows-source", "follows-library", "slug-conflict", "install-in-progress", "already-installed", "cannot-cancel":
-		return http.StatusConflict
-	}
-	return http.StatusInternalServerError
-}
 
 type installErrorBody struct {
 	Error string `json:"error"`
 	Code  string `json:"code"`
 }
 
-func writeInstallError(w http.ResponseWriter, err error) {
-	var ie *store.InstallError
-	if errors.As(err, &ie) {
-		writeJSON(w, installErrorStatus(ie.Code), installErrorBody{Error: ie.Message, Code: ie.Code})
-		return
-	}
-	// Anything else may carry a database or origin detail the person should not see.
-	writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The install could not be started. Try again.", Code: "internal"})
+// cleanHostedPart is one part of a reet-hosted skill's name: a username or a
+// slug, never a path.
+func cleanHostedPart(part string) bool {
+	return part != "" && !strings.ContainsAny(part, `/\`) && !strings.Contains(part, "..")
 }
 
-// terminalSkillInstall puts one written or published hosted skill on the
-// session's machine. The store queues a preview job only; the person approves the plan.
+// terminalSkillInstall is the session picker's Add to your skills. It makes a
+// reet-hosted skill Active in the library, which puts it on every machine, the
+// session's included; nothing is queued for one machine. "reet:SLUG" is one of
+// the person's own written skills, and an Archived one is restored.
+// "reet:USERNAME/SLUG" is a skill someone published on this reet: it is added
+// Active, and reet copies its files in.
 func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Skill string `json:"skill"`
@@ -44,41 +33,12 @@ func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	slug, ok := strings.CutPrefix(in.Skill, "reet:")
-	cleanSlug := slug != "" && !strings.ContainsAny(slug, `/\`) && !strings.Contains(slug, "..")
-	if !ok || !cleanSlug {
-		writeErr(w, 400, "invalid terminal request")
-		return
+	name, ok := strings.CutPrefix(in.Skill, "reet:")
+	username, slug, foreign := strings.Cut(name, "/")
+	if !foreign {
+		slug = username
 	}
-	uid := s.uid(r)
-	session, agentID, host, err := s.sessionMachine(uid, r.PathValue("id"))
-	if err != nil {
-		terminalError(w, err)
-		return
-	}
-	if host == "" {
-		writeInstallError(w, &store.InstallError{Code: "connector-offline", Message: "This session's machine isn't connected to reet right now, so it can't install this skill."})
-		return
-	}
-	res, err := s.st.InstallHostedSkillFor(uid, store.InstallRequest{Tool: session.Tool, Host: host, AgentID: agentID, Slug: slug, Origin: requestOrigin(r)})
-	if err != nil {
-		writeInstallError(w, err)
-		return
-	}
-	s.eventRequest(r, "skill-install", "", map[string]any{"session": session.ID, "machine": res.Host, "slug": slug, "job": res.JobID, "reused": res.Reused})
-	writeJSON(w, 200, map[string]any{"job": res.JobID, "reused": res.Reused, "directory": res.Directory, "host": res.Host})
-}
-
-// terminalSkillInstallCancel cancels a queued install and takes the skill back
-// out of the saved set.
-func (s *server) terminalSkillInstallCancel(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Job string `json:"job"`
-	}
-	if !terminalJSON(w, r, &in) {
-		return
-	}
-	if in.Job == "" {
+	if !ok || !cleanHostedPart(slug) || foreign && !cleanHostedPart(username) {
 		writeErr(w, 400, "invalid terminal request")
 		return
 	}
@@ -88,21 +48,88 @@ func (s *server) terminalSkillInstallCancel(w http.ResponseWriter, r *http.Reque
 		terminalError(w, err)
 		return
 	}
-	reverted, err := s.st.CancelInstallFor(uid, in.Job)
-	if errors.Is(err, store.ErrNotFound) {
-		terminalError(w, terminalbroker.ErrDenied)
-		return
-	}
-	if err != nil {
-		var ie *store.InstallError
-		if errors.As(err, &ie) {
-			writeInstallError(w, err)
-		} else {
-			// A database detail is not for the person, and the machine is not reconnecting.
-			writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The install could not be cancelled. Try again.", Code: "internal"})
+	missing := installErrorBody{Error: "This skill is no longer available. Refresh the list.", Code: "missing"}
+	if foreign {
+		mine, err := s.st.PublishingUsername(uid)
+		if err != nil {
+			terminalError(w, err)
+			return
 		}
-		return
+		foreign = !strings.EqualFold(mine, username)
 	}
-	s.eventRequest(r, "skill-install-cancel", "", map[string]any{"session": session.ID, "machine": host, "job": in.Job, "reverted": reverted})
-	writeJSON(w, 200, map[string]bool{"reverted": reverted})
+	added := false
+	if foreign {
+		if _, err := s.st.PublishedHostedSkill(username, slug); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, missing)
+			return
+		}
+		rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
+		if err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, missing)
+			return
+		}
+		live, err := s.st.LiveLibrarySkillFor(uid, "", rf.ID)
+		if err != nil {
+			terminalError(w, err)
+			return
+		}
+		_ = s.st.UnignoreFor(uid, rf.ID)
+		if _, err = s.st.AddFor(uid, rf, store.Patch{}); errors.Is(err, store.ErrSkillNameTaken) {
+			writeJSON(w, http.StatusConflict, installErrorBody{Error: "A skill called " + slug + " is already in your library.", Code: "slug-conflict"})
+			return
+		} else if err != nil {
+			writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The skill could not be added. Try again.", Code: "internal"})
+			return
+		}
+		added = !live
+		s.enqueue(rf)
+		s.kickSkillCopies(uid)
+	} else {
+		id, status, err := s.writtenSkillItem(uid, slug)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The skill could not be added. Try again.", Code: "internal"})
+			return
+		}
+		if id == "" {
+			writeJSON(w, http.StatusUnprocessableEntity, missing)
+			return
+		}
+		if status == store.SkillArchived {
+			if err = s.st.SetSkillStatusFor(uid, []string{id}, store.SkillActive, s.skillNow()); err != nil {
+				writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The skill could not be added. Try again.", Code: "internal"})
+				return
+			}
+			added = true
+		}
+	}
+	s.eventRequest(r, "skill-add", "", map[string]any{"session": session.ID, "machine": host, "slug": slug, "added": added})
+	writeJSON(w, 200, map[string]any{"name": slug, "status": store.SkillActive, "added": added})
+}
+
+// writtenSkillItem finds the live library item of one of the person's own
+// written skills, with its status; id is "" when there is none.
+func (s *server) writtenSkillItem(uid int64, slug string) (id, status string, err error) {
+	written, err := s.st.HostedSkillsFor(uid)
+	if err != nil {
+		return "", "", err
+	}
+	known := false
+	for _, h := range written {
+		known = known || h.Slug == slug
+	}
+	if !known {
+		return "", "", nil
+	}
+	items, err := s.st.LibraryFor(uid)
+	if err != nil {
+		return "", "", err
+	}
+	for _, it := range items {
+		for _, a := range it.Aliases {
+			if a.Kind == "hosted" && a.Reference == slug {
+				return it.ID, it.Status, nil
+			}
+		}
+	}
+	return "", "", nil
 }

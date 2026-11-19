@@ -435,7 +435,7 @@ func (s *Store) InstalledSkillsFor(userID int64, host string) ([]Skill, error) {
 		return nil, err
 	}
 	rows.Close()
-	if err := s.attachMetaForMode(userID, out, attachMode{}); err != nil {
+	if err := s.attachMetaForMode(userID, out, attachMode{library: true}); err != nil {
 		return nil, err
 	}
 	return out, nil

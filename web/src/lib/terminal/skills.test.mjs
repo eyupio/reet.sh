@@ -10,13 +10,28 @@ const api = await import(asURL(ts.transpileModule(readFileSync(new URL('./api.ts
 
 const skill = (id, over) => ({ id, name: id, description: '', source: 'machine', agent: 'claude', native: false, onMachine: true, invocation: `/${id}`, ...over })
 
-test('groupSkills orders native, other, reet and omits empty groups', () => {
-  const list = [skill('r', { source: 'reet', onMachine: false }), skill('o', { agent: 'codex' }), skill('n', { native: true })]
+test('groupSkills orders native, other and new, and omits empty groups', () => {
+  const list = [skill('n2', { source: 'new' }), skill('o', { agent: 'codex' }), skill('n', { native: true })]
   const groups = s.groupSkills(list, '', 'claude')
-  assert.deepEqual(groups.map(g => g.key), ['native', 'other', 'reet'])
-  assert.deepEqual(groups.map(g => g.label), ['On this machine for claude', 'On this machine for other agents', 'Your skills'])
+  assert.deepEqual(groups.map(g => g.key), ['native', 'other', 'new'])
+  assert.deepEqual(groups.map(g => g.label), ['On this machine for claude', 'On this machine for other agents', 'New on this machine'])
   assert.deepEqual(s.groupSkills([skill('n', { native: true })], '', 'claude').map(g => g.key), ['native'])
   assert.deepEqual(s.groupSkills([], '', 'claude'), [])
+})
+
+test('the Your skills group is gone; machine, project and unknown skills are still listed', () => {
+  const list = [
+    skill('pdf', { native: true }),
+    skill('in-project', { native: true, id: 'a/b/in-project' }),
+    skill('codex-only', { agent: 'codex' }),
+    skill('cq', { source: 'new', native: true }),
+    skill('written', { source: 'reet', onMachine: false }),
+  ]
+  const groups = s.groupSkills(list, '', 'claude')
+  assert.ok(groups.every(g => g.label !== 'Your skills'))
+  assert.deepEqual(groups.flatMap(g => g.skills.map(k => k.name)), ['pdf', 'in-project', 'codex-only', 'cq'])
+  assert.equal(s.keepable(skill('cq', { source: 'new' })), true)
+  assert.equal(s.keepable(skill('pdf')), false)
 })
 
 test('groupSkills filters by name or description, case-insensitively', () => {
@@ -63,54 +78,6 @@ test('seenLine', () => {
   assert.equal(s.seenLine(now - 60_000, 'box', now), 'Skills on box were read 1 minute ago.')
 })
 
-test('installStep maps kind and status', () => {
-  const step = (kind, status) => s.installStep({ kind, status })
-  assert.equal(step('preview', 'queued'), 'waiting')
-  assert.equal(step('preview', 'running'), 'waiting')
-  assert.equal(step('preview', 'awaiting-approval'), 'review')
-  assert.equal(step('apply', 'queued'), 'installing')
-  assert.equal(step('apply', 'running'), 'installing')
-  assert.equal(step('apply', 'succeeded'), 'done')
-  assert.equal(step('preview', 'failed'), 'failed')
-  assert.equal(step('apply', 'failed'), 'failed')
-  assert.equal(step('preview', 'cancelled'), 'cancelled')
-  assert.equal(step('apply', 'cancelled'), 'cancelled')
-  assert.equal(s.installStep(undefined), 'waiting')
-})
-
-test('planVerdict approves only plain adds of the slug', () => {
-  const act = (add, slug, replace) => ({ add, ...(replace ? { replace } : {}), skill: { slug } })
-  assert.deepEqual(s.planVerdict({ actions: [act(true, 'pdf')] }, 'pdf'), { ok: true, lines: ['Add pdf'] })
-  const other = 'This install would change other skills. Review it on the Sync page.'
-  assert.deepEqual(s.planVerdict({ actions: [act(true, 'xlsx')] }, 'pdf'), { ok: false, reason: other, lines: ['Add xlsx'] })
-  assert.deepEqual(s.planVerdict({ actions: [act(true, 'pdf', true)] }, 'pdf'), { ok: false, reason: other, lines: ['Replace pdf'] })
-  assert.deepEqual(s.planVerdict({ actions: [act(false, 'pdf')] }, 'pdf'), { ok: false, reason: other, lines: ['Remove pdf'] })
-  assert.deepEqual(s.planVerdict({ actions: [act(true, 'pdf'), act(false, 'docx')] }, 'pdf'), { ok: false, reason: other, lines: ['Add pdf', 'Remove docx'] })
-  const none = 'The machine has not sent its plan yet.'
-  assert.deepEqual(s.planVerdict({ actions: [] }, 'pdf'), { ok: false, reason: none, lines: [] })
-  assert.deepEqual(s.planVerdict({}, 'pdf'), { ok: false, reason: none, lines: [] })
-  assert.deepEqual(s.planVerdict(undefined, 'pdf'), { ok: false, reason: none, lines: [] })
-})
-
-test('planVerdict never approves or throws on an action without a skill', () => {
-  const other = 'This install would change other skills. Review it on the Sync page.'
-  for (const action of [{ add: true }, { add: true, skill: null }, { add: true, skill: {} }]) {
-    assert.deepEqual(s.planVerdict({ actions: [action] }, 'pdf'), { ok: false, reason: other, lines: ['Add'] })
-  }
-  assert.equal(s.planVerdict({ actions: [{ add: true, skill: { slug: 'pdf' } }, { add: true }] }, 'pdf').ok, false)
-})
-
-test('installStatusLine', () => {
-  assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 0), 'Waiting for box…')
-  assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 59), 'Waiting for box…')
-  assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 60), 'Waiting for box… Is reet running on box?')
-  assert.equal(s.installStatusLine('review', 'box', 'pdf', 90), 'Review what will be added.')
-  assert.equal(s.installStatusLine('installing', 'box', 'pdf', 90), 'Installing pdf on box…')
-  assert.equal(s.installStatusLine('done', 'box', 'pdf', 0), 'pdf is installed on box.')
-  assert.equal(s.installStatusLine('failed', 'box', 'pdf', 0), 'The install did not finish.')
-  assert.equal(s.installStatusLine('cancelled', 'box', 'pdf', 0), 'Install cancelled.')
-})
-
 function fetchReplying(status, body) {
   const calls = []
   globalThis.fetch = async (url, init) => {
@@ -120,25 +87,20 @@ function fetchReplying(status, body) {
   return calls
 }
 
-test('installSessionSkill and cancelSessionSkillInstall', async () => {
-  const started = { job: 'j1', reused: false, directory: '/home/u/.claude/skills', host: 'box' }
-  let calls = fetchReplying(200, started)
-  assert.deepEqual(await api.installSessionSkill('s/1', 'sk 9'), started)
+test('addSessionSkill', async () => {
+  const added = { name: 'slides', status: 'active', added: true }
+  const calls = fetchReplying(200, added)
+  assert.deepEqual(await api.addSessionSkill('s/1', 'reet:pub/slides'), added)
   assert.equal(calls[0].url, '/api/v2/terminal/sessions/s%2F1/skills/install')
   assert.equal(calls[0].init.method, 'POST')
-  assert.deepEqual(JSON.parse(calls[0].init.body), { skill: 'sk 9' })
+  assert.deepEqual(JSON.parse(calls[0].init.body), { skill: 'reet:pub/slides' })
   assert.equal(calls[0].init.credentials, 'same-origin')
 
-  const text = 'Another install is already running for this session.'
-  fetchReplying(409, { error: text, code: 'install-in-progress' })
-  const err = await api.installSessionSkill('s1', 'k').then(() => assert.fail('resolved'), e => e)
-  assert.equal(err.code, 'install-in-progress')
+  const text = 'This skill is no longer available. Refresh the list.'
+  fetchReplying(422, { error: text, code: 'missing' })
+  const err = await api.addSessionSkill('s1', 'reet:gone').then(() => assert.fail('resolved'), e => e)
+  assert.equal(err.code, 'missing')
   assert.equal(err.message, text)
-  assert.equal(err.status, 409)
-
-  calls = fetchReplying(200, { reverted: true })
-  assert.deepEqual(await api.cancelSessionSkillInstall('s/1', 'j1'), { reverted: true })
-  assert.equal(calls[0].url, '/api/v2/terminal/sessions/s%2F1/skills/install/cancel')
-  assert.equal(calls[0].init.method, 'POST')
-  assert.deepEqual(JSON.parse(calls[0].init.body), { job: 'j1' })
+  assert.equal(err.status, 422)
+  assert.equal(api.cancelSessionSkillInstall, undefined)
 })

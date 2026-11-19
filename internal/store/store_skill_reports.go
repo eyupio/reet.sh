@@ -380,12 +380,16 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 // every skill they have to install or take off, deleted ones still on the
 // removal list included. Each machine is counted once: in Failed when it
 // reported a failure, or cannot write skills, with work left; otherwise in
-// Installing, Removing or both, and then once in Updating.
+// Installing, Removing or both, and then once in Updating. A machine below
+// the skills protocol gets no skill work at all: NeedsUpdate counts the
+// unpaused ones, and NeedsUpdateHost names it when there is just one.
 type SkillWork struct {
-	Failed     int `json:"failed"`
-	Installing int `json:"installing"`
-	Removing   int `json:"removing"`
-	Updating   int `json:"updating"`
+	Failed          int    `json:"failed"`
+	Installing      int    `json:"installing"`
+	Removing        int    `json:"removing"`
+	Updating        int    `json:"updating"`
+	NeedsUpdate     int    `json:"needsUpdate"`
+	NeedsUpdateHost string `json:"needsUpdateHost,omitempty"`
 }
 
 // skillHealthAndWork reads each skill's health and the machines' work in
@@ -463,6 +467,9 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		return nil, work, err
 	}
 	work = machinesWork(machines, reported, desired)
+	if work.NeedsUpdate, work.NeedsUpdateHost, err = machinesNeedingUpdate(q, uid); err != nil {
+		return nil, work, err
+	}
 	removalNames := map[string]bool{}
 	removals, err := skillRemovalsOf(q, uid)
 	if err != nil {
@@ -566,6 +573,28 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		out[id] = h
 	}
 	return out, work, items.Err()
+}
+
+// machinesNeedingUpdate counts the unpaused machines below the skills
+// protocol, and names the one when there is just one.
+func machinesNeedingUpdate(q privateSkillQuery, uid int64) (int, string, error) {
+	rows, err := q.Query(`SELECT host FROM sync_agents WHERE user_id=? AND paused=0 AND skills_protocol<? ORDER BY host,id`, uid, CurrentSkillsProtocol)
+	if err != nil {
+		return 0, "", err
+	}
+	defer rows.Close()
+	var hosts []string
+	for rows.Next() {
+		var host string
+		if err = rows.Scan(&host); err != nil {
+			return 0, "", err
+		}
+		hosts = append(hosts, host)
+	}
+	if err = rows.Err(); err != nil || len(hosts) != 1 {
+		return len(hosts), "", err
+	}
+	return 1, hosts[0], nil
 }
 
 // machinesWork counts what each machine has left to do: every Active skill

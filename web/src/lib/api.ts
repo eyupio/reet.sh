@@ -531,7 +531,7 @@ export type SkillRow = {
 }
 export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
 /** What the machines are doing over every skill (deleted ones still coming off included), each machine counted once. */
-export type SkillWork = { failed: number; installing: number; removing: number; updating: number }
+export type SkillWork = { failed: number; installing: number; removing: number; updating: number; needsUpdate?: number; needsUpdateHost?: string }
 export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null; work: SkillWork }
 
 /** One tab of the Skills page, with both tabs' counts. */

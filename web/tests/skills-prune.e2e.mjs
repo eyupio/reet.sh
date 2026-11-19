@@ -572,6 +572,21 @@ try {
   await context.close()
  }
 
+ // A machine below the skills protocol gets no skill work: the header says to update reet there, even when no machine
+ // follows the library yet.
+ if (run('needs update')) {
+  const w = world()
+  const r = routes(w)
+  r['/api/v2/skills'] = req => skillsPageOf(w.rows, new URL(req.url()).searchParams.get('status') || 'active', {machines:0, work:{failed:0, installing:0, removing:0, updating:0, needsUpdate:1, needsUpdateHost:'ThinkPad'}})
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  const chip = page.locator('main .sync-chip')
+  await expect(chip).toHaveText('Update reet on ThinkPad to keep its skills in sync')
+  await expect(chip).toHaveAttribute('data-tone', 'bad')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A change reaches the machines only after the server's 10 second grace (an Undo inside it costs them nothing), so
  // the machines' work counts a deleted skill only then. The page reads once more just after the grace, so the header
  // says it is coming off then, not at the next 15 second read. The page's clock is driven by the test.

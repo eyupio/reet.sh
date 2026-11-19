@@ -121,6 +121,14 @@ test('syncSentence says installing, coming off or updating, and failures first',
   assert.equal(syncSentence({ failed: 2, installing: 0, removing: 0 }), '2 machines need a look.')
 })
 
+test('syncSentence asks for reet to be updated on a machine below the skills protocol, after failures', () => {
+  assert.equal(syncSentence({ failed: 0, installing: 2, removing: 0, needsUpdate: 1, needsUpdateHost: 'ThinkPad' }), 'Update reet on ThinkPad to keep its skills in sync')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsUpdate: 2 }), 'Update reet on 2 machines to keep their skills in sync')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsUpdate: 1 }), 'Update reet on 1 machine to keep its skills in sync')
+  assert.equal(syncSentence({ failed: 1, installing: 0, removing: 0, needsUpdate: 2 }), '1 machine needs a look.')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsUpdate: 0 }), 'Everything is in sync.')
+})
+
 // The Skills page searches as Markdown and CSV export do (store.go splitQuery and ListFor), so an export holds the
 // rows the page shows: words find the name, the shelf id, the description or the notes; tag:x keeps skills tagged x.
 test('matchesSearch finds what export finds', () => {

@@ -694,3 +694,39 @@ func TestSkillsPageWorkCountsEveryMachineOnce(t *testing.T) {
 		t.Fatalf("thinkpad needs a look, once, and elitebook is done: %+v", w)
 	}
 }
+
+// A machine below the skills protocol gets no skill work, so it is counted apart: it needs reet updated. A paused one
+// is left alone, and the host is named when there is just one.
+func TestSkillsPageWorkCountsMachinesThatNeedAnUpdate(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	savedWrittenSkill(t, s, uid, "kept", false)
+	reportAgent(t, s, uid, "elitebook")
+	work := func() SkillWork {
+		t.Helper()
+		page, err := s.SkillsPageFor(uid, SkillActive, reportT0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Work
+	}
+	old, _, err := s.EnrollSyncAgentBuild(uid, "thinkpad", "0.9", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := work(); w.NeedsUpdate != 1 || w.NeedsUpdateHost != "thinkpad" {
+		t.Fatalf("thinkpad needs reet updated: %+v", w)
+	}
+	if _, _, err = s.EnrollSyncAgentBuild(uid, "studio", "0.9", ""); err != nil {
+		t.Fatal(err)
+	}
+	if w := work(); w.NeedsUpdate != 2 || w.NeedsUpdateHost != "" {
+		t.Fatalf("two machines need reet updated, and neither is named: %+v", w)
+	}
+	if _, err = s.db.Exec(`UPDATE sync_agents SET paused=1 WHERE id=?`, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if w := work(); w.NeedsUpdate != 1 || w.NeedsUpdateHost != "studio" {
+		t.Fatalf("a paused machine is left alone: %+v", w)
+	}
+}

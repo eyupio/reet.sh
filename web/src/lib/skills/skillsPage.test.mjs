@@ -44,6 +44,13 @@ test('healthLine words every state', () => {
   }
 })
 
+test('an offline machine waits to install an Active skill and to remove an Archived one', () => {
+  const offline = h('offline', { pending: 1, hosts: ['studio'] })
+  assert.deepEqual(healthLine(offline, 'active'), { text: "Installing on studio when it's back online", tone: 'work', retry: false })
+  assert.deepEqual(healthLine(offline, 'archived'), { text: "Removing from studio when it's back online", tone: 'work', retry: false })
+  assert.equal(healthLine(h('offline', { pending: 2, hosts: ['studio', 'pi'] }), 'active').text, "Installing on 2 machines when they're back online")
+})
+
 test('toastText', () => {
   assert.equal(toastText('archived', ['seo-bing'], 3), 'Archived seo-bing · coming off 3 machines')
   assert.equal(toastText('archived', ['a', 'b'], 1), 'Archived 2 skills · coming off 1 machine')
@@ -113,16 +120,20 @@ test('syncSentence says installing, coming off or updating, and failures first',
   assert.equal(syncSentence({ failed: 2, installing: 0, removing: 0 }), '2 machines need a look.')
 })
 
-test('machineWork counts each machine once: installs apart from removals, offline as coming off, failures first', () => {
+test('machineWork counts each machine once: installs apart from removals, offline by the row, failures first', () => {
   const m = (host, state) => ({ host, state })
-  const of = (...healths) => machineWork(healths.map(health => row({ health })))
+  const of = (...healths) => machineWork(healths.map(health => row({ health, status: health.state === 'removing' ? 'archived' : 'active' })))
+  const archived = (...healths) => machineWork(healths.map(health => row({ health, status: 'archived' })))
   assert.deepEqual(of(h('ok', { total: 3 })), { failed: 0, installing: 0, removing: 0, updating: 0 })
-  assert.deepEqual(of(h('removing', { machines: [m('A', 'removing'), m('B', 'removing'), m('C', 'offline')] })), { failed: 0, installing: 0, removing: 3, updating: 3 })
+  assert.deepEqual(archived(h('removing', { machines: [m('A', 'removing'), m('B', 'removing'), m('C', 'offline')] })), { failed: 0, installing: 0, removing: 3, updating: 3 })
+  // An offline machine on an Active row is waiting to install it, not to remove it.
+  assert.deepEqual(of(h('installing', { machines: [m('A', 'installing'), m('C', 'offline')] })), { failed: 0, installing: 2, removing: 0, updating: 2 })
+  assert.deepEqual(of(h('offline', { hosts: ['studio'] })), { failed: 0, installing: 1, removing: 0, updating: 1 })
   assert.deepEqual(of(h('installing', { machines: [m('A', 'installing')] }), h('removing', { machines: [m('A', 'removing'), m('B', 'removing')] })), { failed: 0, installing: 1, removing: 2, updating: 2 })
   // A machine with a failure needs a look, and is not counted as working as well.
   assert.deepEqual(of(h('failed', { machines: [m('A', 'failed'), m('B', 'installing')] }), h('installing', { machines: [m('A', 'installing')] })), { failed: 1, installing: 1, removing: 0, updating: 1 })
   // Without each machine's line, the row's hosts say where; with none, it is somewhere.
-  assert.deepEqual(of(h('offline', { hosts: ['studio'] })), { failed: 0, installing: 0, removing: 1, updating: 1 })
+  assert.deepEqual(archived(h('offline', { hosts: ['studio'] })), { failed: 0, installing: 0, removing: 1, updating: 1 })
   assert.deepEqual(of(h('installing', { pending: 2 })), { failed: 0, installing: 1, removing: 0, updating: 1 })
   assert.deepEqual(of(h('needs-update'), h('blocked', { hosts: ['ThinkPad'] })), { failed: 2, installing: 0, removing: 0, updating: 0 })
 })

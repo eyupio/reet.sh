@@ -5,8 +5,11 @@ export type Tone = 'ok' | 'work' | 'bad' | 'off'
 
 const machines = (n: number) => `${n} machine${n === 1 ? '' : 's'}`
 
-/** One line saying where a skill stands on the person's machines. Every state has one. */
-export function healthLine(h: SkillHealth): { text: string; tone: Tone; retry: boolean } {
+/**
+ * One line saying where a skill stands on the person's machines. Every state has one. `status` is the row's: a machine
+ * that is offline is waiting to install an Active skill, and to remove an Archived one.
+ */
+export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text: string; tone: Tone; retry: boolean } {
   const hosts = h.hosts ?? []
   const where = hosts.length === 1 ? hosts[0] : machines(hosts.length)
   const line = (text: string, tone: Tone, retry = false) => ({ text, tone, retry })
@@ -20,6 +23,7 @@ export function healthLine(h: SkillHealth): { text: string; tone: Tone; retry: b
     case 'failed':
       return line(`Failed on ${where}`, 'bad', true)
     case 'offline':
+      if (status === 'active') return line(`Installing on ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
       return line(`Removing from ${where} when it's back online`, 'work')
     case 'blocked':
       return line(`Can't write skills on ${where}`, 'bad')
@@ -132,21 +136,21 @@ export function syncSentence(m: MachineWork): string {
 
 /**
  * What the machines are doing, from the skills' health: each machine counted once as needing a look (a failure, no
- * write access, or an older reet), and otherwise as installing, as removing (an offline machine is waiting to remove),
- * or both. A row with no per-machine line counts its hosts; rows that name none count as one machine somewhere.
+ * write access, or an older reet), and otherwise as installing, as removing, or both. An offline machine is waiting to
+ * install an Active row's skill and to remove an Archived one's. A row with no per-machine line counts its hosts; rows that name none count as one machine somewhere.
  */
-export function machineWork(rows: Pick<SkillRow, 'health'>[]): Required<MachineWork> {
+export function machineWork(rows: Pick<SkillRow, 'health' | 'status'>[]): Required<MachineWork> {
   const failed = new Set<string>(), installing = new Set<string>(), removing = new Set<string>()
-  const put = (state: string, host: string) => {
+  const put = (state: string, host: string, status: SkillRow['status']) => {
     if (state === 'failed' || state === 'blocked' || state === 'needs-update') failed.add(host)
-    else if (state === 'installing') installing.add(host)
+    else if (state === 'installing' || state === 'offline' && status === 'active') installing.add(host)
     else if (state === 'removing' || state === 'offline') removing.add(host)
   }
-  for (const { health: h } of rows) {
-    if (h.machines.length) for (const m of h.machines) put(m.state, m.host)
-    else if (h.hosts.length) for (const host of h.hosts) put(h.state, host)
+  for (const { health: h, status } of rows) {
+    if (h.machines.length) for (const m of h.machines) put(m.state, m.host, status)
+    else if (h.hosts.length) for (const host of h.hosts) put(h.state, host, status)
     // Rows that name no machine stand for one machine, apart from every named one.
-    else put(h.state, '\u0000somewhere')
+    else put(h.state, '\u0000somewhere', status)
   }
   for (const host of failed) { installing.delete(host); removing.delete(host) }
   const updating = new Set([...installing, ...removing]).size

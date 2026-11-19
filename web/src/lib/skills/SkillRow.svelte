@@ -24,7 +24,7 @@
     onlike: (row: SkillRow) => void
   } = $props()
 
-  const line = $derived(healthLine(row.health))
+  const line = $derived(healthLine(row.health, row.status))
   const detailId = $derived(`skill-detail-${row.id}`)
   // Where it came from, in a few words. A link is a reference only; reet installs its own copy.
   const source = $derived.by(() => {

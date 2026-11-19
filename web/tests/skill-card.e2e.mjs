@@ -21,7 +21,8 @@ const states = [
  ['installing', h('installing', {pending:2}), 'Installing on 2 of 3', 'work', false],
  ['removing', h('removing', {pending:1, hosts:['ThinkPad']}), 'Coming off ThinkPad', 'work', false],
  ['failed', h('failed', {pending:1, hosts:['ThinkPad'], reason:'no write access'}), 'Failed on ThinkPad', 'bad', true],
- ['offline', h('offline', {pending:1, hosts:['studio']}), "Removing from studio when it's back online", 'work', false],
+ // An Active skill on a machine that is off is waiting to go on it; an Archived one is waiting to come off (below).
+ ['offline', h('offline', {pending:1, hosts:['studio']}), "Installing on studio when it's back online", 'work', false],
  ['blocked', h('blocked', {pending:1, hosts:['ThinkPad']}), "Can't write skills on ThinkPad", 'bad', false],
  ['copying', h('copying', {hosts:['Elitebook']}), 'Copying into reet from Elitebook', 'work', false],
  ['copy-failed', h('copy-failed', {hosts:['Elitebook'], reason:'over 8 MiB'}), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', false],
@@ -34,7 +35,7 @@ const states = [
 try {
  // Each state reads its own line, in its own tone, with Retry only after a failure that a retry can clear.
  if (run('health')) {
-  const rows = states.map(([state, health]) => skillRow(`skill-${state}`, {health}))
+  const rows = [...states.map(([state, health]) => skillRow(`skill-${state}`, {health})), skillRow('skill-gone', {status:'archived', health:h('offline', {pending:1, hosts:['studio']})})]
   const {context, page, errors} = await open(rows, {height:1800})
   for (const [state, , text, tone, retry] of states) {
    const row = page.locator(`[data-skill="item-skill-${state}"]`)
@@ -42,6 +43,9 @@ try {
    await expect(row.locator('.health'), state).toHaveAttribute('data-tone', tone)
    await expect(row.getByRole('button', {name:`Retry skill-${state}`}), state).toHaveCount(retry ? 1 : 0)
   }
+  await page.getByRole('tab', {name:/^Archived/}).click()
+  await expect(page.locator('[data-skill="item-skill-gone"] .health')).toHaveText("Removing from studio when it's back online")
+  await page.getByRole('tab', {name:/^Active/}).click()
   // A healthy line is not drawn in the warning colours.
   const colours = await page.evaluate(() => {
    const of = id => getComputedStyle(document.querySelector(`[data-skill="${id}"] .health`)).color

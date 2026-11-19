@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
+const { pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
@@ -21,11 +21,12 @@ test('healthLine words every state', () => {
     [h('installing', { pending: 2, total: 3 }), 'Installing on 2 of 3', 'work', false],
     [h('removing', { pending: 3 }), 'Coming off 3 machines', 'work', false],
     [h('removing', { pending: 1, hosts: ['ThinkPad'] }), 'Coming off ThinkPad', 'work', false],
-    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad', 'bad', true],
+    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad · it tries again on its own', 'bad', false],
+    [h('failed', { hosts: ['ThinkPad', 'studio'] }), 'Failed on 2 machines · they try again on their own', 'bad', false],
     [h('offline', { hosts: ['studio'] }), "Removing from studio when it's back online", 'work', false],
     [h('blocked', { hosts: ['ThinkPad'] }), "Can't write skills on ThinkPad", 'bad', false],
     [h('copying', { hosts: ['Elitebook'] }), 'Copying into reet from Elitebook', 'work', false],
-    [h('copy-failed', { reason: 'over 8 MiB', hosts: ['Elitebook'] }), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', false],
+    [h('copy-failed', { reason: 'over 8 MiB', hosts: ['Elitebook'] }), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', true],
     [h('getting', { hosts: ['Elitebook'] }), 'Getting a copy from Elitebook', 'work', false],
     [h('getting'), 'Getting the files', 'work', false],
     [h('fetch-failed'), "Couldn't fetch the files", 'bad', true],
@@ -147,4 +148,19 @@ test('matchesSearch finds what export finds', () => {
   for (const q of ['', '  ', 'bing', 'BING', 'toolkit/seo', 'webmaster tools', 'client sites', 'tag:seo', 'tag:SEO bing', 'tag:"research work"', 'tag:seo tag:"research work"']) yes(q)
   // A tag's name is found with tag:, not as a word; words are matched as one phrase, in order.
   for (const q of ['research', 'tools webmaster', 'tag:missing', 'tag:seo nothing-like-it', 'tag:research']) no(q)
+})
+
+test('a published skill is in the library as Active, not To test', () => {
+  assert.equal(savedSkillNotice(false, true), "Skill published. It's in your library as Active and goes on every machine.")
+  assert.match(savedSkillNotice(true, true), /^Renamed and published\..* It's in your library as Active and goes on every machine\.$/)
+  assert.equal(savedSkillNotice(false, false), 'Draft saved. Only you can see it.')
+  for (const renamed of [false, true]) for (const published of [false, true]) assert.doesNotMatch(savedSkillNotice(renamed, published), /To test/)
+})
+
+test('pausedSentence names a paused machine, or counts several, and says nothing when none is paused', () => {
+  assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 1, pausedHost: 'ThinkPad' }), 'Sync is paused on ThinkPad.')
+  assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 1 }), 'Sync is paused on 1 machine.')
+  assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 2 }), 'Sync is paused on 2 machines.')
+  assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 0 }), '')
+  assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0 }), '')
 })

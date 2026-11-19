@@ -8,7 +8,7 @@
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
   import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
-  import { deleteConfirm, focusAfterRemoval, syncSentence, toastText } from './skillsPage'
+  import { deleteConfirm, focusAfterRemoval, pausedSentence, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
   import { skillsExport } from './exportFilters.svelte'
 
@@ -60,18 +60,23 @@
 
   // The machines that need a look and what the rest are doing, as the server counts it over every skill: a deleted one
   // still coming off has left the list but not the machines.
+  // A paused machine is left alone, and said so beside the rest; "No machines yet" only when there are none at all.
+  const paused = $derived(pausedSentence(page.work))
   const sync = $derived.by(() => {
     const work = page.work
     const stuck = !!(work.needsUpdate || work.needsNewerController)
-    if (!work.failed && !work.updating && !stuck && page.machines === 0) return { text: 'No machines yet', tone: 'off' }
-    return { text: syncSentence(work), tone: work.failed || stuck ? 'bad' : work.updating ? 'work' : 'ok' }
+    if (!work.failed && !work.updating && !stuck && page.machines === 0) return paused ? { text: paused, tone: 'off' } : { text: 'No machines yet', tone: 'off' }
+    const main = syncSentence(work)
+    const text = paused ? `${main}${/[.…]$/.test(main) ? '' : '.'} ${paused}` : main
+    return { text, tone: work.failed || stuck ? 'bad' : work.updating ? 'work' : 'ok' }
   })
 
-  const lede = $derived(page.machines === 0
+  const lede = $derived((page.machines === 0
     ? 'Everything Active goes on each machine you connect. Archive a skill to keep it here and off your machines. Delete it to be rid of it.'
     : page.machines === 1
       ? 'Everything Active is on your machine. Archive a skill to take it off and keep it here. Delete it to be rid of it.'
       : `Everything Active is on all ${page.machines} of your machines. Archive a skill to take it off them and keep it here. Delete it to be rid of it.`)
+    + (paused ? ` ${paused.slice(0, -1)}, so reet leaves ${(page.work.paused ?? 0) > 1 ? 'their' : 'its'} skills as they are.` : ''))
 
   const newHosts = $derived([...new Set(page.newOnMachines.flatMap(n => n.copies.map(c => c.host)))])
   const newWhere = $derived(newHosts.length === 1 ? newHosts[0] : newHosts.length === 2 ? `${newHosts[0]} and ${newHosts[1]}` : `${newHosts.length} machines`)
@@ -230,8 +235,9 @@
 
   async function retry(row: SkillRow) {
     try {
-      await write(() => retrySkill(row.id))
-      say(`Trying ${row.name} again.`)
+      const retried = await write(() => retrySkill(row.id))
+      // Only a skill the server cleared is tried again now; otherwise it is on its way already.
+      say(retried > 0 ? `Trying ${row.name} again.` : `${row.name} is already being tried again.`)
       void read(page.tab)
     } catch (e) {
       fail(e)

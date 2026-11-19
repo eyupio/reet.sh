@@ -177,7 +177,7 @@
     busy = true
     try {
       const r = await addListToShelf(id)
-      say(r.added === 0 ? 'Every skill was already in your library. Nothing changed.' : `Added ${r.added} ${r.added === 1 ? 'skill' : 'skills'} to your library as To test.`)
+      say(r.added === 0 ? 'Every skill was already in your library. Nothing changed.' : `Added ${r.added} ${r.added === 1 ? 'skill' : 'skills'} to your library as Active · going on every machine`)
     } catch (e) {
       fail(e)
     } finally {

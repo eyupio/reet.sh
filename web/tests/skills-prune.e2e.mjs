@@ -56,7 +56,7 @@ function routes(w) {
    w.deleted = w.deleted.filter(r => !b.ids.includes(r.id)); w.rows = [...w.rows, ...back]
    return {restored:back.length}
   },
-  '/api/v2/skills/retry': req => { w.posts.push(['retry', req.postDataJSON()]); return {retried:1} },
+  '/api/v2/skills/retry': req => { w.posts.push(['retry', req.postDataJSON()]); return {retried:w.retried ?? 1} },
   '/api/v2/skills/notice': req => {
    const b = req.postDataJSON(); w.posts.push(['notice', b])
    if (b.action === 'restore-parked') w.rows = w.rows.map(r => r.upgradedFrom === 'parked' && r.status === 'archived' ? {...r, status:'active'} : r)
@@ -68,6 +68,7 @@ function routes(w) {
 
 async function open(options = {}) {
  const w = world()
+ options.edit?.(w)
  const f = await openWorkspace(browser, {width:1440, height:640, ...options, routes:routes(w)})
  await f.page.goto(`${base}/skills`)
  await expect(f.page.locator('[data-skill]').first()).toBeVisible()
@@ -791,19 +792,31 @@ try {
   await context.close()
  }
 
- // A failed row says where, toned, with Retry; Retry posts the skill.
+ // A machine's failure is retried by the machine itself, so its row says so and offers no Retry (a Retry that only the
+ // machine could act on would do nothing). A fetch that failed has Retry, which posts the skill and says it is trying
+ // again only when the server retried something.
  if (run('retry')) {
-  const {context, page, errors, w} = await open()
+  const fetchFailed = {state:'fetch-failed',pending:0,total:3,hosts:[],reason:'404 from github.com',machines:[]}
+  const {context, page, errors, w} = await open({edit: w => { w.rows = w.rows.map(r => r.name === 'svg-animations' ? {...r, health:fetchFailed} : r) }})
   const health = row(page, 'seo-cluster').locator('.health')
-  await expect(health).toContainText('Failed on ThinkPad')
+  await expect(health).toContainText('Failed on ThinkPad · it tries again on its own')
   await expect(health).toHaveAttribute('data-tone', 'bad')
+  await expect(row(page, 'seo-cluster').getByRole('button', {name:/^Retry/})).toHaveCount(0)
   await expect(row(page, 'writing-plans').locator('.health')).toContainText('Installing on 1 of 3')
   await expect(row(page, 'seo-bing').locator('.health')).toContainText('On all 3 machines')
   await expect(row(page, 'seo-bing').getByRole('button', {name:/^Retry/})).toHaveCount(0)
-  const request = page.waitForRequest(r => new URL(r.url()).pathname === '/api/v2/skills/retry')
-  await row(page, 'seo-cluster').getByRole('button', {name:'Retry seo-cluster'}).click()
+  await expect(row(page, 'svg-animations').locator('.health')).toContainText("Couldn't fetch the files")
+  let request = page.waitForRequest(r => new URL(r.url()).pathname === '/api/v2/skills/retry')
+  await row(page, 'svg-animations').getByRole('button', {name:'Retry svg-animations'}).click()
   await request
-  expect(posts(w, 'retry')).toEqual([{items:['item-seo-cluster']}])
+  expect(posts(w, 'retry')).toEqual([{items:['item-svg-animations']}])
+  await expect(page.getByRole('status').filter({hasText:'Trying svg-animations again.'})).toBeVisible()
+  // Nothing was left to retry: the page does not say it is trying.
+  w.retried = 0
+  request = page.waitForRequest(r => new URL(r.url()).pathname === '/api/v2/skills/retry')
+  await row(page, 'svg-animations').getByRole('button', {name:'Retry svg-animations'}).click()
+  await request
+  await expect(page.getByRole('status').filter({hasText:'svg-animations is already being tried again.'})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -852,6 +865,31 @@ try {
   const chip = page.locator('main .sync-chip')
   await expect(chip).toHaveText('Update reet on ThinkPad to keep its skills in sync')
   await expect(chip).toHaveAttribute('data-tone', 'bad')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A paused machine is left alone, and the page says so rather than that there are no machines: alone when every
+ // machine is paused, and beside what the others are doing when only some are.
+ if (run('paused')) {
+  const w = world()
+  const r = routes(w)
+  let answer = {machines:0, work:{failed:0, installing:0, removing:0, updating:0, paused:1, pausedHost:'ThinkPad'}}
+  r['/api/v2/skills'] = req => skillsPageOf(w.rows, new URL(req.url()).searchParams.get('status') || 'active', answer)
+  let {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  let chip = page.locator('main .sync-chip')
+  await expect(chip).toHaveText('Sync is paused on ThinkPad.')
+  await expect(page.getByText('No machines yet')).toHaveCount(0)
+  await expect(page.locator('main .lede')).toContainText('Sync is paused on ThinkPad')
+  expect(errors).toEqual([])
+  await context.close()
+  answer = {machines:2, work:{failed:0, installing:2, removing:0, updating:2, paused:2}}
+  ;({context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r}))
+  await page.goto(`${base}/skills`)
+  chip = page.locator('main .sync-chip')
+  await expect(chip).toHaveText('Installing on 2 machines… Sync is paused on 2 machines.')
+  await expect(page.locator('main .lede')).toContainText('Sync is paused on 2 machines')
   expect(errors).toEqual([])
   await context.close()
  }

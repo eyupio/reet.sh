@@ -531,7 +531,7 @@ export type SkillRow = {
 }
 export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
 /** What the machines are doing over every skill (deleted ones still coming off included), each machine counted once. */
-export type SkillWork = { failed: number; installing: number; removing: number; updating: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string }
+export type SkillWork = { failed: number; installing: number; removing: number; updating: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string; paused?: number; pausedHost?: string }
 export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null; work: SkillWork }
 
 /** One tab of the Skills page, with both tabs' counts. */
@@ -556,8 +556,10 @@ export async function undeleteSkills(ids: string[]): Promise<void> {
   await req('/api/v2/skills/undelete', { method: 'POST', body: json({ ids }) })
 }
 /** Retry a skill whose files could not be fetched or copied into reet. */
-export async function retrySkill(id: string): Promise<void> {
-  await req('/api/v2/skills/retry', { method: 'POST', body: json({ items: [id] }) })
+/** Retry a skill reet could not fetch or copy; resolves to how many skills the server cleared to try again. */
+export async function retrySkill(id: string): Promise<number> {
+  const r = await (await req('/api/v2/skills/retry', { method: 'POST', body: json({ items: [id] }) })).json() as { retried?: number }
+  return r.retried ?? 0
 }
 /** Keep or Archive skills new on a machine; from is the agent whose copy to take, needed when the copies differ. */
 export async function decideNewSkills(names: string[], action: 'keep' | 'archive', from?: string): Promise<void> {

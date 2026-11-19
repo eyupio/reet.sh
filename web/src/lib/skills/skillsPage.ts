@@ -21,7 +21,8 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
     case 'removing':
       return line(hosts.length === 1 ? `Coming off ${hosts[0]}` : `Coming off ${machines(h.pending)}`, 'work')
     case 'failed':
-      return line(`Failed on ${where}`, 'bad', true)
+      // The machine tries again by itself; until it can be asked to at once, there is no Retry to offer here.
+      return line(`Failed on ${where} · ${hosts.length > 1 ? 'they try again on their own' : 'it tries again on its own'}`, 'bad')
     case 'offline':
       if (status === 'active') return line(`Installing on ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
       return line(`Removing from ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
@@ -30,7 +31,7 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
     case 'copying':
       return line(`Copying into reet from ${where}`, 'work')
     case 'copy-failed':
-      return line(`Couldn't copy into reet: ${h.reason ?? 'unknown reason'}. It stays on ${where} until you delete it.`, 'bad')
+      return line(`Couldn't copy into reet: ${h.reason ?? 'unknown reason'}. It stays on ${where} until you delete it.`, 'bad', true)
     case 'getting':
       return line(hosts.length === 0 ? 'Getting the files' : `Getting a copy from ${where}`, 'work')
     case 'fetch-failed':
@@ -119,7 +120,14 @@ export function installCommandFor(row: SkillRow): string | null {
   return installCommand({ sourceType: 'hosted', url: row.publicUrl, name: row.name, slug: row.name } as unknown as Skill)
 }
 
-export type MachineWork = { failed: number; installing: number; removing: number; updating?: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string }
+export type MachineWork = { failed: number; installing: number; removing: number; updating?: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string; paused?: number; pausedHost?: string }
+
+/** The paused machines, which reet leaves alone: the one named, or how many; '' when none is paused. */
+export function pausedSentence(m: MachineWork): string {
+  const n = m.paused ?? 0
+  if (n === 0) return ''
+  return `Sync is paused on ${n === 1 ? m.pausedHost || '1 machine' : machines(n)}.`
+}
 
 /**
  * One sentence for the machines: those that need a look come first, then what the rest are doing. `installing` and
@@ -181,4 +189,11 @@ export function matchesSearch(row: Pick<SkillRow, 'name' | 'shelfId' | 'descript
   if (!term) return true
   const needle = term.toLowerCase()
   return [row.name, row.shelfId, row.description, row.notes].some(field => (field ?? '').toLowerCase().includes(needle))
+}
+
+/** What Write a skill says after a save: a published skill is in the library as Active, so it goes on every machine. */
+export function savedSkillNotice(renamed: boolean, published: boolean): string {
+  const library = "It's in your library as Active and goes on every machine."
+  if (renamed) return published ? `Renamed and published. The public URL and install command changed; existing installs are untouched. ${library}` : 'Renamed. Update any private links you shared.'
+  return published ? `Skill published. ${library}` : 'Draft saved. Only you can see it.'
 }

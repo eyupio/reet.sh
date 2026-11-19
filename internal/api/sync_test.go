@@ -163,8 +163,32 @@ func TestScanReadsAnInstalledFolderAsItsCataloguedSkill(t *testing.T) {
 	if strings.Join(ids, ",") != "rknall/claude-skills/alpha,"+catalogued {
 		t.Fatalf("installed folder was not read as the catalogued skill: %v", ids)
 	}
-	_, body = doClient(t, client, srv, "GET", "/api/skills", "", "X-Reet-Token", "tok")
-	if strings.Contains(body, "rknall/claude-skills/ui-ux-design-review") {
-		t.Fatalf("a second skill was made for the installed folder: %s", body)
+	// The folder is the catalogued skill on laptop: the library holds the two
+	// skills it had, with no item or shelf row of the folder's own name.
+	owner, _ := st.DefaultOwner()
+	items, err := st.LibraryFor(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, it := range items {
+		names = append(names, it.Name)
+	}
+	if len(items) != 2 {
+		t.Fatalf("the scan changed the library: %v", names)
+	}
+	if _, folderRow, err := st.GetFor(owner, "rknall/claude-skills/ui-ux-design-review"); err != nil || folderRow {
+		t.Fatalf("a second skill was made for the installed folder: %v %v", folderRow, err)
+	}
+	catalogue, ok, err := st.GetFor(owner, catalogued)
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	onLaptop := false
+	for _, env := range catalogue.Environments {
+		onLaptop = onLaptop || env.Host == "laptop" && env.Agent == "agents"
+	}
+	if !onLaptop {
+		t.Fatalf("the catalogued skill is not recorded on laptop: %+v", catalogue.Environments)
 	}
 }

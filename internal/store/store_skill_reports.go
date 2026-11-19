@@ -503,9 +503,10 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		}
 		h := SkillHealth{Hosts: []string{}, Machines: []MachineSkillState{}}
 		// An item without content is held. An Active one is waiting for a
-		// fetch or a copy; an Archived one that is not on the removal list is
-		// still being copied in, or could not be.
-		held := revision == "" && (status == SkillActive || !removalNames[lname] && (problem != "" || origin == "machine" && len(hostsOf[lname]) > 0))
+		// fetch or a copy; an Archived one that is not on the removal list,
+		// and so still on the machines that have it, is still being fetched
+		// or copied in, or could not be.
+		held := revision == "" && (status == SkillActive || !removalNames[lname] && (problem != "" || len(hostsOf[lname]) > 0))
 		if held {
 			fromMachine := origin == "machine"
 			switch {
@@ -571,9 +572,13 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 			}
 			h.Machines = append(h.Machines, MachineSkillState{Host: m.host, AgentID: m.id, State: state, Detail: detail})
 		}
-		if h.Pending == 0 {
+		switch {
+		case h.Pending == 0 && status == SkillArchived:
+			// Off every machine, as an Archived skill should be.
+			h.State = "off"
+		case h.Pending == 0:
 			h.State = "ok"
-		} else {
+		default:
 			h.Hosts = hosts[rank]
 			h.Reason = reason
 		}

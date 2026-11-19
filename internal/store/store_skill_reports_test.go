@@ -505,8 +505,45 @@ func TestReportMachineThatNeverReportedHasNothingToRemove(t *testing.T) {
 	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, reportT0); err != nil {
 		t.Fatal(err)
 	}
-	if h := healthOf(t, s, uid, item.id, reportT0.Add(time.Minute)); h.State != "ok" || h.Pending != 0 || h.Total != 1 {
+	if h := healthOf(t, s, uid, item.id, reportT0.Add(time.Minute)); h.State != "off" || h.Pending != 0 || h.Total != 1 {
 		t.Fatalf("never reported, archived: %+v", h)
+	}
+}
+
+// An Archived skill every machine has taken off is off, not "on all N
+// machines".
+func TestReportArchivedItemOffEveryMachineIsOff(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	d := itemDigest(t, s, uid, item.id)
+	a, b := reportAgent(t, s, uid, "elitebook"), reportAgent(t, s, uid, "thinkpad")
+	reportOf(t, s, uid, a, reportT0, installedAt("seo-audit", d))
+	reportOf(t, s, uid, b, reportT0, installedAt("seo-audit", d))
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	removed := SkillReportEntry{Folder: "~/.agents/skills", Name: "seo-audit", State: "removed"}
+	later := reportT0.Add(time.Minute)
+	reportOf(t, s, uid, a, later, removed)
+	reportOf(t, s, uid, b, later, removed)
+	if h := healthOf(t, s, uid, item.id, later); h.State != "off" || h.Pending != 0 || h.Total != 2 {
+		t.Fatalf("archived, off every machine: %+v", h)
+	}
+}
+
+// An Archived imported skill reet has no copy of yet, still on a machine and
+// not on the removal list, is waiting on its fetch: getting, not ok or off.
+func TestReportArchivedImportedSkillWaitingOnItsFetchIsGetting(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) VALUES(?,?,?,?,?,?,1,1)`, uid, "imp", LibrarySkill, "fetched", SkillArchived, "imported"); err != nil {
+		t.Fatal(err)
+	}
+	a := reportAgent(t, s, uid, "elitebook")
+	reportOf(t, s, uid, a, reportT0, SkillReportEntry{Folder: "~/.agents/skills", Name: "fetched", State: "unknown", Digest: "d1"})
+	if h := healthOf(t, s, uid, "imp", reportT0); h.State != "getting" {
+		t.Fatalf("archived imported, waiting on its fetch: %+v", h)
 	}
 }
 

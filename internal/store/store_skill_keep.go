@@ -143,7 +143,7 @@ func keepNewSkillTx(tx *sql.Tx, uid int64, name, status, from string, at time.Ti
 // page is the one Keep takes the files from.
 func newSkillCopiesTx(tx *sql.Tx, uid int64, name string) ([]newSkillCopy, error) {
 	rows, err := tx.Query(`SELECT m.name,m.agent_id,a.host,m.folder,m.digest FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id
- WHERE m.user_id=? AND m.state='unknown' AND lower(m.name)=lower(?) ORDER BY `+newSkillCopyOrder, uid, name)
+ WHERE m.user_id=? AND m.state='unknown' AND lower(m.name)=lower(?) AND `+followingAgent+` ORDER BY `+newSkillCopyOrder, uid, name, CurrentSkillsProtocol)
 	if err != nil {
 		return nil, err
 	}

@@ -813,3 +813,34 @@ func TestSkillsPageWorkCountsMachinesNewerThanTheController(t *testing.T) {
 		t.Fatalf("a paused machine is left alone: %+v", w)
 	}
 }
+
+// A paused machine, or one that no longer follows the library (another skills
+// protocol), puts nothing under New on a machine: its old report is stale.
+func TestReportNewOnMachinesSkipsPausedAndOffProtocolMachines(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	live, paused, old := reportAgent(t, s, uid, "elitebook"), reportAgent(t, s, uid, "thinkpad"), reportAgent(t, s, uid, "studio")
+	unknown := func(name string) SkillReportEntry {
+		return SkillReportEntry{Folder: "~/.claude/skills", Name: name, State: "unknown", Digest: "d"}
+	}
+	reportOf(t, s, uid, live, reportT0, unknown("seen"))
+	reportOf(t, s, uid, paused, reportT0, unknown("seen"), unknown("paused-only"))
+	reportOf(t, s, uid, old, reportT0, unknown("old-only"))
+	if err := s.ControlSyncAgent(uid, paused, "pause"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAgentSkillsProtocolFor(uid, old, 0); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.NewOnMachinesFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "seen" || len(got[0].Copies) != 1 || got[0].Copies[0].Host != "elitebook" {
+		t.Fatalf("new: %+v", got)
+	}
+	kept, err := s.KeepNewSkillsFor(uid, []string{"paused-only"}, SkillActive, "", reportT0)
+	if err == nil {
+		t.Fatalf("kept a skill only a paused machine reported: %+v", kept)
+	}
+}

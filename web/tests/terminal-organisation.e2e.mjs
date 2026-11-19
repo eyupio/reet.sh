@@ -328,7 +328,7 @@ try{
  const skillRows=[
   {id:'m1',name:'pdf',description:'Read and fill forms',source:'machine',agent:'claude',native:true,onMachine:true,invocation:'Use the pdf skill.'},
   {id:'m2',name:'docx-other',description:'Edit documents',source:'machine',agent:'opencode',native:false,onMachine:true,invocation:''},
-  {id:'r1',name:'reet-notes',description:'Shared notes',source:'reet',agent:'',native:false,onMachine:false,invocation:''}]
+  {id:'new:reet-notes',name:'reet-notes',description:'',source:'new',agent:'cursor',native:false,onMachine:true,invocation:''}]
  await page.route('**/api/v2/terminal/sessions/*/skills',route=>route.fulfill({status:200,json:{skills:skillRows,machineSeen:Date.now()-5*60_000,host:'Laptop'}}))
  const toolbar=page.locator('.terminal-toolbar'),skillsButton=toolbar.getByRole('button',{name:'Skills',exact:true})
  const skillPicker=page.getByRole('dialog',{name:'Skills',exact:true}),skillFilter=skillPicker.getByRole('searchbox',{name:'Filter skills'})
@@ -341,7 +341,11 @@ try{
  const beforeSkill=inputs.length
  await skillsButton.click()
  await expect(skillPicker).toBeVisible()
+ // Three groups: this agent's, other agents', and New on this machine, whose row with Keep is its own listbox.
  await expect(skillPicker.getByRole('listbox')).toHaveCount(3)
+ await expect(skillPicker.getByText('New on this machine',{exact:true})).toBeVisible()
+ await expect(skillPicker.getByRole('button',{name:'Keep reet-notes',exact:true})).toBeVisible()
+ await expect(skillPicker.getByRole('link',{name:'Review new skills on the Skills page'})).toHaveAttribute('href','/skills?review=new')
  await skillFilter.fill('pd')
  await skillPicker.getByRole('option',{name:/pdf/}).click()
  await expect(skillPicker).toHaveCount(0)
@@ -353,7 +357,7 @@ try{
  await page.keyboard.type('/')
  await expect.poll(()=>inputs.slice(beforeSlash).join('')).toBe('/')
  await expect(skillPicker).toHaveCount(0)
- // Rows for another agent or from reet are disabled and send nothing; Escape closes the picker and sends nothing.
+ // Rows for another agent, or new on this machine for another agent, are disabled and send nothing; Escape closes the picker and sends nothing.
  const beforeRows=inputs.length
  await skillsButton.click()
  for(const name of ['docx-other','reet-notes']){
@@ -365,51 +369,38 @@ try{
  await skillFilter.focus();await page.keyboard.press('Escape')
  await expect(skillPicker).toHaveCount(0)
  expect(inputs.length).toBe(beforeRows)
- // Installing a hosted skill from the agent TUI's picker: the same panel as Gaffer, and nothing reaches the terminal socket.
- const hostedPdf={id:'reet:pdf',name:'pdf',description:'Read and fill forms',source:'reet',agent:'',native:false,onMachine:false,invocation:'',published:true}
- const nativePdf={id:'m9',name:'pdf',description:'Read and fill forms',source:'machine',agent:'claude',native:true,onMachine:true,invocation:'Use the pdf skill.',published:true}
- const claudeFolder='/home/developer/.claude/skills'
- let installRows=[hostedPdf],installJob=null,installCount=0,syncReads=0
- const installCalls=[],installPatches=[],installCancels=[]
- const installJobFor=(actions,over={})=>({id:'install-job1',agentId:a,targetId:'t1',kind:'preview',status:'awaiting-approval',revision:'r1',hash:'hash-install-job1',plan:{directory:claudeFolder,actions},message:'',createdAt:Date.now(),updatedAt:Date.now(),...over})
- const installSkillsRoute=route=>route.fulfill({status:200,json:{skills:installRows,machineSeen:Date.now()-5*60_000,host:'Laptop'}})
- await page.route('**/api/v2/terminal/sessions/*/skills',installSkillsRoute)
- await page.route('**/api/v2/terminal/sessions/*/skills/install',route=>{installCalls.push(route.request().postDataJSON());installCount++;return route.fulfill({status:200,json:{job:'install-job1',reused:false,directory:claudeFolder,host:'Laptop'}})})
- await page.route('**/api/v2/terminal/sessions/*/skills/install/cancel',route=>{installCancels.push(route.request().postDataJSON());return route.fulfill({status:200,json:{reverted:true}})})
- await page.route('**/api/v2/sync',route=>{syncReads++;return route.fulfill({status:200,json:{environments:[],machines:[],agents:[],targets:[],runs:[],updateJobs:[],jobs:installJob?[installJob]:[]}})})
- await page.route('**/api/v2/sync/jobs',route=>{installPatches.push(route.request().postDataJSON());return route.fulfill({status:200,json:{environments:[],targets:[],jobs:installJob?[installJob]:[]}})})
- const beforeInstall=inputs.length
+ // Keep, from the agent TUI's picker: the same panel as Gaffer's. It keeps this machine's copy through reet, and nothing reaches
+ // the terminal socket.
+ const newCq={id:'new:cq',name:'cq',description:'',source:'new',agent:'claude',native:true,onMachine:true,invocation:'Use the cq skill.'}
+ const nativePdf={id:'m9',name:'pdf',description:'Read and fill forms',source:'machine',agent:'claude',native:true,onMachine:true,invocation:'Use the pdf skill.'}
+ let keepRows=[nativePdf,newCq]
+ const keeps=[]
+ const keepSkillsRoute=route=>route.fulfill({status:200,json:{skills:keepRows,machineSeen:Date.now()-5*60_000,host:'Laptop',agentId:a}})
+ await page.route('**/api/v2/terminal/sessions/*/skills',keepSkillsRoute)
+ await page.route('**/api/v2/skills/new',route=>{
+  if(route.request().method()!=='POST')return route.fulfill({status:200,json:{newOnMachines:[]}})
+  keeps.push(route.request().postDataJSON());keepRows=[nativePdf,{...nativePdf,id:'local/cq',name:'cq',invocation:'Use the cq skill.'}]
+  return route.fulfill({status:200,json:{items:['item-cq']}})
+ })
+ const beforeKeep=inputs.length
  await skillsButton.click()
- await expect(skillPicker.getByRole('button',{name:'Install pdf',exact:true})).toBeVisible()
- await skillPicker.getByRole('button',{name:'Install pdf',exact:true}).click()
- const installPanel=skillPicker.getByRole('region',{name:'Install pdf'}),installStatus=skillPicker.getByRole('status')
- await expect(installPanel).toBeVisible()
- expect(installCalls).toEqual([])
- await installPanel.getByRole('button',{name:'Install',exact:true}).click()
- await expect(installStatus).toHaveText('Waiting for Laptop…')
- expect(installCalls).toEqual([{skill:'reet:pdf'}])
- installJob=installJobFor([{add:true,skill:{slug:'pdf'}}])
- await expect(installStatus).toHaveText('Review what will be added.',{timeout:10_000})
- await expect(installPanel.getByText('Add pdf',{exact:true})).toBeVisible()
- expect(installPatches).toEqual([])
- await installPanel.getByRole('button',{name:'Approve and install',exact:true}).click()
- await expect.poll(()=>installPatches).toEqual([{id:'install-job1',action:'approve',hash:'hash-install-job1'}])
- installJob=installJobFor([{add:true,skill:{slug:'pdf'}}],{kind:'apply',status:'running'})
- await expect(installStatus).toHaveText('Installing pdf on Laptop…',{timeout:10_000})
- installRows=[nativePdf]
- installJob=installJobFor([{add:true,skill:{slug:'pdf'}}],{kind:'apply',status:'succeeded'})
- await expect(installPanel).toHaveCount(0,{timeout:10_000})
- await expect(skillPicker.getByRole('option',{name:/pdf/})).toBeVisible()
+ await expect(skillPicker.getByRole('button',{name:/^Install/})).toHaveCount(0)
+ await skillPicker.getByRole('button',{name:'Keep cq',exact:true}).click()
+ const keepPanel=skillPicker.getByRole('region',{name:'Keep cq'})
+ await expect(keepPanel.getByText("reet keeps Laptop's copy of cq in your library and puts it on every machine.")).toBeVisible()
+ expect(keeps).toEqual([])
+ await keepPanel.getByRole('button',{name:'Keep',exact:true}).click()
+ await expect(keepPanel).toHaveCount(0)
+ await expect(skillPicker.getByText('Kept cq · going on every machine')).toBeVisible()
+ expect(keeps).toEqual([{names:['cq'],action:'keep',from:a}])
+ await expect(skillPicker.getByRole('button',{name:'Keep cq',exact:true})).toHaveCount(0)
  await expect(skillPicker.getByText('On this machine for Claude')).toBeVisible()
- expect(installCalls).toHaveLength(1)
- expect(installPatches).toHaveLength(1)
- expect(installCancels).toEqual([])
- // The whole flow wrote nothing to the terminal: the install goes through reet, not through the agent's input.
- expect(inputs.length).toBe(beforeInstall)
+ // The whole flow wrote nothing to the terminal: Keep goes through reet, not through the agent's input.
+ expect(inputs.length).toBe(beforeKeep)
  await skillFilter.focus();await page.keyboard.press('Escape')
  await expect(skillPicker).toHaveCount(0)
- expect(inputs.length).toBe(beforeInstall)
- await page.unroute('**/api/v2/terminal/sessions/*/skills',installSkillsRoute)
+ expect(inputs.length).toBe(beforeKeep)
+ await page.unroute('**/api/v2/terminal/sessions/*/skills',keepSkillsRoute)
  // The socket drops while the picker is open: a pick inserts nothing and says so, and the button is disabled with a reason.
  await skillsButton.click()
  await expect(skillPicker.getByRole('option',{name:/pdf/})).toBeVisible()

@@ -54,7 +54,10 @@ try {
    await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
    await expect(page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
    await expect(page.getByRole('button',{name:'Import as Active'})).toBeVisible()
-   await expect(page.locator('#tools-panel')).not.toContainText('in use')
+   await expect(page.locator('#tools-panel')).not.toContainText(/in use|to test/i)
+   // The bookmarklets add a skills.sh page to the library, or like it; there are no stages to put it in.
+   await expect(page.locator('#tools-panel .links a')).toHaveText(['♡ Like on reet', '+ Add to reet'])
+   await expect(page.locator('#tools-panel').getByRole('link', {name:'+ Add to reet'})).toHaveAttribute('href', /\/quick\?action=save&/)
    await expect(page.getByText('Nothing ignored.',{exact:true})).toBeVisible()
    await expect(page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Keep a good find'})).toHaveCount(1)

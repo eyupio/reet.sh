@@ -540,8 +540,7 @@ try {
  }
 
  // The header's line says what the machines are doing, as the server counts it over every skill: coming off after an
- // Archive, installing after an Undo, updating when both happen at once, and coming off after a Delete too, though the
- // deleted skill has left the list.
+ // Archive, installing after an Undo, updating when both happen at once.
  if (run('chip')) {
   const on = state => ['Elitebook','ThinkPad','studio'].map(host => ({host, state}))
   const w = {rows:[skillRow('alpha'), skillRow('beta'), skillRow('gamma'), skillRow('delta')], deleted:[], posts:[], noCopy:new Set(), notice:null}
@@ -569,13 +568,32 @@ try {
   await expect(chip).toHaveText('Installing on 3 machines…')
   await row(page, 'gamma').getByRole('button', {name:'Archive gamma'}).click()
   await expect(chip).toHaveText('Updating 3 machines…')
-  // Settled, then a Delete: the row leaves the list, and the machines still have it to take off.
-  w.rows = w.rows.map(x => ({...x, health:{state:'ok', pending:0, total:3, hosts:[], machines:on('ok')}}))
-  await page.evaluate(() => window.dispatchEvent(new Event('reet-shelf-changed')))
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A change reaches the machines only after the server's 10 second grace (an Undo inside it costs them nothing), so
+ // the machines' work counts a deleted skill only then. The page reads once more just after the grace, so the header
+ // says it is coming off then, not at the next 15 second read. The page's clock is driven by the test.
+ if (run('grace')) {
+  const w = {rows:[skillRow('alpha'), skillRow('delta')], deleted:[], posts:[], noCopy:new Set(), notice:null, graceOver:false}
+  const r = routes(w)
+  const workOf = () => w.graceOver && w.deleted.length ? {failed:0, installing:0, removing:3, updating:3} : {failed:0, installing:0, removing:0, updating:0}
+  r['/api/v2/skills'] = req => skillsPageOf(w.rows, new URL(req.url()).searchParams.get('status') || 'active', {work:workOf()})
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.clock.install()
+  await page.goto(`${base}/skills`)
+  await expect(row(page, 'delta')).toBeVisible()
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 200))
+  const chip = page.locator('main .sync-chip')
   await expect(chip).toHaveText('Everything is in sync.')
   await row(page, 'delta').getByRole('button', {name:'Delete delta'}).click()
   await expect(row(page, 'delta')).toHaveCount(0)
   await expect(toast(page)).toContainText('Deleted delta · coming off 3 machines')
+  // Inside the grace the machines have nothing to do yet.
+  await expect(chip).toHaveText('Everything is in sync.')
+  w.graceOver = true
+  await page.clock.fastForward(11000)
   await expect(chip).toHaveText('Coming off 3 machines…')
   expect(errors).toEqual([])
   await context.close()

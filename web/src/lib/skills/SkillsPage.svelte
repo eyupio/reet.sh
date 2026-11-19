@@ -22,6 +22,15 @@
   type Act = 'archive' | 'restore' | 'delete'
   // How often the page reads where its skills stand on the machines.
   const POLL_MS = 15000
+  // The server tells the machines about a change only after its grace period (store.SkillGrace, 10 s), so an Undo
+  // inside it costs them nothing; until then the machines' work does not count it. One read just after the grace
+  // brings the header's line up to date without waiting for the next poll.
+  const GRACE_MS = 10000
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  function readAfterGrace() {
+    clearTimeout(graceTimer)
+    graceTimer = setTimeout(() => { void read(page.tab, true); void read(other(page.tab), true) }, GRACE_MS + 1000)
+  }
 
   const page = new SkillsPageState()
 
@@ -144,10 +153,12 @@
     endSelecting()
     if (ids.includes(openId)) openId = ''
     void read(other(from), true)
+    readAfterGrace()
     await refocus(order, ids, act)
     say(pruneText(to === 'archived' ? 'archived' : 'restored', names, true), async () => {
       const tab = page.tab
       await page.writePage(() => setSkillStatus(ids, from, tab), tab)
+      readAfterGrace()
       void read(other(tab), true)
       await focusRow(ids[0], act)
     })
@@ -192,8 +203,10 @@
     }
     page.held[from] = (page.held[from] ?? []).filter(r => !ids.includes(r.id))
     page.counts = { ...page.counts, [from]: Math.max(0, page.counts[from] - ids.length) }
-    // The delete answers with no page: read it for what the machines now have to take off.
+    // The delete answers with no page: read it now for the counts, and again once the grace is over, when the machines
+    // start taking it off and their work counts it.
     void read(from, true)
+    readAfterGrace()
     endSelecting()
     if (ids.includes(openId)) openId = ''
     await refocus(order, ids, keepAct())
@@ -203,6 +216,7 @@
       const tab = page.tab
       await page.write(() => undeleteSkills(ids), () => page.markStale(tab))
       await page.catchUp()
+      readAfterGrace()
       void read(other(tab), true)
       await focusRow(ids[0], keepAct())
     })
@@ -298,12 +312,14 @@
     page.notice = null
     await read(page.tab)
     void read(other(page.tab), true)
+    readAfterGrace()
     focusQuietly(tabEls[page.tab])
     if (!parked.length) return
     const ids = parked.map(r => r.id)
     say(pruneText('restored', parked.map(r => r.name), true), async () => {
       const tab = page.tab
       await page.writePage(() => setSkillStatus(ids, 'archived', tab), tab)
+      readAfterGrace()
       void read(other(tab), true)
     })
   }
@@ -401,6 +417,7 @@
     window.addEventListener('reet-shelf-changed', changed)
     return () => {
       clearInterval(poll)
+      clearTimeout(graceTimer)
       window.removeEventListener('reet-shelf-changed', changed)
     }
   })
@@ -530,7 +547,7 @@
 
 {#if reviewOpen}
   <NewOnMachineDialog items={page.newOnMachines} onerror={fail}
-    ondecided={() => { void read(page.tab, true); void read(other(page.tab), true) }}
+    ondecided={() => { void read(page.tab, true); void read(other(page.tab), true); readAfterGrace() }}
     onclose={() => { reviewOpen = false; void tick().then(() => focusQuietly(reviewEl ?? tabEls[page.tab])) }} />
 {/if}
 

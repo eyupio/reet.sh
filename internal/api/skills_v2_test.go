@@ -45,6 +45,7 @@ type pageRow struct {
 	} `json:"editedOn"`
 	EditedOnProblem string `json:"editedOnProblem"`
 	CreatedAt       int64  `json:"createdAt"`
+	PublicProblem   string `json:"publicProblem"`
 }
 
 // pageData mirrors SkillsPageData in web/src/lib/api.ts.
@@ -1165,10 +1166,11 @@ func TestExportMarkdownEscapesEmphasisCodeAndHeadings(t *testing.T) {
 
 // contentReply mirrors SkillContent in web/src/lib/api.ts.
 type contentReply struct {
-	ID       string                    `json:"id"`
-	Name     string                    `json:"name"`
-	Revision string                    `json:"revision"`
-	Files    []skillbundle.ContentFile `json:"files"`
+	ID        string                    `json:"id"`
+	Name      string                    `json:"name"`
+	Revision  string                    `json:"revision"`
+	Published bool                      `json:"published"`
+	Files     []skillbundle.ContentFile `json:"files"`
 }
 
 func getContent(t *testing.T, e copyEnv, item string) contentReply {
@@ -1408,7 +1410,7 @@ func TestPublishedSkillFollowsUpdateFromOriginal(t *testing.T) {
 // the shelf, with no second hosted entry of the same name.
 func TestPublishedImportIsOneLibraryEntry(t *testing.T) {
 	e := newCopyEnv(t)
-	publishedImport(t, e)
+	item := publishedImport(t, e)
 	if err := e.st.SetSyncLibraryOrigin(e.uid, e.srv.URL); err != nil {
 		t.Fatal(err)
 	}
@@ -1431,6 +1433,42 @@ func TestPublishedImportIsOneLibraryEntry(t *testing.T) {
 	if named != 1 {
 		t.Fatalf("one entry for find-skills: %+v", view.Skills)
 	}
+	// What every machine is told to install is the item's head revision,
+	// before and after Update from original.
+	atHead := func() {
+		t.Helper()
+		li, err := e.st.LibraryItemFor(e.uid, item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := e.st.DesiredSkillsFor(e.uid, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := 0
+		for _, sk := range d.Active {
+			if sk.Name == "find-skills" {
+				found++
+				if sk.Revision != li.RevisionID || sk.Item != item {
+					t.Fatalf("machines get %+v, the head is %s", sk, li.RevisionID)
+				}
+			}
+		}
+		if found != 1 {
+			t.Fatalf("one desired find-skills: %+v", d.Active)
+		}
+	}
+	atHead()
+	e.fetch.set("v2", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`); code != 200 {
+		t.Fatalf("update: %d %s", code, body)
+	}
+	atHead()
 }
 
 // Write a skill holds the skills written there. A published import is not
@@ -1461,16 +1499,18 @@ func TestWriteASkillLeavesPublishedImportsAlone(t *testing.T) {
 	}
 }
 
-// A content edit that saved answers 200 even when its public page could not
-// follow, says so, and is recorded.
+// A content edit that saved answers 200 even when the later look at its
+// public page fails, and is recorded.
 func TestContentSaveSaysWhenThePublicPageCouldNotFollow(t *testing.T) {
 	e := newCopyEnv(t)
 	item := publishedImport(t, e)
 	e.api.s.refreshHosted = func(int64, string) error { return errors.New("database is locked") }
 	got := getContent(t, e, item)
 	code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nsaved anyway\n")
-	if code != 200 || !strings.Contains(body, `"publicProblem"`) {
-		t.Fatalf("a saved edit is a 200 with the page's problem: %d %s", code, body)
+	// The save already brought the page up to date; a failure of the second
+	// look says nothing about the page.
+	if code != 200 || strings.Contains(body, `"publicProblem"`) {
+		t.Fatalf("a saved edit is a 200 that claims nothing about the page: %d %s", code, body)
 	}
 	events, err := e.st.ListEventsFor(e.uid, 20, "")
 	if err != nil {
@@ -1501,5 +1541,46 @@ func TestSkillsPageRowsSayWhenTheSkillArrived(t *testing.T) {
 	}
 	if at := p.Skills[0].CreatedAt; at < before || at > time.Now().UnixMilli() {
 		t.Fatalf("createdAt %d is not when it was added", at)
+	}
+}
+
+// A published skill whose head its public page can't serve (here the
+// original renamed itself in SKILL.md) keeps its page as it was, and says
+// so: in the Update from original answer, on the Skills page row, and when
+// Write a skill opens it.
+func TestPublicPageThatStopsFollowingSaysWhy(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	if got := getContent(t, e, item); !got.Published {
+		t.Fatalf("GET content says the skill is published: %+v", got)
+	}
+	e.fetch.setName("Find Skills")
+	e.fetch.set("v2", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	code, body = do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`)
+	if code != 200 || !strings.Contains(body, `"updated":true`) || !strings.Contains(body, `"publicProblem":"The public page still shows the version before`) {
+		t.Fatalf("the update says the page stopped following: %d %s", code, body)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); strings.Contains(md, "v2") {
+		t.Fatalf("the page keeps what it could serve: %s", md)
+	}
+	_, raw := do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+	var p pageData
+	if json.Unmarshal([]byte(raw), &p) != nil || len(p.Skills) != 1 || !strings.HasPrefix(p.Skills[0].PublicProblem, "The public page still shows the version before") {
+		t.Fatalf("the row says the page stopped following: %s", raw)
+	}
+	// Once the head can be served again, the problem goes.
+	got := getContent(t, e, item)
+	if code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nfixed\n"); code != 200 || strings.Contains(body, "publicProblem") {
+		t.Fatalf("a servable edit: %d %s", code, body)
+	}
+	_, raw = do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+	var after pageData
+	if json.Unmarshal([]byte(raw), &after) != nil || after.Skills[0].PublicProblem != "" {
+		t.Fatalf("the problem goes once the page follows: %s", raw)
 	}
 }

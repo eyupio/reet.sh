@@ -48,6 +48,11 @@ func (s *server) skillContent(w http.ResponseWriter, r *http.Request) {
 		skillsPageError(w, err)
 		return
 	}
+	published, err := s.st.SkillPublishedFor(uid, item)
+	if err != nil {
+		skillsPageError(w, err)
+		return
+	}
 	files := []skillbundle.ContentFile{}
 	if li.BundleID != "" && li.RevisionID != "" {
 		rev, err := s.st.PrivateSkillRevisionFor(uid, li.BundleID, li.RevisionID)
@@ -57,7 +62,7 @@ func (s *server) skillContent(w http.ResponseWriter, r *http.Request) {
 		}
 		files = rev.Files
 	}
-	writeJSON(w, 200, map[string]any{"id": li.ID, "name": li.Name, "revision": li.RevisionID, "files": files})
+	writeJSON(w, 200, map[string]any{"id": li.ID, "name": li.Name, "revision": li.RevisionID, "published": published, "files": files})
 }
 
 // skillContentSave is PUT /api/v2/skills/{item}/content, body
@@ -96,16 +101,16 @@ func (s *server) skillContentSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"revision": res.Revision.ID}
-	// The content is saved whatever happens here. The save brought a public
-	// page up to it already; this says why when it could not, so the person
-	// knows the page still shows the version before.
+	// The save brought a public page up to its new head when it could. When
+	// the new content is one a public page can't serve, the page keeps the
+	// version before, and the answer says why. A failure to look again says
+	// nothing about the page, which the save already handled.
 	if err := s.refreshHosted(uid, item); err != nil {
 		var problem store.SkillPublishProblem
 		if errors.As(err, &problem) {
-			out["publicProblem"] = "Saved. The public page still shows the version before: " + problem.Reason
+			out["publicProblem"] = "The public page still shows the version before: " + problem.Reason
 		} else {
 			log.Printf("skill edit: public page of %s: %v", item, err)
-			out["publicProblem"] = "Saved. The public page could not be brought up to date just now; it shows the version before until the next save."
 		}
 	}
 	s.eventRequest(r, "skill-edit", item, map[string]any{"revision": res.Revision.ID})
@@ -165,4 +170,14 @@ func (s *server) skillPublish(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventRequest(r, "skill-publish", item, map[string]any{"public": out.Published})
 	writeJSON(w, 200, map[string]any{"published": out.Published, "publicUrl": url})
+}
+
+// publicProblem is SkillPublicProblemFor for an answer: a failure to read it
+// is logged and leaves it out, since the change the answer reports is made.
+func (s *server) publicProblem(uid int64, item string) string {
+	problem, err := s.st.SkillPublicProblemFor(uid, item)
+	if err != nil {
+		log.Printf("skill %s: public page: %v", item, err)
+	}
+	return problem
 }

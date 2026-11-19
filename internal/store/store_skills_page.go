@@ -42,6 +42,9 @@ type SkillPageRow struct {
 	// EditedOnProblem says, in plain words, why Use this version could not
 	// take the edited copy EditedOn names, when it tried and could not.
 	EditedOnProblem string `json:"editedOnProblem,omitempty"`
+	// PublicProblem says why a published skill's public page no longer
+	// follows it, when it doesn't (SkillPublicProblemFor).
+	PublicProblem string `json:"publicProblem,omitempty"`
 	// CreatedAt is when the skill came into the library, in Unix
 	// milliseconds: when it was imported, kept or first written.
 	CreatedAt int64 `json:"createdAt"`
@@ -127,6 +130,13 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	rows.Close()
 	if err != nil {
 		return page, err
+	}
+	for i := range all {
+		if all[i].Published {
+			if all[i].PublicProblem, err = s.SkillPublicProblemFor(uid, all[i].ID); err != nil {
+				return page, err
+			}
+		}
 	}
 	for _, r := range all {
 		switch r.Status {

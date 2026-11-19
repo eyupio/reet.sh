@@ -523,5 +523,11 @@ func (s *server) skillUseVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "use-version", "", map[string]any{"item": item, "host": req.Host})
-	writeJSON(w, 202, map[string]any{"requested": true, "id": req.ID})
+	// The machine's copy lands later; a public page that can't serve the
+	// skill as it stands is said now, and the row says it again once it lands.
+	out := map[string]any{"requested": true, "id": req.ID}
+	if problem := s.publicProblem(uid, item); problem != "" {
+		out["publicProblem"] = problem
+	}
+	writeJSON(w, 202, out)
 }

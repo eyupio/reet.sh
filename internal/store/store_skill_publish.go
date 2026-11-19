@@ -121,34 +121,36 @@ func itemHostedSlugTx(tx *sql.Tx, uid int64, item string) (string, bool, error) 
 	return slug, err == nil, err
 }
 
-// hostedFromHeadTx writes the item's head revision as its hosted skill slug,
-// public or not, and binds the hosted skill to that revision, so Write a skill
-// edits it and the next save of it becomes the item's next revision rather
-// than a skill of its own.
-func hostedFromHeadTx(tx *sql.Tx, uid int64, item, slug string, published bool) error {
-	var name, bundle, revision string
-	if err := tx.QueryRow(`SELECT name,bundle_id,revision_id FROM library_items WHERE user_id=? AND id=?`, uid, item).Scan(&name, &bundle, &revision); err != nil {
-		return err
+// hostedHeadTx is the hosted skill slug the item's head revision would be,
+// with the bundle, revision and manifest digest it comes from, or a
+// SkillPublishProblem saying why a public page can't serve it.
+func hostedHeadTx(tx *sql.Tx, uid int64, item, slug string) (sk HostedSkill, bundle, revision, digest string, err error) {
+	var name string
+	if err = tx.QueryRow(`SELECT name,bundle_id,revision_id FROM library_items WHERE user_id=? AND id=?`, uid, item).Scan(&name, &bundle, &revision); err != nil {
+		return
 	}
 	if !ValidHostedName(slug) {
-		return SkillPublishProblem{fmt.Sprintf("reet.sh can only publish a skill whose name uses lowercase letters, numbers and single hyphens, so %s stays private.", name)}
+		err = SkillPublishProblem{fmt.Sprintf("reet.sh can only publish a skill whose name uses lowercase letters, numbers and single hyphens, so %s stays private.", name)}
+		return
 	}
 	if bundle == "" || revision == "" {
-		return SkillPublishProblem{fmt.Sprintf("reet has no copy of %s yet, so there is nothing to publish.", name)}
+		err = SkillPublishProblem{fmt.Sprintf("reet has no copy of %s yet, so there is nothing to publish.", name)}
+		return
 	}
 	var username string
-	err := tx.QueryRow(`SELECT username FROM publishers WHERE user_id=?`, uid).Scan(&username)
+	err = tx.QueryRow(`SELECT username FROM publishers WHERE user_id=?`, uid).Scan(&username)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && username == "") {
-		return SkillPublishProblem{"Choose a publishing username in Write a skill first; it is the first part of every public address."}
+		err = SkillPublishProblem{"Choose a publishing username in Write a skill first; it is the first part of every public address."}
+		return
 	}
 	if err != nil {
-		return err
+		return
 	}
 	rev, err := privateSkillRevision(tx, uid, bundle, revision, true)
 	if err != nil {
-		return err
+		return
 	}
-	sk := HostedSkill{Slug: slug, Files: map[string][]byte{}, Published: published}
+	sk = HostedSkill{Slug: slug, Files: map[string][]byte{}}
 	for _, f := range rev.Files {
 		if f.Path == "SKILL.md" {
 			sk.Content = string(f.Data)
@@ -156,14 +158,32 @@ func hostedFromHeadTx(tx *sql.Tx, uid int64, item, slug string, published bool) 
 			sk.Files[f.Path] = f.Data
 		}
 	}
-	if err = validateSkillContent(&sk, func(md string) bool { return md == slug }); err != nil {
-		return SkillPublishProblem{fmt.Sprintf("%s can't be published yet: %s.", name, err.Error())}
+	if e := validateSkillContent(&sk, func(md string) bool { return md == slug }); e != nil {
+		err = SkillPublishProblem{fmt.Sprintf("%s can't be published yet: %s.", name, e.Error())}
+		return
 	}
-	if owner, err := libraryAliasID(tx, uid, "hosted", slug); err == nil && owner != item {
-		return SkillPublishProblem{fmt.Sprintf("You already have a written skill named %s, so this one can't be published under that name.", slug)}
-	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	owner, e := libraryAliasID(tx, uid, "hosted", slug)
+	if e == nil && owner != item {
+		err = SkillPublishProblem{fmt.Sprintf("You already have a written skill named %s, so this one can't be published under that name.", slug)}
+		return
+	}
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
+		err = e
+		return
+	}
+	return sk, bundle, revision, rev.ManifestDigest, nil
+}
+
+// hostedFromHeadTx writes the item's head revision as its hosted skill slug,
+// public or not, and binds the hosted skill to that revision, so Write a skill
+// edits it and the next save of it becomes the item's next revision rather
+// than a skill of its own.
+func hostedFromHeadTx(tx *sql.Tx, uid int64, item, slug string, published bool) error {
+	sk, bundle, revision, digest, err := hostedHeadTx(tx, uid, item, slug)
+	if err != nil {
 		return err
 	}
+	sk.Published = published
 	// The alias first: the hosted insert then joins this item instead of
 	// making a written skill of its own.
 	if _, err = tx.Exec(`INSERT INTO library_aliases VALUES(?,'hosted',?,?) ON CONFLICT(user_id,kind,reference) DO NOTHING`, uid, slug, item); err != nil {
@@ -175,14 +195,14 @@ func hostedFromHeadTx(tx *sql.Tx, uid int64, item, slug string, published bool) 
 	}
 	at := now()
 	if _, err = tx.Exec(`INSERT INTO hosted_skills(user_id,slug,description,content,files,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)
- ON CONFLICT(user_id,slug) DO UPDATE SET description=excluded.description,content=excluded.content,files=excluded.files,published=excluded.published,updated_at=excluded.updated_at`, uid, slug, sk.Description, sk.Content, string(files), published, at, at); err != nil {
+ ON CONFLICT(user_id,slug) DO UPDATE SET description=excluded.description,content=excluded.content,files=excluded.files,published=excluded.published,updated_at=excluded.updated_at`, uid, slug, sk.Description, sk.Content, string(files), sk.Published, at, at); err != nil {
 		return err
 	}
 	editor, err := skillbundle.FromContents(hostedContentFiles(sk))
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`INSERT INTO hosted_sync_sources(user_id,slug,bundle_id,revision_id,digest) VALUES(?,?,?,?,?) ON CONFLICT(user_id,slug) DO UPDATE SET bundle_id=excluded.bundle_id,revision_id=excluded.revision_id,digest=excluded.digest`, uid, slug, bundle, revision, rev.ManifestDigest); err != nil {
+	if _, err = tx.Exec(`INSERT INTO hosted_sync_sources(user_id,slug,bundle_id,revision_id,digest) VALUES(?,?,?,?,?) ON CONFLICT(user_id,slug) DO UPDATE SET bundle_id=excluded.bundle_id,revision_id=excluded.revision_id,digest=excluded.digest`, uid, slug, bundle, revision, digest); err != nil {
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO library_hosted_editor_digests VALUES(?,?,?) ON CONFLICT(user_id,slug) DO UPDATE SET digest=excluded.digest`, uid, slug, editor.Digest)
@@ -198,4 +218,36 @@ func (s *Store) HostedSkillImportedFrom(username, slug string) (string, error) {
 		return "", nil
 	}
 	return link, err
+}
+
+// SkillPublicProblemFor says, in plain words, why a published skill's public
+// page no longer follows it: its head is content a public page can't serve,
+// so the page keeps the version before. "" when it follows, or is not public.
+func (s *Store) SkillPublicProblemFor(uid int64, item string) (string, error) {
+	out := ""
+	err := s.withTx(func(tx *sql.Tx) error {
+		slug, hosted, err := itemHostedSlugTx(tx, uid, item)
+		if err != nil || !hosted {
+			return err
+		}
+		var published bool
+		if err = tx.QueryRow(`SELECT published FROM hosted_skills WHERE user_id=? AND slug=?`, uid, slug).Scan(&published); err != nil || !published {
+			return err
+		}
+		_, _, _, _, err = hostedHeadTx(tx, uid, item, slug)
+		var problem SkillPublishProblem
+		if errors.As(err, &problem) {
+			out = "The public page still shows the version before: " + problem.Reason
+			return nil
+		}
+		return err
+	})
+	return out, err
+}
+
+// SkillPublishedFor says whether a library skill has a public page.
+func (s *Store) SkillPublishedFor(uid int64, item string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=? AND a.item_id=? AND a.kind='hosted' AND h.published=1`, uid, item).Scan(&n)
+	return n > 0, err
 }

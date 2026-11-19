@@ -518,5 +518,9 @@ func (s *server) skillOriginalUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "update-from-original", item, map[string]any{"replacedEdits": edited})
-	writeJSON(w, 200, map[string]any{"updated": true, "digest": res.Manifest.Digest, "edited": edited})
+	out := map[string]any{"updated": true, "digest": res.Manifest.Digest, "edited": edited}
+	if problem := s.publicProblem(uid, item); problem != "" {
+		out["publicProblem"] = problem
+	}
+	writeJSON(w, 200, out)
 }

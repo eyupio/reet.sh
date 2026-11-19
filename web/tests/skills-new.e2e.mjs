@@ -77,6 +77,25 @@ try {
   await context.close()
  }
 
+ // Keep all that keeps some and then fails on another says why, and the one it could not keep is still there to decide.
+ if (run('keep all error')) {
+  const {context, page, errors, w} = await open([found('paseo-help'), found('askme', [copy('a1', 'Elitebook'), copy('a2', 'ThinkPad')], true)])
+  await page.route('**/api/v2/skills/new', async route => {
+   if (route.request().postDataJSON().names.includes('askme')) return route.fulfill({status:500, json:{error:'ThinkPad did not answer.'}})
+   return route.fallback()
+  })
+  await banner(page).getByRole('button', {name:'Review'}).click()
+  const dialog = page.getByRole('dialog', {name:'New on Elitebook and ThinkPad'})
+  await dialog.getByRole('button', {name:'Keep all'}).click()
+  await expect(dialog.getByRole('button', {name:'Keep paseo-help'})).toHaveCount(0)
+  await expect(dialog.getByRole('alert')).toHaveText('ThinkPad did not answer.')
+  await expect(dialog.getByRole('button', {name:'Keep askme'})).toBeVisible()
+  await expect(dialog.getByRole('status')).toContainText('Kept paseo-help · going on every machine')
+  expect(w.posts).toEqual([{names:['paseo-help'], action:'keep'}])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // When the machines' copies differ, the review asks which machine's copy to keep and Keep sends it.
  if (run('choose copy')) {
   const {context, page, errors, w} = await open([found('askme', [copy('a1', 'Elitebook'), copy('a2', 'ThinkPad')], true), found('cq')])

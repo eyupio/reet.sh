@@ -49,12 +49,13 @@
     onclose()
   }
 
-  async function settle(names: string[], action: 'keep' | 'archive') {
+  // `failed` keeps what a later decision in the same press said went wrong (Keep all that kept some, then failed).
+  async function settle(names: string[], action: 'keep' | 'archive', failed = false) {
     const decided = remaining.filter(item => names.includes(item.name))
     const index = remaining.findIndex(item => names.includes(item.name))
     remaining = remaining.filter(item => !names.includes(item.name))
     said = action === 'keep' ? toastText('kept', names, 0) : `Archived ${names.length === 1 ? names[0] : `${names.length} skills`} · coming off ${phrase(hostsOf(decided))}`
-    error = ''
+    if (!failed) error = ''
     ondecided()
     await tick()
     // Focus stays in the review: the next skill's Keep, or Close once all are sorted.
@@ -113,6 +114,7 @@
     const same = remaining.filter(item => !item.digestsDiffer).map(item => item.name)
     const differ = remaining.filter(item => item.digestsDiffer)
     const kept: string[] = []
+    let failed = false
     try {
       if (same.length) {
         await decideNewSkills(same, 'keep')
@@ -123,10 +125,11 @@
         kept.push(item.name)
       }
     } catch (e) {
+      failed = true
       refused(e)
     } finally {
       busy = ''
-      if (kept.length) await settle(kept, 'keep')
+      if (kept.length) await settle(kept, 'keep', failed)
     }
   }
 </script>

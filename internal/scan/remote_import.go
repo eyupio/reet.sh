@@ -69,6 +69,13 @@ func controllerPost(ctx context.Context, c agentConfig, route string, in, out an
 		return err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusLocked {
+		// A fenced controller: its refusal says where it moved to, which the
+		// agent's cycle ends on and follows.
+		var e struct{ Error, Code, MovedTo string }
+		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&e)
+		return controllerError{Status: response.StatusCode, Message: e.Error, Code: e.Code, MovedTo: e.MovedTo}
+	}
 	if response.StatusCode != 200 {
 		return controllerHTTPError(response.StatusCode)
 	}

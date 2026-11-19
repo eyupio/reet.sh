@@ -116,6 +116,9 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 // parent reet cannot write in.
 var makeStaging = os.MkdirTemp
 
+// safeSlug is a skill folder name reet accepts from the controller.
+var safeSlug = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
 // stageSkillFiles writes checked files into a new .reet-private-* folder in
 // parent and returns it, for the caller to rename into place or remove.
 func stageSkillFiles(parent string, files []skillbundle.ContentFile) (string, error) {

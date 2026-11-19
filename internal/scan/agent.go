@@ -22,7 +22,6 @@ import (
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/filelock"
-	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -146,11 +145,7 @@ func agentRequest(c agentConfig, path string, body any, result any, version stri
 	return agentRequestContext(context.Background(), c, path, body, result, version)
 }
 func agentRequestContext(ctx context.Context, c agentConfig, path string, body any, result any, version string) error {
-	client := httpClient
-	if strings.HasPrefix(path, "/api/v2/library/") {
-		client = noRedirectClient
-	}
-	return agentRequestWith(ctx, client, c, path, body, result, version)
+	return agentRequestWith(ctx, httpClient, c, path, body, result, version)
 }
 
 // agentRequestWith sends one authenticated request with the given client.
@@ -169,7 +164,6 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
-	req.Header.Set("X-Reet-Library-Protocol", "1")
 	req.Header.Set("X-Reet-Skills-Protocol", "2")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -190,12 +184,6 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 // ErrLibraryImportRemoved is what reet agent library-import says now that a
 // skill found on a machine is offered on the Skills page instead.
 var ErrLibraryImportRemoved = errors.New("reet agent library-import has been removed. Skills found on a machine now appear on the Skills page under New on a machine, where you keep or archive them.")
-
-// RunLibraryImport is the removed library-import capture. Only the old sync
-// engine's tests run it, until that engine is deleted.
-func RunLibraryImport(args []string, out io.Writer, version string) error {
-	return runLibraryImport(args, out, version)
-}
 
 // RunAgent enrolls a scanner-only installation and processes typed controller jobs.
 func RunAgent(args []string, out io.Writer, version string) error {
@@ -570,22 +558,12 @@ func permanentAgentError(err error) bool {
 }
 
 type agentResult struct {
-	ID      string   `json:"id"`
-	Status  string   `json:"status"`
-	Hash    string   `json:"hash"`
-	Message string   `json:"message"`
-	Plan    SyncPlan `json:"plan"`
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
 }
 
 func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time, allowRestart bool) error {
-	if err := syncLibraryEdits(ctx, c, config, version, out); err != nil {
-		// A controller that has moved refuses every request that follows too,
-		// so the cycle ends here with the one reason, not four lines of it.
-		if _, moved := movedTo(err); moved {
-			return err
-		}
-		fmt.Fprintln(out, "Library edits remain local; continuing other connector work:", err)
-	}
 	// A completed result is durable before acknowledgment. Reconnect resends the
 	// result, never the filesystem operation.
 	if b, err := os.ReadFile(config + ".result"); err == nil {
@@ -614,17 +592,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if handled {
 		return err
 	}
-	if err != nil {
-		fmt.Fprintln(out, "Skill import channel unavailable; continuing inventory and sync work.")
-	}
-	// Metadata-only previews read files only after the controller names this
-	// process, and never write. They wait their turn behind an import, if any.
-	handled, err = processContentPreview(ctx, c, version)
-	if handled {
+	// A controller that has moved refuses every request that follows too,
+	// so the cycle ends here with the one reason.
+	if _, moved := movedTo(err); moved {
 		return err
 	}
 	if err != nil {
-		fmt.Fprintln(out, "Skill content preview channel unavailable; continuing inventory and sync work.")
+		fmt.Fprintln(out, "Skill import channel unavailable; continuing inventory and sync work.")
 	}
 	// The controller sends the skills this machine should have only when they
 	// differ from the version it last received; the copy kept then is what
@@ -646,14 +620,12 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		return err
 	}
 	c.Host = reply.Agent.Host
-	keepControllerSkillsProtocol(config, c, reply.Agent.SkillsProtocol, out)
 	if reply.Agent.Paused {
 		return nil
 	}
 	// Only a controller on this agent's skills protocol keeps this machine's
-	// skills. One on another (rolled back, say) runs the older engine for it,
-	// so a desired state kept from before is left unused, not deleted: the
-	// two would undo each other.
+	// skills. One on another (rolled back, say) gets no skill work from it,
+	// and a desired state kept from before is left unused, not deleted.
 	var skillErr error
 	if reply.Agent.SkillsProtocol == store.CurrentSkillsProtocol {
 		skillErr = reconcileAgentSkills(ctx, c, config, reply.Desired, cached, reply.Retry, version, time.Now(), out)
@@ -682,104 +654,27 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		// A claimed job still runs; the skills report is sent again next cycle.
 		fmt.Fprintln(out, "Skills:", skillErr)
 	}
+	// The controller sends this machine two kinds of job: a scan, and a
+	// binary update. Skills arrive with the desired state above.
 	j := reply.Job
 	result := agentResult{ID: j.ID, Status: "succeeded"}
 	var operationErr error
 	restartPath := ""
-	if j.Kind == "scan" {
+	switch j.Kind {
+	case "scan":
 		operationErr = scanAll()
-	} else if j.Kind == "update" {
+	case "update":
 		if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")
 		} else {
 			report := func(stage, detail string) { reportAgentStage(c, j.ID, stage, detail, version) }
 			result.Message, restartPath, operationErr = updateAgentBinary(ctx, config, j.ID, j.Revision, version, report)
 		}
-	} else {
-		target, err := fetchTarget(c.Server, c.Token, j.TargetID)
-		if err != nil {
-			operationErr = err
-		} else if !strings.EqualFold(target.Target.Host, c.Host) || target.Revision != j.Revision {
-			operationErr = errSyncTargetChanged
-		} else {
-			dir := c.Home
-			if target.Target.Project != "" {
-				dir = target.Target.Project
-				allowed := false
-				for _, p := range c.Projects {
-					if p == dir {
-						allowed = true
-					}
-				}
-				if !allowed {
-					operationErr = errors.New("project is not enrolled; add it to this installation's project scopes locally")
-				}
-			}
-			if j.Kind == "apply" && operationErr == nil {
-				// Read the local opt-in fresh so `reet agent allow-apply on`
-				// takes effect on the next job without restarting the agent.
-				local, err := loadAgentConfig(config)
-				if err != nil {
-					operationErr = err
-				} else if !local.AllowApply {
-					operationErr = errors.New("remote apply disabled locally; run reet agent allow-apply on in a terminal on this machine to opt in")
-				}
-			}
-			if operationErr == nil {
-				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-				opts := syncOptions{onExisting: func(skill store.SyncSkill, target store.SyncTarget, path string) error {
-					return adoptLibraryInstall(ctx, config, c, skill, target, path, version)
-				}, filterDesired: func(skills []store.SyncSkill) []store.SyncSkill { return filterLibraryPending(config, c, skills) }, onInstalled: func(skill store.SyncSkill, path string, files []skillbundle.ContentFile) error {
-					return prepareLibraryInstall(ctx, config, c, skill, path, files, version, j.TargetID)
-				}, onInstallVerified: func(skill store.SyncSkill, path string) error {
-					return finishLibraryInstall(config, c, skill, path, j.TargetID)
-				}, managedRemovals: func(target store.SyncTarget, path string) ([]SyncAction, map[string]string, error) {
-					return planLibraryRemovals(ctx, config, c, target, path, version)
-				}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, map[string]bool, error) {
-					return planLibraryRestores(config, c, target, path)
-				}, removeManaged: func(action SyncAction, path string, out io.Writer, onBackup func(string)) error {
-					return removeLibraryDeployment(ctx, config, c, action, path, version, out, onBackup)
-				}, cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
-					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
-					defer reportCancel()
-					_ = agentRequestContext(reportCtx, c, "/api/v2/sync/jobs/stage", map[string]string{"id": j.ID, "stage": stage, "detail": detail}, nil, version)
-				}}
-				if j.Kind == "apply" {
-					args = append(args, "--apply")
-					opts.approvedHash = j.Hash
-				}
-				runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
-				operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
-					return runNpxCommand(runCtx, args, cwd, nil, out)
-				}, version, opts)
-				cancel()
-				if operationErr == nil && (j.Kind == "apply" || len(result.Plan.Actions) == 0) {
-					if j.Kind == "apply" {
-						// Applying files changes what this machine reports. Scan before the result
-						// leaves, so the inventory every page reads is the one the apply left behind.
-						*lastScan = time.Now()
-						if scanErr := scanAll(); scanErr != nil {
-							result.Message = "Applied, but the machine's inventory will refresh on its next scan."
-						}
-					} else {
-						operationErr = reportContentObservations(ctx, c, version)
-					}
-				}
-				kindOK := j.Kind == "preview" || j.Kind == "auto"
-				if operationErr == nil && kindOK {
-					result.Status = "awaiting-approval"
-				}
-			}
-		}
+	default:
+		operationErr = fmt.Errorf("this agent no longer runs %q jobs: every machine follows your library, so update the controller to match this agent", j.Kind)
 	}
 	if operationErr != nil {
 		result.Status = "failed"
-		// A stale plan is not a dead end. Tell the controller nothing changed
-		// and that a fresh preview will settle the scope, so an automatic run
-		// can repair itself instead of stopping every later scope.
-		if ErrReplanWorthAttempting(operationErr) {
-			result.Status = "replan"
-		}
 		result.Message = operationErr.Error()
 	}
 	if restartPath != "" {

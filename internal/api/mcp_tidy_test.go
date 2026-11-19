@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -388,4 +389,29 @@ func TestMCPEnvironmentRefusalsNameOwnershipReceiptsAndPins(t *testing.T) {
 	if int(forced["deleted"].(float64)) != 1 {
 		t.Fatalf("forced delete: %+v", forced)
 	}
+}
+
+// legacyShelfCopy puts a source on the shelf the way rows from before names
+// were unique sit there, for fixtures that hold more than one source of a
+// name: UpsertFor now refuses the second. It writes through its own
+// connection, as the store keeps its own private.
+func legacyShelfCopy(t *testing.T, st *store.Store, uid int64, r ref.Ref) (store.Skill, error) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(st.Dir(), "reet.db")+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	at := time.Now().UnixMilli()
+	if _, err = db.Exec(`INSERT INTO skills(id,source,slug,source_type,url,name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at) VALUES(?,?,0,'',?,?)`, uid, r.ID, at, at); err != nil {
+		t.Fatal(err)
+	}
+	sk, ok, err := st.GetFor(uid, r.ID)
+	if err != nil || !ok {
+		t.Fatal("legacy shelf copy missing", err)
+	}
+	return sk, nil
 }

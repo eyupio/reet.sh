@@ -107,38 +107,6 @@ func TestReconcileConflictStopsBeforeInventoryImport(t *testing.T) {
 	}
 }
 
-func TestSyncAcceptsMergedHostAndTargetAliases(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".claude", "skills"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	posted := false
-	target := store.SyncTarget{Target: store.Environment{ID: "new-target", Host: "preferred", Agent: "claude", Name: "preferred · Claude Code"}, HostAliases: []string{"old-host"}, TargetAliases: []string{"old-target"}, Desired: []store.SyncSkill{}}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			json.NewEncoder(w).Encode(map[string]any{"targets": []store.SyncTarget{target}, "canWrite": true})
-			return
-		}
-		var v struct{ Machine store.MachineInfo }
-		json.NewDecoder(r.Body).Decode(&v)
-		if v.Machine.Host != "preferred" {
-			t.Error("report did not use preferred name")
-		}
-		posted = true
-		w.Write([]byte(`{"imported":0,"errors":[]}`))
-	}))
-	defer srv.Close()
-	if err := runSync([]string{"--server", srv.URL, "--env", "old-host", "--target", "old-target"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("must not install/remove skills"); return nil }, "test"); err != nil {
-		t.Fatal(err)
-	}
-	if !posted {
-		t.Fatal("inventory was not refreshed")
-	}
-	if err := runSync([]string{"--server", srv.URL, "--env", "unrelated-host", "--target", "old-target"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("must not execute"); return nil }, "test"); err == nil {
-		t.Fatal("unrelated host accepted")
-	}
-}
-
 var reconcileNow = time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 
 // stubBundles is a bundleFetcher that counts its calls.

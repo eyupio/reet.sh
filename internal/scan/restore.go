@@ -16,15 +16,17 @@ import (
 // runAgentRestore implements `reet agent restore --list` and
 // `reet agent restore <name> [--date YYYY-MM-DD]`, which work on this
 // machine's dated backups and need no sync target, and
-// `reet agent restore [--target ID] --backup PATH`, which puts one exact
-// backup of a sync job back in the skills folder it came from.
+// `reet agent restore --backup PATH`, which puts one exact backup an older
+// reet's sync job made back in the skills folder it came from. --target is
+// still taken, from commands copied before sync targets were removed, and
+// checks nothing: the backup's own path says where it goes.
 func runAgentRestore(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("agent restore", flag.ContinueOnError)
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
 	list := fs.Bool("list", false, "list backed-up skills")
 	date := fs.String("date", "", "backup date, YYYY-MM-DD (default: newest)")
-	target := fs.String("target", "", "the sync job's target, checked when it is still saved")
+	target := fs.String("target", "", "ignored: sync targets are gone, and the backup's path says where it goes")
 	backup := fs.String("backup", "", "the exact backup a sync job made")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -48,7 +50,7 @@ func runAgentRestore(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		restored, err := restoreJobBackup(c, *target, *backup)
+		restored, err := restoreJobBackup(c, *backup)
 		if err != nil {
 			return err
 		}
@@ -131,10 +133,9 @@ func jobBackupFolders(c agentConfig) []string {
 // restoreJobBackup puts backup, one a sync job made, back in the skills
 // folder it was taken from, which its path names: an entry of
 // <parent>/.reet-sync-backups/removed-* or <parent>/.reet-backups/<date> came
-// from <parent>/skills, which must be one of jobBackupFolders. targetID, when
-// given and still saved, must be that folder's target. Nothing already in the
-// skills folder is replaced. It returns where the skill went.
-func restoreJobBackup(c agentConfig, targetID, backup string) (string, error) {
+// from <parent>/skills, which must be one of jobBackupFolders. Nothing already
+// in the skills folder is replaced. It returns where the skill went.
+func restoreJobBackup(c agentConfig, backup string) (string, error) {
 	if !filepath.IsAbs(backup) || slices.Contains(strings.Split(filepath.ToSlash(backup), "/"), "..") {
 		return "", errors.New("give the backup as the full path the Sync page shows")
 	}
@@ -171,9 +172,6 @@ func restoreJobBackup(c agentConfig, targetID, backup string) (string, error) {
 	if !validBackupName(name) {
 		return "", errors.New("choose a backup of one skill, from a .reet-sync-backups/removed-* or .reet-backups/YYYY-MM-DD folder")
 	}
-	if err := checkJobTarget(c, targetID, folder); err != nil {
-		return "", err
-	}
 	if why := leftAloneWhy(c.Home, managedRoots(c.Home, c.Projects), folder); why != "" {
 		return "", fmt.Errorf("%s; nothing was restored, and the backup stays in %s", why, backup)
 	}
@@ -206,43 +204,4 @@ func restoreJobBackup(c agentConfig, targetID, backup string) (string, error) {
 		})
 	}
 	return dest, nil
-}
-
-// checkJobTarget checks, when targetID names a target the controller still
-// keeps for this machine, that its skills folder is folder. A target that is
-// no longer saved checks nothing: the backup's own path says where it goes.
-func checkJobTarget(c agentConfig, targetID, folder string) error {
-	if targetID == "" {
-		return nil
-	}
-	targets, err := listTargets(c.Server, c.Token)
-	if err != nil {
-		return err
-	}
-	var target *store.SyncTarget
-	for i := range targets {
-		if targets[i].Target.ID == targetID || slices.Contains(targets[i].TargetAliases, targetID) {
-			target = &targets[i]
-		}
-	}
-	if target == nil {
-		return nil
-	}
-	var agent store.SyncAgent
-	if err = agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &agent, ""); err != nil {
-		return err
-	}
-	if !strings.EqualFold(target.Target.Host, agent.Host) {
-		return errors.New("that target belongs to another machine")
-	}
-	base, dirs := c.Home, homeDirs
-	if target.Target.Project != "" {
-		base, dirs = target.Target.Project, projectDirs
-	}
-	for _, d := range dirs {
-		if d.Agent == target.Target.Agent && filepath.Join(base, filepath.FromSlash(d.Dir)) == folder {
-			return nil
-		}
-	}
-	return errors.New("that backup is not from that target's skills folder; nothing was restored")
 }

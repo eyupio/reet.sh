@@ -49,12 +49,17 @@ var scanHomeAgents = map[string]bool{"agents": true, "claude": true, "cursor": t
 // machine that still has it does not quietly bring it back as Active. Codex's
 // folder is left alone, so a skill only there appears nowhere. The same goes
 // for a skill one of the machine's lock files names with no folder (an item
-// with a source and no folder, in a scan that names its machine). Project
-// folders, a folder the person scans with --dir (agent "other") and names
-// typed into the import keep today's import. A sighting of a name the library
-// has still joins it.
+// with a source and no folder, in a scan that names its machine), and for a
+// skill in a project folder (R45). A folder the person scans with --dir
+// (agent "other") and names typed into the import are the person's choice and
+// keep today's import. A sighting of a name the library has still joins it.
 func scanMakesItems(item importItem, machine string) bool {
-	home := item.Host != "" && item.Project == "" && scanHomeAgents[item.Agent]
+	// A project folder is neither scanned for new skills nor written (R45):
+	// a sighting there only joins a skill the library has.
+	if item.Host != "" && item.Project != "" {
+		return false
+	}
+	home := item.Host != "" && scanHomeAgents[item.Agent]
 	locked := strings.TrimSpace(machine) != "" && item.Host == "" && item.Agent == "" && strings.TrimSpace(item.Source) != ""
 	return !home && !locked
 }

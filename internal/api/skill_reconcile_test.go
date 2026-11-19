@@ -678,14 +678,39 @@ func TestReSightingAfterPurgeIsNewOnAMachine(t *testing.T) {
 	}
 }
 
-// A project folder is not the machine's home, and reet does not manage it: its
-// skills keep today's import, on any machine.
-func TestScanOfAProjectFolderStillMakesLibraryItems(t *testing.T) {
+// A project folder is neither scanned for new skills nor written: a scan's
+// sighting there of a name the library does not have makes no item, so
+// nothing spreads, on any machine. A sighting of a name the library has still
+// joins it.
+func TestScanOfAProjectFolderMakesNoLibraryItems(t *testing.T) {
 	e := newReconcileEnv(t)
-	e.poll(t, "", true)
-	e.scanItems(t, "elitebook", scanItem{Name: "in-project", Host: "elitebook", Agent: "claude", Project: "/home/u/code/app", Path: "/home/u/code/app/.claude/skills"})
-	if _, ok := e.libraryNames(t)["in-project"]; !ok {
-		t.Fatal("a project sighting made no item")
+	e.poll(t, "", false)
+	if _, err := e.st.UpsertLocalFor(e.uid, "known", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	project := func(name string) scanItem {
+		return scanItem{Name: name, Host: "elitebook", Agent: "claude", Project: "/home/u/code/app", Path: "/home/u/code/app/.claude/skills"}
+	}
+	e.scanItems(t, "elitebook", project("in-project"), project("known"))
+	names := e.libraryNames(t)
+	if _, ok := names["in-project"]; ok || len(names) != 1 {
+		t.Fatalf("a project sighting made an item: %+v", names)
+	}
+	if desiredNames(t, e.st, e.uid)["in-project"] {
+		t.Fatal("a project skill is sent to every machine")
+	}
+	envs, err := e.st.SyncEnvironmentsFor(e.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := false
+	for _, env := range envs {
+		for _, sk := range env.Skills {
+			joined = joined || env.Project == "/home/u/code/app" && sk.Name == "known"
+		}
+	}
+	if !joined {
+		t.Fatalf("the project sighting of known did not join it: %+v", envs)
 	}
 }
 

@@ -916,6 +916,10 @@ func (s *Store) attachHiddenTags(skills []Skill) error {
 	return rows.Err()
 }
 
+// SplitQuery splits a search as ListFor reads it: the words, joined by single
+// spaces, apart from tag:x and tag:"x y", lowercased.
+func SplitQuery(q string) (string, []string) { return splitQuery(q) }
+
 func splitQuery(q string) (string, []string) {
 	var words, tags []string
 	for i := 0; i < len(q); {

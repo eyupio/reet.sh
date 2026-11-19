@@ -73,7 +73,7 @@
       const blob = await exportAll(includeHistory, format, filters)
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = format === 'json' ? 'reet-export.json' : `reet-shelf.${format}`
+      a.download = format === 'json' ? 'reet-export.json' : `reet-skills.${format}`
       a.click()
       URL.revokeObjectURL(a.href)
       await onchange()

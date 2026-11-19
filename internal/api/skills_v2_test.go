@@ -1046,3 +1046,51 @@ func TestQuickAddLeavesAnArchivedSkillArchived(t *testing.T) {
 		t.Fatalf("a new skill is Active: %+v", r)
 	}
 }
+
+// Markdown and CSV export from the Skills page hold the rows the page shows: its tab's library skills, each once,
+// matched as the page matches them (web/src/lib/skills/skillsPage.ts matchesSearch).
+func TestSkillsExportHoldsThePagesRows(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.linkedSkill(t, findSkills)
+	// A machine copy of the same name joins the library skill: two shelf rows, one skill.
+	if _, err := e.st.UpsertLocalFor(e.uid, "find-skills", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	alpha := e.writtenSkill(t, "alpha")
+	if code, raw := e.owner(t, "PATCH", "/api/skill", `{"id":"vercel-labs/skills/find-skills","notes":"Über die Werkzeuge"}`); code != 200 {
+		t.Fatalf("notes: %d %s", code, raw)
+	}
+	export := func(query string) []string {
+		t.Helper()
+		code, body := e.owner(t, "GET", "/api/export?format=csv&sort=name&tab=all&"+query, "")
+		if code != 200 {
+			t.Fatalf("export %s: %d %s", query, code, body)
+		}
+		var names []string
+		for _, line := range strings.Split(strings.TrimSpace(body), "\n")[1:] {
+			names = append(names, strings.Split(line, ",")[1])
+		}
+		return names
+	}
+	if got := export("stage=active&q="); !slices.Equal(got, []string{"alpha", "find-skills"}) {
+		t.Fatalf("every Active skill once: %v", got)
+	}
+	// "Finds skills" is only in the fetched SKILL.md: the page shows it as the description, and the export finds it.
+	if got := export("stage=active&q=finds"); !slices.Equal(got, []string{"find-skills"}) {
+		t.Fatalf("matched by its SKILL.md description: %v", got)
+	}
+	// Case is folded beyond ASCII, as the page folds it.
+	if got := export("stage=active&q=%C3%9CBER"); !slices.Equal(got, []string{"find-skills"}) {
+		t.Fatalf("matched by its notes, any case: %v", got)
+	}
+	if err := e.st.SetSkillStatusFor(e.uid, []string{alpha}, store.SkillArchived, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := export("stage=archived"); !slices.Equal(got, []string{"alpha"}) {
+		t.Fatalf("the Archived tab: %v", got)
+	}
+	code, md := e.owner(t, "GET", "/api/export?format=md&stage=archived&tab=all&sort=name", "")
+	if code != 200 || !strings.Contains(md, "## Archived") || !strings.Contains(md, "alpha") || strings.Contains(md, "find-skills") {
+		t.Fatalf("markdown: %d %s", code, md)
+	}
+}

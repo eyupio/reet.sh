@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -3023,6 +3025,25 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) export(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
+	// From the Skills page (a tab named): the rows that page shows.
+	if stage := r.URL.Query().Get("stage"); (format == "md" || format == "markdown" || format == "csv") && (stage == store.SkillActive || stage == store.SkillArchived) {
+		rows, err := s.skillsPageExport(r, stage)
+		if err != nil {
+			skillsPageError(w, err)
+			return
+		}
+		s.eventRequest(r, "export", "", map[string]any{"format": format, "stage": stage})
+		if format == "csv" {
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="reet-skills.csv"`)
+			w.Write([]byte(skillRowsCSV(rows)))
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="reet-skills.md"`)
+		w.Write([]byte(skillRowsMarkdown(rows, stage)))
+		return
+	}
 	switch format {
 	case "md", "markdown":
 		skills, _, err := s.st.ListFor(s.uid(r), filterFromRequest(r))
@@ -3079,6 +3100,116 @@ func installCommand(s store.Skill) string {
 		selector += " '" + strings.ReplaceAll(name, "'", `'\''`) + "'"
 	}
 	return fmt.Sprintf("npx %s add %s --skill %s", ref.SkillsCLI, source, selector)
+}
+
+// skillsPageExport is what the Skills page shows for the tab status, filtered
+// as the page filters it (web/src/lib/skills/skillsPage.ts matchesSearch, and
+// its Liked and tag filters), in name order: each library skill once,
+// whatever shelf rows name it, with the description the page shows. Case is
+// folded beyond ASCII, as the page folds it.
+func (s *server) skillsPageExport(r *http.Request, status string) ([]store.SkillPageRow, error) {
+	page, err := s.skillsPageData(r, status)
+	if err != nil {
+		return nil, err
+	}
+	q := r.URL.Query()
+	liked := q.Get("tab") == "liked"
+	var tagIDs []int64
+	for _, raw := range q["tag"] {
+		for _, part := range strings.Split(raw, ",") {
+			if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil {
+				tagIDs = append(tagIDs, id)
+			}
+		}
+	}
+	term, tagNames := store.SplitQuery(q.Get("q"))
+	term = strings.ToLower(term)
+	out := []store.SkillPageRow{}
+	for _, row := range page.Skills {
+		if liked && !row.Liked || !skillRowHasTags(row, tagIDs, tagNames) {
+			continue
+		}
+		if term != "" && !slices.ContainsFunc([]string{row.Name, row.ShelfID, row.Description, row.Notes}, func(f string) bool { return strings.Contains(strings.ToLower(f), term) }) {
+			continue
+		}
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := strings.ToLower(out[i].Name), strings.ToLower(out[j].Name)
+		if a != b {
+			return a < b
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// skillRowHasTags says whether the row carries every tag named by id and by
+// (lowercased) name.
+func skillRowHasTags(row store.SkillPageRow, ids []int64, names []string) bool {
+	for _, id := range ids {
+		if !slices.ContainsFunc(row.Tags, func(t store.Tag) bool { return t.ID == id }) {
+			return false
+		}
+	}
+	for _, name := range names {
+		if !slices.ContainsFunc(row.Tags, func(t store.Tag) bool { return strings.ToLower(t.Name) == name }) {
+			return false
+		}
+	}
+	return true
+}
+
+// skillRowLink is where a row's skill can be read: its public page when
+// published, else the link it was imported from.
+func skillRowLink(row store.SkillPageRow) string {
+	if row.PublicURL != "" {
+		return row.PublicURL
+	}
+	if strings.HasPrefix(row.Origin, "https://") || strings.HasPrefix(row.Origin, "http://") {
+		return row.Origin
+	}
+	return ""
+}
+
+func skillRowsMarkdown(rows []store.SkillPageRow, status string) string {
+	var b strings.Builder
+	b.WriteString("# reet.sh skills\n")
+	if len(rows) == 0 {
+		return b.String()
+	}
+	title := "Active"
+	if status == store.SkillArchived {
+		title = "Archived"
+	}
+	fmt.Fprintf(&b, "\n## %s\n\n", title)
+	for _, row := range rows {
+		if link := skillRowLink(row); link != "" {
+			fmt.Fprintf(&b, "- [%s](%s)", row.Name, link)
+		} else {
+			fmt.Fprintf(&b, "- %s", row.Name)
+		}
+		if desc := strings.Join(strings.Fields(row.Description), " "); desc != "" {
+			fmt.Fprintf(&b, " — %s", desc)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func skillRowsCSV(rows []store.SkillPageRow) string {
+	var b bytes.Buffer
+	w := csv.NewWriter(&b)
+	_ = w.Write([]string{"id", "name", "status", "origin", "link", "liked", "notes", "tags"})
+	for _, row := range rows {
+		var tags []string
+		for _, t := range row.Tags {
+			tags = append(tags, t.Name)
+		}
+		_ = w.Write([]string{row.ID, row.Name, row.Status, row.OriginKind, skillRowLink(row), strconv.FormatBool(row.Liked), row.Notes, strings.Join(tags, "; ")})
+	}
+	w.Flush()
+	return b.String()
 }
 
 func markdown(skills []store.Skill) string {

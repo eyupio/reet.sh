@@ -154,6 +154,51 @@ func TestRemoveShelfSkillsDeletesTheLibrarySkill(t *testing.T) {
 	}
 }
 
+// Removing one of several shelf rows that stand for one library skill takes
+// only that row off the shelf: the skill, its copy and its other rows stay.
+// The skill is deleted when its last row goes.
+func TestRemoveShelfSkillsKeepsTheSkillWhileAnotherRowStandsForIt(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+	if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("find-skills", "Find."), PrivateSkillOrigin{Kind: "original", Reference: "https://github.com/vercel-labs/skills"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "find-skills", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	var aliases int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM library_aliases WHERE user_id=? AND kind='shelf' AND item_id=?`, uid, item.id).Scan(&aliases); err != nil || aliases != 2 {
+		t.Fatalf("both rows stand for the skill: %d %v", aliases, err)
+	}
+	removed, _, err := s.RemoveShelfSkillsFor(uid, []string{"local/find-skills"}, false, false, time.Now())
+	if err != nil || removed != 1 {
+		t.Fatalf("remove the duplicate: %d %v", removed, err)
+	}
+	r := skillStateNamed(t, s, uid, "find-skills")
+	if r.deletedAt != 0 || r.revision == "" {
+		t.Fatalf("removing a duplicate row deleted the skill: %+v", r)
+	}
+	if _, ok := skillRemovals(t, s, uid)["find-skills"]; ok {
+		t.Fatal("removing a duplicate row put the name on the removal list")
+	}
+	if _, ok, _ := s.GetFor(uid, "local/find-skills"); ok {
+		t.Fatal("the duplicate row is still on the shelf")
+	}
+	if _, ok, _ := s.GetFor(uid, "vercel-labs/skills/find-skills"); !ok {
+		t.Fatal("the other row went too")
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference='local/find-skills'`, uid).Scan(&aliases); err != nil || aliases != 0 {
+		t.Fatalf("the removed row still stands for the skill: %d %v", aliases, err)
+	}
+	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, false, time.Now()); err != nil || removed != 1 {
+		t.Fatalf("remove the last row: %d %v", removed, err)
+	}
+	if skillStateNamed(t, s, uid, "find-skills").deletedAt == 0 {
+		t.Fatal("the last row went and the skill stayed")
+	}
+}
+
 // The old Remove refuses a skill the person wrote, by its origin, and
 // changes nothing; an imported skill that was edited in Write a skill (it
 // has a hosted alias) is removable all the same.

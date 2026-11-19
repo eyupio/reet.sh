@@ -465,7 +465,9 @@ func deleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem, at time.Time) e
 
 // RemoveShelfSkillsFor is the old shelf Remove of shelf rows. Each row's live
 // library skill is deleted as DeleteSkillsFor deletes it, so it leaves every
-// machine and frees its name, and the row goes from the shelf; with ignore
+// machine and frees its name, and the row goes from the shelf; a row that is
+// not the last shelf row standing for its skill goes alone, and the skill
+// stays; with ignore
 // each ID also goes on the ignore list, which older machines' scans still
 // read, whether it is on the shelf or not. removed counts the rows that went.
 //
@@ -481,6 +483,9 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 			item     skillStateItem
 			live     bool
 			onShelf  bool
+			// aliasOnly: another shelf row, not removed here, stands for
+			// the same item, so only this row goes.
+			aliasOnly bool
 		}
 		var found []row
 		var written, noCopy []string
@@ -516,7 +521,11 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 					return e
 				}
 				r.live = true
+				if r.aliasOnly, e = otherShelfAliasTx(tx, uid, item, shelfIDs); e != nil {
+					return e
+				}
 				switch {
+				case r.aliasOnly:
 				case origin == "written":
 					if !slices.Contains(written, r.item.name) {
 						written = append(written, r.item.name)
@@ -542,7 +551,11 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 					return e
 				}
 			}
-			if r.live && !deleted[r.item.id] {
+			if r.aliasOnly {
+				if _, e := tx.Exec(`DELETE FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference=?`, uid, r.id); e != nil {
+					return e
+				}
+			} else if r.live && !deleted[r.item.id] {
 				if e := deleteSkillItemTx(tx, uid, r.item, at); e != nil {
 					return e
 				}
@@ -567,6 +580,26 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 		removed = 0
 	}
 	return removed, refused, err
+}
+
+// otherShelfAliasTx reports whether a shelf row outside removing still
+// stands for item.
+func otherShelfAliasTx(tx *sql.Tx, uid int64, item string, removing []string) (bool, error) {
+	rows, err := tx.Query(`SELECT a.reference FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference WHERE a.user_id=? AND a.kind='shelf' AND a.item_id=?`, uid, item)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref string
+		if err = rows.Scan(&ref); err != nil {
+			return false, err
+		}
+		if !slices.Contains(removing, ref) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // undeleteShelfItemTx brings back the deleted skill a shelf row put back on

@@ -134,7 +134,7 @@ it succeeds if its base is still the head, and returns 409 as a stale base if no
 
 Deleting or renaming a written skill drops its sync binding but leaves its bundle
 behind (a bundle's name is immutable, so a rename starts a fresh one), and nothing
-can delete a bundle. Each one kept a slot against the 128 for good, so an account
+can delete a bundle. Each one kept a slot against the 1,024 for good, so an account
 that renamed or deleted enough skills could never sync a new one. When a new bundle
 would pass the bound, the controller frees bundles that only ever held a written
 skill's synced bytes and that nothing uses any more. It frees the oldest first and no

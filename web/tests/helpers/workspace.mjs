@@ -46,6 +46,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/library')return json({schemaVersion:1,items:[]})
   if(path==='/api/v2/sync')return json(sync)
+  // The Sync page's read: no machine follows the library unless a test answers the route itself.
+  if(path==='/api/v2/sync/skills')return json({machines:[],activity:[],work:noWork,active:0})
   if(path==='/api/v2/sync/candidates')return json({skills})
   if(path==='/api/v2/setup/profiles')return json({profiles:[]})
   if(path==='/api/v2/hosting')return json(hosting)

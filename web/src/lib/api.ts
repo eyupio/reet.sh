@@ -508,7 +508,7 @@ export async function refreshSkill(id: string): Promise<RefreshResult> {
 // The Skills page: one API keyed by library item. Likes, notes, tags and lists keep their endpoints, keyed by each
 // row's shelfId.
 export type HealthState = 'ok' | 'installing' | 'removing' | 'failed' | 'offline' | 'blocked' | 'copying' | 'copy-failed' | 'getting' | 'fetch-failed' | 'needs-update' | 'off'
-export type SkillHealth = { state: HealthState; pending: number; total: number; hosts: string[]; reason?: string; machines: { host: string; state: string; detail?: string }[] }
+export type SkillHealth = { state: HealthState; pending: number; total: number; hosts: string[]; reason?: string; machines: { host: string; agentId?: string; state: string; detail?: string }[] }
 export type SkillRow = {
   id: string
   shelfId: string
@@ -566,6 +566,19 @@ export async function undeleteSkills(ids: string[]): Promise<void> {
 export async function retrySkill(id: string): Promise<number> {
   const r = await (await req('/api/v2/skills/retry', { method: 'POST', body: json({ items: [id] }) })).json() as { retried?: number }
   return r.retried ?? 0
+}
+/** The Sync page: each machine and what it is doing, and what the machines did, newest first (GET /api/v2/sync/skills). */
+export type SyncMachineState = 'ok' | 'installing' | 'removing' | 'updating' | 'failed' | 'offline' | 'blocked' | 'paused' | 'needs-update' | 'needs-newer-controller'
+export type SyncMachine = { agentId: string; host: string; paused: boolean; online: boolean; protocol: number; state: SyncMachineState; failed: { name: string; detail: string }[]; waiting: string[]; lastSeen: number }
+export type SkillActivity = { at: number; host: string; name: string; action: string; detail: string }
+export type SyncSkills = { machines: SyncMachine[]; activity: SkillActivity[]; work: SkillWork; active: number }
+export async function loadSyncSkills(): Promise<SyncSkills> {
+  return (await req('/api/v2/sync/skills')).json()
+}
+/** Retry: ask a machine to try skills that failed there again on its next poll. Resolves to the names it was asked. */
+export async function retryMachineSkills(agentId: string, names: string[]): Promise<string[]> {
+  const r = await (await req('/api/v2/sync/skills/retry', { method: 'POST', body: json({ agentId, names }) })).json() as { names?: string[] }
+  return r.names ?? []
 }
 /** Keep or Archive skills new on a machine; from is the agent whose copy to take, needed when the copies differ. */
 export async function decideNewSkills(names: string[], action: 'keep' | 'archive', from?: string): Promise<void> {

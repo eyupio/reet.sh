@@ -49,6 +49,7 @@
     Factory: () => loadPage(() => import('./lib/factory/Factory.svelte')),
     Desks: () => loadPage(() => import('./lib/desks/DesksPage.svelte')),
     Machines: () => loadPage(() => import('./lib/Machines.svelte')),
+    SyncPage: () => loadPage(() => import('./lib/sync/SyncPage.svelte')),
     Home: () => loadPage(() => import('./lib/home/Home.svelte')),
     Community: () => loadPage(() => import('./lib/Community.svelte')),
     SharedLists: () => loadPage(() => import('./lib/SharedLists.svelte')),
@@ -785,6 +786,15 @@
       <RouteSkeleton variant="rows" />
     {:then { default: Page }}
       <Page userId={currentUser?.id ?? 0} onsignedout={fail} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isSync && !isSyncAdvanced}
+    <!-- Sync: one sentence, a row per machine and recent activity. The plan controls stay at /sync/advanced. -->
+    {#await pages.SyncPage()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page {canWrite} accounts={authMode === 'accounts'} {timeZone} {dateFormat} onsignedout={fail} />
     {:catch}
       <PageLoadError />
     {/await}

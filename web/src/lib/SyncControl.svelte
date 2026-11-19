@@ -618,7 +618,8 @@
 
 
 {#if view === 'compare'}
-{#if !advanced}<SyncSetup {snapshot} {canWrite} {onupdate} />{/if}
+<!-- /sync is the Sync page now; the whole older panel, the shared library's setup included, stays here at Advanced until it goes. -->
+<SyncSetup {snapshot} {canWrite} {onupdate} {advanced} />
 {#if activity.total || location.hash === '#sync-jobs'}
 <section id="sync-jobs" class="activity" aria-labelledby="sync-jobs-title">
   <header class="activity-head">

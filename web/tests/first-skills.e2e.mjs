@@ -62,6 +62,21 @@ try {
   }
  }
 
+ // An import makes new skills Active and leaves the ones already in the library as they are, and says which is which.
+ if (run('import')) {
+  let sent = null
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],routes:{'/api/import': req => { sent = req.postDataJSON(); return {imported:3, created:2, ignored:0, pruned:0, errors:[]} }}})
+  await page.goto(`${base}/skills`)
+  await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
+  await expect(page.locator('#tools-panel')).toContainText('New skills become Active and go on every machine; ones already in your library keep their state.')
+  await page.getByLabel('Skills to import').fill('code-review\nanthropics/skills/pdf\nfind-skills')
+  await page.getByRole('button',{name:'Import as Active'}).click()
+  await expect(page.getByRole('status').filter({hasText:'Imported 2 new as Active; 1 already in your library kept its state'})).toBeVisible()
+  expect(sent).toEqual({text:'code-review\nanthropics/skills/pdf\nfind-skills'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Markdown and CSV follow what the Skills page shows: its tab, search, Liked and tag.
  if (run('export')) {
   const rows = [skillRow('seo-sxo',{status:'archived',liked:true,tags:[{id:4,name:'seo'}]}), skillRow('code-review')]

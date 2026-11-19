@@ -573,7 +573,8 @@ export async function useMachineVersion(id: string, agentId: string): Promise<vo
 export async function resolveSkill(id: string, input: string): Promise<Skill> {
   return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }
-export async function importText(text: string): Promise<{ imported: number; ignored: number; errors: string[] }> {
+/** imported counts every skill named; created the ones that were not in the library before. */
+export async function importText(text: string): Promise<{ imported: number; created?: number; ignored: number; errors: string[] }> {
   return (await req('/api/import', { method: 'POST', body: json({ text }) })).json()
 }
 export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'csv' = 'json', filters?: SkillQuery): Promise<Blob> {

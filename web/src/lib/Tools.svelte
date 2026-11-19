@@ -40,7 +40,10 @@
       const r = await importText(importBox)
       importBox = ''
       const ignored = r.ignored ? `, skipped ${r.ignored} ignored` : ''
-      ok(`Imported ${r.imported} as Active${ignored}` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
+      // A skill already in the library keeps its state: only new ones become Active.
+      const created = r.created ?? r.imported, existing = r.imported - created
+      const what = (created ? `Imported ${created} new as Active` : 'Nothing new to import') + (existing ? `; ${existing} already in your library kept ${existing === 1 ? 'its' : 'their'} state` : '')
+      ok(`${what}${ignored}` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
       await onchange()
     } catch (e) {
       fail(e)
@@ -126,7 +129,7 @@
     <div class="panel" id="tools-panel">
       <section class="tool-card import" aria-labelledby="import-title">
         <h3 id="import-title">Import what you have installed</h3>
-        <p>Paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. They become Active, so they go on every machine; likes and notes you already have are kept.</p>
+        <p>Paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. New skills become Active and go on every machine; ones already in your library keep their state. Likes and notes are kept.</p>
         <label class="vh" for="import-box">Skills to import</label>
         <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
         <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as Active</button>

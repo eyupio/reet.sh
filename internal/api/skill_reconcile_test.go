@@ -161,8 +161,8 @@ func TestPollBodyIsSmallAndWellFormed(t *testing.T) {
 
 func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 	e := newReconcileEnv(t)
-	scan, err := e.st.QueueSyncJob(e.uid, e.agent.ID, "", "scan")
-	if err != nil {
+	// A scan left queued by an older controller.
+	if _, err := e.db(t).Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-scan',?,?,'scan','queued',1,1)`, e.uid, e.agent.ID); err != nil {
 		t.Fatal(err)
 	}
 	if reply, raw := e.poll(t, "", true); reply.Job != nil {
@@ -175,17 +175,6 @@ func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 	reply, raw := e.poll(t, "", true)
 	if reply.Job == nil || reply.Job.ID != update.ID || reply.Job.Kind != "update" {
 		t.Fatalf("the update job: %s", raw)
-	}
-	jobs, err := e.st.SyncJobsFor(e.uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The machine's first poll on the protocol closed its job-based work,
-	// saying why, and no more can be queued for it.
-	for _, j := range jobs {
-		if j.ID == scan.ID && (j.Status != "cancelled" || j.Message != "This machine now follows your library; this job is no longer needed.") {
-			t.Fatalf("the scan job: %+v", j)
-		}
 	}
 	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "elitebook follows your library; its skills are checked on every poll, so there's nothing to scan.") {
 		t.Fatalf("queueing a scan: %d %s", code, raw)
@@ -802,7 +791,7 @@ func TestPollFromANewerAgentGetsOnlyUpdates(t *testing.T) {
 	if err != nil || agents[0].SkillsProtocol != 3 || agents[0].SkillsState != store.SkillsNeedNewerController {
 		t.Fatalf("recorded: %+v %v", agents, err)
 	}
-	if _, err = e.st.QueueSyncJob(e.uid, e.agent.ID, "", "scan"); err == nil {
+	if _, err = e.st.QueueSyncJob(e.uid, e.agent.ID, "scan"); err == nil {
 		t.Fatal("a scan was queued for a newer agent")
 	}
 	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1","Entries":[]}`, false, "X-Reet-Skills-Protocol", "3"); code != 409 {
@@ -837,40 +826,6 @@ func TestScanOfAnExtraFolderStillMakesLibraryItems(t *testing.T) {
 	}
 }
 
-// Asking reet to sync one machine that follows the library, as "Install on"
-// and Machines' "Add skill" do, is refused with what to do instead; the page
-// shows the server's words.
-func TestSyncOneMachineThatFollowsTheLibraryIsRefused(t *testing.T) {
-	e := newReconcileEnv(t)
-	e.poll(t, "", true)
-	code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/library", `{"agentId":"`+e.agent.ID+`"}`, "X-Reet-Token", "fixture-owner")
-	if code != 409 || !strings.Contains(raw, "elitebook follows your library. Make the skill Active to put it on every machine.") {
-		t.Fatalf("sync one machine: %d %s", code, raw)
-	}
-}
-
-// A saved set for a machine that follows the library is refused before
-// anything is written, so no stray set is left behind.
-func TestSaveDesiredRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
-	e := newReconcileEnv(t)
-	e.poll(t, "", true)
-	if err := e.st.TouchEnvironmentFor(e.uid, "elitebook", "agents", "", "/home/u/.agents/skills"); err != nil {
-		t.Fatal(err)
-	}
-	env := store.EnvironmentIDFor(e.uid, "elitebook", "agents", "")
-	if err := e.st.RecordInventoryFor(e.uid, env, true, store.MachineInfo{}); err != nil {
-		t.Fatal(err)
-	}
-	body, _ := json.Marshal(map[string]any{"targetId": env, "sourceId": "shelf", "listId": 0, "skillIds": []string{}, "mode": "additive", "revision": ""})
-	code, raw := doClient(t, e.srv.Client(), e.srv, "PUT", "/api/v2/sync/desired", string(body), "X-Reet-Token", "fixture-owner")
-	if code != 409 || !strings.Contains(raw, "elitebook follows your library. Make the skill Active to put it on every machine.") {
-		t.Fatalf("save a set: %d %s", code, raw)
-	}
-	if targets, err := e.st.SyncTargetsFor(e.uid); err != nil || len(targets) != 0 {
-		t.Fatalf("a set was written: %+v %v", targets, err)
-	}
-}
-
 // A newer agent may send fields this controller does not know yet; a poll and
 // a report that carry them are read for what this controller does know.
 func TestPollAndReportTakeFieldsFromANewerAgent(t *testing.T) {
@@ -884,5 +839,37 @@ func TestPollAndReportTakeFieldsFromANewerAgent(t *testing.T) {
 	}
 	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1"} {}`, true); code != 400 {
 		t.Fatalf("trailing data is still refused: %d %s", code, raw)
+	}
+}
+
+// An agent below the skills protocol is told it needs an update and gets
+// nothing else for skills: no desired state, and no job but its binary update.
+// A job the older engine left queued for it stays where it is.
+func TestPollGivesAnOlderAgentOnlyItsUpdate(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.writtenSkill(t, "demo")
+	if _, err := e.db(t).Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-apply',?1,?2,'apply','queued',1,1),('old-scan',?1,?2,'scan','queued',2,2)`, e.uid, e.agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	reply, raw := e.poll(t, "", false)
+	if reply.Desired != nil || reply.Job != nil || reply.Agent.SkillsState != store.SkillsNeedUpdate {
+		t.Fatalf("an older agent was given skill work: %s", raw)
+	}
+	update, err := e.st.QueueAgentUpdate(e.uid, e.agent.ID, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, raw = e.poll(t, "", false)
+	if reply.Job == nil || reply.Job.ID != update.ID || reply.Desired != nil || reply.Agent.SkillsState != store.SkillsNeedUpdate {
+		t.Fatalf("the update for an older agent: %s", raw)
+	}
+	jobs, err := e.st.SyncJobsFor(e.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range jobs {
+		if (j.ID == "old-apply" || j.ID == "old-scan") && j.Status != "queued" {
+			t.Fatalf("an old job moved: %+v", j)
+		}
 	}
 }

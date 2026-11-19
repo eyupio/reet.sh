@@ -36,30 +36,26 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 	scan("server", `[]`, `[]`)
 	var state struct {
 		Environments []store.SyncEnvironment
-		Targets      []store.SyncTarget
+		Targets      []any
 	}
 	code, body := doClient(t, client, srv, "GET", "/api/v2/sync", "", "X-Reet-Token", "tok")
 	if code != 200 {
 		t.Fatal(body)
 	}
 	json.Unmarshal([]byte(body), &state)
-	source, target := "", ""
+	source := ""
 	for _, env := range state.Environments {
-		if env.Agent == "agents" {
-			if env.Host == "laptop" {
-				source = env.ID
-			} else {
-				target = env.ID
-			}
+		if env.Agent == "agents" && env.Host == "laptop" {
+			source = env.ID
 		}
 	}
-	code, body = doClient(t, client, srv, "PUT", "/api/v2/sync", `{"sourceId":"`+source+`","targetId":"`+target+`"}`, "X-Reet-Token", "tok")
-	if code != 200 {
-		t.Fatalf("save %d %s", code, body)
+	// Sync targets are gone: the state keeps the key, empty, and saving one is
+	// answered as gone, saying what took its place.
+	if state.Targets == nil || len(state.Targets) != 0 {
+		t.Fatalf("targets: %s", body)
 	}
-	json.Unmarshal([]byte(body), &state)
-	if len(state.Targets) != 1 || len(state.Targets[0].Missing) != 1 {
-		t.Fatalf("missing drift: %s", body)
+	if code, body = doClient(t, client, srv, "PUT", "/api/v2/sync", `{"sourceId":"`+source+`","targetId":"x"}`, "X-Reet-Token", "tok"); code != 410 || !strings.Contains(body, "every machine follows your library") {
+		t.Fatalf("saving a sync target: %d %s", code, body)
 	}
 	res := scan("laptop", `[{"name":"invalid/name"}]`, `[]`)
 	if !strings.Contains(res, `"errors":[`) {
@@ -75,10 +71,6 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 		if env.ID == source && env.Complete {
 			t.Fatal("partial scan marked authoritative")
 		}
-	}
-	code, _ = doClient(t, client, srv, "PUT", "/api/v2/sync", `{"sourceId":"`+source+`","targetId":"`+target+`"}`, "X-Reet-Token", "tok")
-	if code != 400 {
-		t.Fatalf("incomplete reference accepted: %d", code)
 	}
 }
 

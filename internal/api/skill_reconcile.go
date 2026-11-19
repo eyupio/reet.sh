@@ -205,7 +205,7 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 		}
 	}
 	s.maybeAutoUpdateAgent(r, a)
-	job, err := s.st.ClaimUpdateJob(uid, a)
+	job, err := s.st.ClaimSyncJob(uid, a)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

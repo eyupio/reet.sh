@@ -10,7 +10,6 @@ import (
 )
 
 var ErrMachineName = errors.New("machine names must be non-empty, at most 200 characters and contain no control characters")
-var ErrMachineConflict = errors.New("these reports have different saved sync references for the same agent group; stop tracking one reference before merging")
 
 type machineQuerier interface{ QueryRow(string, ...any) *sql.Row }
 
@@ -117,12 +116,6 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 		for _, e := range entries {
 			mapping[e.id] = EnvironmentIDFor(userID, to, e.agent, e.project)
 		}
-		canonicalID := func(id string) string {
-			if next, ok := mapping[id]; ok {
-				return next
-			}
-			return id
-		}
 		for _, e := range entries {
 			id := mapping[e.id]
 			name := EnvironmentName(to, e.agent, e.project)
@@ -131,20 +124,6 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 					return err
 				}
 				continue
-			}
-			var oldDesired, oldSource, newDesired, newSource string
-			a := tx.QueryRow(`SELECT desired,source_id FROM sync_targets WHERE user_id=? AND target_id=?`, userID, e.id).Scan(&oldDesired, &oldSource)
-			b := tx.QueryRow(`SELECT desired,source_id FROM sync_targets WHERE user_id=? AND target_id=?`, userID, id).Scan(&newDesired, &newSource)
-			if a != nil && !errors.Is(a, sql.ErrNoRows) {
-				return a
-			}
-			if b != nil && !errors.Is(b, sql.ErrNoRows) {
-				return b
-			}
-			bothFound := a == nil && b == nil
-			changed := oldDesired != newDesired || canonicalID(oldSource) != canonicalID(newSource)
-			if bothFound && changed {
-				return ErrMachineConflict
 			}
 			var scanned int64
 			err = tx.QueryRow(`SELECT COALESCE(sc.scanned_at,e.last_seen) FROM environments e LEFT JOIN environment_scans sc ON sc.env_id=e.id WHERE e.id=? AND e.user_id=?`, id, userID).Scan(&scanned)
@@ -172,43 +151,10 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 					return err
 				}
 			}
-			if a == nil {
-				if b == nil {
-					_, err = tx.Exec(`DELETE FROM sync_targets WHERE user_id=? AND target_id=?`, userID, e.id)
-				} else {
-					_, err = tx.Exec(`UPDATE sync_targets SET target_id=? WHERE user_id=? AND target_id=?`, id, userID, e.id)
-				}
-				if err != nil {
-					return err
-				}
-			}
-			if _, err := tx.Exec(`UPDATE sync_targets SET source_id=?,source_name=? WHERE user_id=? AND source_id=?`, id, name, userID, e.id); err != nil {
-				return err
-			}
-			var oldMode, newMode, oldBase, newBase string
-			oldErr := tx.QueryRow(`SELECT mode,baseline FROM sync_options WHERE target_id=?`, e.id).Scan(&oldMode, &oldBase)
-			newErr := tx.QueryRow(`SELECT mode,baseline FROM sync_options WHERE target_id=?`, id).Scan(&newMode, &newBase)
-			bothRead := oldErr == nil && newErr == nil
-			modeChanged := oldMode != newMode || (oldMode == "bidirectional" && oldBase != newBase)
-			if bothRead && modeChanged {
-				return ErrMachineConflict
-			}
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_options(target_id,mode,baseline,applied_revision) SELECT ?,mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, id, e.id); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_policies(target_id,follow_source,problem) SELECT ?,follow_source,problem FROM sync_policies WHERE target_id=?`, id, e.id); err != nil {
-				return err
-			}
 			if !exists || e.scanned > scanned {
 				if _, err := tx.Exec(`INSERT INTO scan_errors(env_id,error) SELECT ?,error FROM scan_errors WHERE env_id=? ON CONFLICT(env_id) DO UPDATE SET error=excluded.error`, id, e.id); err != nil {
 					return err
 				}
-			}
-			if err := moveSkillContentTargets(tx, userID, e.id, id); err != nil {
-				return err
-			}
-			if err := moveSkillContentReceipts(tx, userID, e.id, id); err != nil {
-				return err
 			}
 			if _, err := tx.Exec(`DELETE FROM environments WHERE id=? AND user_id=?`, e.id, userID); err != nil {
 				return err

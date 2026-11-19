@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/contentobs"
@@ -56,12 +57,6 @@ func (s *Store) migrateCanonicalLibrary() error {
 	return s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
 			`CREATE TABLE IF NOT EXISTS library_hosted_editor_digests(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,slug TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(user_id,slug))`,
-			`CREATE TABLE IF NOT EXISTS library_bases(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,enrollment_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE,binding_id TEXT NOT NULL,item_id TEXT NOT NULL,revision_id TEXT NOT NULL,PRIMARY KEY(user_id,enrollment_id,binding_id),FOREIGN KEY(user_id,revision_id) REFERENCES private_skill_revisions(user_id,id) ON DELETE CASCADE)`,
-			`CREATE TABLE IF NOT EXISTS library_connectors(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,enrollment_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE,protocol INTEGER NOT NULL,PRIMARY KEY(user_id,enrollment_id))`,
-			`CREATE TABLE IF NOT EXISTS library_edit_events(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,event_key TEXT NOT NULL,item_id TEXT NOT NULL,enrollment_id TEXT NOT NULL,fingerprint TEXT NOT NULL,base TEXT NOT NULL,revision_id TEXT NOT NULL,saved_at INTEGER NOT NULL,uncertainty INTEGER NOT NULL,won INTEGER NOT NULL,order_at INTEGER NOT NULL,clock_fallback INTEGER NOT NULL,PRIMARY KEY(user_id,event_key),FOREIGN KEY(user_id,revision_id) REFERENCES private_skill_revisions(user_id,id) ON DELETE CASCADE)`,
-			`CREATE TABLE IF NOT EXISTS canonical_library_selections(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,item_ids TEXT NOT NULL,version TEXT NOT NULL,PRIMARY KEY(user_id,target_id))`,
-			`CREATE TABLE IF NOT EXISTS library_selection_accounts(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE)`,
-			`CREATE TABLE IF NOT EXISTS library_selections(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,selected TEXT NOT NULL,PRIMARY KEY(user_id,target_id))`,
 			// This is the schema before skill-states-v1 (status in_use, to_test,
 			// on_shelf, disabled). That migration rebuilds the table with the
 			// current columns and status check: see skillStatesLibraryItems in
@@ -69,7 +64,6 @@ func (s *Store) migrateCanonicalLibrary() error {
 			// is then rebuilt by it.
 			`CREATE TABLE IF NOT EXISTS library_items(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,id TEXT NOT NULL,item_type TEXT NOT NULL CHECK(item_type IN ('skill','agent_definition','portable_settings')),name TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('in_use','to_test','on_shelf','disabled')),version INTEGER NOT NULL DEFAULT 1,bundle_id TEXT NOT NULL DEFAULT '',revision_id TEXT NOT NULL DEFAULT '',digest TEXT NOT NULL DEFAULT '',problem TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,id))`,
 			`CREATE TABLE IF NOT EXISTS library_aliases(user_id INTEGER NOT NULL,kind TEXT NOT NULL,reference TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(user_id,kind,reference),FOREIGN KEY(user_id,item_id) REFERENCES library_items(user_id,id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)`,
-			libraryIntentFence,
 			`CREATE INDEX IF NOT EXISTS library_alias_item ON library_aliases(user_id,item_id)`,
 			`CREATE INDEX IF NOT EXISTS library_shelf_projection ON library_aliases(user_id,kind,reference,item_id)`,
 			libraryItemProjection,
@@ -91,7 +85,18 @@ func (s *Store) migrateCanonicalLibrary() error {
 			return err
 		}
 		if migrated == 0 {
-			if _, err := tx.Exec(`INSERT INTO library_legacy_stages SELECT user_id,skill_id,used,bookmarked,liked,notes FROM shelf`); err != nil {
+			// The shelf's In use and To test flags decide the stages. A shelf
+			// made after skills-engine-drop-v1 removed them, which is empty,
+			// reads as In use.
+			var flags int
+			if err := tx.QueryRow(`SELECT count(*) FROM pragma_table_info('shelf') WHERE name IN ('used','bookmarked')`).Scan(&flags); err != nil {
+				return err
+			}
+			stages := strings.NewReplacer()
+			if flags != 2 {
+				stages = strings.NewReplacer("sh.used", "1=1", "sh.bookmarked", "1=0")
+			}
+			if _, err := tx.Exec(stages.Replace(`INSERT INTO library_legacy_stages SELECT sh.user_id,sh.skill_id,sh.used,sh.bookmarked,sh.liked,sh.notes FROM shelf sh`)); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`INSERT INTO library_aliases SELECT user_id,'hosted',slug,lower(hex(randomblob(16))) FROM hosted_skills`); err != nil {
@@ -104,17 +109,17 @@ func (s *Store) migrateCanonicalLibrary() error {
 			if _, err := tx.Exec(shelfAliasBackfill); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(shelfItemBackfill); err != nil {
+			if _, err := tx.Exec(stages.Replace(shelfItemBackfill)); err != nil {
 				return err
 			}
 			// A pre-existing explicit shelf stage wins over the authored default.
-			if _, err := tx.Exec(`UPDATE library_items SET status=COALESCE((SELECT CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference WHERE a.user_id=library_items.user_id AND a.item_id=library_items.id AND a.kind='shelf' ORDER BY sh.used DESC,sh.bookmarked DESC LIMIT 1),status)`); err != nil {
+			if _, err := tx.Exec(stages.Replace(shelfStageStatus)); err != nil {
 				return err
 			}
 			if err := backfillLibraryBundles(tx); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`UPDATE library_items SET status=COALESCE((SELECT CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference WHERE a.user_id=library_items.user_id AND a.item_id=library_items.id AND a.kind='shelf' ORDER BY sh.used DESC,sh.bookmarked DESC LIMIT 1),status)`); err != nil {
+			if _, err := tx.Exec(stages.Replace(shelfStageStatus)); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`INSERT INTO library_migrations VALUES('identity-v1',?)`, now()); err != nil {
@@ -125,11 +130,7 @@ func (s *Store) migrateCanonicalLibrary() error {
 	})
 }
 
-// library_items keeps this trigger and index across the skill-states rebuild.
-const libraryIntentFence = `CREATE TRIGGER IF NOT EXISTS library_intent_fence AFTER UPDATE OF status,revision_id,name,deleted_at ON library_items WHEN OLD.status<>NEW.status OR OLD.revision_id<>NEW.revision_id OR OLD.name<>NEW.name OR OLD.deleted_at<>NEW.deleted_at BEGIN
-            UPDATE sync_targets SET revision=lower(hex(randomblob(16))) WHERE user_id=NEW.user_id AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
-            UPDATE sync_jobs SET status='cancelled',message='Library content or status changed',updated_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE user_id=NEW.user_id AND status IN ('queued','awaiting-approval') AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
-            END`
+// library_items keeps this index across the skill-states rebuild.
 const libraryItemProjection = `CREATE INDEX IF NOT EXISTS library_item_projection ON library_items(user_id,id,status)`
 
 // source_type=hosted is the persisted controller-hosted provenance. Match the
@@ -138,6 +139,10 @@ const ownHostedLibraryID = `(SELECT a.item_id FROM skills k JOIN publishers p ON
 
 const shelfAliasBackfill = `INSERT INTO library_aliases(user_id,kind,reference,item_id)
  SELECT sh.user_id,'shelf',sh.skill_id,COALESCE((SELECT a.item_id FROM skills k JOIN publishers p ON p.user_id=sh.user_id JOIN library_aliases a ON a.user_id=p.user_id AND a.kind='hosted' AND a.reference=k.slug WHERE k.id=sh.skill_id AND k.source_type='hosted' AND k.id GLOB 'hosted/*/'||p.username||'/'||k.slug),lower(hex(randomblob(16)))) FROM shelf sh`
+
+// shelfStageStatus gives each item the stage its shelf row's flags name.
+const shelfStageStatus = `UPDATE library_items SET status=COALESCE((SELECT CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference WHERE a.user_id=library_items.user_id AND a.item_id=library_items.id AND a.kind='shelf' ORDER BY sh.used DESC,sh.bookmarked DESC LIMIT 1),status)`
+
 const shelfItemBackfill = `INSERT OR IGNORE INTO library_items(user_id,id,item_type,name,status,created_at,updated_at)
  SELECT sh.user_id,a.item_id,'skill',k.slug,CASE WHEN sh.used THEN 'in_use' WHEN sh.bookmarked THEN 'to_test' ELSE 'on_shelf' END,sh.created_at,sh.updated_at FROM shelf sh JOIN skills k ON k.id=sh.skill_id JOIN library_aliases a ON a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id`
 

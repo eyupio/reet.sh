@@ -3,7 +3,6 @@ package scan
 import (
 	"bytes"
 	"io"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -53,15 +52,6 @@ func TestEnrolledAgentRunKeepsItsDirectoryAndRefusesACopiedEnrollment(t *testing
 	}
 }
 
-// olderAgent serves h as a controller sees an agent from before the skills
-// protocol.
-func olderAgent(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Del("X-Reet-Skills-Protocol")
-		h.ServeHTTP(w, r)
-	})
-}
-
 func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("REET_TOKEN", "")
@@ -71,7 +61,7 @@ func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	}
 	defer st.Close()
 	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
+	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "agent.json")
 	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--config", cfg, "--skip-terminal-setup"}, io.Discard, "test"); err != nil {
@@ -90,14 +80,16 @@ func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	if _, err = os.Stat(cfg + ".result"); !os.IsNotExist(err) {
 		t.Fatal("a result the controller will never take kept blocking the agent")
 	}
-	if _, err = st.QueueSyncJob(uid, agents[0].ID, "", "scan"); err != nil {
+	// The next job is taken and answered: an update, which a run --once
+	// cannot do and says so.
+	if _, err = st.QueueAgentUpdate(uid, agents[0].ID, "latest"); err != nil {
 		t.Fatal(err)
 	}
 	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
 		t.Fatal(err)
 	}
 	jobs, _ := st.SyncJobsFor(uid)
-	if len(jobs) != 1 || jobs[0].Kind != "scan" || jobs[0].Status != "succeeded" {
+	if len(jobs) != 1 || jobs[0].Kind != "update" || jobs[0].Status != "failed" || !strings.Contains(jobs[0].Message, "long-running") {
 		t.Fatalf("agent did not resume polling: %+v", jobs)
 	}
 }

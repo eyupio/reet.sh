@@ -14,11 +14,6 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	targets, err := s.st.SyncTargetsFor(s.uid(r))
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
 	machines, err := s.st.GroupMachinesFor(s.uid(r), envs)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -39,40 +34,15 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	runs, err := s.st.SyncRunsFor(s.uid(r))
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
 	releases := agentupdate.Info{}
 	if s.releases != nil {
 		releases = s.releases.Info(r.Context())
 	}
-	writeJSON(w, 200, map[string]any{"agents": agents, "jobs": jobs, "updateJobs": updateJobs, "runs": runs, "environments": envs, "machines": machines, "targets": targets, "releases": releases, "canWrite": s.currentUser(r).Role != "viewer"})
+	// targets and runs belonged to the job-based sync, which is gone: every
+	// machine follows the library. They stay, empty, for a page that still
+	// reads them.
+	writeJSON(w, 200, map[string]any{"agents": agents, "jobs": jobs, "updateJobs": updateJobs, "runs": []any{}, "environments": envs, "machines": machines, "targets": []any{}, "releases": releases, "canWrite": s.currentUser(r).Role != "viewer"})
 }
-func (s *server) saveSync(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		SourceID string `json:"sourceId"`
-		TargetID string `json:"targetId"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	if err := s.st.SaveSyncTargetFor(s.uid(r), in.SourceID, in.TargetID); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	s.eventRequest(r, "sync-target", "", map[string]string{"source": in.SourceID, "target": in.TargetID})
-	s.syncState(w, r)
-}
-func (s *server) deleteSync(w http.ResponseWriter, r *http.Request) {
-	if err := s.st.DeleteSyncTargetFor(s.uid(r), r.URL.Query().Get("target")); err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-	s.syncState(w, r)
-}
-
 func (s *server) forgetEnvironment(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if err := s.st.ForgetEnvironmentFor(s.uid(r), id); err != nil {
@@ -97,11 +67,6 @@ func (s *server) mergeMachines(w http.ResponseWriter, r *http.Request) {
 		code := http.StatusInternalServerError
 		if errors.Is(err, store.ErrMachineName) {
 			code = http.StatusBadRequest
-		}
-		mergeable := errors.Is(err, store.ErrMachineConflict) ||
-			errors.Is(err, store.ErrSkillContentReceiptMerge) || errors.Is(err, store.ErrSkillContentTargetMerge)
-		if mergeable {
-			code = http.StatusConflict
 		}
 		writeErr(w, code, err.Error())
 		return

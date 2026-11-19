@@ -116,7 +116,7 @@ func TestUserBackupRestoreWithoutRemote(t *testing.T) {
 	if v := svc.Verify(context.Background(), user.ID, item.ID); !v.OK {
 		t.Fatalf("verify: %+v", v)
 	}
-	if err := st.RemoveFor(user.ID, "owner/repo/skill"); err != nil {
+	if _, _, err := st.RemoveShelfSkillsFor(user.ID, []string{"owner/repo/skill"}, true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, _ := st.GetFor(user.ID, "owner/repo/skill"); ok {
@@ -826,7 +826,7 @@ func TestOldPairAndLegacyCopiesStillListFetchRestoreAndDelete(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("items = %+v, want the old pair and the legacy copy", items)
 	}
-	if err := st.RemoveFor(user.ID, "owner/repo/old"); err != nil {
+	if _, _, err := st.RemoveShelfSkillsFor(user.ID, []string{"owner/repo/old"}, true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.RestoreUser(context.Background(), user.ID, item.ID); err != nil {
@@ -867,7 +867,7 @@ func TestARemoteOnlyCopyIsFetchedAndRestored(t *testing.T) {
 	if item.Local || len(item.Remotes) != 1 {
 		t.Fatalf("remote-only item = %+v", item)
 	}
-	if err := st.RemoveFor(user.ID, "owner/repo/remote"); err != nil {
+	if _, _, err := st.RemoveShelfSkillsFor(user.ID, []string{"owner/repo/remote"}, true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.RestoreUser(context.Background(), user.ID, item.ID); err != nil {

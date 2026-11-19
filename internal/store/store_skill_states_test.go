@@ -39,8 +39,39 @@ func dropLibraryTriggers(t *testing.T, s *Store) {
 // library tables are dropped with the migration records and rebuilt by
 // identity-v1 from the shelf and hosted rows, with In use, To test and On the
 // shelf taken from the shelf flags. No library triggers run until the upgrade.
-func legacyLibrary(t *testing.T, s *Store) {
+// legacyShelfStage is a shelf row's In use and To test flags as a database
+// from before skills-engine-drop-v1 kept them.
+type legacyShelfStage struct {
+	uid              int64
+	skill            string
+	used, bookmarked bool
+}
+
+// addLegacyShelfFlags gives the shelf back the used and bookmarked flags
+// skills-engine-drop-v1 removed, every row Parked, and sets stages on them.
+func addLegacyShelfFlags(t *testing.T, s *Store, stages ...legacyShelfStage) {
 	t.Helper()
+	for _, column := range []string{"bookmarked", "used"} {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM pragma_table_info('shelf') WHERE name=?`, column).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			if _, err := s.db.Exec(`ALTER TABLE shelf ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, st := range stages {
+		if _, err := s.db.Exec(`UPDATE shelf SET used=?,bookmarked=? WHERE user_id=? AND skill_id=?`, st.used, st.bookmarked, st.uid, st.skill); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func legacyLibrary(t *testing.T, s *Store, stages ...legacyShelfStage) {
+	t.Helper()
+	addLegacyShelfFlags(t, s, stages...)
 	dropLibraryTriggers(t, s)
 	for _, table := range []string{"library_aliases", "library_items", "library_legacy_stages", "library_migrations"} {
 		if _, err := s.db.Exec(`DROP TABLE ` + table); err != nil {
@@ -138,12 +169,12 @@ func TestSkillStatesUpgradeMapsStages(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	savedWrittenSkill(t, s, uid, "turned-off", false)
-	for name, patch := range map[string]Patch{"in-use": {Used: bp(true)}, "to-test": {Bookmarked: bp(true)}, "parked": {}} {
-		if _, err := s.UpsertFor(uid, mustRef(t, "a/b/"+name), patch); err != nil {
+	for _, name := range []string{"in-use", "to-test", "parked"} {
+		if _, err := s.UpsertFor(uid, mustRef(t, "a/b/"+name), Patch{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	legacyLibrary(t, s)
+	legacyLibrary(t, s, legacyShelfStage{uid, "a/b/in-use", true, false}, legacyShelfStage{uid, "a/b/to-test", false, true})
 	if _, err := s.db.Exec(`UPDATE library_items SET status='disabled' WHERE user_id=? AND name='turned-off'`, uid); err != nil {
 		t.Fatal(err)
 	}
@@ -244,12 +275,15 @@ func TestSkillStatesUpgradeTurnsIgnoredIntoArchived(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacyLibrary(t, s)
-	// Removing kept the library item and put the skill on the ignore list.
-	if err := s.IgnoreFor(uid, "a/b/was-removed", "was-removed", "removed"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.IgnoreFor(uid, "local/never-kept", "never-kept", "removed"); err != nil {
-		t.Fatal(err)
+	// Removing kept the library item and put the skill on the ignore list,
+	// which a database from before skills-engine-drop-v1 still has.
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS ignored(user_id INTEGER NOT NULL DEFAULT 0,id TEXT NOT NULL,name TEXT NOT NULL DEFAULT '',reason TEXT NOT NULL DEFAULT '',at INTEGER NOT NULL,PRIMARY KEY(user_id,id))`,
+		`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?1,'a/b/was-removed','was-removed','removed',1),(?1,'local/never-kept','never-kept','removed',1)`,
+	} {
+		if _, err := s.db.Exec(stmt, uid); err != nil {
+			t.Fatal(err)
+		}
 	}
 	upgradeSkillStates(t, s)
 	for _, name := range []string{"was-removed", "never-kept"} {
@@ -307,7 +341,7 @@ func TestSkillStatesUpgradeFoldsDuplicateNames(t *testing.T) {
 	if err = s.AddListSkill(list.ID, "a/b/seo-audit", "", uid); err != nil {
 		t.Fatal(err)
 	}
-	legacyLibrary(t, s)
+	legacyLibrary(t, s, legacyShelfStage{uid, "local/askme", true, false}, legacyShelfStage{uid, "a/b/seo-audit", false, true}, legacyShelfStage{uid, "c/d/seo-audit", true, false})
 	upgradeSkillStates(t, s)
 
 	askme := skillStateNamed(t, s, uid, "askme")
@@ -590,28 +624,6 @@ func TestSkillStatesLinkToOwnWrittenSkillJoinsIt(t *testing.T) {
 	sk, err := s.UpsertFor(uid, rf, Patch{})
 	if err != nil || sk.LibraryItemID != written.id {
 		t.Fatalf("the link to the account's own written skill was not that skill: %+v, %v", sk, err)
-	}
-}
-
-func TestSkillStatesLocationImportRefusesATakenName(t *testing.T) {
-	s, uid, agent, _ := observationFixture(t)
-	if _, err := s.UpsertFor(uid, mustRef(t, "a/b/demo"), Patch{}); err != nil {
-		t.Fatal(err)
-	}
-	location := LibraryLocation{ID: strings.Repeat("c", 32), Application: "shared", Path: "/fixture/skills"}
-	if _, err := s.RegisterLibraryLocationFor(uid, agent.ID, location); err != nil {
-		t.Fatal(err)
-	}
-	base := ""
-	in := LibraryLocationImport{LocationID: location.ID, Name: "demo", RequestID: "taken_location_0001", ExpectedBase: &base, Files: machineImportFixture(t).Files}
-	if _, err := s.ImportLibraryLocationFor(uid, agent.ID, in); !errors.Is(err, ErrSkillNameTaken) {
-		t.Fatal("a location copy of a library name became a second item", err)
-	}
-	if rows := skillStatesNamed(t, s, uid, "demo"); len(rows) != 1 || rows[0].revision != "" {
-		t.Fatalf("the refused import changed the library: %+v", rows)
-	}
-	if bundles, err := s.PrivateSkillBundlesFor(uid); err != nil || len(bundles) != 0 {
-		t.Fatal("the refused import kept its bundle", bundles, err)
 	}
 }
 

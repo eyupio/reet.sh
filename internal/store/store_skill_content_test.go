@@ -281,7 +281,7 @@ func TestMachineCaptureRecordsWhereItCameFromAndFollowsArchive(t *testing.T) {
 	if _, err := s.ClaimRemoteImportFor(uid, agent.ID, strings.Repeat("a", 48)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MaintainSync(uid, "owner", agent); err != nil {
+	if err := s.RequestSkillCaptureFor(uid, item.id, agent.ID, "~/.agents/skills/demo"); err != nil {
 		t.Fatal(err)
 	}
 	var id string

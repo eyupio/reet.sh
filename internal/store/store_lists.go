@@ -357,7 +357,7 @@ func (s *Store) applyListAdoption(listID, ownerID int64, memberCount int, skills
 		}
 		var count int
 		if len(ids) > 0 {
-			if err = s.db.QueryRow(`SELECT COUNT(*) FROM shelf WHERE skill_id=? AND used=1 AND user_id IN (`+placeholders(len(ids))+`)`, args...).Scan(&count); err != nil {
+			if err = s.db.QueryRow(`SELECT COUNT(*) FROM shelf sh WHERE sh.skill_id=? AND `+shelfRowActive+` AND sh.user_id IN (`+placeholders(len(ids))+`)`, args...).Scan(&count); err != nil {
 				return err
 			}
 		}

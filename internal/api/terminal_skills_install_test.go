@@ -132,15 +132,6 @@ func (f *installFx) itemNamed(t *testing.T, name string) store.LibraryItem {
 	return store.LibraryItem{}
 }
 
-// pendingInstall queues an install the way the old session picker did, for the
-// tests of what still refuses one while it waits.
-func (f *installFx) pendingInstall(t *testing.T, slug string) {
-	t.Helper()
-	if _, err := f.st.InstallHostedSkillFor(f.uid, store.InstallRequest{Tool: "claude", Host: f.agent.Host, AgentID: f.agent.ID, Slug: slug, Origin: "http://example.com"}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // The session picker's Add to your skills makes a published reet skill Active
 // in the library, with its content, so it goes on every machine. Nothing is
 // queued for the one machine.
@@ -249,65 +240,6 @@ func TestTerminalSkillInstallRejectsABadBody(t *testing.T) {
 	}
 	if len(f.jobs(t)) != 0 {
 		t.Fatal("a bad body queued a job")
-	}
-}
-
-func TestSaveDesiredAnswersAPendingInstallWithItsSentence(t *testing.T) {
-	f := installFixture(t)
-	f.pendingInstall(t, "pdf")
-	var tg store.SyncTarget
-	targets, _ := f.st.SyncTargetsFor(f.uid)
-	for _, x := range targets {
-		if x.Target.ID == f.env {
-			tg = x
-		}
-	}
-	body, _ := json.Marshal(map[string]any{"targetId": f.env, "sourceId": "hosted", "listId": 0, "skillIds": []string{tg.Desired[0].ID}, "mode": "additive", "revision": tg.Revision})
-	r := httptest.NewRequest("PUT", "/api/v2/sync/desired", strings.NewReader(string(body)))
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("Origin", "https://reet.example")
-	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
-	w := httptest.NewRecorder()
-	f.srv.ServeHTTP(w, r)
-	if w.Code != 409 || w.Body.String() != `{"error":"An install is waiting on this folder. Finish or cancel it first."}` {
-		t.Fatalf("got %d %s", w.Code, w.Body.String())
-	}
-}
-
-func TestEnvironmentMergeRefusesARunningInstallWith409(t *testing.T) {
-	f := installFixture(t)
-	f.pendingInstall(t, "pdf")
-	if j, err := f.st.ClaimSyncJob(f.uid, f.agent); err != nil || j == nil {
-		t.Fatal(j, err)
-	}
-	if err := f.st.TouchEnvironmentFor(f.uid, f.agent.Host, "claude", "/work/app", "/work/app/.claude/skills"); err != nil {
-		t.Fatal(err)
-	}
-	dest := store.EnvironmentIDFor(f.uid, f.agent.Host, "claude", "/work/app")
-	body, _ := json.Marshal(map[string]any{"from_id": f.env, "to_id": dest, "confirm": true})
-	code, raw := f.post("/api/v2/environments/merge", string(body), f.cookie, "https://reet.example")
-	if code != 409 || !strings.Contains(raw, `"code":"environment_job_running"`) {
-		t.Fatalf("got %d %s", code, raw)
-	}
-	// The preview refuses the same way, before anything is confirmed.
-	preview, _ := json.Marshal(map[string]any{"from_id": f.env, "to_id": dest, "dry_run": true})
-	code, raw = f.post("/api/v2/environments/merge", string(preview), f.cookie, "https://reet.example")
-	if code != 409 || !strings.Contains(raw, `"code":"environment_job_running"`) {
-		t.Fatalf("preview got %d %s", code, raw)
-	}
-}
-
-func TestEnvironmentMergePreviewCountsPendingInstalls(t *testing.T) {
-	f := installFixture(t)
-	f.pendingInstall(t, "pdf")
-	if err := f.st.TouchEnvironmentFor(f.uid, f.agent.Host, "claude", "/work/app", "/work/app/.claude/skills"); err != nil {
-		t.Fatal(err)
-	}
-	dest := store.EnvironmentIDFor(f.uid, f.agent.Host, "claude", "/work/app")
-	body, _ := json.Marshal(map[string]any{"from_id": f.env, "to_id": dest, "dry_run": true})
-	code, raw := f.post("/api/v2/environments/merge", string(body), f.cookie, "https://reet.example")
-	if code != 200 || !strings.Contains(raw, `"pending_jobs_cancelled":1`) || !strings.Contains(raw, `"pending_installs_cancelled":1`) {
-		t.Fatalf("got %d %s", code, raw)
 	}
 }
 
@@ -477,31 +409,6 @@ func TestPickerAddRestoresAnArchivedPublishedSkill(t *testing.T) {
 	}
 	if !active {
 		t.Fatalf("slides is not sent to the machines: %+v", desired.Active)
-	}
-}
-
-// Adding takes the skill off the scan's ignore list first; when that fails
-// the add is not made and the person is told to try again.
-func TestPickerAddStopsWhenTheIgnoreListCannotBeCleared(t *testing.T) {
-	f := installFixture(t)
-	other, err := f.st.CreateUser("ignore-publisher@example.test", "Publisher", "member", "hash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = f.st.ClaimPublishingUsername(other.ID, "publisher"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = f.st.SaveHostedSkill(other.ID, store.HostedSkill{Slug: "slides", Description: "Shared", Content: "---\nname: slides\ndescription: Shared\n---\n\nBody", Published: true}); err != nil {
-		t.Fatal(err)
-	}
-	f.raw(t, `CREATE TRIGGER test_refuse_unignore BEFORE DELETE ON ignored BEGIN SELECT RAISE(ABORT,'refused'); END`)
-	f.raw(t, `INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,?,?)`, f.uid, "hosted/example.com/publisher/slides", "slides", "removed", 1)
-	code, raw := f.install(`{"skill":"reet:publisher/slides"}`)
-	if b := decodeAdd(t, raw); code != 500 || b.Code != "internal" || b.Error != "The skill could not be added. Try again." {
-		t.Fatalf("got %d %s", code, raw)
-	}
-	if got := f.itemNamed(t, "slides"); got.ID != "" {
-		t.Fatalf("the skill was added anyway: %+v", got)
 	}
 }
 

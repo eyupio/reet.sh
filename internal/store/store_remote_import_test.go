@@ -205,3 +205,22 @@ func TestRemoteImportCancellationExpiryGenerationAndOwners(t *testing.T) {
 		t.Fatal("changed create retry")
 	}
 }
+
+func finishMachineCopy(t *testing.T, s *Store, uid int64, a SyncAgent, r RemoteImport, files []skillbundle.ContentFile) RemoteImport {
+	t.Helper()
+	r = reviewRemote(t, s, uid, a, r, files)
+	if r.State != "approved" {
+		t.Fatalf("explicit safe copy should proceed without second approval: %+v", r)
+	}
+	if _, err := s.ClaimRemoteImportFor(uid, a.ID, r.Instance); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CommitRemoteImportFor(uid, a.ID, r.ID, r.Instance, r.Preview.SourceDigest, files); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.RemoteImportFor(uid, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}

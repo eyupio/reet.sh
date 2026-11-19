@@ -35,6 +35,9 @@ func movingFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	exec(`INSERT INTO mail_settings(id,host,from_addr,base_url,updated_at) VALUES(1,'smtp.example.com','hi@example.com','https://old.example.com',1)`)
+	// A copy taken by a release before skills-engine-drop-v1 still holds the
+	// sync library's origin; opening the restored copy drops it.
+	exec(`CREATE TABLE IF NOT EXISTS sync_library(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,origin TEXT NOT NULL)`)
 	exec(`INSERT INTO sync_library(user_id,origin) VALUES(?,'https://old.example.com')`, owner)
 	exec(`INSERT INTO mcp_oauth_access(hash,connection_id,scope,resource,expires_at) VALUES('a1',?,'read','https://old.example.com/mcp',9999999999999)`, conn)
 	exec(`INSERT INTO mcp_oauth_refresh(hash,connection_id,client_id,resource,scope,expires_at) VALUES('r1',?,'c','https://old.example.com/mcp','read',9999999999999)`, conn)

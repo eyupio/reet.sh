@@ -122,8 +122,16 @@ func syncJobIDs(t *testing.T, s *Store) map[string]string {
 	return out
 }
 
+// skills-engine-drop-v1 runs when a database upgraded from before it is
+// opened: the engine's tables and trigger and the shelf's flags go, update
+// jobs stay, and the engine's jobs that never started go. Opening again
+// changes nothing, and the old tables do not come back.
 func TestEngineDropMigration(t *testing.T) {
-	s := newStore(t)
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	uid, err := s.DefaultOwner()
 	if err != nil {
 		t.Fatal(err)
@@ -140,44 +148,62 @@ func TestEngineDropMigration(t *testing.T) {
 	if _, err = s.db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,used,bookmarked,notes,created_at,updated_at) VALUES(?,'owner/repo@seo-audit',1,1,0,'kept',1,1)`, uid); err != nil {
 		t.Fatal(err)
 	}
+	// As a database from before the migration: it has not run.
+	if _, err = s.db.Exec(`DELETE FROM library_migrations WHERE name='skills-engine-drop-v1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	for run := 1; run <= 2; run++ {
-		if err = s.migrateSkillsEngineDrop(); err != nil {
-			t.Fatalf("run %d: %v", run, err)
+		if s, err = Open(dir); err != nil {
+			t.Fatalf("open %d: %v", run, err)
 		}
 		for _, table := range append(append([]string{}, engineDropTables...), "library_intent_fence") {
 			if schemaObjectExists(t, s, table) {
-				t.Fatalf("run %d: %s is still there", run, table)
+				t.Fatalf("open %d: %s is still there", run, table)
 			}
 		}
 		for _, column := range []string{"used", "bookmarked"} {
 			if shelfHasColumn(t, s, column) {
-				t.Fatalf("run %d: shelf.%s is still there", run, column)
+				t.Fatalf("open %d: shelf.%s is still there", run, column)
 			}
 		}
 		jobs := syncJobIDs(t, s)
 		want := map[string]string{"update-queued": "queued", "update-done": "succeeded", "skill-done": "succeeded"}
 		if len(jobs) != len(want) {
-			t.Fatalf("run %d: jobs %v, want %v", run, jobs, want)
+			t.Fatalf("open %d: jobs %v, want %v", run, jobs, want)
 		}
 		for id, status := range want {
 			if jobs[id] != status {
-				t.Fatalf("run %d: jobs %v, want %v", run, jobs, want)
+				t.Fatalf("open %d: jobs %v, want %v", run, jobs, want)
 			}
 		}
+		// What the shelf row says that is not a stage is kept, and its
+		// library item still stands for it.
+		var liked int
+		var notes string
+		if err = s.db.QueryRow(`SELECT liked,notes FROM shelf WHERE user_id=? AND skill_id='owner/repo@seo-audit'`, uid).Scan(&liked, &notes); err != nil || liked != 1 || notes != "kept" {
+			t.Fatalf("open %d: shelf row after the drop: liked=%d notes=%q %v", run, liked, notes, err)
+		}
+		if got := skillStateNamed(t, s, uid, "seo-audit"); got.status != SkillActive {
+			t.Fatalf("open %d: library item after the drop: %+v", run, got)
+		}
+		var marked int
+		if err = s.db.QueryRow(`SELECT count(*) FROM library_migrations WHERE name='skills-engine-drop-v1'`).Scan(&marked); err != nil || marked != 1 {
+			t.Fatalf("open %d: migration record %d, %v", run, marked, err)
+		}
+		if err = s.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// What the shelf row says that is not a stage is kept, and its library
-	// item still stands for it.
-	var liked int
-	var notes string
-	if err = s.db.QueryRow(`SELECT liked,notes FROM shelf WHERE user_id=? AND skill_id='owner/repo@seo-audit'`, uid).Scan(&liked, &notes); err != nil || liked != 1 || notes != "kept" {
-		t.Fatalf("shelf row after the drop: liked=%d notes=%q %v", liked, notes, err)
+	// Run on its own, it is safe to run again.
+	if s, err = Open(dir); err != nil {
+		t.Fatal(err)
 	}
-	if got := skillStateNamed(t, s, uid, "seo-audit"); got.status != SkillActive {
-		t.Fatalf("library item after the drop: %+v", got)
-	}
-	var marked int
-	if err = s.db.QueryRow(`SELECT count(*) FROM library_migrations WHERE name='skills-engine-drop-v1'`).Scan(&marked); err != nil || marked != 1 {
-		t.Fatalf("migration record %d, %v", marked, err)
+	defer s.Close()
+	if err = s.migrateSkillsEngineDrop(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -464,8 +464,8 @@ func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
 		return err
 	}
 	for _, stmt := range []string{
-		`INSERT OR IGNORE INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
-			SELECT user_id,?,liked,bookmarked,used,notes,created_at,updated_at FROM shelf WHERE skill_id=?`,
+		`INSERT OR IGNORE INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at)
+			SELECT user_id,?,liked,notes,created_at,updated_at FROM shelf WHERE skill_id=?`,
 		`INSERT OR IGNORE INTO skill_tags(user_id,skill_id,tag_id,source,hidden)
 			SELECT user_id,?,tag_id,source,hidden FROM skill_tags WHERE skill_id=?`,
 		`INSERT OR IGNORE INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
@@ -474,8 +474,6 @@ func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
 			SELECT list_id,?,note,added_by,position,added_at FROM list_skills WHERE skill_id=?`,
 		`INSERT OR IGNORE INTO topic_skills(tag_id,skill_id)
 			SELECT tag_id,? FROM topic_skills WHERE skill_id=?`,
-		`INSERT OR IGNORE INTO ignored(user_id,id,name,reason,at)
-			SELECT user_id,?,name,reason,at FROM ignored WHERE id=?`,
 	} {
 		if _, err := tx.Exec(stmt, newRef.ID, oldRef.ID); err != nil {
 			return err
@@ -485,9 +483,6 @@ func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
 		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE skill_id=?`, oldRef.ID); err != nil {
 			return err
 		}
-	}
-	if _, err := tx.Exec(`DELETE FROM ignored WHERE id=?`, oldRef.ID); err != nil {
-		return err
 	}
 	if _, err := tx.Exec(`UPDATE events SET skill_id=? WHERE skill_id=?`, newRef.ID, oldRef.ID); err != nil {
 		return err

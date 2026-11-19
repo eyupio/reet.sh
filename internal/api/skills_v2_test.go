@@ -763,15 +763,12 @@ func TestOldRemoveWithoutCopyNeedsConfirm(t *testing.T) {
 	if code, raw = e.owner(t, "DELETE", "/api/skill?id=a%2Fb%2Fone&noCopyConfirmed=1", ""); code != 204 || e.live(t, one) {
 		t.Fatalf("confirmed remove: %d %s", code, raw)
 	}
-	code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"],"ignore":true}`)
+	code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"]}`)
 	if code != 409 || !strings.Contains(raw, `"names":["two"]`) || !e.live(t, two) {
 		t.Fatalf("bulk remove without a copy: %d %s", code, raw)
 	}
-	if code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"],"ignore":true,"noCopyConfirmed":true}`); code != 200 || !strings.Contains(raw, `"removed":1`) || e.live(t, two) {
+	if code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"],"noCopyConfirmed":true}`); code != 200 || !strings.Contains(raw, `"removed":1`) || e.live(t, two) {
 		t.Fatalf("confirmed bulk remove: %d %s", code, raw)
-	}
-	if _, raw = e.owner(t, "GET", "/api/ignored", ""); !strings.Contains(raw, "a/b/two") {
-		t.Fatalf("ignored: %s", raw)
 	}
 }
 
@@ -879,18 +876,6 @@ func TestSkillsPageDeleteAsksOnceForWrittenSkills(t *testing.T) {
 	}
 	if e.live(t, written) || e.live(t, linked) {
 		t.Fatal("confirmed delete left a skill")
-	}
-}
-
-// Ignore of an ID that is not on the shelf still puts it on the ignore
-// list, as the old Remove did.
-func TestOldRemoveIgnoresAnIDNotOnTheShelf(t *testing.T) {
-	e := newReconcileEnv(t)
-	if code, raw := e.owner(t, "DELETE", "/api/skill?id=a%2Fb%2Fnever-added&ignore=1", ""); code != 204 {
-		t.Fatalf("ignore: %d %s", code, raw)
-	}
-	if _, raw := e.owner(t, "GET", "/api/ignored", ""); !strings.Contains(raw, "a/b/never-added") {
-		t.Fatalf("ignored: %s", raw)
 	}
 }
 
@@ -1406,32 +1391,26 @@ func TestPublishedSkillFollowsUpdateFromOriginal(t *testing.T) {
 	}
 }
 
-// A published import is still one entry in the shared library: its link on
-// the shelf, with no second hosted entry of the same name.
+// A published import is still one entry in the library: its link on the
+// shelf, with no second hosted entry of the same name.
 func TestPublishedImportIsOneLibraryEntry(t *testing.T) {
 	e := newCopyEnv(t)
 	item := publishedImport(t, e)
-	if err := e.st.SetSyncLibraryOrigin(e.uid, e.srv.URL); err != nil {
-		t.Fatal(err)
-	}
-	view, err := e.st.SyncLibraryViewFor(e.uid, "owner")
+	items, err := e.st.LibraryViewFor(e.uid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Duplicates) != 0 {
-		t.Fatalf("publishing made a duplicate: %+v", view.Duplicates)
-	}
 	named := 0
-	for _, sk := range view.Skills {
-		if sk.Slug == "find-skills" {
+	for _, it := range items {
+		if it.Name == "find-skills" {
 			named++
-			if strings.Contains(sk.ID, "/sam/") {
-				t.Fatalf("the library entry must be the import, not its public page: %+v", sk)
+			if it.ID != item {
+				t.Fatalf("the library entry must be the import, not its public page: %+v", it)
 			}
 		}
 	}
 	if named != 1 {
-		t.Fatalf("one entry for find-skills: %+v", view.Skills)
+		t.Fatalf("one entry for find-skills: %+v", items)
 	}
 	// What every machine is told to install is the item's head revision,
 	// before and after Update from original.

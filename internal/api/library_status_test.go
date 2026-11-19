@@ -1,8 +1,6 @@
 package api
 
 import (
-	"database/sql"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -102,28 +100,5 @@ func TestSaveOfASkillAlreadyInTheLibraryAppliesTheChosenStatus(t *testing.T) {
 	}
 	if got := e.libraryNames(t)["twice"]; got.Status != "archived" {
 		t.Fatalf("twice is %s", got.Status)
-	}
-}
-
-// Adding takes the skill off the scan's ignore list first; when that fails
-// nothing is added and the person is told.
-func TestAddStopsWhenTheIgnoreListCannotBeCleared(t *testing.T) {
-	e := newReconcileEnv(t)
-	raw, err := sql.Open("sqlite", filepath.Join(e.st.Dir(), "reet.db")+"?_pragma=busy_timeout(5000)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer raw.Close()
-	if _, err = raw.Exec(`CREATE TRIGGER test_refuse_unignore BEFORE DELETE ON ignored BEGIN SELECT RAISE(ABORT,'refused'); END`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = raw.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,?,?)`, e.uid, "a/b/held", "held", "removed", 1); err != nil {
-		t.Fatal(err)
-	}
-	if code, raw := e.owner(t, "POST", "/api/skills", `{"input":"a/b/held","status":"active"}`); code != 500 {
-		t.Fatalf("add: %d %s", code, raw)
-	}
-	if _, ok := e.libraryNames(t)["held"]; ok {
-		t.Fatal("the skill was added anyway")
 	}
 }

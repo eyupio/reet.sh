@@ -73,12 +73,6 @@ func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 			terminalError(w, err)
 			return
 		}
-		// An item the scan was told to ignore would be dropped from what
-		// machines report: take it off that list first, or add nothing.
-		if err = s.st.UnignoreFor(uid, rf.ID); err != nil {
-			writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The skill could not be added. Try again.", Code: "internal"})
-			return
-		}
 		sk, err := s.st.AddFor(uid, rf, store.Patch{})
 		if errors.Is(err, store.ErrSkillNameTaken) {
 			writeJSON(w, http.StatusConflict, installErrorBody{Error: "A skill called " + slug + " is already in your library.", Code: "slug-conflict"})

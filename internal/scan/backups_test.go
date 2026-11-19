@@ -1110,7 +1110,7 @@ func TestAgentRestoreListCarriesOnPastAnUnreadableProjectFolder(t *testing.T) {
 	}
 	for _, want := range []string{
 		"codexy  from " + filepath.Join(home, ".codex", "skills"),
-		"Couldn't read the backups in " + filepath.Join(project, ".claude", "skills") + ": permission denied\n",
+		"Couldn't read the backups in " + filepath.Join(project, ".claude", ".reet-sync-backups") + ": permission denied\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("list = %q, want %q", out.String(), want)
@@ -1128,5 +1128,53 @@ func TestAgentRestoreListCarriesOnPastAnUnreadableProjectFolder(t *testing.T) {
 	err := runAgentRestore([]string{"--config", config, "--list"}, &out)
 	if err == nil || strings.Contains(out.String(), "No backed-up skills") || !strings.Contains(out.String(), "Couldn't read the backups in ") {
 		t.Fatalf("err = %v, out = %q", err, out.String())
+	}
+}
+
+// One unreadable date folder or legacy group hides only itself: the rest of
+// the same skills folder's backups are listed, and the --list says, in one
+// plain line each, which folder it could not read. A home folder's
+// unreadable part does not stop the list either.
+func TestAgentRestoreListSkipsOnlyTheUnreadablePart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	config := filepath.Join(t.TempDir(), "agent.json")
+	hostname, _ := os.Hostname()
+	if err := writePrivate(config, agentConfig{Server: "https://reet.example", Home: home, Hostname: hostname, Projects: []string{project}}); err != nil {
+		t.Fatal(err)
+	}
+	homeBad := filepath.Join(home, ".agents", ".reet-backups", "2026-11-01")
+	writeSkill(t, filepath.Join(homeBad, ".agents-hidden"))
+	writeSkill(t, filepath.Join(home, ".agents", ".reet-backups", "2026-11-02", ".agents-good"))
+	projectBad := filepath.Join(project, ".claude", ".reet-sync-backups", "removed-1")
+	writeSkill(t, filepath.Join(projectBad, "lost"))
+	writeSkill(t, filepath.Join(project, ".claude", ".reet-sync-backups", "removed-2", "kept"))
+	real := readBackupDir
+	readBackupDir = func(name string) ([]os.DirEntry, error) {
+		if name == homeBad || name == projectBad {
+			return nil, errors.New("permission denied")
+		}
+		return real(name)
+	}
+	t.Cleanup(func() { readBackupDir = real })
+	var out bytes.Buffer
+	if err := runAgentRestore([]string{"--config", config, "--list"}, &out); err != nil {
+		t.Fatalf("list: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		"2026-11-02  good  from " + filepath.Join(home, ".agents", "skills"),
+		"  kept  from " + filepath.Join(project, ".claude", "skills"),
+		"Couldn't read the backups in " + homeBad + ": permission denied\n",
+		"Couldn't read the backups in " + projectBad + ": permission denied\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("list = %q, want %q", out.String(), want)
+		}
+	}
+	for _, hidden := range []string{"hidden", "lost"} {
+		if strings.Contains(out.String(), "  "+hidden+"  ") {
+			t.Fatalf("an unreadable folder's backup was listed: %q", out.String())
+		}
 	}
 }

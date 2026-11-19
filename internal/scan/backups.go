@@ -364,19 +364,34 @@ func pruneBackups(home string, now time.Time, unmanaged []string, keep ...string
 
 // listBackups returns every backup under home, newest date first: the
 // dated .reet-backups folders and the older .reet-sync-backups/removed-*
-// folders, for the managed skills folders only.
+// folders, for the managed skills folders only. It fails if any of them
+// cannot be read, so a restore never takes an older backup for want of a
+// newer one it could not see.
 func listBackups(home string) ([]backupEntry, error) {
+	return backupsBeside(homeBackupFolders(home))
+}
+
+// listBackupsEach is listBackups that carries on past a backups folder it
+// cannot read, as --list does: what could be read is listed, and each
+// folder that could not is returned.
+func listBackupsEach(home string) ([]backupEntry, []unreadableBackups) {
+	return backupsBesideEach(homeBackupFolders(home))
+}
+
+func homeBackupFolders(home string) []string {
 	var folders []string
 	for _, rel := range backupFolders {
 		folders = append(folders, filepath.Join(home, rel))
 	}
-	return backupsBeside(folders)
+	return folders
 }
 
 // readBackupDir reads a backup folder; a variable so a test can make one fail.
 var readBackupDir = os.ReadDir
 
-// unreadableBackups is a skills folder whose backups could not all be read.
+// unreadableBackups is a folder of backups that could not be read: a
+// .reet-backups or .reet-sync-backups folder, or one date or removed-*
+// folder in it. Folder is that folder.
 type unreadableBackups struct {
 	Folder string
 	Err    error
@@ -402,8 +417,8 @@ func listJobBackups(home string, projects []string) ([]backupEntry, []unreadable
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // backupsBeside lists the backups beside each of folders, newest date first,
-// then in the order folders are given. It stops at the first folder it cannot
-// read.
+// then in the order folders are given. It fails if any folder of backups
+// cannot be read.
 func backupsBeside(folders []string) ([]backupEntry, error) {
 	out, bad := backupsBesideEach(folders)
 	if len(bad) > 0 {
@@ -412,19 +427,16 @@ func backupsBeside(folders []string) ([]backupEntry, error) {
 	return out, nil
 }
 
-// backupsBesideEach is backupsBeside that carries on past a folder it cannot
-// read, naming each such folder in the second result. What was read from the
-// others is listed.
+// backupsBesideEach is backupsBeside that carries on past a folder of backups
+// it cannot read, naming each such folder in the second result. What was read
+// from the others is listed.
 func backupsBesideEach(folders []string) ([]backupEntry, []unreadableBackups) {
 	var out []backupEntry
 	var bad []unreadableBackups
 	for _, folder := range folders {
-		got, err := backupsInFolder(folder)
-		if err != nil {
-			bad = append(bad, unreadableBackups{Folder: folder, Err: err})
-			continue
-		}
+		got, unreadable := backupsInFolder(folder)
 		out = append(out, got...)
+		bad = append(bad, unreadable...)
 	}
 	order := map[string]int{}
 	for i, folder := range folders {
@@ -448,16 +460,32 @@ func backupsBesideEach(folders []string) ([]backupEntry, []unreadableBackups) {
 	return out, bad
 }
 
-// backupsInFolder lists the backups beside one skills folder, unsorted. An
-// error means some of them could not be read, and none are returned.
-func backupsInFolder(folder string) ([]backupEntry, error) {
+// backupsInFolder lists the backups beside one skills folder, unsorted. A
+// folder of backups it cannot read (the .reet-backups or .reet-sync-backups
+// folder, or one date or removed-* folder in it) hides only what it holds:
+// it is returned in the second result, and the rest is listed.
+func backupsInFolder(folder string) ([]backupEntry, []unreadableBackups) {
 	var out []backupEntry
+	var bad []unreadableBackups
 	root, prefix := backupRoot(folder), backupPrefix(folder)
-	for _, date := range dateFolders(root) {
+	var dates []string
+	if isRealDir(root) {
+		entries, err := readBackupDir(root)
+		if err != nil {
+			bad = append(bad, unreadableBackups{Folder: root, Err: err})
+		}
+		for _, e := range entries {
+			if e.IsDir() && validBackupDate(e.Name()) {
+				dates = append(dates, e.Name())
+			}
+		}
+	}
+	for _, date := range dates {
 		dir := filepath.Join(root, date)
 		entries, err := readBackupDir(dir)
 		if err != nil {
-			return nil, err
+			bad = append(bad, unreadableBackups{Folder: dir, Err: err})
+			continue
 		}
 		idx := readBackupIndex(dir)
 		present := map[string]bool{}
@@ -486,11 +514,11 @@ func backupsInFolder(folder string) ([]backupEntry, error) {
 	}
 	legacy := filepath.Join(filepath.Dir(folder), ".reet-sync-backups")
 	if !isRealDir(legacy) {
-		return out, nil
+		return out, bad
 	}
 	groups, err := readBackupDir(legacy)
 	if err != nil {
-		return nil, err
+		return out, append(bad, unreadableBackups{Folder: legacy, Err: err})
 	}
 	for _, g := range groups {
 		dir := filepath.Join(legacy, g.Name())
@@ -500,7 +528,8 @@ func backupsInFolder(folder string) ([]backupEntry, error) {
 		}
 		entries, err := readBackupDir(dir)
 		if err != nil {
-			return nil, err
+			bad = append(bad, unreadableBackups{Folder: dir, Err: err})
+			continue
 		}
 		for _, e := range entries {
 			if !validBackupName(e.Name()) {
@@ -510,7 +539,7 @@ func backupsInFolder(folder string) ([]backupEntry, error) {
 				Date: st.ModTime().Format(backupDateLayout), At: st.ModTime().UnixMilli(), legacy: true})
 		}
 	}
-	return out, nil
+	return out, bad
 }
 
 // leftAloneWhy says why reet leaves the managed folder alone, or "" when it

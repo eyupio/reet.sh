@@ -73,15 +73,13 @@ func runAgentRestore(args []string, out io.Writer) error {
 		home = h
 	}
 	if *list {
-		entries, err := listBackups(home)
-		if err != nil {
-			return err
-		}
+		// A folder of backups that cannot be read is said, one line each,
+		// and does not hide what the others hold.
+		entries, unreadable := listBackupsEach(home)
 		// A sync job's backups beside a project's or Codex's skills folder
 		// are listed too, with the command that restores each exactly.
-		// A folder that cannot be read is said, one line each, and does not
-		// hide what the others hold.
-		jobs, unreadable := listJobBackups(home, projects)
+		jobs, unreadableJobs := listJobBackups(home, projects)
+		unreadable = append(unreadable, unreadableJobs...)
 		for _, u := range unreadable {
 			fmt.Fprintf(out, "Couldn't read the backups in %s: %v\n", u.Folder, u.Err)
 		}

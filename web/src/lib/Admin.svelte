@@ -19,6 +19,7 @@
   import CopyButton from './CopyButton.svelte'
   import { EVENT_CATEGORIES, eventCategory, eventLabel, eventTitle, type EventCategory } from './events'
   import { elapsed } from './time'
+  import { csvText } from './csv'
   import { adminRows, ssoBodyFrom, ssoFormFrom, ssoHelp, ssoRefusalField, type AdminSso, type SsoField, type SsoForm } from './sso'
   import { bytes } from './terminal/health'
 
@@ -254,11 +255,6 @@
     return (skill.members ?? []).flatMap((member) => (member.environments ?? []).map((env) => ({ member: member.name, env })))
   }
 
-  function csvCell(value: string | number): string {
-    const text = String(value)
-    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
-  }
-
   function downloadCSV() {
     const data = rollup
     if (!data) return
@@ -277,7 +273,7 @@
         envs,
       ]
     })
-    const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
+    const csv = csvText([header, ...rows])
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
     const a = document.createElement('a')
     a.href = url

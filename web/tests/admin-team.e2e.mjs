@@ -102,7 +102,27 @@ try {
       await context.close()
     }
   }
+
+  // Download CSV opened in a spreadsheet runs nothing: a skill, list or person named by someone else that starts
+  // with =, +, -, @ or a tab is written with a quote in front, as the controller's own export does.
+  if (run('csv')) {
+    const odd = skill({ id: 'e', name: '=HYPERLINK("https://example.test","x")', source: '+demo/odd', lists: [{ id: 3, name: '@everyone' }], usedBy: 1, members: [{ id: 1, name: '-Sam', used: true, environments: ['\tlaptop'] }] })
+    const { context, page, errors } = await openWorkspace(browser, { width: 1440, routes: { ...routes(), '/api/admin/rollup': { ...rollup, skills: [odd] } } })
+    await page.goto(`${base}/admin/team`)
+    await expect(count(page)).toHaveText('1 skill')
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download CSV' }).click()])
+    expect(download.suggestedFilename()).toBe('reet-team-rollup.csv')
+    const text = await new Promise((resolve, reject) => {
+      const chunks = []
+      download.createReadStream().then(s => { s.on('data', c => chunks.push(c)); s.on('end', () => resolve(Buffer.concat(chunks).toString('utf8'))); s.on('error', reject) }, reject)
+    })
+    const lines = text.split('\n')
+    expect(lines[0]).toBe('skill,source,lists,used_by,team_size,on_shelf,machines,used_members,environments')
+    expect(lines[1]).toBe(`"'=HYPERLINK(""https://example.test"",""x"")",'+demo/odd,'@everyone,1,4,4,2,'-Sam,'-Sam on \tlaptop`)
+    expect(errors).toEqual([])
+    await context.close()
+  }
 } finally {
   await browser.close()
 }
-console.log('Admin team usage: one panel, honest count and filters, row details and a phone layout.')
+console.log('Admin team usage: one panel, honest count and filters, row details, a phone layout, and a CSV a spreadsheet runs nothing from.')

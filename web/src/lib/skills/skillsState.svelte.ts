@@ -17,7 +17,8 @@ const rank = (r: SkillRow) => ({ bad: 0, work: 1, ok: 2, off: 3 })[healthLine(r.
  * A write moves `generation` on as it starts and as it ends, so a read that was on its way while the write ran never
  * puts back what the write changed. Writes answer in any order: the page shows a page answer only when no newer page
  * answer has been shown, and a tab whose answer may miss another write's change is read again once every write has
- * answered (writePage, markStale, catchUp).
+ * answered (writePage, markStale, catchUp). A change shown ahead of its answer (a Like) is kept over every answer that
+ * lands while any write is on its way, so an older answer never flicks the row back (writeRow).
  */
 export class SkillsPageState {
   tab = $state<Tab>('active')
@@ -51,6 +52,9 @@ export class SkillsPageState {
   #catchingUp: Promise<void> | null = null
   // Asked for again while one ran: a write may have come and gone meanwhile, and the read it overtook was dropped.
   #catchUpAgain = false
+  // Each row's latest change shown ahead of its answer (writeRow), put back over any answer that lands while a write is
+  // on its way. Let go once none is: by then a tab whose answer may miss one is marked stale and read again.
+  #ahead = new Map<string, Partial<SkillRow>>()
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -70,7 +74,8 @@ export class SkillsPageState {
   })
 
   apply(data: SkillsPageData, status: Tab, without: string[] = []) {
-    this.held[status] = without.length ? data.skills.filter(r => !without.includes(r.id)) : data.skills
+    const rows = without.length ? data.skills.filter(r => !without.includes(r.id)) : data.skills
+    this.held[status] = this.#ahead.size ? rows.map(r => { const change = this.#ahead.get(r.id); return change ? { ...r, ...change } : r }) : rows
     this.counts = data.counts
     this.newOnMachines = data.newOnMachines ?? []
     this.machines = data.machines
@@ -112,8 +117,33 @@ export class SkillsPageState {
     } finally {
       this.writing--
       this.#generation++
-      if (this.writing === 0 && this.#stale.size) void this.catchUp()
+      if (this.writing === 0) {
+        this.#ahead.clear()
+        if (this.#stale.size) void this.catchUp()
+      }
     }
+  }
+
+  /**
+   * A change to a row's own fields that shows at once, ahead of its answer (a Like). While any write is on its way it
+   * is put back over every answer that lands, so an answer to an older write, which cannot know it, never flicks the
+   * row back. If it fails, the row goes back to `before`, unless a later change to the row has taken its place.
+   */
+  async writeRow(id: string, change: Partial<SkillRow>, before: Partial<SkillRow>, fn: () => Promise<unknown>): Promise<void> {
+    const mine = { ...change }
+    this.#ahead.set(id, mine)
+    this.setRow(id, mine)
+    await this.write(async () => {
+      try {
+        return await fn()
+      } catch (e) {
+        if (this.#ahead.get(id) === mine) {
+          this.#ahead.delete(id)
+          this.setRow(id, before)
+        }
+        throw e
+      }
+    })
   }
 
   /** The tab's rows may miss a change: read it again once no write is on its way. */

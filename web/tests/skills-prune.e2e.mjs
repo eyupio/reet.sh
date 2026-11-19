@@ -595,6 +595,60 @@ try {
   }
  }
 
+ // A Like stays pressed while an older change's answer lands, whichever of the two answers first: the page never shows
+ // it unpressed in between.
+ if (run('like flicker')) {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+  for (const likeFirst of [false, true]) {
+   const w = world()
+   const r = routes(w)
+   const status = r['/api/v2/skills/status']
+   r['/api/v2/skills/status'] = async req => { const answer = status(req); await wait(likeFirst ? 1500 : 800); return answer }
+   r['/api/skill'] = async req => {
+    const b = req.postDataJSON()
+    w.rows = w.rows.map(x => x.shelfId === b.id ? {...x, liked:b.liked} : x)
+    await wait(likeFirst ? 300 : 2000)
+    return {id:b.id, liked:b.liked}
+   }
+   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+   await page.goto(`${base}/skills`)
+   await expect(row(page, 'ui-ux-pro-max')).toBeVisible()
+   // Every value the Like button shows from now on.
+   await page.locator('ul.list').evaluate(list => {
+    window.__pressed = []
+    new MutationObserver(records => {
+     for (const m of records) if (m.target.getAttribute('aria-label') === 'Like ui-ux-pro-max') window.__pressed.push(m.target.getAttribute('aria-pressed'))
+    }).observe(list, {subtree:true, attributes:true, attributeFilter:['aria-pressed']})
+   })
+   const archived = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v2/skills/status')
+   const liked = page.waitForResponse(res => new URL(res.url()).pathname === '/api/skill')
+   await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+   await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}).click()
+   await Promise.all([archived, liked])
+   await expect(row(page, 'seo-bing')).toHaveCount(0)
+   await page.waitForTimeout(600)
+   await expect(row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'})).toHaveAttribute('aria-pressed', 'true')
+   const shown = await page.evaluate(() => window.__pressed.filter((v, i, all) => v !== all[i - 1]))
+   expect(shown, `the Like's values when ${likeFirst ? 'it answers first' : 'the Archive answers first'}`).toEqual(['true'])
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  // A Like that fails goes back, and says why.
+  {
+   const w = world()
+   const r = routes(w)
+   r['/api/skill'] = () => ({status:500, json:{error:'The like did not go through.'}})
+   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+   await page.goto(`${base}/skills`)
+   const heart = row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'})
+   await heart.click()
+   await expect(page.getByRole('alert')).toContainText('The like did not go through.')
+   await expect(heart).toHaveAttribute('aria-pressed', 'false')
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

@@ -232,13 +232,12 @@
     }
   }
 
+  // The heart shows the change at once; an older change's answer landing meanwhile does not undo it (writeRow).
   async function like(row: SkillRow) {
     const liked = !row.liked
-    page.setRow(row.id, { liked })
     try {
-      await write(() => patchSkill(row.shelfId, { liked }))
+      await page.writeRow(row.id, { liked }, { liked: !liked }, () => patchSkill(row.shelfId, { liked }))
     } catch (e) {
-      page.setRow(row.id, { liked: !liked })
       fail(e)
     }
   }

@@ -26,6 +26,8 @@ export class SkillsPageState {
   machines = $state(0)
   notice = $state<SkillsPageData['notice']>(null)
   loaded = $state(false)
+  /** A read has worked, so the counts and what the machines are doing are known. */
+  readOk = $state(false)
   error = $state('')
 
   q = $state('')
@@ -62,15 +64,22 @@ export class SkillsPageState {
     this.notice = data.notice
   }
 
-  async read(status: Tab): Promise<boolean> {
+  /**
+   * Reads one tab. A read the person waits for (the page opening, a tab chosen, an Undo) says when it fails; a `quiet`
+   * one in the background (the poll, the other tab) does not, unless the sign-in has ended. A read of the tab in view
+   * that works clears whatever the page last said had gone wrong.
+   */
+  async read(status: Tab, quiet = false): Promise<boolean> {
     const at = this.#generation
     try {
       const data = await loadSkillsPage(status)
       if (at !== this.#generation) return false
       this.apply(data, status)
+      this.readOk = true
+      if (status === this.tab) this.error = ''
       return true
     } catch (e) {
-      if (at === this.#generation) this.fail(e)
+      if (at === this.#generation && (!quiet || e instanceof UnauthorizedError)) this.fail(e)
       return false
     }
   }

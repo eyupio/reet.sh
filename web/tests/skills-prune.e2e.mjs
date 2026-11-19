@@ -228,6 +228,48 @@ try {
   await context.close()
  }
 
+ // Reads that fail: the one the person waits for says so, and the header says nothing about machines until a read has
+ // worked; a read that then works clears the message; a read in the background fails quietly. A write that fails keeps
+ // the row where it is and says why.
+ if (run('errors')) {
+  const w = world()
+  const r = routes(w)
+  const answer = r['/api/v2/skills']
+  let failing = true
+  r['/api/v2/skills'] = req => failing ? {status:500, json:{error:'The library could not be read.'}} : answer(req)
+  r['/api/v2/skills/status'] = () => ({status:500, json:{error:'Archive did not go through.'}})
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  const alert = page.getByRole('alert')
+  const chip = page.locator('main .sync-chip')
+  await page.goto(`${base}/skills`)
+  await expect(alert).toContainText('The library could not be read.')
+  await expect(chip).toHaveCount(0)
+  failing = false
+  await tab(page, 'Archived').click()
+  await expect(row(page, 'improve-animations')).toBeVisible()
+  await expect(alert).toHaveCount(0)
+  await expect(chip).toBeVisible()
+  await tab(page, 'Active').click()
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  // In the background: nothing to say.
+  failing = true
+  const quiet = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v2/skills' && res.status() === 500)
+  await page.evaluate(() => window.dispatchEvent(new Event('reet-shelf-changed')))
+  await quiet
+  await page.waitForTimeout(300)
+  await expect(alert).toHaveCount(0)
+  failing = false
+  // A write the server refuses: the row stays, on the same tab, and the reason shows.
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await expect(alert).toContainText('Archive did not go through.')
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  await expect(row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'})).not.toHaveAttribute('aria-busy', 'true')
+  await expect(tab(page, 'Active')).toHaveAttribute('aria-selected', 'true')
+  await expect(toast(page)).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

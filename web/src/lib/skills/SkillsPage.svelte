@@ -77,7 +77,7 @@
     : page.tab === 'archived' ? 'Nowt archived. Archive a skill to take it off your machines and keep it here.'
     : canWrite ? 'Nowt active. Paste a skill link above to get cracking.' : 'Nowt active yet.')
 
-  const read = (status: Tab) => page.read(status)
+  const read = (status: Tab, quiet = false) => page.read(status, quiet)
   const write = <T,>(fn: () => Promise<T>) => page.write(fn)
   const fail = (e: unknown) => page.fail(e)
 
@@ -138,12 +138,12 @@
     }
     endSelecting()
     if (ids.includes(openId)) openId = ''
-    void read(other(from))
+    void read(other(from), true)
     await refocus(order, ids, act)
     say(pruneText(to === 'archived' ? 'archived' : 'restored', names, true), async () => {
       const back = await write(() => setSkillStatus(ids, from, page.tab))
       page.apply(back, page.tab)
-      void read(other(page.tab))
+      void read(other(page.tab), true)
       await focusRow(ids[0], act)
     })
   }
@@ -194,7 +194,7 @@
     say(pruneText('deleted', names, onMachines), async () => {
       await write(() => undeleteSkills(ids))
       await read(page.tab)
-      void read(other(page.tab))
+      void read(other(page.tab), true)
       await focusRow(ids[0], 'delete')
     })
   }
@@ -238,7 +238,7 @@
       say(`Sorted. Tagged ${shelfIds.length === 1 ? targets.find(r => r.shelfId)!.name : `${shelfIds.length} skills`} with ${name}.`)
       endSelecting()
       await read(page.tab)
-      void read(other(page.tab))
+      void read(other(page.tab), true)
     } catch (err) {
       fail(err)
     }
@@ -263,7 +263,7 @@
       addInput = ''
       say(!added.created ? `${added.name} is already in your library.` : page.machines ? `Added ${added.name} · going on every machine` : `Added ${added.name} to your library.`)
       await read(page.tab)
-      void read(other(page.tab))
+      void read(other(page.tab), true)
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         fail(err)
@@ -288,14 +288,14 @@
     }
     page.notice = null
     await read(page.tab)
-    void read(other(page.tab))
+    void read(other(page.tab), true)
     focusQuietly(tabEls[page.tab])
     if (!parked.length) return
     const ids = parked.map(r => r.id)
     say(pruneText('restored', parked.map(r => r.name), true), async () => {
       const back = await write(() => setSkillStatus(ids, 'archived', page.tab))
       page.apply(back, page.tab)
-      void read(other(page.tab))
+      void read(other(page.tab), true)
     })
   }
 
@@ -352,7 +352,7 @@
     const jump = params.get('skill') ?? ''
     await read('active')
     page.loaded = true
-    const archived = read('archived')
+    const archived = read('archived', true)
     if (jump) {
       const match = (list: SkillRow[] | null) => list?.find(r => r.id === jump || r.shelfId === jump)
       let found = match(page.held.active)
@@ -376,10 +376,10 @@
     void start()
     const poll = setInterval(() => {
       if (!page.loaded || page.writing || ask || reviewOpen || document.visibilityState !== 'visible') return
-      void read(page.tab)
-      void read(other(page.tab))
+      void read(page.tab, true)
+      void read(other(page.tab), true)
     }, POLL_MS)
-    const changed = () => { void read(page.tab); void read(other(page.tab)) }
+    const changed = () => { void read(page.tab, true); void read(other(page.tab), true) }
     window.addEventListener('reet-shelf-changed', changed)
     return () => {
       clearInterval(poll)
@@ -395,7 +395,7 @@
       <h1>Skills<span aria-hidden="true">.</span></h1>
       <p class="lede">{lede}</p>
     </div>
-    {#if page.loaded}<a class="sync-chip" href="/sync" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</a>{/if}
+    {#if page.readOk}<a class="sync-chip" href="/sync" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</a>{/if}
   </header>
 
   {#if canWrite}
@@ -426,7 +426,7 @@
     <div class="tabs" role="tablist" aria-label="Skill state">
       {#each TABS as t (t.id)}
         <button type="button" role="tab" id={`skills-tab-${t.id}`} class="tab" aria-selected={page.tab === t.id} aria-controls="skills-panel" tabindex={page.tab === t.id ? 0 : -1}
-          bind:this={tabEls[t.id]} onclick={() => choose(t.id)} onkeydown={tabKeys}>{t.label}{#if page.loaded}{' '}<small>{page.counts[t.id]}</small>{/if}</button>
+          bind:this={tabEls[t.id]} onclick={() => choose(t.id)} onkeydown={tabKeys}>{t.label}{#if page.readOk}{' '}<small>{page.counts[t.id]}</small>{/if}</button>
       {/each}
     </div>
     <div class="find" role="group" aria-label="Find skills">
@@ -512,7 +512,7 @@
 
 {#if reviewOpen}
   <NewOnMachineDialog items={page.newOnMachines} onerror={fail}
-    ondecided={() => { void read(page.tab); void read(other(page.tab)) }}
+    ondecided={() => { void read(page.tab, true); void read(other(page.tab), true) }}
     onclose={() => { reviewOpen = false; void tick().then(() => focusQuietly(reviewEl ?? tabEls[page.tab])) }} />
 {/if}
 

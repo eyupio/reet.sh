@@ -49,6 +49,8 @@ export class SkillsPageState {
   // Tabs whose rows may miss a write's change: read again once no write is on its way, and until a read of them lands.
   #stale = new Set<Tab>()
   #catchingUp: Promise<void> | null = null
+  // Asked for again while one ran: a write may have come and gone meanwhile, and the read it overtook was dropped.
+  #catchUpAgain = false
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -119,12 +121,26 @@ export class SkillsPageState {
 
   /**
    * Reads each stale tab again, once no write is on its way. A read that a new write overtakes is dropped and its tab
-   * stays stale, so that write's end reads it again. Callers may wait on it; one catch-up runs at a time.
+   * stays stale. One catch-up runs at a time: asked for while one runs (a write that started and ended during its
+   * read), it goes round again once that pass ends, if no write is on its way and a tab is still stale; a write still
+   * on its way then asks again when it ends. Callers may wait on it, the next pass included.
    */
   catchUp(): Promise<void> {
     if (this.writing || !this.#stale.size) return Promise.resolve()
-    this.#catchingUp ??= (async () => {
-      try { for (const tab of [...this.#stale]) await this.read(tab, true) } finally { this.#catchingUp = null }
+    if (this.#catchingUp) {
+      this.#catchUpAgain = true
+      return this.#catchingUp
+    }
+    this.#catchingUp = (async () => {
+      try {
+        do {
+          this.#catchUpAgain = false
+          for (const tab of [...this.#stale]) await this.read(tab, true)
+        } while (this.#catchUpAgain && !this.writing && this.#stale.size)
+      } finally {
+        this.#catchingUp = null
+        this.#catchUpAgain = false
+      }
     })()
     return this.#catchingUp
   }

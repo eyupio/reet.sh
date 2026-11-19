@@ -522,6 +522,79 @@ try {
   await context.close()
  }
 
+ // A change that starts and answers while the page is reading a tab again after other changes: that read is out of
+ // date when it lands, so the page reads the tab once more at once, not at the 11 second read after the grace or the
+ // 15 second poll. Two ways in: a second Like while the read after an Archive and a Like is on its way, and a Like
+ // while the read after a Delete's Undo is on its way.
+ if (run('catch-up') || run('catch-up undo')) {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+  const isRead = (u, status) => u.pathname === '/api/v2/skills' && u.searchParams.get('status') === status
+  // The next read of the Active tab, once `hold` is set, is slow.
+  const holding = (w, r) => {
+   const answer = r['/api/v2/skills']
+   const state = {hold:false}
+   r['/api/v2/skills'] = async req => {
+    const out = answer(req)
+    if (state.hold && isRead(new URL(req.url()), 'active')) { state.hold = false; await wait(1500) }
+    return out
+   }
+   r['/api/skill'] = async req => {
+    const b = req.postDataJSON()
+    w.rows = w.rows.map(x => x.shelfId === b.id ? {...x, liked:b.liked} : x)
+    if (state.slowLike) { state.slowLike = false; await wait(2400) }
+    return {id:b.id, liked:b.liked}
+   }
+   return state
+  }
+  const nextRead = page => page.waitForRequest(req => isRead(new URL(req.url()), 'active'))
+  if (run('catch-up')) {
+   const w = world()
+   const r = routes(w)
+   const status = r['/api/v2/skills/status']
+   r['/api/v2/skills/status'] = async req => { const answer = status(req); await wait(1200); return answer }
+   const state = holding(w, r)
+   state.slowLike = true
+   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+   await page.goto(`${base}/skills`)
+   await expect(row(page, 'seo-bing')).toBeVisible()
+   state.hold = true
+   const caughtUp = nextRead(page)
+   await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+   await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}).click()
+   await caughtUp
+   const second = page.waitForResponse(res => new URL(res.url()).pathname === '/api/skill')
+   await row(page, 'reet-babysit').getByRole('button', {name:'Like reet-babysit'}).click()
+   await second
+   await expect(row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}), 'the first Like').toHaveAttribute('aria-pressed', 'true', {timeout:4000})
+   await expect(row(page, 'reet-babysit').getByRole('button', {name:'Like reet-babysit'})).toHaveAttribute('aria-pressed', 'true')
+   await expect(row(page, 'seo-bing')).toHaveCount(0)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  if (run('catch-up undo')) {
+   const w = world()
+   const r = routes(w)
+   const state = holding(w, r)
+   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+   await page.goto(`${base}/skills`)
+   await expect(row(page, 'svg-animations')).toBeVisible()
+   const reread = page.waitForResponse(res => isRead(new URL(res.url()), 'active'))
+   await row(page, 'svg-animations').getByRole('button', {name:'Delete svg-animations'}).click()
+   await expect(row(page, 'svg-animations')).toHaveCount(0)
+   await reread
+   state.hold = true
+   const caughtUp = nextRead(page)
+   await toast(page).getByRole('button', {name:/^Undo/}).click()
+   await caughtUp
+   const liked = page.waitForResponse(res => new URL(res.url()).pathname === '/api/skill')
+   await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}).click()
+   await liked
+   await expect(row(page, 'svg-animations'), 'the row the Undo brought back').toBeVisible({timeout:4000})
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

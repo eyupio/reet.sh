@@ -38,27 +38,13 @@ test('a refused delete keeps the code and the names it was refused for', async (
 
 test('retrySkill sends the items body', async () => {
   const calls = replying(200, { retried: 1 })
-  await api.retrySkill('x')
+  assert.equal(await api.retrySkill('x'), 1)
   assert.equal(calls[0].url, '/api/v2/skills/retry')
   assert.deepEqual(calls[0].body, { items: ['x'] })
 })
 
-// The old shelf's Remove dialogs went with it: the Skills page deletes through deleteSkills, with the one dialog
-// deleteConfirm words (its sentences, backups included, are tested in skills/skillsPage.test.mjs).
-// The old shelf's written-skills block went with it; importing it anyway put it in the app's first download.
-test('the app no longer loads the old shelf blocks', () => {
-  const app = readFileSync(new URL('../App.svelte', import.meta.url), 'utf8')
-  for (const old of ['HostedShelf', 'SkillCard', 'BulkBar', 'MachineSkillSync']) assert.ok(!app.includes(old), `App.svelte still names ${old}`)
-})
-
-test('the Skills page deletes with the dialog deleteConfirm chooses, and the old Remove is gone', () => {
-  const app = readFileSync(new URL('../App.svelte', import.meta.url), 'utf8')
-  const page = readFileSync(new URL('./skills/SkillsPage.svelte', import.meta.url), 'utf8')
-  assert.ok(!app.includes('Installed files and sync plans stay as they are'), 'Remove no longer leaves installed files')
-  assert.ok(!app.includes('removeSkill'), 'the app no longer removes skills itself')
-  assert.ok(page.includes('const dialog = deleteConfirm(targets)'), 'the dialog comes from deleteConfirm')
-  assert.ok(page.includes('deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy })'), 'its flags go with the delete')
-})
+// The delete dialog and the flags it sends are tested where they act: skills/skillsPage.test.mjs words deleteConfirm,
+// and tests/skills-prune.e2e.mjs drives Delete through the page and checks what it posts.
 
 test('setSkillStatus names the tab the person is on, when given', async () => {
   let calls = replying(200, { skills: [], counts: { active: 0, archived: 0 }, newOnMachines: [], machines: 0, notice: null })
@@ -113,9 +99,5 @@ test('a no-copy refusal asks once and, confirmed, removes it confirmed', async (
   assert.equal(calls.length, 1, 'written is shown as it is, never retried')
 })
 
-test('the Skills page asks before a no-copy or written Delete the server refused, single and bulk, once a flag', () => {
-  const page = readFileSync(new URL('./skills/SkillsPage.svelte', import.meta.url), 'utf8')
-  assert.ok(page.includes("if ((code === 'written' && !flags.written) || (code === 'no-copy' && !flags.noCopy))"), 'a refusal opens the dialog only for a flag not yet sent')
-  assert.ok(page.includes('ondelete={r => askDelete([r])}'), 'one row')
-  assert.ok(page.includes('ondelete={() => askDelete(selectedRows())}'), 'the selection, from the bulk bar')
-})
+// The page asking again after a refused Delete, single and bulk, once a flag, is driven through the page in
+// tests/skills-prune.e2e.mjs (its delete sections check each post's flags).

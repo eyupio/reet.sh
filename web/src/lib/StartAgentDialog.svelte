@@ -28,6 +28,7 @@
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
  import YoloDialog from './launch/YoloDialog.svelte'
  import BaseConfirm from './home/BaseConfirm.svelte'
+ import FolderBrowser from './home/FolderBrowser.svelte'
  import { baseKey, baseQuestion, repoProjectAt } from './baseGate'
  import type { BaseState } from './baseNotice'
  import LatestCodeChoice, { type LatestChoice } from './launch/LatestCodeChoice.svelte'
@@ -94,6 +95,10 @@
  const ghParsed = $derived(parseGitHubRepo(ghRepo))
  const ghProblem = $derived(githubVisible && ghLeft && ghRepo.trim() !== '' && !ghParsed ? 'Write the repository as owner/name, or paste its github.com link.' : '')
  let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), sessionTouched = $state(false)
+ // The machine's live folder browser, opened from the Folder field. It is one browse session per dialog (the machine
+ // answers a second request at once otherwise), and nothing about it is kept once the dialog closes.
+ let browseOpen = $state(false)
+ const browseSession = crypto.randomUUID()
  // Images pasted or picked before a start live only in this dialog; each is uploaded to the machine as the
  // session starts and its path joins the opening prompt.
  type Attachment = { id: number; file: File; preview: string }
@@ -192,7 +197,7 @@
    if (next.key === choiceKey) return
    choiceKey = next.key
    explicitModel = false; explicitEffort = false; explicitSource = false; sourceChoice = ''
-   modelChoice = next.model; effort = next.effort ?? ''; folderChoice = next.folder; modelOther = ''; typedDir = ''
+ modelChoice = next.model; effort = next.effort ?? ''; folderChoice = next.folder; modelOther = ''; typedDir = ''; browseOpen = false
    tool = defaults.agent
   })
  })
@@ -256,7 +261,12 @@
   return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
  })
  const folders = $derived(folderChoices(machine, snapshot))
- const adHocDir = $derived(folderChoice === TYPED ? typedDir : folders.some(f => f.path === folderChoice) ? folderChoice : '')
+ // A folder picked in the live browser is not one the machine reported, so it is offered as its own option in the select.
+ const folderOptions = $derived(folderChoice && folderChoice !== TYPED && !folders.some(f => f.path === folderChoice)
+   ? [...folders, { path: folderChoice, label: folderChoice }]
+   : folders)
+ const canBrowse = $derived(!!machine?.ready && !!machine.capabilities?.browse && !machine.capabilities.browseOff)
+ const adHocDir = $derived(folderChoice === TYPED ? typedDir : folderChoice === '' ? '' : folderChoice)
  const dir = $derived(usingProject ? pickedProject!.dir : folderVisible ? adHocDir : '')
  const promptBytes = $derived(new TextEncoder().encode(prompt).length)
  // Why nothing can start, in the order the choices are made: the project first, then the machine it runs on.
@@ -475,6 +485,7 @@
   projectSel = next
   latestOverride = null
   folderChoice = ''; typedDir = ''
+  browseOpen = false
   if (next === NO_PROJECT || next === GITHUB) { void loadProject(''); edited(); return }
   const item = allProjects.find(p => p.id === next)
   void loadProject(next)
@@ -486,12 +497,27 @@
  function pickMachine(next: string) {
   if (locked) return
   agentId = next
+  browseOpen = false
   if (pickedProject && pickedProject.host !== next) {
    projectSel = ''
    projectReadSeq++
    projectData = null
   }
   edited()
+ }
+ // A folder picked in the live browser fills the Folder choice, with the home kept as the empty "Home folder" value.
+ function useBrowsedFolder(picked: { path: string; home: string }) {
+  if (locked) return
+  folderChoice = picked.path && picked.path !== picked.home ? picked.path : ''
+  browseOpen = false
+  edited()
+ }
+ // Browse requests one at a time for this dialog: the machine answers a second at once with "already listing".
+ let browseQueue: Promise<unknown> = Promise.resolve()
+ function browseSerial<T>(job: () => Promise<T>): Promise<T> {
+  const next = browseQueue.then(job, job)
+  browseQueue = next.catch(() => undefined)
+  return next
  }
  let skillOpen = $state(false), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
  let promptOpen = $state(false), promptButton = $state<HTMLButtonElement>()
@@ -916,15 +942,25 @@
    {#if folderVisible}
     <div class="field">
      <label for={`${id}-folder`}>Folder</label>
-     <select id={`${id}-folder`} bind:value={folderChoice}>
-      {#each folders as folder (folder.path)}<option value={folder.path}>{folder.label}</option>{/each}
-      <option value={TYPED}>Type a path…</option>
-     </select>
+     <div class="folder-row">
+      <select id={`${id}-folder`} bind:value={folderChoice}>
+       {#each folderOptions as folder (folder.path)}<option value={folder.path}>{folder.label}</option>{/each}
+       <option value={TYPED}>Type a path…</option>
+      </select>
+      {#if canBrowse && machine}
+       <button type="button" class="btn browse" aria-expanded={browseOpen} aria-controls={browseOpen ? `${id}-browser` : undefined} onclick={() => { if (!locked) browseOpen = !browseOpen }}>{browseOpen ? 'Hide browser' : 'Browse…'}</button>
+      {/if}
+     </div>
      {#if folderChoice === TYPED}
       <label for={`${id}-dir`} class="sub">Folder path</label>
       <input id={`${id}-dir`} bind:value={typedDir} autocomplete="off" spellcheck="false" placeholder="/home/you/work/site" aria-invalid={dirError ? 'true' : undefined} aria-describedby={dirError ? `${id}-dir-error ${id}-dir-hint` : `${id}-dir-hint`} />
       {#if dirError}<p class="reason" id={`${id}-dir-error`}>{dirError}</p>{/if}
       <p class="hint" id={`${id}-dir-hint`}>The machine decides whether it can start there. It must be inside the home folder it was enrolled with.</p>
+     {/if}
+     {#if browseOpen && canBrowse && machine}
+      <div id={`${id}-browser`} class="browser-slot">
+       <FolderBrowser agentId={machine.agentId} host={machine.host} session={browseSession} start={adHocDir} chosen={adHocDir} serial={browseSerial} onuse={useBrowsedFolder} />
+      </div>
      {/if}
     </div>
    {/if}
@@ -1087,6 +1123,10 @@
  .body { display: grid; gap: 16px; padding: 20px 24px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 16px; }
  .field { display: grid; gap: 6px; min-width: 0; }
+ .folder-row { display: flex; gap: 8px; align-items: stretch; min-width: 0; }
+ .folder-row select { flex: 1 1 auto; }
+ .folder-row .browse { flex: none; white-space: nowrap; min-height: 42px; }
+ .browser-slot { display: flex; flex-direction: column; min-height: 0; margin-top: 4px; }
  label { font-size: 0.875rem; font-weight: 600; }
  .label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
  .prompt-links { display: flex; align-items: center; gap: 12px; flex: none; }

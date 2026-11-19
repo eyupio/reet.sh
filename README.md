@@ -289,7 +289,7 @@ Private skill revisions have an [account-scoped storage/API contract](docs/priva
 
 Start a new shell with the + beside a machine in Control or Terminals. Right-click cards or terminal output for actions; Show sessions reopens a hidden session sidebar.
 
-To start an AI agent instead of a shell, use **New agent session** in Terminals or **Start an agent** on a machine's card (disabled, with the reason, while the machine isn't ready): choose the agent, an optional model, a folder inside the machine's home and an optional opening prompt, and you land in the new session; the machine decides how the agent is started. [What it does and what it does not establish](docs/start-agent-session.md).
+To start an AI agent instead of a shell, use **New agent session** in Terminals or **Start an agent** on a machine's card (disabled, with the reason, while the machine isn't ready): choose the agent, an optional model, a folder inside the machine's home (picked with the machine's folder browser, or typed) and an optional opening prompt, and you land in the new session; the machine decides how the agent is started. [What it does and what it does not establish](docs/start-agent-session.md).
 
 **Google Antigravity (AGY)** is supported. Install the official `agy` command on the machine and update its reet connector; the picker offers AGY when the machine reports it installed. Model selection, an opening prompt and low/medium/high thinking are supported. Approvals stay on by default; YOLO uses the existing account, machine and confirmation controls. Updated machines also offer Gaffer through AGY’s native ACP server, with its configured permission rules, approval cards and history; see [AGY in Gaffer](docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
 

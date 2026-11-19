@@ -50,6 +50,25 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FOLDER-BROWSE-1: start an agent by picking a folder (19 November 2026)
+
+The Start an agent dialog's **Folder** field (under **No project — start in a folder**) only offered the
+project folders a machine had reported plus **Type a path…**. A machine that reports folder browsing now shows
+**Browse…** beside the select, opening the existing `FolderBrowser` inline
+(`web/src/lib/StartAgentDialog.svelte`). A folder picked there fills the choice, including a folder the machine
+never reported (it becomes its own option); picking the home sets the empty **Home folder** value. The browser
+opens at the current choice, closes on a pick, and closes when a project, machine or agent change resets the
+folder. Typed paths stay for machines that cannot browse (older reet, browsing switched off, offline); the
+controller, broker and connector are unchanged. Browse requests are queued one at a time, as the Add project
+dialog does, so a filter typed while a folder is still listing never draws the machine's "already listing"
+refusal.
+
+**Tests.** `web/tests/start-agent.e2e.mjs` gives the fixture machine `browse`, mocks
+`GET /api/v2/machines/{id}/browse`, and checks the button, the live list, a pick filling the select and the
+browser closing. `cd web && npm run check`; the full `start-agent.e2e.mjs` passed against `vite preview`.
+
+**Docs.** [docs/start-agent-session.md](docs/start-agent-session.md) and README name the browser.
+
 ## USAGE-1: one Usage page for every agent, and plan limits always on (18 November 2026)
 
 The owner asked: "Add a single usage page for all agents, plus on by default." Asked in turn, they chose: the page

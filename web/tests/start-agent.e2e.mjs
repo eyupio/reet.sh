@@ -22,7 +22,7 @@ const HOME_A='/home/dev',SITE='/home/dev/work/site'
 let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
 let yoloAllowed=true,profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
 const tmachines=[
- {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,tools:['claude','codex','gemini','cline']}},
+ {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,browse:true,tools:['claude','codex','gemini','cline']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
  {agentId:B,host:'old-box',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'old',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',tools:['claude']}},
  {agentId:C,host:'spare-box',ready:false,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'spare',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude']}},
@@ -68,6 +68,11 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/folder-projects/'+GH_PROJECT.id){await new Promise(r=>setTimeout(r,600));data=GH_PROJECT}
  else if(path==='/api/v2/folder-projects')data={projects:folderProjects,savedWaiting:0}
  else if(path==='/api/v2/folder-projects/'+PROJECT_ID&&folderProjects.length)data=folderProjects.find(p=>p.id===PROJECT_ID)
+ else if(/^\/api\/v2\/machines\/[^/]+\/browse$/.test(path)){
+  const at=new URL(req.url()).searchParams.get('path')||HOME_A
+  const entries=at===HOME_A?[{name:'work',dir:true,repoRoot:false,hidden:false}]:at===HOME_A+'/work'?[{name:'site',dir:true,repoRoot:true,hidden:false}]:[]
+  data={path:at,home:HOME_A,parent:at==='/'?'/':at.slice(0,at.lastIndexOf('/'))||'/',repo:at===SITE?'root':'none',repoTop:'',entries,more:false,partial:false,scanned:entries.length,omitted:0}
+ }
  else if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path)){const tool=new URL(req.url()).searchParams.get('tool')??'';if(modelsFail)return route.fulfill({status:500,json:{error:'models are unavailable'}});data=modelList({tool})}
  else if(/^\/api\/v2\/machines\/[^/]+\/models\/refresh$/.test(path)&&method==='POST'){const b=req.postDataJSON();data=modelList({tool:b.tool??''})}
  else if(path==='/api/v2/terminal/machines'){machineReads++;if(machinesFail)return route.fulfill({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}});data={machines:tmachines}}
@@ -276,6 +281,19 @@ try{
  await expect(p.sentence).toHaveText('Starts Claude Code in the home folder on dev-laptop. Nothing runs until you press Start.')
  await p.folder.selectOption(SITE)
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${SITE} on dev-laptop. Nothing runs until you press Start.`)
+
+ // A machine that can list its folders offers the live browser beside the typed path, and a folder picked there fills the choice.
+ await expect(p.folder.locator('option')).toHaveText(['Home folder',SITE,'Type a path…'])
+ await p.folder.selectOption('')
+ await d.getByRole('button',{name:'Browse…',exact:true}).click()
+ const folderBrowser=d.getByRole('region',{name:'Folders on dev-laptop',exact:true})
+ await expect(folderBrowser).toBeVisible()
+ await folderBrowser.getByRole('list',{name:'Folders in ~',exact:true}).getByRole('button',{name:'work',exact:true}).click()
+ await folderBrowser.getByRole('list',{name:'Folders in work',exact:true}).getByRole('button',{name:/^site/}).click()
+ await expect(folderBrowser.getByText(/\/home\/dev\/work\/site/)).toBeVisible()
+ await folderBrowser.getByRole('button',{name:'Use this folder',exact:true}).click()
+ await expect(p.folder).toHaveValue(SITE)
+ await expect(folderBrowser).toHaveCount(0)
 
  // Other… opens the same field as before, checked against the character rule before Use sends it.
  list=await openModel(d)

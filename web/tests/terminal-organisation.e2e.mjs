@@ -348,6 +348,18 @@ try{
  await expect(skillPicker.getByRole('link',{name:'Review new skills on the Skills page'})).toHaveAttribute('href','/skills?review=new')
  // With a mouse too, Keep and the review link are 44 px targets.
  for(const target of [skillPicker.getByRole('button',{name:'Keep reet-notes',exact:true}),skillPicker.getByRole('link',{name:'Review new skills on the Skills page'})])expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
+ // A failed read offers Retry, a 44 px target with a mouse too, which reads the list again.
+ await page.keyboard.press('Escape')
+ let failSkills=1
+ const failOnce=route=>failSkills-->0?route.fulfill({status:500,json:{error:'Skills could not be read just now.'}}):route.fallback()
+ await page.route('**/api/v2/terminal/sessions/*/skills',failOnce)
+ await skillsButton.click()
+ const retrySkills=skillPicker.getByRole('button',{name:'Retry',exact:true})
+ await expect(retrySkills).toBeVisible()
+ expect((await retrySkills.boundingBox()).height).toBeGreaterThanOrEqual(44)
+ await retrySkills.click()
+ await expect(skillPicker.getByRole('listbox')).toHaveCount(3)
+ await page.unroute('**/api/v2/terminal/sessions/*/skills',failOnce)
  await skillFilter.fill('pd')
  await skillPicker.getByRole('option',{name:/pdf/}).click()
  await expect(skillPicker).toHaveCount(0)

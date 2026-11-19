@@ -191,7 +191,7 @@
   .seen { font-size: 14px; }
   .review { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-text); font-weight: 600; }
   .review:focus-visible, .install:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .retry { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  .retry { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   @media (max-width: 560px) { .card { border-radius: 12px; } }
   @media (pointer: coarse) {
     .option { min-height: 44px; padding: 8px 12px; }

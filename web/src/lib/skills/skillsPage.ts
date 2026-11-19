@@ -119,20 +119,24 @@ export function installCommandFor(row: SkillRow): string | null {
   return installCommand({ sourceType: 'hosted', url: row.publicUrl, name: row.name, slug: row.name } as unknown as Skill)
 }
 
-export type MachineWork = { failed: number; installing: number; removing: number; updating?: number; needsUpdate?: number; needsUpdateHost?: string }
+export type MachineWork = { failed: number; installing: number; removing: number; updating?: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string }
 
 /**
  * One sentence for the machines: those that need a look come first, then what the rest are doing. `installing` and
  * `removing` count machines; `updating` is how many machines do either, each once, which is what the sentence counts
  * when installs and removals mix (without it, the two are added). Machines below the skills protocol (`needsUpdate`)
- * come next after failures: they get no skill work until reet on them is updated. The server counts them all
- * (SkillsPageData.work).
+ * come next after failures: they get no skill work until reet on them is updated. Then machines above it
+ * (`needsNewerController`), whose reet is newer than this controller: they get none until the controller is updated.
+ * The server counts them all (SkillsPageData.work).
  */
 export function syncSentence(m: MachineWork): string {
   if (m.failed > 0) return `${machines(m.failed)} ${m.failed === 1 ? 'needs' : 'need'} a look.`
   const old = m.needsUpdate ?? 0
   if (old === 1) return `Update reet on ${m.needsUpdateHost || '1 machine'} to keep its skills in sync`
   if (old > 1) return `Update reet on ${machines(old)} to keep their skills in sync`
+  const newer = m.needsNewerController ?? 0
+  if (newer === 1) return `${m.needsNewerControllerHost || '1 machine'} runs a newer reet than this controller; update the controller to keep its skills in sync`
+  if (newer > 1) return `${machines(newer)} run a newer reet than this controller; update the controller to keep their skills in sync`
   if (m.installing > 0 && m.removing > 0) return `Updating ${machines(m.updating ?? m.installing + m.removing)}…`
   if (m.installing > 0) return `Installing on ${machines(m.installing)}…`
   if (m.removing > 0) return `Coming off ${machines(m.removing)}…`

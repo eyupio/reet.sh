@@ -730,3 +730,49 @@ func TestSkillsPageWorkCountsMachinesThatNeedAnUpdate(t *testing.T) {
 		t.Fatalf("a paused machine is left alone: %+v", w)
 	}
 }
+
+// A machine on a newer skills protocol than this controller's gets no skill work either, so it is counted apart too:
+// the controller needs updating. A paused one is left alone, the host is named when there is just one, and neither
+// counts as one that needs reet updated.
+func TestSkillsPageWorkCountsMachinesNewerThanTheController(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	savedWrittenSkill(t, s, uid, "kept", false)
+	reportAgent(t, s, uid, "elitebook")
+	work := func() SkillWork {
+		t.Helper()
+		page, err := s.SkillsPageFor(uid, SkillActive, reportT0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Work
+	}
+	newer := func(host string) string {
+		t.Helper()
+		a, _, err := s.EnrollSyncAgentBuild(uid, host, "9.0", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol+1); err != nil {
+			t.Fatal(err)
+		}
+		return a.ID
+	}
+	if w := work(); w.NeedsNewerController != 0 {
+		t.Fatalf("no machine is newer yet: %+v", w)
+	}
+	thinkpad := newer("thinkpad")
+	if w := work(); w.NeedsNewerController != 1 || w.NeedsNewerControllerHost != "thinkpad" || w.NeedsUpdate != 0 {
+		t.Fatalf("thinkpad runs a newer reet than the controller: %+v", w)
+	}
+	newer("studio")
+	if w := work(); w.NeedsNewerController != 2 || w.NeedsNewerControllerHost != "" {
+		t.Fatalf("two newer machines, and neither is named: %+v", w)
+	}
+	if _, err := s.db.Exec(`UPDATE sync_agents SET paused=1 WHERE id=?`, thinkpad); err != nil {
+		t.Fatal(err)
+	}
+	if w := work(); w.NeedsNewerController != 1 || w.NeedsNewerControllerHost != "studio" {
+		t.Fatalf("a paused machine is left alone: %+v", w)
+	}
+}

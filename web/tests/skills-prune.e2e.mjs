@@ -775,6 +775,28 @@ try {
   await context.close()
  }
 
+ // A machine whose reet is newer than this controller gets no skill work either: the header says to update the
+ // controller, even when no machine follows the library yet, and never that everything is in sync.
+ if (run('newer reet')) {
+  const w = world()
+  const r = routes(w)
+  r['/api/v2/skills'] = req => skillsPageOf(w.rows, new URL(req.url()).searchParams.get('status') || 'active', {machines:0, work:{failed:0, installing:0, removing:0, updating:0, needsUpdate:0, needsNewerController:1, needsNewerControllerHost:'ThinkPad'}})
+  // The longer line fits the header at each size, in light and dark.
+  for (const [width, theme] of [[1440,'light'],[1024,'dark'],[390,'light'],[390,'dark']]) {
+   const {context, page, errors} = await openWorkspace(browser, {width, height:844, theme, touch:width === 390, routes:r})
+   await page.goto(`${base}/skills`)
+   const chip = page.locator('main .sync-chip')
+   await expect(chip).toHaveText('ThinkPad runs a newer reet than this controller; update the controller to keep its skills in sync')
+   await expect(chip).toHaveAttribute('data-tone', 'bad')
+   const box = await chip.boundingBox()
+   expect(box.x + box.width, `chip right edge at ${width}px ${theme}`).toBeLessThanOrEqual(width)
+   expect(box.height, `chip height at ${width}px ${theme}`).toBeGreaterThanOrEqual(44)
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px ${theme}`).toBe(true)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  // A change reaches the machines only after the server's 10 second grace (an Undo inside it costs them nothing), so
  // the machines' work counts a deleted skill only then. The page reads once more just after the grace, so the header
  // says it is coming off then, not at the next 15 second read. The page's clock is driven by the test.

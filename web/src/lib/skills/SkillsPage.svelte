@@ -62,8 +62,9 @@
   // still coming off has left the list but not the machines.
   const sync = $derived.by(() => {
     const work = page.work
-    if (!work.failed && !work.updating && !work.needsUpdate && page.machines === 0) return { text: 'No machines yet', tone: 'off' }
-    return { text: syncSentence(work), tone: work.failed || work.needsUpdate ? 'bad' : work.updating ? 'work' : 'ok' }
+    const stuck = !!(work.needsUpdate || work.needsNewerController)
+    if (!work.failed && !work.updating && !stuck && page.machines === 0) return { text: 'No machines yet', tone: 'off' }
+    return { text: syncSentence(work), tone: work.failed || stuck ? 'bad' : work.updating ? 'work' : 'ok' }
   })
 
   const lede = $derived(page.machines === 0

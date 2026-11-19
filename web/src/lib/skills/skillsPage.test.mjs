@@ -129,6 +129,15 @@ test('syncSentence asks for reet to be updated on a machine below the skills pro
   assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsUpdate: 0 }), 'Everything is in sync.')
 })
 
+test('syncSentence asks for the controller to be updated when a machine runs a newer reet, after machines to update', () => {
+  assert.equal(syncSentence({ failed: 0, installing: 2, removing: 0, needsNewerController: 1, needsNewerControllerHost: 'ThinkPad' }), 'ThinkPad runs a newer reet than this controller; update the controller to keep its skills in sync')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsNewerController: 1 }), '1 machine runs a newer reet than this controller; update the controller to keep its skills in sync')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsNewerController: 3 }), '3 machines run a newer reet than this controller; update the controller to keep their skills in sync')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsUpdate: 1, needsUpdateHost: 'studio', needsNewerController: 1, needsNewerControllerHost: 'ThinkPad' }), 'Update reet on studio to keep its skills in sync')
+  assert.equal(syncSentence({ failed: 2, installing: 0, removing: 0, needsNewerController: 1 }), '2 machines need a look.')
+  assert.equal(syncSentence({ failed: 0, installing: 0, removing: 0, needsNewerController: 0 }), 'Everything is in sync.')
+})
+
 // The Skills page searches as Markdown and CSV export do (store.go splitQuery and ListFor), so an export holds the
 // rows the page shows: words find the name, the shelf id, the description or the notes; tag:x keeps skills tagged x.
 test('matchesSearch finds what export finds', () => {

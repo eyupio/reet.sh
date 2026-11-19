@@ -667,6 +667,13 @@ func TestPollFromANewerAgentGetsOnlyUpdates(t *testing.T) {
 	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1","Entries":[]}`, false, "X-Reet-Skills-Protocol", "3"); code != 409 {
 		t.Fatalf("a newer agent's report: %d %s", code, raw)
 	}
+	// The Skills page counts it apart, so its header can say the controller needs updating.
+	if p := e.page(t, "active"); p.Work == nil || p.Work.NeedsNewerController != 1 || p.Work.NeedsNewerControllerHost != "elitebook" || p.Work.NeedsUpdate != 0 {
+		t.Fatalf("the page's work: %+v", p.Work)
+	}
+	if code, raw := e.owner(t, "GET", "/api/v2/skills?status=active", ""); code != 200 || !strings.Contains(raw, `"needsNewerController":1`) || !strings.Contains(raw, `"needsNewerControllerHost":"elitebook"`) {
+		t.Fatalf("the page's JSON: %d %s", code, raw)
+	}
 	if m, _ := e.st.SkillHealthFor(e.uid, time.Now()); len(m) != 1 {
 		t.Fatalf("health: %+v", m)
 	} else {

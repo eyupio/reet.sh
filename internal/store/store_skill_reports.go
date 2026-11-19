@@ -382,14 +382,18 @@ func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth
 // reported a failure, or cannot write skills, with work left; otherwise in
 // Installing, Removing or both, and then once in Updating. A machine below
 // the skills protocol gets no skill work at all: NeedsUpdate counts the
-// unpaused ones, and NeedsUpdateHost names it when there is just one.
+// unpaused ones, and NeedsUpdateHost names it when there is just one. Nor
+// does one above it, newer than this controller: NeedsNewerController and
+// NeedsNewerControllerHost count and name those the same way.
 type SkillWork struct {
-	Failed          int    `json:"failed"`
-	Installing      int    `json:"installing"`
-	Removing        int    `json:"removing"`
-	Updating        int    `json:"updating"`
-	NeedsUpdate     int    `json:"needsUpdate"`
-	NeedsUpdateHost string `json:"needsUpdateHost,omitempty"`
+	Failed                   int    `json:"failed"`
+	Installing               int    `json:"installing"`
+	Removing                 int    `json:"removing"`
+	Updating                 int    `json:"updating"`
+	NeedsUpdate              int    `json:"needsUpdate"`
+	NeedsUpdateHost          string `json:"needsUpdateHost,omitempty"`
+	NeedsNewerController     int    `json:"needsNewerController"`
+	NeedsNewerControllerHost string `json:"needsNewerControllerHost,omitempty"`
 }
 
 // skillHealthAndWork reads each skill's health and the machines' work in
@@ -467,7 +471,10 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		return nil, work, err
 	}
 	work = machinesWork(machines, reported, desired)
-	if work.NeedsUpdate, work.NeedsUpdateHost, err = machinesNeedingUpdate(q, uid); err != nil {
+	if work.NeedsUpdate, work.NeedsUpdateHost, err = machinesOffProtocol(q, uid, false); err != nil {
+		return nil, work, err
+	}
+	if work.NeedsNewerController, work.NeedsNewerControllerHost, err = machinesOffProtocol(q, uid, true); err != nil {
 		return nil, work, err
 	}
 	removalNames := map[string]bool{}
@@ -575,10 +582,15 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 	return out, work, items.Err()
 }
 
-// machinesNeedingUpdate counts the unpaused machines below the skills
-// protocol, and names the one when there is just one.
-func machinesNeedingUpdate(q privateSkillQuery, uid int64) (int, string, error) {
-	rows, err := q.Query(`SELECT host FROM sync_agents WHERE user_id=? AND paused=0 AND skills_protocol<? ORDER BY host,id`, uid, CurrentSkillsProtocol)
+// machinesOffProtocol counts the unpaused machines below the skills protocol,
+// where reet needs updating, or with newer above it, where this controller
+// does; and names the one when there is just one.
+func machinesOffProtocol(q privateSkillQuery, uid int64, newer bool) (int, string, error) {
+	query := `SELECT host FROM sync_agents WHERE user_id=? AND paused=0 AND skills_protocol<? ORDER BY host,id`
+	if newer {
+		query = `SELECT host FROM sync_agents WHERE user_id=? AND paused=0 AND skills_protocol>? ORDER BY host,id`
+	}
+	rows, err := q.Query(query, uid, CurrentSkillsProtocol)
 	if err != nil {
 		return 0, "", err
 	}

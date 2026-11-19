@@ -598,7 +598,13 @@ type Create struct {
 	// locally. Incompatible with Resume and Structured.
 	LaunchSession string `json:"-"`
 	Base          string `json:"base,omitempty"`
-	Effort        string `json:"effort,omitempty"`
+	// PullLatest is the person's per-launch answer to whether an isolated
+	// session starts from GitHub's latest commit for Base rather than this
+	// machine's copy: "" (the project's setting), "yes" or "no". It is the
+	// controller's own record, never encoded: the controller applies it by
+	// naming GitHub's own branch (origin/<base>) to the machine.
+	PullLatest string `json:"-"`
+	Effort     string `json:"effort,omitempty"`
 	// Provider is the billing source a structured Cline chat starts on (a
 	// provider id Cline reports). Empty keeps Cline's own choice. It is only
 	// sent to a connector that negotiated acp-provider-v1.

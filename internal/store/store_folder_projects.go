@@ -64,13 +64,15 @@ var (
 // FolderProject is one folder on one machine. Host is the machine's
 // enrollment id (sync_agents.id), never its name, so a rename keeps it.
 // WorktreeDefault is "inherit"
-// (use the person's setting), "yes" or "no". LegacyProjectID names the old
-// multi-repository Project member it was made from ("" for a new project), so
-// the migration can run again without making a second copy.
+// (use the person's setting), "yes" or "no". PullLatest is the same three
+// answers for whether an isolated session starts from GitHub's latest commit
+// for the base branch rather than this machine's copy. LegacyProjectID names
+// the old multi-repository Project member it was made from ("" for a new
+// project), so the migration can run again without making a second copy.
 type FolderProject struct {
-	ID, Host, Dir, Name                                                                  string
-	IsRepo                                                                               bool
-	BaseBranch, WorktreeDefault, DefaultTool, DefaultModel, DefaultEffort, StarterPrompt string
+	ID, Host, Dir, Name                                                                              string
+	IsRepo                                                                                           bool
+	BaseBranch, WorktreeDefault, PullLatest, DefaultTool, DefaultModel, DefaultEffort, StarterPrompt string
 	// DefaultYolo preselects YOLO approvals for a session started in this project. The launch still
 	// passes the account, machine and agent gates and is confirmed before it starts.
 	DefaultYolo bool
@@ -121,6 +123,7 @@ func (s *Store) migrateFolderProjects() error {
 				is_repo INTEGER NOT NULL DEFAULT 0,
 				base_branch TEXT NOT NULL DEFAULT '',
 				worktree_default TEXT NOT NULL DEFAULT 'inherit' CHECK(worktree_default IN ('inherit','yes','no')),
+				pull_latest TEXT NOT NULL DEFAULT 'inherit' CHECK(pull_latest IN ('inherit','yes','no')),
 				default_tool TEXT NOT NULL DEFAULT '', default_model TEXT NOT NULL DEFAULT '',
 				default_effort TEXT NOT NULL DEFAULT '',
 				default_yolo INTEGER NOT NULL DEFAULT 0,
@@ -189,6 +192,17 @@ func (s *Store) migrateFolderProjects() error {
 		}
 		if hasEffort == 0 {
 			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN default_effort TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+		// Tables made before a project could choose whether sessions start
+		// from GitHub's latest commit gain the column; existing rows inherit.
+		var hasPullLatest int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name='pull_latest'`).Scan(&hasPullLatest); err != nil {
+			return err
+		}
+		if hasPullLatest == 0 {
+			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN pull_latest TEXT NOT NULL DEFAULT 'inherit'`); err != nil {
 				return err
 			}
 		}
@@ -299,6 +313,13 @@ func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (Fold
 	case "inherit", "yes", "no":
 	default:
 		return p, folderInvalid("worktree default must be inherit, yes or no")
+	}
+	switch p.PullLatest {
+	case "":
+		p.PullLatest = "inherit"
+	case "inherit", "yes", "no":
+	default:
+		return p, folderInvalid("pull latest must be inherit, yes or no")
 	}
 	if p.Colour != "" && !validFolderProjectColour(p.Colour) {
 		return p, folderInvalid("project colour must be blank, red, amber, green, blue or violet")
@@ -422,13 +443,13 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,kept_because,remote,remote_checked_at,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,pull_latest,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,kept_because,remote,remote_checked_at,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
 
 // folderDest is where a row of folderColumns is read into, in their order.
 // Every read of folder_projects goes through it, so a new column is added in
 // one place.
 func folderDest(p *FolderProject) []any {
-	return []any{&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
+	return []any{&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.PullLatest, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
 		&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Temporary, &p.KeptBecause, &p.Remote, &p.RemoteCheckedAt, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version}
 }
 
@@ -512,9 +533,9 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 	}
 	// Only a clone reet made can be temporary; why one was kept is the clean-up's to say.
 	p.Temporary, p.KeptBecause = p.Temporary && p.Cloned, ""
-	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,position,legacy_project_id,note,created_at,updated_at,version)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.Position, legacy, note, t, t)
+	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,pull_latest,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.PullLatest, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.Position, legacy, note, t, t)
 	if err != nil {
 		return FolderProject{}, folderConflict(err)
 	}
@@ -569,8 +590,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,remote=?,remote_checked_at=?,remote_tried_at=CASE WHEN ?=0 THEN 0 ELSE remote_tried_at END,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Remote, p.RemoteCheckedAt, p.RemoteCheckedAt, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,pull_latest=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,remote=?,remote_checked_at=?,remote_tried_at=CASE WHEN ?=0 THEN 0 ELSE remote_tried_at END,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.PullLatest, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Remote, p.RemoteCheckedAt, p.RemoteCheckedAt, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}

@@ -31,7 +31,7 @@
   // value back, so a refused save has to put the box back by hand.
   const chatBoxes: Record<string, HTMLInputElement | undefined> = {}
   let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state(''), defaultClineSource = $state('')
-  let defaultBaseBranch = $state(''), worktreesByDefault = $state(false)
+  let defaultBaseBranch = $state(''), worktreesByDefault = $state(false), pullLatestByDefault = $state(false)
   let formMessage = $state(''), notice = $state('')
   let modelButton = $state<HTMLButtonElement | null>(null)
   let agentSelect = $state<HTMLSelectElement | null>(null)
@@ -94,7 +94,7 @@
     else if (e instanceof ApiError && e.status === 401) onerror?.(new UnauthorizedError())
   }
 
-  let loaded = { tool: '', model: '', effort: '', source: '', base: '', worktrees: false }
+  let loaded = { tool: '', model: '', effort: '', source: '', base: '', worktrees: false, latest: true }
   function fillProfile(profile: Awaited<ReturnType<typeof getProfile>>['profile']) {
     defaultTool = profile.defaultTool ?? ''
     defaultModel = profile.defaultModel ?? ''
@@ -102,7 +102,8 @@
     defaultClineSource = profile.defaultClineSource ?? ''
     defaultBaseBranch = profile.defaultBaseBranch ?? ''
     worktreesByDefault = profile.worktreesByDefault ?? false
-    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, source: defaultClineSource, base: defaultBaseBranch, worktrees: worktreesByDefault }
+    pullLatestByDefault = profile.pullLatestByDefault ?? false
+    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, source: defaultClineSource, base: defaultBaseBranch, worktrees: worktreesByDefault, latest: pullLatestByDefault }
     profileLoaded = true
   }
 
@@ -396,6 +397,7 @@
     if (defaultTool === 'cline' && defaultClineSource !== loaded.source) patch.defaultClineSource = defaultClineSource
     if (base !== loaded.base) patch.defaultBaseBranch = base
     if (worktreesByDefault !== loaded.worktrees) patch.worktreesByDefault = worktreesByDefault
+    if (pullLatestByDefault !== loaded.latest) patch.pullLatestByDefault = pullLatestByDefault
     if (!Object.keys(patch).length) { busy = ''; notice = 'Nothing changed.'; return }
     try {
       const answer = await saveProfile(patch)
@@ -492,6 +494,14 @@
           <option value={true}>Yes — start in a fresh worktree</option>
         </select>
         <small>Projects can override this.</small>
+      </label>
+
+      <label><span>Latest code in fresh worktrees</span>
+        <select id="agents-latest" aria-label="Latest code in fresh worktrees" bind:value={pullLatestByDefault} disabled={!canWrite || busy === 'profile'}>
+          <option value={true}>Yes — start from GitHub's latest</option>
+          <option value={false}>No — use this machine's copy</option>
+        </select>
+        <small>Projects can override this, and each start can choose.</small>
       </label>
     </div>
     <div class="formacts">

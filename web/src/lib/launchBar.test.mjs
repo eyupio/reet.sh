@@ -22,7 +22,7 @@ const source = compile('./launchBar.ts')
   .replaceAll("from './terminal/api'", `from '${terminalApi}'`)
   .replace("from './terminal/launchOptions'", `from '${launchOptions}'`)
   .replace("from './models'", `from '${models}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, startsFromLatest, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 const { CATALOGUE } = await import(catalogue)
 // Every enabled agent now takes YOLO, so the case of an agent with no YOLO option switches it off for one call.
@@ -607,4 +607,14 @@ test('AGY Gaffer needs its own descriptor and folder trust', () => {
  assert.deepEqual(toCreate(trusted,picked,'r'.repeat(16),'a'.repeat(16)).launch,{tool:'antigravity',structured:true,trust:true,model:'gemini-4-argon',dir:picked.dir,projectId:picked.id,effort:'medium',titleOrigin:'fallback'})
  target.capabilities.acpAgents=[]
  assert.match(startable(trusted,[picked],[target]),/does not offer Gaffer/)
+})
+
+test('a fresh worktree starts from GitHub’s latest only when asked to', () => {
+  // The layer order is the person's, else the project's, else the account's; off when nothing says yes.
+  assert.equal(startsFromLatest({ pullLatest: 'yes' }, { pullLatestByDefault: false }), true)
+  assert.equal(startsFromLatest({ pullLatest: 'no' }, { pullLatestByDefault: true }), false)
+  assert.equal(startsFromLatest({ pullLatest: 'inherit' }, { pullLatestByDefault: true }), true)
+  assert.equal(startsFromLatest({ pullLatest: 'inherit' }, { pullLatestByDefault: false }), false)
+  assert.equal(startsFromLatest({ pullLatest: 'inherit' }, {}), false)
+  assert.equal(startsFromLatest(null, {}), false)
 })

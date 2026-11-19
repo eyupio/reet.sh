@@ -52,7 +52,8 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	}
 	c.Worktree = worktreeRunToken(requestID)
 	c.Project = terminalproto.Slug(p.Name, "project")
-	if c.Base == "" && s.machineFetchesBase(uid, agent) {
+	fetchesBase := s.machineFetchesBase(uid, agent)
+	if c.Base == "" && fetchesBase {
 		// The project's saved base is what work on it starts from: an explicit
 		// choice for this repository, which may well refuse a launch when the
 		// branch is gone. A launch that named its own base keeps it, and a
@@ -68,7 +69,42 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	if c.ProjectID == "" {
 		c.ProjectID = p.ID
 	}
+	// "Start from GitHub's latest" is the person's default for this repository
+	// or account, overridable for one start. It is carried by naming GitHub's
+	// own branch, origin/<base>, which the machine already fetches and starts
+	// from whatever the local branch holds: no new wire field, and an older
+	// machine simply uses the last fetched remote branch.
+	// A branch name is at most 255 bytes (terminalproto.ValidRefName); the
+	// origin/ prefix must fit inside that or the create would be refused.
+	roomForPrefix := len(c.Base)+len("origin/") <= 255
+	if fetchesBase && c.Base != "" && roomForPrefix && !strings.HasPrefix(c.Base, "origin/") && s.pullLatestFor(uid, p, c.PullLatest) {
+		c.Base = "origin/" + c.Base
+	}
 	return true
+}
+
+// pullLatestFor answers whether an isolated session in project p starts from
+// GitHub's latest commit: the launch's own answer when it has one, else the
+// project's, else the account's default (yes when the profile has none).
+func (s *server) pullLatestFor(uid int64, p store.FolderProject, override string) bool {
+	switch override {
+	case "yes":
+		return true
+	case "no":
+		return false
+	}
+	switch p.PullLatest {
+	case "yes":
+		return true
+	case "no":
+		return false
+	}
+	profile, err := s.st.ProfileFor(uid)
+	if err != nil {
+		// Nothing readable says yes: keep the launch's old behaviour.
+		return false
+	}
+	return profile.PullLatestByDefault
 }
 
 // machineFetchesBase reports whether the machine's stored capabilities

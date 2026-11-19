@@ -9,7 +9,7 @@
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
   import { browseFolder, createFolderProject, getFolderProject, listBranches, machineModels, readiness, refusalSentence, updateFolderProject, TerminalError,
-    type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
+    type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type PullLatest, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
   import { cleanPath } from '../projects'
   import FolderBrowser from './FolderBrowser.svelte'
   import AddFromGitHub from './AddFromGitHub.svelte'
@@ -64,6 +64,7 @@
   let dir = $state(initial?.dir ?? '')
   let name = $state(initial?.name ?? '')
   let worktreeDefault = $state<WorktreeDefault>(initial?.worktreeDefault ?? 'inherit')
+  let pullLatest = $state<PullLatest>(initial?.pullLatest ?? 'inherit')
   let starterPrompt = $state(initial?.starterPrompt ?? '')
   let baseBranch = $state(initial?.baseBranch ?? '')
   let defaultTool = $state(initial?.defaultTool ?? '')
@@ -105,7 +106,7 @@
   // A save met someone else's change: Save waits until the latest version is loaded, so the stale one is never sent again.
   let stale = $state(false), reloadButton = $state<HTMLButtonElement>()
   // What this person had changed when the latest version was loaded, to use again on top of it.
-  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string; defaultEffort: string; defaultYolo: boolean }>
+  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; pullLatest: PullLatest; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string; defaultEffort: string; defaultYolo: boolean }>
   let mine = $state<Mine | null>(null)
   let branches = $state<string[]>([]), branchNote = $state('')
   // The project's model list and this account's favourites are suggestions only: a failed read changes the status line,
@@ -414,6 +415,7 @@
       if (isRepo !== undefined) input.isRepo = isRepo
       if (n) input.name = n
       input.worktreeDefault = worktreeDefault
+      if (pullLatest !== 'inherit') input.pullLatest = pullLatest
       if (starterPrompt) input.starterPrompt = starterPrompt
       if (branch) input.baseBranch = branch
       if (defaultTool) input.defaultTool = defaultTool
@@ -436,6 +438,8 @@
     const folderName = cleanPath(dir).split('/').pop() || '/'
     if (n !== editing.name && !(n === '' && editing.name === folderName)) input.name = n
     if (worktreeDefault !== editing.worktreeDefault) input.worktreeDefault = worktreeDefault
+    // A project read from an older controller (or a fixture) has no pullLatest: it means inherit.
+    if (pullLatest !== (editing.pullLatest ?? 'inherit')) input.pullLatest = pullLatest
     if (promptKnown && starterPrompt !== (editing.starterPrompt ?? '')) input.starterPrompt = starterPrompt
     if (branch !== editing.baseBranch) input.baseBranch = branch
     else if (moved && branch && isRepo !== true) input.baseBranch = ''
@@ -449,11 +453,11 @@
   const definite = (e: unknown) => e instanceof TerminalError && [400, 401, 403, 404, 409, 410, 413, 422, 429].includes(e.status)
   // The field a refusal names, so focus goes there (opening its fold first).
   async function focusField(field: string) {
-    const fold = field === 'starterPrompt' ? promptFold : ['baseBranch', 'defaultTool', 'defaultModel', 'defaultEffort', 'defaultYolo'].includes(field) ? moreFold : undefined
+    const fold = field === 'starterPrompt' ? promptFold : ['baseBranch', 'pullLatest', 'defaultTool', 'defaultModel', 'defaultEffort', 'defaultYolo'].includes(field) ? moreFold : undefined
     if (fold) fold.open = true
     await tick()
     if (life.signal.aborted) return
-    const target = ({ host: 'machine', dir: 'folder', name: 'name', worktreeDefault: 'worktree', starterPrompt: 'prompt', baseBranch: 'branch', defaultTool: 'tool', defaultModel: 'model', defaultEffort: 'effort', defaultYolo: 'approvals' } as Record<string, string>)[field]
+    const target = ({ host: 'machine', dir: 'folder', name: 'name', worktreeDefault: 'worktree', starterPrompt: 'prompt', baseBranch: 'branch', pullLatest: 'latest', defaultTool: 'tool', defaultModel: 'model', defaultEffort: 'effort', defaultYolo: 'approvals' } as Record<string, string>)[field]
     let el = target ? dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-${target}`)}`) : null
     // A disabled model picker has no agent to pick for: the agent select is the field to fix.
     if (el instanceof HTMLButtonElement && el.disabled) el = dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-tool`)}`) ?? null
@@ -479,12 +483,13 @@
   }
 
   // The fields as they read now, by the name a change sends.
-  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel), defaultEffort, defaultYolo })
+  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, pullLatest, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel), defaultEffort, defaultYolo })
   function fill(p: Mine) {
     if (p.host !== undefined) host = p.host
     if (p.dir !== undefined) dir = p.dir
     if (p.name !== undefined) name = p.name
     if (p.worktreeDefault !== undefined) worktreeDefault = p.worktreeDefault
+    if (p.pullLatest !== undefined) pullLatest = p.pullLatest
     if (p.starterPrompt !== undefined) starterPrompt = p.starterPrompt
     if (p.baseBranch !== undefined) baseBranch = p.baseBranch
     if (p.defaultTool !== undefined) defaultTool = p.defaultTool
@@ -503,7 +508,7 @@
       const latest = await getFolderProject(editing.id, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
       if (life.signal.aborted) return
       editing = latest
-      fill({ host: latest.host, dir: latest.dir, name: latest.name, worktreeDefault: latest.worktreeDefault, starterPrompt: latest.starterPrompt ?? '',
+      fill({ host: latest.host, dir: latest.dir, name: latest.name, worktreeDefault: latest.worktreeDefault, pullLatest: latest.pullLatest, starterPrompt: latest.starterPrompt ?? '',
         baseBranch: latest.baseBranch, defaultTool: latest.defaultTool ?? '', defaultModel: latest.defaultModel ?? '', defaultEffort: latest.defaultEffort ?? '', defaultYolo: latest.defaultYolo ?? false })
       known.clear(); notes.clear(); knowSaved(latest); checkSeq++; clearBranches()
       fieldNote = null
@@ -527,6 +532,7 @@
     void tick().then(() => submitButton?.focus())
   }
   const WORKTREE_WORDS: Record<WorktreeDefault, string> = { inherit: 'Use the account default', yes: 'Yes', no: 'No' }
+  const LATEST_WORDS: Record<PullLatest, string> = { inherit: 'Use the account default', yes: "GitHub's latest", no: "This machine's copy" }
   function mineLines(m: Mine): { label: string; value: string }[] {
     const out: { label: string; value: string }[] = []
     const shown = (v: string) => v === '' ? 'cleared' : v
@@ -534,6 +540,7 @@
     if (m.dir !== undefined) out.push({ label: 'Folder', value: m.dir })
     if (m.name !== undefined) out.push({ label: 'Name', value: m.name })
     if (m.worktreeDefault !== undefined) out.push({ label: 'Worktree for each session', value: WORKTREE_WORDS[m.worktreeDefault] })
+    if (m.pullLatest !== undefined) out.push({ label: 'Latest code from GitHub', value: LATEST_WORDS[m.pullLatest] })
     if (m.starterPrompt !== undefined) out.push({ label: 'Starter prompt', value: shown(m.starterPrompt) })
     if (m.baseBranch !== undefined) out.push({ label: 'Default base branch', value: shown(m.baseBranch) })
     if (m.defaultTool !== undefined) out.push({ label: 'Default agent', value: m.defaultTool ? toolName(m.defaultTool) : "The launch bar's choice" })
@@ -699,6 +706,19 @@
               <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
             </div>
           </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for={`${id}-latest`}>Latest code from GitHub</label>
+          <div class="select-wrap">
+            <select id={`${id}-latest`} bind:value={pullLatest}>
+              <option value="inherit">Use the account default</option>
+              <option value="yes">Start from GitHub's latest</option>
+              <option value="no">Use this machine's copy</option>
+            </select>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+          </div>
+          <p class="hint">Only a repository with a fresh worktree uses it. Each start can still choose.</p>
         </div>
 
         <details class="fold" bind:this={promptFold}>

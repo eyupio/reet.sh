@@ -29,6 +29,9 @@
  import YoloDialog from './launch/YoloDialog.svelte'
  import BaseConfirm from './home/BaseConfirm.svelte'
  import { baseKey, baseQuestion, repoProjectAt } from './baseGate'
+ import type { BaseState } from './baseNotice'
+ import LatestCodeChoice, { type LatestChoice } from './launch/LatestCodeChoice.svelte'
+ import { startsFromLatest } from './launchBar'
  import RepoField from './home/RepoField.svelte'
  import { cloneForStart } from './cloneForStart'
  import { cloneFolder, parseGitHubRepo, repoProject } from './githubRepo'
@@ -119,7 +122,11 @@
 
  // The project's own defaults (read once) and the account's: resolved with the catalogue's agent gate, never as a list read.
  let projectData = $state<FolderProject | null>(null)
- let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean } | null>(null)
+ let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; pullLatestByDefault?: boolean } | null>(null)
+ // The person's answer for this one start, or null to use the project's setting, then the account's.
+ let latestOverride = $state<boolean | null>(null)
+ // What the latest-code control last read, so the start's own question reuses it instead of fetching twice.
+ let latestState = $state<BaseState | null>(null), latestStateKey = $state('')
  // Favourites and the chosen machine's list are helpers only: a failed read changes the status line and nothing else.
  let favourites = $state<ModelFavourite[]>([])
  let favouritesLoadSeq = 0
@@ -466,6 +473,7 @@
  function pickProject(next: string) {
   if (locked) return
   projectSel = next
+  latestOverride = null
   folderChoice = ''; typedDir = ''
   if (next === NO_PROJECT || next === GITHUB) { void loadProject(''); edited(); return }
   const item = allProjects.find(p => p.id === next)
@@ -535,6 +543,15 @@
  let promptLibrary = $state<PromptLibrary | null>(null), promptLoading = $state(false), promptReadError = $state('')
  let promptSuppressed = false, promptLife: AbortController | undefined
  let promptMenuEl = $state<InlinePromptMenu>()
+ // A start that will get its own worktree in a saved repository: the only one a "latest code" choice means anything for.
+ const launchBranch = $derived(pickedProject?.baseBranch || accountDefaults?.defaultBaseBranch || '')
+ const launchesInWorktree = $derived.by(() => {
+  const p = pickedProject
+  if (!p || !machine || p.host !== machine.agentId || dir !== p.dir || !p.isRepo) return false
+  const worktree = p.worktreeDefault === 'yes' ? true : p.worktreeDefault === 'no' ? false : accountDefaults?.worktreesByDefault !== false
+  return worktree && !!machine.capabilities?.worktree
+ })
+ const latestChoice = $derived<LatestChoice>(latestOverride === null ? (startsFromLatest(pickedProject, accountDefaults ?? {}) ? 'github' : 'machine') : latestOverride ? 'github' : 'machine')
  const promptContext = $derived({ project: pickedProject?.name, branch: pickedProject?.baseBranch || '', folder: pickedProject?.dir || typedDir || '', sessionTitle: promptTitle(prompt) })
  async function loadPromptLibrary() {
   if (promptLibrary || promptLoading) return
@@ -599,7 +616,7 @@
   try {
    const answer = await getProfile()
    if (life.signal.aborted) return
-   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort, defaultClineSource: answer.profile.defaultClineSource, defaultBaseBranch: answer.profile.defaultBaseBranch, worktreesByDefault: answer.profile.worktreesByDefault }
+   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort, defaultClineSource: answer.profile.defaultClineSource, defaultBaseBranch: answer.profile.defaultBaseBranch, worktreesByDefault: answer.profile.worktreesByDefault, pullLatestByDefault: answer.profile.pullLatestByDefault }
   } catch (e) {
    if (!life.signal.aborted && e instanceof UnauthorizedError) onsignedout?.(e)
    else if (!life.signal.aborted) accountDefaults = null
@@ -701,17 +718,21 @@
      launch.project = projectSlug(chosenProject.name)
      const base = chosenProject.baseBranch || accountDefaults?.defaultBaseBranch || ''
      if (base) launch.base = base
+     if (latestOverride !== null) launch.pullLatest = latestOverride
     }
    }
    const host = machine.host, agent = machine.agentId
-   if (yes !== baseKey(agent, launch)) {
+   // Starting from GitHub's latest means the base check has nothing to warn about: the worktree is cut from GitHub's
+   // commit, whatever the machine's own branch holds.
+   const startsLatest = latestOverride === null ? startsFromLatest(chosenProject, accountDefaults ?? {}) : latestOverride
+   if (!startsLatest && yes !== baseKey(agent, launch)) {
     // Before the images and before the create: a no leaves nothing behind. The confirmation's button starts it.
     checking = true; failed = false; invalidMessage = false
     message = `Checking where this starts on ${host}…`
     // The saved repository this folder is, as the controller finds it; the chosen project is the fallback when the
     // page was handed no list to look in.
     const repo = repoProjectAt(allProjects, agent, dir) ?? (onProject && chosenProject?.isRepo ? chosenProject : null)
-    const say = await baseQuestion(agent, host, launch, repo, life.signal)
+    const say = await baseQuestion(agent, host, launch, repo, life.signal, undefined, true)
     checking = false; message = ''
     if (life.signal.aborted) return
     if (say) { baseText = say; baseHost = host; baseAsked = baseKey(agent, launch); baseOpen = true; return }
@@ -862,6 +883,15 @@
      <p class="hint" id={`${id}-project-dir`}>Starts in {pickedProject!.dir}.</p>
     {/if}
    </div>
+
+   {#if launchesInWorktree}
+    <div class="field">
+     <LatestCodeChoice agentId={machine!.agentId} host={machine!.host} dir={pickedProject!.dir} base={launchBranch}
+       value={latestChoice} disabled={locked}
+       onstate={(state, key) => { latestState = state; latestStateKey = key }}
+       onchange={(choice) => { latestOverride = choice === 'github'; baseYes = ''; baseAsked = ''; baseOpen = false; edited() }} />
+    </div>
+   {/if}
 
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>

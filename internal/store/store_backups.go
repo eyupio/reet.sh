@@ -123,6 +123,10 @@ type Profile struct {
 	DefaultBaseBranch string `json:"defaultBaseBranch"`
 	// WorktreesByDefault is the person's answer for projects that inherit it.
 	WorktreesByDefault bool `json:"worktreesByDefault"`
+	// PullLatestByDefault is the person's answer, for projects that inherit
+	// it, to whether an isolated session starts from GitHub's latest commit
+	// for its base branch rather than this machine's copy.
+	PullLatestByDefault bool `json:"pullLatestByDefault"`
 	// DefaultTool, DefaultModel and DefaultEffort are what a session outside
 	// a project starts with. Blank means the agent's own default (or reet's
 	// first agent when the tool is blank). The server never substitutes them
@@ -287,6 +291,8 @@ func (s *Store) migrateBackups() error {
 		{"default_base_branch", "default_base_branch TEXT NOT NULL DEFAULT ''"},
 		// Rows stored before this setting existed read as yes.
 		{"worktrees_by_default", "worktrees_by_default INTEGER NOT NULL DEFAULT 1"},
+		// Off until the person asks for it, as it changes where work starts.
+		{"pull_latest_by_default", "pull_latest_by_default INTEGER NOT NULL DEFAULT 0"},
 		{"default_tool", "default_tool TEXT NOT NULL DEFAULT ''"},
 		{"default_model", "default_model TEXT NOT NULL DEFAULT ''"},
 		{"default_effort", "default_effort TEXT NOT NULL DEFAULT ''"},
@@ -573,8 +579,8 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
 	var chatRaw string
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,gaffer_standing,gaffer_auto_merge,factory_remove_mode,factory_session_end_mode,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,default_cline_source,chat_agents,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.GafferAnimations, &p.GafferCompact, &p.GafferStanding, &p.GafferAutoMerge, &p.FactoryRemoveMode, &p.FactorySessionEndMode, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultClineSource, &chatRaw, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,gaffer_standing,gaffer_auto_merge,factory_remove_mode,factory_session_end_mode,hosted_prefix,default_base_branch,worktrees_by_default,pull_latest_by_default,default_tool,default_model,default_effort,default_cline_source,chat_agents,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.GafferAnimations, &p.GafferCompact, &p.GafferStanding, &p.GafferAutoMerge, &p.FactoryRemoveMode, &p.FactorySessionEndMode, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.PullLatestByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultClineSource, &chatRaw, &p.UpdatedAt)
 	p.PlanLimits = true
 	if err == nil {
 		p.ChatAgents = decodeChatAgents(chatRaw)
@@ -583,7 +589,7 @@ func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	p = Profile{FactoryRemoveMode: "archive", FactorySessionEndMode: "delete", GafferAnimations: true, GafferCompact: true, GafferStanding: true, Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix, WorktreesByDefault: true, PlanLimits: true}
+	p = Profile{FactoryRemoveMode: "archive", FactorySessionEndMode: "delete", GafferAnimations: true, GafferCompact: true, GafferStanding: true, Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix, WorktreesByDefault: true, PullLatestByDefault: false, PlanLimits: true}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,hosted_prefix,updated_at) VALUES(?,?,?,?,?,?)`,
 		userID, p.Theme, p.Timezone, p.DateFormat, p.HostedPrefix, now()); err != nil {
 		return p, err
@@ -601,12 +607,12 @@ func (s *Store) SaveProfileFor(userID int64, p Profile) error {
 	if p.FactorySessionEndMode != "leave" && p.FactorySessionEndMode != "archive" && p.FactorySessionEndMode != "delete" {
 		p.FactorySessionEndMode = "delete"
 	}
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,gaffer_standing,gaffer_auto_merge,factory_remove_mode,factory_session_end_mode,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,default_cline_source,chat_agents,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,gaffer_standing,gaffer_auto_merge,factory_remove_mode,factory_session_end_mode,hosted_prefix,default_base_branch,worktrees_by_default,pull_latest_by_default,default_tool,default_model,default_effort,default_cline_source,chat_agents,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
 			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close, gaffer_animations=excluded.gaffer_animations, gaffer_compact=excluded.gaffer_compact, gaffer_standing=excluded.gaffer_standing, gaffer_auto_merge=excluded.gaffer_auto_merge, factory_remove_mode=excluded.factory_remove_mode, factory_session_end_mode=excluded.factory_session_end_mode,
-			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default,
+			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default, pull_latest_by_default=excluded.pull_latest_by_default,
 			default_tool=excluded.default_tool, default_model=excluded.default_model, default_effort=excluded.default_effort, default_cline_source=excluded.default_cline_source, chat_agents=excluded.chat_agents, updated_at=excluded.updated_at`,
-		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.GafferAnimations, p.GafferCompact, p.GafferStanding, p.GafferAutoMerge, p.FactoryRemoveMode, p.FactorySessionEndMode, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.GafferAnimations, p.GafferCompact, p.GafferStanding, p.GafferAutoMerge, p.FactoryRemoveMode, p.FactorySessionEndMode, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault, p.PullLatestByDefault,
 		p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultClineSource, encodeChatAgents(p.ChatAgents), now())
 	return err
 }

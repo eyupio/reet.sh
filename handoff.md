@@ -1,5 +1,37 @@
 # Reet central-control implementation handoff
 
+## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
+
+The owner asked: "If we recognise that a machine folder doesn't have the latest code from GitHub, then we need a config
+setting to always pull latest code into the worktree, but still allow the user to override when starting a new agent
+session or factory outcome." Asked for the dynamic, interactive UI, the answer is a layered choice rather than a new git
+operation: **start from GitHub's latest commit** or **this machine's copy**.
+
+**How it works.** A fresh worktree that names its base can be started from GitHub's own branch. The controller does it
+without a new wire field by naming `origin/<base>` to a machine that negotiated `base-fresh-v1` — the machine already
+fetches that branch and starts from what it fetched. The machine's local branch is never pulled, moved or cleaned.
+`isolation.go`'s `pullLatestFor` layers the answers: the launch's own (`Create.PullLatest`, controller-only and never
+encoded), else the project's `pull_latest` (`inherit`/`yes`/`no`, default `inherit`), else the profile's
+`pull_latest_by_default` (default off). Factory outcomes carry the person's answer as `OutcomeInput.PullLatest` /
+`store.GafferOutcome.PullLatest` / `gaffer.OutcomeLaunch.PullLatest`, and inherit automatically when they do not.
+
+**Data.** `folder_projects.pull_latest` (CHECKed, added by migration; older rows inherit) and
+`user_profiles.pull_latest_by_default` (added by migration; older rows 0). Backups carry both. The folder-project view
+and input gain `pullLatest`; the profile gains `pullLatestByDefault`.
+
+**Web.** `launch/LatestCodeChoice.svelte` is the shared control: two buttons, and one sentence under them from the
+read-only base check ("is in step", "is behind", "has commits GitHub doesn't have", GitHub unreachable), with a
+**Check GitHub** / **Check again** action, a green/amber dot and a reduced-motion-safe pulse while it reads. Opening a
+dialog does not fetch GitHub by itself: the person asks, or Start's own base check answers both (its result is handed
+back to the control), so one start never makes the machine fetch the same branch twice. It is in Start an agent (for a
+repository that will get a worktree), in the New Factory outcome dialog, and its account default is a select in Settings
+→ Agents; Add a project gained "Latest code from GitHub" (inherit/always/never). `launchBar.ts` exposes
+`startsFromLatest(project, profile)`, false when nothing says yes.
+
+**Not done.** Home's launch bar and the desk composer have no per-start toggle: they inherit the project's and
+account's answer, which the controller applies. No real machine was exercised end-to-end; the `origin/<base>` path is
+the one the base check and its tests already cover.
+
 reet.sh is a self-hosted AI fleet control room: machines, the AI agents installed on them, skills,
 reviewed sync, browser terminals and, now, an agents home with folder projects. This file is the
 current state and the standing rules; start here. Where things are: [README.md](README.md) and

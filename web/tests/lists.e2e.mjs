@@ -167,6 +167,19 @@ try {
     expect(errors).toEqual([])
     await context.close()
   }
+  // Add all counts what the server adds: a list skill whose name the library already has, from another source, is not
+  // counted, just as the server leaves it.
+  if (run('add all counts by name')) {
+    const entries = ['pdf', 'docx'].map(name => ({ ...skill(name), useCount: 0, memberCount: 1, note: '' }))
+    const detail = { id: 7, ownerId: 1, ownerName: 'Sam', name: 'Launch checklist', description: '', visibility: 'personal', slug: 'launch-checklist', role: 'owner', skillCount: 2, memberCount: 1, createdAt: now, updatedAt: now, skills: entries, members: [], linkEnabled: false, canEdit: true, canManage: true, canTransfer: true }
+    const mine = { ...skill('pdf'), id: 'other/repo/pdf', source: 'other/repo', status: 'active' }
+    const { context, page, errors } = await openWorkspace(browser, { width: 1440, routes: { '/api/v2/lists/7': detail, '/api/skills': { skills: [mine], counts: { all: 1, used: 0, liked: 0, bookmarked: 0 } } } })
+    await page.goto(`${base}/lists/7`)
+    await page.getByRole('button', { name: 'Add all to my library' }).click()
+    await expect(page.getByRole('dialog', { name: 'Add 1 skill to your library?' })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
 } finally {
   await browser.close()
 }

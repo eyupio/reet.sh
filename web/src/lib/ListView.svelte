@@ -50,7 +50,10 @@
   // The ids in the person's library. A list skill they have comes from reet's copy, so it offers Copy prompt and is
   // left out of the install commands, which name each original.
   let mine = $state<string[]>([])
+  // The names the library has, lower-cased: Add all leaves a list skill of such a name alone, as the server does.
+  let mineNames = $state<string[]>([])
   const inLibrary = (skill: Skill) => mine.includes(skill.id)
+  const added = (skill: Skill) => inLibrary(skill) || mineNames.includes((skill.slug || skill.name).toLowerCase())
   const commands = $derived((detail?.skills ?? []).filter(skill => !inLibrary(skill)).map(installCommand).filter((x): x is string => Boolean(x)))
   // Add all asks first: how many skills, on how many machines (null when that could not be read).
   let adding = $state<{ count: number; machines: number | null } | null>(null)
@@ -111,6 +114,7 @@
     try {
       const all = (await listSkills({ tab: 'all', q: '', sort: 'name' })).skills
       mine = all.map((s) => s.id)
+      mineNames = all.flatMap((s) => [s.name, s.slug].filter(Boolean).map((n) => n.toLowerCase()))
       shelf = all.filter((s) => s.sourceType !== 'local')
     } catch {
       /* the paste field still works when the shelf cannot be read */
@@ -185,7 +189,7 @@
   }
 
   async function askAddAll() {
-    const count = (detail?.skills ?? []).filter(skill => !inLibrary(skill)).length
+    const count = (detail?.skills ?? []).filter(skill => !added(skill)).length
     if (count === 0) { say(addedNotice(0, 'active')); return }
     busy = true
     let machines: number | null = null

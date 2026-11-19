@@ -157,6 +157,29 @@ try {
     await context.close()
   }
 
+  // The empty and error states are blocks: their message stacks above their action, at the panel's full width.
+  if (run('empty and error layout')) {
+    const below = async (upper, lower) => {
+      const a = await upper.boundingBox(), b = await lower.boundingBox()
+      expect(b.y, 'the action sits below the message').toBeGreaterThanOrEqual(a.y + a.height - 1)
+    }
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/community`)
+    await tab(page, /^Skills/).click()
+    await page.getByLabel('Search community').fill('zzz')
+    const heading = page.getByRole('heading', { name: 'Nowt matches just yet.' })
+    await below(heading, page.getByRole('button', { name: 'Clear search' }))
+    expect(await heading.evaluate(el => getComputedStyle(el.parentElement).display)).toBe('block')
+    expect(errors).toEqual([])
+    await context.close()
+    const failed = await open({ routes: { '/api/community': { status: 500, json: { error: 'The community could not be read.' } } } })
+    await failed.page.goto(`${base}/community`)
+    const message = failed.page.getByRole('alert').getByText('The community could not be read.')
+    await below(message, failed.page.getByRole('button', { name: 'Try again' }))
+    expect(await message.evaluate(el => getComputedStyle(el.parentElement).display)).toBe('block')
+    await failed.context.close()
+  }
+
   // A phone keeps the search, both tabs and every row reachable without sideways scroll.
   if (run('phone')) {
     for (const width of [390, 320]) {

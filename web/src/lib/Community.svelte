@@ -155,7 +155,7 @@
             {#if canSave}
               {#if libraryStatus(skill)}
                 <!-- Already in the library: where it stands there, not a Save that would claim another status. -->
-                <span class="state">In your library · {libraryStatus(skill) === 'archived' ? 'Archived' : 'Active'}</span>
+                <span class="in-library">In your library · {libraryStatus(skill) === 'archived' ? 'Archived' : 'Active'}</span>
               {:else}
                 <button type="button" class="btn" disabled={!!saving} onclick={() => { notice = ''; choosing = skill }}>{saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
               {/if}
@@ -201,7 +201,7 @@
   .meta-row > * { flex: none; }
   .go { width: 8px; height: 8px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
   .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .state { display: inline-flex; align-items: center; min-height: 36px; color: var(--muted); font-size: 0.875rem; }
+  .in-library { display: inline-flex; align-items: center; min-height: 36px; color: var(--muted); font-size: 0.875rem; }
   .actions :global(.btn) { min-height: 36px; padding: 6px 12px; font-size: 0.875rem; }
 
   .state { padding: 24px 0 16px; max-width: 60ch; }

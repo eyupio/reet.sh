@@ -1324,3 +1324,44 @@ func TestPublishRefusesANameThatCannotBeHosted(t *testing.T) {
 		t.Fatalf("a name that cannot be hosted: %d %s", code, body)
 	}
 }
+
+// Publish on the Skills page does for a skill you wrote what Write a skill's
+// switch does: its content stays the editor's, it joins the shelf as a
+// public skill, and Unpublish takes its page down and its public entry off.
+func TestPublishWrittenSkillAsWriteASkillDoes(t *testing.T) {
+	e := newCopyEnv(t)
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	draft := `{"content":"---\nname: reet-demo\ndescription: A written skill.\n---\n\nDo the thing.\n","files":{},"published":false}`
+	if code, body := do(t, e.srv, "PUT", "/api/v2/hosting/skills/reet-demo", draft); code != 200 {
+		t.Fatalf("draft: %d %s", code, body)
+	}
+	item := e.item(t)
+	shelf := func() string {
+		t.Helper()
+		_, body := do(t, e.srv, "GET", "/api/skills?tab=all", "")
+		return body
+	}
+	if strings.Contains(shelf(), "/sam/reet-demo") {
+		t.Fatal("a draft has no public entry")
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/publish", `{"public":true}`); code != 200 || !strings.Contains(body, "/sam/reet-demo") {
+		t.Fatalf("publish: %d %s", code, body)
+	}
+	if code, page := do(t, e.srv, "GET", "/sam/reet-demo", ""); code != 200 || strings.Contains(page, "Imported from") {
+		t.Fatalf("a written skill's page credits no one: %d", code)
+	}
+	if !strings.Contains(shelf(), "/sam/reet-demo") {
+		t.Fatalf("a published written skill joins the shelf as Write a skill's publish does: %s", shelf())
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/publish", `{"public":false}`); code != 200 {
+		t.Fatalf("unpublish: %d %s", code, body)
+	}
+	if code, _ := do(t, e.srv, "GET", "/sam/reet-demo", ""); code != 404 {
+		t.Fatalf("unpublished: %d", code)
+	}
+	if strings.Contains(shelf(), "/sam/reet-demo") {
+		t.Fatalf("Unpublish takes the public entry off the shelf, as Write a skill's does: %s", shelf())
+	}
+}

@@ -138,13 +138,26 @@ func (s *server) skillPublish(w http.ResponseWriter, r *http.Request) {
 		skillsPageError(w, err)
 		return
 	}
+	username, err := s.st.PublishingUsername(uid)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	// A skill the person wrote follows Write a skill's switch: its public
+	// entry joins the shelf when published and is hidden when not.
+	if out.Written && username != "" {
+		if !out.Published {
+			s.setHostedSkillVisible(r, username, out.Slug, false)
+		} else if hosted, err := s.st.HostedSkillsFor(uid); err == nil {
+			for _, sk := range hosted {
+				if sk.Slug == out.Slug {
+					s.addHostedSkillToShelf(r, username, sk)
+				}
+			}
+		}
+	}
 	url := ""
 	if out.Published {
-		username, err := s.st.PublishingUsername(uid)
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
 		url = requestOrigin(r) + "/" + username + "/" + out.Slug
 	}
 	s.eventRequest(r, "skill-publish", item, map[string]any{"public": out.Published})

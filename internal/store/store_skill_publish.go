@@ -21,6 +21,9 @@ func (p SkillPublishProblem) Error() string { return p.Reason }
 type SkillPublished struct {
 	Slug      string `json:"slug"`
 	Published bool   `json:"published"`
+	// Written says the person wrote the skill in Write a skill, whose
+	// switch also puts its public entry on the shelf or takes it off.
+	Written bool `json:"-"`
 }
 
 // PublishSkillFor makes a library skill public, or private again. A skill the
@@ -45,7 +48,7 @@ func (s *Store) PublishSkillFor(uid int64, item string, public bool) (SkillPubli
 			return err
 		}
 		if !public {
-			out = SkillPublished{Slug: slug}
+			out = SkillPublished{Slug: slug, Written: hosted && origin == "written"}
 			if !hosted {
 				return nil
 			}
@@ -53,7 +56,7 @@ func (s *Store) PublishSkillFor(uid int64, item string, public bool) (SkillPubli
 			return err
 		}
 		if hosted && origin == "written" {
-			out = SkillPublished{Slug: slug, Published: true}
+			out = SkillPublished{Slug: slug, Published: true, Written: true}
 			_, err = tx.Exec(`UPDATE hosted_skills SET published=1,updated_at=? WHERE user_id=? AND slug=?`, now(), uid, slug)
 			return err
 		}

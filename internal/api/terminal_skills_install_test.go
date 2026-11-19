@@ -478,3 +478,28 @@ func TestPickerAddRestoresAnArchivedPublishedSkill(t *testing.T) {
 		t.Fatalf("slides is not sent to the machines: %+v", desired.Active)
 	}
 }
+
+// Adding takes the skill off the scan's ignore list first; when that fails
+// the add is not made and the person is told to try again.
+func TestPickerAddStopsWhenTheIgnoreListCannotBeCleared(t *testing.T) {
+	f := installFixture(t)
+	other, err := f.st.CreateUser("ignore-publisher@example.test", "Publisher", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.st.ClaimPublishingUsername(other.ID, "publisher"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.st.SaveHostedSkill(other.ID, store.HostedSkill{Slug: "slides", Description: "Shared", Content: "---\nname: slides\ndescription: Shared\n---\n\nBody", Published: true}); err != nil {
+		t.Fatal(err)
+	}
+	f.raw(t, `CREATE TRIGGER test_refuse_unignore BEFORE DELETE ON ignored BEGIN SELECT RAISE(ABORT,'refused'); END`)
+	f.raw(t, `INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,?,?)`, f.uid, "hosted/example.com/publisher/slides", "slides", "removed", 1)
+	code, raw := f.install(`{"skill":"reet:publisher/slides"}`)
+	if b := decodeAdd(t, raw); code != 500 || b.Code != "internal" || b.Error != "The skill could not be added. Try again." {
+		t.Fatalf("got %d %s", code, raw)
+	}
+	if got := f.itemNamed(t, "slides"); got.ID != "" {
+		t.Fatalf("the skill was added anyway: %+v", got)
+	}
+}

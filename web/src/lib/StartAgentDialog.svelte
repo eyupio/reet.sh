@@ -29,6 +29,7 @@
  import YoloDialog from './launch/YoloDialog.svelte'
  import BaseConfirm from './home/BaseConfirm.svelte'
  import { baseKey, baseQuestion, repoProjectAt } from './baseGate'
+ import type { BaseState } from './baseNotice'
  import LatestCodeChoice, { type LatestChoice } from './launch/LatestCodeChoice.svelte'
  import { startsFromLatest } from './launchBar'
  import RepoField from './home/RepoField.svelte'
@@ -124,6 +125,8 @@
  let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; pullLatestByDefault?: boolean } | null>(null)
  // The person's answer for this one start, or null to use the project's setting, then the account's.
  let latestOverride = $state<boolean | null>(null)
+ // What the latest-code control last read, so the start's own question reuses it instead of fetching twice.
+ let latestState = $state<BaseState | null>(null), latestStateKey = $state('')
  // Favourites and the chosen machine's list are helpers only: a failed read changes the status line and nothing else.
  let favourites = $state<ModelFavourite[]>([])
  let favouritesLoadSeq = 0
@@ -729,7 +732,7 @@
     // The saved repository this folder is, as the controller finds it; the chosen project is the fallback when the
     // page was handed no list to look in.
     const repo = repoProjectAt(allProjects, agent, dir) ?? (onProject && chosenProject?.isRepo ? chosenProject : null)
-    const say = await baseQuestion(agent, host, launch, repo, life.signal)
+    const say = await baseQuestion(agent, host, launch, repo, life.signal, undefined, true)
     checking = false; message = ''
     if (life.signal.aborted) return
     if (say) { baseText = say; baseHost = host; baseAsked = baseKey(agent, launch); baseOpen = true; return }
@@ -884,7 +887,9 @@
    {#if launchesInWorktree}
     <div class="field">
      <LatestCodeChoice agentId={machine!.agentId} host={machine!.host} dir={pickedProject!.dir} base={launchBranch}
-       value={latestChoice} disabled={locked} onchange={(choice) => { latestOverride = choice === 'github'; baseYes = ''; baseAsked = ''; baseOpen = false; edited() }} />
+       value={latestChoice} disabled={locked}
+       onstate={(state, key) => { latestState = state; latestStateKey = key }}
+       onchange={(choice) => { latestOverride = choice === 'github'; baseYes = ''; baseAsked = ''; baseOpen = false; edited() }} />
     </div>
    {/if}
 

@@ -415,7 +415,7 @@
       if (isRepo !== undefined) input.isRepo = isRepo
       if (n) input.name = n
       input.worktreeDefault = worktreeDefault
-      input.pullLatest = pullLatest
+      if (pullLatest !== 'inherit') input.pullLatest = pullLatest
       if (starterPrompt) input.starterPrompt = starterPrompt
       if (branch) input.baseBranch = branch
       if (defaultTool) input.defaultTool = defaultTool
@@ -438,7 +438,8 @@
     const folderName = cleanPath(dir).split('/').pop() || '/'
     if (n !== editing.name && !(n === '' && editing.name === folderName)) input.name = n
     if (worktreeDefault !== editing.worktreeDefault) input.worktreeDefault = worktreeDefault
-    if (pullLatest !== editing.pullLatest) input.pullLatest = pullLatest
+    // A project read from an older controller (or a fixture) has no pullLatest: it means inherit.
+    if (pullLatest !== (editing.pullLatest ?? 'inherit')) input.pullLatest = pullLatest
     if (promptKnown && starterPrompt !== (editing.starterPrompt ?? '')) input.starterPrompt = starterPrompt
     if (branch !== editing.baseBranch) input.baseBranch = branch
     else if (moved && branch && isRepo !== true) input.baseBranch = ''

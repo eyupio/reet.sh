@@ -4,7 +4,7 @@
 
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { checkBase } from '../terminal/api'
+  import { checkBaseShared } from '../terminal/api'
   import type { BaseState } from '../baseNotice'
 
   // Where a fresh worktree's code comes from, chosen for one start. GitHub's latest is the commit the repository's base
@@ -14,13 +14,15 @@
   // The machine is asked once, without starting anything, where a worktree would start from (the same read the base
   // confirmation uses). A machine too old to answer, a busy one, or one with GitHub out of reach says nothing and the
   // choice still works: it is a courtesy, never a gate.
-  let { agentId, host, dir, base = '', value, onchange, disabled = false }: {
+  let { agentId, host, dir, base = '', value, onchange, onstate, disabled = false }: {
     agentId: string
     host: string
     dir: string
     base?: string
     value: LatestChoice
     onchange: (choice: LatestChoice) => void
+    /** The last answer, and the machine/folder/base it was about, so a start can reuse it instead of asking again. */
+    onstate?: (state: BaseState | null, key: string) => void
     disabled?: boolean
   } = $props()
 
@@ -43,20 +45,18 @@
     reading = true
     const mine = ++seq
     try {
-      const answer = await checkBase(agentId, dir, base || undefined, life.signal)
-      if (mine === seq) baseState = answer
+      const answer = await checkBaseShared(agentId, dir, base || undefined)
+      if (mine === seq) { baseState = answer; onstate?.(answer, next) }
     } catch {
-      if (mine === seq) unreachable = true
+      if (mine === seq) { unreachable = true; onstate?.(null, next) }
     } finally {
       if (mine === seq) reading = false
     }
   }
 
-  $effect(() => {
-    // Re-read whenever the machine, folder or base changes. The read is read-only and safe to repeat.
-    void [agentId, dir, base]
-    void read()
-  })
+  // A change of machine, folder or base forgets the answer; the question is asked when the person asks, or when a start's
+  // own check answers, so opening a dialog never fetches GitHub by itself.
+  $effect(() => { void [agentId, dir, base]; key = ''; baseState = null; unreachable = false; reading = false })
 
   const name = $derived(baseState?.base || base || 'the base branch')
   const relation = $derived(String(baseState?.relation ?? ''))
@@ -67,6 +67,7 @@
 
   // One line of plain fact under the choice, in words a person can act on.
   const line = $derived.by(() => {
+    if (!reading && !baseState && !unreachable) return `Ask where ${name} stands against GitHub, or just choose.`
     if (reading) return `Asking ${host || 'the machine'} where ${name} stands against GitHub…`
     if (unreachable || !worth(relation)) return 'This machine can’t check GitHub just now. Either choice still starts.'
     if (failed) return `Couldn’t reach GitHub from ${host || 'this machine'}, so its copy of ${name} may be out of date.`
@@ -93,7 +94,9 @@
   </div>
   <p class="fact {tone}" aria-live="polite">
     <span class="dot" aria-hidden="true"></span>{line}
-    {#if !reading && (unreachable || worth(relation))}
+    {#if !reading && !baseState && !unreachable}
+      <button type="button" class="again" onclick={() => void read()} disabled={disabled}>Check GitHub</button>
+    {:else if !reading && (unreachable || worth(relation))}
       <button type="button" class="again" onclick={() => { key = ''; void read() }} disabled={disabled}>Check again</button>
     {/if}
   </p>

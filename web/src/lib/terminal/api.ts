@@ -596,6 +596,19 @@ export async function checkBase(agentId: string, dir: string, base?: string, sig
   const deadline = AbortSignal.timeout(timeoutMs)
   return (await terminalRequest(baseCheckURL(agentId, dir, base), { signal: signal ? AbortSignal.any([signal, deadline]) : deadline })).json()
 }
+// Two surfaces can ask the same question while the other's answer is still on its way: the latest-code control's
+// "Check GitHub", and Start as it begins. One read answers both while it is in flight; once it has answered, the next
+// question is a fresh one, because the branch may have moved. The shared read carries its own deadline and is not tied
+// to a caller that may unmount.
+const baseReads = new Map<string, Promise<BaseState>>()
+export function checkBaseShared(agentId: string, dir: string, base?: string): Promise<BaseState> {
+  const key = [agentId, dir, base ?? ''].join('\u0000')
+  const existing = baseReads.get(key)
+  if (existing) return existing
+  const read = checkBase(agentId, dir, base).finally(() => { if (baseReads.get(key) === read) baseReads.delete(key) })
+  baseReads.set(key, read)
+  return read
+}
 
 export function chatURL(id: string): string { return `/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat` }
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }

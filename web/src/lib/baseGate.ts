@@ -1,6 +1,6 @@
 import { isolatedLaunch } from './agentLaunch'
-import { baseSentence, needsConfirm } from './baseNotice'
-import { checkBase, type FolderProject, type LaunchRequest } from './terminal/api'
+import { baseSentence, needsConfirm, type BaseState } from './baseNotice'
+import { checkBase, checkBaseShared, type FolderProject, type LaunchRequest } from './terminal/api'
 
 // The one step every browser start path takes before it starts an isolated agent session: ask the machine where the
 // session would start, and hand back the sentence to confirm, or nothing. Home's launch bar, the Start an agent dialog
@@ -49,11 +49,13 @@ export function baseKey(agentId: string, launch: BaseLaunch): string {
  * its remote calls default, which is what it will start from. The account's default base is never added here: the
  * controller does not fill it in either, and one branch name does not fit every repository.
  */
-export async function baseQuestion(agentId: string, host: string, launch: BaseLaunch, project: BaseProject | null | undefined, signal?: AbortSignal, timeoutMs?: number): Promise<string> {
+export async function baseQuestion(agentId: string, host: string, launch: BaseLaunch, project: BaseProject | null | undefined, signal?: AbortSignal, timeoutMs?: number, shared = false, onstate?: (state: BaseState | null) => void): Promise<string> {
   if (!isolatedLaunch(launch, project)) return ''
   try {
     const base = launch.base || project?.baseBranch || undefined
-    const state = await checkBase(agentId, launch.dir ?? '', base, signal, timeoutMs)
+    // A dialog with a latest-code control already asked the same question as it opened: one read answers both.
+    const state = shared ? await checkBaseShared(agentId, launch.dir ?? '', base) : await checkBase(agentId, launch.dir ?? '', base, signal, timeoutMs)
+    onstate?.(state)
     const say = baseSentence(state, host)
     return say && needsConfirm(state, { cloned: project?.cloned }) ? say : ''
   } catch {

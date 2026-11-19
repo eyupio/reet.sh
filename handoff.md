@@ -19,9 +19,11 @@ encoded), else the project's `pull_latest` (`inherit`/`yes`/`no`, default `inher
 `user_profiles.pull_latest_by_default` (added by migration; older rows 0). Backups carry both. The folder-project view
 and input gain `pullLatest`; the profile gains `pullLatestByDefault`.
 
-**Web.** `launch/LatestCodeChoice.svelte` is the shared control: two buttons, and one live sentence under them from the
+**Web.** `launch/LatestCodeChoice.svelte` is the shared control: two buttons, and one sentence under them from the
 read-only base check ("is in step", "is behind", "has commits GitHub doesn't have", GitHub unreachable), with a
-**Check again** action, a green/amber dot and a reduced-motion-safe pulse while it reads. It is in Start an agent (for a
+**Check GitHub** / **Check again** action, a green/amber dot and a reduced-motion-safe pulse while it reads. Opening a
+dialog does not fetch GitHub by itself: the person asks, or Start's own base check answers both (its result is handed
+back to the control), so one start never makes the machine fetch the same branch twice. It is in Start an agent (for a
 repository that will get a worktree), in the New Factory outcome dialog, and its account default is a select in Settings
 → Agents; Add a project gained "Latest code from GitHub" (inherit/always/never). `launchBar.ts` exposes
 `startsFromLatest(project, profile)`, false when nothing says yes.

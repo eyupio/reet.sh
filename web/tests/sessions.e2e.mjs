@@ -199,6 +199,19 @@ try {
   await expect(page.getByRole('link',{name:'On the desk Front'})).toHaveAttribute('href','/desks/desk1#pa')
   expect(errors).toEqual([])
   await context.close()
+  // A quiet desk session that starts needing the person enters the list with its chip on the next read.
+  let opened = await open({sessions:[idle,plain],desks:[desk],deskDocs:{desk1:doc}})
+  ;({context,page,errors} = opened)
+  await page.goto(`${base}/sessions?view=list`)
+  await expect.poll(() => titles(page)).toEqual(['Keep me'])
+  opened.box.sessions = opened.box.sessions.map(s => s.id === 'd2'
+    ? {...s, attention:'waiting', attentionSource:'chat', changedSinceSeen:true, bellAt:Date.now(), pendingPermission:{permissionId:'perm-desk0000002',title:'Run a command',command:'make deploy',path:'',truncated:false,queued:0}}
+    : s)
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect.poll(() => titles(page)).toEqual(['Desk idle shell','Keep me'])
+  await expect(page.getByRole('link',{name:'On the desk Front'})).toHaveAttribute('href','/desks/desk1#pb')
+  expect(errors).toEqual([])
+  await context.close()
   // A desk read that fails is not a problem line: every session shows, as it did before desks.
   ;({context,page,errors} = await open({sessions:[waiting,idle,done,plain],desks:[desk],desksFail:true}))
   await page.goto(`${base}/sessions?view=list`)

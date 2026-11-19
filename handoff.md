@@ -118,13 +118,15 @@ desk holds it.
 filters through `offDesks` (`web/src/lib/home/deskSessions.ts`) with the needing set it already computes
 (`needsYou`/`needingIds`). The list, search, filters, agents, project running counts and worktrees all use the filtered
 list; the desk chip and pane reads use it too, so only a needing session's desk is read. Add to a desk reads the desks
-again before reading the pane. A failed desk read keeps the last list and never adds a problem line, and with no desks
-read every session shows as before. When every remaining session is on a desk the page says "Every session here is on a
+again before reading the pane, and a quiet desk session that starts needing the person has its desk read on that poll,
+so its chip, pane and colour are there at once. A failed desk read keeps the last list and never adds a problem line,
+and with no desks read every session shows as before. When every remaining session is on a desk the page says "Every session here is on a
 desk. Open Desks to see them." instead of "No sessions match."
 
 **Checked.** `web/tests/sessions.e2e.mjs` gained the "desk sessions" section: quiet and finished desk sessions leave the
 list, a waiting one stays with its chip (`/desks/desk1#pa`), and a 503 desk read shows every session without a problem
-line. `web/tests/desks.e2e.mjs` was updated: a session added to a desk leaves Sessions, the moved sessions wait so they
+line, and a quiet desk session that starts waiting enters with its chip on the next read. `web/tests/desks.e2e.mjs` was
+updated: a session added to a desk leaves Sessions, the moved sessions wait so they
 stay listed, and the chip block now holds one waiting session on `desk-prod` (quiet `desk-split` sessions are off the
 list). Full `sessions.e2e.mjs`, full `desks.e2e.mjs`, `npm run check` and the web build pass.
 

@@ -159,6 +159,10 @@
       if (d.status === 'fulfilled') desks = d.value
       failed = bad
       now = Date.now()
+      // A session already on a desk that starts needing the person enters the list now: read its desk for the chip, pane
+      // and colour, as the first read does for one that was already waiting.
+      const held = new Set((desks ?? []).flatMap(m => m.template ? [] : m.sessions))
+      if ((sessions ?? []).some(s => held.has(s.id) && needing.has(s.id) && !places.has(s.id))) void loadPlaces()
     } finally {
       if (mine === generation) { loading = false; checking = false }
     }
@@ -218,8 +222,7 @@
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
-    // The desks are read with the sessions, so only those holding a listed session have their pane read.
-    void load().then(() => { if (listed.length) void loadPlaces() })
+    void load()
     void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) }).catch(() => { /* the safe default keeps history */ })
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }

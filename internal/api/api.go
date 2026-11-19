@@ -1424,8 +1424,9 @@ func patchEvent(old, updated store.Skill, p store.Patch) (string, map[string]any
 
 // remove is the old shelf Remove of one shelf row. It deletes the row's
 // library skill, as the Skills page's Delete does: it leaves every machine,
-// and its name is free again. When reet holds no copy of it, nothing changes
-// unless noCopyConfirmed=1 (409 {"code":"no-copy"}).
+// and its name is free again. Nothing changes, with a 409, for a skill the
+// person wrote ({"code":"written"}, deleted from Write a skill) or one reet
+// holds no copy of, unless noCopyConfirmed=1 ({"code":"no-copy"}).
 func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -1449,9 +1450,9 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 // says so on w when it cannot.
 func (s *server) removeShelfSkills(w http.ResponseWriter, r *http.Request, ids []string, ignore, noCopyConfirmed bool) bool {
 	uid := s.uid(r)
-	_, noCopy, err := s.st.RemoveShelfSkillsFor(uid, ids, ignore, noCopyConfirmed, s.skillNow())
-	if errors.Is(err, store.ErrSkillNoCopy) {
-		writeNoCopy(w, noCopy)
+	_, refused, err := s.st.RemoveShelfSkillsFor(uid, ids, ignore, noCopyConfirmed, s.skillNow())
+	if errors.Is(err, store.ErrSkillNoCopy) || errors.Is(err, store.ErrSkillWritten) {
+		writeNotRemoved(w, err, refused)
 		return false
 	}
 	if err != nil {
@@ -2039,9 +2040,9 @@ func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
-	n, noCopy, err := s.st.RemoveShelfSkillsFor(uid, in.IDs, in.Ignore, in.NoCopyConfirmed, s.skillNow())
-	if errors.Is(err, store.ErrSkillNoCopy) {
-		writeNoCopy(w, noCopy)
+	n, refused, err := s.st.RemoveShelfSkillsFor(uid, in.IDs, in.Ignore, in.NoCopyConfirmed, s.skillNow())
+	if errors.Is(err, store.ErrSkillNoCopy) || errors.Is(err, store.ErrSkillWritten) {
+		writeNotRemoved(w, err, refused)
 		return
 	}
 	if err != nil {

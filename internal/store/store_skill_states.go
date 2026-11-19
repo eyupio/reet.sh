@@ -10,6 +10,9 @@ import (
 var (
 	ErrSkillNameTaken = errors.New("a skill with that name is already in your library")
 	ErrSkillNoCopy    = errors.New("reet has no copy of this skill")
+	// ErrSkillWritten is a remove of a skill the person wrote, which is
+	// deleted from Write a skill.
+	ErrSkillWritten = errors.New("you wrote this skill; delete it from Write a skill")
 )
 
 // SkillUndoWindow is how long a deleted skill can be brought back. After it,
@@ -463,40 +466,48 @@ func deleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem, at time.Time) e
 // RemoveShelfSkillsFor is the old shelf Remove of shelf rows. Each row's live
 // library skill is deleted as DeleteSkillsFor deletes it, so it leaves every
 // machine and frees its name, and the row goes from the shelf; with ignore
-// its ID also goes on the ignore list, which older machines' scans still
-// read. A row whose skill reet holds no copy of is removed only when
-// noCopyConfirmed: otherwise nothing changes, and noCopy names those skills
-// with ErrSkillNoCopy. Rows that are not on the shelf are skipped; removed
-// counts the rows that went.
+// each ID also goes on the ignore list, which older machines' scans still
+// read, whether it is on the shelf or not. removed counts the rows that went.
 //
-// A skill the person wrote is not deleted: its shelf row is only the
-// published page they saved, and their writing stays where it is written,
-// as the old Remove always left it.
-func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCopyConfirmed bool, at time.Time) (removed int, noCopy []string, err error) {
+// Some removals change nothing and return the skills' names in refused:
+//   - ErrSkillWritten: a skill the person wrote (origin written), which is
+//     deleted from Write a skill and never by this Remove.
+//   - ErrSkillNoCopy: a skill reet holds no copy of, unless noCopyConfirmed,
+//     since its machines then keep only their backup.
+func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCopyConfirmed bool, at time.Time) (removed int, refused []string, err error) {
 	err = s.withTx(func(tx *sql.Tx) error {
 		type row struct {
 			id, name string
 			item     skillStateItem
 			live     bool
+			onShelf  bool
 		}
 		var found []row
+		var written, noCopy []string
 		seen := map[string]bool{}
 		for _, id := range shelfIDs {
 			if seen[id] {
 				continue
 			}
 			seen[id] = true
-			r := row{id: id}
+			r := row{id: id, onShelf: true}
 			e := tx.QueryRow(`SELECT k.name FROM shelf sh JOIN skills k ON k.id=sh.skill_id WHERE sh.user_id=? AND sh.skill_id=?`, uid, id).Scan(&r.name)
 			if errors.Is(e, sql.ErrNoRows) {
+				// Not on the shelf: only ignore has anything to do.
+				if ignore {
+					r.onShelf = false
+					if e = tx.QueryRow(`SELECT name FROM skills WHERE id=?`, id).Scan(&r.name); e != nil && !errors.Is(e, sql.ErrNoRows) {
+						return e
+					}
+					found = append(found, r)
+				}
 				continue
 			}
 			if e != nil {
 				return e
 			}
-			var item string
-			e = tx.QueryRow(`SELECT i.id FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.item_type=? AND i.deleted_at=0
- AND i.origin<>'written' AND NOT EXISTS(SELECT 1 FROM library_aliases h WHERE h.user_id=i.user_id AND h.item_id=i.id AND h.kind='hosted')`, uid, id, LibrarySkill).Scan(&item)
+			var item, origin string
+			e = tx.QueryRow(`SELECT i.id,i.origin FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.item_type=? AND i.deleted_at=0`, uid, id, LibrarySkill).Scan(&item, &origin)
 			if e != nil && !errors.Is(e, sql.ErrNoRows) {
 				return e
 			}
@@ -505,13 +516,23 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 					return e
 				}
 				r.live = true
-				if r.item.revision == "" && !noCopyConfirmed && !slices.Contains(noCopy, r.item.name) {
+				switch {
+				case origin == "written":
+					if !slices.Contains(written, r.item.name) {
+						written = append(written, r.item.name)
+					}
+				case r.item.revision == "" && !noCopyConfirmed && !slices.Contains(noCopy, r.item.name):
 					noCopy = append(noCopy, r.item.name)
 				}
 			}
 			found = append(found, r)
 		}
-		if len(noCopy) > 0 && !noCopyConfirmed {
+		if len(written) > 0 {
+			refused = written
+			return ErrSkillWritten
+		}
+		if len(noCopy) > 0 {
+			refused = noCopy
 			return ErrSkillNoCopy
 		}
 		deleted := map[string]bool{}
@@ -532,6 +553,9 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 					return e
 				}
 			}
+			if !r.onShelf {
+				continue
+			}
 			if e := s.removeShelfTx(tx, uid, r.id, false); e != nil {
 				return e
 			}
@@ -542,7 +566,7 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 	if err != nil {
 		removed = 0
 	}
-	return removed, noCopy, err
+	return removed, refused, err
 }
 
 // undeleteShelfItemTx brings back the deleted skill a shelf row put back on

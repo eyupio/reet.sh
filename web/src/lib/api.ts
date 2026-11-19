@@ -155,12 +155,15 @@ export class ApiError extends Error {
   code: string
   /** The name of the field a refusal is about, when the server gave one. */
   field: string
-  constructor(message: string, status: number, code = '', field = '') {
+  /** The skills a refusal names, when the server gave them (for example a Delete refused with 'no-copy' or 'written'). */
+  names: string[]
+  constructor(message: string, status: number, code = '', field = '', names: string[] = []) {
     super(message)
     this.field = field
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.names = names
   }
 }
 
@@ -227,16 +230,18 @@ async function req(path: string, init: RequestInit = {}, quiet = false): Promise
     let msg = `${res.status} ${res.statusText}`
     let code = ''
     let field = ''
+    let names: string[] = []
     try {
       const body = await res.json()
       msg = body.error ?? msg
       if (typeof body.code === 'string') code = body.code
       if (typeof body.field === 'string') field = body.field
+      if (Array.isArray(body.names)) names = body.names.filter((n: unknown): n is string => typeof n === 'string')
       refusalListener?.(res.status, body)
     } catch {
       /* keep status text */
     }
-    throw new ApiError(msg, res.status, code, field)
+    throw new ApiError(msg, res.status, code, field, names)
   }
   return res
 }
@@ -518,9 +523,12 @@ export async function loadSkillsPage(status: 'active' | 'archived'): Promise<Ski
 export async function setSkillStatus(ids: string[], status: 'active' | 'archived'): Promise<SkillsPageData> {
   return (await req('/api/v2/skills/status', { method: 'POST', body: json({ ids, status }) })).json()
 }
-/** Delete. When reet has no copy of one, it throws an ApiError with code 'no-copy' unless noCopyConfirmed. */
-export async function deleteSkills(ids: string[], noCopyConfirmed = false): Promise<void> {
-  await req('/api/v2/skills/delete', { method: 'POST', body: json({ ids, noCopyConfirmed }) })
+/**
+ * Delete. It throws an ApiError naming the skills in `names`, and deletes nothing, when one of them is a skill you
+ * wrote (code 'written') unless writtenConfirmed, or one reet has no copy of (code 'no-copy') unless noCopyConfirmed.
+ */
+export async function deleteSkills(ids: string[], opts: { noCopyConfirmed?: boolean; writtenConfirmed?: boolean } = {}): Promise<void> {
+  await req('/api/v2/skills/delete', { method: 'POST', body: json({ ids, noCopyConfirmed: opts.noCopyConfirmed ?? false, writtenConfirmed: opts.writtenConfirmed ?? false }) })
 }
 export async function undeleteSkills(ids: string[]): Promise<void> {
   await req('/api/v2/skills/undelete', { method: 'POST', body: json({ ids }) })

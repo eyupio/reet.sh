@@ -295,7 +295,7 @@ func TestSkillsPageBulkStatus(t *testing.T) {
 
 func TestSkillsPageDeleteNeedsConfirmWithoutCopy(t *testing.T) {
 	e := newReconcileEnv(t)
-	kept := e.writtenSkill(t, "alpha")
+	kept := e.linkedSkill(t, "a/b/alpha")
 	e.fetch.set("", errors.New("offline"))
 	empty := e.linkedSkill(t, findSkills)
 	if e.item(t, empty).HasCopy {
@@ -325,7 +325,8 @@ func TestSkillsPageDeleteNeedsConfirmWithoutCopy(t *testing.T) {
 	if r := e.removals(t); r["alpha"] != "deleted" || r["find-skills"] != "deleted" {
 		t.Fatalf("removals: %v", r)
 	}
-	other := e.writtenSkill(t, "beta")
+	e.fetch.set("v1", nil)
+	other := e.linkedSkill(t, "a/b/beta")
 	if code, raw = e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+other+`"]}`); code != 200 || e.live(t, other) {
 		t.Fatalf("a skill reet has a copy of needs no confirmation: %d %s", code, raw)
 	}
@@ -337,7 +338,7 @@ func TestSkillsPageDeleteNeedsConfirmWithoutCopy(t *testing.T) {
 func TestSkillsPageUndelete(t *testing.T) {
 	e := newReconcileEnv(t)
 	a := e.writtenSkill(t, "alpha")
-	if code, raw := e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+a+`"]}`); code != 200 {
+	if code, raw := e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+a+`"],"writtenConfirmed":true}`); code != 200 {
 		t.Fatalf("delete: %d %s", code, raw)
 	}
 	if code, raw := e.owner(t, "POST", "/api/v2/skills/undelete", `{"ids":["`+a+`"]}`); code != 200 {
@@ -696,6 +697,11 @@ func TestOldRemoveWithoutCopyNeedsConfirm(t *testing.T) {
 	if code != 409 || !strings.Contains(raw, `"code":"no-copy"`) || !strings.Contains(raw, `"names":["one"]`) || !e.live(t, one) {
 		t.Fatalf("remove without a copy: %d %s", code, raw)
 	}
+	// It says plainly that nothing was removed, and how to confirm.
+	var refusal struct{ Error, Hint string }
+	if err := json.Unmarshal([]byte(raw), &refusal); err != nil || refusal.Error != "reet has no copy of one, so it was not removed. Removing it deletes it from every machine, which keeps a backup for 30 days." || !strings.Contains(refusal.Hint, "noCopyConfirmed") {
+		t.Fatalf("refusal: %s", raw)
+	}
 	if code, raw = e.owner(t, "DELETE", "/api/skill?id=a%2Fb%2Fone&noCopyConfirmed=1", ""); code != 204 || e.live(t, one) {
 		t.Fatalf("confirmed remove: %d %s", code, raw)
 	}
@@ -760,9 +766,10 @@ func TestRestoreKeepsTheLibrarySkillsContent(t *testing.T) {
 	}
 }
 
-// A skill the person wrote shows its public link once published, and the
-// old Remove of its shelf row leaves the writing where it is.
-func TestOldRemoveLeavesAWrittenSkill(t *testing.T) {
+// A skill the person wrote shows its public link once published. The old
+// Remove of its shelf row refuses it and changes nothing, nor does the
+// bulk Remove: the writing is deleted from Write a skill.
+func TestOldRemoveRefusesAWrittenSkill(t *testing.T) {
 	e := newReconcileEnv(t)
 	item := e.writtenSkill(t, "demo")
 	body := `{"content":"---\nname: demo\ndescription: Written in reet\n---\nBody.\n","published":true}`
@@ -773,10 +780,58 @@ func TestOldRemoveLeavesAWrittenSkill(t *testing.T) {
 	if row.ID != item || !row.Published || row.PublicURL != e.srv.URL+"/writer/demo" || row.ShelfID == "" || !row.Yours {
 		t.Fatalf("published row: %+v", row)
 	}
-	if code, raw := e.owner(t, "DELETE", "/api/skill?id="+url.QueryEscape(row.ShelfID), ""); code != 204 {
-		t.Fatalf("remove: %d %s", code, raw)
+	if code, raw := e.owner(t, "PATCH", "/api/skill", `{"id":"`+row.ShelfID+`","liked":true,"notes":"mine"}`); code != 200 {
+		t.Fatalf("like: %d %s", code, raw)
+	}
+	for _, try := range []struct{ method, path, body string }{
+		{"DELETE", "/api/skill?id=" + url.QueryEscape(row.ShelfID) + "&noCopyConfirmed=1", ""},
+		{"POST", "/api/skills/remove", `{"ids":["` + row.ShelfID + `"],"noCopyConfirmed":true}`},
+	} {
+		code, raw := e.owner(t, try.method, try.path, try.body)
+		var refusal struct {
+			Code, Error string
+			Names       []string
+		}
+		if err := json.Unmarshal([]byte(raw), &refusal); err != nil || code != 409 || refusal.Code != "written" || !slices.Equal(refusal.Names, []string{"demo"}) || refusal.Error != "You wrote demo. Delete it from Write a skill." {
+			t.Fatalf("%s %s: %d %s", try.method, try.path, code, raw)
+		}
 	}
 	if !e.live(t, item) || e.removals(t)["demo"] != "" {
-		t.Fatal("the old Remove deleted the person's writing")
+		t.Fatal("a refused remove changed the library skill")
+	}
+	if r := e.page(t, "active").row(t, "demo"); r.ShelfID != row.ShelfID || !r.Liked || r.Notes != "mine" {
+		t.Fatalf("a refused remove changed the shelf row: %+v", r)
+	}
+}
+
+// Delete asks once for a skill the person wrote, on the server too.
+func TestSkillsPageDeleteAsksOnceForWrittenSkills(t *testing.T) {
+	e := newReconcileEnv(t)
+	written := e.writtenSkill(t, "alpha")
+	linked := e.linkedSkill(t, findSkills)
+	code, raw := e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+written+`","`+linked+`"]}`)
+	if code != 409 || !strings.Contains(raw, `"code":"written"`) || !strings.Contains(raw, `"names":["alpha"]`) || !strings.Contains(raw, "You wrote alpha.") {
+		t.Fatalf("delete of a written skill: %d %s", code, raw)
+	}
+	if !e.live(t, written) || !e.live(t, linked) {
+		t.Fatal("a refused delete deleted something")
+	}
+	if code, raw = e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["`+written+`","`+linked+`"],"writtenConfirmed":true}`); code != 200 {
+		t.Fatalf("confirmed delete: %d %s", code, raw)
+	}
+	if e.live(t, written) || e.live(t, linked) {
+		t.Fatal("confirmed delete left a skill")
+	}
+}
+
+// Ignore of an ID that is not on the shelf still puts it on the ignore
+// list, as the old Remove did.
+func TestOldRemoveIgnoresAnIDNotOnTheShelf(t *testing.T) {
+	e := newReconcileEnv(t)
+	if code, raw := e.owner(t, "DELETE", "/api/skill?id=a%2Fb%2Fnever-added&ignore=1", ""); code != 204 {
+		t.Fatalf("ignore: %d %s", code, raw)
+	}
+	if _, raw := e.owner(t, "GET", "/api/ignored", ""); !strings.Contains(raw, "a/b/never-added") {
+		t.Fatalf("ignored: %s", raw)
 	}
 }

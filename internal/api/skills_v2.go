@@ -180,14 +180,20 @@ func itemNames(items []store.SkillItemRef) []string {
 	return out
 }
 
-// skillsDelete is Delete: body {"ids":[…],"noCopyConfirmed":bool}. When reet
-// holds no copy of one of them it deletes nothing unless noCopyConfirmed, and
-// says which with 409 {"code":"no-copy","names":[…]}: the machines then keep
-// only their backup.
+// skillsDelete is Delete: body {"ids":[…],"noCopyConfirmed":bool,
+// "writtenConfirmed":bool}. It deletes nothing, and says which skills with a
+// 409, when one of them is
+//   - a skill the person wrote, unless writtenConfirmed
+//     ({"code":"written","names":[…]}): their writing and its public page go
+//     with it, so Delete asks once;
+//   - one reet holds no copy of, unless noCopyConfirmed
+//     ({"code":"no-copy","names":[…]}): the machines then keep only their
+//     backup.
 func (s *server) skillsDelete(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		IDs             []string `json:"ids"`
-		NoCopyConfirmed bool     `json:"noCopyConfirmed"`
+		IDs              []string `json:"ids"`
+		NoCopyConfirmed  bool     `json:"noCopyConfirmed"`
+		WrittenConfirmed bool     `json:"writtenConfirmed"`
 	}
 	if !decodeStrictJSON(w, r, skillsPageIDLimit, &in, "Invalid or oversized delete.") {
 		return
@@ -202,11 +208,22 @@ func (s *server) skillsDelete(w http.ResponseWriter, r *http.Request) {
 		skillsPageError(w, err)
 		return
 	}
-	noCopy := []string{}
+	noCopy, written := []string{}, []string{}
 	for _, it := range items {
 		if !it.HasCopy {
 			noCopy = append(noCopy, it.Name)
 		}
+		if it.Written {
+			written = append(written, it.Name)
+		}
+	}
+	if len(written) > 0 && !in.WrittenConfirmed {
+		msg := "You wrote " + strings.Join(written, ", ") + ". Deleting it deletes your writing and its public page too."
+		if len(written) > 1 {
+			msg = "You wrote " + strings.Join(written, ", ") + ". Deleting them deletes your writing and their public pages too."
+		}
+		writeJSON(w, 409, map[string]any{"code": "written", "names": written, "error": msg, "message": msg})
+		return
 	}
 	if len(noCopy) > 0 && !in.NoCopyConfirmed {
 		writeNoCopy(w, noCopy)
@@ -241,6 +258,27 @@ func writeNoCopy(w http.ResponseWriter, names []string) {
 		msg = fmt.Sprintf("reet has no copy of %d of these skills. Deleting removes them from every machine, which keeps a backup for 30 days.", len(names))
 	}
 	writeJSON(w, 409, map[string]any{"code": "no-copy", "names": names, "error": msg, "message": msg})
+}
+
+// writeNotRemoved is the old Remove's refusal, which changed nothing: of a
+// skill the person wrote, or of one reet holds no copy of (err says which).
+// It says plainly that nothing was removed, and how to go ahead where one can.
+func writeNotRemoved(w http.ResponseWriter, err error, names []string) {
+	list := strings.Join(names, ", ")
+	if errors.Is(err, store.ErrSkillWritten) {
+		msg := "You wrote " + list + ". Delete it from Write a skill."
+		if len(names) > 1 {
+			msg = "You wrote " + list + ". Delete them from Write a skill."
+		}
+		writeJSON(w, 409, map[string]any{"code": "written", "names": names, "error": msg, "message": msg})
+		return
+	}
+	msg := "reet has no copy of " + list + ", so it was not removed. Removing it deletes it from every machine, which keeps a backup for 30 days."
+	if len(names) > 1 {
+		msg = "reet has no copy of " + list + ", so they were not removed. Removing them deletes them from every machine, which keeps a backup for 30 days."
+	}
+	writeJSON(w, 409, map[string]any{"code": "no-copy", "names": names, "error": msg, "message": msg,
+		"hint": "Remove it again with noCopyConfirmed to delete it from every machine."})
 }
 
 // skillsUndelete is Undo of Delete: body {"ids":[…]}.

@@ -1628,7 +1628,7 @@
 {#if removePending}
   <ConfirmDialog
     title={`Remove ${removePending.name}?`}
-    body="This skill is on your scanner's list. It will come back on the next scan unless you ignore it. Installed files and sync plans stay as they are; review machine removals in Sync."
+    body="Removing deletes it from your library and takes it off every machine. Each machine keeps a backup for 30 days. Remove and ignore also keeps scans from adding it back."
     confirmLabel="Remove"
     secondaryLabel="Remove and ignore"
     danger
@@ -1641,7 +1641,7 @@
 {#if bulkRemoveOpen}
   <ConfirmDialog
     title={`Remove ${bulkRemoving.length} ${bulkRemoving.length === 1 ? 'skill' : 'skills'}?`}
-    body="They will be removed from the library. Installed files and sync plans stay as they are; review machine removals in Sync. Use Undo in the toast if you change your mind."
+    body="They will be deleted from your library and taken off every machine. Each machine keeps a backup for 30 days. Use Undo in the toast if you change your mind."
     confirmLabel="Remove"
     danger
     onconfirm={confirmBulkRemove}

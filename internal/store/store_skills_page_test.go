@@ -153,3 +153,43 @@ func TestRemoveShelfSkillsDeletesTheLibrarySkill(t *testing.T) {
 		t.Fatal("undo left the name on the removal list")
 	}
 }
+
+// The old Remove refuses a skill the person wrote, by its origin, and
+// changes nothing; an imported skill that was edited in Write a skill (it
+// has a hosted alias) is removable all the same.
+func TestRemoveShelfSkillsRefusesOnlyWrittenSkills(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	imported := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
+	if _, err := s.SetSkillContentFor(uid, imported.id, contentFiles("find-skills", "Find."), PrivateSkillOrigin{Kind: "original", Reference: "https://github.com/vercel-labs/skills"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO library_aliases(user_id,kind,reference,item_id) VALUES(?,'hosted','find-skills',?)`, uid, imported.id); err != nil {
+		t.Fatal(err)
+	}
+	written := importedItem(t, s, uid, "me/skills/mine")
+	if _, err := s.SetSkillContentFor(uid, written.id, contentFiles("mine", "Mine."), PrivateSkillOrigin{Kind: "edit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE library_items SET origin='written' WHERE id=?`, written.id); err != nil {
+		t.Fatal(err)
+	}
+	removed, refused, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "me/skills/mine"}, true, true, time.Now())
+	if !errors.Is(err, ErrSkillWritten) || removed != 0 || len(refused) != 1 || refused[0] != "mine" {
+		t.Fatalf("remove with a written skill: %d %v %v", removed, refused, err)
+	}
+	for _, id := range []string{"vercel-labs/skills/find-skills", "me/skills/mine"} {
+		if _, ok, _ := s.GetFor(uid, id); !ok {
+			t.Fatalf("a refused remove took %s off the shelf", id)
+		}
+	}
+	if ignored, _ := s.IsIgnoredFor(uid, "vercel-labs/skills/find-skills"); ignored {
+		t.Fatal("a refused remove ignored a skill")
+	}
+	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, false, time.Now()); err != nil || removed != 1 {
+		t.Fatalf("remove of an imported skill with a hosted alias: %d %v", removed, err)
+	}
+	if skillStateNamed(t, s, uid, "find-skills").deletedAt == 0 || skillStateNamed(t, s, uid, "mine").deletedAt != 0 {
+		t.Fatal("wrong skill deleted")
+	}
+}

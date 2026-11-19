@@ -147,9 +147,9 @@ func TestPollSendsDesiredToProtocol2(t *testing.T) {
 	}
 }
 
-func TestPollBodyIsSmallAndStrict(t *testing.T) {
+func TestPollBodyIsSmallAndWellFormed(t *testing.T) {
 	e := newReconcileEnv(t)
-	for _, bad := range []string{`nope`, `{"skillsVersion":"v","extra":1}`, `{"skillsVersion":"` + strings.Repeat("v", 8<<10) + `"}`, `{} {}`} {
+	for _, bad := range []string{`nope`, `{"skillsVersion":"` + strings.Repeat("v", 8<<10) + `"}`, `{} {}`} {
 		if code, body := e.call(t, "/api/v2/sync/poll", bad, true); code != 400 {
 			t.Fatalf("poll with %.40q: %d %s", bad, code, body)
 		}
@@ -283,7 +283,7 @@ func TestReportEndpointRecords(t *testing.T) {
 	}
 }
 
-func TestReportBodyIsBoundedAndStrict(t *testing.T) {
+func TestReportBodyIsBoundedAndWellFormed(t *testing.T) {
 	e := newReconcileEnv(t)
 	many := store.SkillReport{Version: "v1"}
 	for i := range 8193 {
@@ -293,7 +293,6 @@ func TestReportBodyIsBoundedAndStrict(t *testing.T) {
 	huge, _ := json.Marshal(store.SkillReport{Version: "v1", Entries: []store.SkillReportEntry{{Folder: "~/.agents/skills", Name: "x", State: "failed", Detail: strings.Repeat("x", 9<<20)}}})
 	for name, bad := range map[string]string{
 		"not json":     `nope`,
-		"unknown":      `{"Version":"v1","Entries":[],"Extra":true}`,
 		"trailing":     `{"Version":"v1"} {}`,
 		"8193 entries": string(tooMany),
 		"over 8 MiB":   string(huge),
@@ -727,5 +726,21 @@ func TestSaveDesiredRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
 	}
 	if targets, err := e.st.SyncTargetsFor(e.uid); err != nil || len(targets) != 0 {
 		t.Fatalf("a set was written: %+v %v", targets, err)
+	}
+}
+
+// A newer agent may send fields this controller does not know yet; a poll and
+// a report that carry them are read for what this controller does know.
+func TestPollAndReportTakeFieldsFromANewerAgent(t *testing.T) {
+	e := newReconcileEnv(t)
+	if code, raw := e.call(t, "/api/v2/sync/poll", `{"skillsVersion":"","later":{"x":1}}`, true); code != 200 {
+		t.Fatalf("poll with an unknown field: %d %s", code, raw)
+	}
+	body := `{"Version":"v1","Extra":true,"Entries":[{"Folder":"~/.agents/skills","Name":"cq","State":"unknown","Digest":"` + strings.Repeat("c", 64) + `","Later":"x"}]}`
+	if code, raw := e.call(t, "/api/v2/sync/skills/report", body, true); code != 200 {
+		t.Fatalf("report with unknown fields: %d %s", code, raw)
+	}
+	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1"} {}`, true); code != 400 {
+		t.Fatalf("trailing data is still refused: %d %s", code, raw)
 	}
 }

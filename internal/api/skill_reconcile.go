@@ -126,7 +126,7 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 	var in struct {
 		SkillsVersion string `json:"skillsVersion"`
 	}
-	if !decodeStrictJSON(w, r, skillPollBodyLimit, &in, "Invalid or oversized poll.") {
+	if !decodeAgentJSON(w, r, skillPollBodyLimit, &in, "Invalid or oversized poll.") {
 		return
 	}
 	uid := s.uid(r)
@@ -174,7 +174,7 @@ func (s *server) reportSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var rep store.SkillReport
-	if !decodeStrictJSON(w, r, skillReportBodyLimit, &rep, "Invalid or oversized skills report.") {
+	if !decodeAgentJSON(w, r, skillReportBodyLimit, &rep, "Invalid or oversized skills report.") {
 		return
 	}
 	if len(rep.Entries) > skillReportMaxEntries {

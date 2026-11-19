@@ -19,7 +19,9 @@ try {
    await expect(page.getByLabel('Add a skill',{exact:true})).toBeVisible()
    await expect(page.getByRole('link',{name:'Sync all machines'}), `no Sync all machines at ${width}px`).toHaveCount(0)
    await expect(page.getByRole('button',{name:'Sync all machines'}), `no Sync all machines at ${width}px`).toHaveCount(0)
-   await expect(page.getByRole('link',{name:'No machines yet'})).toHaveAttribute('href','/sync')
+   // The line about the machines is plain text: the older Sync page could say otherwise.
+   await expect(page.locator('main .sync-chip')).toHaveText('No machines yet')
+   await expect(page.getByRole('link',{name:'No machines yet'})).toHaveCount(0)
    const write = page.locator('main').getByRole('link',{name:'Write a skill',exact:true})
    await expect(write).toHaveAttribute('href','/hosting')
    await expect(write).not.toHaveClass(/primary/)

@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence } = page
+const { healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
@@ -118,4 +118,15 @@ test('syncSentence says installing, coming off or updating, and failures first',
   assert.equal(syncSentence({ failed: 0, installing: 3, removing: 3, updating: 3 }), 'Updating 3 machines…')
   assert.equal(syncSentence({ failed: 1, installing: 2, removing: 2 }), '1 machine needs a look.')
   assert.equal(syncSentence({ failed: 2, installing: 0, removing: 0 }), '2 machines need a look.')
+})
+
+// The Skills page searches as Markdown and CSV export do (store.go splitQuery and ListFor), so an export holds the
+// rows the page shows: words find the name, the shelf id, the description or the notes; tag:x keeps skills tagged x.
+test('matchesSearch finds what export finds', () => {
+  const r = row({ name: 'seo-bing', shelfId: 'demo/toolkit/seo-bing', description: 'Bing Webmaster Tools checks.', notes: 'Use for client sites', tags: [{ id: 1, name: 'SEO' }, { id: 2, name: 'research work' }] })
+  const yes = q => assert.equal(matchesSearch(r, q), true, q)
+  const no = q => assert.equal(matchesSearch(r, q), false, q)
+  for (const q of ['', '  ', 'bing', 'BING', 'toolkit/seo', 'webmaster tools', 'client sites', 'tag:seo', 'tag:SEO bing', 'tag:"research work"', 'tag:seo tag:"research work"']) yes(q)
+  // A tag's name is found with tag:, not as a word; words are matched as one phrase, in order.
+  for (const q of ['research', 'tools webmaster', 'tag:missing', 'tag:seo nothing-like-it', 'tag:research']) no(q)
 })

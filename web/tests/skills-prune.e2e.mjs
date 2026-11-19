@@ -432,6 +432,28 @@ try {
   await context.close()
  }
 
+ // Search finds what Markdown and CSV export find: a word in the name, the shelf id, the description or the notes, and
+ // tag:x for a tag; a tag's name alone is not a word it searches.
+ if (run('search')) {
+  const {context, page, errors} = await open()
+  const box = page.getByRole('searchbox', {name:'Search skills'})
+  const shown = () => page.locator('[data-skill]').evaluateAll(els => els.map(e => e.dataset.skill))
+  await box.fill('webmaster')
+  await expect.poll(shown).toEqual(['item-seo-bing'])
+  await box.fill('toolkit/svg')
+  await expect.poll(shown).toEqual(['item-svg-animations'])
+  await box.fill('seo')
+  await expect.poll(shown).toEqual(['item-seo-bing', 'item-seo-cluster'])
+  await box.fill('tag:seo')
+  await expect.poll(shown).toEqual(['item-seo-bing'])
+  await box.fill('tag:seo bing')
+  await expect.poll(shown).toEqual(['item-seo-bing'])
+  await box.fill('pull request')
+  await expect.poll(shown).toEqual(['item-reet-babysit'])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

@@ -134,3 +134,42 @@ export function syncSentence(m: MachineWork): string {
   return 'Everything is in sync.'
 }
 
+
+/** A search split as the server splits it (store.go splitQuery): tag:x and tag:"x y" apart from the other words. */
+export function splitSearch(q: string): { term: string; tags: string[] } {
+  const words: string[] = [], tags: string[] = []
+  let i = 0
+  while (i < q.length) {
+    while (i < q.length && q[i] === ' ') i++
+    if (i >= q.length) break
+    if (q.startsWith('tag:"', i)) {
+      const end = q.indexOf('"', i + 5)
+      if (end >= 0) {
+        const name = q.slice(i + 5, end).trim()
+        if (name) tags.push(name.toLowerCase())
+        i = end + 1
+        continue
+      }
+    }
+    let j = i
+    while (j < q.length && q[j] !== ' ') j++
+    const word = q.slice(i, j)
+    if (word.startsWith('tag:') && word.length > 4) tags.push(word.slice(4).toLowerCase())
+    else words.push(word)
+    i = j
+  }
+  return { term: words.join(' '), tags }
+}
+
+/**
+ * Whether a row matches a search as Markdown and CSV export match it (store ListFor), so an export holds the rows the
+ * page shows: the words, as one phrase, in the name, the shelf id, the description or the notes; and every tag:x.
+ */
+export function matchesSearch(row: Pick<SkillRow, 'name' | 'shelfId' | 'description' | 'notes' | 'tags'>, q: string): boolean {
+  const { term, tags } = splitSearch(q)
+  const own = new Set(row.tags.map(t => t.name.toLowerCase()))
+  if (!tags.every(t => own.has(t))) return false
+  if (!term) return true
+  const needle = term.toLowerCase()
+  return [row.name, row.shelfId, row.description, row.notes].some(field => (field ?? '').toLowerCase().includes(needle))
+}

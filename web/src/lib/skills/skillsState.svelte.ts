@@ -1,5 +1,5 @@
 import { loadSkillsPage, UnauthorizedError, type NewSkill, type SkillRow, type SkillsPageData, type SkillWork } from '../api'
-import { healthLine } from './skillsPage'
+import { healthLine, matchesSearch } from './skillsPage'
 
 export type Tab = 'active' | 'archived'
 export type Sort = 'name' | 'attention' | 'liked'
@@ -53,11 +53,11 @@ export class SkillsPageState {
   lists = $derived([...new Map(this.everyRow.flatMap(r => r.lists).map(l => [l.id, l])).values()].sort((a, b) => a.name.localeCompare(b.name)))
   filtering = $derived(this.q.trim() !== '' || this.onlyLiked || this.tagFilter !== '' || this.listFilter !== '')
   shown = $derived.by(() => {
-    const needle = this.q.trim().toLowerCase()
+    // Search as the export searches, so Markdown and CSV hold the rows shown.
     const found = this.rows.filter(r => (!this.onlyLiked || r.liked)
       && (!this.tagFilter || r.tags.some(t => t.name === this.tagFilter))
       && (!this.listFilter || r.lists.some(l => String(l.id) === this.listFilter))
-      && (!needle || `${r.name} ${r.description} ${r.notes} ${r.tags.map(t => t.name).join(' ')}`.toLowerCase().includes(needle)))
+      && matchesSearch(r, this.q))
     const order = this.sort === 'attention' ? (a: SkillRow, b: SkillRow) => rank(a) - rank(b) || byName(a, b)
       : this.sort === 'liked' ? (a: SkillRow, b: SkillRow) => Number(b.liked) - Number(a.liked) || byName(a, b)
       : byName

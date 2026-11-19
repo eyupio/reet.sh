@@ -62,8 +62,10 @@ func runAgentRestore(args []string, out io.Writer) error {
 	// enrollment there are none to know of; Codex's folder and a custom
 	// config folder are left alone either way.
 	home, projects := "", []string(nil)
+	var desired *store.DesiredState
 	if c, err := loadAgentConfig(*config); err == nil {
 		home, projects = c.Home, c.Projects
+		desired = readDesiredSkills(*config, c)
 	}
 	if home == "" {
 		h, err := os.UserHomeDir()
@@ -101,6 +103,11 @@ func runAgentRestore(args []string, out io.Writer) error {
 	restored, err := restoreBackup(home, name, *date, projects...)
 	for _, p := range restored { // what was put back is said even when a later folder failed
 		fmt.Fprintf(out, "Restored %s\n", p)
+	}
+	// The library decides what this machine keeps: a name it has Archived or
+	// Deleted is taken off again on the agent's next pass.
+	if len(restored) > 0 && desired != nil && slices.ContainsFunc(desired.Remove, func(r store.DesiredRemoval) bool { return strings.EqualFold(r.Name, name) }) {
+		fmt.Fprintf(out, "%s is Archived or Deleted in your reet library, so reet takes it off this machine again on its next pass. To keep it, restore it on the Skills page, or copy it somewhere outside the skills folders.\n", name)
 	}
 	return err
 }

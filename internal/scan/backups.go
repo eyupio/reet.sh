@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -585,9 +586,13 @@ func restoreBackup(home, name, date string, unmanaged ...string) ([]string, erro
 	if err != nil {
 		return nil, err
 	}
+	// The name matches without case, as skill names do; a backup with
+	// exactly the name typed is taken over one that differs only in case.
+	exact := slices.ContainsFunc(all, func(b backupEntry) bool { return b.Name == name && (date == "" || b.Date == date) })
 	var found []backupEntry
 	for _, b := range all { // newest date first; within a folder, newest copy first
-		if b.Name != name || (date != "" && b.Date != date) {
+		same := b.Name == name || !exact && strings.EqualFold(b.Name, name)
+		if !same || (date != "" && b.Date != date) {
 			continue
 		}
 		if len(found) > 0 && b.Date != found[0].Date {
@@ -605,16 +610,22 @@ func restoreBackup(home, name, date string, unmanaged ...string) ([]string, erro
 		return nil, fmt.Errorf("no backup of %q found", name)
 	}
 	roots := managedRoots(home, unmanaged)
-	var dests []string
+	var dests, taken, kept []string
 	for _, b := range found {
 		if why := leftAloneWhy(home, roots, b.Folder); why != "" {
 			return nil, fmt.Errorf("%s; nothing was restored, and the backup stays in %s", why, b.Path)
 		}
-		dest := filepath.Join(b.Folder, name)
+		dest := filepath.Join(b.Folder, b.Name)
 		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
-			return nil, fmt.Errorf("%s already exists; restore never overwrites an installed skill", dest)
+			taken, kept = append(taken, dest), append(kept, b.Path)
 		}
 		dests = append(dests, dest)
+	}
+	if len(taken) > 0 {
+		// Usually reet's own copy, put back by the library: the backup is
+		// the version that was there before.
+		return nil, fmt.Errorf("%s already %s, and restore never overwrites an installed skill, so nothing was restored. The backed-up version stays in %s. To keep it, copy it somewhere else; once reet offers Use this version on the Skills page, that makes it reet's copy",
+			strings.Join(taken, " and "), map[bool]string{true: "exists", false: "exist"}[len(taken) == 1], strings.Join(kept, " and "))
 	}
 	var restored []string
 	for i, b := range found {

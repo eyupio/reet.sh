@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 var backupNow = time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
@@ -1176,5 +1178,81 @@ func TestAgentRestoreListSkipsOnlyTheUnreadablePart(t *testing.T) {
 		if strings.Contains(out.String(), "  "+hidden+"  ") {
 			t.Fatalf("an unreadable folder's backup was listed: %q", out.String())
 		}
+	}
+}
+
+// When reet's copy is installed where a backup would go, restore refuses and
+// says where every backup it would have restored is, and how to keep that
+// version.
+func TestRestoreRefusalNamesTheBackupAndHowToKeepIt(t *testing.T) {
+	home := t.TempDir()
+	claude, agents := filepath.Join(home, ".claude", "skills"), filepath.Join(home, ".agents", "skills")
+	var backups []string
+	for _, folder := range []string{claude, agents} {
+		writeSkill(t, filepath.Join(folder, "alpha"))
+		p, err := backupSkill(folder, "alpha", backupNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		backups = append(backups, p)
+		writeSkill(t, filepath.Join(folder, "alpha")) // reet's copy, installed again
+	}
+	_, err := restoreBackup(home, "alpha", "")
+	if err == nil {
+		t.Fatal("restore replaced an installed skill")
+	}
+	for _, p := range backups {
+		if !strings.Contains(err.Error(), p) {
+			t.Fatalf("the refusal does not name %s: %v", p, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "copy it somewhere else") || !strings.Contains(err.Error(), "Use this version") {
+		t.Fatalf("the refusal does not say how to keep that version: %v", err)
+	}
+}
+
+// Restore finds a backup whatever case its name is typed in, and restores it
+// under the name it was backed up with.
+func TestRestoreBackupMatchesTheNameWithoutCase(t *testing.T) {
+	home := t.TempDir()
+	folder := filepath.Join(home, ".claude", "skills")
+	writeSkill(t, filepath.Join(folder, "Alpha"))
+	if _, err := backupSkill(folder, "Alpha", backupNow); err != nil {
+		t.Fatal(err)
+	}
+	got, err := restoreBackup(home, "alpha", "")
+	if err != nil || len(got) != 1 || got[0] != filepath.Join(folder, "Alpha") {
+		t.Fatalf("restore = %q, %v", got, err)
+	}
+}
+
+// Restoring a skill the library has Archived or Deleted puts it back only
+// until the next pass takes it off again, and restore says so.
+func TestRestoreSaysAnArchivedSkillComesOffAgain(t *testing.T) {
+	config := enrolledMachine(t, "http://127.0.0.1:1")
+	c := loaded(t, config)
+	folder := filepath.Join(c.Home, ".claude", "skills")
+	for _, name := range []string{"gone", "kept"} {
+		writeSkill(t, filepath.Join(folder, name))
+		if _, err := backupSkill(folder, name, backupNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writePrivate(config+".desired", desiredCache{Server: c.Server, Agent: c.ID, Desired: store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "Gone", Reason: "archived"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runAgentRestore([]string{"--config", config, "gone"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "takes it off this machine again") {
+		t.Fatalf("no word that an archived skill comes off again: %s", out.String())
+	}
+	out.Reset()
+	if err := runAgentRestore([]string{"--config", config, "kept"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "off this machine again") {
+		t.Fatalf("said a skill the library keeps comes off: %s", out.String())
 	}
 }

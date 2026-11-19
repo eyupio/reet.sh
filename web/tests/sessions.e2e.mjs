@@ -55,8 +55,10 @@ const sync = () => ({environments:[],machines:[],agents:[{id:'a1',host:'studio',
 const changedPaths = Array.from({length:23}, (_, i) => i < 3 ? ['internal/terminalproto/browse.go','internal/terminalhost/browse.go','docs/terminal-launch.md'][i] : `web/src/file${i}.ts`)
 
 async function open(options={}) {
- const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[], lists:0}
+ const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[], lists:0,
+  desks:options.desks ?? [], deskDocs:options.deskDocs ?? {}, desksFail:!!options.desksFail}
  const routes = {
+  '/api/v2/desks': () => box.desksFail ? {status:503,json:{error:'unavailable'}} : {desks:box.desks},
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
   '/api/v2/terminal/sessions': async () => { box.lists++; if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
@@ -122,6 +124,11 @@ async function open(options={}) {
   if (kind === 'archive') box.sessions = box.sessions.filter(x => x.id !== id)
   return route.fulfill({json:{}})
  })
+ // A desk's own doc, for the pane and colour of a session this page still lists (one that needs the person).
+ await opened.page.route('**/api/v2/desks/*', async route => {
+  const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop())
+  return route.fulfill({json:box.deskDocs[id] ?? {}})
+ })
  return {...opened, box}
 }
 const rows = page => page.locator('main .session-row')
@@ -171,6 +178,33 @@ try {
   expect(errors).toEqual([])
   // Every read the page makes is answered (the Add project dialog's folder listing is its own test's).
   expect(state.unexpected.filter(p => !p.endsWith('/browse'))).toEqual([])
+  await context.close()
+ }
+
+ // A session on a desk belongs to the desk: it leaves this page, as it leaves Home's lists. One that needs the person stays
+ // (and keeps its desk chip); a desk read that fails changes nothing, so every session shows as before desks.
+ if (run('desk sessions')) {
+  const now = Date.now()
+  const waiting = session('d1','a1','Desk deploy check',MIN,{tool:'claude',projectId:'p1',attention:'waiting',attentionSource:'chat',changedSinceSeen:true,bellAt:now-5*MIN,pendingPermission:{permissionId:'perm-desk0000001',title:'Run a command',command:'make deploy',path:'',truncated:false,queued:0}})
+  const idle = session('d2','a1','Desk idle shell',2*MIN,{tool:'',projectId:'p1',attention:'working'})
+  const done = session('d3','a2','Desk finished run',3*MIN,{tool:'codex',projectId:'p2',state:'exited',exitCode:0,attention:'finished',attentionSource:'terminal',changedSinceSeen:true})
+  const plain = session('s1','a1','Keep me',4*MIN,{tool:'claude',projectId:'p1'})
+  const desk = {id:'desk1',name:'Front',colour:'',template:false,position:0,version:2,tabs:1,panes:3,sessions:['d1','d2','d3'],hosts:['a1','a2']}
+  const pane = (id, session) => ({id,name:id,colour:'',host:'a1',session,kind:'shell',dir:'/home/dev/reet',dirAt:now,start:''})
+  const doc = {id:'desk1',name:'Front',colour:'',template:false,position:0,version:2,schema:1,doc:{tabs:[{id:'t1',name:'Main',colour:'',root:{split:'row',ratio:0.5,a:{pane:'pa'},b:{pane:'pb'}},zoomed:'',active:'pa',panes:{pa:pane('pa','d1'),pb:pane('pb','d2')}}]}}
+  let {context,page,errors} = await open({sessions:[waiting,idle,done,plain],desks:[desk],deskDocs:{desk1:doc}})
+  await page.goto(`${base}/sessions?view=list`)
+  // The waiting desk session stays, marked with the desk that opens its pane; the quiet and finished ones are on the desk only.
+  await expect.poll(() => titles(page)).toEqual(['Desk deploy check','Keep me'])
+  await expect(page.getByRole('link',{name:'On the desk Front'})).toHaveAttribute('href','/desks/desk1#pa')
+  expect(errors).toEqual([])
+  await context.close()
+  // A desk read that fails is not a problem line: every session shows, as it did before desks.
+  ;({context,page,errors} = await open({sessions:[waiting,idle,done,plain],desks:[desk],desksFail:true}))
+  await page.goto(`${base}/sessions?view=list`)
+  await expect.poll(() => titles(page)).toEqual(['Desk deploy check','Desk idle shell','Keep me','Desk finished run'])
+  await expect(page.getByText("Couldn't read your sessions just now.",{exact:true})).toHaveCount(0)
+  expect(errors).toEqual([])
   await context.close()
  }
 

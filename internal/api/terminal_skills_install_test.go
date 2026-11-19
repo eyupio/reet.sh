@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -418,5 +419,62 @@ func TestTerminalSessionSkillsListsNewOnThisMachine(t *testing.T) {
 	}
 	if s := sessionSkillByName(f.catalogue(t).Skills, "pdf"); s != nil {
 		t.Fatalf("an Archived skill is offered: %+v", s)
+	}
+}
+
+// Adding from the picker a published skill already in the library as Archived
+// brings it back Active, so it goes on every machine again and comes off the
+// removal list.
+func TestPickerAddRestoresAnArchivedPublishedSkill(t *testing.T) {
+	f := installFixture(t)
+	other, err := f.st.CreateUser("archived-publisher@example.test", "Publisher", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.st.ClaimPublishingUsername(other.ID, "publisher"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.st.SaveHostedSkill(other.ID, store.HostedSkill{Slug: "slides", Description: "Shared", Content: "---\nname: slides\ndescription: Shared\n---\n\nBody", Published: true}); err != nil {
+		t.Fatal(err)
+	}
+	if code, raw := f.install(`{"skill":"reet:publisher/slides"}`); code != 200 {
+		t.Fatalf("first add: %d %s", code, raw)
+	}
+	f.srv.s.skillCopies.Wait()
+	slides := f.itemNamed(t, "slides")
+	if slides.ID == "" {
+		t.Fatalf("slides was not added: %+v", slides)
+	}
+	// reet's copy of it, as the copy worker fetches it from its public page.
+	copied := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: slides\ndescription: Shared\n---\n\nBody\n")}}
+	if _, err = f.st.SetSkillContentFor(f.uid, slides.ID, copied, store.PrivateSkillOrigin{Kind: "original", Reference: "http://example.com/publisher/slides"}); err != nil {
+		t.Fatal(err)
+	}
+	archivedAt := time.Now().Add(-time.Minute)
+	if err = f.st.SetSkillStatusFor(f.uid, []string{slides.ID}, store.SkillArchived, archivedAt); err != nil {
+		t.Fatal(err)
+	}
+	code, raw := f.install(`{"skill":"reet:publisher/slides"}`)
+	if b := decodeAdd(t, raw); code != 200 || b.Status != "active" || !b.Added {
+		t.Fatalf("add again: %d %s", code, raw)
+	}
+	if got := f.itemNamed(t, "slides"); got.Status != store.SkillActive {
+		t.Fatalf("slides stayed %s", got.Status)
+	}
+	desired, err := f.st.DesiredSkillsFor(f.uid, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := false
+	for _, d := range desired.Active {
+		active = active || d.Name == "slides"
+	}
+	for _, r := range desired.Remove {
+		if r.Name == "slides" {
+			t.Fatalf("slides is still on the removal list: %+v", desired.Remove)
+		}
+	}
+	if !active {
+		t.Fatalf("slides is not sent to the machines: %+v", desired.Active)
 	}
 }

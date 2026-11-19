@@ -74,7 +74,8 @@ func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = s.st.UnignoreFor(uid, rf.ID)
-		if _, err = s.st.AddFor(uid, rf, store.Patch{}); errors.Is(err, store.ErrSkillNameTaken) {
+		sk, err := s.st.AddFor(uid, rf, store.Patch{})
+		if errors.Is(err, store.ErrSkillNameTaken) {
 			writeJSON(w, http.StatusConflict, installErrorBody{Error: "A skill called " + slug + " is already in your library.", Code: "slug-conflict"})
 			return
 		} else if err != nil {
@@ -82,6 +83,15 @@ func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		added = !live
+		// AddFor keeps an Archived item Archived: bring it back, as for a
+		// written skill, so it goes on every machine again.
+		if live && sk.Status == store.SkillArchived && sk.LibraryItemID != "" {
+			if err = s.st.SetSkillStatusFor(uid, []string{sk.LibraryItemID}, store.SkillActive, s.skillNow()); err != nil {
+				writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The skill could not be added. Try again.", Code: "internal"})
+				return
+			}
+			added = true
+		}
 		s.enqueue(rf)
 		s.kickSkillCopies(uid)
 	} else {

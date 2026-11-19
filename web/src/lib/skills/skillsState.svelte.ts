@@ -16,7 +16,8 @@ const rank = (r: SkillRow) => ({ bad: 0, work: 1, ok: 2, off: 3 })[healthLine(r.
  *
  * A write moves `generation` on as it starts and as it ends, so a read that was on its way while the write ran never
  * puts back what the write changed. Writes answer in any order: the page shows a page answer only when no newer page
- * answer has been shown, and when another write answered first, the tab is read again (writePage).
+ * answer has been shown, and a tab whose answer may miss another write's change is read again once every write has
+ * answered (writePage, markStale, catchUp).
  */
 export class SkillsPageState {
   tab = $state<Tab>('active')
@@ -41,11 +42,13 @@ export class SkillsPageState {
 
   writing = 0
   #generation = 0
-  // Writes are numbered as they start. `#finishedAny` is the newest write of any kind whose answer has come back;
-  // `#finishedPage` the newest of those that answer with page data (Archive, Restore and their Undo).
+  // Writes are numbered as they start. `#finishedPage` is the newest one with page data (Archive, Restore and their
+  // Undo) whose answer has been shown.
   #started = 0
-  #finishedAny = 0
   #finishedPage = 0
+  // Tabs whose rows may miss a write's change: read again once no write is on its way, and until a read of them lands.
+  #stale = new Set<Tab>()
+  #catchingUp: Promise<void> | null = null
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -85,6 +88,7 @@ export class SkillsPageState {
       const data = await loadSkillsPage(status)
       if (at !== this.#generation) return false
       this.apply(data, status)
+      this.#stale.delete(status)
       if (status === this.tab) this.error = ''
       return true
     } catch (e) {
@@ -93,7 +97,7 @@ export class SkillsPageState {
     }
   }
 
-  /** `done` hears the answer and the write's number. */
+  /** `done` hears the answer and the write's number. Once no write is on its way, stale tabs are read again. */
   async write<T>(fn: () => Promise<T>, done?: (out: T, seq: number) => void): Promise<T> {
     const seq = ++this.#started
     this.#generation++
@@ -104,20 +108,35 @@ export class SkillsPageState {
       done?.(out, seq)
       return out
     } finally {
-      this.#finishedAny = Math.max(this.#finishedAny, seq)
       this.writing--
       this.#generation++
+      if (this.writing === 0 && this.#stale.size) void this.catchUp()
     }
+  }
+
+  /** The tab's rows may miss a change: read it again once no write is on its way. */
+  markStale(status: Tab) { this.#stale.add(status) }
+
+  /**
+   * Reads each stale tab again, once no write is on its way. A read that a new write overtakes is dropped and its tab
+   * stays stale, so that write's end reads it again. Callers may wait on it; one catch-up runs at a time.
+   */
+  catchUp(): Promise<void> {
+    if (this.writing || !this.#stale.size) return Promise.resolve()
+    this.#catchingUp ??= (async () => {
+      try { for (const tab of [...this.#stale]) await this.read(tab, true) } finally { this.#catchingUp = null }
+    })()
+    return this.#catchingUp
   }
 
   /**
    * A write that answers with a tab of the page (Archive, Restore and their Undo). Its answer is shown unless a newer
    * page answer has been shown already, when it only takes its own rows out of the list. Only page answers count as
-   * newer: a Like or a Delete that answers first must not hold back an Undo. When any write that started after this one
-   * answered first, this answer may not show that write's change, so the tab is read again.
+   * newer: a Like or a Delete that answers first must not hold back an Undo. Any write that started after this one,
+   * answered or not, may be missing from this answer (a Like on its way is undone by it), so the tab is marked stale
+   * and read again once every write has answered.
    */
   async writePage(fn: () => Promise<SkillsPageData>, status: Tab, without: string[] = []): Promise<void> {
-    let stale = false
     await this.write(fn, (data, seq) => {
       if (seq > this.#finishedPage) {
         this.#finishedPage = seq
@@ -125,9 +144,8 @@ export class SkillsPageState {
       } else {
         this.held[status] = (this.held[status] ?? []).filter(r => !without.includes(r.id))
       }
-      stale = this.#finishedAny > seq
+      if (this.#started > seq) this.markStale(status)
     })
-    if (stale) void this.read(status, true)
   }
 
   fail(e: unknown) {

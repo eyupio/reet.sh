@@ -199,9 +199,11 @@
     await refocus(order, ids, keepAct())
     const onMachines = targets.some(r => r.status === 'active' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health.state))
     say(pruneText('deleted', names, onMachines), async () => {
-      await write(() => undeleteSkills(ids))
-      await read(page.tab)
-      void read(other(page.tab), true)
+      // The undelete answers with no page: its tab is read once no write is on its way, and the row is back for focus.
+      const tab = page.tab
+      await page.write(() => undeleteSkills(ids), () => page.markStale(tab))
+      await page.catchUp()
+      void read(other(tab), true)
       await focusRow(ids[0], keepAct())
     })
   }

@@ -496,6 +496,32 @@ try {
   await context.close()
  }
 
+ // A Like pressed while an Archive is on its way: the Archive's answer, older than the Like, must not leave the Like
+ // undone once both have answered.
+ if (run('like in flight')) {
+  const w = world()
+  const r = routes(w)
+  const status = r['/api/v2/skills/status']
+  r['/api/v2/skills/status'] = async req => { const answer = status(req); await new Promise(resolve => setTimeout(resolve, 1200)); return answer }
+  r['/api/skill'] = async req => {
+   const b = req.postDataJSON()
+   w.rows = w.rows.map(x => x.shelfId === b.id ? {...x, liked:b.liked} : x)
+   await new Promise(resolve => setTimeout(resolve, 2400))
+   return {id:b.id, liked:b.liked}
+  }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  const liked = page.waitForResponse(res => new URL(res.url()).pathname === '/api/skill')
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}).click()
+  await liked
+  // Well inside the page's 15 second read.
+  await expect(row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'})).toHaveAttribute('aria-pressed', 'true', {timeout:3000})
+  await expect(row(page, 'seo-bing')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

@@ -108,3 +108,24 @@ func TestLibraryRestoreReceiptIsNotAnnouncedForUnwantedOrForeignItems(t *testing
 		t.Fatal("a malformed episode was accepted")
 	}
 }
+
+// A machine that follows the library takes no restore sync: reconcile puts
+// its skills back. It is told nothing was queued, every time, without error.
+func TestLibraryRestoreSyncIsNotQueuedForAMachineThatFollowsTheLibrary(t *testing.T) {
+	e := localRestoreFixture(t)
+	if err := e.s.SetAgentSkillsProtocolFor(e.uid, e.agent.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		queued, err := e.s.QueueLibraryRestoreSyncFor(e.uid, e.agent.ID, e.in)
+		if err != nil || queued {
+			t.Fatalf("queued %t, %v", queued, err)
+		}
+	}
+	jobs, _ := e.s.SyncJobsFor(e.uid)
+	for _, j := range jobs {
+		if j.Status == "queued" {
+			t.Fatalf("a job was queued: %+v", j)
+		}
+	}
+}

@@ -40,7 +40,10 @@
       const r = await importText(importBox)
       importBox = ''
       const ignored = r.ignored ? `, skipped ${r.ignored} ignored` : ''
-      ok(`Imported ${r.imported} as in use${ignored}` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
+      // A skill already in the library keeps its state: only new ones become Active.
+      const created = r.created ?? r.imported, existing = r.imported - created
+      const what = (created ? `Imported ${created} new as Active` : 'Nothing new to import') + (existing ? `; ${existing} already in your library kept ${existing === 1 ? 'its' : 'their'} state` : '')
+      ok(`${what}${ignored}` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
       await onchange()
     } catch (e) {
       fail(e)
@@ -70,7 +73,7 @@
       const blob = await exportAll(includeHistory, format, filters)
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = format === 'json' ? 'reet-export.json' : `reet-shelf.${format}`
+      a.download = format === 'json' ? 'reet-export.json' : `reet-skills.${format}`
       a.click()
       URL.revokeObjectURL(a.href)
       await onchange()
@@ -126,10 +129,10 @@
     <div class="panel" id="tools-panel">
       <section class="tool-card import" aria-labelledby="import-title">
         <h3 id="import-title">Import what you have installed</h3>
-        <p>Run <code>reet scan</code> on the machine with your skills, or paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. They are marked as in use; existing likes and notes are kept.</p>
+        <p>Paste install commands, names, <code>owner/repo/skill</code> slugs or skills.sh URLs below, one per line. New skills become Active and go on every machine; ones already in your library keep their state. Likes and notes are kept.</p>
         <label class="vh" for="import-box">Skills to import</label>
         <textarea id="import-box" rows="4" bind:value={importBox} placeholder="find-skills&#10;anthropics/skills/pptx"></textarea>
-        <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import as in use</button>
+        <button type="button" class="btn primary" onclick={runImport} disabled={!importBox.trim()}>Import</button>
       </section>
       {#if !noBookmarklets}
         <section class="tool-card" aria-labelledby="bookmarklets-title">
@@ -140,14 +143,14 @@
       {/if}
       <section class="tool-card" aria-labelledby="backup-title">
         <h3 id="backup-title">Backup and export</h3>
-        <p>Take your library with you. JSON backs up your personal skills, flags, tags, notes and optional history. Markdown and CSV follow your current filters.</p>
+        <p>Take your library with you. JSON backs up your personal skills, flags, tags, notes and optional history. Markdown and CSV follow the Skills tab, search, Liked and tag you have chosen.</p>
         <p>Lists, teams, accounts and sync references are not included. For encrypted, scheduled copies, open <a href="/account/backups">Account → Backups</a>. Instance backups are managed in <a href="/admin/backups">Admin → Backups</a>.</p>
         <div class="export-row">
           <label for="export-format">Format</label>
           <select id="export-format" bind:value={format}>
             <option value="json">JSON (personal library backup)</option>
-            <option value="md">Markdown (current filter)</option>
-            <option value="csv">CSV (current filter)</option>
+            <option value="md">Markdown (as filtered above)</option>
+            <option value="csv">CSV (as filtered above)</option>
           </select>
           <button type="button" class="btn" onclick={backup}>Download</button>
         </div>
@@ -167,7 +170,7 @@
         {/if}
         <h4>Ignored skills</h4>
         {#if ignored.length === 0}
-          <p>Nothing ignored. Removing an installed skill can ignore it in future scans.</p>
+          <p>Nothing ignored.</p>
         {:else}
           <ul class="ignored">
             {#each ignored as item}

@@ -7,6 +7,7 @@
   import CopyButton from './CopyButton.svelte'
   import { installPrompt, SKILLS_CLI } from './install'
   import { writtenSkillWhere } from './skillSync'
+  import { savedSkillNotice } from './skills/skillsPage'
   import type { InstallationReport } from './machines'
   import type { Skill, SyncState } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -184,9 +185,7 @@
       const saved = await saveHostedSkill(current)
       editor = saved; originalSlug = saved.slug; track(saved)
       skills = [...skills.filter(s => s.slug !== saved.slug), saved].sort((a, b) => a.slug.localeCompare(b.slug))
-      notice = didRename
-        ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also in your library under To test.' : 'Renamed. Update any private links you shared.'
-        : saved.published ? 'Skill published. It is also in your library under To test.' : 'Draft saved. Only you can see it.'
+      notice = savedSkillNotice(didRename, saved.published)
     } catch (e) { saveError = e instanceof Error ? e.message : String(e) } finally { busy = false }
   }
   async function upload(event: Event, main = false) {
@@ -500,7 +499,7 @@
           <div class="form-block visibility">
             <h3>Visibility</h3>
             <label class="publish"><input type="checkbox" bind:checked={editor.published} disabled={busy} /> Publish publicly</label>
-            <small>Publishing makes the instructions and supporting files available to everyone, and adds the skill to your library under To test. Uncheck and save to unpublish.</small>
+            <small>Publishing makes the instructions and supporting files available to everyone, and adds the skill to your library as Active, so it goes on every machine. Uncheck and save to unpublish.</small>
           </div>
           {#if saveError}<p class="notice bad" role="alert">{saveError}</p>{/if}
           <div class="actions">

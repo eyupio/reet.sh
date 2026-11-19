@@ -627,3 +627,41 @@ func TestInstallReplacesAStaleSameSlugAndCancelRestoresIt(t *testing.T) {
 		})
 	}
 }
+
+// A machine that follows the library takes no install jobs: every Active
+// skill reaches it already. The refusal writes nothing.
+func TestInstallRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
+	e := installFixture(t)
+	if err := e.s.SetAgentSkillsProtocolFor(e.uid, e.agent.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	before := e.dump(t)
+	_, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+	var refused *InstallError
+	if !errors.As(err, &refused) || refused.Code != "follows-library" {
+		t.Fatalf("install: %v", err)
+	}
+	if after := e.dump(t); after != before {
+		t.Fatalf("a refused install wrote:\n%s\nwas:\n%s", after, before)
+	}
+}
+
+// The machine must be the agent's before anything about that agent is said:
+// an agent of another machine that follows the library is not this one.
+func TestInstallChecksTheAgentIsThisMachineFirst(t *testing.T) {
+	e := installFixture(t)
+	other, _, err := e.s.EnrollSyncAgent(e.uid, "desktop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.s.SetAgentSkillsProtocolFor(e.uid, other.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	in := e.req("pdf")
+	in.AgentID = other.ID
+	_, err = e.s.InstallHostedSkillFor(e.uid, in)
+	var refused *InstallError
+	if !errors.As(err, &refused) || refused.Code != "connector-offline" {
+		t.Fatalf("install with another machine's agent: %v", err)
+	}
+}

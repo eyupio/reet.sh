@@ -114,8 +114,11 @@ func missingManagedFiles(binding libraryBinding) (whole bool, files []string, de
 // observeLibraryDeletions advances the debounce for every install this
 // machine is proven to own. It only records what it sees: it never touches the
 // filesystem, and an incomplete view (anything but plain absence) clears the
-// record instead of extending it.
-func observeLibraryDeletions(state *libraryLocalState, now time.Time) bool {
+// record instead of extending it. A copy managedHome holds (this machine's
+// home folders when it follows the library, else none) is
+// the reconcile pass's, which removes and restores it from the library, so it
+// is not watched here.
+func observeLibraryDeletions(state *libraryLocalState, managedHome homeFolders, now time.Time) bool {
 	at := now.UnixMilli()
 	kept := make([]libraryMissing, 0, len(state.Missing))
 	changed := false
@@ -125,6 +128,9 @@ func observeLibraryDeletions(state *libraryLocalState, now time.Time) bool {
 	}
 	for _, binding := range state.Bindings {
 		if binding.Source || binding.Deployment == nil || !binding.Deployment.Verified || binding.Deployment.Removal != nil {
+			continue
+		}
+		if managedHome.holds(binding.Path) {
 			continue
 		}
 		whole, files, deletion := missingManagedFiles(binding)
@@ -161,7 +167,11 @@ func planLibraryRestores(config string, c agentConfig, target store.SyncTarget, 
 	if err != nil {
 		return nil, nil, err
 	}
-	if observeLibraryDeletions(&state, time.Now()) {
+	// A sync job runs only while the controller keeps this machine on the
+	// job-based engine, which owns every binding then, wherever it is: the
+	// observer watches them all here. (The agent cycle leaves copies the
+	// reconcile pass keeps to it; see syncLibraryEdits.)
+	if observeLibraryDeletions(&state, homeFolders{}, time.Now()) {
 		if err := writePrivate(config+".library", state); err != nil {
 			return nil, nil, err
 		}

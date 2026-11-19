@@ -154,6 +154,17 @@ try {
     await expect(chip(page, /^Legacy/)).toHaveCount(0)
     await context.close()
   }
+  // Adding a list to the library makes its skills Active, and the page says they go on every machine.
+  if (run('add all')) {
+    const detail = { id: 7, ownerId: 1, ownerName: 'Sam', name: 'Launch checklist', description: 'Everything for a release week.', visibility: 'personal', slug: 'launch-checklist', role: 'owner', skillCount: 2, memberCount: 1, createdAt: now, updatedAt: now, skills: [], members: [], linkEnabled: false, canEdit: true, canManage: true, canTransfer: true }
+    const { context, page, errors } = await openWorkspace(browser, { width: 1440, routes: { '/api/v2/lists/7': detail, '/api/v2/lists/7/add-to-shelf': { added: 2 } } })
+    await page.goto(`${base}/lists/7`)
+    await page.getByRole('button', { name: 'Add all to my library' }).click()
+    await expect(page.getByText('Added 2 skills to your library as Active · going on every machine')).toBeVisible()
+    await expect(page.getByText(/To test/)).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
 } finally {
   await browser.close()
 }

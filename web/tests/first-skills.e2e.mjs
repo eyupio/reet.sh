@@ -1,6 +1,6 @@
 // The first Skills screen has one obvious thing to do, and hosting says what it is before it asks for a permanent username.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { openWorkspace, skill, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -9,69 +9,116 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
 
 try {
- // Empty shelf: adding a skill leads. Nothing to sync yet, creating is secondary, and the same link is not offered twice.
+ // An empty library: adding a skill leads. Write a skill is secondary, there is nothing to start syncing (machines follow
+ // the library), and the empty list says what to do.
  if (run('empty')) {
   for (const width of [1440,375]) {
    const {context,page,errors} = await open({width})
    await page.goto(`${base}/skills`)
-   await expect(page.getByRole('heading',{name:'Add the first skill to your library.'})).toBeVisible()
-   await expect(page.getByRole('link',{name:'Sync all machines'}), `Library sync at ${width}px`).toHaveAttribute('href','/sync')
-   const create = page.getByRole('link',{name:'Create a skill'})
-   await expect(create).toBeVisible()
-   await expect(create).not.toHaveClass(/primary/)
+   await expect(page.getByText('Nowt active. Paste a skill link above to get cracking.',{exact:true})).toBeVisible()
+   await expect(page.getByLabel('Add a skill',{exact:true})).toBeVisible()
+   await expect(page.getByRole('link',{name:'Sync all machines'}), `no Sync all machines at ${width}px`).toHaveCount(0)
+   await expect(page.getByRole('button',{name:'Sync all machines'}), `no Sync all machines at ${width}px`).toHaveCount(0)
+   // The line about the machines is plain text: the older Sync page could say otherwise.
+   await expect(page.locator('main .sync-chip')).toHaveText('No machines yet')
+   await expect(page.getByRole('link',{name:'No machines yet'})).toHaveCount(0)
+   const write = page.locator('main').getByRole('link',{name:'Write a skill',exact:true})
+   await expect(write).toHaveAttribute('href','/hosting')
+   await expect(write).not.toHaveClass(/primary/)
    await expect(page.getByRole('link',{name:'Host your own skill'})).toHaveCount(0)
    const filled = await page.locator('main .btn.primary').allInnerTexts()
-   expect(filled.map(t=>t.trim()), `filled buttons at ${width}px`).toEqual(['Add to library','Add your first skill'])
+   expect(filled.map(t=>t.trim()), `filled buttons at ${width}px`).toEqual(['Add'])
    expect(errors).toEqual([])
    await context.close()
   }
  }
 
- // Once there is something on the shelf, syncing is offered, and creating stays secondary.
+ // Once there is something in the library it is listed as Active, the header says where the machines stand, and writing
+ // stays secondary.
  if (run('populated')) {
   const {context,page} = await open({width:1440,skills:[skill('code-review')]})
   await page.goto(`${base}/skills`)
-  await expect(page.getByRole('link',{name:'Sync all machines'})).toHaveAttribute('href','/sync')
-  await expect(page.getByRole('link',{name:'Create a skill'})).not.toHaveClass(/primary/)
+  await expect(page.locator('[data-skill="demo/toolkit/code-review"]')).toBeVisible()
+  await expect(page.getByRole('tab',{name:/^Active/})).toContainText('1')
+  // The line about the machines is not a link: the older Sync page could say otherwise.
+  await expect(page.locator('.sync-chip')).toBeVisible()
+  await expect(page.locator('.sync-chip')).not.toHaveAttribute('href', /.*/)
+  await expect(page.locator('main').getByRole('link',{name:'Write a skill',exact:true})).not.toHaveClass(/primary/)
   await context.close()
  }
 
- // On an empty shelf the tools are one quiet button, not a section with its own heading, and restore and import stay reachable.
- // With skills on the shelf the section is unchanged.
+ // The library tools sit under the Skills list, whether it is empty or not: restore and import stay reachable, and the
+ // bookmarklets are offered there once. Their words match what they do now: an import makes skills Active, and nothing
+ // removes a skill "and ignores it" any more.
  if (run('tools')) {
-  const empty = await open({width:1440})
-  await empty.page.goto(`${base}/skills`)
-  await expect(empty.page.getByRole('heading',{name:'Add the first skill to your library.'})).toBeVisible()
-  await expect(empty.page.getByRole('heading',{name:'Library tools'})).toHaveCount(0)
-  await empty.page.getByRole('button',{name:'Import or restore a backup'}).click()
-  await expect(empty.page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
-  await expect(empty.page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
-  await expect(empty.page.getByRole('heading',{name:'Keep a good find'}), 'the start card already offers the bookmarklets').toHaveCount(0)
-  await empty.context.close()
-
-  const full = await open({width:1440,skills:[skill('code-review')]})
-  await full.page.goto(`${base}/skills`)
-  await expect(full.page.getByRole('heading',{name:'Library tools'})).toBeVisible()
-  await expect(full.page.getByRole('button',{name:'Import or restore a backup'})).toHaveCount(0)
-  await full.page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
-  await expect(full.page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
-  await expect(full.page.getByRole('heading',{name:'Keep a good find'})).toBeVisible()
-  await full.context.close()
+  for (const skills of [[], [skill('code-review')]]) {
+   const {context,page} = await open({width:1440,skills})
+   await page.goto(`${base}/skills`)
+   await expect(page.getByRole('heading',{name:'Library tools'})).toBeVisible()
+   await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
+   await expect(page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
+   await expect(page.getByRole('button',{name:'Import',exact:true})).toBeVisible()
+   await expect(page.locator('#tools-panel')).not.toContainText(/in use|to test/i)
+   // The bookmarklets add a skills.sh page to the library, or like it; there are no stages to put it in.
+   await expect(page.locator('#tools-panel .links a')).toHaveText(['♡ Like on reet', '+ Add to reet'])
+   await expect(page.locator('#tools-panel').getByRole('link', {name:'+ Add to reet'})).toHaveAttribute('href', /\/quick\?action=save&/)
+   await expect(page.getByText('Nothing ignored.',{exact:true})).toBeVisible()
+   await expect(page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Keep a good find'})).toHaveCount(1)
+   await context.close()
+  }
  }
 
- // While the shelf loads it shows placeholder cards rather than a bare "Loading…" line, and they give way to the skills.
+ // An import makes new skills Active and leaves the ones already in the library as they are, and says which is which.
+ if (run('import')) {
+  let sent = null
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],routes:{'/api/import': req => { sent = req.postDataJSON(); return {imported:3, created:2, ignored:0, pruned:0, errors:[]} }}})
+  await page.goto(`${base}/skills`)
+  await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
+  await expect(page.locator('#tools-panel')).toContainText('New skills become Active and go on every machine; ones already in your library keep their state.')
+  await page.getByLabel('Skills to import').fill('code-review\nanthropics/skills/pdf\nfind-skills')
+  await page.getByRole('button',{name:'Import',exact:true}).click()
+  await expect(page.getByRole('status').filter({hasText:'Imported 2 new as Active; 1 already in your library kept its state'})).toBeVisible()
+  expect(sent).toEqual({text:'code-review\nanthropics/skills/pdf\nfind-skills'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Markdown and CSV follow what the Skills page shows: its tab, search, Liked and tag.
+ if (run('export')) {
+  const rows = [skillRow('seo-sxo',{status:'archived',liked:true,tags:[{id:4,name:'seo'}]}), skillRow('code-review')]
+  let asked = null
+  const {context,page,errors} = await open({width:1440,routes:{
+   '/api/v2/skills': req => skillsPageOf(rows, new URL(req.url()).searchParams.get('status') || 'active'),
+   '/api/export': req => { asked = Object.fromEntries(new URL(req.url()).searchParams); return {exported:true} },
+  }})
+  await page.goto(`${base}/skills`)
+  await page.getByRole('tab',{name:/^Archived/}).click()
+  await page.getByRole('searchbox',{name:'Search skills'}).fill('seo')
+  await page.getByRole('button',{name:'Liked'}).click()
+  await page.getByRole('combobox',{name:'Tag'}).selectOption('seo')
+  await expect(page.locator('[data-skill="item-seo-sxo"]')).toBeVisible()
+  await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
+  await page.getByLabel('Format').selectOption('csv')
+  await page.getByRole('button',{name:'Download'}).click()
+  await expect.poll(() => asked).toEqual({format:'csv', tab:'liked', q:'seo', sort:'name', stage:'archived', tag:'4'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // While the list loads it shows placeholder rows rather than a bare "Loading…" line, and they give way to the skills.
  if (run('loading')) {
   let release
   const gate = new Promise(resolve=>{release=resolve})
-  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],gates:{'/api/skills':gate}})
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],gates:{'/api/v2/skills':gate}})
   await page.goto(`${base}/skills`)
-  const loading = page.getByRole('status',{name:'Loading your library'})
+  const loading = page.getByRole('status',{name:'Loading your skills'})
   await expect(loading).toBeVisible()
   await expect(loading).toHaveAttribute('aria-busy','true')
-  await expect(loading.locator('[data-skeleton]')).toHaveCount(3)
+  await expect(loading.locator('[data-skeleton]')).toHaveCount(4)
   await expect(page.getByText('Loading…',{exact:true})).toHaveCount(0)
   release()
-  await expect(page.getByRole('heading',{name:'code-review'})).toBeVisible()
+  await expect(page.getByRole('button',{name:'code-review',exact:true})).toBeVisible()
   await expect(loading).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
@@ -112,8 +159,8 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- // A draft you wrote can be chosen on the Sync page without publishing: it is listed beside shelf skills, named as a
- // private draft, and the Skills page's created-skill row links straight to it pre-selected.
+ // A skill you wrote is in the library without publishing: the Skills page lists it as yours, Active like any other, and
+ // the Sync page lists it beside shelf skills, named as a private draft.
  if (run('sync-draft')) {
   const now = Date.now()
   const host = new URL(base).host
@@ -127,12 +174,17 @@ try {
   const scope = {id:'dev-laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
   const sync = {environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[{id:'a1',host:'dev-laptop',version:'1.2.3',lastSeen:now,paused:false,autoUpdate:false}],targets:[{target:scope,sourceId:'shelf',sourceName:'Shelf',mode:'additive',desired:[draft],missing:[draft],extra:[],revision:'r1',updatedAt:now}],jobs:[],runs:[],updateJobs:[]}
   const hosting = {username:'sam',prefix:'reet-',skills:[{slug:'reet-incident-notes',description:'A private draft.',content:'---\nname: reet-incident-notes\ndescription: x\n---\nbody',files:{},published:false,createdAt:now,updatedAt:now}]}
-  const routes = {'/api/v2/sync/candidates': req => { const collection=new URL(req.url()).searchParams.get('collection');return collection==='library'?{skills:[shelfSkill,draft,nowDraft,broken]}:collection==='hosted'?{skills:[draft,nowDraft,broken]}:{skills:[shelfSkill,stale]} }}
+  const library = [skillRow('code-review',{id:'item-code-review',shelfId:shelfSkill.id}), skillRow('reet-incident-notes',{shelfId:'',originKind:'written',origin:'',yours:true,description:'A private draft.'})]
+  const routes = {
+   '/api/v2/sync/candidates': req => { const collection=new URL(req.url()).searchParams.get('collection');return collection==='library'?{skills:[shelfSkill,draft,nowDraft,broken]}:collection==='hosted'?{skills:[draft,nowDraft,broken]}:{skills:[shelfSkill,stale]} },
+   '/api/v2/skills': req => skillsPageOf(library, new URL(req.url()).searchParams.get('status') || 'active'),
+  }
   const {context,page,errors} = await open({width:1440,skills:[shelfSkill],hosting,sync,routes})
   await page.goto(`${base}/skills`)
-  await expect(page.locator('.hosted-list .where')).toContainText('Pending on dev-laptop')
-  const row = page.locator('.hosted-list').getByRole('link',{name:'Sync to machines…'})
-  await expect(row).toHaveAttribute('href','/sync')
+  const written = page.locator('[data-skill="item-reet-incident-notes"]')
+  await expect(written).toContainText('written by you')
+  await expect(written.locator('.health')).toContainText('On all 3 machines')
+  await expect(page.locator('[data-skill="item-code-review"]')).toBeVisible()
   await page.goto(`${base}/sync?skill=${encodeURIComponent(draftId)}`)
   await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
   await page.locator('.library-content > summary').filter({hasText:'In your library'}).click()
@@ -162,5 +214,5 @@ try {
   await expect(page.getByText(/This username is permanent/)).toBeVisible()
   await context.close()
  }
- console.log('First skills: add leads on an empty shelf, quiet tools on an empty shelf, a skeleton while it loads, sync appears with content, hosting explains itself before the username.')
+ console.log('First skills: add leads on an empty library, the tools sit under the list, a skeleton while it loads, a written skill is a row like any other, hosting explains itself before the username.')
 } finally {await browser.close()}

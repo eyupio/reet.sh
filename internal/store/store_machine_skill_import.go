@@ -64,7 +64,10 @@ func (s *Store) saveMachineSkillImportFor(uid int64, enrollment string, in Machi
 			}
 		}
 		// A capture that would make a second item of a name is refused.
-		return refuseSecondSkillName(tx, uid, result)
+		if err := refuseSecondSkillName(tx, uid, result); err != nil {
+			return err
+		}
+		return machineCopyLandedTx(tx, uid, enrollment, in.Agent, result)
 	}, func(tx *sql.Tx, result PrivateSkillResult) error {
 		return recordLibraryMachineCapture(tx, uid, enrollment, in.Agent, in.Project, in.Name, result)
 	})

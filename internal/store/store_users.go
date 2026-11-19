@@ -171,6 +171,8 @@ func (s *Store) MigrateToOwner(ownerID int64) error {
 		if _, err := tx.Exec(`PRAGMA defer_foreign_keys=ON`); err != nil {
 			return err
 		}
+		// These shelf rows cannot make a second item of a name: the
+		// library_shelf_insert trigger joins the live item that has it.
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
 			SELECT ?,id,liked,bookmarked,used,notes,created_at,updated_at FROM skills`, ownerID); err != nil {
 			return err
@@ -601,6 +603,13 @@ func (s *Store) UpsertFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
 	return s.upsertFor(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f)
 }
 
+// AddFor is UpsertFor for a person adding a skill: a skill they deleted that
+// is still waiting to be purged comes back (see reviveShelfItemTx), where a
+// machine's sighting through UpsertFor leaves it deleted.
+func (s *Store) AddFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
+	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true)
+}
+
 func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error) {
 	return s.upsertFor(userID, "local/"+name, "local", name, "local", "", name, f)
 }
@@ -609,6 +618,10 @@ func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error
 // linked source cannot take a name the library already has; a machine
 // sighting (a local row) joins the skill of its name instead.
 func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string, f Patch) (Skill, error) {
+	return s.upsertForRevive(userID, id, source, slug, typ, url, name, f, false)
+}
+
+func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name string, f Patch, revive bool) (Skill, error) {
 	t := now()
 	notes := ""
 	if f.Notes != nil {
@@ -638,6 +651,11 @@ func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string,
 		}
 		if f.Notes != nil {
 			if _, err := tx.Exec(`UPDATE shelf SET notes=? WHERE user_id=? AND skill_id=?`, *f.Notes, userID, id); err != nil {
+				return err
+			}
+		}
+		if revive {
+			if err := reviveShelfItemTx(tx, userID, id); err != nil {
 				return err
 			}
 		}
@@ -1245,8 +1263,17 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 				k.CreatedAt, k.UpdatedAt); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT OR REPLACE INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?)`, userID, k.ID, b2i(&k.Liked), b2i(&k.Bookmarked), b2i(&k.Used), k.Notes, k.CreatedAt, k.UpdatedAt); err != nil {
+			// An upsert, not INSERT OR REPLACE: a REPLACE outer statement makes
+			// the shelf trigger's INSERT OR IGNOREs replace too, which would
+			// rebind the row's library alias and reset its library item.
+			if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
+				VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,skill_id) DO UPDATE SET liked=excluded.liked,bookmarked=excluded.bookmarked,used=excluded.used,notes=excluded.notes,created_at=excluded.created_at,updated_at=excluded.updated_at`,
+				userID, k.ID, b2i(&k.Liked), b2i(&k.Bookmarked), b2i(&k.Used), k.Notes, k.CreatedAt, k.UpdatedAt); err != nil {
+				return err
+			}
+			// Putting back a row the old Remove just took brings its skill
+			// back too.
+			if err := undeleteShelfItemTx(tx, userID, k.ID); err != nil {
 				return err
 			}
 			for _, tag := range k.Tags {

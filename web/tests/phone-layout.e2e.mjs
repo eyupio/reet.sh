@@ -1,6 +1,6 @@
 // Phone-width and touch contract for controls that were hidden, squashed or mislabelled.
 import { chromium, expect } from '@playwright/test'
-import { active, openWorkspace, skill, terminalMachine } from './helpers/workspace.mjs'
+import { active, openWorkspace, skillRow, skillsPageOf, terminalMachine } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -9,16 +9,21 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
 
 try {
- // Every shelf filter is reachable on a phone: nothing sits past the right edge behind a hidden scroll.
+ // Every Skills control is reachable on a phone: the two tabs, search, Liked, Tag, List, Sort and Select, with nothing
+ // past the right edge behind a hidden scroll.
  if (run('filters')) {
-  const {context,page,errors} = await open({width:375,skills:[skill('code-review')]})
+  const rows = [skillRow('code-review',{tags:[{id:1,name:'review'}],lists:[{id:7,name:'Daily kit'}]}), skillRow('old-notes',{status:'archived'})]
+  const {context,page,errors} = await open({width:375,routes:{'/api/v2/skills':req=>skillsPageOf(rows,new URL(req.url()).searchParams.get('status')||'active')}})
   await page.goto(`${base}/skills`)
-  await expect(page.getByRole('group',{name:'Filter and sort'})).toBeVisible()
-  for (const name of ['All','In use','To test','Parked','Liked','Select']) {
-   const box = await page.locator('.filters button',{hasText:name}).first().boundingBox()
-   expect(box, `${name} filter exists`).not.toBeNull()
-   expect(box.x + box.width, `${name} filter right edge`).toBeLessThanOrEqual(375)
-   expect(box.x, `${name} filter left edge`).toBeGreaterThanOrEqual(0)
+  const tabs = page.getByRole('tablist',{name:'Skill state'})
+  const find = page.getByRole('group',{name:'Find skills'})
+  await expect(find).toBeVisible()
+  for (const [what,control] of [['Active',tabs.getByRole('tab',{name:/^Active/})],['Archived',tabs.getByRole('tab',{name:/^Archived/})],['Search',find.getByRole('searchbox',{name:'Search skills'})],['Liked',find.getByRole('button',{name:'Liked'})],['Tag',find.getByRole('combobox',{name:'Tag'})],['List',find.getByRole('combobox',{name:'List'})],['Sort',find.getByRole('combobox',{name:'Sort by'})],['Select',find.getByRole('button',{name:'Select',exact:true})]]) {
+   const box = await control.boundingBox()
+   expect(box, `${what} exists`).not.toBeNull()
+   expect(box.x + box.width, `${what} right edge`).toBeLessThanOrEqual(375)
+   expect(box.x, `${what} left edge`).toBeGreaterThanOrEqual(0)
+   expect(box.height, `${what} height`).toBeGreaterThanOrEqual(44)
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   expect(errors).toEqual([])
@@ -48,13 +53,18 @@ try {
   await context.close()
  }
 
- // "Start using" only marks a skill as in use; the label says so, since installing is a separate action.
+ // A row's buttons say what they do to the machines: Archive and Delete on an Active skill, Restore and Delete on an
+ // Archived one, each naming its skill. The shelf's stage labels are gone.
  if (run('cardlabel')) {
-  const {context,page} = await open({width:1440,skills:[skill('code-review')]})
+  const rows = [skillRow('code-review'), skillRow('old-notes',{status:'archived'})]
+  const {context,page} = await open({width:1440,routes:{'/api/v2/skills':req=>skillsPageOf(rows,new URL(req.url()).searchParams.get('status')||'active')}})
   await page.goto(`${base}/skills`)
-  await expect(page.getByRole('button',{name:'Save to test'})).toBeVisible()
-  await expect(page.getByRole('button',{name:'Mark in use'})).toBeVisible()
-  await expect(page.getByRole('button',{name:'Start using'})).toHaveCount(0)
+  const row = page.locator('[data-skill="item-code-review"]')
+  await expect(row.getByRole('button',{name:'Archive code-review'})).toHaveText('Archive')
+  await expect(row.getByRole('button',{name:'Delete code-review'})).toHaveText('Delete')
+  for (const old of ['Save to test','Mark in use','Start using','Stop using']) await expect(page.getByRole('button',{name:old})).toHaveCount(0)
+  await page.getByRole('tab',{name:/^Archived/}).click()
+  await expect(page.locator('[data-skill="item-old-notes"]').getByRole('button',{name:'Restore old-notes'})).toHaveText('Restore')
   await context.close()
  }
  // Jump search on a phone with the keyboard up, at 320 and 390 px: the field is 16 px (focusing never zooms), the bar steps
@@ -105,5 +115,5 @@ try {
    await context.close()
   }
  }
- console.log('Phone layout: shelf filters reachable, prefix field usable, Show button touch-sized, card label honest, Jump results above the keyboard at 320 and 390 px.')
+ console.log('Phone layout: Skills controls reachable, prefix field usable, Show button touch-sized, row labels honest, Jump results above the keyboard at 320 and 390 px.')
 } finally {await browser.close()}

@@ -302,7 +302,13 @@ func (s *server) mcpDo(ctx context.Context, api http.Handler, access mcpAccess, 
 				text += ": " + msg
 			}
 			if detail.Hint != "" {
-				text += ". " + detail.Hint
+				// A message that already ends a sentence is not given a
+				// second full stop before the hint.
+				if strings.HasSuffix(text, ".") || strings.HasSuffix(text, "!") || strings.HasSuffix(text, "?") {
+					text += " " + detail.Hint
+				} else {
+					text += ". " + detail.Hint
+				}
 			}
 			return nil, errors.New(text)
 		}
@@ -453,6 +459,11 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		query.Set("id", str("id"))
 		if args["ignore"] == true {
 			query.Set("ignore", "1")
+		}
+		// Without a copy in reet, removing deletes the skill from every
+		// machine; that needs the caller's say-so (409 no-copy otherwise).
+		if args["noCopyConfirmed"] == true {
+			query.Set("noCopyConfirmed", "1")
 		}
 	case "reet_list_tags":
 		path, collectionKey = "/api/tags", "tags"

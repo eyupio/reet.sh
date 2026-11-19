@@ -9,10 +9,9 @@
 <p class="links">
   <!-- svelte-ignore a11y_invalid_attribute -->
   <a class="pill" href={bookmarklet('like', origin, token)}>♡ Like on reet</a>
+  <!-- Save adds the page's skill to the library, Active like any other added skill. -->
   <!-- svelte-ignore a11y_invalid_attribute -->
-  <a class="pill" href={bookmarklet('save', origin, token)}>☆ To test on reet</a>
-  <!-- svelte-ignore a11y_invalid_attribute -->
-  <a class="pill" href={bookmarklet('used', origin, token)}>✔ In use on reet</a>
+  <a class="pill" href={bookmarklet('save', origin, token)}>+ Add to reet</a>
 </p>
 {#if hint && token}<p class="hint">These links contain your access token, so keep them private.</p>{/if}
 

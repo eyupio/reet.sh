@@ -716,3 +716,206 @@ func TestSkillStatesShelfStageMovesTheStatus(t *testing.T) {
 	}
 	expect("quick mark in use", SkillActive, false)
 }
+
+// An agent definition that shares a skill's name is a different item: restoring
+// or undeleting it must not take the skill's name off the removal list.
+func TestSkillStatesRestoreAndUndeleteLeaveOtherItemTypesRemovalRows(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	skill := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	at := time.UnixMilli(1_800_000_000_000)
+	if err := s.SetSkillStatusFor(uid, []string{skill.id}, SkillArchived, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, "agent-1", "agent_definition", "seo-audit", SkillArchived, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{"agent-1"}, SkillActive, at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if r := skillRemovals(t, s, uid); r["seo-audit"].Reason != "archived" {
+		t.Fatalf("restoring an agent definition dropped the skill's removal row: %+v", r)
+	}
+	if err := s.DeleteSkillsFor(uid, []string{"agent-1"}, true, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UndeleteSkillsFor(uid, []string{"agent-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if r := skillRemovals(t, s, uid); r["seo-audit"].Reason != "archived" {
+		t.Fatalf("undeleting an agent definition dropped the skill's removal row: %+v", r)
+	}
+}
+
+func TestSkillStatesUndeleteIsRefusedAfterTheUndoWindow(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	late := savedWrittenSkill(t, s, uid, "late-one", false)
+	soon := savedWrittenSkill(t, s, uid, "soon-one", false)
+	if err := s.DeleteSkillsFor(uid, []string{late.id}, false, time.Now().Add(-SkillUndoWindow-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSkillsFor(uid, []string{soon.id}, false, time.Now().Add(-SkillUndoWindow/2)); err != nil {
+		t.Fatal(err)
+	}
+	// Purge has not run for either, but only the recent one can come back.
+	if err := s.UndeleteSkillsFor(uid, []string{late.id}); !errors.Is(err, ErrPrivateSkillMissing) {
+		t.Fatalf("undo after the window: %v", err)
+	}
+	if got := skillStateNamed(t, s, uid, "late-one"); got.deletedAt == 0 {
+		t.Fatal("an item past the undo window was brought back")
+	}
+	if err := s.UndeleteSkillsFor(uid, []string{soon.id}); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillStateNamed(t, s, uid, "soon-one"); got.deletedAt != 0 {
+		t.Fatal("an item inside the undo window stayed deleted")
+	}
+}
+
+// Saving a written skill again while its deleted item is waiting to be purged
+// brings the item back instead of writing a hidden row.
+func TestSkillStatesSavingOverADeletedWrittenSkillUndeletesIt(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	if err := s.DeleteSkillsFor(uid, []string{item.id}, false, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("seo-audit", "Written again")); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillStateNamed(t, s, uid, "seo-audit"); got.deletedAt != 0 {
+		t.Fatalf("saving left the skill deleted: %+v", got)
+	}
+	hosted, err := s.HostedSkillsFor(uid)
+	if err != nil || len(hosted) != 1 || !strings.Contains(hosted[0].Content, "Written again") {
+		t.Fatalf("the saved skill is not visible: %+v %v", hosted, err)
+	}
+	if r := skillRemovals(t, s, uid); len(r) != 0 {
+		t.Fatalf("the removal row stayed: %+v", r)
+	}
+}
+
+// Among copies of one name an imported one beats a copy found on a machine even
+// when the machine copy is newer; between equals the most recently updated one
+// wins.
+func TestSkillStatesUpgradeFoldPrefersImportedThenNewest(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	dropLibraryTriggers(t, s)
+	if _, err := s.UpsertLocalFor(uid, "alpha", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a/b/alpha", "a/b/beta", "c/d/beta"} {
+		if _, err := s.UpsertFor(uid, mustRef(t, id), Patch{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// local/alpha is the newest of its name; c/d/beta is newer than a/b/beta.
+	for id, at := range map[string]int64{"local/alpha": 3000, "a/b/alpha": 1000, "a/b/beta": 1000, "c/d/beta": 2000} {
+		if _, err := s.db.Exec(`UPDATE shelf SET updated_at=? WHERE user_id=? AND skill_id=?`, at, uid, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacyLibrary(t, s)
+	upgradeSkillStates(t, s)
+
+	alpha := skillStateNamed(t, s, uid, "alpha")
+	if k, ok, err := s.GetFor(uid, "a/b/alpha"); err != nil || !ok || k.LibraryItemID != alpha.id || alpha.origin != "imported" {
+		t.Fatalf("the imported copy did not win over the newer machine copy: %+v %+v %v", alpha, k, err)
+	}
+	if _, ok, err := s.GetFor(uid, "local/alpha"); err != nil || ok {
+		t.Fatal("the machine copy was kept", err)
+	}
+	beta := skillStateNamed(t, s, uid, "beta")
+	if k, ok, err := s.GetFor(uid, "c/d/beta"); err != nil || !ok || k.LibraryItemID != beta.id {
+		t.Fatalf("the most recently updated copy did not win: %+v %+v %v", beta, k, err)
+	}
+	if _, ok, err := s.GetFor(uid, "a/b/beta"); err != nil || ok {
+		t.Fatal("the older copy was kept", err)
+	}
+}
+
+func TestSkillStatesRenameRefusesATakenName(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	savedWrittenSkill(t, s, uid, "seo-audit", false)
+	if _, err := s.db.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, "taken-1", LibrarySkill, "Taken-Name", SkillActive, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.RenameHostedSkill(uid, "seo-audit", "taken-name", mustRef(t, "hosted/writer/seo-audit"), mustRef(t, "hosted/writer/taken-name"))
+	if !errors.Is(err, ErrSkillNameTaken) {
+		t.Fatalf("rename onto a library name: %v", err)
+	}
+	if ok, err := s.HostedSkillExists(uid, "seo-audit"); err != nil || !ok {
+		t.Fatal("the refused rename moved the skill", err)
+	}
+}
+
+// A restore inside the grace window keeps the status the item held before the
+// archive, so machines never saw the change and the Undo is invisible.
+func TestSkillStatesRestoreInsideGraceKeepsThePreviousStatus(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	item := savedWrittenSkill(t, s, uid, "seo-audit", false)
+	archivedAt := time.UnixMilli(1_800_000_000_000)
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, archivedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillActive, archivedAt.Add(SkillGrace/2)); err != nil {
+		t.Fatal(err)
+	}
+	got := skillStateNamed(t, s, uid, "seo-audit")
+	if got.status != SkillActive || got.prevStatus != SkillActive {
+		t.Fatalf("restore inside the grace window: status %s, prev %s", got.status, got.prevStatus)
+	}
+	// Past the window the restore records the archive it undoes.
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillArchived, archivedAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSkillStatusFor(uid, []string{item.id}, SkillActive, archivedAt.Add(time.Minute+SkillGrace)); err != nil {
+		t.Fatal(err)
+	}
+	if got = skillStateNamed(t, s, uid, "seo-audit"); got.prevStatus != SkillArchived {
+		t.Fatalf("restore after the grace window: prev %s", got.prevStatus)
+	}
+}
+
+// The undo window is closed at its edge for both Undelete and purge: an item
+// deleted exactly SkillUndoWindow ago is gone, one millisecond inside is not.
+func TestSkillStatesUndoWindowBoundary(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	edge := savedWrittenSkill(t, s, uid, "edge-one", false)
+	inside := savedWrittenSkill(t, s, uid, "inside-one", false)
+	deletedAt := time.UnixMilli(1_900_000_000_000)
+	for _, id := range []string{edge.id, inside.id} {
+		if err := s.DeleteSkillsFor(uid, []string{id}, false, deletedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restore := skillUndoNow
+	defer func() { skillUndoNow = restore }()
+	skillUndoNow = func() int64 { return deletedAt.Add(SkillUndoWindow).UnixMilli() }
+	if err := s.UndeleteSkillsFor(uid, []string{edge.id}); !errors.Is(err, ErrPrivateSkillMissing) {
+		t.Fatalf("exactly at the window: %v", err)
+	}
+	skillUndoNow = func() int64 { return deletedAt.Add(SkillUndoWindow).UnixMilli() - 1 }
+	if err := s.UndeleteSkillsFor(uid, []string{inside.id}); err != nil {
+		t.Fatalf("1 ms inside the window: %v", err)
+	}
+	// Purge uses the same edge.
+	if err := s.PurgeDeletedSkillsFor(uid, deletedAt.Add(SkillUndoWindow-time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillStatesNamed(t, s, uid, "edge-one"); len(got) != 1 {
+		t.Fatal("purge ran 1 ms early")
+	}
+	if err := s.PurgeDeletedSkillsFor(uid, deletedAt.Add(SkillUndoWindow)); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillStatesNamed(t, s, uid, "edge-one"); len(got) != 0 {
+		t.Fatalf("purge must remove an item deleted exactly the window ago: %+v", got)
+	}
+}

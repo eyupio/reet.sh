@@ -8,6 +8,10 @@ export const LONGPATH = '/srv/projects/a/really/deep/folder/path/that/goes/on/an
 export const LONGSKILL = 'a_very_long_skill_name_that_has_no_spaces_at_all_and_must_wrap'
 const skill = (id, extra = {}) => ({ id: `demo/toolkit/${id}`, name: id, slug: id, source: 'demo/toolkit', sourceType: 'github', url: `https://www.skills.sh/demo/toolkit/${id}`, description: 'Reviews pull requests for correctness, style and missing tests before you merge them into main.', notes: '', installs: 1234, installsWeek: 56, trend: [1, 3, 2, 5, 8, 6, 9], liked: false, bookmarked: false, used: true, createdAt: now - 3 * DAY, updatedAt: now, tags: [{ id: 1, name: 'review' }, { id: 2, name: 'testing' }], ...extra })
 export const skills = [skill('code-review'), skill('testing', { used: false, bookmarked: true }), skill('deployment', { liked: true }), skill('pdf', { used: false }), skill(LONGSKILL, { used: false })]
+// The Skills page's rows for the same skills: long hosts and reasons in their health lines, a long tag, and pdf Archived.
+const healthOf = { 'code-review': { state: 'failed', hosts: [LONGHOST], reason: 'no write access' }, testing: { state: 'offline', hosts: [LONGHOST] }, [LONGSKILL]: { state: 'copy-failed', hosts: [LONGHOST], reason: 'a_reason_that_is_one_long_word_with_no_spaces_at_all' } }
+const skillRows = skills.map(s => ({ id: `item-${s.name}`, shelfId: s.id, name: s.name, description: s.description, status: s.name === 'pdf' ? 'archived' : 'active', originKind: 'imported', origin: s.url, yours: false, published: false, hasCopy: true, liked: s.liked, notes: '', tags: [...s.tags, { id: 3, name: 'a_really_long_tag_name_without_spaces' }], lists: [{ id: 7, name: 'a_really_long_list_name_without_any_spaces_at_all' }], upgradedFrom: s.name === 'pdf' ? 'parked' : undefined, health: { pending: 1, total: 3, hosts: [], machines: [], state: 'ok', ...healthOf[s.name] } }))
+const foundSkills = [{ name: 'another_very_long_skill_name_found_on_a_machine_with_no_spaces', copies: [{ agentId: 'connector-build000000001', host: LONGHOST, folder: '~/.agents/skills' }], digestsDiffer: false }]
 const scope = (id, host, agent, items, project = '') => ({ id, host, agent, name: host, kind: 'agent', project, path: project || `/home/dev/.${agent}/skills`, skills: items, skillCount: items.length, complete: true, scannedAt: now, lastSeen: now, os: 'linux', arch: 'amd64', version: 'test' })
 const environments = [
   scope('laptop-shared', 'dev-laptop', 'agents', skills.slice(0, 2)),
@@ -93,6 +97,10 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (/^\/api\/v2\/machines\/[^/]+\/models\/refresh$/.test(path)) return json({ tool: 'opencode', state: 'listed', models: [{ id: 'anthropic/claude-sonnet-4-5', provider: 'anthropic' }, { id: 'openai/gpt-5', provider: 'openai' }], more: false, source: 'opencode models', version: '', fetchedAt: now, checkedAt: now, reason: '', sentence: '' })
     if (path === '/api/version') return json({ version: 'v1.4.2', commit: 'fixture' })
     if (path === '/api/skills') return json({ skills, counts: { all: skills.length, used: 3, liked: 1, bookmarked: 1 } })
+    if (path === '/api/v2/skills' && method === 'GET') {
+      const status = url.searchParams.get('status') || 'active'
+      return json({ skills: skillRows.filter(r => r.status === status), counts: { active: skillRows.filter(r => r.status === 'active').length, archived: skillRows.filter(r => r.status === 'archived').length }, newOnMachines: foundSkills, machines: 3, notice: { parked: 1, removed: 0 } })
+    }
     if (path === '/api/skill') return json(skills[0])
     if (path === '/api/environments') return json({ environments, machines })
     if (path === '/api/tags') return json({ tags: [{ id: 1, name: 'review', source: 'user', count: 3 }, { id: 2, name: 'testing', source: 'topic', count: 2 }, { id: 3, name: 'a_really_long_tag_name_without_spaces', source: 'user', count: 1 }] })

@@ -16,6 +16,9 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +79,21 @@ type server struct {
 	mail           *mail.Mailer
 	notify         *notify.Service
 	releases       *agentupdate.Checker
+
+	// skillFetcher gets public skills for the reet copy; skillCopies waits for
+	// the background runs (tests only) and the rest keeps them one per account.
+	skillFetcher     SkillFetcher
+	skillCopyMu      sync.Mutex
+	skillCopyRunning map[int64]bool
+	skillCopyAgain   map[int64]bool
+	skillCopies      sync.WaitGroup
+	original         originalCache
+	originalMu       sync.Mutex
+	originalRunning  map[int64]int // originals each account is downloading now
+	originalTTL      time.Duration
+	skillPollKicks   pollKicks
+	// skillClock is when the Skills page's changes are made (tests only).
+	skillClock func() time.Time
 
 	sso                *oidc.Provider
 	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time
@@ -295,7 +313,11 @@ func (s *Server) Close() error {
 		s.s.stopOnce.Do(func() {
 			close(s.s.stop)
 			if s.s.cancel != nil {
+				// Under the lock a kick takes, so a kick either sees the
+				// cancelled context or has added to workers before Wait.
+				s.s.skillCopyMu.Lock()
 				s.s.cancel()
+				s.s.skillCopyMu.Unlock()
 			}
 		})
 	}
@@ -342,9 +364,18 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		stop:         make(chan struct{}),
 		ctx:          ctx,
 		cancel:       cancel,
+
+		skillCopyRunning: map[int64]bool{}, skillCopyAgain: map[int64]bool{},
+		originalTTL: skillOriginalTTL,
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.skillFetcher == nil {
+		// Nothing reaches the network unless the caller passes WithSkillFetcher;
+		// cmd/reet passes skillfetch.Fetcher{}, whose default client guards its
+		// addresses and honours proxies.
+		s.skillFetcher = noSkillFetcher{}
 	}
 	if s.sso != nil {
 		// The environment seeds the owner's single sign-on settings once; after
@@ -442,6 +473,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v2/environments/merge", s.requireWriter(s.mergeEnvironments))
 	mux.HandleFunc("POST /api/v2/skills/bulk", s.requireWriter(s.bulkUpdateSkills))
 	mux.HandleFunc("GET /api/v2/skills/duplicates", s.findDuplicates)
+	s.registerSkillCopies(mux)
+	s.registerSkillsPage(mux)
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("POST /api/v2/tags", s.requireWriter(s.createTag))
 	mux.HandleFunc("PATCH /api/v2/tags/{id}", s.requireWriter(s.renameTagScoped))
@@ -530,7 +563,8 @@ func (s *server) routes() http.Handler {
 	s.registerDeskRoutes(mux)
 	s.registerSessionBacklogRoutes(mux)
 	s.registerProjectRunRoutes(mux)
-	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
+	mux.HandleFunc("GET /quick", s.requireWriter(s.quickConfirm))
+	mux.HandleFunc("POST /quick", s.requireWriter(s.quick))
 	return mux
 }
 
@@ -1323,6 +1357,11 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, existed, err := s.st.GetFor(s.uid(r), rf.ID)
+	if err == nil && existed {
+		// A row whose skill was deleted and waits for its purge is added
+		// afresh: AddFor brings it back.
+		existed, err = s.st.LiveLibrarySkillFor(s.uid(r), "", rf.ID)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1335,7 +1374,7 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		in.Bookmarked = &test
 	}
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
-	sk, err := s.st.UpsertFor(s.uid(r), rf, in.Patch)
+	sk, err := s.st.AddFor(s.uid(r), rf, in.Patch)
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		writeErr(w, 409, "A skill with that name is already in your library.")
 		return
@@ -1345,6 +1384,7 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
+	s.kickSkillCopies(s.uid(r))
 	s.eventRequest(r, "add", sk.ID, map[string]any{"name": sk.Name, "created": !existed})
 	writeJSON(w, 200, struct {
 		store.Skill
@@ -1393,6 +1433,11 @@ func patchEvent(old, updated store.Skill, p store.Patch) (string, map[string]any
 	return "patch", detail
 }
 
+// remove is the old shelf Remove of one shelf row. It deletes the row's
+// library skill, as the Skills page's Delete does: it leaves every machine,
+// and its name is free again. Nothing changes, with a 409, for a skill the
+// person wrote ({"code":"written"}, deleted from Write a skill) or one reet
+// holds no copy of, unless noCopyConfirmed=1 ({"code":"no-copy"}).
 func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -1400,21 +1445,33 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sk, _, _ := s.st.GetFor(s.uid(r), id)
-	if r.URL.Query().Get("ignore") == "1" {
-		if err := s.st.IgnoreFor(s.uid(r), id, sk.Name, "removed"); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		s.eventRequest(r, "ignore", id, map[string]any{"name": sk.Name})
-		w.WriteHeader(http.StatusNoContent)
+	ignore := r.URL.Query().Get("ignore") == "1"
+	if !s.removeShelfSkills(w, r, []string{id}, ignore, r.URL.Query().Get("noCopyConfirmed") == "1") {
 		return
 	}
-	if err := s.st.RemoveFor(s.uid(r), id); err != nil {
-		writeErr(w, 500, err.Error())
-		return
+	action := "remove"
+	if ignore {
+		action = "ignore"
 	}
-	s.eventRequest(r, "remove", id, map[string]any{"name": sk.Name})
+	s.eventRequest(r, action, id, map[string]any{"name": sk.Name})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeShelfSkills removes shelf rows and deletes their library skills, and
+// says so on w when it cannot.
+func (s *server) removeShelfSkills(w http.ResponseWriter, r *http.Request, ids []string, ignore, noCopyConfirmed bool) bool {
+	uid := s.uid(r)
+	_, refused, err := s.st.RemoveShelfSkillsFor(uid, ids, ignore, noCopyConfirmed, s.skillNow())
+	if errors.Is(err, store.ErrSkillNoCopy) || errors.Is(err, store.ErrSkillWritten) {
+		writeNotRemoved(w, err, refused)
+		return false
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return false
+	}
+	s.kickSkillCopies(uid)
+	return true
 }
 
 func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
@@ -1499,7 +1556,9 @@ type importItem struct {
 }
 
 // importEntry marks one installed skill as used, keeping existing flags and notes.
-func (s *server) importEntry(userID int64, item importItem, request *http.Request) (string, bool, bool, error) {
+// Without newItems a sighting only joins a live library skill: one of a name
+// the library does not have returns no id and changes nothing.
+func (s *server) importEntry(userID int64, item importItem, newItems bool, request *http.Request) (string, bool, bool, error) {
 	name, source := strings.TrimSpace(item.Name), strings.TrimSpace(item.Source)
 	if name == "" {
 		return "", false, false, errors.New("empty name")
@@ -1579,6 +1638,13 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	}
 	if ignored, err := s.st.IsIgnoredFor(userID, id); err != nil || ignored {
 		return id, false, ignored, err
+	}
+	if !newItems {
+		// Before any shelf row is written: a new one would make a library item.
+		live, err := s.st.LiveLibrarySkillFor(userID, name, id)
+		if err != nil || !live {
+			return "", false, false, err
+		}
 	}
 	_, existed, err := s.st.GetFor(userID, id)
 	if err != nil {
@@ -1703,11 +1769,20 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	itemIDs := map[string]string{}
+	mayCreate := s.scanMakesItems(s.uid(r), in.Machine.Host)
 	handle := func(item importItem) {
-		id, wasCreated, wasIgnored, err := s.importEntry(s.uid(r), item, r)
+		newItems, err := mayCreate(item)
+		id, wasCreated, wasIgnored := "", false, false
+		if err == nil {
+			id, wasCreated, wasIgnored, err = s.importEntry(s.uid(r), item, newItems, r)
+		}
 		switch {
 		case err != nil:
 			errs = append(errs, err.Error())
+		case id == "":
+			// A sighting the scan makes no item of. From a managed folder it
+			// is New on a machine through the skills report; from Codex's
+			// folder, which reet leaves alone, it appears nowhere.
 		case wasIgnored:
 			ignoredCount++
 		default:
@@ -1964,8 +2039,9 @@ func (s *server) tagMany(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		IDs    []string `json:"ids"`
-		Ignore bool     `json:"ignore"`
+		IDs             []string `json:"ids"`
+		Ignore          bool     `json:"ignore"`
+		NoCopyConfirmed bool     `json:"noCopyConfirmed"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1974,11 +2050,17 @@ func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "choose between 1 and 500 skills")
 		return
 	}
-	n, err := s.st.RemoveManyFor(s.uid(r), in.IDs, in.Ignore)
+	uid := s.uid(r)
+	n, refused, err := s.st.RemoveShelfSkillsFor(uid, in.IDs, in.Ignore, in.NoCopyConfirmed, s.skillNow())
+	if errors.Is(err, store.ErrSkillNoCopy) || errors.Is(err, store.ErrSkillWritten) {
+		writeNotRemoved(w, err, refused)
+		return
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.kickSkillCopies(uid)
 	action := "bulk-remove"
 	if in.Ignore {
 		action = "bulk-ignore"
@@ -2952,6 +3034,25 @@ func (s *server) adminSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) export(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
+	// From the Skills page (a tab named): the rows that page shows.
+	if stage := r.URL.Query().Get("stage"); (format == "md" || format == "markdown" || format == "csv") && (stage == store.SkillActive || stage == store.SkillArchived) {
+		rows, err := s.skillsPageExport(r, stage)
+		if err != nil {
+			skillsPageError(w, err)
+			return
+		}
+		s.eventRequest(r, "export", "", map[string]any{"format": format, "stage": stage})
+		if format == "csv" {
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="reet-skills.csv"`)
+			w.Write([]byte(skillRowsCSV(rows)))
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="reet-skills.md"`)
+		w.Write([]byte(skillRowsMarkdown(rows, stage)))
+		return
+	}
 	switch format {
 	case "md", "markdown":
 		skills, _, err := s.st.ListFor(s.uid(r), filterFromRequest(r))
@@ -3010,6 +3111,170 @@ func installCommand(s store.Skill) string {
 	return fmt.Sprintf("npx %s add %s --skill %s", ref.SkillsCLI, source, selector)
 }
 
+// skillsPageExport is what the Skills page shows for the tab status, filtered
+// as the page filters it (web/src/lib/skills/skillsPage.ts matchesSearch, and
+// its Liked and tag filters), in name order: each library skill once,
+// whatever shelf rows name it, with the description the page shows. Case is
+// folded beyond ASCII, as the page folds it.
+func (s *server) skillsPageExport(r *http.Request, status string) ([]store.SkillPageRow, error) {
+	page, err := s.skillsPageData(r, status)
+	if err != nil {
+		return nil, err
+	}
+	q := r.URL.Query()
+	liked := q.Get("tab") == "liked"
+	var tagIDs []int64
+	for _, raw := range q["tag"] {
+		for _, part := range strings.Split(raw, ",") {
+			if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil {
+				tagIDs = append(tagIDs, id)
+			}
+		}
+	}
+	term, tagNames := store.SplitQuery(q.Get("q"))
+	term = strings.ToLower(term)
+	out := []store.SkillPageRow{}
+	for _, row := range page.Skills {
+		if liked && !row.Liked || !skillRowHasTags(row, tagIDs, tagNames) {
+			continue
+		}
+		if term != "" && !slices.ContainsFunc([]string{row.Name, row.ShelfID, row.Description, row.Notes}, func(f string) bool { return strings.Contains(strings.ToLower(f), term) }) {
+			continue
+		}
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := strings.ToLower(out[i].Name), strings.ToLower(out[j].Name)
+		if a != b {
+			return a < b
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+// skillRowHasTags says whether the row carries every tag named by id and by
+// (lowercased) name.
+func skillRowHasTags(row store.SkillPageRow, ids []int64, names []string) bool {
+	for _, id := range ids {
+		if !slices.ContainsFunc(row.Tags, func(t store.Tag) bool { return t.ID == id }) {
+			return false
+		}
+	}
+	for _, name := range names {
+		if !slices.ContainsFunc(row.Tags, func(t store.Tag) bool { return strings.ToLower(t.Name) == name }) {
+			return false
+		}
+	}
+	return true
+}
+
+// skillRowLink is where a row's skill can be read: its public page when
+// published, else the link it was imported from.
+func skillRowLink(row store.SkillPageRow) string {
+	if row.PublicURL != "" {
+		return row.PublicURL
+	}
+	if strings.HasPrefix(row.Origin, "https://") || strings.HasPrefix(row.Origin, "http://") {
+		return row.Origin
+	}
+	return ""
+}
+
+func skillRowsMarkdown(rows []store.SkillPageRow, status string) string {
+	var b strings.Builder
+	b.WriteString("# reet.sh skills\n")
+	if len(rows) == 0 {
+		return b.String()
+	}
+	title := "Active"
+	if status == store.SkillArchived {
+		title = "Archived"
+	}
+	fmt.Fprintf(&b, "\n## %s\n\n", title)
+	for _, row := range rows {
+		b.WriteString(markdownItem(row.Name, skillRowLink(row), row.Description))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// markdownItem is one skill as a Markdown list item, "- [name](link) — description", which stays one item whatever
+// the three hold: the name is escaped, the link percent-encodes what would end it (and is left out when it is not a
+// web address), and the description is markdownText.
+func markdownItem(name, link, desc string) string {
+	item := "- " + markdownEscape(name)
+	if strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "http://") {
+		item = "- [" + markdownEscape(name) + "](" + markdownURL(link) + ")"
+	}
+	if desc = markdownText(desc); desc != "" {
+		item += " — " + desc
+	}
+	return item
+}
+
+var (
+	markdownLinkRe = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
+	htmlTagRe      = regexp.MustCompile(`<!--.*?-->|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>`)
+	markdownEscape = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `<`, `\<`, `>`, `\>`, `*`, `\*`, `_`, `\_`, "`", "\\`", `#`, `\#`).Replace
+)
+
+// markdownText is a description as one line of Markdown text. It comes from a skill's SKILL.md, often someone else's,
+// so its links become their text, its HTML tags and comments go, and what is left is escaped so it makes no link or
+// HTML of its own.
+func markdownText(desc string) string {
+	desc = strings.Join(strings.Fields(desc), " ")
+	desc = markdownLinkRe.ReplaceAllString(desc, "$1")
+	desc = htmlTagRe.ReplaceAllString(desc, "")
+	return markdownEscape(strings.Join(strings.Fields(desc), " "))
+}
+
+// markdownURL is a link as a Markdown link's destination: spaces, control characters, parentheses, angle brackets
+// and backslashes are percent-encoded, so the link ends where it should.
+func markdownURL(link string) string {
+	var b strings.Builder
+	for i := 0; i < len(link); i++ {
+		if c := link[i]; c <= ' ' || c == 0x7f || strings.IndexByte(`()<>\`, c) >= 0 {
+			fmt.Fprintf(&b, "%%%02X", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// csvCell keeps a spreadsheet from reading an exported cell as a formula (CSV injection): a cell that starts with =,
+// +, -, @, a tab or a carriage return gets a quote in front.
+func csvCell(cell string) string {
+	if cell != "" && strings.IndexByte("=+-@\t\r", cell[0]) >= 0 {
+		return "'" + cell
+	}
+	return cell
+}
+
+// csvRow is a row of cells, each one csvCell.
+func csvRow(cells ...string) []string {
+	for i, cell := range cells {
+		cells[i] = csvCell(cell)
+	}
+	return cells
+}
+
+func skillRowsCSV(rows []store.SkillPageRow) string {
+	var b bytes.Buffer
+	w := csv.NewWriter(&b)
+	_ = w.Write([]string{"id", "name", "status", "origin", "link", "liked", "notes", "tags"})
+	for _, row := range rows {
+		var tags []string
+		for _, t := range row.Tags {
+			tags = append(tags, t.Name)
+		}
+		_ = w.Write(csvRow(row.ID, row.Name, row.Status, row.OriginKind, skillRowLink(row), strconv.FormatBool(row.Liked), row.Notes, strings.Join(tags, "; ")))
+	}
+	w.Flush()
+	return b.String()
+}
+
 func markdown(skills []store.Skill) string {
 	var b strings.Builder
 	b.WriteString("# reet.sh library\n")
@@ -3037,15 +3302,7 @@ func markdown(skills []store.Skill) string {
 			if name == "" {
 				name = s.Slug
 			}
-			desc := strings.Join(strings.Fields(s.Description), " ")
-			if s.URL != "" {
-				fmt.Fprintf(&b, "- [%s](%s)", name, s.URL)
-			} else {
-				fmt.Fprintf(&b, "- %s", name)
-			}
-			if desc != "" {
-				fmt.Fprintf(&b, " — %s", desc)
-			}
+			b.WriteString(markdownItem(name, s.URL, s.Description))
 			b.WriteString("\n")
 			if cmd := installCommand(s); cmd != "" {
 				fmt.Fprintf(&b, "  ```\n  %s\n  ```\n", cmd)
@@ -3067,12 +3324,12 @@ func csvExport(skills []store.Skill) string {
 		for _, e := range s.Environments {
 			envs = append(envs, e.Name)
 		}
-		_ = w.Write([]string{
+		_ = w.Write(csvRow(
 			s.ID, s.Name, stageLabel(s), s.Source, s.URL,
 			strconv.FormatInt(s.Installs, 10), strconv.FormatInt(s.InstallsWeek, 10),
 			strconv.FormatBool(s.Liked), strconv.FormatBool(s.Bookmarked), strconv.FormatBool(s.Used),
 			s.Notes, strings.Join(tags, "; "), strings.Join(envs, "; "),
-		})
+		))
 	}
 	w.Flush()
 	return b.String()
@@ -3095,36 +3352,98 @@ func (s *server) restore(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]int{"restored": len(in.Skills)})
 }
 
-func (s *server) quick(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	yes := true
-	var p store.Patch
-	var verb, alreadyVerb, actionName string
+// quickRequest reads what a bookmarklet asks for: action like adds the skill
+// if need be and likes it; save is the bookmarklet's Add, which like the
+// Skills page's Add sets no stage, so a new skill is Active and one already in
+// the library keeps its state (Restore is the way back from Archived). Old
+// bookmarks still send "used", which does the same.
+func (s *server) quickRequest(r *http.Request, q url.Values) (action string, rf ref.Ref, code int, msg string) {
 	switch q.Get("action") {
 	case "like":
-		p.Liked, verb, alreadyVerb, actionName = &yes, "Liked", "Already liked", "like"
-	case "save":
-		p.Bookmarked, verb, alreadyVerb, actionName = &yes, "Saved", "Already saved", "stage"
-	case "used":
-		p.Used, verb, alreadyVerb, actionName = &yes, "Marked as used", "Already marked as used", "stage"
+		action = "like"
+	case "save", "used":
+		action = "add"
 	default:
-		quickPage(w, 400, "Unknown action")
-		return
+		return "", rf, 400, "Unknown action"
 	}
 	rf, err := s.parseSkillInput(r, q.Get("url"))
 	if err != nil {
-		quickPage(w, 400, "Not a skills.sh skill page")
+		return "", rf, 400, "Not a skills.sh skill page"
+	}
+	return action, rf, 200, ""
+}
+
+// quickConfirm is what a bookmarklet opens: a page that asks before it adds
+// anything. A GET changes nothing, so another website that opens it in the
+// visitor's browser adds nothing; the page's button posts back to /quick.
+func (s *server) quickConfirm(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	action, rf, code, msg := s.quickRequest(r, q)
+	if code != 200 {
+		quickPage(w, code, msg)
 		return
 	}
+	target := "/quick"
+	if t := q.Get("t"); t != "" {
+		target += "?t=" + url.QueryEscape(t)
+	}
+	title, button := "Add "+rf.Slug+" to your library?", "Add "+rf.Slug
+	if action == "like" {
+		title, button = "Like "+rf.Slug+"?", "Like "+rf.Slug
+	}
+	form := `<form method="post" action="` + html.EscapeString(target) + `"><input type="hidden" name="action" value="` + html.EscapeString(q.Get("action")) + `"><input type="hidden" name="url" value="` + html.EscapeString(q.Get("url")) + `">` +
+		`<p>If it isn't in your library yet, it goes on every machine that follows your library.</p><button type="submit" autofocus>` + html.EscapeString(button) + `</button> <a class="quiet" href="/">Not now</a></form>`
+	quickShell(w, 200, html.EscapeString(title), form, false)
+}
+
+// quickOrigin reports whether a POST to /quick came from this reet's own
+// page: browsers say where a request came from, and only the confirm page
+// (same origin) may submit.
+func quickOrigin(r *http.Request) bool {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
+}
+
+func (s *server) quick(w http.ResponseWriter, r *http.Request) {
+	if !quickOrigin(r) {
+		quickPage(w, http.StatusForbidden, "That request didn't come from this reet's own page")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	if err := r.ParseForm(); err != nil {
+		quickPage(w, 400, "Unknown action")
+		return
+	}
+	actionName, rf, code, msg := s.quickRequest(r, r.PostForm)
+	if code != 200 {
+		quickPage(w, code, msg)
+		return
+	}
+	yes := true
+	var p store.Patch
+	if actionName == "like" {
+		p.Liked = &yes
+	}
 	old, found, err := s.st.GetFor(s.uid(r), rf.ID)
+	if err == nil && found {
+		// A row whose skill was deleted and waits for its purge is added
+		// afresh: AddFor brings it back.
+		found, err = s.st.LiveLibrarySkillFor(s.uid(r), "", rf.ID)
+	}
 	if err != nil {
 		quickPage(w, 500, "Could not save")
 		return
 	}
-	already := found &&
-		((p.Liked != nil && old.Liked) || (p.Bookmarked != nil && old.Bookmarked) || (p.Used != nil && old.Used))
+	already := found && (actionName == "add" || old.Liked)
 	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
-	sk, err := s.st.UpsertFor(s.uid(r), rf, p)
+	sk, err := s.st.AddFor(s.uid(r), rf, p)
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		quickPage(w, 409, "A skill with that name is already in your library")
 		return
@@ -3134,33 +3453,47 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enqueue(rf)
-	detail := map[string]any{"name": sk.Name, "already": already}
-	if actionName == "stage" {
-		detail["from"] = stageLabel(old)
-		detail["to"] = stageLabel(sk)
+	if !found {
+		s.kickSkillCopies(s.uid(r))
 	}
-	s.event(s.uid(r), "quick", actionName, sk.ID, detail)
-	msg := verb + ": " + sk.Name
-	if already {
-		msg = alreadyVerb + ": " + sk.Name
+	s.event(s.uid(r), "quick", actionName, sk.ID, map[string]any{"name": sk.Name, "already": already})
+	switch {
+	case actionName == "like" && already:
+		msg = "Already liked: " + sk.Name
+	case actionName == "like":
+		msg = "Liked: " + sk.Name
+	case already:
+		msg = sk.Name + " is already in your library"
+	default:
+		msg = "Added " + sk.Name
 	}
 	quickPage(w, 200, msg)
 }
 
 func quickPage(w http.ResponseWriter, code int, msg string) {
+	quickShell(w, code, html.EscapeString(msg), `<p>This window will close automatically. You can also return to your library.</p><a class="button" href="/">Open your library</a>`, true)
+}
+
+// quickShell writes the bookmarklet's small page: title and body are HTML,
+// already escaped.
+func quickShell(w http.ResponseWriter, code int, title, body string, closes bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
+	script := ""
+	if closes {
+		script = `<script>setTimeout(function(){window.close()},1500)</script>`
+	}
 	fmt.Fprintf(w, `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bookmarklet · reet.sh</title>
 <style>
 :root{--bg:#f7f6f2;--card:#fffdf9;--ink:#1d1c1a;--muted:#5f5c54;--line:#e4e1d8;--accent:#c2410c;--accent-ink:#fff;color-scheme:light dark}
 @media(prefers-color-scheme:dark){:root{--bg:#151413;--card:#1d1c1a;--ink:#efece6;--muted:#b2aca2;--line:#49453e;--accent:#fb923c;--accent-ink:#1a1208}}
-*{box-sizing:border-box}body{margin:0;min-height:100dvh;padding:24px;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}
-main{width:100%%;max-width:440px;padding:32px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
-.eyebrow{margin:18px 0 0;color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-h1{margin:12px 0;font:500 28px/1.2 Georgia,serif;letter-spacing:-.025em;overflow-wrap:anywhere}p{color:var(--muted);font-size:14px}
-a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;padding:10px 16px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-size:14px;font-weight:600;text-decoration:none}
-a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
-</style></head><body><main><img src="/favicon.svg" width="40" height="40" alt=""><p class="eyebrow">reet.sh · Bookmarklet</p><h1>%s</h1><p>This window will close automatically. You can also return to your library.</p><a href="/">Open your library</a></main>
-<script>setTimeout(function(){window.close()},1500)</script></body></html>`, html.EscapeString(msg))
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;padding:16px;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}
+main{width:100%%;max-width:440px;padding:24px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+.eyebrow{margin:18px 0 0;color:var(--accent);font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+h1{margin:12px 0;font:500 24px/1.25 Georgia,serif;letter-spacing:-.02em;overflow-wrap:anywhere}p{color:var(--muted);font-size:14px}
+.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;padding:10px 16px;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:600 14px/1.2 system-ui,sans-serif;text-decoration:none;cursor:pointer;overflow-wrap:anywhere}
+.quiet{display:inline-flex;align-items:center;min-height:44px;margin-top:12px;padding:10px 12px;color:var(--ink);font-size:14px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+</style></head><body><main><img src="/favicon.svg" width="40" height="40" alt=""><p class="eyebrow">reet.sh · Bookmarklet</p><h1>%s</h1>%s</main>%s</body></html>`, title, body, script)
 }

@@ -19,8 +19,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"sync"
-	"syscall"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
@@ -31,6 +29,8 @@ import (
 var (
 	ErrNotFound = errors.New("skill not found in its source")
 	ErrTooLarge = errors.New("skill is over 8 MiB or 256 files")
+	// ErrArchiveTooLarge is the repository, not the skill, being too big to read.
+	ErrArchiveTooLarge = errors.New("repository archive is too large to read")
 )
 
 const (
@@ -51,19 +51,49 @@ type Result struct {
 	Origin   string
 }
 
+// fetchTimeout bounds one whole Fetch, however many requests it makes.
+const fetchTimeout = 2 * time.Minute
+
 // Fetcher downloads skills. A nil Client is a guarded default; GitHub defaults
 // to https://codeload.github.com.
 type Fetcher struct {
 	Client *http.Client
 	GitHub string
 
-	// Set by tests to avoid the environment and DNS; used with a nil Client.
-	proxy  func(*http.Request) (*url.URL, error)
-	lookup func(context.Context, string) ([]net.IP, error)
+	// Set by tests to avoid the environment, DNS and the production caps; the
+	// first four are used with a nil Client.
+	proxy      func(*http.Request) (*url.URL, error)
+	lookup     func(context.Context, string) ([]net.IP, error)
+	newClient  func() *http.Client
+	timeout    time.Duration
+	archiveCap int64 // compressed bytes read; maxArchiveBytes when zero
+	streamCap  int64 // uncompressed bytes; maxStreamBytes when zero
 }
 
-// Fetch returns the files of the skill r names.
+// Fetch returns the files of the skill r names. The whole fetch is bounded by
+// fetchTimeout, or by the caller's deadline when that is sooner.
 func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
+	if r.SourceType != "github" && r.SourceType != "well-known" {
+		return Result{}, fmt.Errorf("skill source type %q is not one reet can fetch from", r.SourceType)
+	}
+	if r.Slug == "" {
+		return Result{}, errors.New("the skill has no name to look for")
+	}
+	timeout := f.timeout
+	if timeout <= 0 {
+		timeout = fetchTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if f.Client == nil {
+		// One client for the whole fetch, so its requests share connections.
+		if f.newClient != nil {
+			f.Client = f.newClient()
+		} else {
+			f.Client = defaultClient(f.proxy, f.lookup)
+		}
+		defer f.Client.CloseIdleConnections()
+	}
 	var files []skillbundle.ContentFile
 	var origin string
 	var err error
@@ -73,6 +103,11 @@ func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
 		files, origin, err = f.github(ctx, r)
 	}
 	if err != nil {
+		// The deadline is the truth when it has passed: a read it cut short can
+		// surface as an EOF or a damaged archive.
+		if cerr := ctx.Err(); cerr != nil && !errors.Is(err, cerr) {
+			err = fmt.Errorf("fetch skill source: %w", cerr)
+		}
 		return Result{}, err
 	}
 	m, selected, err := skillimport.Select(files, nil)
@@ -80,110 +115,6 @@ func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Files: selected, Manifest: m, Origin: origin}, nil
-}
-
-var errAddress = errors.New("skill source address is not one this server may connect to")
-
-// publicAddress reports whether ip is one skills may be fetched from: not this
-// machine, a private or link-local network, or any other non-unicast address.
-// The dial guard and the check made before a request goes to a proxy share it.
-func publicAddress(ip net.IP) bool {
-	cgnat := net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast() || cgnat.Contains(ip))
-}
-
-// refuseAddress is the dial-time guard. Skills are public, so unlike an
-// identity provider nothing internal is a legitimate source.
-func refuseAddress(network, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return errors.New("skill source address is not an IP address")
-	}
-	if !publicAddress(ip) {
-		return errAddress
-	}
-	return nil
-}
-
-func lookupIPs(ctx context.Context, host string) ([]net.IP, error) {
-	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	ips := make([]net.IP, len(addrs))
-	for i, a := range addrs {
-		ips[i] = a.IP
-	}
-	return ips, err
-}
-
-// defaultClient honours the proxy settings of the environment, as the rest of
-// reet does. Without a proxy the dial guard refuses non-public addresses. With
-// one, the proxy itself is operator configuration and may be private, but the
-// destination is resolved here first and refused unless every address is public;
-// that runs for each redirect hop too, since each hop asks for its proxy.
-func defaultClient(proxy func(*http.Request) (*url.URL, error), lookup func(context.Context, string) ([]net.IP, error)) *http.Client {
-	if proxy == nil {
-		proxy = http.ProxyFromEnvironment
-	}
-	if lookup == nil {
-		lookup = lookupIPs
-	}
-	var proxies sync.Map
-	guarded := &net.Dialer{Timeout: 5 * time.Second, Control: refuseAddress}
-	plain := &net.Dialer{Timeout: 5 * time.Second}
-	return &http.Client{
-		Timeout: 60 * time.Second,
-		Transport: &http.Transport{
-			Proxy: func(req *http.Request) (*url.URL, error) {
-				p, err := proxy(req)
-				if err != nil || p == nil {
-					return p, err
-				}
-				host := req.URL.Hostname()
-				ips := []net.IP{net.ParseIP(host)}
-				if ips[0] == nil {
-					if ips, err = lookup(req.Context(), host); err != nil {
-						return nil, fmt.Errorf("resolve skill source: %w", err)
-					}
-				}
-				for _, ip := range ips {
-					if !publicAddress(ip) {
-						return nil, errAddress
-					}
-				}
-				proxies.Store(proxyAddress(p), true)
-				return p, nil
-			},
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				if _, ok := proxies.Load(addr); ok {
-					return plain.DialContext(ctx, network, addr)
-				}
-				return guarded.DialContext(ctx, network, addr)
-			},
-			TLSHandshakeTimeout:   5 * time.Second,
-			ResponseHeaderTimeout: 15 * time.Second,
-			MaxIdleConns:          4,
-			IdleConnTimeout:       30 * time.Second,
-		},
-	}
-}
-
-func proxyAddress(p *url.URL) string {
-	port := p.Port()
-	if port == "" {
-		switch p.Scheme {
-		case "https":
-			port = "443"
-		case "socks5", "socks5h":
-			port = "1080"
-		default:
-			port = "80"
-		}
-	}
-	return net.JoinHostPort(p.Hostname(), port)
 }
 
 func githubHost(h string) bool {
@@ -194,11 +125,7 @@ func githubHost(h string) bool {
 // get requests rawURL with no credentials or cookies. Redirects are allowed
 // only to GitHub's hosts (github) or to the same host (well-known), over https.
 func (f Fetcher) get(ctx context.Context, rawURL string, github bool) (*http.Response, error) {
-	client := f.Client
-	if client == nil {
-		client = defaultClient(f.proxy, f.lookup)
-	}
-	c := *client
+	c := *f.Client
 	c.Jar = nil
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) > maxRedirects {
@@ -232,35 +159,35 @@ func (f Fetcher) get(ctx context.Context, rawURL string, github bool) (*http.Res
 	return resp, nil
 }
 
-// normalize compares names loosely: case, spaces and hyphens do not matter.
-func normalize(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(s)), "-"))
-}
-
-func frontMatterName(data []byte) string {
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return ""
-	}
-	for _, l := range lines[1:] {
-		if strings.TrimSpace(l) == "---" {
-			break
-		}
-		if v, ok := strings.CutPrefix(l, "name:"); ok {
-			return strings.Trim(strings.TrimSpace(v), `"'`)
-		}
-	}
-	return ""
-}
-
 type tally struct {
 	files int
 	bytes int64
 }
 
-type held struct {
-	data []byte
-	exec bool
+// capReader reads at most left bytes of r. If r has more, the read fails with
+// ErrArchiveTooLarge, so a cut-off archive is reported as too large and not as a
+// damaged gzip stream.
+type capReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		var b [1]byte
+		if n, err := c.r.Read(b[:]); n > 0 {
+			return 0, ErrArchiveTooLarge
+		} else if err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.r.Read(p)
+	c.left -= int64(n)
+	return n, err
 }
 
 func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFile, string, error) {
@@ -277,11 +204,17 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		return nil, "", err
 	}
 	defer resp.Body.Close()
-	gz, err := gzip.NewReader(io.LimitReader(resp.Body, maxArchiveBytes))
+	archiveCap, streamCap := f.archiveCap, f.streamCap
+	if archiveCap <= 0 {
+		archiveCap = maxArchiveBytes
+	}
+	if streamCap <= 0 {
+		streamCap = maxStreamBytes
+	}
+	gz, err := gzip.NewReader(&capReader{r: resp.Body, left: archiveCap})
 	if err != nil {
 		return nil, "", fmt.Errorf("skill archive: %w", err)
 	}
-	slug := normalize(r.Slug)
 	tallies := map[string]*tally{}
 	all := map[string]held{}
 	skillDirs := map[string]bool{}
@@ -296,7 +229,7 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			return nil, "", fmt.Errorf("skill archive: %w", err)
 		}
 		if entries > maxArchiveEntries {
-			return nil, "", ErrTooLarge
+			return nil, "", ErrArchiveTooLarge
 		}
 		if strings.HasPrefix(h.Name, "/") {
 			return nil, "", errors.New("skill archive has an absolute path")
@@ -306,16 +239,17 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 				return nil, "", errors.New("skill archive has a path outside its folder")
 			}
 		}
+		// Whatever the type, the size is what the reader will skip or read.
+		if h.Size < 0 || h.Size > streamCap-streamed {
+			return nil, "", ErrArchiveTooLarge
+		}
+		streamed += h.Size
 		if h.Typeflag != tar.TypeReg {
 			continue // directories, links, pax headers
 		}
 		_, rel, ok := strings.Cut(path.Clean(h.Name), "/")
 		if !ok || rel == "" || rel == "." {
 			continue
-		}
-		streamed += h.Size
-		if streamed > maxStreamBytes || h.Size < 0 {
-			return nil, "", ErrTooLarge
 		}
 		dir := path.Dir(rel)
 		if dir == "." {
@@ -335,7 +269,7 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			over := t.files > skillbundle.MaxFiles || t.bytes > skillbundle.MaxBytes
 			// A SKILL.md folder named for the skill that is over the limits is
 			// that skill; stop here instead of reading the rest of the archive.
-			if over && d != "" && skillDirs[d] && (d == "skills/"+r.Slug || normalize(path.Base(d)) == slug) {
+			if over && d != "" && skillDirs[d] && matchesSlug(d, r.Slug) {
 				return nil, "", ErrTooLarge
 			}
 			if d == "" {
@@ -347,7 +281,7 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		}
 		retained += h.Size
 		if retained > maxRetainedBytes {
-			return nil, "", ErrTooLarge
+			return nil, "", ErrArchiveTooLarge
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, h.Size))
 		if err != nil {
@@ -356,28 +290,11 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		all[rel] = held{data, h.Mode&0o111 != 0}
 	}
 
-	best, bestRank := "", 4
-	for dir := range skillDirs {
-		rank := 4
-		switch {
-		case dir == "skills/"+r.Slug:
-			rank = 0
-		case dir != "" && path.Base(dir) == r.Slug:
-			rank = 1
-		case normalize(frontMatterName(all[join(dir, "SKILL.md")].data)) == slug:
-			rank = 2
-		case dir != "" && normalize(path.Base(dir)) == slug:
-			rank = 3
-		}
-		if rank == 4 {
-			continue
-		}
-		shallower := strings.Count(dir, "/") < strings.Count(best, "/")
-		if rank < bestRank || (rank == bestRank && (shallower || (strings.Count(dir, "/") == strings.Count(best, "/") && dir < best))) {
-			best, bestRank = dir, rank
-		}
+	if err := ctx.Err(); err != nil {
+		return nil, "", fmt.Errorf("fetch skill source: %w", err)
 	}
-	if bestRank == 4 {
+	best, ok := pickFolder(skillDirs, all, r.Slug)
+	if !ok {
 		return nil, "", ErrNotFound
 	}
 	if t := tallies[best]; t.files > skillbundle.MaxFiles || t.bytes > skillbundle.MaxBytes {
@@ -399,20 +316,6 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		origin += "/" + best
 	}
 	return files, origin, nil
-}
-
-func parent(d string) string {
-	if p := path.Dir(d); p != "." {
-		return p
-	}
-	return ""
-}
-
-func join(dir, name string) string {
-	if dir == "" {
-		return name
-	}
-	return dir + "/" + name
 }
 
 func (f Fetcher) wellKnown(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFile, string, error) {
@@ -437,6 +340,9 @@ func (f Fetcher) wellKnown(ctx context.Context, r ref.Ref) ([]skillbundle.Conten
 	for _, s := range index.Skills {
 		if normalize(s.Name) != slug {
 			continue
+		}
+		if !safeSegment(s.Name) {
+			return nil, "", errors.New("skill index lists an unsafe skill name")
 		}
 		names := s.Files
 		if !contains(names, "SKILL.md") {
@@ -481,6 +387,11 @@ func contains(l []string, s string) bool {
 	return false
 }
 
+// safeSegment reports whether name can be one path segment of a request.
+func safeSegment(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\")
+}
+
 func safeRel(p string) bool {
 	if p == "" || strings.HasPrefix(p, "/") || strings.Contains(p, "\\") || path.Clean(p) != p {
 		return false
@@ -502,6 +413,11 @@ func (f Fetcher) readAll(ctx context.Context, rawURL string, limit int64) ([]byt
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	// A body cut short by the deadline or a cancel can look like a clean end;
+	// it must never be taken as the whole file.
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, fmt.Errorf("fetch skill source: %w", cerr)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("fetch skill source: %w", err)
 	}

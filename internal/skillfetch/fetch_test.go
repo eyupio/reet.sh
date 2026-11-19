@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -325,12 +327,17 @@ func TestFetchGitHubRedirectAllowlist(t *testing.T) {
 }
 
 func TestRefuseAddress(t *testing.T) {
-	for _, ip := range []string{"127.0.0.1", "::1", "::ffff:10.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "fd00::1", "100.64.0.1", "0.0.0.0", "224.0.0.1", "fe80::1"} {
+	for _, ip := range []string{"127.0.0.1", "::1", "::ffff:10.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "fd00::1", "100.64.0.1", "0.0.0.0", "224.0.0.1", "fe80::1",
+		"0.1.2.3", "192.0.0.8", "198.18.0.1", "198.19.255.255", "240.0.0.1", "255.255.255.255", "::ffff:240.0.0.1",
+		// NAT64 and 6to4 whose embedded IPv4 is not public, and the local-use NAT64 prefix.
+		"64:ff9b::7f00:1", "64:ff9b::a00:5", "64:ff9b::c0a8:101", "64:ff9b:1::1", "2002:7f00:1::", "2002:0a00:5::1", "2002:c0a8:101::1",
+		"::7f00:1", "::a00:5", "::ffff:0:7f00:1", "::ffff:0:a00:5", "fec0::1", "feff::1",
+		"2001:0:4136:e378:8000:63bf:80ff:fffe", "2001:0:a00:5:8000:63bf:f7f7:f7f7"} {
 		if err := refuseAddress("tcp", net.JoinHostPort(ip, "443"), nil); err == nil {
 			t.Errorf("%s allowed", ip)
 		}
 	}
-	for _, ip := range []string{"140.82.112.3", "2606:50c0:8000::154"} {
+	for _, ip := range []string{"140.82.112.3", "2606:50c0:8000::154", "198.20.0.1", "223.255.255.1", "64:ff9b::8c52:7003", "2002:8c52:7003::1", "::8c52:7003", "::ffff:0:8c52:7003", "2001:0:4136:e378:8000:63bf:f7f7:f7f7"} {
 		if err := refuseAddress("tcp", net.JoinHostPort(ip, "443"), nil); err != nil {
 			t.Errorf("%s refused: %v", ip, err)
 		}
@@ -422,5 +429,368 @@ func TestProxyRefusesRedirectToPrivateAddress(t *testing.T) {
 	_, err := f.Fetch(context.Background(), ghRef("pdf"))
 	if err == nil || !strings.Contains(err.Error(), "may connect to") || hits.Load() != 1 {
 		t.Fatalf("err = %v, proxy hits = %d", err, hits.Load())
+	}
+}
+
+func TestFetchRefusesAbsolutePathEntry(t *testing.T) {
+	f := githubServer(t, buildTar(t, []entry{
+		{name: "r-abc/skills/pdf/SKILL.md", body: "x"},
+		{name: "/etc/passwd", body: "root"},
+	}))
+	_, err := f.Fetch(context.Background(), ghRef("pdf"))
+	if err == nil || !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFetchRefusesUnknownSourceTypeAndEmptySlug(t *testing.T) {
+	f := githubServer(t, buildTar(t, []entry{{name: "r-abc/skills/pdf/SKILL.md", body: "x"}}))
+	for _, st := range []string{"hosted", "", "gitlab"} {
+		r := ghRef("pdf")
+		r.SourceType = st
+		_, err := f.Fetch(context.Background(), r)
+		if err == nil || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "source type") {
+			t.Fatalf("%q: err = %v", st, err)
+		}
+	}
+	r := ghRef("")
+	if _, err := f.Fetch(context.Background(), r); err == nil || !strings.Contains(err.Error(), "name") {
+		t.Fatalf("empty slug: err = %v", err)
+	}
+}
+
+func TestFetchWellKnownRefusesUnsafeSkillName(t *testing.T) {
+	for _, name := range []string{"..", ".", "a/b", `a\b`} {
+		var hits atomic.Int64
+		mux := http.NewServeMux()
+		mux.HandleFunc("/.well-known/agent-skills/index.json", func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"skills": []any{map[string]any{"name": name, "files": []string{"SKILL.md"}}}})
+		})
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasSuffix(r.URL.Path, "index.json") {
+				hits.Add(1)
+			}
+			w.Write([]byte("---\nname: x\n---\n"))
+		})
+		f, r := wellKnownServer(t, mux)
+		r.Slug = name
+		if name == ".." || name == "." || strings.ContainsAny(name, "/\\") {
+			r.Slug = normalize(name)
+		}
+		_, err := f.Fetch(context.Background(), r)
+		if err == nil || hits.Load() != 0 {
+			t.Fatalf("%q: err = %v, file requests = %d", name, err, hits.Load())
+		}
+	}
+}
+
+func TestFetchWellKnownTooLarge(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/agent-skills/index.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"skills":[{"name":"demo","files":["SKILL.md","big.bin"]}]}`))
+	})
+	mux.HandleFunc("/.well-known/agent-skills/demo/SKILL.md", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("x")) })
+	mux.HandleFunc("/.well-known/agent-skills/demo/big.bin", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, skillbundle.MaxBytes+1))
+	})
+	f, r := wellKnownServer(t, mux)
+	if _, err := f.Fetch(context.Background(), r); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("a file over the limit: err = %v", err)
+	}
+	var names []string
+	for i := 0; i <= skillbundle.MaxFiles; i++ {
+		names = append(names, "f"+strings.Repeat("a", i%5)+string(rune('a'+i%26))+string(rune('a'+i/26))+".txt")
+	}
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc("/.well-known/agent-skills/index.json", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"skills": []any{map[string]any{"name": "demo", "files": names}}})
+	})
+	f, r = wellKnownServer(t, mux2)
+	if _, err := f.Fetch(context.Background(), r); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("too many files: err = %v", err)
+	}
+}
+
+func TestFetchFolderPreferenceOrder(t *testing.T) {
+	skill := func(dir, name string) []entry {
+		return []entry{{name: "r-abc/" + dir + "/SKILL.md", body: "---\nname: " + name + "\n---\n"}, {name: "r-abc/" + dir + "/from.txt", body: dir}}
+	}
+	concat := func(parts ...[]entry) []entry {
+		var out []entry
+		for _, p := range parts {
+			out = append(out, p...)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name    string
+		entries []entry
+		want    string
+	}{
+		{"skills/<slug> beats an exact folder name", concat(skill("tools/pdf", "pdf"), skill("skills/pdf", "other")), "skills/pdf"},
+		{"an exact folder name beats a front-matter name", concat(skill("a/x", "pdf"), skill("z/pdf", "other")), "z/pdf"},
+		{"a front-matter name beats a loose folder name", concat(skill("a/PDF", "other"), skill("z/x", "pdf")), "z/x"},
+		{"a loose folder name matches when nothing else does", skill("a/PDF", "other"), "a/PDF"},
+		{"the shallowest of equals", concat(skill("a/b/pdf", "pdf"), skill("c/pdf", "pdf")), "c/pdf"},
+		{"then the first by name", concat(skill("z/pdf", "pdf"), skill("b/pdf", "pdf")), "b/pdf"},
+	} {
+		res, err := githubServer(t, buildTar(t, tc.entries)).Fetch(context.Background(), ghRef("pdf"))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if res.Origin != "https://github.com/o/r/tree/HEAD/"+tc.want {
+			t.Errorf("%s: origin = %s, want folder %s", tc.name, res.Origin, tc.want)
+		}
+	}
+}
+
+func TestProxyRefusesMixedPublicAndPrivateAnswers(t *testing.T) {
+	hits, proxy := proxyFixture(t, func(w http.ResponseWriter, r *http.Request) {})
+	f := Fetcher{proxy: proxy, lookup: func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("140.82.112.3"), net.ParseIP("10.0.0.5")}, nil
+	}}
+	r := ref.Ref{Source: "mixed.test", Slug: "demo", SourceType: "well-known"}
+	_, err := f.Fetch(context.Background(), r)
+	if err == nil || !strings.Contains(err.Error(), "may connect to") || hits.Load() != 0 {
+		t.Fatalf("err = %v, proxy hits = %d", err, hits.Load())
+	}
+}
+
+func TestProxyRefusesEmptyAnswer(t *testing.T) {
+	hits, proxy := proxyFixture(t, func(w http.ResponseWriter, r *http.Request) {})
+	f := Fetcher{proxy: proxy, lookup: func(context.Context, string) ([]net.IP, error) { return nil, nil }}
+	r := ref.Ref{Source: "empty.test", Slug: "demo", SourceType: "well-known"}
+	_, err := f.Fetch(context.Background(), r)
+	if err == nil || !strings.Contains(err.Error(), "may connect to") || hits.Load() != 0 {
+		t.Fatalf("err = %v, proxy hits = %d", err, hits.Load())
+	}
+}
+
+// The proxy's own address is exempt from the dial guard only for the proxy
+// leg. A direct dial (NO_PROXY) to that same loopback address stays refused.
+func TestDirectDialToTheProxyAddressStaysGuarded(t *testing.T) {
+	var proxied atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied.Add(1)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	pu, _ := url.Parse(srv.URL)
+	proxy := func(req *http.Request) (*url.URL, error) {
+		if req.URL.Host == "example.test" {
+			return pu, nil
+		}
+		return nil, nil // NO_PROXY
+	}
+	c := defaultClient(proxy, fakeLookup(map[string]string{"example.test": "140.82.112.3"}))
+	resp, err := c.Get("http://example.test/")
+	if err != nil {
+		t.Fatalf("through the proxy: %v", err)
+	}
+	resp.Body.Close()
+	if proxied.Load() != 1 {
+		t.Fatalf("the proxy was not used: %d", proxied.Load())
+	}
+	_, err = c.Get(srv.URL + "/")
+	if err == nil || !strings.Contains(err.Error(), "may connect to") || proxied.Load() != 1 {
+		t.Fatalf("direct dial to the proxy's address: err = %v, hits = %d", err, proxied.Load())
+	}
+}
+
+// The index answers at once and every file request then blocks until its own
+// context ends. Nothing but Fetch's deadline can end it: the test client has
+// no timeout of its own, and nothing here sleeps against a timer.
+func TestFetchHasAnOverallDeadline(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "index.json") {
+			w.Write([]byte(`{"skills":[{"name":"demo","files":["SKILL.md"]}]}`))
+			return
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "https://")
+	r := ref.Ref{Source: host, Slug: "demo", SourceType: "well-known"}
+	f := Fetcher{Client: srv.Client(), timeout: 100 * time.Millisecond}
+	if _, err := f.Fetch(context.Background(), r); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Fetch's own deadline: err = %v", err)
+	}
+	// A shorter deadline of the caller still wins over a long Fetch timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	f.timeout = time.Hour
+	if _, err := f.Fetch(ctx, r); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("caller deadline: err = %v", err)
+	}
+}
+
+// A transport that reports a cancelled body as a clean end of file must not
+// make a half-read file look complete.
+func TestFetchCutByDeadlineIsNeverTakenAsComplete(t *testing.T) {
+	cut := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body io.ReadCloser
+		if strings.HasSuffix(req.URL.Path, "index.json") {
+			body = io.NopCloser(strings.NewReader(`{"skills":[{"name":"demo","files":["SKILL.md"]}]}`))
+		} else {
+			body = blockedBody{req.Context()}
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body, Request: req}, nil
+	})
+	f := Fetcher{Client: &http.Client{Transport: cut}, timeout: 50 * time.Millisecond}
+	_, err := f.Fetch(context.Background(), ref.Ref{Source: "example.test", Slug: "demo", SourceType: "well-known", URL: "https://x"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	// The same for a repository archive.
+	gh := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: blockedBody{req.Context()}, Request: req}, nil
+	})
+	f = Fetcher{Client: &http.Client{Transport: gh}, timeout: 50 * time.Millisecond}
+	if _, err = f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("archive: err = %v", err)
+	}
+}
+
+// blockedBody blocks until its context ends, then reports a clean end of file.
+type blockedBody struct{ ctx context.Context }
+
+func (b blockedBody) Read([]byte) (int, error) { <-b.ctx.Done(); return 0, io.EOF }
+func (b blockedBody) Close() error             { return nil }
+
+func TestFetchBuildsOneClientAndClosesItsConnections(t *testing.T) {
+	var built, closed atomic.Int64
+	srv := httptest.NewTLSServer(demoHandler())
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "https://")
+	f := Fetcher{newClient: func() *http.Client {
+		built.Add(1)
+		c := srv.Client()
+		tr := c.Transport.(*http.Transport).Clone()
+		c = &http.Client{Transport: closeCounter{tr, &closed}}
+		return c
+	}}
+	r := ref.Ref{Source: host, Slug: "demo", SourceType: "well-known", URL: "https://www.skills.sh/x"}
+	if _, err := f.Fetch(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if built.Load() != 1 || closed.Load() != 1 {
+		t.Fatalf("a Fetch of 3 requests built %d clients and closed idle connections %d times", built.Load(), closed.Load())
+	}
+}
+
+type closeCounter struct {
+	*http.Transport
+	n *atomic.Int64
+}
+
+func (c closeCounter) CloseIdleConnections() { c.n.Add(1); c.Transport.CloseIdleConnections() }
+
+// gzipTar is buildTar with the fastest compression, for big, repetitive
+// bodies. A regular entry carries its body; any other type carries size zero
+// bytes of data, the way a reader that does not know the type will skip them.
+func gzipTar(t *testing.T, entries []entry, size int64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	tw := tar.NewWriter(gz)
+	for _, e := range entries {
+		tf, n := e.typeflag, int64(len(e.body))
+		if tf == 0 {
+			tf = tar.TypeReg
+		}
+		if tf != tar.TypeReg {
+			n = size
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: e.name, Mode: 0o644, Typeflag: tf, Size: n}); err != nil {
+			t.Fatal(err)
+		}
+		var src io.Reader = strings.NewReader(e.body)
+		if tf != tar.TypeReg {
+			src = io.LimitReader(zeroReader{}, n)
+		}
+		if _, err := io.Copy(tw, src); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+func TestFetchCountsNonRegularEntrySizesTowardTheStreamCap(t *testing.T) {
+	body := gzipTar(t, []entry{
+		{name: "r-abc/skills/pdf/SKILL.md", body: "x"},
+		{name: "r-abc/pad", typeflag: 'Z'}, // a type the reader hands over with data
+	}, 64<<10)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	f := Fetcher{Client: srv.Client(), GitHub: srv.URL, streamCap: 32 << 10}
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrArchiveTooLarge) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Two sizes whose sum wraps past MaxInt64 must not slip under the cap.
+func TestFetchStreamCapSurvivesSizeOverflow(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "r-abc/a", Mode: 0o644, Typeflag: 'Z', Size: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(make([]byte, 100)); err != nil {
+		t.Fatal(err)
+	}
+	// Only the header: the body is never sent, so a reader that tries to skip
+	// it gets an unexpected EOF instead of the size error.
+	if err := tw.WriteHeader(&tar.Header{Name: "r-abc/b", Mode: 0o644, Typeflag: 'Z', Size: math.MaxInt64 - 50}); err != nil {
+		t.Fatal(err)
+	}
+	gz.Close()
+	body := buf.Bytes()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	f := Fetcher{Client: srv.Client(), GitHub: srv.URL}
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrArchiveTooLarge) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// The body a regular entry is built with must reach the archive.
+func TestGzipTarKeepsRegularBodies(t *testing.T) {
+	body := gzipTar(t, []entry{{name: "r-abc/skills/pdf/SKILL.md", body: "---\nname: pdf\n---\nhello"}}, 0)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	res, err := Fetcher{Client: srv.Client(), GitHub: srv.URL}.Fetch(context.Background(), ghRef("pdf"))
+	if err != nil || !strings.Contains(string(res.Files[0].Data), "hello") {
+		t.Fatalf("%v %+v", err, res.Files)
+	}
+}
+
+func TestFetchTruncatedArchiveIsTooLarge(t *testing.T) {
+	junk := make([]byte, 64<<10)
+	rand.New(rand.NewSource(2)).Read(junk)
+	body := buildTar(t, []entry{
+		{name: "r-abc/skills/pdf/SKILL.md", body: "x"},
+		{name: "r-abc/skills/pdf/a.bin", body: string(junk)},
+		{name: "r-abc/skills/other/SKILL.md", body: "y"},
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	f := Fetcher{Client: srv.Client(), GitHub: srv.URL, archiveCap: 16 << 10}
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); !errors.Is(err, ErrArchiveTooLarge) {
+		t.Fatalf("a cut archive must say too large, not a gzip error: %v", err)
+	}
+	f.archiveCap = int64(len(body)) // exactly its size is fine
+	if _, err := f.Fetch(context.Background(), ghRef("pdf")); err != nil {
+		t.Fatalf("an archive at the cap: %v", err)
 	}
 }

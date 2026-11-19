@@ -215,14 +215,15 @@ async function screen(p, width, s) {
  return found
 }
 
-// A long skill name is clamped to two lines while its card is collapsed; expanded, all of it reads on the screen.
+// A long skill name wraps inside its row; opened, all of it still reads on the screen.
 async function expandedName(p, width) {
  await p.visit('/skills')
- await p.page.getByRole('button', {name:`Expand ${LONGSKILL}`}).click()
- const h = p.page.locator('h3', {hasText:LONGSKILL}).first()
- await h.scrollIntoViewIfNeeded()
- const fit = await h.evaluate(el => { const r = el.getBoundingClientRect(); return {w:el.scrollWidth - el.clientWidth, h:el.scrollHeight - el.clientHeight, left:r.left, right:r.right, vw:innerWidth} })
- return fit.w > 1 || fit.h > 1 || fit.left < 0 || fit.right > fit.vw ? [`${width}px skills: the expanded long skill name does not fit its heading (${JSON.stringify(fit)})`] : []
+ const name = p.page.getByRole('button', {name:LONGSKILL, exact:true})
+ await name.scrollIntoViewIfNeeded()
+ await name.click()
+ await p.page.getByRole('list', {name:`Machines for ${LONGSKILL}`}).or(p.page.locator(`#skill-detail-item-${LONGSKILL}`)).first().waitFor()
+ const fit = await name.evaluate(el => { const r = el.getBoundingClientRect(); return {w:el.scrollWidth - el.clientWidth, h:el.scrollHeight - el.clientHeight, left:r.left, right:r.right, vw:innerWidth} })
+ return fit.w > 1 || fit.h > 1 || fit.left < 0 || fit.right > fit.vw ? [`${width}px skills: the opened long skill name does not fit its row (${JSON.stringify(fit)})`] : []
 }
 
 async function check(width) {

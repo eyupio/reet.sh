@@ -21,6 +21,7 @@ type RemoteImport struct {
 	SyncSkillID   string `json:"syncSkillId,omitempty"`
 	DestinationID string `json:"destinationId,omitempty"`
 	SyncRunID     string `json:"syncRunId,omitempty"`
+	SyncEnded     bool   `json:"syncEnded,omitempty"`
 	// Chosen marks a copy a person asked for by name from one machine (taking
 	// its version of a library item). It needs no second approval when every
 	// file is allowed.
@@ -46,6 +47,15 @@ type RemoteImport struct {
 	Digest        string               `json:"digest,omitempty"`
 	Receipt       *PrivateSkillResult  `json:"receipt,omitempty"`
 	Error         string               `json:"error,omitempty"`
+
+	// UseVersionItem and BackupPath make the capture Use this version: the
+	// machine reads BackupPath, its backup of a copy edited there, which must
+	// lie in the backups beside one of its managed skills folders, and the
+	// files become a new revision of the library skill UseVersionItem, whose
+	// bundle and head BundleID and ExpectedBase name. Only the controller
+	// sets them.
+	UseVersionItem string `json:"useVersionItem,omitempty"`
+	BackupPath     string `json:"backupPath,omitempty"`
 }
 type ImportCapability struct {
 	AgentID    string `json:"agentId"`
@@ -64,6 +74,10 @@ type RemoteImportCreate struct {
 	ExpectedBase  string `json:"expectedBase"`
 	// Chosen is set only by the controller, never decoded from a request.
 	Chosen bool `json:"-"`
+	// UseVersionItem and BackupPath are set only by the controller, never
+	// decoded from a request (see RemoteImport).
+	UseVersionItem string `json:"-"`
+	BackupPath     string `json:"-"`
 }
 
 func (s *Store) migrateRemoteImports() error {
@@ -174,7 +188,7 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 		// An import of a skill the library already lists without content fills
 		// that entry. Without this the copy became a second entry of the same
 		// name while the first went on waiting.
-		if in.SyncSkillID == "" && in.BundleID == "" && in.DestinationID == "" {
+		if in.SyncSkillID == "" && in.BundleID == "" && in.DestinationID == "" && in.UseVersionItem == "" {
 			in.SyncSkillID = pendingLibrarySkill(tx, uid, in.EnvironmentID, in.Name)
 		}
 		var existing string
@@ -187,7 +201,8 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 			sameSource := out.FollowShelf == in.FollowShelf && out.SyncSkillID == in.SyncSkillID && out.DestinationID == in.DestinationID
 			sameTarget := out.AgentID == in.AgentID && out.EnvironmentID == in.EnvironmentID && out.Name == in.Name
 			sameBase := out.BundleID == in.BundleID && out.ExpectedBase == in.ExpectedBase
-			sameRequest := sameSource && sameTarget && sameBase
+			sameVersion := out.UseVersionItem == in.UseVersionItem && out.BackupPath == in.BackupPath
+			sameRequest := sameSource && sameTarget && sameBase && sameVersion
 			if !sameRequest {
 				return ErrRemoteImport
 			}
@@ -224,7 +239,7 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 		if busy > 0 && in.SyncSkillID == "" && !in.Chosen {
 			return ErrRemoteImport
 		}
-		out = RemoteImport{Chosen: in.Chosen, FollowShelf: in.FollowShelf, SyncSkillID: in.SyncSkillID, DestinationID: in.DestinationID, ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
+		out = RemoteImport{UseVersionItem: in.UseVersionItem, BackupPath: in.BackupPath, Chosen: in.Chosen, FollowShelf: in.FollowShelf, SyncSkillID: in.SyncSkillID, DestinationID: in.DestinationID, ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
 		// A batch may wait behind other skills or an offline destination. No
 		// file preview exists yet; start its short transfer lease on dispatch.
 		if in.SyncSkillID != "" {
@@ -520,6 +535,9 @@ func (s *Store) CommitRemoteImportFor(uid int64, agent, id, instance, sourceDige
 	}
 	if r.Preview.SourceDigest != sourceDigest {
 		return PrivateSkillResult{}, ErrRemoteImport
+	}
+	if r.UseVersionItem != "" {
+		return s.commitUseVersion(uid, agent, instance, r, files)
 	}
 	in := MachineSkillImport{SchemaVersion: 1, RequestID: "remote_" + r.ID, BundleID: r.BundleID, ExpectedBase: &r.ExpectedBase, Agent: r.Agent, Project: r.Project, Name: r.Name, Digest: r.Digest, Files: files}
 	return s.saveMachineSkillImportFor(uid, agent, in, func(tx *sql.Tx) error {

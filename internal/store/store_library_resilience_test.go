@@ -179,12 +179,13 @@ func TestDuplicateNamePrefersTheAccountsOwnWrittenSkill(t *testing.T) {
 // stop Sync all machines from switching every machine on, nor take the rest of
 // the library with it.
 func TestSyncAllMachinesSkipsASkillThatCannotBeStoredPrivately(t *testing.T) {
+	lowerPrivateSkillLimits(t, 32, 64)
 	s, uid, id := libraryFixture(t)
 	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
 		t.Fatal(err)
 	}
 	// Every private bundle slot holds a live skill, so the draft cannot get one.
-	for i := 0; i < MaxPrivateSkillBundles; i++ {
+	for i := 0; i < privateSkillBundleLimit; i++ {
 		if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite(fmt.Sprintf("full_bundle_%06d", i), "", fmt.Sprintf("skill %d", i))); err != nil {
 			t.Fatal(err)
 		}
@@ -228,6 +229,17 @@ func TestSyncAllMachinesSkipsASkillThatCannotBeStoredPrivately(t *testing.T) {
 	}
 }
 
+// lowerPrivateSkillLimits shrinks the bundle and revision bounds for one test
+// that loops up to them, so it fills the bound in moments rather than writing
+// thousands of bundles under the race detector. The bound is still enforced by
+// the same code; TestStorageLimitsHoldALibrary runs against the real limits.
+func lowerPrivateSkillLimits(t *testing.T, bundles, revisions int) {
+	t.Helper()
+	oldBundles, oldRevisions := privateSkillBundleLimit, privateSkillRevisionLimit
+	privateSkillBundleLimit, privateSkillRevisionLimit = bundles, revisions
+	t.Cleanup(func() { privateSkillBundleLimit, privateSkillRevisionLimit = oldBundles, oldRevisions })
+}
+
 func bigRevision(key, base string, i int) PrivateSkillWrite {
 	blob := make([]byte, 1536*1024)
 	for n := range blob {
@@ -243,6 +255,7 @@ func bigRevision(key, base string, i int) PrivateSkillWrite {
 // after which no skill could be saved at all. Superseded revisions are freed
 // when space is needed.
 func TestPrivateStorageFreesSupersededRevisionsInsteadOfFillingUp(t *testing.T) {
+	lowerPrivateSkillLimits(t, 32, 64)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	first, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite("reclaim_req_000000", "", "edit 0"))
@@ -250,7 +263,7 @@ func TestPrivateStorageFreesSupersededRevisionsInsteadOfFillingUp(t *testing.T) 
 		t.Fatal(err)
 	}
 	head := first.Revision.ID
-	for i := 1; i < MaxPrivateSkillRevisions; i++ {
+	for i := 1; i < privateSkillRevisionLimit; i++ {
 		saved, err := s.SavePrivateSkillRevisionFor(uid, first.Bundle.ID, privateWrite(fmt.Sprintf("reclaim_req_%06d", i), head, fmt.Sprintf("edit %d", i)))
 		if err != nil {
 			t.Fatal(err)
@@ -268,7 +281,7 @@ func TestPrivateStorageFreesSupersededRevisionsInsteadOfFillingUp(t *testing.T) 
 		t.Fatalf("the head did not move to the new edit: %+v %v", bundle, err)
 	}
 	counts := privateCounts(t, s)
-	if counts[0] != 1 || counts[1] >= MaxPrivateSkillRevisions {
+	if counts[0] != 1 || counts[1] >= privateSkillRevisionLimit {
 		t.Fatalf("superseded revisions were not freed: %v", counts)
 	}
 	if _, err = s.PrivateSkillRevisionFor(uid, first.Bundle.ID, saved.Revision.ID); err != nil {
@@ -283,6 +296,7 @@ func TestPrivateStorageFreesSupersededRevisionsInsteadOfFillingUp(t *testing.T) 
 // The 64 MiB bound is about stored bytes. Bytes only superseded revisions hold
 // are freed when a write needs the room.
 func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
+	lowerByteLimit(t)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	first, err := s.SavePrivateSkillRevisionFor(uid, "", bigRevision("bytes_req_0000000", "", 0))
@@ -290,7 +304,7 @@ func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	head := first.Revision.ID
-	for i := 1; i <= MaxPrivateSkillBytes/(1536*1024); i++ {
+	for i := 1; i <= int(privateSkillByteLimit/(1536*1024)); i++ {
 		saved, err := s.SavePrivateSkillRevisionFor(uid, first.Bundle.ID, bigRevision(fmt.Sprintf("bytes_req_%07d", i), head, i))
 		if err != nil {
 			t.Fatalf("edit %d of a single large skill was refused: %v", i, err)
@@ -301,7 +315,7 @@ func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
 	if err = s.db.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM private_skill_blobs WHERE user_id=?`, uid).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	if total > MaxPrivateSkillBytes {
+	if total > privateSkillByteLimit {
 		t.Fatalf("stored bytes exceed the bound: %d", total)
 	}
 }
@@ -309,9 +323,10 @@ func TestPrivateStorageFreesSupersededBytes(t *testing.T) {
 // Space that nothing else can reclaim is still a hard limit, and a refused write
 // leaves nothing behind.
 func TestPrivateStorageStillRefusesWhenEverySlotHoldsALiveSkill(t *testing.T) {
+	lowerPrivateSkillLimits(t, 32, 64)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
-	for i := 0; i < MaxPrivateSkillBundles; i++ {
+	for i := 0; i < privateSkillBundleLimit; i++ {
 		if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite(fmt.Sprintf("live_bundle_%06d", i), "", fmt.Sprintf("skill %d", i))); err != nil {
 			t.Fatal(err)
 		}
@@ -329,9 +344,10 @@ func TestPrivateStorageStillRefusesWhenEverySlotHoldsALiveSkill(t *testing.T) {
 // Bytes no revision refers to any more were stranded for good, because nothing
 // ever deleted a blob. They no longer count against the account.
 func TestPrivateStorageFreesBlobsNoRevisionUses(t *testing.T) {
+	lowerByteLimit(t)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
-	if _, err := s.db.Exec(`INSERT INTO private_skill_blobs(user_id,digest,data) VALUES(?,?,zeroblob(?))`, uid, strings.Repeat("a", 64), MaxPrivateSkillBytes); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO private_skill_blobs(user_id,digest,data) VALUES(?,?,zeroblob(?))`, uid, strings.Repeat("a", 64), privateSkillByteLimit); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite("orphan_blob_00001", "", "fits once the orphan is freed")); err != nil {
@@ -677,6 +693,7 @@ func bundleExists(t *testing.T, s *Store, uid int64, id string) bool {
 // sync a new one. Those bundles are copies of a skill's bytes; once nothing uses
 // one, it is freed when a slot is needed: oldest first, and only as many as needed.
 func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
+	lowerPrivateSkillLimits(t, 32, 64)
 	s, uid, env := controlFixture(t)
 	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
 	if err != nil {
@@ -690,7 +707,7 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 	}
 	// Every other slot holds a skill somebody saved directly. Those are never freed.
 	direct := []string{}
-	for i := 6; i < MaxPrivateSkillBundles; i++ {
+	for i := 6; i < privateSkillBundleLimit; i++ {
 		saved, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite(fmt.Sprintf("direct_bundle_%05d", i), "", fmt.Sprintf("direct %d", i)))
 		if err != nil {
 			t.Fatal(err)
@@ -760,7 +777,7 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 		}
 	}
 	var bundles int
-	if err = s.db.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&bundles); err != nil || bundles != MaxPrivateSkillBundles {
+	if err = s.db.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&bundles); err != nil || bundles != privateSkillBundleLimit {
 		t.Fatalf("expected the account to be back at its bound: %d %v", bundles, err)
 	}
 
@@ -818,6 +835,7 @@ func machineCaptureWrite(key, name string) PrivateSkillWrite {
 // behind. They are copies, not something a person saved, so they are freed when a
 // slot is needed, while the bundle a skill is still bound to stays.
 func TestUnusedCaptureBundlesAreFreedButBoundOnesStay(t *testing.T) {
+	lowerPrivateSkillLimits(t, 32, 64)
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	if _, err := s.UpsertLocalFor(uid, "kept", Patch{}); err != nil {
@@ -832,7 +850,7 @@ func TestUnusedCaptureBundlesAreFreedButBoundOnesStay(t *testing.T) {
 		t.Fatal(err)
 	}
 	var victim string
-	for i := 1; i < MaxPrivateSkillBundles; i++ {
+	for i := 1; i < privateSkillBundleLimit; i++ {
 		saved, err := s.SavePrivateSkillRevisionFor(uid, "", machineCaptureWrite(fmt.Sprintf("unbound_capture_%04d", i), fmt.Sprintf("captured-%d", i)))
 		if err != nil {
 			t.Fatal(err)
@@ -855,7 +873,7 @@ func TestUnusedCaptureBundlesAreFreedButBoundOnesStay(t *testing.T) {
 		t.Fatal("the bundle a skill is bound to was freed")
 	}
 	var bundles int
-	if err = s.db.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&bundles); err != nil || bundles != MaxPrivateSkillBundles {
+	if err = s.db.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&bundles); err != nil || bundles != privateSkillBundleLimit {
 		t.Fatalf("expected the account to be back at its bound: %d %v", bundles, err)
 	}
 }

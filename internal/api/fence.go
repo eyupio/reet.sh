@@ -223,14 +223,11 @@ func fenceMessage(f store.Fence) string {
 }
 
 // fenceWrite is whether a request would change something. Reads, including the
-// private-connection upgrade, are not writes. /quick saves through a GET, so it
-// counts; /mcp carries every tool call as a POST and is checked per tool.
+// private-connection upgrade, are not writes; /quick saves only through its
+// POST. /mcp carries every tool call as a POST and is checked per tool.
 func fenceWrite(r *http.Request) bool {
 	if r.URL.Path == "/mcp" {
 		return false
-	}
-	if r.URL.Path == "/quick" {
-		return true
 	}
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:

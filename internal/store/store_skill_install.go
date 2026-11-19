@@ -130,6 +130,31 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if err != nil {
 			return err
 		}
+		offline := installRefused("connector-offline", host+" isn't connected to reet right now, so it can't install this skill.")
+		var agentHost string
+		var seen int64
+		var paused bool
+		err = tx.QueryRow(`SELECT host,last_seen,paused FROM sync_agents WHERE id=? AND user_id=?`, in.AgentID, uid).Scan(&agentHost, &seen, &paused)
+		agentFound := err == nil
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if agentFound {
+			if agentHost, err = resolveMachineHost(tx, uid, agentHost); err != nil {
+				return err
+			}
+		}
+		// Nothing is said about an agent that is not this machine's.
+		thisMachine := agentFound && strings.EqualFold(agentHost, host)
+		// Before the scan check: a machine that follows the library takes no
+		// install, so a scan would not help.
+		if thisMachine {
+			if err = refuseJobsForSkillsAgentTx(tx, uid, in.AgentID, "install"); errors.Is(err, ErrAgentFollowsLibrary) {
+				return installRefused("follows-library", host+" follows your library and already has every Active skill. Make this skill Active and it goes to every machine.")
+			} else if err != nil {
+				return err
+			}
+		}
 		var envID, dir string
 		var complete bool
 		var scanned int64
@@ -141,21 +166,7 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if !fresh {
 			return installRefused("no-scan", "reet hasn't read "+host+"'s "+in.Tool+" skills folder recently. Run a scan on "+host+", then try again.")
 		}
-		offline := installRefused("connector-offline", host+" isn't connected to reet right now, so it can't install this skill.")
-		var agentHost string
-		var seen int64
-		var paused bool
-		err = tx.QueryRow(`SELECT host,last_seen,paused FROM sync_agents WHERE id=? AND user_id=?`, in.AgentID, uid).Scan(&agentHost, &seen, &paused)
-		if errors.Is(err, sql.ErrNoRows) {
-			return offline
-		}
-		if err != nil {
-			return err
-		}
-		if agentHost, err = resolveMachineHost(tx, uid, agentHost); err != nil {
-			return err
-		}
-		online := !paused && strings.EqualFold(agentHost, host) &&
+		online := !paused && thisMachine &&
 			seen >= time.Now().Add(-installAgentOnline).UnixMilli()
 		if !online {
 			return offline

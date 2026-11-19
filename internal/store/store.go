@@ -543,7 +543,15 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateSkillContent(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateSkillReports(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateSkillBackups(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -907,6 +915,10 @@ func (s *Store) attachHiddenTags(skills []Skill) error {
 	}
 	return rows.Err()
 }
+
+// SplitQuery splits a search as ListFor reads it: the words, joined by single
+// spaces, apart from tag:x and tag:"x y", lowercased.
+func SplitQuery(q string) (string, []string) { return splitQuery(q) }
 
 func splitQuery(q string) (string, []string) {
 	var words, tags []string
@@ -1813,6 +1825,8 @@ func (s *Store) RestoreSnapshot(snapshot Snapshot) error {
 	})
 }
 
+// restoreSkills writes the shared skills catalog only. It adds no shelf row, so
+// it makes no library item and cannot give a name a second one.
 func restoreSkills(tx *sql.Tx, all []Skill) error {
 	for _, k := range all {
 		if err := rederive(&k); err != nil {

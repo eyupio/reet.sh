@@ -62,6 +62,8 @@ export function libraryNotice(skills: SyncSkill[], imports: ImportRequest[], run
   const copying: ImportRequest[] = []
   const review: ImportRequest[] = []
   for (const item of newest.values()) {
+    // A transfer that ended for good is done: nothing more will happen to it.
+    if (item.syncEnded) continue
     const installing = !item.syncRunId || runs.some(run => run.id === item.syncRunId && run.status !== 'completed')
     if (!installing) continue
     if (item.state === 'reviewing') review.push(item)

@@ -57,20 +57,20 @@ try {
  await expect(page.getByRole('heading',{name:'Library',level:1})).toBeVisible()
  for(const name of Object.values(names)){
   await expect(item(page,name)).toBeVisible()
-  await expect(item(page,name).getByLabel(`Status of ${name}`)).toHaveValue('in_use')
+  await expect(item(page,name).getByLabel(`Status of ${name}`)).toHaveValue('active')
   await expect(item(page,name)).toContainText('Not selected on any machine')
  }
  const ownerItems=await page.evaluate(async()=>(await (await fetch('/api/v2/library')).json()).items.map(item=>({id:item.id,name:item.name,version:item.version,status:item.status})))
  expect(ownerItems.length).toBe(3)
  await shot(page,'accept-1-library-before')
- log('signed in through the real form; the Library shows each item once, In use, selected nowhere')
+ log('signed in through the real form; the Library shows each item once, Active, selected nowhere')
 
  // 2. Both machines are connected. Choose skills on one: select, save, and the rows say they are waiting, not done.
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('article',{name:'workstation',exact:true})).toBeVisible()
  await expect(page.getByRole('article',{name:'laptop',exact:true})).toBeVisible()
  let {dialog,panel}=await openPicker(page,'workstation')
- await panel.getByRole('button',{name:'Select all In use'}).click()
+ await panel.getByRole('button',{name:'Select all Active'}).click()
  await panel.getByRole('button',{name:'Save selection'}).click()
  await expect(panel.getByRole('status').filter({hasText:'Selection saved'})).toBeVisible()
  for(const name of Object.values(names)){
@@ -95,9 +95,9 @@ try {
  for(const name of Object.values(names))await expect(item(page,name)).toContainText('Selected on workstation')
  log('the Library shows the machine that keeps each item')
 
- // 5. Status removal from the Library: Disabled removes the managed copy, keeps the library entry and the selection, notifies nobody.
- await item(page,names.review).getByLabel(`Status of ${names.review}`).selectOption('disabled')
- await expect(item(page,names.review)).toContainText('not installed while disabled')
+ // 5. Status removal from the Library: Archived removes the managed copy, keeps the library entry and the selection, notifies nobody.
+ await item(page,names.review).getByLabel(`Status of ${names.review}`).selectOption('archived')
+ await expect(item(page,names.review)).toContainText('not installed while archived')
  await rounds('workstation',10)
  expect(await present('workstation',names.review)).toBe(false)
  expect(await ctl('/backups',{m:'workstation',name:names.review}),'the removed copy is recoverable').toBe('1')
@@ -110,15 +110,15 @@ try {
  await shot(page,'accept-5-status-removal',{phone:true})
  const afterRemoval=await page.evaluate(async()=>(await (await fetch('/api/v2/notifications')).json()).notifications.length)
  expect(afterRemoval,'an authorised removal produced a notification').toBe(0)
- log('Disabled removed the managed copy, kept the entry and selection, and notified nobody')
+ log('Archived removed the managed copy, kept the entry and selection, and notified nobody')
 
- // 6. In use again restores the latest revision to the retained selection.
+ // 6. Active again restores the latest revision to the retained selection.
  await page.keyboard.press('Escape')
  await page.goto(`${base}/library`)
- await item(page,names.review).getByLabel(`Status of ${names.review}`).selectOption('in_use')
+ await item(page,names.review).getByLabel(`Status of ${names.review}`).selectOption('active')
  await rounds('workstation',10)
  expect(await present('workstation',names.review)).toBe(true)
- log('returning to In use restored the copy with no reselection')
+ log('returning to Active restored the copy with no reselection')
 
  // 7. A real partial failure: one item's local entry becomes a plain file. It says why beside itself; the others carry on.
  // The controller retries an item at most once a minute (a deliberate back-off), so wait that window out, as a person would.
@@ -150,9 +150,9 @@ try {
  expect(await present('workstation',names.notes),'sync continued with no browser open').toBe(false)
  ;({context,page,errors}=await signedIn())
  await page.goto(`${base}/library`)
- // Turned off through the legacy "used" flag while no browser was open: it maps to To test, the authoritative status.
- await expect(item(page,names.notes).getByLabel(`Status of ${names.notes}`)).toHaveValue('to_test')
- await expect(item(page,names.notes)).toContainText('not installed while to test')
+ // Turned off through the legacy "used" flag while no browser was open: it maps to Archived, the authoritative status.
+ await expect(item(page,names.notes).getByLabel(`Status of ${names.notes}`)).toHaveValue('archived')
+ await expect(item(page,names.notes)).toContainText('not installed while archived')
  ;({dialog,panel}=await openPicker(page,'workstation'))
  await expect(stateOf(panel,names.notes)).toHaveAttribute('data-item-state','inactive')
  await expect(panel.getByRole('checkbox',{name:names.notes})).toBeChecked()
@@ -178,7 +178,7 @@ try {
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('article',{name:'laptop',exact:true})).toContainText(/offline/i)
  ;({dialog,panel}=await openPicker(page,'laptop'))
- await panel.getByRole('button',{name:'Select all In use'}).click()
+ await panel.getByRole('button',{name:'Select all Active'}).click()
  await panel.getByRole('button',{name:'Save selection'}).click()
  await expect(panel.getByRole('status').filter({hasText:'Selection saved'})).toBeVisible()
  await expect(stateOf(panel,names.review)).toHaveAttribute('data-item-state','waiting_offline')
@@ -190,7 +190,7 @@ try {
  await rounds('laptop',8)
  expect(await present('laptop',names.review)).toBe(true)
  expect(await present('laptop',names.api)).toBe(true)
- expect(await present('laptop',names.notes),'an item that is not In use never arrived').toBe(false)
+ expect(await present('laptop',names.notes),'an item that is not Active never arrived').toBe(false)
  ;({dialog,panel}=await openPicker(page,'laptop'))
  await expect(stateOf(panel,names.review)).toHaveAttribute('data-item-state','verified')
  await expect(stateOf(panel,names.api)).toHaveAttribute('data-item-state','verified')
@@ -220,14 +220,14 @@ try {
     library:await call('/api/v2/library'),
     read:await call(`/api/v2/library/${own.id}`),
     history:await call(`/api/v2/library-history/${own.id}`),
-    patch:await call(`/api/v2/library/${own.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'disabled',expectedVersion:own.version})}),
+    patch:await call(`/api/v2/library/${own.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'archived',expectedVersion:own.version})}),
     syncAgents:((await (await fetch('/api/v2/sync')).json()).agents||[]).length,
    }
   },ownerItems)
   for(const key of ['library','read','history','patch'])expect([403,404],`the read-only account was not refused: ${JSON.stringify(probe)}`).toContain(probe[key])
   expect(probe.syncAgents,'the read-only account saw the owner’s machines').toBe(0)
   const after=await page.evaluate(async()=>(await (await fetch('/api/v2/library')).json()).items.map(item=>({name:item.name,status:item.status})))
-  expect(after.find(item=>item.name===names.review).status).toBe('in_use')
+  expect(after.find(item=>item.name===names.review).status).toBe('active')
   expect(after.length).toBe(3)
   expect(other.errors).toEqual([])
   await other.context.close()

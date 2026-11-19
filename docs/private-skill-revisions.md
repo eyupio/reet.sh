@@ -94,8 +94,8 @@ connections. Only one new edit of the same base can win.
 
 Bounds: 256 files, 8 MiB decoded file bytes per revision, SKILL.md at most 2 MiB,
 1,024 file/directory entries, depth 32, path length 1,024 bytes; HTTP request at
-most 16 MiB including base64/metadata. Per account: 128 bundles, 256 revisions,
-64 MiB unique stored file bytes. The revision and byte bounds apply to what is in
+most 16 MiB including base64/metadata. Per account: 1,024 bundles, 4,096 revisions,
+1 GiB unique stored file bytes. The revision and byte bounds apply to what is in
 use: see [Freeing superseded history](#freeing-superseded-history). The bundle bound
 frees only the bundles of deleted written skills, because any other bundle is a skill
 someone saved. Original retries remain valid at capacity while their revision still
@@ -104,8 +104,8 @@ exists.
 ## Freeing superseded history
 
 Storage is not append-only. Editing a skill appends a revision and nothing else
-removes the one before it, so an account that edits often would reach 256 revisions
-(or 64 MiB) with a handful of skills and then be unable to save anything. When a
+removes the one before it, so an account that edits often would reach 4,096 revisions
+(or 1 GiB) with a handful of skills and then be unable to save anything. When a
 write would pass the revision or byte bound, the controller first frees history
 nothing depends on, in the same transaction as the write, and checks the bound again.
 If the account is still over it, the write is refused with 409 and nothing changes.
@@ -134,7 +134,7 @@ it succeeds if its base is still the head, and returns 409 as a stale base if no
 
 Deleting or renaming a written skill drops its sync binding but leaves its bundle
 behind (a bundle's name is immutable, so a rename starts a fresh one), and nothing
-can delete a bundle. Each one kept a slot against the 128 for good, so an account
+can delete a bundle. Each one kept a slot against the 1,024 for good, so an account
 that renamed or deleted enough skills could never sync a new one. When a new bundle
 would pass the bound, the controller frees bundles that only ever held a written
 skill's synced bytes and that nothing uses any more. It frees the oldest first and no

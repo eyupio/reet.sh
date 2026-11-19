@@ -17,6 +17,8 @@ export type Skill = {
   liked: boolean
   bookmarked: boolean
   used: boolean
+  /** The library skill's state, Active or Archived, when the row stands for one. */
+  status?: 'active' | 'archived'
   createdAt: number
   updatedAt: number
   tags?: Tag[]
@@ -155,12 +157,15 @@ export class ApiError extends Error {
   code: string
   /** The name of the field a refusal is about, when the server gave one. */
   field: string
-  constructor(message: string, status: number, code = '', field = '') {
+  /** The skills a refusal names, when the server gave them (for example a Delete refused with 'no-copy' or 'written'). */
+  names: string[]
+  constructor(message: string, status: number, code = '', field = '', names: string[] = []) {
     super(message)
     this.field = field
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.names = names
   }
 }
 
@@ -227,16 +232,18 @@ async function req(path: string, init: RequestInit = {}, quiet = false): Promise
     let msg = `${res.status} ${res.statusText}`
     let code = ''
     let field = ''
+    let names: string[] = []
     try {
       const body = await res.json()
       msg = body.error ?? msg
       if (typeof body.code === 'string') code = body.code
       if (typeof body.field === 'string') field = body.field
+      if (Array.isArray(body.names)) names = body.names.filter((n: unknown): n is string => typeof n === 'string')
       refusalListener?.(res.status, body)
     } catch {
       /* keep status text */
     }
-    throw new ApiError(msg, res.status, code, field)
+    throw new ApiError(msg, res.status, code, field, names)
   }
   return res
 }
@@ -467,8 +474,8 @@ export async function addSkill(input: string, flags: Flags = {}): Promise<AddRes
 export async function patchSkill(id: string, flags: Flags): Promise<Skill> {
   return (await req('/api/skill', { method: 'PATCH', body: json({ id, ...flags }) })).json()
 }
-export async function removeSkill(id: string, ignore = false): Promise<void> {
-  await req(`/api/skill?id=${encodeURIComponent(id)}${ignore ? '&ignore=1' : ''}`, { method: 'DELETE' })
+export async function removeSkill(id: string, ignore = false, noCopyConfirmed = false): Promise<void> {
+  await req(`/api/skill?id=${encodeURIComponent(id)}${ignore ? '&ignore=1' : ''}${noCopyConfirmed ? '&noCopyConfirmed=1' : ''}`, { method: 'DELETE' })
 }
 export async function patchSkills(ids: string[], flags: Flags): Promise<{ updated: number }> {
   return (await req('/api/skills', { method: 'PATCH', body: json({ ids, ...flags }) })).json()
@@ -476,16 +483,102 @@ export async function patchSkills(ids: string[], flags: Flags): Promise<{ update
 export async function tagSkills(ids: string[], add: string[], remove: number[]): Promise<{ tagged: number }> {
   return (await req('/api/skills/tags', { method: 'POST', body: json({ ids, add, remove }) })).json()
 }
-export async function removeSkills(ids: string[], ignore = false): Promise<{ removed: number }> {
-  return (await req('/api/skills/remove', { method: 'POST', body: json({ ids, ignore }) })).json()
+export async function removeSkills(ids: string[], ignore = false, noCopyConfirmed = false): Promise<{ removed: number }> {
+  return (await req('/api/skills/remove', { method: 'POST', body: json(noCopyConfirmed ? { ids, ignore, noCopyConfirmed } : { ids, ignore }) })).json()
+}
+/**
+ * Runs an old Remove. When it is refused because reet has no copy (code 'no-copy'), it asks once, and if confirmed
+ * runs it again confirmed. It says whether anything was removed. Any other refusal, 'written' included, is thrown.
+ */
+export async function removeConfirmingNoCopy(remove: (noCopyConfirmed: boolean) => Promise<unknown>, confirm: (refusal: ApiError) => Promise<boolean>): Promise<boolean> {
+  try {
+    await remove(false)
+    return true
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.code !== 'no-copy') throw e
+    if (!(await confirm(e))) return false
+  }
+  await remove(true)
+  return true
 }
 export async function refreshSkill(id: string): Promise<RefreshResult> {
   return (await req('/api/skill/refresh', { method: 'POST', body: json({ id }) })).json()
 }
+
+// The Skills page: one API keyed by library item. Likes, notes, tags and lists keep their endpoints, keyed by each
+// row's shelfId.
+export type HealthState = 'ok' | 'installing' | 'removing' | 'failed' | 'offline' | 'blocked' | 'copying' | 'copy-failed' | 'getting' | 'fetch-failed' | 'needs-update' | 'off'
+export type SkillHealth = { state: HealthState; pending: number; total: number; hosts: string[]; reason?: string; machines: { host: string; state: string; detail?: string }[] }
+export type SkillRow = {
+  id: string
+  shelfId: string
+  name: string
+  description: string
+  status: 'active' | 'archived'
+  originKind: 'written' | 'imported' | 'kept'
+  origin: string
+  yours: boolean
+  published: boolean
+  publicUrl?: string
+  hasCopy: boolean
+  liked: boolean
+  notes: string
+  tags: Tag[]
+  lists: ListRef[]
+  health: SkillHealth
+  upgradedFrom?: 'parked' | 'removed'
+  editedOn?: { agentId: string; host: string }
+  /** Why Use this version could not take editedOn's copy, when it tried: for example a file reet won't copy. */
+  editedOnProblem?: string
+}
+export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
+/** What the machines are doing over every skill (deleted ones still coming off included), each machine counted once. */
+export type SkillWork = { failed: number; installing: number; removing: number; updating: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string; paused?: number; pausedHost?: string }
+export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null; work: SkillWork }
+
+/** One tab of the Skills page, with both tabs' counts. */
+export async function loadSkillsPage(status: 'active' | 'archived'): Promise<SkillsPageData> {
+  return (await req(`/api/v2/skills?status=${encodeURIComponent(status)}`)).json()
+}
+/**
+ * Archive or Restore. The answer is the page for tab, the tab the person is on, so pruning never switches tabs.
+ * Without tab it is the tab the skills went to, which is where an Undo puts them back in their places.
+ */
+export async function setSkillStatus(ids: string[], status: 'active' | 'archived', tab?: 'active' | 'archived'): Promise<SkillsPageData> {
+  return (await req('/api/v2/skills/status', { method: 'POST', body: json(tab ? { ids, status, tab } : { ids, status }) })).json()
+}
+/**
+ * Delete. It throws an ApiError naming the skills in `names`, and deletes nothing, when one of them is a skill you
+ * wrote (code 'written') unless writtenConfirmed, or one reet has no copy of (code 'no-copy') unless noCopyConfirmed.
+ */
+export async function deleteSkills(ids: string[], opts: { noCopyConfirmed?: boolean; writtenConfirmed?: boolean } = {}): Promise<void> {
+  await req('/api/v2/skills/delete', { method: 'POST', body: json({ ids, noCopyConfirmed: opts.noCopyConfirmed ?? false, writtenConfirmed: opts.writtenConfirmed ?? false }) })
+}
+export async function undeleteSkills(ids: string[]): Promise<void> {
+  await req('/api/v2/skills/undelete', { method: 'POST', body: json({ ids }) })
+}
+/** Retry a skill whose files could not be fetched or copied into reet. */
+/** Retry a skill reet could not fetch or copy; resolves to how many skills the server cleared to try again. */
+export async function retrySkill(id: string): Promise<number> {
+  const r = await (await req('/api/v2/skills/retry', { method: 'POST', body: json({ items: [id] }) })).json() as { retried?: number }
+  return r.retried ?? 0
+}
+/** Keep or Archive skills new on a machine; from is the agent whose copy to take, needed when the copies differ. */
+export async function decideNewSkills(names: string[], action: 'keep' | 'archive', from?: string): Promise<void> {
+  await req('/api/v2/skills/new', { method: 'POST', body: json(from ? { names, action, from } : { names, action }) })
+}
+export async function skillNotice(action: 'dismiss' | 'restore-parked'): Promise<void> {
+  await req('/api/v2/skills/notice', { method: 'POST', body: json({ action }) })
+}
+/** Use this version: take the machine's backup of its edit as the skill's next revision. */
+export async function useMachineVersion(id: string, agentId: string): Promise<void> {
+  await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })
+}
 export async function resolveSkill(id: string, input: string): Promise<Skill> {
   return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }
-export async function importText(text: string): Promise<{ imported: number; ignored: number; errors: string[] }> {
+/** imported counts every skill named; created the ones that were not in the library before. */
+export async function importText(text: string): Promise<{ imported: number; created?: number; ignored: number; errors: string[] }> {
   return (await req('/api/import', { method: 'POST', body: json({ text }) })).json()
 }
 export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'csv' = 'json', filters?: SkillQuery): Promise<Blob> {
@@ -1347,6 +1440,8 @@ export async function deleteSetupProfile(name: string): Promise<void> {
 export type ImportPreviewFile = { path: string; bytes: number; digest: string; executable: boolean; blocked?: string }
 export type ImportRequest = {
  syncSkillId?: string; destinationId?: string; syncRunId?: string; syncError?: string;
+ /** The transfer to its destination ended for good, with syncError saying why (that machine now follows the library). */
+ syncEnded?: boolean;
  id: string; requestKey: string; agentId: string; environmentId: string; host: string; agent: string; project: string; name: string
  state: string; bundleId: string; expectedBase: string; createdAt: number; updatedAt: number; expiresAt: number
  previewHash?: string; digest?: string; excluded: string[]; error?: string

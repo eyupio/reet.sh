@@ -17,6 +17,11 @@ test('stdio discovery declares schemas, strict inputs and correct mutation hints
   }
   assert.equal(tools.find(t => t.name === 'reet_remove_skill').annotations.destructiveHint, true);
   assert.equal(tools.find(t => t.name === 'reet_list_skills').annotations.readOnlyHint, true);
+  // Adding a skill or changing its stage changes what is on every machine, and the tools say so.
+  for (const name of ['reet_add_skill', 'reet_update_skill', 'reet_bulk_update_skills']) {
+    assert.match(tools.find(t => t.name === name).description, /every machine that follows the library/, name);
+  }
+  assert.doesNotMatch(tools.find(t => t.name === 'reet_add_skill').description, /run installs/);
 });
 
 test('real API filters, tags, IDs and pagination preserve all matching results', async () => {
@@ -28,9 +33,14 @@ test('real API filters, tags, IDs and pagination preserve all matching results',
   assert.equal(third.has_more, false);
   const tags = await call(client, 'list_tags');
   const backend = tags.items.find(t => t.name === 'Backend');
-  // In use and To test are both Active, which the stage filter reads as 'use'.
+  // Every skill is Active, which the stage filter reads as 'use': the filter
+  // keeps them all, and the Parked (Archived) stage keeps none of them, so the
+  // stage really filters.
   const filtered = await call(client, 'list_skills', { tags: [backend.id], stage: 'use' });
   assert.deepEqual(filtered.items.map(s => s.name).sort(), ['Audit Trail', 'Deploy Guide', 'Metric Watch', 'Test Pilot']);
+  const parked = await call(client, 'list_skills', { tags: [backend.id], stage: 'shelf' });
+  assert.equal(parked.total_count, 0);
+  assert.deepEqual(parked.items, []);
   assert.equal((await call(client, 'get_skill', { id: 'demo/skills/tests' })).name, 'Test Pilot');
   assert.equal((await call(client, 'list_skills', { q: 'does-not-exist' })).total_count, 0);
   assert.equal((await call(client, 'list_skills', { offset: 100 })).next_offset, null);
@@ -62,7 +72,11 @@ test('shelf mutation, tags, event history, ignore and unignore round trip', asyn
   const events = await call(client, 'list_events', { skill: added.id, limit: 2 });
   assert.equal(events.events.length, 2);
   assert.ok(events.events.every(event => event.skillId === added.id));
-  await call(client, 'remove_skill', { id: added.id, ignore: true });
+  // reet has no copy of it, so removing deletes it from every machine: it needs confirming.
+  await assert.rejects(call(client, 'remove_skill', { id: added.id, ignore: true }), { message: 'reet.sh returned HTTP 409 [no-copy]: reet has no copy of new-skill, so it was not removed. Removing it deletes it from every machine, which keeps a backup for 30 days. Remove it again with noCopyConfirmed to delete it from every machine.' });
+  assert.ok(!(await call(client, 'list_ignored')).items.some(s => s.id === added.id));
+  assert.equal((await call(client, 'get_skill', { id: added.id })).id, added.id);
+  await call(client, 'remove_skill', { id: added.id, ignore: true, noCopyConfirmed: true });
   assert.ok((await call(client, 'list_ignored')).items.some(s => s.id === added.id));
   await call(client, 'unignore_skill', { id: added.id });
   assert.ok(!(await call(client, 'list_ignored')).items.some(s => s.id === added.id));
@@ -146,7 +160,8 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
     assert.equal(hosted.total_count, 6);
     const added = await call(remote, 'add_skill', { input: 'demo/skills/http-test', notes: 'HTTP round trip' });
     assert.equal(added.created, true);
-    await call(remote, 'remove_skill', { id: added.id });
+    await assert.rejects(call(remote, 'remove_skill', { id: added.id }), { message: 'reet.sh returned HTTP 409 [no-copy]: reet has no copy of http-test, so it was not removed. Removing it deletes it from every machine, which keeps a backup for 30 days. Remove it again with noCopyConfirmed to delete it from every machine.' });
+    await call(remote, 'remove_skill', { id: added.id, noCopyConfirmed: true });
     const response = await fetch(`${accounts.url}/api/skills`, { headers: { Authorization: 'Bearer reet_mcp_fixture_write' } });
     assert.equal(response.status, 403);
   } finally {

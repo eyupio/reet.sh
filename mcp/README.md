@@ -75,7 +75,7 @@ defaults, mutation hints and return information. Successful calls return
 | `list_context_access`, `get_context` | List only explicitly shared scopes, then read one bounded controller-retained snapshot. Requires a scoped MCP credential and separate per-client grants; legacy API-token/anonymous stdio context reads are unavailable. |
 | `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine. `compact: true` returns a small shape for paging large shelves. |
 | `find_duplicates` | Group skills by normalised name and upstream source, flag local/upstream pairs and suggest a canonical ID. Read-only. |
-| `add_skill`, `update_skill`, `remove_skill` | Capture references and edit personal flags/notes; remove entries, optionally ignoring future scanner imports. |
+| `add_skill`, `update_skill`, `remove_skill` | Capture references and edit personal flags/notes. `remove_skill` removes the entry and deletes the library skill from every machine (each keeps a 30-day backup), optionally ignoring future scanner imports; when reet has no copy it is refused with HTTP 409 `[no-copy]` unless `noCopyConfirmed: true`. A skill you wrote is refused with HTTP 409 `[written]`; delete it from Write a skill. |
 | `list_tags`, `tag_skill`, `create_tag` | Discover tag IDs; add names or remove IDs on a skill; create an empty tag. |
 | `rename_tag`, `delete_tag` | Rename a tag, or delete it from this account after a dry run and confirmation. |
 | `list_environments`, `get_environment` | Read scan summaries and paginated inventories, including scan time and completeness. Filter by `empty_only` and `agent`. |

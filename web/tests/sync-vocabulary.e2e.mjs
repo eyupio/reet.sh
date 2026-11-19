@@ -1,6 +1,6 @@
 // One glossary for skills and sync, and one place for Sync in the navigation.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill } from './helpers/workspace.mjs'
+import { openWorkspace, skill, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -25,6 +25,8 @@ try {
       routes: {
         '/api/v2/sync/candidates': { skills: [one] },
         '/api/v2/hosting/skills/reet-review': request => { hosted = request.postDataJSON(); return hosted },
+        // The skill being written is a library skill like any other, on the Skills page as yours.
+        '/api/v2/skills': request => skillsPageOf([skillRow('review', { id: 'item-review', shelfId: one.id }), skillRow(hosted.slug, { shelfId: '', originKind: 'written', origin: '', yours: true, published: hosted.published, description: hosted.description })], new URL(request.url()).searchParams.get('status') || 'active'),
       },
     })
 
@@ -74,7 +76,7 @@ try {
     await expect(page.getByRole('button', { name: 'Sync all machines', exact: true })).toBeVisible()
 
     await page.goto(`${base}/skills`)
-    await expect(page.getByRole('heading', { name: /Your drafts/ })).toBeVisible()
+    await expect(page.locator('[data-skill="item-reet-review"]')).toContainText('written by you')
     expect(errors).toEqual([])
     await context.close()
   }

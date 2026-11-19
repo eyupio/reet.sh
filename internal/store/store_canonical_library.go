@@ -62,6 +62,11 @@ func (s *Store) migrateCanonicalLibrary() error {
 			`CREATE TABLE IF NOT EXISTS canonical_library_selections(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,item_ids TEXT NOT NULL,version TEXT NOT NULL,PRIMARY KEY(user_id,target_id))`,
 			`CREATE TABLE IF NOT EXISTS library_selection_accounts(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE)`,
 			`CREATE TABLE IF NOT EXISTS library_selections(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,selected TEXT NOT NULL,PRIMARY KEY(user_id,target_id))`,
+			// This is the schema before skill-states-v1 (status in_use, to_test,
+			// on_shelf, disabled). That migration rebuilds the table with the
+			// current columns and status check: see skillStatesLibraryItems in
+			// store_skill_states.go. A fresh database creates this one first and
+			// is then rebuilt by it.
 			`CREATE TABLE IF NOT EXISTS library_items(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,id TEXT NOT NULL,item_type TEXT NOT NULL CHECK(item_type IN ('skill','agent_definition','portable_settings')),name TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('in_use','to_test','on_shelf','disabled')),version INTEGER NOT NULL DEFAULT 1,bundle_id TEXT NOT NULL DEFAULT '',revision_id TEXT NOT NULL DEFAULT '',digest TEXT NOT NULL DEFAULT '',problem TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,id))`,
 			`CREATE TABLE IF NOT EXISTS library_aliases(user_id INTEGER NOT NULL,kind TEXT NOT NULL,reference TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(user_id,kind,reference),FOREIGN KEY(user_id,item_id) REFERENCES library_items(user_id,id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)`,
 			libraryIntentFence,

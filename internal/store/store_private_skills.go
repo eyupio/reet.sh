@@ -14,12 +14,22 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
+	"github.com/eyupio/reet.sh/internal/skillfetch"
 )
 
 const (
-	MaxPrivateSkillBundles   = 128
-	MaxPrivateSkillRevisions = 256
-	MaxPrivateSkillBytes     = 64 << 20
+	MaxPrivateSkillBundles   = 1024
+	MaxPrivateSkillRevisions = 4096
+	MaxPrivateSkillBytes     = 1 << 30
+)
+
+// privateSkillByteLimit, privateSkillBundleLimit and privateSkillRevisionLimit
+// are the bounds above; tests that fill a bound lower them so they do not have
+// to write a gibibyte or thousands of bundles and revisions.
+var (
+	privateSkillByteLimit     int64 = MaxPrivateSkillBytes
+	privateSkillBundleLimit         = MaxPrivateSkillBundles
+	privateSkillRevisionLimit       = MaxPrivateSkillRevisions
 )
 
 var (
@@ -127,12 +137,20 @@ func privateSkillOwner(tx *sql.Tx, uid int64) error {
 func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 	validBase := in.ExpectedBase != nil &&
 		(*in.ExpectedBase == "" || privateSkillID.MatchString(*in.ExpectedBase))
-	validRequest := privateSkillRequestID.MatchString(in.RequestID) && validBase && ValidHostedName(in.Name)
-	if !validRequest {
+	// reet's copy of a skill from a link or a machine (original, capture,
+	// import, use-version) takes any name a machine accepts; what a person
+	// writes or forks keeps the hosted rule, which publishing needs.
+	libraryCopy := false
+	switch in.Origin.Kind {
+	case "user", "fork", "edit":
+	case "import", "original", "capture", "use-version":
+		libraryCopy = in.ItemType == LibrarySkill || in.ItemType == ""
+	default:
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
-	validKind := in.Origin.Kind == "user" || in.Origin.Kind == "import" || in.Origin.Kind == "fork"
-	if !validKind {
+	validName := ValidHostedName(in.Name) || libraryCopy && ValidLibrarySkillName(in.Name)
+	validRequest := privateSkillRequestID.MatchString(in.RequestID) && validBase && validName
+	if !validRequest {
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
 	validReference := len(in.Origin.Reference) <= 2048 && utf8.ValidString(in.Origin.Reference)
@@ -160,7 +178,13 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 			// Validate an isolated copy: hosted validation normalizes line endings, while
 			// private identity and storage must retain the exact submitted bytes/modes.
 			check := HostedSkill{Slug: in.Name, Content: string(f.Data)}
-			if ValidateHostedSkill(&check) != nil {
+			sameName := func(md string) bool { return md == in.Name }
+			if libraryCopy {
+				// A copy's SKILL.md may name it loosely, as a fetch picks its
+				// folder: case, spaces, hyphens and underscores aside.
+				sameName = func(md string) bool { return skillfetch.SameName(md, in.Name) }
+			}
+			if validateSkillContent(&check, sameName) != nil {
 				return m, ErrPrivateSkillInvalid
 			}
 		}
@@ -171,6 +195,10 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 // SavePrivateSkillRevisionFor atomically creates an immutable revision and moves
 // only its owned bundle's head. A digest never identifies an account or revision.
 // Reusing an identical request returns its original receipt, even after later edits.
+//
+// It makes no name check, and does not need one: nothing outside the store's
+// tests calls it. The person-initiated paths that make an item (SaveLibraryContentFor,
+// the machine import and the location import) refuse a taken name themselves.
 func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite) (PrivateSkillResult, error) {
 	return s.savePrivateSkillRevisionFor(uid, id, in, nil)
 }
@@ -246,14 +274,14 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 			if err := tx.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&n); err != nil {
 				return err
 			}
-			if n >= MaxPrivateSkillBundles {
+			if n >= privateSkillBundleLimit {
 				// Deleting or renaming a written skill leaves its bundle behind and
 				// nothing can delete a bundle, so free those before refusing.
-				freed, e := freeDeadHostedBundles(tx, uid, n-MaxPrivateSkillBundles+1)
+				freed, e := freeDeadHostedBundles(tx, uid, n-privateSkillBundleLimit+1)
 				if e != nil {
 					return e
 				}
-				if n-freed >= MaxPrivateSkillBundles {
+				if n-freed >= privateSkillBundleLimit {
 					return ErrPrivateSkillCapacity
 				}
 			}
@@ -286,7 +314,7 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		revisionsFull := func() (bool, error) {
 			var revisions int
 			err := tx.QueryRow(`SELECT count(*) FROM private_skill_revisions WHERE user_id=?`, uid).Scan(&revisions)
-			return revisions >= MaxPrivateSkillRevisions, err
+			return revisions >= privateSkillRevisionLimit, err
 		}
 		full, e := revisionsFull()
 		if e == nil && full {
@@ -325,7 +353,7 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		bytesFull := func() (bool, error) {
 			var total int64
 			err := tx.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM private_skill_blobs WHERE user_id=?`, uid).Scan(&total)
-			return total > MaxPrivateSkillBytes, err
+			return total > privateSkillByteLimit, err
 		}
 		full, e = bytesFull()
 		if e == nil && full {

@@ -1,151 +1,124 @@
-// A skill card leads with the action that changes a machine when nothing has the skill yet, and with its next shelf step once something does.
+// A skill's row says in one line where it stands on the machines, toned, and offers Retry only where retrying helps.
+// Its actions are Archive or Restore beside Delete; the name opens the row onto each machine. On a phone the row keeps
+// 44 px targets and the page its width.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, skill, machineWith } from './helpers/workspace.mjs'
+import { openWorkspace, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
-const open = options => openWorkspace(browser, options)
+async function open(rows, options = {}) {
+ const f = await openWorkspace(browser, {width:1440, ...options, routes:{'/api/v2/skills':req=>skillsPageOf(rows,new URL(req.url()).searchParams.get('status')||'active')}})
+ await f.page.goto(`${base}/skills`)
+ return f
+}
+const h = (state, over = {}) => ({state, pending:0, total:3, hosts:[], machines:[], ...over})
+
+// Every health state, the line it reads, its tone, and whether it offers Retry.
+const states = [
+ ['ok', h('ok'), 'On all 3 machines', 'ok', false],
+ ['installing', h('installing', {pending:2}), 'Installing on 2 of 3', 'work', false],
+ ['removing', h('removing', {pending:1, hosts:['ThinkPad']}), 'Coming off ThinkPad', 'work', false],
+ // A machine's failure is retried by the machine itself; until it can be asked to at once, the row offers no Retry.
+ ['failed', h('failed', {pending:1, hosts:['ThinkPad'], reason:'no write access'}), 'Failed on ThinkPad · it tries again on its own', 'bad', false],
+ // An Active skill on a machine that is off is waiting to go on it; an Archived one is waiting to come off (below).
+ ['offline', h('offline', {pending:1, hosts:['studio']}), "Installing on studio when it's back online", 'work', false],
+ ['blocked', h('blocked', {pending:1, hosts:['ThinkPad']}), "Can't write skills on ThinkPad", 'bad', false],
+ ['copying', h('copying', {hosts:['Elitebook']}), 'Copying into reet from Elitebook', 'work', false],
+ ['copy-failed', h('copy-failed', {hosts:['Elitebook'], reason:'over 8 MiB'}), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', true],
+ ['getting', h('getting', {hosts:['Elitebook']}), 'Getting a copy from Elitebook', 'work', false],
+ ['fetch-failed', h('fetch-failed'), "Couldn't fetch the files", 'bad', true],
+ ['needs-update', h('needs-update', {hosts:['ThinkPad']}), 'Update reet on ThinkPad to keep its skills in sync', 'bad', false],
+ ['off', h('off'), 'Off every machine', 'off', false],
+]
 
 try {
- // Installed nowhere: Copy install leads, the shelf step is secondary, and the prompt is available while collapsed.
- if (run('not-installed')) {
-  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')]})
-  await page.goto(`${base}/skills`)
-  await expect(page.getByRole('button',{name:'Save to test'})).toBeVisible()
-  await expect(page.getByRole('button',{name:'Copy install command for code-review'})).toHaveClass(/primary/)
-  await expect(page.getByRole('button',{name:'Save to test'})).not.toHaveClass(/move/)
-  await expect(page.getByRole('button',{name:'Copy prompt for code-review'})).toBeVisible()
-  await page.getByRole('button',{name:/^Expand/}).first().click()
-  await expect(page.getByRole('button',{name:'Copy prompt for code-review'})).toBeVisible()
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // Installed on a machine: the shelf step leads, Copy install is an ordinary button.
- if (run('installed')) {
-  const mine = skill('code-review')
-  const {context,page} = await open({width:1440,skills:[mine],inventory:machineWith('dev-laptop',[mine])})
-  await page.goto(`${base}/skills`)
-  await expect(page.getByText('dev-laptop',{exact:true}).first()).toBeVisible()
-  await expect(page.getByRole('button',{name:'Save to test'})).toHaveClass(/move/)
-  await expect(page.getByRole('button',{name:'Copy install command for code-review'})).not.toHaveClass(/primary/)
-  await context.close()
- }
- // Saved sync selections: the card says where the skill is set to sync, apart from what scans observed, and the filters find it.
- if (run('sync-intent')) {
-  const now = Date.now()
-  const a = skill('code-review'), b = skill('release-notes')
-  const inv = machineWith('dev-laptop',[a])
-  const box = machineWith('build-box',[])
-  const inventory = {environments:[...inv.environments,...box.environments],machines:[...inv.machines,...box.machines]}
-  const scope = (id, host, skills) => ({id, host, agent:'agents', name:host, skills, skillCount:skills.length, complete:true, scannedAt:now, lastSeen:now, os:'linux', arch:'amd64', version:'test'})
-  const sync = {environments:[scope('dev-laptop-agents','dev-laptop',[a]), scope('build-box-agents','build-box',[])], machines:inventory.machines, agents:[], jobs:[], runs:[], updateJobs:[],
-   targets:[{target:scope('dev-laptop-agents','dev-laptop',[a]), sourceId:'shelf', sourceName:'Shelf', desired:[a,b], missing:[b], extra:[], revision:'r1', updatedAt:now, mode:'additive'}]}
-  const {context,page,errors} = await open({width:1440,skills:[a,b],inventory,sync})
-  await page.goto(`${base}/skills`)
-  const card = id => page.locator(`[data-skill="${id}"]`)
-  await expect(card(a.id).locator('.sync-intent')).toHaveText(/Set to sync to dev-laptop/)
-  await expect(card(a.id).getByRole('link',{name:`Remove code-review from dev-laptop in Advanced sync`})).toHaveAttribute('href',`/sync/advanced?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
-  await expect(card(b.id).locator('.sync-intent')).toHaveText(/Pending on dev-laptop/)
-  // The filters narrow the shelf by intent and by observation.
-  await page.locator('.shelf-filters summary').click()
-  await page.getByRole('button',{name:'Sync pending'}).click()
-  await expect(card(b.id)).toBeVisible(); await expect(card(a.id)).toHaveCount(0)
-  await page.getByRole('button',{name:'Not on any machine'}).click()
-  await expect(card(b.id)).toBeVisible(); await expect(card(a.id)).toHaveCount(0)
-  await page.getByRole('button',{name:'Missing somewhere'}).click()
-  await expect(card(a.id)).toBeVisible(); await expect(card(b.id)).toBeVisible()
-  await page.getByRole('button',{name:'Not set to sync'}).click()
-  await expect(card(a.id)).toHaveCount(0); await expect(card(b.id)).toHaveCount(0)
-  await expect(page.getByRole('heading',{name:'Nowt matches just yet.'})).toBeVisible()
-  await page.getByRole('button',{name:'Clear filters'}).click()
-  await expect(card(a.id)).toBeVisible()
-  expect(errors).toEqual([])
-  await context.close()
- }
- // Nothing saved: the line says so and offers the way to change it; without a sync answer there is no line at all.
- if (run('sync-intent-none')) {
-  const mine = skill('code-review')
-  const {context,page} = await open({width:1440,skills:[mine],inventory:machineWith('dev-laptop',[mine])})
-  await page.goto(`${base}/skills`)
-  const line = page.locator(`[data-skill="${mine.id}"] .sync-intent`)
-  await expect(line).toHaveText(/Not set to sync/)
-  await expect(line.getByRole('link',{name:'Choose machines'})).toHaveAttribute('href','/machines')
-  await context.close()
-  const silent = await open({width:1440,skills:[mine],inventory:machineWith('dev-laptop',[mine]),routes:{'/api/v2/sync':{status:500,json:{error:'down'}}}})
-  await silent.page.goto(`${base}/skills`)
-  await expect(silent.page.getByText('dev-laptop',{exact:true}).first()).toBeVisible()
-  await expect(silent.page.locator('.sync-intent')).toHaveCount(0)
-  // The intent filters are off rather than answering from nothing; the observed ones still work.
-  await silent.page.locator('.shelf-filters summary').click()
-  await expect(silent.page.getByRole('button',{name:'Not set to sync'})).toBeDisabled()
-  await expect(silent.page.getByRole('button',{name:'Sync pending'})).toBeDisabled()
-  await expect(silent.page.getByRole('button',{name:'Missing somewhere'})).toBeEnabled()
-  await silent.context.close()
- }
- // Four machines: two installed, one missing, one unconfirmed. Collapsed, the card answers in one line and expands to the full set.
- if (run('large fleet summary')) {
-  const mine = skill('code-review')
-  const now = Date.now()
-  const scope = (host, skills, extra = {}) => ({id:`${host}-agents`,host,agent:'agents',name:host,skills,skillCount:skills.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test',...extra})
-  const environments = [scope('one',[mine]), scope('two',[mine]), scope('three',[]), scope('four',[],{complete:false})]
-  const machines = ['one','two','three','four'].map(host=>({host,groups:environments.filter(env=>env.host===host),skillCount:environments.filter(env=>env.host===host).reduce((n,env)=>n+env.skillCount,0)}))
-  const {context,page,errors} = await open({width:1440,skills:[mine],inventory:{environments,machines}})
-  await page.goto(`${base}/skills`)
-  const card = page.locator(`[data-skill="${mine.id}"]`)
-  const summary = card.getByRole('button',{name:/^Show all 4 machines/})
-  await expect(summary).toHaveText(/On 2 of 4 · 1 missing · 1 not confirmed/)
-  await expect(card.locator('.installation-badge')).toHaveCount(0)
-  await summary.click()
-  await expect(card.locator('.installation-badge')).toHaveCount(4)
-  for (const host of ['one','two','three','four']) await expect(card.getByText(host,{exact:true})).toBeVisible()
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // An unconfirmed scan offers Add now; the action queues a scan instead of pretending it can install without a fresh report.
- if (run('scan before add')) {
-  const mine = skill('code-review')
-  const now = Date.now()
-  const old = {id:'pi-agents',host:'pi',agent:'agents',name:'pi',skills:[],skillCount:0,complete:false,scannedAt:now-15*86400000,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
-  const inventory = {environments:[old],machines:[{host:'pi',groups:[old],skillCount:0}]}
-  const sync = {environments:[old],machines:[{host:'pi',groups:[old],skillCount:0}],agents:[{id:'pi-agent',host:'pi',version:'test',lastSeen:now,paused:false,autoUpdate:false}],targets:[],jobs:[],runs:[],updateJobs:[]}
-  let scanBody = null
-  const routes = {
-   '/api/v2/sync': sync,
-   '/api/v2/sync/candidates': {skills:[{...mine,source:'demo/toolkit',sourceType:'github'}]},
-   '/api/v2/sync/jobs': request => { scanBody = request.postDataJSON(); return {...sync,jobs:[{id:'scan-1',agentId:'pi-agent',targetId:'',kind:'scan',status:'queued',revision:'',hash:'',plan:{},message:'',createdAt:now,updatedAt:now}]} },
+ // Each state reads its own line, in its own tone, with Retry only after a failure that a retry can clear.
+ if (run('health')) {
+  const rows = [...states.map(([state, health]) => skillRow(`skill-${state}`, {health})), skillRow('skill-gone', {status:'archived', health:h('offline', {pending:1, hosts:['studio']})})]
+  const {context, page, errors} = await open(rows, {height:1800})
+  for (const [state, , text, tone, retry] of states) {
+   const row = page.locator(`[data-skill="item-skill-${state}"]`)
+   await expect(row.locator('.health'), state).toHaveText(text)
+   await expect(row.locator('.health'), state).toHaveAttribute('data-tone', tone)
+   await expect(row.getByRole('button', {name:`Retry skill-${state}`}), state).toHaveCount(retry ? 1 : 0)
   }
-  const {context,page,errors} = await open({width:1440,skills:[mine],inventory,sync,routes})
-  await page.goto(`${base}/skills`)
-  const card = page.locator(`[data-skill="${mine.id}"]`)
-  await card.getByRole('button',{name:'Scan pi and add code-review'}).click()
-  await expect(page.getByText('Scan requested for pi. Add code-review once the scan is complete.',{exact:true})).toBeVisible()
-  expect(scanBody).toEqual({agentId:'pi-agent',targetId:'',kind:'scan'})
+  await page.getByRole('tab', {name:/^Archived/}).click()
+  await expect(page.locator('[data-skill="item-skill-gone"] .health')).toHaveText("Removing from studio when it's back online")
+  await page.getByRole('tab', {name:/^Active/}).click()
+  // A healthy line is not drawn in the warning colours.
+  const colours = await page.evaluate(() => {
+   const of = id => getComputedStyle(document.querySelector(`[data-skill="${id}"] .health`)).color
+   return {ok:of('item-skill-ok'), bad:of('item-skill-failed')}
+  })
+  expect(colours.ok).not.toBe(colours.bad)
   expect(errors).toEqual([])
   await context.close()
  }
- // The summary is a 44 px control on a phone and expanding it keeps the page at the device width.
- if (run('large fleet phone')) {
-  const mine = skill('code-review')
-  const now = Date.now()
-  const scope = (host, skills, extra = {}) => ({id:`${host}-agents`,host,agent:'agents',name:host,skills,skillCount:skills.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test',...extra})
-  const environments = [scope('one',[mine]), scope('two',[mine]), scope('three',[]), scope('four',[],{complete:false})]
-  const machines = ['one','two','three','four'].map(host=>({host,groups:environments.filter(env=>env.host===host),skillCount:environments.filter(env=>env.host===host).reduce((n,env)=>n+env.skillCount,0)}))
-  for (const width of [390,320]) {
-   const {context,page,errors} = await open({width,height:812,touch:true,skills:[mine],inventory:{environments,machines}})
-   await page.goto(`${base}/skills`)
-   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`document width at ${width}px`).toBe(true)
-   const summary = page.locator(`[data-skill="${mine.id}"]`).getByRole('button',{name:/^Show all 4 machines/})
-   const box = await summary.boundingBox()
-   expect(box.height,`summary height at ${width}px`).toBeGreaterThanOrEqual(44)
-   await summary.click()
-   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`expanded document width at ${width}px`).toBe(true)
+
+ // An Active row offers Archive and Delete, an Archived one Restore and Delete, each named for its skill.
+ if (run('actions')) {
+  const {context, page, errors} = await open([skillRow('code-review'), skillRow('old-notes', {status:'archived', health:h('off')})])
+  const active = page.locator('[data-skill="item-code-review"]')
+  await expect(active.locator('[data-act]')).toHaveCount(2)
+  await expect(active.locator('[data-act="archive"]')).toHaveAccessibleName('Archive code-review')
+  await expect(active.locator('[data-act="delete"]')).toHaveAccessibleName('Delete code-review')
+  await page.getByRole('tab', {name:/^Archived/}).click()
+  const archived = page.locator('[data-skill="item-old-notes"]')
+  await expect(archived.locator('[data-act="restore"]')).toHaveAccessibleName('Restore old-notes')
+  await expect(archived.locator('[data-act="delete"]')).toHaveAccessibleName('Delete old-notes')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Pressing the name opens the row onto each machine and says so; pressing it again closes it.
+ if (run('open')) {
+  const machines = [{host:'Elitebook', state:'ok'}, {host:'ThinkPad', state:'failed', detail:'no write access'}, {host:'studio', state:'installing'}]
+  const {context, page, errors} = await open([skillRow('seo-cluster', {health:h('failed', {pending:2, hosts:['ThinkPad'], machines})})])
+  const name = page.getByRole('button', {name:'seo-cluster', exact:true})
+  await expect(name).toHaveAttribute('aria-expanded', 'false')
+  await name.click()
+  await expect(name).toHaveAttribute('aria-expanded', 'true')
+  const list = page.getByRole('list', {name:'Machines for seo-cluster'})
+  await expect(list.getByRole('listitem')).toHaveText(['ElitebookInstalled', 'ThinkPadFailed: no write access', 'studioInstalling'])
+  await name.click()
+  await expect(list).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // On a narrower screen the row's line drops its tags; opening the row shows them.
+ if (run('tags')) {
+  const {context, page, errors} = await open([skillRow('seo-cluster', {tags:[{id:1, name:'seo'}, {id:2, name:'research'}]})], {width:900})
+  await expect(page.getByRole('list', {name:'Tags on seo-cluster'})).toBeHidden()
+  await page.getByRole('button', {name:'seo-cluster', exact:true}).click()
+  await expect(page.locator('#skill-detail-item-seo-cluster').getByRole('list', {name:'Tags of seo-cluster'}).getByRole('listitem')).toHaveText(['seo', 'research'])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // On a phone, a long name and a long health line wrap inside the row: every button is a 44 px target and nothing
+ // pushes the page wider than the screen.
+ if (run('phone')) {
+  const long = `seo-${'keyword-cluster-'.repeat(5)}tool`
+  const rows = [skillRow(long, {health:h('copy-failed', {hosts:['Elitebook-workstation-2'], reason:'the folder holds more than 256 files'})}), skillRow('cq', {health:h('failed', {pending:1, hosts:['ThinkPad']})})]
+  for (const width of [390, 320]) {
+   const {context, page, errors} = await open(rows, {width, height:812, touch:true})
+   await expect(page.locator('[data-skill]')).toHaveCount(2)
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+   for (const button of await page.locator('[data-skill] button').all()) {
+    const box = await button.boundingBox()
+    const label = await button.evaluate(el => el.getAttribute('aria-label') || el.textContent.trim())
+    expect(box.height, `${label} height at ${width}px`).toBeGreaterThanOrEqual(44)
+    expect(box.width, `${label} width at ${width}px`).toBeGreaterThanOrEqual(44)
+    expect(box.x + box.width, `${label} right edge at ${width}px`).toBeLessThanOrEqual(width)
+   }
+   await page.getByRole('button', {name:long, exact:true}).click()
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `opened document width at ${width}px`).toBe(true)
    expect(errors).toEqual([])
    await context.close()
   }
  }
- console.log('Skill card: Copy install leads when installed nowhere, the shelf step leads once installed, the prompt is available while collapsed, the card says where the skill is set to sync, a large fleet collapses to one summary, an unconfirmed machine is scanned before adding, and the summary works on a phone.')
+ console.log('Skill card: each health state reads its own line in its own tone with Retry only after a failure a retry clears, an Active row offers Archive and Delete and an Archived one Restore and Delete, the name opens the row onto each machine, and a phone keeps 44 px targets and its width.')
 } finally {await browser.close()}

@@ -3,17 +3,25 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 )
 
 var (
 	ErrSkillNameTaken = errors.New("a skill with that name is already in your library")
 	ErrSkillNoCopy    = errors.New("reet has no copy of this skill")
+	// ErrSkillWritten is a remove of a skill the person wrote, which is
+	// deleted from Write a skill.
+	ErrSkillWritten = errors.New("you wrote this skill; delete it from Write a skill")
 )
 
 // SkillUndoWindow is how long a deleted skill can be brought back. After it,
 // PurgeDeletedSkillsFor removes its written skill, bundle and revisions.
 const SkillUndoWindow = time.Minute
+
+// skillUndoNow is the clock UndeleteSkillsFor measures the window with; tests
+// replace it to stand exactly on the window's edge.
+var skillUndoNow = now
 
 // SkillRemoval is a name machines back up and remove. Reason is "archived" or
 // "deleted".
@@ -24,7 +32,10 @@ type SkillRemoval struct {
 
 // UpgradeNotice counts the skills the skill-states upgrade archived: the
 // Parked ones and the ones on the old ignore list.
-type UpgradeNotice struct{ Parked, Removed int }
+type UpgradeNotice struct {
+	Parked  int `json:"parked"`
+	Removed int `json:"removed"`
+}
 
 // library_items after skill-states-v1. origin is how a skill arrived:
 // written, imported (by link), machine (a copy found on a machine), or empty
@@ -344,6 +355,15 @@ func setSkillStatusTx(tx *sql.Tx, uid int64, it skillStateItem, status string, a
 	if status == SkillArchived {
 		return addSkillRemovalTx(tx, uid, it, "archived", at.UnixMilli())
 	}
+	return dropSkillRemovalTx(tx, uid, it)
+}
+
+// dropSkillRemovalTx takes an item's name off the removal list. The list holds
+// skill names only, so an item of another type with the same name leaves it.
+func dropSkillRemovalTx(tx *sql.Tx, uid int64, it skillStateItem) error {
+	if it.itemType != LibrarySkill {
+		return nil
+	}
 	_, err := tx.Exec(`DELETE FROM skill_removals WHERE user_id=? AND name=?`, uid, it.name)
 	return err
 }
@@ -426,10 +446,7 @@ func (s *Store) DeleteSkillsFor(uid int64, ids []string, noCopyConfirmed bool, a
 			if it.revision == "" && !noCopyConfirmed {
 				return ErrSkillNoCopy
 			}
-			if _, err = tx.Exec(`UPDATE library_items SET deleted_at=? WHERE user_id=? AND id=?`, at.UnixMilli(), uid, id); err != nil {
-				return err
-			}
-			if err = addSkillRemovalTx(tx, uid, it, "deleted", at.UnixMilli()); err != nil {
+			if err = deleteSkillItemTx(tx, uid, it, at); err != nil {
 				return err
 			}
 		}
@@ -437,8 +454,222 @@ func (s *Store) DeleteSkillsFor(uid int64, ids []string, noCopyConfirmed bool, a
 	})
 }
 
-// UndeleteSkillsFor brings deleted items back within SkillUndoWindow, before
-// they are purged. An Archived one goes back on the removal list as archived.
+// deleteSkillItemTx marks a live item deleted and puts its name on the
+// removal list.
+func deleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem, at time.Time) error {
+	if _, err := tx.Exec(`UPDATE library_items SET deleted_at=? WHERE user_id=? AND id=?`, at.UnixMilli(), uid, it.id); err != nil {
+		return err
+	}
+	return addSkillRemovalTx(tx, uid, it, "deleted", at.UnixMilli())
+}
+
+// RemoveShelfSkillsFor is the old shelf Remove of shelf rows. Each row's live
+// library skill is deleted as DeleteSkillsFor deletes it, so it leaves every
+// machine and frees its name, and the row goes from the shelf; a row that is
+// not the last shelf row standing for its skill goes alone, and the skill
+// stays; with ignore
+// each ID also goes on the ignore list, which older machines' scans still
+// read, whether it is on the shelf or not. removed counts the rows that went.
+//
+// Some removals change nothing and return the skills' names in refused:
+//   - ErrSkillWritten: a skill the person wrote (origin written), which is
+//     deleted from Write a skill and never by this Remove.
+//   - ErrSkillNoCopy: a skill reet holds no copy of, unless noCopyConfirmed,
+//     since its machines then keep only their backup.
+func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCopyConfirmed bool, at time.Time) (removed int, refused []string, err error) {
+	err = s.withTx(func(tx *sql.Tx) error {
+		type row struct {
+			id, name string
+			item     skillStateItem
+			live     bool
+			onShelf  bool
+			// aliasOnly: another shelf row, not removed here, stands for
+			// the same item, so only this row goes.
+			aliasOnly bool
+		}
+		var found []row
+		var written, noCopy []string
+		seen := map[string]bool{}
+		for _, id := range shelfIDs {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			r := row{id: id, onShelf: true}
+			e := tx.QueryRow(`SELECT k.name FROM shelf sh JOIN skills k ON k.id=sh.skill_id WHERE sh.user_id=? AND sh.skill_id=?`, uid, id).Scan(&r.name)
+			if errors.Is(e, sql.ErrNoRows) {
+				// Not on the shelf: only ignore has anything to do.
+				if ignore {
+					r.onShelf = false
+					if e = tx.QueryRow(`SELECT name FROM skills WHERE id=?`, id).Scan(&r.name); e != nil && !errors.Is(e, sql.ErrNoRows) {
+						return e
+					}
+					found = append(found, r)
+				}
+				continue
+			}
+			if e != nil {
+				return e
+			}
+			var item, origin string
+			e = tx.QueryRow(`SELECT i.id,i.origin FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.item_type=? AND i.deleted_at=0`, uid, id, LibrarySkill).Scan(&item, &origin)
+			if e != nil && !errors.Is(e, sql.ErrNoRows) {
+				return e
+			}
+			if item != "" {
+				if r.item, e = skillStateItemTx(tx, uid, item); e != nil {
+					return e
+				}
+				r.live = true
+				if r.aliasOnly, e = otherShelfAliasTx(tx, uid, item, shelfIDs); e != nil {
+					return e
+				}
+				switch {
+				case r.aliasOnly:
+				case origin == "written":
+					if !slices.Contains(written, r.item.name) {
+						written = append(written, r.item.name)
+					}
+				case r.item.revision == "" && !noCopyConfirmed && !slices.Contains(noCopy, r.item.name):
+					noCopy = append(noCopy, r.item.name)
+				}
+			}
+			found = append(found, r)
+		}
+		if len(written) > 0 {
+			refused = written
+			return ErrSkillWritten
+		}
+		if len(noCopy) > 0 {
+			refused = noCopy
+			return ErrSkillNoCopy
+		}
+		deleted := map[string]bool{}
+		for _, r := range found {
+			if r.live && len(deleted) == 0 {
+				if e := privateSkillOwner(tx, uid); e != nil {
+					return e
+				}
+			}
+			if r.aliasOnly {
+				if _, e := tx.Exec(`DELETE FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference=?`, uid, r.id); e != nil {
+					return e
+				}
+			} else if r.live && !deleted[r.item.id] {
+				if e := deleteSkillItemTx(tx, uid, r.item, at); e != nil {
+					return e
+				}
+				deleted[r.item.id] = true
+			}
+			if ignore {
+				if _, e := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,'removed',?) ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name,reason=excluded.reason,at=excluded.at`, uid, r.id, r.name, now()); e != nil {
+					return e
+				}
+			}
+			if !r.onShelf {
+				continue
+			}
+			if e := s.removeShelfTx(tx, uid, r.id, false); e != nil {
+				return e
+			}
+			removed++
+		}
+		return nil
+	})
+	if err != nil {
+		removed = 0
+	}
+	return removed, refused, err
+}
+
+// otherShelfAliasTx reports whether a shelf row outside removing still
+// stands for item.
+func otherShelfAliasTx(tx *sql.Tx, uid int64, item string, removing []string) (bool, error) {
+	rows, err := tx.Query(`SELECT a.reference FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference WHERE a.user_id=? AND a.kind='shelf' AND a.item_id=?`, uid, item)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref string
+		if err = rows.Scan(&ref); err != nil {
+			return false, err
+		}
+		if !slices.Contains(removing, ref) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// undeleteShelfItemTx brings back the deleted skill a shelf row put back on
+// the shelf stands for, when it is still within SkillUndoWindow and its name
+// is free: the old pages' Undo of Remove puts the row back. Outside the
+// window, or with the name taken, it does nothing.
+func undeleteShelfItemTx(tx *sql.Tx, uid int64, shelfID string) error {
+	var item string
+	err := tx.QueryRow(`SELECT i.id FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.deleted_at>0`, uid, shelfID).Scan(&item)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	it, err := skillStateItemTx(tx, uid, item)
+	if err != nil || it.deletedAt <= skillUndoNow()-SkillUndoWindow.Milliseconds() {
+		return err
+	}
+	if err = undeleteSkillItemTx(tx, uid, it); errors.Is(err, ErrSkillNameTaken) {
+		return nil
+	}
+	return err
+}
+
+// reviveShelfItemTx brings back the deleted skill a shelf row stands for, when
+// a person adds it again before the purge: inside SkillUndoWindow the item
+// itself is undeleted, with its copy and status; after it, the row stands for
+// a fresh Active item of its name, and the old one is purged alone. A name a
+// live skill has taken meanwhile is refused with ErrSkillNameTaken.
+func reviveShelfItemTx(tx *sql.Tx, uid int64, shelfID string) error {
+	var item string
+	err := tx.QueryRow(`SELECT i.id FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.deleted_at>0`, uid, shelfID).Scan(&item)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	it, err := skillStateItemTx(tx, uid, item)
+	if err != nil {
+		return err
+	}
+	taken, err := skillNameTakenTx(tx, uid, it.itemType, it.name, it.id)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrSkillNameTaken
+	}
+	if it.deletedAt > skillUndoNow()-SkillUndoWindow.Milliseconds() {
+		return undeleteSkillItemTx(tx, uid, it)
+	}
+	fresh, err := privateSkillRandomID()
+	if err != nil {
+		return err
+	}
+	at := now()
+	if _, err = tx.Exec(`INSERT INTO library_items(user_id,id,item_type,name,status,origin,created_at,updated_at) SELECT ?,?,'skill',k.slug,'active',CASE WHEN k.source<>'' AND k.source_type<>'local' THEN 'imported' ELSE 'machine' END,?,? FROM skills k WHERE k.id=?`, uid, fresh, at, at, shelfID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`UPDATE library_aliases SET item_id=? WHERE user_id=? AND kind='shelf' AND reference=?`, fresh, uid, shelfID); err != nil {
+		return err
+	}
+	return dropSkillRemovalTx(tx, uid, it)
+}
+
+// UndeleteSkillsFor brings deleted items back within SkillUndoWindow of their
+// deletion; an item deleted longer ago is gone, whether or not purge has run
+// yet. An Archived one goes back on the removal list as archived.
 func (s *Store) UndeleteSkillsFor(uid int64, ids []string) error {
 	return s.withTx(func(tx *sql.Tx) error {
 		if err := privateSkillOwner(tx, uid); err != nil {
@@ -452,32 +683,47 @@ func (s *Store) UndeleteSkillsFor(uid int64, ids []string) error {
 			if it.deletedAt == 0 {
 				continue
 			}
-			taken, err := skillNameTakenTx(tx, uid, it.itemType, it.name, it.id)
-			if err != nil {
+			if it.deletedAt <= skillUndoNow()-SkillUndoWindow.Milliseconds() {
+				return ErrPrivateSkillMissing
+			}
+			if err = undeleteSkillItemTx(tx, uid, it); err != nil {
 				return err
-			}
-			if taken {
-				return ErrSkillNameTaken
-			}
-			if _, err = tx.Exec(`UPDATE library_items SET deleted_at=0 WHERE user_id=? AND id=?`, uid, id); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(`DELETE FROM skill_removals WHERE user_id=? AND name=?`, uid, it.name); err != nil {
-				return err
-			}
-			if it.status == SkillArchived {
-				if err = addSkillRemovalTx(tx, uid, it, "archived", now()); err != nil {
-					return err
-				}
 			}
 		}
 		return nil
 	})
 }
 
+// undeleteSkillItemTx clears an item's deleted mark unless its name was taken
+// in the meantime, and takes its removal row off the list (an Archived item
+// goes back on it as archived).
+func undeleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem) error {
+	taken, err := skillNameTakenTx(tx, uid, it.itemType, it.name, it.id)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrSkillNameTaken
+	}
+	if _, err = tx.Exec(`UPDATE library_items SET deleted_at=0 WHERE user_id=? AND id=?`, uid, it.id); err != nil {
+		return err
+	}
+	if err = dropSkillRemovalTx(tx, uid, it); err != nil {
+		return err
+	}
+	if it.status == SkillArchived {
+		return addSkillRemovalTx(tx, uid, it, "archived", now())
+	}
+	return nil
+}
+
 // SkillRemovalsFor lists the names machines are to back up and remove.
 func (s *Store) SkillRemovalsFor(uid int64) ([]SkillRemoval, error) {
-	rows, err := s.db.Query(`SELECT name,reason,created_at FROM skill_removals WHERE user_id=? ORDER BY name`, uid)
+	return skillRemovalsOf(s.db, uid)
+}
+
+func skillRemovalsOf(q privateSkillQuery, uid int64) ([]SkillRemoval, error) {
+	rows, err := q.Query(`SELECT name,reason,created_at FROM skill_removals WHERE user_id=? ORDER BY name`, uid)
 	if err != nil {
 		return nil, err
 	}

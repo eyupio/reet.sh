@@ -147,7 +147,7 @@ func (s *Store) AdvanceMachineSkillSyncs(uid int64, role string) error {
 		if e != nil {
 			return e
 		}
-		ready := r.DestinationID != "" && r.SyncRunID == "" && r.Receipt != nil
+		ready := r.DestinationID != "" && r.SyncRunID == "" && r.Receipt != nil && !r.SyncEnded
 		if !ready {
 			continue
 		}
@@ -160,7 +160,12 @@ func (s *Store) AdvanceMachineSkillSyncs(uid int64, role string) error {
 				return err
 			}
 			current.SyncError = ""
-			if e != nil {
+			switch {
+			case errors.Is(e, ErrAgentFollowsLibrary):
+				// Its destination gets its skills from the library: the
+				// transfer ends here for good.
+				current.SyncError, current.SyncEnded = syncJobNotNeeded, true
+			case e != nil:
 				current.SyncError = e.Error()
 			}
 			return writeImport(tx, uid, current)
@@ -194,6 +199,22 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 	}
 	if !errors.Is(e, sql.ErrNoRows) {
 		return e
+	}
+
+	// A destination that follows the library gets its skills from there, so
+	// the transfer stops here and says why.
+	var destHost string
+	if e = s.db.QueryRow(`SELECT host FROM environments WHERE id=? AND user_id=?`, r.DestinationID, uid).Scan(&destHost); e != nil && !errors.Is(e, sql.ErrNoRows) {
+		return e
+	}
+	if destHost != "" {
+		follows, e := s.HostOnSkillsProtocolFor(uid, destHost)
+		if e != nil {
+			return e
+		}
+		if follows {
+			return ErrAgentFollowsLibrary
+		}
 	}
 
 	// Serialize destination work, including reviews. Updating a desired

@@ -154,7 +154,7 @@ func (s *server) addHostedSkillToShelf(r *http.Request, username string, skill s
 	} else if exists {
 		patch = store.Patch{}
 	}
-	if _, err := s.st.UpsertFor(s.uid(r), rf, patch); err != nil {
+	if _, err := s.st.AddFor(s.uid(r), rf, patch); err != nil {
 		return
 	}
 	_ = s.st.SetHostedSkillVisible(rf.ID, true)

@@ -170,6 +170,7 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
 	req.Header.Set("X-Reet-Library-Protocol", "1")
+	req.Header.Set("X-Reet-Skills-Protocol", "2")
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -227,6 +228,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	if action == "follow-moves" {
 		return runAgentFollowMoves(args[1:], out)
 	}
+	if action == "restore" {
+		return runAgentRestore(args[1:], out)
+	}
 	if action == "service" {
 		return runAgentService(args[1:], out)
 	}
@@ -237,8 +241,6 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
 	tokenFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
 	host := fs.String("env", clientconfig.EnvName(), "stable machine name")
-	backup := fs.String("backup", "", "removed skill entry to restore")
-	targetID := fs.String("target", "", "target scope for restore")
 	once := fs.Bool("once", false, "poll once, then exit (useful for a scheduler)")
 	foreground := fs.Bool("foreground", false, "keep the agent attached to this terminal (debugging / supervisors)")
 	supervised := fs.Bool("supervised", false, "run under the installed native service manager")
@@ -364,20 +366,6 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			return err
 		}
 		return runAgentAllowApply(c, *config, applyMode, out)
-	case "restore":
-		c, err := loadAgentConfig(*config)
-		if err != nil {
-			return err
-		}
-		targetValue, err := clientconfig.Require(*targetID, "--target (target scope)", false, in, os.Stderr)
-		if err != nil {
-			return err
-		}
-		backupValue, err := clientconfig.Require(*backup, "--backup (removed skill entry)", false, in, os.Stderr)
-		if err != nil {
-			return err
-		}
-		return restoreSkill(c, targetValue, backupValue, in, out, version)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {
@@ -628,16 +616,34 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if err != nil {
 		fmt.Fprintln(out, "Skill content preview channel unavailable; continuing inventory and sync work.")
 	}
-	var reply struct {
-		Agent store.SyncAgent
-		Job   *store.SyncJob
+	// The controller sends the skills this machine should have only when they
+	// differ from the version it last received; the copy kept then is what
+	// every later cycle puts back on disk.
+	cached := readDesiredSkills(config, c)
+	skillsVersion := ""
+	if cached != nil {
+		skillsVersion = cached.Version
 	}
-	if err := agentRequestContext(ctx, c, "/api/v2/sync/poll", map[string]string{}, &reply, version); err != nil {
+	var reply struct {
+		Agent   store.SyncAgent
+		Job     *store.SyncJob
+		Desired *store.DesiredState
+	}
+	if err := agentRequestContext(ctx, c, "/api/v2/sync/poll", map[string]string{"skillsVersion": skillsVersion}, &reply, version); err != nil {
 		return err
 	}
 	c.Host = reply.Agent.Host
+	keepControllerSkillsProtocol(config, c, reply.Agent.SkillsProtocol, out)
 	if reply.Agent.Paused {
 		return nil
+	}
+	// Only a controller on this agent's skills protocol keeps this machine's
+	// skills. One on another (rolled back, say) runs the older engine for it,
+	// so a desired state kept from before is left unused, not deleted: the
+	// two would undo each other.
+	var skillErr error
+	if reply.Agent.SkillsProtocol == store.CurrentSkillsProtocol {
+		skillErr = reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now(), out)
 	}
 	scanAll := func() error {
 		dirs := append([]string{c.Home}, c.Projects...)
@@ -655,9 +661,13 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if reply.Job == nil {
 		if time.Since(*lastScan) >= time.Minute {
 			*lastScan = time.Now()
-			return scanAll()
+			return errors.Join(skillErr, scanAll())
 		}
-		return nil
+		return skillErr
+	}
+	if skillErr != nil {
+		// A claimed job still runs; the skills report is sent again next cycle.
+		fmt.Fprintln(out, "Skills:", skillErr)
 	}
 	j := reply.Job
 	result := agentResult{ID: j.ID, Status: "succeeded"}

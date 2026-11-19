@@ -280,3 +280,38 @@ func TestMachineCaptureReusesTheSkillsBundle(t *testing.T) {
 		t.Fatalf("the second capture used another bundle: %+v", again.Receipt)
 	}
 }
+
+// A copy from one machine to another is not turned into job-based sync on a
+// destination that follows the library: that machine gets its skills from the
+// library, and the transfer says so.
+func TestMachineSkillSyncDoesNotAdvanceToAMachineThatFollowsTheLibrary(t *testing.T) {
+	s, uid, a, b, _, r, files := machineSyncFixture(t)
+	r = finishMachineCopy(t, s, uid, a, r, files)
+	if err := s.SetAgentSkillsProtocolFor(uid, b.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AdvanceMachineSkillSyncs(uid, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.RemoteImportFor(uid, r.ID)
+	if err != nil || current.SyncRunID != "" || !current.SyncEnded || current.SyncError != "This machine now follows your library; this job is no longer needed." {
+		t.Fatalf("transfer: %+v %v", current, err)
+	}
+	// It has ended for good: it is not taken up again, even by a machine
+	// that goes back to an older reet.
+	if _, err = s.db.Exec(`UPDATE sync_agents SET skills_protocol=0 WHERE id=?`, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.AdvanceMachineSkillSyncs(uid, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s.RemoteImportFor(uid, r.ID); again.SyncRunID != "" || !again.SyncEnded {
+		t.Fatalf("an ended transfer was taken up again: %+v", again)
+	}
+	if targets, _ := s.SyncTargetsFor(uid); len(targets) != 0 {
+		t.Fatalf("a saved set was written for it: %+v", targets)
+	}
+	if jobs, _ := s.SyncJobsFor(uid); len(jobs) != 0 {
+		t.Fatalf("jobs: %+v", jobs)
+	}
+}

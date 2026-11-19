@@ -46,7 +46,7 @@ The signed-in **Home** opens on **Waiting for you**, one list of the Factory pip
 
 On **Advanced sync** (linked from Sync), **Scan all** requests inventory from available enrolled machines. **Sync all · preview** queues previews for available saved targets. Review and approve each exact plan in Sync activity. Distinct scopes on one machine can queue previews together; execution stays serial. Offline, paused, stale/incomplete and already-pending targets are skipped with reasons. Individual queue failures are reported, with successful requests preserved. A machine's Settings → **Software** can now install, update, roll back or remove reet's own OpenCode copy from one verified artifact.
 
-Nothing is sent to skills.sh except read-only page fetches for names and descriptions.
+Nothing is sent to skills.sh except read-only page fetches for names and descriptions. To keep its own copy of a skill added by link, the controller downloads it: a GitHub repository's archive from codeload.github.com (up to 128 MiB), or a site's `https://<host>/.well-known/agent-skills/` index. Addresses on the controller's machine or private networks are refused.
 
 ## Features
 

@@ -4,6 +4,15 @@ export const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
 const now = Date.now()
 export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',url:`https://www.skills.sh/demo/toolkit/${id}`,description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:false,createdAt:now,updatedAt:now})
 
+// A row of the Skills page (GET /api/v2/skills), keyed by library item, on all 3 machines unless `over` says otherwise.
+export const skillRow = (name, over = {}) => ({id:`item-${name}`,shelfId:`demo/toolkit/${name}`,name,description:`${name} does one job well.`,status:'active',originKind:'imported',origin:`https://github.com/demo/toolkit/${name}`,yours:false,published:false,hasCopy:true,liked:false,notes:'',tags:[],lists:[],health:{state:'ok',pending:0,total:3,hosts:[],machines:[]},...over})
+// One tab of the Skills page as the server answers it: that tab's rows, both tabs' counts and the rest of the page.
+// `work` is what the machines are doing over every skill, deleted ones still coming off included; nothing by default.
+export const noWork = {failed:0,installing:0,removing:0,updating:0}
+export const skillsPageOf = (rows, status = 'active', {newOnMachines = [], machines = 3, notice = null, work = noWork} = {}) => ({skills:rows.filter(r=>r.status===status),counts:{active:rows.filter(r=>r.status==='active').length,archived:rows.filter(r=>r.status==='archived').length},newOnMachines,machines,notice,work})
+// The shelf fixtures a test passes as `skills`, as the Skills page lists them: Active, on no machine yet.
+const shelfRow = s => skillRow(s.name, {id:s.id,shelfId:s.id,description:s.description ?? '',liked:!!s.liked,notes:s.notes ?? '',tags:s.tags ?? [],health:{state:'off',pending:0,total:0,hosts:[],machines:[]}})
+
 export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}, routes={}, touch=false, gates={}, sessionFocus, scale} = {}) {
  // `touch` is a phone: a coarse pointer, so the touch-size rules apply.
  const context = await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch,...(scale?{deviceScaleFactor:scale}:{})})
@@ -28,7 +37,11 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   }
   if(path==='/api/version')return json({version:'test',commit:'fixture'})
   if(path==='/api/skills')return json({skills,counts:{all:skills.length,used:skills.filter(s=>s.used).length,liked:0,bookmarked:0}})
+  // The Skills page: the `skills` fixtures, all Active and on no machine. A test about the page answers the route itself.
+  if(path==='/api/v2/skills'&&route.request().method()==='GET')return json(skillsPageOf(skills.map(shelfRow),new URL(route.request().url()).searchParams.get('status')||'active',{machines:0}))
   if(path==='/api/environments')return json(inventory)
+  // Library tools, under the Skills page, list what scans ignore.
+  if(path==='/api/ignored')return json({ignored:[]})
   if(path==='/api/tags')return json({tags:[]})
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/library')return json({schemaVersion:1,items:[]})

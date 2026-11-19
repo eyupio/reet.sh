@@ -188,11 +188,13 @@ func removeLibraryDeployment(ctx context.Context, config string, c agentConfig, 
 		capture := state
 		capture.Bindings = []libraryBinding{*binding}
 		if state.CalibratedAt != 0 {
-			if err := captureLibraryEdits(&capture); err != nil {
+			// Captured here as before, so the journal holds the edit; it is
+			// never sent from a managed home folder (see heldEdit).
+			if err := captureLibraryEdits(&capture, homeFolders{}); err != nil {
 				return err
 			}
 		}
-		state.Pending = capture.Pending
+		state.Pending, state.EditPaths = capture.Pending, capture.EditPaths
 		*binding = capture.Bindings[0]
 		err = backupSkillEntry(path, action.Skill.Slug, out, onBackup, func(backup string) error {
 			if err := safeLibraryParent(filepath.Dir(backup)); err != nil {

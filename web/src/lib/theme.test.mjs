@@ -60,8 +60,8 @@ test('checkbox edges meet 3:1 in both palettes', () => {
 })
 
 test('the pressed Liked filter uses token contrast, not a literal white', () => {
-  const app = readFileSync(join(web, 'src/App.svelte'), 'utf8')
-  assert.match(app, /\.filters \.liked\[aria-pressed='true'\] \{ background: var\(--tint\); color: var\(--ink\); border-color: var\(--accent\); \}/)
+  const page = readFileSync(join(web, 'src/lib/skills/SkillsPage.svelte'), 'utf8')
+  assert.match(page, /\.toggle\.liked\[aria-pressed='true'\] \{ background: var\(--tint\); color: var\(--ink\); border-color: var\(--heart\); \}/)
 })
 
 // Every block in app.css that sets the palette must set it exactly as TOKENS says, so the stylesheet and the checked values cannot drift.

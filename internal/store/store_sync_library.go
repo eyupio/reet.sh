@@ -437,6 +437,13 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 		if len(selected) == 0 {
 			return ErrNotFound
 		}
+		if selected[0].SkillsProtocol >= CurrentSkillsProtocol {
+			host, err := s.ResolveMachineHostFor(uid, selected[0].Host)
+			if err != nil {
+				return err
+			}
+			return FollowsLibraryError{Host: host}
+		}
 		agents = selected
 	}
 	if err := s.SetSyncLibraryOrigin(uid, origin); err != nil {
@@ -487,6 +494,9 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 	// never stops this action: pressing Sync all machines switches every machine
 	// on and brings across everything that can be brought.
 	for _, agent := range agents {
+		if agent.SkillsProtocol >= CurrentSkillsProtocol {
+			continue // it follows the library already
+		}
 		if err = s.ControlSyncAgent(uid, agent.ID, "keep-sync-on"); err != nil {
 			return err
 		}

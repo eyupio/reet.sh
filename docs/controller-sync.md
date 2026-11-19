@@ -139,13 +139,22 @@ Queued or awaiting-approval jobs can be cancelled. Running operations are not pr
 
 When the plan, target revision or local files change between a preview and its apply, the machine reports that nothing was written and asks for a fresh plan. The controller answers that request itself: inside a run it queues a fresh automatic preview for the same scope at the same run position and carries on with the remaining scopes; outside a run it queues a fresh job for the same scope, keeping a person's preview a preview and taking an apply through a fresh plan and its additive changes. Either way local drift does not strand the rest of the machine behind a failed card. The attempt is still recorded honestly as failed with **The plan changed before it ran**, and the replacement appears as the live job with a note saying reet is planning again automatically. A scope is retried at most three times in one run, and the same bound applies outside a run, before auto fix stops and **Fix and try again** offers a fresh plan for the person to review. Commands that must run locally — creating a skills folder on an older agent, or `reet agent allow-apply on` — are shown rather than run from the web. Distinct agent scopes may queue read-only previews together. Duplicate previews for a scope are blocked, scans wait for active work, and an active scan or apply blocks new previews. Execution remains serial on each installation. Each preview requires its own approval. Execution has an eight-minute command context; work with no result after ten minutes becomes failed and requires inspection and a new preview. A local result is persisted before acknowledgment; reconnecting resends the result rather than reinstalling skills.
 
-Removed entries are moved to `.reet-sync-backups/removed-*/SKILL` beside the selected skills directory. Sync activity includes **Copy restore command** for each successfully backed-up removal, including partial failures. Run it on the enrolled machine:
+Before the agent removes or replaces a skill in one of the four managed folders (`~/.agents/skills`, `~/.claude/skills`, `~/.cursor/skills`, `~/.config/opencode/skills`), it moves the old copy into `.reet-backups/YYYY-MM-DD/` beside that folder. Backups older than 30 days are pruned. List and restore them on the machine, with no sync target needed:
 
 ```sh
-reet agent restore --target 'TARGET_ID' --backup '/path/to/.reet-sync-backups/removed-123/skill'
+reet agent restore --list
+reet agent restore NAME [--date YYYY-MM-DD]
 ```
 
-Restore verifies enrollment and backup scope, requires typing the target name, refuses to overwrite an existing skill, takes the target lock, moves the original entry back, and rescans. Review the desired set afterward so the next sync does not remove it again. Symlink entries are restored as symlinks.
+Without `--date`, restore uses the newest date that holds NAME (matched without case); if that date has it from more than one folder, each is restored. Restore moves the entry back into the folder it came from, refuses to overwrite an existing skill, and restores a symlink as a symlink. When reet's own copy is already there (the usual case after an edited copy was replaced), restore refuses, names each backup it left in place, and says how to keep that version: copy it somewhere outside the skills folders. On a machine that follows the library, the library decides what stays: a skill that is Archived or Deleted there is taken off again on the agent's next pass, and restore says so. To keep it on your machines, Restore it on the Skills page.
+
+A sync job's backup, in `.reet-sync-backups` beside the skills folder of that job's target (a project's included), is restored exactly by the command its job card shows:
+
+```sh
+reet agent restore --target ID --backup PATH
+```
+
+It takes only an entry of a `.reet-sync-backups/removed-*` or `.reet-backups/YYYY-MM-DD` folder beside one of the machine's skills folders (home, Codex's, or an enrolled project's), puts it back in that skills folder, and never replaces a skill already there. The backup's path says where it goes, so it works after the job's saved set is gone; `--target` is checked only while that set still exists. `reet agent restore --list` lists these backups too, each with its exact command.
 
 A killed agent or sync may leave a `.lock` file. Check that the relevant process is no longer running before removing that specific stale lock. Keep any `.result` file for acknowledgment/recovery; the agent drops it only when the controller refuses it permanently (for example because that job has already closed). Do not run multiple workers using copied configuration files.
 
@@ -174,4 +183,4 @@ selections. Selected-library connectors use those import receipts for subsequent
 
 A skill written on the Hosting page reaches a selected machine through an immutable, account-owned private revision, whether published or private. Publishing is not required and does not select a destination. The connector fetches the exact revision from `GET /api/v2/skill-bundles/{bundle}/revisions/{revision}` and verifies paths, bytes and modes before applying it. Unchanged content creates no revision or repeated install.
 
-Private storage remains bounded (128 bundles, 256 revisions, 64 MiB per account). Reclamation never frees content still required by a canonical head, offline installed/source base or retained machine edit. A full store leaves changed machine bytes protected for retry; it does not replace them with older controller content or turn an incomplete capture into a deletion. Version history is not an independent backup. The selected-library database format is 3: an older controller must refuse it instead of reopening it and reactivating policies it does not understand.
+Private storage remains bounded (1,024 bundles, 4,096 revisions, 1 GiB per account). Reclamation never frees content still required by a canonical head, offline installed/source base or retained machine edit. A full store leaves changed machine bytes protected for retry; it does not replace them with older controller content or turn an incomplete capture into a deletion. Version history is not an independent backup. The selected-library database format is 3: an older controller must refuse it instead of reopening it and reactivating policies it does not understand.

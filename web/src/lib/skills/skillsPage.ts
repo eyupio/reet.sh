@@ -12,7 +12,7 @@ export function healthLine(h: SkillHealth): { text: string; tone: Tone; retry: b
   const line = (text: string, tone: Tone, retry = false) => ({ text, tone, retry })
   switch (h.state) {
     case 'ok':
-      return line(`On all ${h.total} machines`, 'ok')
+      return line(h.total === 1 ? 'On 1 machine' : `On all ${h.total} machines`, 'ok')
     case 'installing':
       return line(`Installing on ${h.pending} of ${h.total}`, 'work')
     case 'removing':
@@ -32,7 +32,7 @@ export function healthLine(h: SkillHealth): { text: string; tone: Tone; retry: b
     case 'fetch-failed':
       return line("Couldn't fetch the files", 'bad', true)
     case 'needs-update':
-      return line(hosts.length === 1 ? `Update reet on ${hosts[0]} to keep its skills in sync` : `Update reet on ${hosts.length} machines to keep their skills in sync`, 'bad')
+      return line(hosts.length === 0 ? 'Update reet on your machines to keep their skills in sync' : hosts.length === 1 ? `Update reet on ${hosts[0]} to keep its skills in sync` : `Update reet on ${hosts.length} machines to keep their skills in sync`, 'bad')
     case 'off':
       return line('Off every machine', 'off')
     default:
@@ -80,22 +80,32 @@ export function deleteConfirm(rows: SkillRow[]): { title: string; body: string; 
   const noCopy = rows.filter(r => !r.hasCopy)
   if (!written.length && !noCopy.length) return null
   const title = rows.length === 1 ? `Delete ${rows[0].name}?` : `Delete ${rows.length} skills?`
+  const links = written.filter(r => r.published)
+  const backup = 'each machine keeps a backup for 30 days'
   const parts: string[] = []
   if (rows.length === 1) {
     if (written.length) parts.push('You wrote this one.')
     if (noCopy.length) parts.push('reet has no copy of this skill.')
-    parts.push(written.length && noCopy.length ? 'Deleting it removes it from your machines and nothing can bring it back.' : written.length ? 'Deleting it removes it from your machines, and reet has the only copy.' : 'Deleting it removes it from your machines and nothing can bring it back.')
+    const writing = links.length ? 'your writing and its public link' : 'your writing'
+    if (written.length && noCopy.length) parts.push(`Deleting removes ${writing} and the skill from your machines; ${backup}.`)
+    else if (written.length) parts.push(`Deleting it removes ${writing}, as well as the skill on your machines.`)
+    else parts.push(`Deleting removes it from your machines; ${backup}.`)
   } else {
     if (written.length) parts.push(`You wrote ${nameList(written.map(r => r.name))}.`)
     if (noCopy.length) parts.push(`reet has no copy of ${nameList(noCopy.map(r => r.name))}.`)
-    parts.push('Deleting removes them from your machines.')
+    let end = 'Deleting removes them from your machines'
+    if (written.length) end += links.length ? `, along with your writing and the public links of ${nameList(links.map(r => r.name))}` : ', along with your writing'
+    if (noCopy.length) end += `; ${backup}`
+    parts.push(end + '.')
   }
   return { title, body: parts.join(' '), writtenConfirmed: written.length > 0, noCopyConfirmed: noCopy.length > 0 }
 }
 
-/** Words to paste into a prompt to use a skill. It carries the name and description, never a link. */
+/** Words to paste into a prompt to use a skill. It carries the name and description, never a link: a sentence of the description that holds one is left out. */
 export function copyPrompt(row: Pick<SkillRow, 'name' | 'description'>): string {
-  const blurb = skillBlurb(row.description.replace(/(?:https?:\/\/|www\.)\S+|\bgithub\.com\S*/gi, ''))
+  const link = /https?:\/\/|www\.|github\.com/i
+  const kept = (row.description ?? '').split(/(?<=[.!?])\s+/).filter(sentence => !link.test(sentence)).join(' ')
+  const blurb = skillBlurb(kept)
   return blurb ? `Use the ${row.name} skill: ${blurb}` : `Use the ${row.name} skill.`
 }
 

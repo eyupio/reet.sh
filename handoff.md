@@ -27,7 +27,9 @@ project folders a machine had reported plus **Type a path…**. A machine that r
 never reported (it becomes its own option); picking the home sets the empty **Home folder** value. The browser
 opens at the current choice, closes on a pick, and closes when a project, machine or agent change resets the
 folder. Typed paths stay for machines that cannot browse (older reet, browsing switched off, offline); the
-controller, broker and connector are unchanged.
+controller, broker and connector are unchanged. Browse requests are queued one at a time, as the Add project
+dialog does, so a filter typed while a folder is still listing never draws the machine's "already listing"
+refusal.
 
 **Tests.** `web/tests/start-agent.e2e.mjs` gives the fixture machine `browse`, mocks
 `GET /api/v2/machines/{id}/browse`, and checks the button, the live list, a pick filling the select and the

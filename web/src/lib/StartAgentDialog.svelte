@@ -504,6 +504,13 @@
   browseOpen = false
   edited()
  }
+ // Browse requests one at a time for this dialog: the machine answers a second at once with "already listing".
+ let browseQueue: Promise<unknown> = Promise.resolve()
+ function browseSerial<T>(job: () => Promise<T>): Promise<T> {
+  const next = browseQueue.then(job, job)
+  browseQueue = next.catch(() => undefined)
+  return next
+ }
  let skillOpen = $state(false), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
  let promptOpen = $state(false), promptButton = $state<HTMLButtonElement>()
  function useSkill(skill: Skill) {
@@ -922,7 +929,7 @@
      {/if}
      {#if browseOpen && canBrowse && machine}
       <div id={`${id}-browser`} class="browser-slot">
-       <FolderBrowser agentId={machine.agentId} host={machine.host} session={browseSession} start={adHocDir} chosen={adHocDir} serial={job => job()} onuse={useBrowsedFolder} />
+       <FolderBrowser agentId={machine.agentId} host={machine.host} session={browseSession} start={adHocDir} chosen={adHocDir} serial={browseSerial} onuse={useBrowsedFolder} />
       </div>
      {/if}
     </div>

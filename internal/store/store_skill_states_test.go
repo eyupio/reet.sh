@@ -709,14 +709,14 @@ func TestSkillStatesShelfStageMovesTheStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("bulk park", SkillArchived, true)
-	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Bookmarked: &yes}, false); err != nil {
+	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Status: SkillActive, StatusAt: time.Now()}, false); err != nil {
 		t.Fatal(err)
 	}
-	expect("bulk to test", SkillActive, false)
-	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Used: &no, Bookmarked: &no}, false); err != nil {
+	expect("bulk restore", SkillActive, false)
+	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Status: SkillArchived, StatusAt: time.Now()}, false); err != nil {
 		t.Fatal(err)
 	}
-	expect("bulk update park", SkillArchived, true)
+	expect("bulk archive", SkillArchived, true)
 	// A sighting on a machine joins the Archived skill and leaves it Archived.
 	if _, err = s.UpsertLocalFor(uid, "seo-audit", Patch{Used: &yes}); err != nil {
 		t.Fatal(err)

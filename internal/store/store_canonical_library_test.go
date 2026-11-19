@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -91,8 +92,8 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 	if err = s.SetLibraryStatusFor(uid, item.ID, SkillActive, first.Version); !errors.Is(err, ErrLibraryConflict) {
 		t.Fatal("stale lifecycle write accepted", err)
 	}
-	// A stage set on the shelf moves the status: To test is Active.
-	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Used: &no, Bookmarked: &yes}, false); err != nil {
+	// A bulk status change moves the canonical status.
+	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Status: SkillActive, StatusAt: time.Now()}, false); err != nil {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
@@ -757,7 +758,7 @@ func TestListCanonicalFoldsAnUnlinkedCopyOfALinkedSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(one) != 1 || one[0].SourceType == "local" || canonical.All != 1 || canonical.Used != 1 {
+	if len(one) != 1 || one[0].SourceType == "local" || canonical.All != 1 || canonical.Active != 1 {
 		t.Fatalf("canonical list = %+v, counts %+v", one, canonical)
 	}
 }

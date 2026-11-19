@@ -412,19 +412,26 @@ func (s *Store) SetSkillStatusFor(uid int64, ids []string, status string, at tim
 			return err
 		}
 		for _, id := range ids {
-			it, err := skillStateItemTx(tx, uid, id)
-			if err == nil && it.deletedAt != 0 {
-				err = ErrPrivateSkillMissing
-			}
-			if err != nil {
-				return err
-			}
-			if err = setSkillStatusTx(tx, uid, it, status, at); err != nil {
+			if err := setLiveSkillStatusTx(tx, uid, id, status, at); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// setLiveSkillStatusTx archives or restores one live library item by its id.
+// The Skills page's Archive and Restore and the MCP tools' bulk status change
+// both go through it.
+func setLiveSkillStatusTx(tx *sql.Tx, uid int64, id, status string, at time.Time) error {
+	it, err := skillStateItemTx(tx, uid, id)
+	if err == nil && it.deletedAt != 0 {
+		err = ErrPrivateSkillMissing
+	}
+	if err != nil {
+		return err
+	}
+	return setSkillStatusTx(tx, uid, it, status, at)
 }
 
 // DeleteSkillsFor marks items deleted and puts their names on the removal

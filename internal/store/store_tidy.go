@@ -375,11 +375,13 @@ func (s *Store) DeleteTagFor(userID int64, id int64) (int, error) {
 	return affected, err
 }
 
-// BulkChange is the combined change reet_bulk_update_skills applies.
+// BulkChange is the combined change reet_bulk_update_skills applies. Status,
+// active or archived, moves each skill's library item as the Skills page's
+// Archive and Restore do, at StatusAt.
 type BulkChange struct {
 	Liked        *bool
-	Bookmarked   *bool
-	Used         *bool
+	Status       string
+	StatusAt     time.Time
 	AddTags      []string
 	RemoveTagIDs []int64
 	AddToListID  int64
@@ -393,9 +395,23 @@ type BulkItemResult struct {
 	Message string `json:"message,omitempty"`
 }
 
-// BulkUpdateFor applies flags, tags and one list membership in a single
-// transaction. dryRun runs the same work and rolls it back.
+// shelfChange says whether a bulk change touches what a shelf row holds:
+// likes, tags and list membership.
+func (c BulkChange) shelfChange() bool {
+	return c.Liked != nil || len(c.AddTags) > 0 || len(c.RemoveTagIDs) > 0 || c.AddToListID > 0
+}
+
+// BulkUpdateFor applies a like, a status, tags and one list membership in a
+// single transaction. dryRun runs the same work and rolls it back.
+//
+// An id is a shelf skill's, or the library id of a skill no shelf row stands
+// for, such as one written and never published, as reet_list_skills lists
+// them. Such a skill takes a status change only: a like, tag or list needs a
+// shelf row.
 func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dryRun bool) (int, []BulkItemResult, error) {
+	if change.Status != "" && !validLibraryStatus(change.Status) {
+		return 0, nil, ErrPrivateSkillInvalid
+	}
 	results := make([]BulkItemResult, 0, len(ids))
 	updated := 0
 	tx, err := s.db.Begin()
@@ -403,6 +419,11 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		return 0, nil, err
 	}
 	defer tx.Rollback()
+	if change.Status != "" {
+		if err := privateSkillOwner(tx, userID); err != nil {
+			return 0, nil, err
+		}
+	}
 	var addIDs []int64
 	for _, name := range change.AddTags {
 		name = strings.TrimSpace(name)
@@ -416,16 +437,23 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		addIDs = append(addIDs, tagID)
 	}
 	for _, id := range ids {
-		var one int
-		err := tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&one)
-		if errors.Is(err, sql.ErrNoRows) {
-			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
-			continue
-		}
+		item, shelf, err := bulkSkillItemTx(tx, userID, id)
 		if err != nil {
 			return 0, nil, err
 		}
-		if change.AddToListID > 0 {
+		if item == "" && !shelf {
+			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
+			continue
+		}
+		if !shelf && change.shelfChange() {
+			results = append(results, BulkItemResult{ID: id, Code: "library_only", Message: "this skill has no shelf row, so only its status can change; nothing was changed"})
+			continue
+		}
+		if change.Status != "" && item == "" {
+			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
+			continue
+		}
+		if shelf && change.AddToListID > 0 {
 			var visibility, sourceType string
 			if err := tx.QueryRow(`SELECT visibility FROM lists WHERE id=?`, change.AddToListID).Scan(&visibility); err != nil {
 				return 0, nil, err
@@ -438,16 +466,14 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 				continue
 			}
 		}
-		changed := change.Liked != nil || change.Bookmarked != nil || change.Used != nil
-		if changed {
-			if _, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
-				WHERE user_id=? AND skill_id=?`, nullBool(change.Liked), nullBool(change.Bookmarked), nullBool(change.Used), now(), userID, id); err != nil {
+		if change.Status != "" {
+			if err := setLiveSkillStatusTx(tx, userID, item, change.Status, change.StatusAt); err != nil {
 				return 0, nil, err
 			}
-			if change.Used != nil || change.Bookmarked != nil {
-				if err := shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
-					return 0, nil, err
-				}
+		}
+		if change.Liked != nil {
+			if _, err := tx.Exec(`UPDATE shelf SET liked=?,updated_at=? WHERE user_id=? AND skill_id=?`, b2i(change.Liked), now(), userID, id); err != nil {
+				return 0, nil, err
 			}
 		}
 		for _, tagID := range addIDs {
@@ -483,6 +509,25 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		return 0, nil, err
 	}
 	return updated, results, nil
+}
+
+// bulkSkillItemTx finds what a bulk id names: a shelf row, with the live
+// library item it stands for, or a live library skill no shelf row stands
+// for, by its library id. item is empty when there is no live item.
+func bulkSkillItemTx(tx *sql.Tx, uid int64, id string) (item string, shelf bool, err error) {
+	var one int
+	err = tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, uid, id).Scan(&one)
+	switch {
+	case err == nil:
+		shelf = true
+		err = tx.QueryRow(`SELECT i.id FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.deleted_at=0`, uid, id).Scan(&item)
+	case errors.Is(err, sql.ErrNoRows):
+		err = tx.QueryRow(`SELECT i.id FROM library_items i WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference JOIN skills k ON k.id=a.reference AND k.hidden=0 WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf')`, uid, id, LibrarySkill).Scan(&item)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	return item, shelf, err
 }
 
 // DuplicateSkill is one member of a suspected duplicate group.

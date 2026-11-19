@@ -1245,7 +1245,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 	filter.Canonical = canonicalShelfListing(filter)
 	skills, counts, err := s.st.ListFor(s.uid(r), filter)
 	if err == nil && q.Get("library") == "1" {
-		skills, err = s.withLibraryOnlySkills(s.uid(r), filter, skills)
+		skills, err = s.withLibraryOnlySkills(s.uid(r), filter, skills, &counts)
 	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -1324,7 +1324,17 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 // a filter on those leaves them out; text matches name, id and description.
 // The whole list is put back in the listing's order. A paged listing is left
 // as it is.
-func (s *server) withLibraryOnlySkills(uid int64, f store.Filter, skills []store.Skill) ([]store.Skill, error) {
+//
+// counts, when given, are the listing's counts over the whole library, and
+// count these skills too, whatever the filter.
+func (s *server) withLibraryOnlySkills(uid int64, f store.Filter, skills []store.Skill, counts *store.LibraryCounts) ([]store.Skill, error) {
+	extra, err := s.st.LibrarySkillsWithoutShelfFor(uid)
+	if err != nil || len(extra) == 0 {
+		return skills, err
+	}
+	if counts != nil {
+		counts.Add(extra)
+	}
 	if f.Limit > 0 || f.Offset > 0 || (f.Tab != "" && f.Tab != "all") || len(f.Tags) > 0 || f.Env != "" || f.Machine != "" || f.Only != "" || f.SourceType != "" {
 		return skills, nil
 	}
@@ -1336,10 +1346,6 @@ func (s *server) withLibraryOnlySkills(uid int64, f store.Filter, skills []store
 	term := strings.ToLower(strings.TrimSpace(f.Query))
 	if strings.Contains(term, "#") {
 		return skills, nil
-	}
-	extra, err := s.st.LibrarySkillsWithoutShelfFor(uid)
-	if err != nil || len(extra) == 0 {
-		return skills, err
 	}
 	for _, sk := range extra {
 		if f.Stage != "" && sk.Status != f.Stage {

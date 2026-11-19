@@ -367,7 +367,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
   }, { write: true, destructive: true, idempotent: true });
 
   tool('bulk_update_skills', 'Update many skills at once', 'Apply a like, a status, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. status active installs the skills on every machine that follows the library; status archived archives them: they are taken off every machine, each of which keeps a backup for 30 days. Does not edit notes or delete skills.', {
-    ids: z.array(id).max(500).optional().describe('Exact shelf skill IDs; omit when using filter.'),
+    ids: z.array(id).max(500).optional().describe('Skill IDs as reet_list_skills gives them: a shelf skill’s ID, or the library id of a skill with no shelf row, which takes a status change only. Omit when using filter.'),
     filter: z.object({
       q: z.string().max(500).optional().describe('Search text.'),
       source_type: z.string().max(50).optional().describe('e.g. local, github, hosted or well-known.'),

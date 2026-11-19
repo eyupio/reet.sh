@@ -438,6 +438,11 @@ func (s *server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": true, "dry_run": false, "id": id, "affected": affected})
 }
 
+// bulkUpdateSkills is reet_bulk_update_skills. A status (active or archived)
+// goes through the Skills page's own store path, so a skill reet has no copy
+// of is copied in before it leaves any machine. ids are those
+// reet_list_skills gives: a shelf skill's id, or the library id of a skill no
+// shelf row stands for; a filter finds both.
 func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		IDs    []string `json:"ids"`
@@ -453,12 +458,11 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		} `json:"filter"`
 		AddTags      []string `json:"add_tags"`
 		RemoveTagIDs []int64  `json:"remove_tag_ids"`
-		Stage        string   `json:"stage"`
-		// Status (active or archived) is the library status the MCP tools
-		// set; it stands for the stage In use or Parked.
+		// Stage is the old name of a status: In use and To test are Active,
+		// Parked is Archived.
+		Stage       string `json:"stage"`
 		Status      string `json:"status"`
 		Liked       *bool  `json:"liked"`
-		Bookmarked  *bool  `json:"bookmarked"`
 		AddToListID int64  `json:"add_to_list_id"`
 		DryRun      bool   `json:"dry_run"`
 	}
@@ -469,14 +473,22 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		in.Filter.Stage = in.Filter.Status
 	}
 	switch in.Status {
-	case "":
-	case store.SkillActive:
-		in.Stage = "use"
-	case store.SkillArchived:
-		in.Stage = "shelf"
+	case "", store.SkillActive, store.SkillArchived:
 	default:
 		writeErrCode(w, 400, errInvalidArgument, "status", "status must be active or archived", "Use active or archived.")
 		return
+	}
+	if in.Status == "" {
+		switch in.Stage {
+		case "":
+		case "use", "try":
+			in.Status = store.SkillActive
+		case "shelf":
+			in.Status = store.SkillArchived
+		default:
+			writeErrCode(w, 400, errInvalidArgument, "stage", "stage must be shelf, try or use", "Use status active or archived.")
+			return
+		}
 	}
 	ids := uniqueStrings(in.IDs)
 	filtered := in.Filter.Q != "" || in.Filter.SourceType != "" || in.Filter.Env != "" || in.Filter.Stage != "" || len(in.Filter.Tags) > 0 || in.Filter.Untagged
@@ -489,10 +501,14 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(ids) == 0 {
-		skills, _, err := s.st.ListFor(s.uid(r), store.Filter{
+		filter := store.Filter{
 			Query: in.Filter.Q, SourceType: in.Filter.SourceType, Env: in.Filter.Env,
 			Stage: in.Filter.Stage, Sort: in.Filter.Sort, Tags: in.Filter.Tags, Untagged: in.Filter.Untagged,
-		})
+		}
+		skills, _, err := s.st.ListFor(s.uid(r), filter)
+		if err == nil {
+			skills, err = s.withLibraryOnlySkills(s.uid(r), filter, skills, nil)
+		}
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -505,27 +521,9 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var change store.BulkChange
-	change.Liked = in.Liked
-	change.Bookmarked = in.Bookmarked
-	change.AddTags = in.AddTags
-	change.RemoveTagIDs = in.RemoveTagIDs
-	change.AddToListID = in.AddToListID
-	if in.Stage != "" {
-		switch in.Stage {
-		case "shelf":
-			used, bookmarked := false, false
-			change.Used, change.Bookmarked = &used, &bookmarked
-		case "try":
-			used, bookmarked := false, true
-			change.Used, change.Bookmarked = &used, &bookmarked
-		case "use":
-			used := true
-			change.Used = &used
-		default:
-			writeErrCode(w, 400, errInvalidArgument, "stage", "stage must be shelf, try or use", "Use shelf, try or use.")
-			return
-		}
+	change := store.BulkChange{
+		Liked: in.Liked, Status: in.Status, StatusAt: s.skillNow(),
+		AddTags: in.AddTags, RemoveTagIDs: in.RemoveTagIDs, AddToListID: in.AddToListID,
 	}
 	if change.AddToListID > 0 {
 		access, err := s.st.ListAccessFor(s.uid(r), s.role(r), change.AddToListID)
@@ -544,7 +542,7 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, results, err := s.st.BulkUpdateFor(s.uid(r), ids, change, in.DryRun)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		skillsPageError(w, err)
 		return
 	}
 	failed := 0
@@ -561,7 +559,7 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		s.eventRequest(r, "bulk-update", "", detail)
 		// As the Skills page's Archive does: a skill reet has no copy of is
 		// copied in before it leaves any machine.
-		if in.Status != "" || in.Stage != "" {
+		if in.Status != "" {
 			s.kickSkillCopies(s.uid(r))
 		}
 	}

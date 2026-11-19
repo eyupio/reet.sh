@@ -5238,7 +5238,7 @@
       "type": "object",
       "properties": {
         "ids": {
-          "description": "Exact shelf skill IDs; omit when using filter.",
+          "description": "Skill IDs as reet_list_skills gives them: a shelf skill’s ID, or the library id of a skill with no shelf row, which takes a status change only. Omit when using filter.",
           "maxItems": 500,
           "type": "array",
           "items": {

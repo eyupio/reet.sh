@@ -459,11 +459,37 @@ func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 // liveShelfRow keeps out shelf rows whose library skill is deleted.
 const liveShelfRow = ` AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id AND i.deleted_at<>0)`
 
-func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
+// LibraryCounts counts a listing's skills over the whole library, whatever
+// the filter: all of them, the liked ones, and how many are Active and
+// Archived.
+type LibraryCounts struct {
+	All      int `json:"all"`
+	Liked    int `json:"liked"`
+	Active   int `json:"active"`
+	Archived int `json:"archived"`
+}
+
+// Add counts more skills, such as the library skills no shelf row stands for.
+func (c *LibraryCounts) Add(skills []Skill) {
+	for _, sk := range skills {
+		c.All++
+		if sk.Liked {
+			c.Liked++
+		}
+		switch sk.Status {
+		case SkillActive:
+			c.Active++
+		case SkillArchived:
+			c.Archived++
+		}
+	}
+}
+
+func (s *Store) ListFor(userID int64, f Filter) ([]Skill, LibraryCounts, error) {
 	if f.Machine != "" {
 		host, err := s.ResolveMachineHostFor(userID, f.Machine)
 		if err != nil {
-			return nil, Counts{}, err
+			return nil, LibraryCounts{}, err
 		}
 		f.Machine = host
 	}
@@ -473,9 +499,9 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	if f.Canonical {
 		canonical += ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
 	}
-	var c Counts
-	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
-		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
+	var c LibraryCounts
+	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(st='active'),0),COALESCE(SUM(st='archived'),0)
+		FROM (SELECT sh.liked,`+canonicalShelfStatus+` AS st FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical+`) sh`, userID).Scan(&c.All, &c.Liked, &c.Active, &c.Archived); err != nil {
 		return nil, c, err
 	}
 	// An unpaged list attaches the canonical item and status after its rows are

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -194,5 +195,86 @@ func TestMCPListSkillsIncludesLibrarySkillsWithNoShelfRow(t *testing.T) {
 	}
 	if find(map[string]any{"status": "archived"}) == nil || find(map[string]any{"status": "active"}) != nil {
 		t.Fatal("the archived written skill is not listed as archived")
+	}
+}
+
+// reet_bulk_update_skills sets a status through the Skills page's own store
+// path, so a library skill with no shelf row, such as one written and never
+// published, is archived and restored by its library id and counted, as a
+// shelf skill is by its shelf id. A filter on status finds both.
+func TestBulkStatusTakesLibraryIDsWithNoShelfRow(t *testing.T) {
+	e := newReconcileEnv(t)
+	written := e.writtenSkill(t, "alpha")
+	linked := e.linkedSkill(t, "vercel-labs/skills/find-skills")
+	skills, _, err := e.st.ListFor(e.uid, store.Filter{})
+	if err != nil || len(skills) != 1 {
+		t.Fatal(skills, err)
+	}
+	shelfID := skills[0].ID
+	bulk := func(body string) map[string]any {
+		t.Helper()
+		code, raw := e.owner(t, "POST", "/api/v2/skills/bulk", body)
+		if code != 200 {
+			t.Fatalf("bulk %s: %d %s", body, code, raw)
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	out := bulk(`{"ids":["` + shelfID + `","` + written + `"],"status":"archived","dry_run":true}`)
+	if out["updated"] != float64(2) || out["failed"] != float64(0) {
+		t.Fatalf("dry run: %+v", out)
+	}
+	if e.status(t, written) != "active" || e.status(t, linked) != "active" {
+		t.Fatal("a dry run changed a status")
+	}
+	out = bulk(`{"ids":["` + shelfID + `","` + written + `"],"status":"archived"}`)
+	if out["updated"] != float64(2) || out["failed"] != float64(0) {
+		t.Fatalf("archive by shelf and library id: %+v", out)
+	}
+	e.settle()
+	if e.status(t, written) != "archived" || e.status(t, linked) != "archived" {
+		t.Fatalf("archive: written %s, linked %s", e.status(t, written), e.status(t, linked))
+	}
+	out = bulk(`{"filter":{"status":"archived"},"status":"active"}`)
+	if out["updated"] != float64(2) || out["failed"] != float64(0) {
+		t.Fatalf("restore by filter: %+v", out)
+	}
+	if e.status(t, written) != "active" || e.status(t, linked) != "active" {
+		t.Fatalf("restore: written %s, linked %s", e.status(t, written), e.status(t, linked))
+	}
+	// A like or a tag needs a shelf row: the library-only skill says why and
+	// is left as it was.
+	out = bulk(`{"ids":["` + written + `"],"add_tags":["Later"],"status":"archived"}`)
+	if out["updated"] != float64(0) || out["failed"] != float64(1) || e.status(t, written) != "active" {
+		t.Fatalf("tag on a library-only skill: %+v, status %s", out, e.status(t, written))
+	}
+	out = bulk(`{"ids":["no-such-skill"],"status":"archived"}`)
+	if out["updated"] != float64(0) || out["failed"] != float64(1) {
+		t.Fatalf("unknown id: %+v", out)
+	}
+}
+
+// reet_list_skills counts the library skills with no shelf row with the rest,
+// by status.
+func TestMCPListSkillsCountsLibrarySkillsWithNoShelfRow(t *testing.T) {
+	e := newReconcileEnv(t)
+	session := e.mcpWriteSession(t)
+	written := e.writtenSkill(t, "alpha")
+	e.linkedSkill(t, "vercel-labs/skills/find-skills")
+	if code, raw := e.owner(t, "POST", "/api/v2/skills/status", `{"ids":["`+written+`"],"status":"archived"}`); code != 200 {
+		t.Fatalf("archive: %d %s", code, raw)
+	}
+	counts, _ := mcpData(t, session, "reet_list_skills", map[string]any{})["counts"].(map[string]any)
+	want := map[string]any{"all": float64(2), "liked": float64(0), "active": float64(1), "archived": float64(1)}
+	if len(counts) != len(want) {
+		t.Fatalf("counts %+v, want %+v", counts, want)
+	}
+	for k, v := range want {
+		if counts[k] != v {
+			t.Fatalf("counts %+v, want %+v", counts, want)
+		}
 	}
 }

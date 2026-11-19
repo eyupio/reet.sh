@@ -578,6 +578,11 @@ func machineSkillState(rows []reportedRow, want DesiredSkill, installing, removi
 	return "ok"
 }
 
+// newSkillCopyOrder orders a new skill's copies: oldest sighting first, then
+// by host, folder and machine. NewOnMachinesFor lists them in it, and Keep
+// takes the first.
+const newSkillCopyOrder = `m.at,a.host,m.folder,m.agent_id`
+
 // NewOnMachinesFor lists the unknown skills machines reported whose names are
 // neither in the library nor on the removal list, oldest sighting first
 // within a name (then by host and folder). It only reads.
@@ -586,7 +591,7 @@ func (s *Store) NewOnMachinesFor(uid int64) ([]NewSkill, error) {
  WHERE m.user_id=? AND m.state='unknown'
  AND NOT EXISTS(SELECT 1 FROM library_items i WHERE i.user_id=m.user_id AND i.item_type=? AND i.deleted_at=0 AND lower(i.name)=lower(m.name))
  AND NOT EXISTS(SELECT 1 FROM skill_removals r WHERE r.user_id=m.user_id AND r.name=m.name)
- ORDER BY lower(m.name),m.at,a.host,m.folder`, uid, LibrarySkill)
+ ORDER BY lower(m.name),`+newSkillCopyOrder, uid, LibrarySkill)
 	if err != nil {
 		return nil, err
 	}

@@ -430,19 +430,34 @@ func TestSkillsPageNewKeepAndArchive(t *testing.T) {
 	if r := active.row(t, "cq"); r.OriginKind != "kept" || r.Origin != "elitebook" || r.HasCopy || r.Yours {
 		t.Fatalf("kept row: %+v", r)
 	}
-	// Keep again joins the item rather than making a second.
-	if code, raw = e.owner(t, "POST", "/api/v2/skills/new", `{"names":["CQ"],"action":"keep","from":"`+e.agent.ID+`"}`); code != 200 {
-		t.Fatalf("keep again: %d %s", code, raw)
+	// cq is an Active skill now, though elitebook still reports it unknown
+	// until its next report: it is not new, and neither Keep nor Archive
+	// touches it.
+	for _, action := range []string{"keep", "archive"} {
+		code, raw = e.owner(t, "POST", "/api/v2/skills/new", `{"names":["CQ"],"action":"`+action+`","from":"`+e.agent.ID+`"}`)
+		if code != 409 || !strings.Contains(raw, `"code":"not-new"`) {
+			t.Fatalf("%s of an Active skill: %d %s", action, code, raw)
+		}
 	}
-	if p := e.page(t, "active"); p.Counts.Active != 1 {
-		t.Fatalf("keep again made another item: %+v", p.Counts)
+	if p := e.page(t, "active"); p.Counts.Active != 1 || p.Counts.Archived != 1 || p.row(t, "cq").Status != "active" {
+		t.Fatalf("a refused decision changed the library: %+v", p)
+	}
+	// paseo-help is Archived with no copy yet, so machines still report it:
+	// Keep joins it rather than making a second item.
+	if code, raw = e.owner(t, "POST", "/api/v2/skills/new", `{"names":["paseo-help"],"action":"keep","from":"no-such-machine"}`); code != 400 {
+		t.Fatalf("keep from a machine without a copy: %d %s", code, raw)
+	}
+	if code, raw = e.owner(t, "POST", "/api/v2/skills/new", `{"names":["paseo-help"],"action":"keep"}`); code != 200 {
+		t.Fatalf("keep of an archived skill without a copy: %d %s", code, raw)
+	}
+	if p := e.page(t, "active"); p.Counts.Active != 2 || p.Counts.Archived != 0 || p.row(t, "paseo-help").ID != lib["paseo-help"].ID {
+		t.Fatalf("keep did not join paseo-help: %+v", p)
 	}
 	for body, want := range map[string]int{
-		`{"names":["never-seen"],"action":"keep"}`:                  409,
-		`{"names":["cq"],"action":"park"}`:                          400,
-		`{"names":[],"action":"keep"}`:                              400,
-		`{"names":["cq"],"action":"keep","from":"no-such-machine"}`: 400,
-		`{"names":["cq"],"action":"keep","extra":true}`:             400,
+		`{"names":["never-seen"],"action":"keep"}`:      409,
+		`{"names":["cq"],"action":"park"}`:              400,
+		`{"names":[],"action":"keep"}`:                  400,
+		`{"names":["cq"],"action":"keep","extra":true}`: 400,
 	} {
 		if code, raw = e.owner(t, "POST", "/api/v2/skills/new", body); code != want {
 			t.Fatalf("%s: %d %s", body, code, raw)

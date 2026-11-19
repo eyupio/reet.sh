@@ -193,3 +193,41 @@ func TestRemoveShelfSkillsRefusesOnlyWrittenSkills(t *testing.T) {
 		t.Fatal("wrong skill deleted")
 	}
 }
+
+// Keep takes the files from the copy the page lists first, whatever the
+// order the machines reported in, when the copies were seen at the same
+// time.
+func TestKeepTakesTheCopyListedFirst(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	var agents []string
+	for _, host := range []string{"zeta", "alpha", "beta"} {
+		a, _, err := s.EnrollSyncAgentBuild(uid, host, "1.0", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = s.SetAgentSkillsProtocolFor(uid, a.ID, 2); err != nil {
+			t.Fatal(err)
+		}
+		agents = append(agents, a.ID)
+		reportOf(t, s, uid, a.ID, time.Now(), unknownOn("cq", "d1"))
+	}
+	if _, err := s.db.Exec(`UPDATE machine_skills SET at=1000 WHERE user_id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	found, err := s.NewOnMachinesFor(uid)
+	if err != nil || len(found) != 1 || len(found[0].Copies) != 3 {
+		t.Fatalf("new: %+v %v", found, err)
+	}
+	first := found[0].Copies[0]
+	if first.Host != "alpha" {
+		t.Fatalf("listed first: %+v", found[0].Copies)
+	}
+	kept, err := s.KeepNewSkillsFor(uid, []string{"cq"}, SkillActive, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept[0].AgentID != first.AgentID || kept[0].Folder != first.Folder {
+		t.Fatalf("kept from %s, the page lists %s first", kept[0].AgentID, first.AgentID)
+	}
+}

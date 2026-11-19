@@ -81,11 +81,18 @@ func keepNewSkillTx(tx *sql.Tx, uid int64, name, status, from string, at time.Ti
 	if err != nil {
 		return none, err
 	}
-	var removal int
+	// New is what NewOnMachinesFor lists: reported unknown, not on the
+	// removal list and not a live skill. A live skill that is not Active
+	// (one Archived before reet has a copy, which machines still report) is
+	// joined; an Active one is not new, however stale a report says so.
+	var removal, active int
 	if err = tx.QueryRow(`SELECT count(*) FROM skill_removals WHERE user_id=? AND name=?`, uid, name).Scan(&removal); err != nil {
 		return none, err
 	}
-	if len(copies) == 0 || removal > 0 {
+	if err = tx.QueryRow(`SELECT count(*) FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND status=? AND lower(name)=lower(?)`, uid, LibrarySkill, SkillActive, name).Scan(&active); err != nil {
+		return none, err
+	}
+	if len(copies) == 0 || removal > 0 || active > 0 {
 		return none, ErrSkillNotNew
 	}
 	chosen, err := chooseNewSkillCopy(copies, status, from)
@@ -132,10 +139,11 @@ func keepNewSkillTx(tx *sql.Tx, uid int64, name, status, from string, at time.Ti
 }
 
 // newSkillCopiesTx lists the copies of name machines report as unknown, in
-// the order NewOnMachinesFor lists them.
+// the order NewOnMachinesFor lists them, so the first machine listed on the
+// page is the one Keep takes the files from.
 func newSkillCopiesTx(tx *sql.Tx, uid int64, name string) ([]newSkillCopy, error) {
-	rows, err := tx.Query(`SELECT m.name,m.agent_id,a.host,m.folder,m.digest FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id AND a.user_id=m.user_id
- WHERE m.user_id=? AND m.state='unknown' AND lower(m.name)=lower(?) ORDER BY m.at,a.host,m.folder`, uid, name)
+	rows, err := tx.Query(`SELECT m.name,m.agent_id,a.host,m.folder,m.digest FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id
+ WHERE m.user_id=? AND m.state='unknown' AND lower(m.name)=lower(?) ORDER BY `+newSkillCopyOrder, uid, name)
 	if err != nil {
 		return nil, err
 	}

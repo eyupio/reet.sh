@@ -366,11 +366,23 @@ func TestSkillStatesUpgradeKeepsBinaryUpdateJobs(t *testing.T) {
 	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('update-job',?,?,'update','queued',?,?)`, uid, agent.ID, now(), now()); err != nil {
 		t.Fatal(err)
 	}
+	// A queued skill-sync job of the old engine, which skills-engine-drop-v1
+	// drops after the upgrade.
+	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('skill-job',?,?,'apply','queued',?,?)`, uid, agent.ID, now(), now()); err != nil {
+		t.Fatal(err)
+	}
 	legacyLibrary(t, s)
 	upgradeSkillStates(t, s)
+	if err = s.migrateSkillsEngineDrop(); err != nil {
+		t.Fatal(err)
+	}
 	var status string
 	if err = s.db.QueryRow(`SELECT status FROM sync_jobs WHERE id='update-job'`).Scan(&status); err != nil || status != "queued" {
 		t.Fatalf("update job %q, %v", status, err)
+	}
+	var skillJobs int
+	if err = s.db.QueryRow(`SELECT count(*) FROM sync_jobs WHERE id='skill-job'`).Scan(&skillJobs); err != nil || skillJobs != 0 {
+		t.Fatalf("the queued skill-sync job is still there (%d, %v)", skillJobs, err)
 	}
 }
 

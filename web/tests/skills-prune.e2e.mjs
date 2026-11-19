@@ -183,6 +183,51 @@ try {
   await context.close()
  }
 
+ // The rest of the bulk bar: Delete (asking once when the server says reet has no copy of one), Restore on the Archived
+ // tab, and Add tag, each one request for the whole selection.
+ if (run('bulk more')) {
+  const {context, page, errors, w} = await open()
+  const tagged = []
+  await page.route('**/api/skills/tags', route => { tagged.push(route.request().postDataJSON()); return route.fulfill({json:{tagged:2}}) })
+  const bar = page.getByRole('toolbar', {name:'Selected skills'})
+  const select = async (...names) => {
+   await page.getByRole('button', {name:'Select', exact:true}).click()
+   for (const name of names) await page.getByRole('checkbox', {name:`Select ${name}`}).check()
+  }
+  // Delete
+  await select('svg-animations', 'ui-ux-pro-max')
+  await bar.getByRole('button', {name:'Delete', exact:true}).click()
+  const ask = page.getByRole('dialog', {name:'Delete 2 skills?'})
+  await expect(ask).toContainText('reet has no copy of ui-ux-pro-max.')
+  await ask.getByRole('button', {name:'Delete', exact:true}).click()
+  await expect(row(page, 'svg-animations')).toHaveCount(0)
+  await expect(row(page, 'ui-ux-pro-max')).toHaveCount(0)
+  expect(posts(w, 'delete')).toEqual([{ids:['item-svg-animations','item-ui-ux-pro-max'], writtenConfirmed:false, noCopyConfirmed:false}, {ids:['item-svg-animations','item-ui-ux-pro-max'], writtenConfirmed:false, noCopyConfirmed:true}])
+  await expect(toast(page)).toContainText('Deleted 2 skills · coming off 3 machines')
+  await toast(page).getByRole('button', {name:/^Undo/}).click()
+  await expect(row(page, 'svg-animations')).toBeVisible()
+  expect(posts(w, 'undelete')).toEqual([{ids:['item-svg-animations','item-ui-ux-pro-max']}])
+  // Tag
+  await select('reet-babysit', 'seo-bing')
+  await bar.getByRole('button', {name:'Add tag', exact:true}).click()
+  await bar.getByLabel('Tag the selected skills').fill('workflow')
+  await bar.getByRole('button', {name:'Add tag', exact:true}).click()
+  await expect.poll(() => tagged).toEqual([{ids:['demo/toolkit/reet-babysit','demo/toolkit/seo-bing'], add:['workflow'], remove:[]}])
+  await expect(page.getByRole('status').filter({hasText:'Sorted. Tagged 2 skills with workflow.'})).toBeVisible()
+  await expect(bar).toHaveCount(0)
+  // Restore
+  await tab(page, 'Archived').click()
+  await select('improve-animations', 'seo-sxo')
+  await bar.getByRole('button', {name:'Restore', exact:true}).click()
+  await expect(row(page, 'improve-animations')).toHaveCount(0)
+  await expect(row(page, 'seo-sxo')).toHaveCount(0)
+  expect(posts(w, 'status')).toEqual([{ids:['item-improve-animations','item-seo-sxo'], status:'active', tab:'archived'}])
+  await expect(toast(page)).toContainText('Restored 2 skills · going back on 3 machines')
+  await expect(tab(page, 'Archived')).toHaveAttribute('aria-selected', 'true')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // On the Archived tab: Restore sends its request and stays on Archived; the upgrade notice's Restore the Parked ones
  // sends its own.
  if (run('archived')) {
@@ -448,5 +493,5 @@ try {
    await context.close()
   }
  }
- console.log('Skills pruning passed: Archive keeps the tab, the scroll and the place with focus on the next row, Undo puts it back, Delete asks only for a skill you wrote or one reet has no copy of, bulk Archive is one request, Restore and Restore the Parked ones send theirs, Retry posts, a jump lands on its row, and phones hold 44 px targets in light and dark.')
+ console.log('Skills pruning passed: Archive keeps the tab, the scroll and the place with focus on the next row, Undo puts it back (Ctrl+Z too, and after a tab change), Delete asks only for a skill you wrote or one reet has no copy of, bulk Archive, Delete, Restore and Tag are one request each, Restore and Restore the Parked ones send theirs, the header says what the machines are doing, failures say why without stale messages, answers out of order never undo a newer change, busy rows say so, Retry posts, a jump lands on its row, and phones hold 44 px targets in light and dark.')
 } finally {await browser.close()}

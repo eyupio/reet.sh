@@ -86,7 +86,7 @@ export type Rollup = {
 export type Counts = { all: number; liked: number; bookmarked: number; used: number }
 export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
 export type Sort = 'recent' | 'name' | 'installs'
-export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string }
+export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string; status?: 'active' | 'archived' }
 export type AddResult = Skill & { created: boolean }
 export type RefreshResult = Skill & { changed: boolean; refreshed: boolean }
 

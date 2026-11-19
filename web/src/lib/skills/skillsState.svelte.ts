@@ -1,4 +1,4 @@
-import { loadSkillsPage, UnauthorizedError, type NewSkill, type SkillRow, type SkillsPageData } from '../api'
+import { loadSkillsPage, UnauthorizedError, type NewSkill, type SkillRow, type SkillsPageData, type SkillWork } from '../api'
 import { healthLine } from './skillsPage'
 
 export type Tab = 'active' | 'archived'
@@ -27,7 +27,9 @@ export class SkillsPageState {
   machines = $state(0)
   notice = $state<SkillsPageData['notice']>(null)
   loaded = $state(false)
-  /** A read has worked, so the counts and what the machines are doing are known. */
+  /** What the machines are doing over every skill, as the server counts it; every answer with page data carries it. */
+  work = $state<SkillWork>({ failed: 0, installing: 0, removing: 0, updating: 0 })
+  /** An answer has brought the counts and `work`, which cover both tabs, so they can be shown. */
   readOk = $state(false)
   error = $state('')
 
@@ -66,6 +68,8 @@ export class SkillsPageState {
     this.newOnMachines = data.newOnMachines ?? []
     this.machines = data.machines
     this.notice = data.notice
+    this.work = data.work ?? { failed: 0, installing: 0, removing: 0, updating: 0 }
+    this.readOk = true
   }
 
   /**
@@ -79,7 +83,6 @@ export class SkillsPageState {
       const data = await loadSkillsPage(status)
       if (at !== this.#generation) return false
       this.apply(data, status)
-      this.readOk = true
       if (status === this.tab) this.error = ''
       return true
     } catch (e) {

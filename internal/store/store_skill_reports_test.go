@@ -647,3 +647,50 @@ func TestCutReportConfirmsNoRemoval(t *testing.T) {
 		t.Fatalf("a whole report did not confirm: %+v", r)
 	}
 }
+
+// The page says what the machines are doing over every skill, deleted ones still coming off included, each machine
+// counted once: a failure first, then installing, removing or both.
+func TestSkillsPageWorkCountsEveryMachineOnce(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	kept := savedWrittenSkill(t, s, uid, "kept", false)
+	gone := savedWrittenSkill(t, s, uid, "gone", false)
+	fresh := savedWrittenSkill(t, s, uid, "fresh", false)
+	dk, dg, df := itemDigest(t, s, uid, kept.id), itemDigest(t, s, uid, gone.id), itemDigest(t, s, uid, fresh.id)
+	a, b := reportAgent(t, s, uid, "elitebook"), reportAgent(t, s, uid, "thinkpad")
+	reportOf(t, s, uid, a, reportT0, installedAt("kept", dk), installedAt("gone", dg), installedAt("fresh", df))
+	reportOf(t, s, uid, b, reportT0, installedAt("kept", dk), installedAt("gone", dg))
+	work := func(at time.Time) SkillWork {
+		t.Helper()
+		page, err := s.SkillsPageFor(uid, SkillActive, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Work
+	}
+	if w := work(reportT0); w != (SkillWork{Installing: 1, Updating: 1}) {
+		t.Fatalf("thinkpad has fresh to install: %+v", w)
+	}
+	if err := s.DeleteSkillsFor(uid, []string{gone.id}, false, reportT0); err != nil {
+		t.Fatal(err)
+	}
+	later := reportT0.Add(time.Minute)
+	page, err := s.SkillsPageFor(uid, SkillActive, later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range page.Skills {
+		if r.ID == gone.id {
+			t.Fatalf("a deleted skill is not on the page: %+v", page.Skills)
+		}
+	}
+	if page.Work != (SkillWork{Installing: 1, Removing: 2, Updating: 2}) {
+		t.Fatalf("both machines still have the deleted skill to take off: %+v", page.Work)
+	}
+	removed := SkillReportEntry{Folder: "~/.agents/skills", Name: "gone", State: "removed"}
+	reportOf(t, s, uid, a, later, installedAt("kept", dk), installedAt("fresh", df), removed)
+	reportOf(t, s, uid, b, later, installedAt("kept", dk), installedAt("gone", dg), SkillReportEntry{Folder: "~/.agents/skills", Name: "fresh", State: "failed", Detail: "no write access"})
+	if w := work(later); w != (SkillWork{Failed: 1}) {
+		t.Fatalf("thinkpad needs a look, once, and elitebook is done: %+v", w)
+	}
+}

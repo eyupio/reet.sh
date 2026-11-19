@@ -8,7 +8,7 @@
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
   import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
-  import { deleteConfirm, focusAfterRemoval, machineWork, syncSentence, toastText } from './skillsPage'
+  import { deleteConfirm, focusAfterRemoval, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
   import { skillsExport } from './exportFilters.svelte'
 
@@ -47,9 +47,10 @@
   // Rows with a change on its way, and which: their buttons say so, and a second press on the same row sends nothing.
   const pending = new SvelteMap<string, Act>()
 
-  // The machines that need a look and what the rest are doing, from every row the page holds.
+  // The machines that need a look and what the rest are doing, as the server counts it over every skill: a deleted one
+  // still coming off has left the list but not the machines.
   const sync = $derived.by(() => {
-    const work = machineWork(page.everyRow)
+    const work = page.work
     if (!work.failed && !work.updating && page.machines === 0) return { text: 'No machines yet', tone: 'off' }
     return { text: syncSentence(work), tone: work.failed ? 'bad' : work.updating ? 'work' : 'ok' }
   })
@@ -191,6 +192,8 @@
     }
     page.held[from] = (page.held[from] ?? []).filter(r => !ids.includes(r.id))
     page.counts = { ...page.counts, [from]: Math.max(0, page.counts[from] - ids.length) }
+    // The delete answers with no page: read it for what the machines now have to take off.
+    void read(from, true)
     endSelecting()
     if (ids.includes(openId)) openId = ''
     await refocus(order, ids, keepAct())

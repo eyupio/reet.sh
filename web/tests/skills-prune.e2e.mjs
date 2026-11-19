@@ -416,16 +416,23 @@ try {
   await context.close()
  }
 
- // The header's line says what the machines are doing: coming off after an Archive, installing after an Undo, updating
- // when both happen at once.
+ // The header's line says what the machines are doing, as the server counts it over every skill: coming off after an
+ // Archive, installing after an Undo, updating when both happen at once, and coming off after a Delete too, though the
+ // deleted skill has left the list.
  if (run('chip')) {
   const on = state => ['Elitebook','ThinkPad','studio'].map(host => ({host, state}))
-  const w = {rows:[skillRow('alpha'), skillRow('beta'), skillRow('gamma')], deleted:[], posts:[], noCopy:new Set(), notice:null}
+  const w = {rows:[skillRow('alpha'), skillRow('beta'), skillRow('gamma'), skillRow('delta')], deleted:[], posts:[], noCopy:new Set(), notice:null}
+  // The server's count: each of the three machines, once, by what its skills have left to do.
+  const workOf = () => {
+   const installing = w.rows.some(x => x.health.state === 'installing'), removing = w.rows.some(x => x.health.state === 'removing') || w.deleted.length > 0
+   return {failed:0, installing:installing ? 3 : 0, removing:removing ? 3 : 0, updating:installing || removing ? 3 : 0}
+  }
   const r = routes(w)
+  r['/api/v2/skills'] = req => skillsPageOf(w.rows, new URL(req.url()).searchParams.get('status') || 'active', {work:workOf()})
   r['/api/v2/skills/status'] = req => {
    const b = req.postDataJSON(); w.posts.push(['status', b])
    w.rows = w.rows.map(x => b.ids.includes(x.id) ? {...x, status:b.status, health:{state:b.status === 'archived' ? 'removing' : 'installing', pending:3, total:3, hosts:[], machines:on(b.status === 'archived' ? 'removing' : 'installing')}} : x)
-   return skillsPageOf(w.rows, b.tab || b.status)
+   return skillsPageOf(w.rows, b.tab || b.status, {work:workOf()})
   }
   const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
   await page.goto(`${base}/skills`)
@@ -439,6 +446,14 @@ try {
   await expect(chip).toHaveText('Installing on 3 machines…')
   await row(page, 'gamma').getByRole('button', {name:'Archive gamma'}).click()
   await expect(chip).toHaveText('Updating 3 machines…')
+  // Settled, then a Delete: the row leaves the list, and the machines still have it to take off.
+  w.rows = w.rows.map(x => ({...x, health:{state:'ok', pending:0, total:3, hosts:[], machines:on('ok')}}))
+  await page.evaluate(() => window.dispatchEvent(new Event('reet-shelf-changed')))
+  await expect(chip).toHaveText('Everything is in sync.')
+  await row(page, 'delta').getByRole('button', {name:'Delete delta'}).click()
+  await expect(row(page, 'delta')).toHaveCount(0)
+  await expect(toast(page)).toContainText('Deleted delta · coming off 3 machines')
+  await expect(chip).toHaveText('Coming off 3 machines…')
   expect(errors).toEqual([])
   await context.close()
  }

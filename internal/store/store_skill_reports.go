@@ -372,19 +372,39 @@ type healthMachine struct {
 // Everything is read in one transaction, so a report or a status change that
 // lands meanwhile cannot show half of itself.
 func (s *Store) SkillHealthFor(uid int64, now time.Time) (map[string]SkillHealth, error) {
+	health, _, err := s.skillHealthAndWork(uid, now)
+	return health, err
+}
+
+// SkillWork is what the machines that follow the library are doing, over
+// every skill they have to install or take off, deleted ones still on the
+// removal list included. Each machine is counted once: in Failed when it
+// reported a failure, or cannot write skills, with work left; otherwise in
+// Installing, Removing or both, and then once in Updating.
+type SkillWork struct {
+	Failed     int `json:"failed"`
+	Installing int `json:"installing"`
+	Removing   int `json:"removing"`
+	Updating   int `json:"updating"`
+}
+
+// skillHealthAndWork reads each skill's health and the machines' work in
+// one transaction.
+func (s *Store) skillHealthAndWork(uid int64, now time.Time) (map[string]SkillHealth, SkillWork, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, SkillWork{}, err
 	}
 	defer tx.Rollback()
 	return skillHealth(tx, uid, now)
 }
 
-func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]SkillHealth, error) {
+func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]SkillHealth, SkillWork, error) {
+	var work SkillWork
 	at := now.UnixMilli()
 	desired, err := desiredSkills(q, uid, now)
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
 	install := map[string]DesiredSkill{}
 	for _, d := range desired.Active {
@@ -397,7 +417,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 	var machines []healthMachine
 	rows, err := q.Query(`SELECT a.id,a.host,a.last_seen,COALESCE(r.blocked,'') FROM sync_agents a LEFT JOIN machine_skill_reports r ON r.agent_id=a.id WHERE a.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host,a.id`, uid)
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
 	for rows.Next() {
 		var m healthMachine
@@ -413,13 +433,13 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 	}
 	rows.Close()
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
 	reported := map[string]map[string][]reportedRow{}
 	hostsOf := map[string][]string{} // name -> hosts of the counted machines that have it
 	rows, err = q.Query(`SELECT a.id,a.host,lower(m.name),m.state,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host`, uid)
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
 	for rows.Next() {
 		var id, host, name string
@@ -440,19 +460,20 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 	}
 	rows.Close()
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
+	work = machinesWork(machines, reported, desired)
 	removalNames := map[string]bool{}
 	removals, err := skillRemovalsOf(q, uid)
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
 	for _, r := range removals {
 		removalNames[strings.ToLower(r.Name)] = true
 	}
 	items, err := q.Query(`SELECT id,name,status,prev_status,status_at,revision_id,origin,copy_problem FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0`, uid, LibrarySkill)
 	if err != nil {
-		return nil, err
+		return nil, work, err
 	}
 	defer items.Close()
 	out := map[string]SkillHealth{}
@@ -460,7 +481,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		var id, name, status, prev, revision, origin, problem string
 		var statusAt int64
 		if err = items.Scan(&id, &name, &status, &prev, &statusAt, &revision, &origin, &problem); err != nil {
-			return nil, err
+			return nil, work, err
 		}
 		lname := strings.ToLower(name)
 		if at-statusAt < SkillGrace.Milliseconds() && prev != "" {
@@ -544,7 +565,46 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		}
 		out[id] = h
 	}
-	return out, items.Err()
+	return out, work, items.Err()
+}
+
+// machinesWork counts what each machine has left to do: every Active skill
+// with content to install at its revision, every name on the removal list to
+// take off.
+func machinesWork(machines []healthMachine, reported map[string]map[string][]reportedRow, desired DesiredState) SkillWork {
+	var w SkillWork
+	for _, m := range machines {
+		installing, removing, failed := false, false, false
+		for _, d := range desired.Active {
+			switch machineSkillState(reported[m.id][strings.ToLower(d.Name)], d, true, false) {
+			case "failed":
+				failed = true
+			case "pending":
+				installing = true
+			}
+		}
+		for _, r := range desired.Remove {
+			switch machineSkillState(reported[m.id][strings.ToLower(r.Name)], DesiredSkill{}, false, true) {
+			case "failed":
+				failed = true
+			case "pending":
+				removing = true
+			}
+		}
+		switch {
+		case failed || m.blocked && (installing || removing):
+			w.Failed++
+		case installing || removing:
+			if installing {
+				w.Installing++
+			}
+			if removing {
+				w.Removing++
+			}
+			w.Updating++
+		}
+	}
+	return w
 }
 
 // machineSkillState is "ok" when the machine has nothing left to do for the

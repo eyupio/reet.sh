@@ -68,6 +68,9 @@ type SkillsPage struct {
 	NewOnMachines []NewSkill     `json:"newOnMachines"`
 	Machines      int            `json:"machines"`
 	Notice        *UpgradeNotice `json:"notice"`
+	// Work is what the machines are doing over every skill, not just this
+	// tab's: the page's one line about the machines reads it.
+	Work SkillWork `json:"work"`
 }
 
 // SkillItemRef is a library skill a page action names. Written says the
@@ -139,10 +142,11 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	if err = s.attachSkillPageDescriptions(uid, page.Skills); err != nil {
 		return page, err
 	}
-	health, err := s.SkillHealthFor(uid, now)
+	health, work, err := s.skillHealthAndWork(uid, now)
 	if err != nil {
 		return page, err
 	}
+	page.Work = work
 	backups, err := s.SkillBackupsFor(uid, "", now)
 	if err != nil {
 		return page, err

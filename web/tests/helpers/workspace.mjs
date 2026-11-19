@@ -7,7 +7,9 @@ export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'dem
 // A row of the Skills page (GET /api/v2/skills), keyed by library item, on all 3 machines unless `over` says otherwise.
 export const skillRow = (name, over = {}) => ({id:`item-${name}`,shelfId:`demo/toolkit/${name}`,name,description:`${name} does one job well.`,status:'active',originKind:'imported',origin:`https://github.com/demo/toolkit/${name}`,yours:false,published:false,hasCopy:true,liked:false,notes:'',tags:[],lists:[],health:{state:'ok',pending:0,total:3,hosts:[],machines:[]},...over})
 // One tab of the Skills page as the server answers it: that tab's rows, both tabs' counts and the rest of the page.
-export const skillsPageOf = (rows, status = 'active', {newOnMachines = [], machines = 3, notice = null} = {}) => ({skills:rows.filter(r=>r.status===status),counts:{active:rows.filter(r=>r.status==='active').length,archived:rows.filter(r=>r.status==='archived').length},newOnMachines,machines,notice})
+// `work` is what the machines are doing over every skill, deleted ones still coming off included; nothing by default.
+export const noWork = {failed:0,installing:0,removing:0,updating:0}
+export const skillsPageOf = (rows, status = 'active', {newOnMachines = [], machines = 3, notice = null, work = noWork} = {}) => ({skills:rows.filter(r=>r.status===status),counts:{active:rows.filter(r=>r.status==='active').length,archived:rows.filter(r=>r.status==='archived').length},newOnMachines,machines,notice,work})
 // The shelf fixtures a test passes as `skills`, as the Skills page lists them: Active, on no machine yet.
 const shelfRow = s => skillRow(s.name, {id:s.id,shelfId:s.id,description:s.description ?? '',liked:!!s.liked,notes:s.notes ?? '',tags:s.tags ?? [],health:{state:'off',pending:0,total:0,hosts:[],machines:[]}})
 

@@ -55,6 +55,7 @@ type pageData struct {
 		Parked  int `json:"parked"`
 		Removed int `json:"removed"`
 	} `json:"notice"`
+	Work *store.SkillWork `json:"work"`
 }
 
 func (p pageData) row(t *testing.T, name string) pageRow {
@@ -345,6 +346,32 @@ func TestSkillsPageDeleteNeedsConfirmWithoutCopy(t *testing.T) {
 	}
 	if code, raw = e.owner(t, "POST", "/api/v2/skills/delete", `{"ids":["0123456789abcdef0123456789abcdef"]}`); code != 404 {
 		t.Fatalf("unknown id: %d %s", code, raw)
+	}
+}
+
+// The page carries what the machines are doing over every skill, so a deleted skill still coming off is counted
+// though it is no longer listed.
+func TestSkillsPageCarriesMachineWork(t *testing.T) {
+	e := newReconcileEnv(t)
+	alpha := e.writtenSkill(t, "alpha")
+	d, err := e.st.DesiredSkillsFor(e.uid, time.Now().Add(store.SkillGrace))
+	if err != nil || len(d.Active) != 1 {
+		t.Fatalf("desired: %+v %v", d, err)
+	}
+	e.report(t, e.agent.ID)
+	if p := e.page(t, "active"); p.Work == nil || *p.Work != (store.SkillWork{Installing: 1, Updating: 1}) {
+		t.Fatalf("alpha is on its way to elitebook: %+v", p.Work)
+	}
+	e.report(t, e.agent.ID, store.SkillReportEntry{Folder: "~/.agents/skills", Name: "alpha", State: "installed", Digest: d.Active[0].Digest})
+	if p := e.page(t, "active"); p.Work == nil || *p.Work != (store.SkillWork{}) {
+		t.Fatalf("nothing left to do: %+v", p.Work)
+	}
+	if err = e.st.DeleteSkillsFor(e.uid, []string{alpha}, false, time.Now().Add(-2*store.SkillGrace)); err != nil {
+		t.Fatal(err)
+	}
+	p := e.page(t, "active")
+	if len(p.Skills) != 0 || p.Work == nil || *p.Work != (store.SkillWork{Removing: 1, Updating: 1}) {
+		t.Fatalf("deleted alpha is still coming off elitebook: %v %+v", p.names(), p.Work)
 	}
 }
 

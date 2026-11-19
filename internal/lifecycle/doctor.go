@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -195,18 +194,6 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 				}
 			}
 		}
-	}
-	for _, tool := range []string{"node", "npx"} {
-		if _, e := exec.LookPath(tool); e != nil {
-			add(tool, "warn", tool+" is unavailable.", "reet does not need it to put skills on your machines, and scanning and the server do not need it either. Install Node.js/npm yourself if an agent you use needs it.")
-		} else {
-			add(tool, "pass", tool+" is available.", "")
-		}
-	}
-	if _, e := exec.LookPath("git"); e != nil {
-		add("git", "warn", "git is unavailable.", "reet does not need it to put skills on your machines. Install git yourself for projects and agents that use it.")
-	} else {
-		add("git", "pass", "git is available.", "")
 	}
 	controller := opts.Server
 	if controller == "" {

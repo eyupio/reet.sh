@@ -792,8 +792,8 @@ func TestAssetDownloadDoesNotRetryAnAbsentAsset(t *testing.T) {
 	}
 }
 
-// reet sync is gone, so doctor never sends anyone to it, even when Node.js
-// and git are missing.
+// reet sync is gone, and reet needs neither Node.js nor git to put skills on
+// machines, so doctor neither checks them nor sends anyone to reet sync.
 func TestDoctorNeverPointsAtTheRemovedSyncCommand(t *testing.T) {
 	a, state, _ := testApp(t)
 	output := &bytes.Buffer{}
@@ -806,16 +806,12 @@ func TestDoctorNeverPointsAtTheRemovedSyncCommand(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &r); err != nil {
 		t.Fatal(err, output.String())
 	}
-	seen := 0
 	for _, check := range r.Checks {
 		if check.Name == "node" || check.Name == "npx" || check.Name == "git" {
-			seen++
+			t.Fatalf("doctor still checks %s, which reet does not need: %+v", check.Name, check)
 		}
-		if strings.Contains(check.Message+check.Advice, "reet sync") || strings.Contains(check.Message, "skill sync") {
+		if strings.Contains(check.Message+check.Advice, "reet sync") {
 			t.Fatalf("%s still points at reet sync: %+v", check.Name, check)
 		}
-	}
-	if seen != 3 {
-		t.Fatalf("doctor did not check node, npx and git: %+v", r.Checks)
 	}
 }

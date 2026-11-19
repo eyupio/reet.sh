@@ -6,11 +6,10 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./syncRoutes.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 })
-const { syncRedirect, advancedSyncHref, ADVANCED_SELECTION } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { syncRedirect, advancedSyncHref, ADVANCED_SELECTION, SYNC_JOBS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 test('the Sync page stays where it is without a plan parameter', () => {
   assert.equal(syncRedirect('/sync'), null)
-  assert.equal(syncRedirect('/sync', '', '#sync-jobs'), null)
   // `skill` is read by no Sync page, so it is no reason to leave.
   assert.equal(syncRedirect('/sync', '?skill=a%2Fb'), null)
   assert.equal(syncRedirect('/account/sync'), null)
@@ -24,6 +23,9 @@ test('a plan parameter or the plan anchor goes to the advanced page, with everyt
   assert.equal(syncRedirect('/sync', '?list=7'), '/sync/advanced?list=7')
   assert.equal(syncRedirect('/sync', '?machine=a', '#sync-jobs'), '/sync/advanced?machine=a#sync-jobs')
   assert.equal(syncRedirect('/sync', '', '#sync-selection'), '/sync/advanced#sync-selection')
+  // Sync jobs, with their restore commands, are on the advanced page only: an older link to them goes there.
+  assert.equal(syncRedirect('/sync', '', '#sync-jobs'), '/sync/advanced#sync-jobs')
+  assert.equal(syncRedirect('/machines', '?view=compare', '#sync-jobs'), '/sync/advanced#sync-jobs')
   assert.equal(syncRedirect('/account/sync', '?machine=a'), '/sync/advanced?machine=a')
   assert.equal(syncRedirect('/machines', '?view=compare&machine=a'), '/sync/advanced?machine=a')
 })
@@ -40,6 +42,7 @@ test('links into the plan controls are built in one place', () => {
   assert.equal(advancedSyncHref('dev laptop'), '/sync/advanced?machine=dev+laptop')
   assert.equal(advancedSyncHref('a', 'owner/repo/skill'), '/sync/advanced?machine=a&remove=owner%2Frepo%2Fskill')
   assert.equal(ADVANCED_SELECTION, '/sync/advanced#sync-selection')
+  assert.equal(SYNC_JOBS, '/sync/advanced#sync-jobs')
   // What the links build, the redirect leaves alone.
   assert.equal(syncRedirect('/sync/advanced', '?machine=a&remove=b'), null)
 })

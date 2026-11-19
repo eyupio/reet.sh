@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SYNC_JOBS } from './syncRoutes'
   import { onMount, tick, untrack } from 'svelte'
   import { cardReadiness, folderProjectList, terminalMachines, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
   import { openTerminalHref } from './terminal/openTerminal'
@@ -536,7 +537,7 @@
             {:else if sync.canSync}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>
             {:else if sync.tone === 'working'}
-              <a class="btn sync-now" href="/sync#sync-jobs">View progress</a>
+              <a class="btn sync-now" href={SYNC_JOBS}>View progress</a>
             {:else if !(accounts && canWrite && enrolled)}
               <a class="btn sync-now" href={sync.href}>{sync.tone === 'setup' ? 'Set up sync' : 'Open sync'}</a>
             {/if}
@@ -549,7 +550,7 @@
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
                 <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>
                 {#if canWrite}<button type="button" role="menuitem" onclick={(event) => { closeMenu(event); settingsHost = machine.host }}>Settings…</button>{/if}
-                <a role="menuitem" href="/sync#sync-jobs">Review sync activity</a>
+                <a role="menuitem" href={SYNC_JOBS}>Review sync activity</a>
               </div>
             </details>
           </div>

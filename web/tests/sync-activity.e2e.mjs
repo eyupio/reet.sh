@@ -65,7 +65,21 @@ try {
   expect(await elsewhere.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(elsewhere.errors).toEqual([])
   await elsewhere.context.close()
-  console.log('Sync activity: duplicate failures grouped on /sync, compact dock elsewhere, both phone-clean.')
+
+  // The dock's link goes to the sync jobs, which are on Advanced sync; an older link to them on /sync is sent there too.
+  const follow = await open({ width: 1280, height: 900, sync: queued })
+  await follow.page.goto(`${base}/machines`)
+  const followDock = follow.page.locator('.sync-dock')
+  await followDock.locator('.dock-main').click()
+  await followDock.getByRole('link', { name: 'View all activity' }).click()
+  await expect(follow.page).toHaveURL(`${base}/sync/advanced#sync-jobs`)
+  await expect(follow.page.locator('#sync-jobs')).toBeInViewport()
+  await follow.page.goto(`${base}/sync#sync-jobs`)
+  await expect(follow.page).toHaveURL(`${base}/sync/advanced#sync-jobs`)
+  await expect(follow.page.locator('#sync-jobs')).toBeVisible()
+  expect(follow.errors).toEqual([])
+  await follow.context.close()
+  console.log('Sync activity: duplicate failures grouped on Advanced sync, compact dock elsewhere, its links and older /sync#sync-jobs links land on the jobs, all phone-clean.')
 } finally {
   await browser.close()
 }

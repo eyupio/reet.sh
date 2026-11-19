@@ -96,8 +96,8 @@ Without `--probe-versions`, application versions are not collected and agents ar
 never executed. Package provenance and conversation history are not collected; the
 Codex memory database is captured only by an explicit snapshot.
 The scanner installs nothing and sends no reports to a server. The report
-is inventory metadata, not a recoverable backup. Existing `reet scan`, `reet sync`
-and `reet backup` retain their existing meanings.
+is inventory metadata, not a recoverable backup. Existing `reet scan` and
+`reet backup` retain their existing meanings.
 
 ## Opt-in component summaries (S1a/S1b)
 

@@ -54,6 +54,32 @@ func TestRemovedDashboardAndPlainCompatibilityEntryPoints(t *testing.T) {
 	}
 }
 
+// Removed skill commands say what replaced them instead of failing as an
+// unknown command, and change nothing.
+func TestRemovedSkillCommandsNameTheirReplacement(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"sync"}, "reet sync has been removed. Every connected machine now follows your library: archive or restore skills on the Skills page, and machines follow."},
+		{[]string{"sync", "--apply", "--target", "abc"}, "reet sync has been removed."},
+		{[]string{"agent", "library-import"}, "reet agent library-import has been removed. Skills found on a machine now appear on the Skills page under New on a machine, where you keep or archive them."},
+		{[]string{"agent", "library-import", "--folder", "/tmp/skills"}, "reet agent library-import has been removed."},
+	} {
+		cmd := exec.Command(os.Args[0], append([]string{"-test.run=^TestCLIProbe$", "--"}, tc.args...)...)
+		cmd.Env = append(cleanHomeEnvironment(os.Environ()), "REET_CLI_PROBE=1", "HOME="+t.TempDir())
+		output, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+			t.Fatalf("%v: err=%v out=%q", tc.args, err, output)
+		}
+		text := string(output)
+		if !strings.Contains(text, tc.want) || strings.Contains(text, "usage:") || strings.Count(strings.TrimSpace(text), "\n") != 0 {
+			t.Fatalf("%v: %q", tc.args, text)
+		}
+	}
+}
+
 func TestUpgradeContinuationKeepsSelectedCommandAndFlagsAndClearsMarkers(t *testing.T) {
 	for _, command := range []string{"upgrade", "update"} {
 		t.Run(command, func(t *testing.T) {
@@ -152,8 +178,7 @@ func TestOwnsTerminalClassification(t *testing.T) {
 		{[]string{"doctor"}, false},
 		{[]string{"healthcheck"}, false},
 		{[]string{"scan", "--prune"}, false},
-		{[]string{"sync"}, true},
-		{[]string{"sync", "--target", "abc"}, true},
+		{[]string{"sync"}, false},
 		{[]string{"setup", "scan"}, false},
 		{[]string{"setup", "profile"}, true},
 		{[]string{"backup", "list"}, false},

@@ -696,7 +696,12 @@ func TestSimpleSyncConnectorProcess(t *testing.T) {
 					}
 				}
 			}
-			if err := scan.RunAgentInput(args, strings.NewReader(""), os.Stdout, "stage0"); err != nil {
+			run := func() error { return scan.RunAgentInput(args, strings.NewReader(""), os.Stdout, "stage0") }
+			if len(args) > 0 && args[0] == "library-import" {
+				// The removed command's capture, which the old engine's tests still use.
+				run = func() error { return scan.RunLibraryImport(args[1:], os.Stdout, "stage0") }
+			}
+			if err := run(); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}

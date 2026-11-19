@@ -43,12 +43,12 @@ func TestLocalAndInformationalCommandsDoNotLoadClientDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
 		args []string
-	}{{"serve", nil}, {"version", nil}, {"healthcheck", []string{"--local"}}, {"upgrade", []string{"--help"}}} {
+	}{{"serve", nil}, {"version", nil}, {"healthcheck", []string{"--local"}}, {"upgrade", []string{"--help"}}, {"sync", nil}} {
 		if usesClientDefaults(tc.cmd, tc.args) {
 			t.Fatalf("loaded config for %s", tc.cmd)
 		}
 	}
-	for _, cmd := range []string{"configure", "upgrade", "doctor", "scan", "sync", "agent", "healthcheck", "setup"} {
+	for _, cmd := range []string{"configure", "upgrade", "doctor", "scan", "agent", "healthcheck", "setup"} {
 		if !usesClientDefaults(cmd, nil) {
 			t.Fatal(cmd)
 		}

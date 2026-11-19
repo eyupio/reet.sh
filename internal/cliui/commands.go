@@ -32,7 +32,6 @@ func Commands() []Command {
 			{Name: "branches prune", Title: "Prune branches", Summary: "Press e to add --dry-run, --yes or a folder", Args: []string{"branches", "prune"}},
 		}},
 		{Name: "scan", Title: "Scan", Summary: "Report installed skills to your account", Group: "Skills & setups", Args: []string{"scan"}},
-		{Name: "sync", Title: "Sync", Summary: "Preview a saved target, then choose whether to apply it", Group: "Skills & setups", Args: []string{"sync"}},
 		{Name: "setup", Title: "Setups", Summary: "Discover, save and restore agent setups", Group: "Skills & setups", Args: []string{"setup"}, Children: []Command{
 			{Name: "setup scan", Title: "Discover setups", Summary: "Inspect known local setup locations", Args: []string{"setup", "scan"}},
 			{Name: "setup profile", Title: "Setup profiles", Summary: "Open the existing create/push wizard", Args: []string{"setup", "profile"}},
@@ -44,7 +43,6 @@ func Commands() []Command {
 		{Name: "agent", Title: "Agent", Summary: "Enroll a machine and manage its local agent", Group: "Machines & access", Args: []string{"agent"}, Expand: true, Children: []Command{
 			{Name: "agent enroll", Title: "Connect machine", Summary: "Enroll with a controller", Group: "Machines & access", Args: []string{"agent", "enroll"}},
 			{Name: "agent status", Title: "Agent status", Summary: "This machine's enrollment and daemon", Group: "Machines & access", Args: []string{"agent", "status"}},
-			{Name: "agent library-import", Title: "Import library content", Summary: "Capture complete skills from known or explicitly selected folders", Group: "Machines & access", Args: []string{"agent", "library-import"}},
 		}},
 		{Name: "terminal", Title: "Terminal", Summary: "Manage controller terminal access", Group: "Machines & access", Args: []string{"terminal"}, Children: []Command{
 			{Name: "terminal status", Title: "Terminal status", Summary: "Inspect controller terminal availability", Args: []string{"terminal", "status"}},
@@ -97,7 +95,7 @@ func Reference(out io.Writer) {
 			fmt.Fprintln(out)
 		}
 	}
-	fmt.Fprint(out, "`reet init` and `reet update` alias `install` and `upgrade`.\n\nThe old dashboard is removed. `reet tui` is not a command. The legacy `--tui`\nflag runs the selected CLI command and offers a return home. It does not create\na second implementation of that command.\n")
+	fmt.Fprint(out, "`reet init` and `reet update` alias `install` and `upgrade`.\n\n`reet sync` and `reet agent library-import` are removed. Every connected machine\nfollows your library, and a skill found on a machine appears on the Skills page\nunder New on a machine. Running either one prints a line saying what replaced it.\n\nThe old dashboard is removed. `reet tui` is not a command. The legacy `--tui`\nflag runs the selected CLI command and offers a return home. It does not create\na second implementation of that command.\n")
 }
 
 // details are kept apart from the catalog so a command's one-line summary stays
@@ -109,7 +107,6 @@ var details = map[string]string{
 	"backup":       "List, take and restore sealed copies of your instance, so nowt gets lost.",
 	"branches":     "See which local branches are already merged, and tidy them away.",
 	"scan":         "Tek stock of the skills on this machine and report them to your account. Uses the URL and token already in your .env.",
-	"sync":         "Compare this machine with a saved target and see what'd change. Pick a target from your account. Nowt is touched until you say so.",
 	"setup":        "Discover, save and restore agent setups so every machine's set up reight.",
 	"agent enroll": "Enrol this machine with a controller. Anything it can already find, like a token in your .env, it uses without asking.",
 	"agent status": "This machine's enrolment and its background agent. Read-only.",

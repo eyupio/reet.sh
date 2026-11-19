@@ -187,6 +187,16 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
 
+// ErrLibraryImportRemoved is what reet agent library-import says now that a
+// skill found on a machine is offered on the Skills page instead.
+var ErrLibraryImportRemoved = errors.New("reet agent library-import has been removed. Skills found on a machine now appear on the Skills page under New on a machine, where you keep or archive them.")
+
+// RunLibraryImport is the removed library-import capture. Only the old sync
+// engine's tests run it, until that engine is deleted.
+func RunLibraryImport(args []string, out io.Writer, version string) error {
+	return runLibraryImport(args, out, version)
+}
+
 // RunAgent enrolls a scanner-only installation and processes typed controller jobs.
 func RunAgent(args []string, out io.Writer, version string) error {
 	return runAgentInput(args, os.Stdin, out, version)
@@ -199,11 +209,11 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "library-import" {
-		return runLibraryImport(args[1:], out, version)
+		return ErrLibraryImportRemoved
 	}
 	applyMode := ""
 	if action == "allow-apply" {

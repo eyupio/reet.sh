@@ -791,3 +791,31 @@ func TestAssetDownloadDoesNotRetryAnAbsentAsset(t *testing.T) {
 		t.Fatalf("unexpected requests: %d", requests)
 	}
 }
+
+// reet sync is gone, so doctor never sends anyone to it, even when Node.js
+// and git are missing.
+func TestDoctorNeverPointsAtTheRemovedSyncCommand(t *testing.T) {
+	a, state, _ := testApp(t)
+	output := &bytes.Buffer{}
+	a.Out = output
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("REET_URL", "")
+	t.Setenv("REET_TOKEN", "")
+	_ = a.Run("doctor", []string{"--state-dir", state, "--json"})
+	var r report
+	if err := json.Unmarshal(output.Bytes(), &r); err != nil {
+		t.Fatal(err, output.String())
+	}
+	seen := 0
+	for _, check := range r.Checks {
+		if check.Name == "node" || check.Name == "npx" || check.Name == "git" {
+			seen++
+		}
+		if strings.Contains(check.Message+check.Advice, "reet sync") || strings.Contains(check.Message, "skill sync") {
+			t.Fatalf("%s still points at reet sync: %+v", check.Name, check)
+		}
+	}
+	if seen != 3 {
+		t.Fatalf("doctor did not check node, npx and git: %+v", r.Checks)
+	}
+}

@@ -117,7 +117,6 @@
   function quote(v: string) { return "'" + v.replaceAll("'", "'\\''") + "'" }
   // A job's backup is named exactly, with its target, so it goes back to the folder it came from, a project's included.
   function restoreCommand(targetId: string, backup: string) { return `reet agent restore --target ${quote(targetId)} --backup ${quote(backup)}` }
-  function cli(item: SyncTarget) { return `reet sync --server ${quote(location.origin)} --env ${quote(item.target.host)} --target ${quote(item.target.id)}` }
   function preferred(id: string): string {
     const skill = candidates.find(s => s.id === id)
     if (!skill || isLinked(skill)) return id
@@ -814,7 +813,6 @@
                 </details>
               </div>
             {/if}
-            {#if !agent}<details class="local-preview"><summary>Local preview command</summary><div class="command"><code>{cli(item)}</code><CopyButton text={cli(item)} label="Copy local preview" /></div></details>{/if}
           </div>
         {/each}
       </div>
@@ -891,8 +889,6 @@
  .scope-title strong{min-width:0;font-size:0.875rem;overflow-wrap:anywhere}
  .badge{padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:0.875rem;font-variant-numeric:tabular-nums}
  .scope-set > p{margin:5px 0;overflow-wrap:anywhere}
- .local-preview{margin:8px 0 0}
- .local-preview summary{font-size:0.875rem}
  .activity{margin:24px 0;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--card);scroll-margin-top:16px}
  .activity-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
  .activity-head > div{min-width:0;max-width:70ch}

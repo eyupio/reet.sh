@@ -254,7 +254,7 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 	}
 	t.Setenv("HOME", laptop.home)
 	t.Chdir(laptop.home)
-	if err := scan.RunAgentInput([]string{"library-import", "--config", laptop.config}, strings.NewReader(""), io.Discard, "test"); err != nil {
+	if err := scan.RunLibraryImport([]string{"--config", laptop.config}, io.Discard, "test"); err != nil {
 		t.Fatal(err)
 	}
 	imported, err := st.LibraryFor(uid)

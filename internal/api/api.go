@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -3184,17 +3185,71 @@ func skillRowsMarkdown(rows []store.SkillPageRow, status string) string {
 	}
 	fmt.Fprintf(&b, "\n## %s\n\n", title)
 	for _, row := range rows {
-		if link := skillRowLink(row); link != "" {
-			fmt.Fprintf(&b, "- [%s](%s)", row.Name, link)
-		} else {
-			fmt.Fprintf(&b, "- %s", row.Name)
-		}
-		if desc := strings.Join(strings.Fields(row.Description), " "); desc != "" {
-			fmt.Fprintf(&b, " — %s", desc)
-		}
+		b.WriteString(markdownItem(row.Name, skillRowLink(row), row.Description))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// markdownItem is one skill as a Markdown list item, "- [name](link) — description", which stays one item whatever
+// the three hold: the name is escaped, the link percent-encodes what would end it (and is left out when it is not a
+// web address), and the description is markdownText.
+func markdownItem(name, link, desc string) string {
+	item := "- " + markdownEscape(name)
+	if strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "http://") {
+		item = "- [" + markdownEscape(name) + "](" + markdownURL(link) + ")"
+	}
+	if desc = markdownText(desc); desc != "" {
+		item += " — " + desc
+	}
+	return item
+}
+
+var (
+	markdownLinkRe = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
+	htmlTagRe      = regexp.MustCompile(`<!--.*?-->|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>`)
+	markdownEscape = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `<`, `\<`, `>`, `\>`).Replace
+)
+
+// markdownText is a description as one line of Markdown text. It comes from a skill's SKILL.md, often someone else's,
+// so its links become their text, its HTML tags and comments go, and what is left is escaped so it makes no link or
+// HTML of its own.
+func markdownText(desc string) string {
+	desc = strings.Join(strings.Fields(desc), " ")
+	desc = markdownLinkRe.ReplaceAllString(desc, "$1")
+	desc = htmlTagRe.ReplaceAllString(desc, "")
+	return markdownEscape(strings.Join(strings.Fields(desc), " "))
+}
+
+// markdownURL is a link as a Markdown link's destination: spaces, control characters, parentheses, angle brackets
+// and backslashes are percent-encoded, so the link ends where it should.
+func markdownURL(link string) string {
+	var b strings.Builder
+	for i := 0; i < len(link); i++ {
+		if c := link[i]; c <= ' ' || c == 0x7f || strings.IndexByte(`()<>\`, c) >= 0 {
+			fmt.Fprintf(&b, "%%%02X", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// csvCell keeps a spreadsheet from reading an exported cell as a formula (CSV injection): a cell that starts with =,
+// +, -, @, a tab or a carriage return gets a quote in front.
+func csvCell(cell string) string {
+	if cell != "" && strings.IndexByte("=+-@\t\r", cell[0]) >= 0 {
+		return "'" + cell
+	}
+	return cell
+}
+
+// csvRow is a row of cells, each one csvCell.
+func csvRow(cells ...string) []string {
+	for i, cell := range cells {
+		cells[i] = csvCell(cell)
+	}
+	return cells
 }
 
 func skillRowsCSV(rows []store.SkillPageRow) string {
@@ -3206,7 +3261,7 @@ func skillRowsCSV(rows []store.SkillPageRow) string {
 		for _, t := range row.Tags {
 			tags = append(tags, t.Name)
 		}
-		_ = w.Write([]string{row.ID, row.Name, row.Status, row.OriginKind, skillRowLink(row), strconv.FormatBool(row.Liked), row.Notes, strings.Join(tags, "; ")})
+		_ = w.Write(csvRow(row.ID, row.Name, row.Status, row.OriginKind, skillRowLink(row), strconv.FormatBool(row.Liked), row.Notes, strings.Join(tags, "; ")))
 	}
 	w.Flush()
 	return b.String()
@@ -3239,15 +3294,7 @@ func markdown(skills []store.Skill) string {
 			if name == "" {
 				name = s.Slug
 			}
-			desc := strings.Join(strings.Fields(s.Description), " ")
-			if s.URL != "" {
-				fmt.Fprintf(&b, "- [%s](%s)", name, s.URL)
-			} else {
-				fmt.Fprintf(&b, "- %s", name)
-			}
-			if desc != "" {
-				fmt.Fprintf(&b, " — %s", desc)
-			}
+			b.WriteString(markdownItem(name, s.URL, s.Description))
 			b.WriteString("\n")
 			if cmd := installCommand(s); cmd != "" {
 				fmt.Fprintf(&b, "  ```\n  %s\n  ```\n", cmd)
@@ -3269,12 +3316,12 @@ func csvExport(skills []store.Skill) string {
 		for _, e := range s.Environments {
 			envs = append(envs, e.Name)
 		}
-		_ = w.Write([]string{
+		_ = w.Write(csvRow(
 			s.ID, s.Name, stageLabel(s), s.Source, s.URL,
 			strconv.FormatInt(s.Installs, 10), strconv.FormatInt(s.InstallsWeek, 10),
 			strconv.FormatBool(s.Liked), strconv.FormatBool(s.Bookmarked), strconv.FormatBool(s.Used),
 			s.Notes, strings.Join(tags, "; "), strings.Join(envs, "; "),
-		})
+		))
 	}
 	w.Flush()
 	return b.String()

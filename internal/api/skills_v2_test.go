@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1092,5 +1093,62 @@ func TestSkillsExportHoldsThePagesRows(t *testing.T) {
 	code, md := e.owner(t, "GET", "/api/export?format=md&stage=archived&tab=all&sort=name", "")
 	if code != 200 || !strings.Contains(md, "## Archived") || !strings.Contains(md, "alpha") || strings.Contains(md, "find-skills") {
 		t.Fatalf("markdown: %d %s", code, md)
+	}
+}
+
+// A CSV export opened in a spreadsheet runs nothing: a cell that starts with =, +, -, @, a tab or a carriage return is
+// read there as a formula, so it starts with a quote instead. Both exports do it, the Skills page's and the old shelf's,
+// and a cell with those characters further in is left alone.
+func TestExportCSVCellsAreNeverFormulas(t *testing.T) {
+	for _, lead := range []string{"=", "+", "-", "@", "\t", "\r"} {
+		cell := lead + `HYPERLINK("https://example.com","x")`
+		outs := map[string]string{
+			"page":  skillRowsCSV([]store.SkillPageRow{{ID: "item-1", Name: cell, Status: "active", OriginKind: "imported", Notes: cell, Tags: []store.Tag{{Name: cell}}}}),
+			"shelf": csvExport([]store.Skill{{ID: "a/b/c", Name: cell, Notes: cell, Tags: []store.Tag{{Name: cell}}}}),
+		}
+		for which, out := range outs {
+			recs, err := csv.NewReader(strings.NewReader(out)).ReadAll()
+			if err != nil || len(recs) != 2 {
+				t.Fatalf("%s %q: %v %q", which, lead, err, out)
+			}
+			for i, col := range recs[0] {
+				if (col == "name" || col == "notes" || col == "tags") && recs[1][i] != "'"+cell {
+					t.Fatalf("%s %q: %s is %q", which, lead, col, recs[1][i])
+				}
+			}
+		}
+	}
+	if out := skillRowsCSV([]store.SkillPageRow{{ID: "item-1", Name: "seo-bing", Notes: "1+1=2"}}); !strings.Contains(out, "\nitem-1,seo-bing,,,,false,1+1=2,\n") {
+		t.Fatalf("a plain cell: %q", out)
+	}
+	// Through the export itself, with and without a Skills tab.
+	e := newReconcileEnv(t)
+	e.linkedSkill(t, findSkills)
+	if code, raw := e.owner(t, "PATCH", "/api/skill", `{"id":"vercel-labs/skills/find-skills","notes":"=1+1"}`); code != 200 {
+		t.Fatalf("notes: %d %s", code, raw)
+	}
+	for _, query := range []string{"stage=active&tab=all", "tab=all"} {
+		code, body := e.owner(t, "GET", "/api/export?format=csv&"+query, "")
+		if code != 200 || !strings.Contains(body, ",'=1+1,") || strings.Contains(body, ",=1+1,") {
+			t.Fatalf("export %s: %d %s", query, code, body)
+		}
+	}
+}
+
+// Markdown export keeps each skill one plain list item whatever its name, link or description holds: brackets in a
+// name and parentheses in a link are escaped, and a description, often from someone else's SKILL.md, brings no HTML
+// or links of its own, only their text. A link that is not a web address is left out. Both exports.
+func TestExportMarkdownEscapesNamesLinksAndDescriptions(t *testing.T) {
+	desc := "Does <b>bold</b>  work.\nSee [the docs](https://evil.example/x) and ![a pixel](https://evil.example/p.png)<img src=x onerror=alert(1)>.<!-- hidden --> Keeps 2 < 3 > 1, a\\b and [x]."
+	want := `- [seo \[beta\]](https://example.com/a_%28b%29%20c) — Does bold work. See the docs and a pixel. Keeps 2 \< 3 \> 1, a\\b and \[x\].`
+	page := skillRowsMarkdown([]store.SkillPageRow{{Name: "seo [beta]", OriginKind: "imported", Origin: "https://example.com/a_(b) c", Description: desc}}, store.SkillActive)
+	shelf := markdown([]store.Skill{{Name: "seo [beta]", Used: true, URL: "https://example.com/a_(b) c", Description: desc}})
+	for which, md := range map[string]string{"page": page, "shelf": shelf} {
+		if !slices.Contains(strings.Split(md, "\n"), want) {
+			t.Fatalf("%s:\n%s\nwant the line:\n%s", which, md, want)
+		}
+	}
+	if md := markdown([]store.Skill{{Name: "odd", Used: true, URL: "javascript:alert(1)"}}); !strings.Contains(md, "\n- odd\n") || strings.Contains(md, "javascript") {
+		t.Fatalf("a link that is not a web address: %s", md)
 	}
 }

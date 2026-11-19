@@ -34,8 +34,12 @@
   const phrase = (hosts: string[]) => hosts.length === 1 ? hosts[0] : hosts.length === 2 ? `${hosts[0]} and ${hosts[1]}` : 'your machines'
   const where = phrase(hostsOf(asked))
   const folders = (skill: NewSkill) => [...new Set(skill.copies.map(c => c.folder))].join(', ')
-  // A machine with the skill in two folders is named with the folder.
-  const copyLabel = (skill: NewSkill, copy: NewSkill['copies'][number]) => skill.copies.filter(c => c.host === copy.host).length > 1 ? `${copy.host} · ${copy.folder}` : copy.host
+  // Keep takes a machine's copy, so each machine is one choice; one with the skill in several folders names them.
+  const machineChoices = (skill: NewSkill) => skill.copies.filter((c, i, all) => all.findIndex(o => o.agentId === c.agentId) === i)
+  const copyLabel = (skill: NewSkill, copy: NewSkill['copies'][number]) => {
+    const where = [...new Set(skill.copies.filter(c => c.agentId === copy.agentId).map(c => c.folder))]
+    return where.length > 1 ? `${copy.host} · ${where.join(', ')}` : copy.host
+  }
 
   onMount(() => {
     dialog?.showModal()
@@ -151,7 +155,7 @@
               {#if item.digestsDiffer}
                 <div class="choose" role="radiogroup" aria-label={`Which copy of ${item.name} to keep`}>
                   <span class="choose-label">The copies differ. Keep the one from</span>
-                  {#each item.copies as copy (copy.agentId + copy.folder)}
+                  {#each machineChoices(item) as copy (copy.agentId)}
                     <label class="option">
                       <input type="radio" name={`copy-${item.name}`} value={copy.agentId} checked={chosen[item.name] === copy.agentId} onchange={() => (chosen[item.name] = copy.agentId)} />
                       {copyLabel(item, copy)}

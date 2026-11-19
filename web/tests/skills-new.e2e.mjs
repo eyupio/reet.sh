@@ -114,6 +114,26 @@ try {
   await context.close()
  }
 
+ // Keep takes a machine's copy (the server picks that machine's first folder), so a machine holding the skill in two
+ // folders is one choice, not two radios that share a value and both show as chosen.
+ if (run('one choice per machine')) {
+  const two = [copy('a1', 'Elitebook'), {...copy('a1', 'Elitebook'), folder:'~/.claude/skills'}, copy('a2', 'ThinkPad')]
+  const {context, page, errors, w} = await open([found('askme', two, true)])
+  await banner(page).getByRole('button', {name:'Review'}).click()
+  const dialog = page.getByRole('dialog', {name:'New on Elitebook and ThinkPad'})
+  const choice = dialog.getByRole('radiogroup', {name:'Which copy of askme to keep'})
+  await expect(choice.getByRole('radio')).toHaveCount(2)
+  await expect(choice.getByRole('radio', {checked:true})).toHaveCount(1)
+  await choice.getByRole('radio', {name:/^ThinkPad/}).check()
+  await expect(choice.getByRole('radio', {checked:true})).toHaveCount(1)
+  await choice.getByRole('radio', {name:/^Elitebook/}).check()
+  await dialog.getByRole('button', {name:'Keep askme'}).click()
+  await expect(dialog.getByRole('button', {name:'Keep askme'})).toHaveCount(0)
+  expect(w.posts).toEqual([{names:['askme'], action:'keep', from:'a1'}])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Home's Waiting for you links to /skills?review=new, which opens the review at once.
  if (run('link')) {
   const {context, page, errors} = await open([found('paseo-help'), found('cq')], {path:'/skills?review=new'})

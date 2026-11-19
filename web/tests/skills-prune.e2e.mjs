@@ -956,6 +956,29 @@ try {
   await context.close()
  }
 
+ // The bulk bar counts the selected skills the list shows: one that left the list (deleted on another device, read on
+ // the next poll) is not counted, nor sent.
+ if (run('bulk count')) {
+  const w = world()
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:routes(w)})
+  await page.clock.install()
+  await page.goto(`${base}/skills`)
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  await page.getByRole('button', {name:'Select', exact:true}).click()
+  for (const name of ['seo-bing','svg-animations']) await page.getByRole('checkbox', {name:`Select ${name}`}).check()
+  const bar = page.getByRole('toolbar', {name:'Selected skills'})
+  await expect(bar).toContainText('2 selected')
+  w.rows = w.rows.filter(r => r.name !== 'svg-animations')
+  await page.clock.fastForward(16000)
+  await expect(row(page, 'svg-animations')).toHaveCount(0)
+  await expect(bar).toContainText('1 selected')
+  await bar.getByRole('button', {name:/^Archive/}).click()
+  await expect.poll(() => posts(w, 'status').length).toBe(1)
+  expect(posts(w, 'status')[0].ids).toEqual(['item-seo-bing'])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A paused machine is left alone, and the page says so rather than that there are no machines: alone when every
  // machine is paused, and beside what the others are doing when only some are.
  if (run('paused')) {

@@ -395,6 +395,13 @@
     void [page.q, page.onlyLiked, page.tagFilter, page.listFilter]
     selected = []
   })
+  // So does a read that no longer lists a selected row (deleted on another device, say): the bar counts and sends only
+  // what the list shows.
+  $effect(() => {
+    const shown = new Set(page.shown.map(r => r.id))
+    const kept = selected.filter(id => shown.has(id))
+    if (kept.length !== selected.length) selected = kept
+  })
 
   // A Jump result opens this page with ?skill=<id>: the row is brought into view once, and marked for a moment.
   async function flash(id: string) {

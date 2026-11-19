@@ -130,6 +130,8 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/terminal/sessions' && method === 'GET') return json({ sessions })
     // The Sessions page reads the desks once, to mark a session that is on one. None here.
     if (path === '/api/v2/desks' && method === 'GET') return json({ desks: [] })
+    // Skills New on a machine, for Home's Waiting for you and the bell: none.
+    if (path === '/api/v2/skills/new' && method === 'GET') return json({ newOnMachines: [] })
     if (path === '/api/v2/terminal/commands') return json({ commands: [{ id: 'c1', name: 'Tail the app log', command: 'tail -f /var/log/app/production-application-server.log | grep --line-buffered -i error', createdAt: now }] })
     if (path.endsWith('/attachments')) return json({ ticket: 'fixture-ticket00000000000' })
     if (path.endsWith('/history')) return route.fulfill({ body: '' })

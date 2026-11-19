@@ -210,6 +210,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/gaffer/goals'&&method==='GET')data={goals:[]}
  // The bell reads the desks too, to mark a waiting session on one; this account has none.
  else if(path==='/api/v2/desks'&&method==='GET')data={desks:[]}
+ else if(path==='/api/v2/skills/new'&&method==='GET')data={newOnMachines:[]}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  // A reply that never arrives: the server has kept the write, the browser sees the connection fail.
  if(dropNextSave&&method==='POST'&&path==='/api/v2/skill-content-targets'){dropNextSave=false;return route.abort('failed')}

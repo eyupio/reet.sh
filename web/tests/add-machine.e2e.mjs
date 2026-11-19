@@ -68,6 +68,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/gaffer/goals'&&method==='GET')data={goals:[]}
  // The bell reads the desks too, to mark a waiting session on one; this account has none.
  else if(path==='/api/v2/desks'&&method==='GET')data={desks:[]}
+ else if(path==='/api/v2/skills/new'&&method==='GET')data={newOnMachines:[]}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  await route.fulfill({json:data})
 })

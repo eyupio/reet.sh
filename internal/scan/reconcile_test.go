@@ -3041,3 +3041,40 @@ func TestReconcileLeavesALinkToAnIdenticalCopyOutsideTheFolders(t *testing.T) {
 		t.Fatalf("entry %+v", e)
 	}
 }
+
+// A removal whose backup moved across devices and copied the whole skill, but
+// could not then remove all of the original, did not take the skill off: it
+// is reported failed, with the reason, and the backup it made is kept on the
+// report. (P1: it was reported removed.)
+func TestReconcileReportsAPartlyRemovedSkillAsFailed(t *testing.T) {
+	home := t.TempDir()
+	gone := filepath.Join(home, ".agents", "skills", "gone")
+	writeSkill(t, gone)
+	was := reconcileBackup
+	t.Cleanup(func() { reconcileBackup = was })
+	reconcileBackup = func(folder, n string, now time.Time) (string, error) {
+		dest, err := backupSkill(folder, n, now)
+		if err != nil || n != "gone" {
+			return dest, err
+		}
+		// What a cross-device move leaves when it cannot remove a file.
+		if err = os.MkdirAll(filepath.Join(folder, n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(folder, n, "locked.txt"), []byte("still here"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dest, &sourceLeftError{errors.New("permission denied")}
+	}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}}, map[string]string{}, (&stubBundles{}).fetch, reconcileNow)
+	e := entryOf(t, rep, "~/.agents/skills", "gone")
+	if e.State != "failed" || !strings.Contains(e.Detail, "could not all be removed") || !strings.Contains(e.Detail, "permission denied") {
+		t.Fatalf("entry %+v", e)
+	}
+	if e.Backup == "" || !strings.HasPrefix(e.Backup, "~/.agents/.reet-backups/") {
+		t.Fatalf("the backup was not kept on the report: %+v", e)
+	}
+	if _, err := os.Stat(filepath.Join(home, strings.TrimPrefix(e.Backup, "~/"), "SKILL.md")); err != nil {
+		t.Fatalf("the backup: %v", err)
+	}
+}

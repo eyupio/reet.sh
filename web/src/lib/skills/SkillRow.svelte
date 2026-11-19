@@ -90,9 +90,15 @@
     {/if}
   </div>
   {#if open}
-    <!-- The opened skill: where it is on each machine. Tags, lists, notes, Edit, Copy prompt and Publish join it here. -->
+    <!-- The opened skill: its tags and where it is on each machine. Lists, notes, Edit, Copy prompt and Publish join it here. -->
     <div class="detail" id={detailId}>
       {#if row.description}<p class="full">{row.description}</p>{/if}
+      {#if row.tags.length}
+        <div class="open-tags">
+          <span class="label">Tags</span>
+          <ul class="tag-list" aria-label={`Tags of ${row.name}`}>{#each row.tags as tag (tag.id)}<li>{tag.name}</li>{/each}</ul>
+        </div>
+      {/if}
       {#if row.health.machines.length}
         <ul class="machines" aria-label={`Machines for ${row.name}`}>
           {#each row.health.machines as m}
@@ -127,7 +133,10 @@
   .note { padding: 2px 8px; border-radius: 999px; background: var(--tint); color: var(--warn); font-size: 0.875rem; }
   .desc { margin: 0; color: var(--muted); font-size: 0.9375rem; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .tags { grid-area: tags; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-  .tags li { padding: 4px 9px; border-radius: 999px; background: var(--bg-sunk); color: var(--ink-soft); font: 0.875rem/1.3 var(--mono); overflow-wrap: anywhere; }
+  .tags li, .tag-list li { padding: 4px 9px; border-radius: 999px; background: var(--bg-sunk); color: var(--ink-soft); font: 0.875rem/1.3 var(--mono); overflow-wrap: anywhere; }
+  .open-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .open-tags .label { color: var(--muted); font-size: 0.875rem; font-weight: 600; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
   .where { grid-area: where; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
   .health { margin: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem; font-weight: 500; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
   .health[data-tone='ok'] { color: var(--good); }

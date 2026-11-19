@@ -83,6 +83,16 @@ try {
   await context.close()
  }
 
+ // On a narrower screen the row's line drops its tags; opening the row shows them.
+ if (run('tags')) {
+  const {context, page, errors} = await open([skillRow('seo-cluster', {tags:[{id:1, name:'seo'}, {id:2, name:'research'}]})], {width:900})
+  await expect(page.getByRole('list', {name:'Tags on seo-cluster'})).toBeHidden()
+  await page.getByRole('button', {name:'seo-cluster', exact:true}).click()
+  await expect(page.locator('#skill-detail-item-seo-cluster').getByRole('list', {name:'Tags of seo-cluster'}).getByRole('listitem')).toHaveText(['seo', 'research'])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // On a phone, a long name and a long health line wrap inside the row: every button is a 44 px target and nothing
  // pushes the page wider than the screen.
  if (run('phone')) {

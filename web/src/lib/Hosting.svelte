@@ -88,6 +88,8 @@
   let itemBusy = $state(false)
   let itemError = $state('')
   let itemNotice = $state('')
+  // Why the public page could not follow the last save: a warning of its own, not part of the save's success.
+  let itemPublicProblem = $state('')
   const itemFiles = $derived(item ? item.files.filter(f => f.path !== 'SKILL.md') : [])
   const itemDirty = $derived(itemText !== itemBase)
   // The front matter's name does not rename the skill: machines keep it under the library's name.
@@ -114,14 +116,15 @@
   async function saveItem(event: SubmitEvent) {
     event.preventDefault()
     if (!item || itemBusy) return
-    itemBusy = true; itemError = ''; itemNotice = ''
+    itemBusy = true; itemError = ''; itemNotice = ''; itemPublicProblem = ''
     const md = { path: 'SKILL.md', data: toBase64(new TextEncoder().encode(itemText)), executable: item.files.find(f => f.path === 'SKILL.md')?.executable ?? false }
     const files = [md, ...item.files.filter(f => f.path !== 'SKILL.md')]
     try {
       const out = await saveSkillContent(item.id, item.revision, files)
       item = { ...item, revision: out.revision, files }
       itemBase = itemText
-      itemNotice = `Sorted. Saved ${item.name}; it goes on every machine, and the version before stays in its history.${out.publicProblem ? ` ${out.publicProblem}` : ''}`
+      itemNotice = `Sorted. Saved ${item.name}; it goes on every machine, and the version before stays in its history.`
+      itemPublicProblem = out.publicProblem ?? ''
     } catch (e) {
       itemError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -429,13 +432,14 @@
     </div>
     {#if itemError}<p class="notice bad" role="alert">{itemError}</p>{/if}
     {#if itemNotice}<p class="notice good" role="status">{itemNotice}</p>{/if}
+    {#if itemPublicProblem}<p class="notice warn" role="status">{itemPublicProblem}</p>{/if}
     {#if item}
       <form onsubmit={saveItem}>
         <div class="form-block">
           <label for="item-content">SKILL.md</label>
           <textarea id="item-content" bind:value={itemText} rows="18" required spellcheck="false" disabled={itemBusy}></textarea>
           <p class="hint">Keep <code>name: {item.name}</code> in the front matter: each machine keeps the skill under that name.</p>
-          {#if itemNameDiffers}<p class="notice warn" role="status">SKILL.md says name: {itemContentName}, but this skill is {item.name}. Saving keeps it {item.name} on every machine; changing the name here does not rename it.</p>{/if}
+          {#if itemNameDiffers}<p class="notice warn" role="status">SKILL.md says name: {itemContentName}, but this skill is {item.name}. Saving keeps it {item.name} on every machine; changing the name here does not rename it.{#if item.published} Its public page stops following it until the names match.{/if}</p>{/if}
         </div>
         {#if itemFiles.length}
           <div class="form-block">
@@ -664,11 +668,12 @@
   .file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .install-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .install-links { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 2px; font-size: .88rem; }
-  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  .notice.good { border-color: var(--good); }
+  /* Each notice wears its tone in the app's colours, which follow light and dark: done, a warning, a refusal. */
+  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; background: var(--card); color: var(--ink); }
+  .notice.good { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); border-left-color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); }
   .notice .next-action { margin-left: 6px; }
-  .notice.bad { border-color: var(--bad); }
-  .notice.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+  .notice.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 7%, var(--card)); }
+  .notice.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--card)); }
   .publish { display: flex; align-items: center; gap: 10px; }
   .publish input { width: auto; }
   .actions { flex-wrap: wrap; margin-top: 12px; }

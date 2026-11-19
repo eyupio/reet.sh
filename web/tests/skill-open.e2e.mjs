@@ -250,6 +250,27 @@ try {
   passed.push('publish')
  }
 
+ // A published skill whose page can't follow its latest version says so beside Unpublish, from the row and straight
+ // after an Update from original that left the page behind.
+ if (run('public problem')) {
+  const {context, page, errors, w} = await open({edit: w => {
+   w.rows = w.rows.map(r => r.name === 'hosted-tips' ? {...r, publicProblem:'The public page still shows the version before: hosted-tips can\'t be published yet: add instructions below the SKILL.md frontmatter.'} : r.name === 'seo-cluster' ? {...r, published:true, publicUrl:'https://reet.example/sam/seo-cluster'} : r)
+  }})
+  const tips = await openRow(page, 'hosted-tips')
+  await expect(tips.getByText("The public page still shows the version before: hosted-tips can't be published yet: add instructions below the SKILL.md frontmatter.")).toBeVisible()
+  const detail = await openRow(page, 'seo-cluster')
+  await expect(detail.getByText(/The public page still shows/)).toHaveCount(0)
+  await page.route('**/api/v2/skills/item-seo-cluster/original', route => route.request().method() === 'GET'
+   ? route.fulfill({json:w.original})
+   : route.fulfill({json:{updated:true, digest:'digest-2', edited:false, publicProblem:'The public page still shows the version before: seo-cluster can\'t be published yet: the SKILL.md name must match the skill name in the URL.'}}))
+  await detail.getByRole('button', {name:'Update from original'}).click()
+  await page.getByRole('dialog', {name:'Update seo-cluster from its original?'}).getByRole('button', {name:'Update from original'}).click()
+  await expect(detail.getByText("The public page still shows the version before: seo-cluster can't be published yet: the SKILL.md name must match the skill name in the URL.")).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+  passed.push('public problem')
+ }
+
  // Tags and Lists each have Add. A tag or a list changes nothing the rest of the app lists, so nothing is read again.
  if (run('tags and lists')) {
   const {context, page, errors, w} = await open()
@@ -314,9 +335,9 @@ try {
   const b64 = text => Buffer.from(text).toString('base64')
   let saved = null
   await page.route('**/api/v2/skills/item-seo-cluster/content', route => {
-   if (route.request().method() === 'GET') return route.fulfill({json:{id:'item-seo-cluster', name:'seo-cluster', revision:'rev-1', files:[{path:'SKILL.md', data:b64(md), executable:false}, {path:'scripts/run.sh', data:b64('echo hi\n'), executable:true}]}})
+   if (route.request().method() === 'GET') return route.fulfill({json:{id:'item-seo-cluster', name:'seo-cluster', revision:'rev-1', published:true, files:[{path:'SKILL.md', data:b64(md), executable:false}, {path:'scripts/run.sh', data:b64('echo hi\n'), executable:true}]}})
    saved = route.request().postDataJSON()
-   return route.fulfill({json:{revision:'rev-2'}})
+   return route.fulfill({json:{revision:'rev-2', publicProblem:'The public page still shows the version before: it needs a description.'}})
   })
   const detail = await openRow(page, 'seo-cluster')
   await detail.getByRole('link', {name:'Edit seo-cluster'}).click()
@@ -327,7 +348,19 @@ try {
   await expect(page.getByText('scripts/run.sh')).toBeVisible()
   await box.fill(md + 'Keep clusters small.\n')
   await page.getByRole('button', {name:'Save', exact:true}).click()
-  await expect(page.getByRole('status').filter({hasText:'Saved seo-cluster'})).toBeVisible()
+  // The save is a success; the public page that could not follow is a warning of its own, never inside the success.
+  const good = page.locator('.notice.good')
+  await expect(good).toHaveText("Sorted. Saved seo-cluster; it goes on every machine, and the version before stays in its history.")
+  const warn = page.locator('.item-editor .notice.warn').filter({hasText:'The public page still shows the version before: it needs a description.'})
+  await expect(warn).toBeVisible()
+  // Each notice wears its tone: green for done, amber for a warning, red for a refusal, in the app's own colours.
+  const tone = (sel, token) => page.evaluate(([sel, token]) => {
+   const probe = document.createElement('span'); probe.style.color = `var(${token})`; document.body.append(probe)
+   const want = getComputedStyle(probe).color; probe.remove()
+   return getComputedStyle(document.querySelector(sel)).borderLeftColor === want
+  }, [sel, token])
+  expect(await tone('.notice.good', '--good'), 'a done notice is green').toBe(true)
+  expect(await tone('.item-editor .notice.warn', '--warn'), 'a warning is amber').toBe(true)
   expect(saved.revision).toBe('rev-1')
   expect(saved.files.map(f => [f.path, Buffer.from(f.data, 'base64').toString(), f.executable])).toEqual([['SKILL.md', md + 'Keep clusters small.\n', false], ['scripts/run.sh', 'echo hi\n', true]])
   // A changed name in the front matter would not rename the skill: it says so.
@@ -336,6 +369,8 @@ try {
   await box.fill(md.replace('name: seo-cluster', 'name: seo-groups'))
   await expect(warning).toBeVisible()
   await expect(page.getByRole('status').filter({hasText:'Saving keeps it seo-cluster on every machine'})).toBeVisible()
+  // A published skill's page stops following it while the names differ.
+  await expect(page.getByRole('status').filter({hasText:'Saving keeps it seo-cluster on every machine'})).toContainText('Its public page stops following it until the names match.')
   expect(errors).toEqual([])
   await context.close()
   // On a phone, light and dark: nothing under 14 px, 44 px targets, no sideways scroll.

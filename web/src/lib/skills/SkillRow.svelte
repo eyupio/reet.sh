@@ -4,8 +4,9 @@
 
   // One skill on the Skills page, collapsed: its name, where it came from, its tags, where it stands on the machines,
   // and Archive or Restore beside Delete. Each action button carries data-act, which the page moves focus to when a row
-  // leaves the list. Pressing the name opens the row (`open`); the opened detail is drawn below the row's line.
-  let { row, selecting, selected, open, machines, canWrite, onarchive, onrestore, ondelete, onselect, onopen, onretry, onlike }: {
+  // leaves the list. Pressing the name opens the row (`open`); the opened detail is drawn below the row's line. `busy`
+  // names the action on its way, so its button says so and neither action is sent twice.
+  let { row, selecting, selected, open, machines, canWrite, busy = '', onarchive, onrestore, ondelete, onselect, onopen, onretry, onlike }: {
     row: SkillRow
     selecting: boolean
     selected: boolean
@@ -13,6 +14,7 @@
     /** How many machines follow the library, for the action hints. */
     machines: number
     canWrite: boolean
+    busy?: '' | 'archive' | 'restore' | 'delete'
     onarchive: (row: SkillRow) => void
     onrestore: (row: SkillRow) => void
     ondelete: (row: SkillRow) => void
@@ -41,7 +43,8 @@
     <div class="who">
       <div class="title">
         {#if selecting}
-          <input type="checkbox" class="check" checked={selected} aria-label={`Select ${row.name}`} onchange={e => onselect(row, e.currentTarget.checked)} />
+          <!-- The label is the target a finger presses: 44 px around the box. -->
+          <label class="pick"><input type="checkbox" class="check" checked={selected} aria-label={`Select ${row.name}`} onchange={e => onselect(row, e.currentTarget.checked)} /></label>
         {/if}
         <button type="button" class="name" aria-expanded={open} aria-controls={open ? detailId : undefined} onclick={() => onopen(row)}>{row.name}</button>
         {#if source}<span class="src">{source}</span>{/if}
@@ -72,15 +75,15 @@
     {#if canWrite}
       <div class="acts">
         {#if row.status === 'active'}
-          <button type="button" class="btn" data-act="archive" aria-label={`Archive ${row.name}`} title={machines ? `Take it off ${machinesWord} and keep it here` : 'Keep it here, off your machines'} onclick={() => onarchive(row)}>
+          <button type="button" class="btn" data-act="archive" aria-label={`Archive ${row.name}`} title={machines ? `Take it off ${machinesWord} and keep it here` : 'Keep it here, off your machines'} aria-busy={busy === 'archive'} aria-disabled={!!busy} onclick={() => busy || onarchive(row)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Archive
           </button>
         {:else}
-          <button type="button" class="btn" data-act="restore" aria-label={`Restore ${row.name}`} title={machines ? `Put it back on ${machinesWord}` : 'Make it Active again'} onclick={() => onrestore(row)}>
+          <button type="button" class="btn" data-act="restore" aria-label={`Restore ${row.name}`} title={machines ? `Put it back on ${machinesWord}` : 'Make it Active again'} aria-busy={busy === 'restore'} aria-disabled={!!busy} onclick={() => busy || onrestore(row)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M9 14l-5-5 5-5M4 9h10a6 6 0 0 1 0 12h-3"></path></svg>Restore
           </button>
         {/if}
-        <button type="button" class="btn danger" data-act="delete" aria-label={`Delete ${row.name}`} onclick={() => ondelete(row)}>
+        <button type="button" class="btn danger" data-act="delete" aria-label={`Delete ${row.name}`} aria-busy={busy === 'delete'} aria-disabled={!!busy} onclick={() => busy || ondelete(row)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg>Delete
         </button>
       </div>
@@ -113,7 +116,8 @@
   }
   .who { grid-area: who; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .title { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; min-width: 0; }
-  .check { width: 20px; height: 20px; margin: 0 4px 0 0; flex: none; }
+  .pick { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 44px; min-height: 44px; margin: 0 -8px 0 -12px; cursor: pointer; }
+  .check { width: 20px; height: 20px; margin: 0; }
   .name {
     min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; text-align: left;
     font: 600 1.25rem/1.2 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; min-width: 44px;
@@ -145,6 +149,9 @@
   .acts .btn { min-height: 44px; padding: 0 14px; border-radius: 10px; white-space: nowrap; font-weight: 500; }
   .acts .btn svg { width: 18px; height: 18px; flex: none; }
   .acts .danger { color: var(--bad); }
+  .acts .btn[aria-disabled='true'] { opacity: 0.6; cursor: progress; }
+  /* The ring that says a change is on its way takes the icon's place. */
+  .acts .btn[aria-busy='true'] svg { display: none; }
   .detail { padding: 0 20px 18px; display: grid; gap: 10px; }
   .full { margin: 0; color: var(--ink-soft); max-width: 72ch; overflow-wrap: anywhere; }
   .machines { list-style: none; margin: 0; padding: 0; max-width: 480px; }

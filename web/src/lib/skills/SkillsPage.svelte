@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import Skeleton from '../Skeleton.svelte'
   import SkillRowView from './SkillRow.svelte'
@@ -42,8 +43,8 @@
   let listEl = $state<HTMLElement>()
   let reviewEl = $state<HTMLButtonElement>()
   let tabEls = $state<Record<Tab, HTMLButtonElement | undefined>>({ active: undefined, archived: undefined })
-  // Rows with a change on its way, so a second press on the same row is not sent twice.
-  const pending = new Set<string>()
+  // Rows with a change on its way, and which: their buttons say so, and a second press on the same row sends nothing.
+  const pending = new SvelteMap<string, Act>()
 
   // The machines that need a look and what the rest are doing, from every row the page holds.
   const sync = $derived.by(() => {
@@ -114,9 +115,9 @@
     selected = []
   }
 
-  function claim(ids: string[]): boolean {
+  function claim(ids: string[], act: Act): boolean {
     if (ids.some(id => pending.has(id))) return false
-    for (const id of ids) pending.add(id)
+    for (const id of ids) pending.set(id, act)
     return true
   }
   function release(ids: string[]) { for (const id of ids) pending.delete(id) }
@@ -124,7 +125,7 @@
   // Archive (to archived) or Restore (to active), one row or the selection.
   async function changeStatus(targets: SkillRow[], to: Tab, act: 'archive' | 'restore') {
     const ids = targets.map(r => r.id)
-    if (!ids.length || !claim(ids)) return
+    if (!ids.length || !claim(ids, act)) return
     const names = targets.map(r => r.name), from = page.tab, order = page.shown.map(r => r.id)
     try {
       const data = await write(() => setSkillStatus(ids, to, from))
@@ -161,7 +162,7 @@
 
   async function remove(targets: SkillRow[], flags: Flags, order: string[]) {
     const ids = targets.map(r => r.id)
-    if (!claim(ids)) return
+    if (!claim(ids, 'delete')) return
     const names = targets.map(r => r.name), from = page.tab
     try {
       await write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }))
@@ -425,7 +426,7 @@
     <div class="tabs" role="tablist" aria-label="Skill state">
       {#each TABS as t (t.id)}
         <button type="button" role="tab" id={`skills-tab-${t.id}`} class="tab" aria-selected={page.tab === t.id} aria-controls="skills-panel" tabindex={page.tab === t.id ? 0 : -1}
-          bind:this={tabEls[t.id]} onclick={() => choose(t.id)} onkeydown={tabKeys}>{t.label}{#if page.loaded}<small>{page.counts[t.id]}</small>{/if}</button>
+          bind:this={tabEls[t.id]} onclick={() => choose(t.id)} onkeydown={tabKeys}>{t.label}{#if page.loaded}{' '}<small>{page.counts[t.id]}</small>{/if}</button>
       {/each}
     </div>
     <div class="find" role="group" aria-label="Find skills">
@@ -471,7 +472,7 @@
     {:else if page.shown.length}
       <ul class="list" bind:this={listEl} aria-label={page.tab === 'active' ? 'Active skills' : 'Archived skills'}>
         {#each page.shown as row (row.id)}
-          <SkillRowView {row} {selecting} selected={selected.includes(row.id)} open={openId === row.id} machines={page.machines} {canWrite}
+          <SkillRowView {row} {selecting} selected={selected.includes(row.id)} open={openId === row.id} machines={page.machines} {canWrite} busy={pending.get(row.id) ?? ''}
             onarchive={r => changeStatus([r], 'archived', 'archive')}
             onrestore={r => changeStatus([r], 'active', 'restore')}
             ondelete={r => askDelete([r])}

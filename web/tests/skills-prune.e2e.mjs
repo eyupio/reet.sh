@@ -90,8 +90,10 @@ try {
   await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
   await expect(row(page, 'seo-bing')).toHaveCount(0)
   await expect(tab(page, 'Active')).toHaveAttribute('aria-selected', 'true')
-  await expect(tab(page, 'Active')).toContainText('5')
-  await expect(tab(page, 'Archived')).toContainText('4')
+  await expect(tab(page, 'Active')).toHaveAccessibleName('Active 5')
+  await expect(tab(page, 'Archived')).toHaveAccessibleName('Archived 4')
+  // Its text keeps the label apart from the count too, for anything that reads text rather than the accessible name.
+  expect(await page.getByRole('tablist', {name:'Skill state'}).getByRole('tab').evaluateAll(els => els.map(el => el.textContent.replace(/\s+/g, ' ').trim()))).toEqual(['Active 5', 'Archived 4'])
   expect(await page.evaluate(() => window.scrollY)).toBe(before)
   const next = row(page, 'seo-cluster').locator('[data-act="archive"]')
   await expect(next).toBeFocused()
@@ -157,6 +159,18 @@ try {
   for (const name of ['svg-animations','ui-ux-pro-max','writing-plans']) await page.getByRole('checkbox', {name:`Select ${name}`}).check()
   const bar = page.getByRole('toolbar', {name:'Selected skills'})
   await expect(bar).toContainText('3 selected')
+  // The bar is a toolbar: the arrow keys, Home and End move along its buttons.
+  await bar.getByRole('button', {name:'Archive', exact:true}).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(bar.getByRole('button', {name:'Delete', exact:true})).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(bar.getByRole('button', {name:'Cancel', exact:true})).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(bar.getByRole('button', {name:'Archive', exact:true})).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(bar.getByRole('button', {name:'Cancel', exact:true})).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(bar.getByRole('button', {name:'Archive', exact:true})).toBeFocused()
   await bar.getByRole('button', {name:'Archive', exact:true}).click()
   await expect(page.locator('[data-skill]')).toHaveCount(3)
   expect(posts(w, 'status')).toEqual([{ids:['item-svg-animations','item-ui-ux-pro-max','item-writing-plans'], status:'archived', tab:'active'}])
@@ -186,6 +200,30 @@ try {
   expect(posts(w, 'notice')).toEqual([{action:'restore-parked'}])
   await expect(notice).toHaveCount(0)
   await expect(tab(page, 'Archived')).toHaveAttribute('aria-selected', 'true')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // While a change is on its way its button says so, and a second press sends nothing more.
+ if (run('busy')) {
+  const w = world()
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  const r = routes(w)
+  const status = r['/api/v2/skills/status']
+  r['/api/v2/skills/status'] = async req => { const answer = status(req); await held; return answer }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  const archive = row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'})
+  await archive.click()
+  await expect(archive).toHaveAttribute('aria-busy', 'true')
+  await expect(archive).toHaveAttribute('aria-disabled', 'true')
+  await expect(row(page, 'seo-bing').getByRole('button', {name:'Delete seo-bing'})).toHaveAttribute('aria-disabled', 'true')
+  // Playwright will not press a button marked disabled, so the second press is dispatched the way a script would.
+  await archive.dispatchEvent('click')
+  release()
+  await expect(row(page, 'seo-bing')).toHaveCount(0)
+  expect(posts(w, 'status')).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -261,6 +299,18 @@ try {
      expect(box.width, `${name} width at ${width}px ${theme}`).toBeGreaterThanOrEqual(44)
      expect(box.x + box.width, `${name} right edge at ${width}px ${theme}`).toBeLessThanOrEqual(width)
     }
+    // Selecting: each row's checkbox is a 44 px target too (the label around it is what a finger presses).
+    await page.getByRole('button', {name:'Select', exact:true}).click()
+    const checks = page.locator('[data-skill] input')
+    await expect(checks).toHaveCount(6)
+    for (const input of await checks.all()) {
+     const hit = await input.evaluate(el => { const r = (el.closest('label') ?? el).getBoundingClientRect(); return {w:r.width, h:r.height, right:r.right, name:el.getAttribute('aria-label')} })
+     expect(hit.h, `${hit.name} target height at ${width}px ${theme}`).toBeGreaterThanOrEqual(44)
+     expect(hit.w, `${hit.name} target width at ${width}px ${theme}`).toBeGreaterThanOrEqual(44)
+     expect(hit.right, `${hit.name} right edge at ${width}px ${theme}`).toBeLessThanOrEqual(width)
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width selecting at ${width}px ${theme}`).toBe(true)
+    await page.getByRole('button', {name:'Select', exact:true}).click()
     await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
     await expect(toast(page)).toBeVisible()
     const t = await toast(page).boundingBox()

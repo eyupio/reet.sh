@@ -15,6 +15,18 @@
 
   let tagging = $state(false)
   let tagDraft = $state('')
+  let bar = $state<HTMLElement>()
+
+  // A toolbar: the arrow keys, Home and End move along its buttons. A text field keeps its own keys.
+  function keys(e: KeyboardEvent) {
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key) || !(e.target instanceof HTMLButtonElement) || !bar) return
+    const buttons = [...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+    const at = buttons.indexOf(e.target)
+    if (at < 0) return
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (at + (e.key === 'ArrowRight' ? 1 : buttons.length - 1)) % buttons.length
+    e.preventDefault()
+    buttons[to].focus()
+  }
 
   function addTag(e: SubmitEvent) {
     e.preventDefault()
@@ -24,7 +36,7 @@
   }
 </script>
 
-<div class="bulk" role="toolbar" aria-label="Selected skills">
+<div class="bulk" role="toolbar" aria-label="Selected skills" tabindex="-1" bind:this={bar} onkeydown={keys}>
   <strong>{count === 1 ? '1 selected' : `${count} selected`}</strong>
   {#if tagging}
     <form onsubmit={addTag}>

@@ -251,13 +251,27 @@
   async function retryOnMachines(row: SkillRow) {
     const failed = row.health.machines.filter(m => m.state === 'failed' && m.agentId)
     if (!failed.length) return
+    // Each machine is asked on its own: one that refuses does not hide that the others were asked.
+    let results: PromiseSettledResult<string[]>[]
     try {
-      await write(() => Promise.all(failed.map(m => retryMachineSkills(m.agentId!, [row.name]))))
-      say(retryText(row.name, failed.map(m => m.host)))
-      void read(page.tab, true)
+      results = await write(() => Promise.allSettled(failed.map(m => retryMachineSkills(m.agentId!, [row.name]))))
     } catch (e) {
       fail(e)
+      return
     }
+    const signedOut = results.find(r => r.status === 'rejected' && r.reason instanceof UnauthorizedError) as PromiseRejectedResult | undefined
+    if (signedOut) return fail(signedOut.reason)
+    const asked = failed.filter((_, i) => results[i].status === 'fulfilled').map(m => m.host)
+    const refused = failed.flatMap((m, i) => {
+      const r = results[i]
+      return r.status === 'rejected' ? [`Couldn't ask ${m.host}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`] : []
+    })
+    if (!asked.length) {
+      fail(new Error(refused.join(' ')))
+      return
+    }
+    say([retryText(row.name, asked), ...refused].join(' '))
+    void read(page.tab, true)
   }
 
   // The heart shows the change at once; an older change's answer landing meanwhile does not undo it (writeRow).

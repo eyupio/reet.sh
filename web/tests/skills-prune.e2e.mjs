@@ -857,6 +857,25 @@ try {
   await context.close()
  }
 
+ // A Retry that one machine refuses still says which machines were asked, and why the other was not.
+ if (run('retry refused')) {
+  const both = {state:'failed',pending:2,total:3,hosts:['ThinkPad','studio'],reason:'no write access',machines:[{host:'Elitebook',agentId:'a-elite',state:'ok'},{host:'ThinkPad',agentId:'a-think',state:'failed',detail:'no write access'},{host:'studio',agentId:'a-studio',state:'failed',detail:'disk full'}]}
+  const w = world()
+  w.rows = w.rows.map(r => r.name === 'seo-cluster' ? {...r, health:both} : r)
+  const r = routes(w)
+  r['/api/v2/sync/skills/retry'] = req => {
+   const b = req.postDataJSON(); w.posts.push(['machine retry', b])
+   return b.agentId === 'a-studio' ? {status:409, json:{error:'Sync is paused on studio. Turn it back on to try again.'}} : {names:b.names}
+  }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  await row(page, 'seo-cluster').getByRole('button', {name:'Retry seo-cluster'}).click()
+  await expect.poll(() => posts(w, 'machine retry').length).toBe(2)
+  await expect(page.getByRole('status').filter({hasText:"Trying seo-cluster again on ThinkPad. Couldn't ask studio: Sync is paused on studio. Turn it back on to try again."})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The header's line says what the machines are doing, as the server counts it over every skill: coming off after an
  // Archive, installing after an Undo, updating when both happen at once.
  if (run('chip')) {

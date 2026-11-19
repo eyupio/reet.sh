@@ -530,6 +530,8 @@ export type SkillRow = {
   editedOn?: { agentId: string; host: string }
   /** When the skill came into the library, in Unix milliseconds. */
   createdAt?: number
+  /** Why a published skill's public page no longer follows it: it keeps the version before. */
+  publicProblem?: string
   /** Why Use this version could not take editedOn's copy, when it tried: for example a file reet won't copy. */
   editedOnProblem?: string
 }
@@ -573,8 +575,8 @@ export async function skillNotice(action: 'dismiss' | 'restore-parked'): Promise
   await req('/api/v2/skills/notice', { method: 'POST', body: json({ action }) })
 }
 /** Use this version: take the machine's backup of its edit as the skill's next revision. */
-export async function useMachineVersion(id: string, agentId: string): Promise<void> {
-  await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })
+export async function useMachineVersion(id: string, agentId: string): Promise<{ publicProblem?: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })).json()
 }
 /** What changed at an imported skill's original, against reet's copy: GET /api/v2/skills/{id}/original. revision is
  *  what the confirmation names: "" for a skill reet has no copy of yet. */
@@ -584,7 +586,7 @@ export async function originalChanges(id: string): Promise<OriginalChanges> {
 }
 /** Update from original, confirmed: the digest and revision the changes were shown for. It refuses with 409 when either
  *  moved on since. updated is false when the original matched reet's copy after all. */
-export async function updateFromOriginal(id: string, digest: string, revision: string): Promise<{ updated: boolean; edited: boolean }> {
+export async function updateFromOriginal(id: string, digest: string, revision: string): Promise<{ updated: boolean; edited: boolean; publicProblem?: string }> {
   return (await req(`/api/v2/skills/${encodeURIComponent(id)}/original`, { method: 'POST', body: json({ digest, revision }) })).json()
 }
 /** Publish or Unpublish a library skill. It throws an ApiError with code 'not-publishable' and the reason when it can't. */
@@ -593,7 +595,7 @@ export async function publishSkill(id: string, isPublic: boolean): Promise<{ pub
 }
 /** A library skill's files at its head revision, for Write a skill. data is base64. */
 export type SkillContentFile = { path: string; data: string; executable: boolean }
-export type SkillContent = { id: string; name: string; revision: string; files: SkillContentFile[] }
+export type SkillContent = { id: string; name: string; revision: string; published?: boolean; files: SkillContentFile[] }
 export async function getSkillContent(id: string): Promise<SkillContent> {
   return (await req(`/api/v2/skills/${encodeURIComponent(id)}/content`)).json()
 }

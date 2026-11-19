@@ -290,6 +290,7 @@
         {/if}
         {#if install}<CopyButton text={install} label="Copy install command" ariaLabel={`Copy install command for ${row.name}`} />{/if}
       </div>
+      {#if row.published && row.publicProblem}<p class="behind">{row.publicProblem}</p>{/if}
       {#if !row.published && !publishable}
         <p class="hint">reet.sh can only publish a skill whose name uses lowercase letters, numbers and single hyphens, so {row.name} stays private.</p>
       {:else if !install}
@@ -354,6 +355,7 @@
   .row-acts, .uses { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .detail :global(.btn) { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; border-radius: 10px; }
   .detail :global(.btn[aria-disabled='true']) { opacity: 0.6; cursor: progress; }
+  .behind { margin: 0; padding: 8px 10px; border-left: 3px solid var(--warn); border-radius: 6px; background: color-mix(in srgb, var(--warn) 10%, var(--card)); color: var(--ink); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
   .problem { margin: 0; color: var(--bad); font-size: 0.875rem; overflow-wrap: anywhere; }
   /* A narrower screen: the machines beside everything else, then one column on a phone. */
   @media (max-width: 1000px) {

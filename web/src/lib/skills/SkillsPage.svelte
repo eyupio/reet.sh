@@ -305,7 +305,8 @@
     const from = row.editedOn
     if (!from) return
     try {
-      await write(() => useMachineVersion(row.id, from.agentId))
+      const out = await write(() => useMachineVersion(row.id, from.agentId))
+      if (out.publicProblem) page.setRow(row.id, { publicProblem: out.publicProblem })
       say(`Asked ${from.host} for its version of ${row.name}. It goes on every machine once it arrives.`)
     } catch (e) {
       refuse(e)
@@ -314,7 +315,10 @@
   async function updateOriginal(row: SkillRow, digest: string, revision: string) {
     let updated: boolean
     try {
-      updated = (await write(() => updateFromOriginal(row.id, digest, revision))).updated
+      const out = await write(() => updateFromOriginal(row.id, digest, revision))
+      updated = out.updated
+      // A public page that could not follow says so on the row at once, before the page is read again.
+      page.setRow(row.id, { publicProblem: out.publicProblem })
     } catch (e) {
       refuse(e)
     }

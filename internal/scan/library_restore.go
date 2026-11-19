@@ -167,8 +167,11 @@ func planLibraryRestores(config string, c agentConfig, target store.SyncTarget, 
 	if err != nil {
 		return nil, nil, err
 	}
-	managedHome := followingHome(config, c)
-	if observeLibraryDeletions(&state, managedHome, time.Now()) {
+	// A sync job runs only while the controller keeps this machine on the
+	// job-based engine, which owns every binding then, wherever it is: the
+	// observer watches them all here. (The agent cycle leaves copies the
+	// reconcile pass keeps to it; see syncLibraryEdits.)
+	if observeLibraryDeletions(&state, homeFolders{}, time.Now()) {
 		if err := writePrivate(config+".library", state); err != nil {
 			return nil, nil, err
 		}

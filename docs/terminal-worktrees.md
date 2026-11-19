@@ -152,8 +152,31 @@ Before step 6, a machine that negotiated `base-fresh-v1` resolves the base:
   controller keeps those on the session as `baseName`, `baseRelation` and
   `baseStart`.
 
-A machine that did not negotiate `base-fresh-v1` is unchanged: it is never named
-a base it did not ask for, it fetches nothing, and it reports no base.
+### Latest code from GitHub, by choice
+
+A fresh worktree can be told to start from **GitHub's latest commit for the base
+branch** even when this machine's own branch has moved on. The controller
+carries that by naming GitHub's own branch, `origin/<base>`: a machine that
+negotiated `base-fresh-v1` already fetches that branch and starts from what it
+fetched, whatever the local branch of the same name holds. No new wire field is
+involved, and an older machine simply uses its last fetched remote-tracking
+branch (or refuses a base it does not have, as it always did).
+
+The answer is layered, and each layer can be overridden by the one before it:
+
+- the **person** chooses for one start, in Start an agent or a New Factory
+  outcome (`pullLatest: true` or `false` on the create; `"yes"` or `"no"` on an
+  outcome's launch);
+- else the **project** answers (`pullLatest`: `"inherit"`, `"yes"` or `"no"`;
+  default `"inherit"`);
+- else the **account** answers (`pullLatestByDefault`, off until turned on in
+  Settings → Agents).
+
+The default is off, so existing starts behave exactly as before. `origin/` is
+added only when the machine negotiated `base-fresh-v1` and the prefixed name
+still fits git's 255-byte branch limit. A project's base branch is what is
+prefixed; a project that saved none leaves the branch to the machine and gains
+no choice for that start.
 
 If the add fails, the connector removes only what this same call created:
 `git worktree unlock <destination>`, then `git worktree remove --force

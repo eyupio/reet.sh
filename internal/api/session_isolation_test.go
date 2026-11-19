@@ -340,3 +340,70 @@ func TestReleaseSessionWorktreeHolds(t *testing.T) {
 		t.Fatalf("running session not held: %+v", h)
 	}
 }
+
+// A fresh worktree can start from GitHub's latest commit for its base branch
+// rather than this machine's copy. The project, else the account, sets the
+// default; a launch overrides it for one start. The controller carries it by
+// naming GitHub's own branch, which the machine already fetches.
+func TestIsolatedLaunchStartsFromGitHubsLatestWhenAsked(t *testing.T) {
+	s, uid, machine := isolationFixture(t, baseFreshCaps())
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "main", PullLatest: "yes"}); err != nil {
+		t.Fatal(err)
+	}
+	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
+	if !s.isolateWorktree(uid, machine, "latest-1", &c) || c.Base != "origin/main" {
+		t.Fatalf("the project's latest default was not applied: %+v", c)
+	}
+	// The person's own answer for one start wins over the project's.
+	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/reet", PullLatest: "no"}
+	if !s.isolateWorktree(uid, machine, "latest-2", &c) || c.Base != "main" {
+		t.Fatalf("the start's own answer was not kept: %+v", c)
+	}
+	// A project that keeps the machine's copy can be overridden to latest.
+	project, err := s.st.FolderProjectFor(uid, c.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.PullLatest = "no"
+	if _, err := s.st.UpdateFolderProjectFor(uid, project, project.Version); err != nil {
+		t.Fatal(err)
+	}
+	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/reet", PullLatest: "yes"}
+	if !s.isolateWorktree(uid, machine, "latest-3", &c) || c.Base != "origin/main" {
+		t.Fatalf("the start's override was not applied: %+v", c)
+	}
+	// A project that inherits takes the account's answer.
+	project, err = s.st.FolderProjectFor(uid, c.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.PullLatest = "inherit"
+	if _, err := s.st.UpdateFolderProjectFor(uid, project, project.Version); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := s.st.ProfileFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.PullLatestByDefault = true
+	if err := s.st.SaveProfileFor(uid, profile); err != nil {
+		t.Fatal(err)
+	}
+	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
+	if !s.isolateWorktree(uid, machine, "latest-4", &c) || c.Base != "origin/main" {
+		t.Fatalf("the account default was not inherited: %+v", c)
+	}
+}
+
+// A machine that does not fetch a worktree's base is never named GitHub's
+// own branch: that field is only sent with base-fresh-v1.
+func TestIsolatedLaunchNamesNoLatestWithoutBaseFresh(t *testing.T) {
+	s, uid, machine := isolationFixture(t, worktreeCaps("claude"))
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "main", PullLatest: "yes"}); err != nil {
+		t.Fatal(err)
+	}
+	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
+	if !s.isolateWorktree(uid, machine, "latest-old", &c) || c.Base != "" {
+		t.Fatalf("an older machine was named a base: %+v", c)
+	}
+}

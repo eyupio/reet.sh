@@ -58,6 +58,9 @@ export type LaunchRequest = { tool?: string; model?: string; dir?: string; promp
   projectId?: string
   /** The desk pane a plain shell is opened for (New tab, Split). A desk-shell-v1 machine keeps that pane's own command history; an older one ignores it. */
   deskPane?: string
+  /** For an isolated session, whether to start from GitHub's latest commit for the base (true) or this machine's copy
+   *  (false). Absent uses the project's setting, then the account's. */
+  pullLatest?: boolean
   /** Who named the session, sent only with a tool launch: `prompt` when the title comes from the task, `fallback` when it is the generic agent and folder name. */
   titleOrigin?: 'prompt' | 'fallback' }
 /** Characters that make what is shown differ from what is sent or stored: control and format characters (\p{Cf}: the
@@ -209,6 +212,7 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   // A plain create stays byte-identical to before: the launch keys are added only when they have a value.
   const body: Record<string, string | number | boolean> = { agentId, requestId, title, cols, rows }
   for (const key of ['tool', 'model', 'dir', 'prompt', 'projectId', 'base', 'effort', 'provider', 'worktree', 'project'] as const) if (launch?.[key]) body[key] = launch[key]
+  if (launch?.pullLatest !== undefined) body.pullLatest = launch.pullLatest
   if (launch?.yolo) body.yolo = true
   if (launch?.resume) body.resume = true
   if (launch?.structured) body.structured = true
@@ -339,6 +343,10 @@ export async function removeWorktree(target: WorktreeTarget, shown: { changed: n
 // The same cookie-only requests as terminals and Projects; an update or delete names the version it read (If-Match), and
 // a project changed since answers 409 `project_changed`. The single read and every write give the version (the ETag).
 export type WorktreeDefault = 'inherit' | 'yes' | 'no'
+/** Whether an isolated session starts from GitHub's latest commit for its base: 'inherit' (the account's setting), 'yes'
+ *  or 'no'. The controller turns 'yes' into GitHub's own branch (origin/<base>), which the machine fetches as it makes the
+ *  worktree. */
+export type PullLatest = WorktreeDefault
 export type FolderProject = {
   id: string
   /** The machine's enrollment id: pass it as it is as the agentId of `browseFolder`, `listBranches` and `createTerminal`. */
@@ -346,6 +354,8 @@ export type FolderProject = {
   /** The machine's current name for display; "" once the machine is no longer enrolled. */
   machine: string
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
+  /** Whether a fresh worktree starts from GitHub's latest code: 'inherit' uses the account's setting. */
+  pullLatest: PullLatest
   /** Reet cloned this repository on the machine itself (From GitHub), so where a session starts needs no confirmation
    *  (`needsConfirm`). Absent when false. */
   cloned?: boolean
@@ -376,7 +386,7 @@ export type FolderProject = {
 }
 /** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
-export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo' | 'starterPrompt'>> & { note?: '' }
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'pullLatest' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string; cloneDeleted?: boolean }
 /** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
 export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }

@@ -288,7 +288,11 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Rows      int    `json:"rows"`
 		Tool      string `json:"tool"`
 		Base      string `json:"base"`
-		Effort    string `json:"effort"`
+		// PullLatest overrides, for this one start, whether an isolated session
+		// starts from GitHub's latest commit for Base (true) or this machine's
+		// copy (false). Absent uses the project's setting, else the account's.
+		PullLatest *bool  `json:"pullLatest"`
+		Effort     string `json:"effort"`
 		// Provider is the billing source a structured Cline chat starts on.
 		Provider string `json:"provider"`
 		Yolo     bool   `json:"yolo"`
@@ -329,6 +333,9 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Provider: in.Provider, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
+	if in.PullLatest != nil {
+		create.PullLatest = map[bool]string{true: "yes", false: "no"}[*in.PullLatest]
+	}
 	// A session started without a title is named from its prompt, or its agent
 	// and folder, and the name's owner is recorded with it. Both depend only on
 	// the request, so a retry whose reply was lost asks for the same session

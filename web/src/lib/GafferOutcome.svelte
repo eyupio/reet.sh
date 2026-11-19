@@ -14,7 +14,8 @@
   import GafferProse from './GafferProse.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
-  import { yoloCanStart, type YoloGate } from './launchBar'
+  import { startsFromLatest, yoloCanStart, type YoloGate } from './launchBar'
+  import LatestCodeChoice, { type LatestChoice } from './launch/LatestCodeChoice.svelte'
   import { CATALOGUE } from './catalogue'
   import type { MachineModels, ModelFavourite } from './models'
   import { reportedEfforts } from './terminal/launchOptions'
@@ -98,6 +99,9 @@
   const ghProblem = $derived(github && ghLeft && ghRepo.trim() !== '' && !ghParsed ? 'Write the repository as owner/name, or paste its github.com link.' : '')
   $effect(() => { if (github && !cloners.some(item => item.agentId === ghHost)) ghHost = cloners.length === 1 ? cloners[0].agentId : '' })
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
+  // The person's answer for this outcome's first worktrees, or null to use the project's setting, then the account's.
+  let latestOverride = $state<boolean | null>(null)
+  let accountLatest = $state(false)
   const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : github ? cloners.find(item => item.agentId === ghHost) ?? null : null)
   const ghKnown = $derived(github && machine && ghParsed ? repoProject(projects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined)
   const tools = $derived(machine ? CHAT_TOOLS.filter(id => structuredAgent(machine.capabilities, id)) : [])
@@ -239,15 +243,18 @@
       { label: 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : crewTools.filter(Boolean).length ? [...new Set(crewTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
     ]
   })
+  const launchesInWorktree = $derived(!!project?.isRepo && !!machine?.capabilities?.worktree)
+  const latestChoice = $derived<LatestChoice>(latestOverride === null ? (startsFromLatest(project, { pullLatestByDefault: accountLatest }) ? 'github' : 'machine') : latestOverride ? 'github' : 'machine')
   const yoloWhy = $derived(yoloGates.find(gate => !gate.ok)?.detail ?? '')
   $effect(() => { if (yoloWhy) yolo = false })
+  $effect(() => { void projectId; latestOverride = null })
 
   onMount(() => {
     const saved = readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text)
     maxReviews = saved.maxReviews; hours = saved.hours
     autoMerge = $gafferAutoMerge
     void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
-    void getProfile().then(answer => { if (!life.signal.aborted) savedSource = answer.profile.defaultClineSource ?? '' }).catch(() => { /* Cline’s own choice */ })
+    void getProfile().then(answer => { if (!life.signal.aborted) { savedSource = answer.profile.defaultClineSource ?? ''; accountLatest = answer.profile.pullLatestByDefault === true } }).catch(() => { /* Cline’s own choice */ })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
@@ -346,6 +353,7 @@
       record = await createGafferOutcome({
         objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
         sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+        ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
       }, life.signal)
       step = 'results'; clearImage()
       watch(record.id)
@@ -400,6 +408,12 @@
             </select></label>
             {#if sourceShown}<div class="source-field"><ClineSourceSelect label="Source" value={chosenSource} saved={savedSource} offered={sourceOffered} note={startSource.note} disabled={planning} onchange={pickSource} onsaved={next => savedSource = next} /></div>{/if}
           </div>
+          {#if launchesInWorktree && machine && project}
+            <div class="latest-field">
+              <LatestCodeChoice agentId={machine.agentId} host={machine.host} dir={project.dir} base={project.baseBranch}
+                value={latestChoice} disabled={planning} onchange={(choice) => { latestOverride = choice === 'github'; planError = '' }} />
+            </div>
+          {/if}
           {#if crewRead !== 'reading'}
             <section class="saved-crew" aria-label="Your Gaffer settings">
               <h3>Your Gaffer settings</h3>

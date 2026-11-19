@@ -32,6 +32,10 @@ type OutcomeLaunch struct {
 	// that the agent need not wait for approvals. The launch path checks the
 	// account setting, the agent and the machine again at every start.
 	Yolo bool
+	// PullLatest is the person's answer for this outcome's fresh worktrees:
+	// "yes" for GitHub's latest commit for the base, "no" for the machine's
+	// copy, "" for the project's setting, then the account's.
+	PullLatest string
 }
 
 // SessionStarter starts an approved session as its owner through the same
@@ -117,7 +121,12 @@ type OutcomeInput struct {
 	Trust     bool   `json:"trust"`
 	// Yolo starts every session of the outcome without approvals. It is the
 	// person's choice only: no plan and no model can ask for it.
-	Yolo       bool             `json:"yolo"`
+	Yolo bool `json:"yolo"`
+	// PullLatest is the person's answer, for this outcome's first worktrees,
+	// whether each starts from GitHub's latest commit for its base ("yes"),
+	// this machine's copy ("no"), or whichever the project, then the account,
+	// says (""). It changes nothing for a project that is not a repository.
+	PullLatest string           `json:"pullLatest"`
 	Sessions   []OutcomeSession `json:"sessions"`
 	MaxReviews int              `json:"maxReviews"`
 	Hours      int              `json:"hours"`
@@ -495,7 +504,10 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if in.Yolo && !outcomeTakesYolo(in.Tool, sessions) {
 		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	if in.PullLatest != "" && in.PullLatest != "yes" && in.PullLatest != "no" {
+		return o, invalid("pullLatest", "Choose GitHub's latest code, this machine's copy, or the project's default.")
+	}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -1251,7 +1263,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}
 		return err == nil
 	}
-	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
+	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, PullLatest: o.PullLatest, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
 	// droppedEffort is whether the stage in hand starts without an effort its

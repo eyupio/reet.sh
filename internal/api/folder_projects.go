@@ -147,6 +147,7 @@ type folderProjectInput struct {
 	IsRepo          *bool   `json:"isRepo"`
 	BaseBranch      *string `json:"baseBranch"`
 	WorktreeDefault *string `json:"worktreeDefault"`
+	PullLatest      *string `json:"pullLatest"`
 	DefaultTool     *string `json:"defaultTool"`
 	DefaultModel    *string `json:"defaultModel"`
 	DefaultEffort   *string `json:"defaultEffort"`
@@ -178,6 +179,7 @@ func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
 	set(&p.Name, in.Name)
 	set(&p.BaseBranch, in.BaseBranch)
 	set(&p.WorktreeDefault, in.WorktreeDefault)
+	set(&p.PullLatest, in.PullLatest)
 	set(&p.DefaultTool, in.DefaultTool)
 	set(&p.DefaultModel, in.DefaultModel)
 	set(&p.DefaultEffort, in.DefaultEffort)
@@ -314,6 +316,11 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	default:
 		return &projectRefusal{422, "invalid_worktree_default", "worktreeDefault", "Choose whether each session gets a worktree: inherit, yes or no.", ""}
 	}
+	switch p.PullLatest {
+	case "", "inherit", "yes", "no":
+	default:
+		return &projectRefusal{422, "invalid_pull_latest", "pullLatest", "Choose whether each session starts from GitHub's latest code: inherit, yes or no.", ""}
+	}
 	if !validProjectColour(p.Colour) {
 		return &projectRefusal{422, "invalid_colour", "colour", "Choose a colour from the palette, or no colour.", ""}
 	}
@@ -382,8 +389,12 @@ type folderProjectView struct {
 	// Remote is the GitHub repository (owner/name) a folder added by path
 	// pushes to, as its machine reported its origin; left out when it has none
 	// on github.com or has not been asked yet.
-	Remote           string  `json:"remote,omitempty"`
-	WorktreeDefault  string  `json:"worktreeDefault"`
+	Remote          string `json:"remote,omitempty"`
+	WorktreeDefault string `json:"worktreeDefault"`
+	// PullLatest is whether an isolated session starts from GitHub's latest
+	// commit for the base branch: "inherit" (the account's setting), "yes" or
+	// "no".
+	PullLatest       string  `json:"pullLatest"`
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
 	DefaultEffort    string  `json:"defaultEffort"`
@@ -402,7 +413,7 @@ type folderProjectView struct {
 }
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
-	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
+	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault, PullLatest: p.PullLatest,
 		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Origin: p.Origin, Cloned: p.Cloned, Temporary: p.Temporary, KeptBecause: p.KeptBecause, Remote: p.Remote, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }

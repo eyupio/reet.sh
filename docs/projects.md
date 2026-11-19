@@ -46,6 +46,7 @@ Every reply is `Cache-Control: no-store`. `projects` stays a reserved hosted use
 | Folder | an absolute path of at most 4,096 bytes, saved cleaned |
 | Base branch | blank or a valid git branch name of at most 255 bytes |
 | Worktree for each session | `inherit` (the account default), `yes` or `no` |
+| Latest code from GitHub | `inherit` (the account default), `yes` or `no`; carried to the machine as GitHub's own branch, `origin/<base>`, when the base is named |
 | Colour | blank, or `red`, `amber`, `green`, `blue` or `violet` (422 `invalid_colour`) |
 | Starter prompt | the opening-prompt rules: at most 8,000 bytes, valid text, no control characters but line breaks, not starting with `-`; for Claude Code and Codex at least two words |
 | Writes | 30 a minute per account (429 `project_rate_limited`) |
@@ -340,7 +341,7 @@ plain sentence, and a field refusal names the field so the dialog can move focus
 - `GET /folder-projects?legacy=<saved Project id>` → `{id}`, the folder project made from that saved
   Project's first folder still on the account. Unknown ids, another account's and removed ones are the
   same 404 `project_not_found`.
-- `POST /folder-projects` with `{host, dir, isRepo?, name?, baseBranch?, worktreeDefault?,
+- `POST /folder-projects` with `{host, dir, isRepo?, name?, baseBranch?, worktreeDefault?, pullLatest?,
   defaultTool?, defaultModel?, defaultEffort?, defaultYolo?, starterPrompt?}` → 201 and an `ETag`. `host` is the
   machine's enrollment id. `defaultTool` accepts any agent reet can start (including Cline); a default model needs
   a default agent, and a default effort needs an agent whose preset takes one. `defaultYolo` is a boolean that
@@ -383,7 +384,7 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   "failed", code, sentence}`; an unknown id, another account's, or one that ended more than 10 minutes
   ago is 404 `clone_not_found`.
 
-A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, defaultTool,
+A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, pullLatest, defaultTool,
 defaultModel, defaultEffort, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version,
 origin?, cloned?, temporary?, keptBecause?, remote?}`; `origin` (`owner/name`) and `cloned` are there only for a project added
 from GitHub, `remote` (`owner/name`) only for a repository added by path whose machine reported an `origin` on github.com, `temporary` only for a temporary project, and `keptBecause` only once reet has left one in place. A

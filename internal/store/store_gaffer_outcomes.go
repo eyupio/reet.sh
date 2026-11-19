@@ -201,26 +201,30 @@ type GafferOutcomeSession struct {
 }
 
 type GafferOutcome struct {
-	OwnerID     int64                  `json:"-"`
-	ID          string                 `json:"id"`
-	Revision    int64                  `json:"revision"`
-	Objective   string                 `json:"objective"`
-	State       string                 `json:"state"`
-	Note        string                 `json:"note"`
-	AgentID     string                 `json:"agentId"`
-	ProjectID   string                 `json:"projectId"`
-	ProjectName string                 `json:"projectName"`
-	Dir         string                 `json:"dir"`
-	Tool        string                 `json:"tool"`
-	Model       string                 `json:"model,omitempty"`
-	Provider    string                 `json:"provider,omitempty"`
-	Trust       bool                   `json:"trust,omitempty"`
-	Yolo        bool                   `json:"yolo,omitempty"`
-	ProviderID  string                 `json:"providerId"`
-	MaxReviews  int                    `json:"maxReviews"`
-	Hours       int                    `json:"hours"`
-	Sessions    []GafferOutcomeSession `json:"sessions"`
-	Report      *GafferOutcomeReport   `json:"report,omitempty"`
+	OwnerID     int64  `json:"-"`
+	ID          string `json:"id"`
+	Revision    int64  `json:"revision"`
+	Objective   string `json:"objective"`
+	State       string `json:"state"`
+	Note        string `json:"note"`
+	AgentID     string `json:"agentId"`
+	ProjectID   string `json:"projectId"`
+	ProjectName string `json:"projectName"`
+	Dir         string `json:"dir"`
+	Tool        string `json:"tool"`
+	Model       string `json:"model,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Trust       bool   `json:"trust,omitempty"`
+	Yolo        bool   `json:"yolo,omitempty"`
+	// PullLatest is the person's answer for this outcome's fresh worktrees:
+	// "yes" for GitHub's latest commit for the base, "no" for the machine's
+	// copy, "" for the project's setting, then the account's.
+	PullLatest string                 `json:"pullLatest,omitempty"`
+	ProviderID string                 `json:"providerId"`
+	MaxReviews int                    `json:"maxReviews"`
+	Hours      int                    `json:"hours"`
+	Sessions   []GafferOutcomeSession `json:"sessions"`
+	Report     *GafferOutcomeReport   `json:"report,omitempty"`
 	// AutoReport is the person's choice, made when they approved the plan,
 	// that Gaffer reports across the outcome by itself when a pipeline
 	// finishes or stops. AutoReportedFor is what it last reported on, and

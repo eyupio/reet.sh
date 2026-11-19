@@ -62,6 +62,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		HostedPrefix          *string          `json:"hostedPrefix"`
 		DefaultBaseBranch     *string          `json:"defaultBaseBranch"`
 		WorktreesByDefault    *bool            `json:"worktreesByDefault"`
+		PullLatestByDefault   *bool            `json:"pullLatestByDefault"`
 		DefaultTool           *string          `json:"defaultTool"`
 		DefaultModel          *string          `json:"defaultModel"`
 		DefaultEffort         *string          `json:"defaultEffort"`
@@ -271,6 +272,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.WorktreesByDefault != nil {
 		profile.WorktreesByDefault = *in.WorktreesByDefault
 		detail["worktreesByDefault"] = *in.WorktreesByDefault
+	}
+	if in.PullLatestByDefault != nil {
+		profile.PullLatestByDefault = *in.PullLatestByDefault
+		detail["pullLatestByDefault"] = *in.PullLatestByDefault
 	}
 	if in.DefaultTool != nil {
 		profile.DefaultTool = defaultTool

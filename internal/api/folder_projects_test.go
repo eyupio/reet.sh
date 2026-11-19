@@ -95,7 +95,7 @@ func TestFolderProjectCreateReadUpdateDelete(t *testing.T) {
 	f := projectFixture(t)
 	created := f.fpCreate(t, nil)
 	id, _ := created["id"].(string)
-	want := []string{"baseBranch", "colour", "createdAt", "defaultEffort", "defaultModel", "defaultTool", "defaultYolo", "dir", "hasStarterPrompt", "host", "id", "isRepo", "machine", "name", "note", "position", "updatedAt", "version", "worktreeDefault"}
+	want := []string{"baseBranch", "colour", "createdAt", "defaultEffort", "defaultModel", "defaultTool", "defaultYolo", "dir", "hasStarterPrompt", "host", "id", "isRepo", "machine", "name", "note", "position", "pullLatest", "updatedAt", "version", "worktreeDefault"}
 	if got := keysOf(created); !reflect.DeepEqual(got, want) {
 		t.Fatal("project keys", got)
 	}

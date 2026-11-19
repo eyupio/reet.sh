@@ -31,9 +31,10 @@ export type LaunchChoice = {
   /** The person confirmed this folder's OpenCode plugins may run. Reset on a folder change. */
   trust?: boolean
 }
-/** The person's launch defaults from the profile (`defaultBaseBranch`, `worktreesByDefault`, which is true when absent). */
-export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>>
-export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo'>
+/** The person's launch defaults from the profile (`defaultBaseBranch`, `worktreesByDefault`, which is true when absent,
+ *  and `pullLatestByDefault`, which is false when absent). */
+export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault' | 'pullLatestByDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>>
+export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'pullLatest' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo'>
 export type LaunchMachine = Pick<TerminalMachine, 'agentId' | 'host' | 'ready' | 'capabilities'>
 /** One piece of the sentence: a named slot is a button; slot '' is a plain word between them. */
 export type SentencePart = { slot: '' | 'agent' | 'chat' | 'model' | 'project' | 'machine' | 'branch' | 'worktree' | 'checkout' | 'effort'; text: string }
@@ -70,6 +71,15 @@ const chosen = (choice: LaunchChoice, projects: LaunchProject[]): LaunchProject[
 /** The approvals a launch on these projects opens with: YOLO only when every one of them asks for it. */
 function approvalsFor(projects: LaunchProject[]): LaunchChoice['approvals'] {
   return projects.length > 0 && projects.every(p => p.defaultYolo) ? 'yolo' : 'ask'
+}
+
+/** Whether a fresh worktree in this project starts from GitHub's latest commit for its base: the project's own answer,
+ *  else the account's (yes when absent). The controller applies it by naming GitHub's own branch to the machine; a
+ *  launch can still override it for one start. */
+export function startsFromLatest(project: Pick<FolderProject, 'pullLatest'> | null | undefined, profile: LaunchDefaults = {}): boolean {
+  if (project?.pullLatest === 'yes') return true
+  if (project?.pullLatest === 'no') return false
+  return profile.pullLatestByDefault === true
 }
 
 function worktreeFor(project: LaunchProject | undefined, profile: LaunchDefaults): boolean {

@@ -161,7 +161,8 @@ func TestSkillsEndToEnd(t *testing.T) {
 	if studio.present(t, "find-skills") || studio.backups(t, "find-skills") != 1 {
 		t.Fatalf("step 2: archived skill present=%t, backups=%d", studio.present(t, "find-skills"), studio.backups(t, "find-skills"))
 	}
-	if h := healthOf(item); h.State != "ok" {
+	// Off every machine, as an Archived skill should be.
+	if h := healthOf(item); h.State != "off" {
 		t.Fatalf("step 2: health %+v", h)
 	}
 

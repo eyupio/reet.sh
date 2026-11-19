@@ -1957,6 +1957,7 @@ type skillController struct {
 	desired      *store.DesiredState
 	revisions    map[string]store.PrivateSkillRevision
 	reportStatus int
+	protocol     int // the skills protocol the poll reply names for the machine
 	polls        []polled
 	attempts     int
 	reports      []store.SkillReport
@@ -1967,7 +1968,7 @@ type polled struct{ protocol, skillsVersion string }
 
 func newSkillController(t *testing.T) *skillController {
 	t.Helper()
-	c := &skillController{revisions: map[string]store.PrivateSkillRevision{}}
+	c := &skillController{revisions: map[string]store.PrivateSkillRevision{}, protocol: store.CurrentSkillsProtocol}
 	c.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -1978,7 +1979,7 @@ func newSkillController(t *testing.T) *skillController {
 				t.Errorf("poll body: %v", err)
 			}
 			c.polls = append(c.polls, polled{r.Header.Get("X-Reet-Skills-Protocol"), body["skillsVersion"]})
-			reply := map[string]any{"agent": map[string]any{"id": testMachineID, "host": "studio"}}
+			reply := map[string]any{"agent": map[string]any{"id": testMachineID, "host": "studio", "skillsProtocol": c.protocol}}
 			if c.desired != nil {
 				reply["desired"] = c.desired
 			}
@@ -2023,6 +2024,12 @@ func (c *skillController) setDesired(d *store.DesiredState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.desired = d
+}
+
+func (c *skillController) setProtocol(p int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.protocol = p
 }
 
 func (c *skillController) counts() (polls, attempts, reports, fetches int) {
@@ -2849,5 +2856,35 @@ func TestReconcileNeverMovesAnEntryHoldingAManagedFolder(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(folder, "keeper", "inside", "SKILL.md")); err != nil {
 		t.Fatal("the entry was moved")
+	}
+}
+
+// A controller that answers on another skills protocol (rolled back to one
+// before it, say) runs the old engine for this machine: the agent leaves the
+// skills alone, even with a desired state kept from before, and reports none.
+func TestAgentCycleLeavesSkillsAloneOffTheControllersProtocol(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	home := loaded(t, config).Home
+	srv.setDesired(&store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}})
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	_, _, reports, _ := srv.counts()
+	srv.setDesired(nil)
+	srv.setProtocol(0)
+	gone := filepath.Join(home, ".agents", "skills", "gone")
+	writeSkill(t, gone)
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(gone); err != nil {
+		t.Fatalf("a protocol-0 controller's cycle removed a skill from the kept desired state: %v", err)
+	}
+	if _, _, after, _ := srv.counts(); after != reports {
+		t.Fatalf("a report was posted to a protocol-0 controller: %d then %d", reports, after)
+	}
+	if _, err := os.Stat(config + ".desired"); err != nil {
+		t.Fatalf("the kept desired state was deleted: %v", err)
 	}
 }

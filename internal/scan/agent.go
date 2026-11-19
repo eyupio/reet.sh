@@ -637,7 +637,14 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if reply.Agent.Paused {
 		return nil
 	}
-	skillErr := reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now(), out)
+	// Only a controller on this agent's skills protocol keeps this machine's
+	// skills. One on another (rolled back, say) runs the older engine for it,
+	// so a desired state kept from before is left unused, not deleted: the
+	// two would undo each other.
+	var skillErr error
+	if reply.Agent.SkillsProtocol == store.CurrentSkillsProtocol {
+		skillErr = reconcileAgentSkills(ctx, c, config, reply.Desired, cached, version, time.Now(), out)
+	}
 	scanAll := func() error {
 		dirs := append([]string{c.Home}, c.Projects...)
 		var failures []error

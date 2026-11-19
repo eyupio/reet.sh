@@ -327,6 +327,33 @@ try {
   await context.close()
  }
 
+ // Two changes whose answers come back out of order: the older answer never puts back what the newer one took away.
+ if (run('order')) {
+  const w = world()
+  const r = routes(w)
+  const status = r['/api/v2/skills/status']
+  let slow = true
+  r['/api/v2/skills/status'] = async req => {
+   const answer = status(req)
+   if (slow) { slow = false; await new Promise(resolve => setTimeout(resolve, 1200)) }
+   return answer
+  }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  const slowAnswer = page.waitForResponse(res => new URL(res.url()).pathname === '/api/v2/skills/status' && res.request().postDataJSON().ids[0] === 'item-seo-bing')
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await row(page, 'svg-animations').getByRole('button', {name:'Archive svg-animations'}).click()
+  await expect(row(page, 'svg-animations')).toHaveCount(0)
+  await slowAnswer
+  await page.waitForTimeout(300)
+  await expect(row(page, 'seo-bing')).toHaveCount(0)
+  await expect(row(page, 'svg-animations')).toHaveCount(0)
+  await expect(page.locator('[data-skill]')).toHaveCount(4)
+  await expect(tab(page, 'Active')).toHaveAccessibleName('Active 4')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A failed row says where, toned, with Retry; Retry posts the skill.
  if (run('retry')) {
   const {context, page, errors, w} = await open()

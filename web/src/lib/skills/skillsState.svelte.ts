@@ -15,7 +15,8 @@ const rank = (r: SkillRow) => ({ bad: 0, work: 1, ok: 2, off: 3 })[healthLine(r.
  * in SkillsPage.svelte.
  *
  * A write moves `generation` on as it starts and as it ends, so a read that was on its way while the write ran never
- * puts back what the write changed.
+ * puts back what the write changed. Writes answer in any order: the page shows an answer only when no newer write has
+ * already answered (writePage).
  */
 export class SkillsPageState {
   tab = $state<Tab>('active')
@@ -38,6 +39,9 @@ export class SkillsPageState {
 
   writing = 0
   #generation = 0
+  // Writes are numbered as they start; `#finished` is the newest one whose answer has come back.
+  #started = 0
+  #finished = 0
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -84,17 +88,32 @@ export class SkillsPageState {
     }
   }
 
-  async write<T>(fn: () => Promise<T>): Promise<T> {
+  /** `done` hears the answer, and whether it is the newest: no write that started after it has answered yet. */
+  async write<T>(fn: () => Promise<T>, done?: (out: T, newest: boolean) => void): Promise<T> {
+    const seq = ++this.#started
     this.#generation++
     this.writing++
     try {
       const out = await fn()
       this.error = ''
+      done?.(out, seq > this.#finished)
       return out
     } finally {
+      this.#finished = Math.max(this.#finished, seq)
       this.writing--
       this.#generation++
     }
+  }
+
+  /**
+   * A write that answers with a tab of the page (Archive, Restore and their Undo). The newest answer is shown; an older
+   * one that comes back after it only takes its own rows out of the list.
+   */
+  async writePage(fn: () => Promise<SkillsPageData>, status: Tab, without: string[] = []): Promise<void> {
+    await this.write(fn, (data, newest) => {
+      if (newest) this.apply(data, status, without)
+      else this.held[status] = (this.held[status] ?? []).filter(r => !without.includes(r.id))
+    })
   }
 
   fail(e: unknown) {

@@ -132,8 +132,7 @@
     if (!ids.length || !claim(ids, act)) return
     const names = targets.map(r => r.name), from = page.tab, order = page.shown.map(r => r.id)
     try {
-      const data = await write(() => setSkillStatus(ids, to, from))
-      page.apply(data, from, ids)
+      await page.writePage(() => setSkillStatus(ids, to, from), from, ids)
     } catch (e) {
       fail(e)
       return
@@ -145,9 +144,9 @@
     void read(other(from), true)
     await refocus(order, ids, act)
     say(pruneText(to === 'archived' ? 'archived' : 'restored', names, true), async () => {
-      const back = await write(() => setSkillStatus(ids, from, page.tab))
-      page.apply(back, page.tab)
-      void read(other(page.tab), true)
+      const tab = page.tab
+      await page.writePage(() => setSkillStatus(ids, from, tab), tab)
+      void read(other(tab), true)
       await focusRow(ids[0], act)
     })
   }
@@ -297,9 +296,9 @@
     if (!parked.length) return
     const ids = parked.map(r => r.id)
     say(pruneText('restored', parked.map(r => r.name), true), async () => {
-      const back = await write(() => setSkillStatus(ids, 'archived', page.tab))
-      page.apply(back, page.tab)
-      void read(other(page.tab), true)
+      const tab = page.tab
+      await page.writePage(() => setSkillStatus(ids, 'archived', tab), tab)
+      void read(other(tab), true)
     })
   }
 

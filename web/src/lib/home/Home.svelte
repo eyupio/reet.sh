@@ -2,7 +2,7 @@
   import FleetPlanMeters from '../FleetPlanMeters.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
-  import { ApiError, getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
+  import { ApiError, getProfile, getSyncState, listGafferGoals, listGafferOutcomes, loadNewSkills, UnauthorizedError, type NewSkill, type SyncState, type GafferGoalOverviewView } from '../api'
   import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
@@ -117,6 +117,8 @@
   // The Factory's pipelines that are not archived: the ones waiting for the person join Home's list, the working ones
   // have a section of their own.
   let factoryRecords = $state<Outcome[]>([])
+  // The skills New on a machine: one Waiting for you entry opens their review on the Skills page.
+  let newSkills = $state<NewSkill[]>([])
   // The desks, read with the rest: a session on a desk leaves Continue working, the board and the head's count of open
   // sessions, and when it needs the person it stays in Waiting for you, marked with its desk. A failed read keeps the desks
   // last read and says nothing (Home works without them); until one has been read, no session counts as a desk session.
@@ -135,7 +137,7 @@
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
   // What waits for the person, by the one rule every page uses (whatWaits): Factory items, sessions and Gaffer's goals
   // together, oldest first. The bell and the title count all of it; the page shows what is in the chosen project or group.
-  const waits = $derived(whatWaits(sessions ?? [], now, owners, health ?? [], factoryRecords, followups?.goals, { desks, panes: deskPanes }))
+  const waits = $derived(whatWaits(sessions ?? [], now, owners, health ?? [], factoryRecords, followups?.goals, { desks, panes: deskPanes }, newSkills))
   // Home's session lists leave desk sessions out (a Factory pipeline's session is its Factory item, and stays as it is).
   const listed = $derived(sessions && offDesks(sessions, desks, new Set(factory.keys())))
   // The Projects panel counts what Home lists: a session on a desk is left out, as it is from the lists (`listed`).
@@ -146,9 +148,10 @@
   const byConversation = $derived(new Map((followups?.goals ?? []).map(row => [row.goal.conversationId, row])))
   const pairs = $derived(new Map<string, { record: Outcome; piece: GafferOutcomeSession }>(factoryRecords.flatMap(record => record.sessions.map(piece => [`${record.id}.${piece.key}`, { record, piece }] as const))))
   const sessionProject = $derived(new Map((sessions ?? []).map(s => [s.id, s.projectId ?? ''])))
-  const projectOf = (entry: WaitingEntry) => entry.source === 'factory' ? entry.item.projectId : sessionProject.get(entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId) ?? ''
+  const projectOf = (entry: WaitingEntry) => entry.source === 'factory' ? entry.item.projectId : entry.source === 'skills' ? '' : sessionProject.get(entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId) ?? ''
   const inScope = (projectId: string) => scopedIds === undefined || scopedIds.includes(projectId)
-  const waiting = $derived(allWaiting.filter(entry => inScope(projectOf(entry))))
+  // New skills belong to no project: their entry shows whatever the page is narrowed to.
+  const waiting = $derived(allWaiting.filter(entry => entry.source === 'skills' || inScope(projectOf(entry))))
   const working = $derived(inSection(items, 'working').filter(item => inScope(item.projectId)))
   // The list shows ten at first and ten more each time.
   const WAITING_PAGE = 10
@@ -160,7 +163,7 @@
   const projectCounts = $derived.by(() => {
     const counts = new Map<string, { waiting: number; working: number }>()
     const count = (id: string) => { const found = counts.get(id) ?? { waiting: 0, working: 0 }; counts.set(id, found); return found }
-    for (const entry of allWaiting) count(projectOf(entry)).waiting++
+    for (const entry of allWaiting) if (entry.source !== 'skills') count(projectOf(entry)).waiting++
     for (const item of inSection(items, 'working')) count(item.projectId).working++
     return counts
   })
@@ -262,7 +265,7 @@
     loading = true
     const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
-      const [h, y, s, p, g, t, f, o, d] = await Promise.allSettled([
+      const [h, y, s, p, g, t, f, o, d, n] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
@@ -275,6 +278,8 @@
         // A failed read keeps the last pipelines and says so; 403 and 404 are an account without Gaffer, and stay quiet.
         writer && accounts ? listGafferOutcomes(bounded()) : Promise.resolve(undefined),
         writer ? listDesks(bounded()) : Promise.resolve(undefined),
+        // Never a problem line: a failed read keeps the new skills as last read.
+        writer ? loadNewSkills(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
       if ([h, y, s, p, g, t, f, o].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
@@ -301,6 +306,7 @@
         if (t.status === 'fulfilled' && t.value) terminals = t.value; else failed = true
         // Never a problem line nor a sign-out: without the desks Home shows every session, as it did before desks.
         if (d.status === 'fulfilled' && d.value) desks = d.value
+        if (n.status === 'fulfilled' && n.value) newSkills = n.value
       }
       now = at
       problem = failed ? (readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds.")
@@ -308,7 +314,7 @@
       readOnce = true
       if (writer && desks) {
         // The panes of the desks holding a session that waits (each desk read once per version).
-        const wanted = new Set(waits.entries.flatMap(entry => entry.source !== 'factory' && entry.desk ? [entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId] : []))
+        const wanted = new Set(waits.entries.flatMap(entry => entry.source === 'session' && entry.desk ? [entry.card.sessionId] : entry.source === 'gaffer' && entry.desk ? [entry.goal.sessionId] : []))
         const panes = await readPanes(desks, wanted, bounded())
         if (!stale()) deskPanes = panes
       }
@@ -583,6 +589,12 @@
       onchoose={choice => choices?.choose(choice, pair.record, pair.piece)} detailsHref={pipelineHref(entry.item)} ondetails={() => location.assign(pipelineHref(entry.item))} onanswered={answered}/>
   {/if}
   {:else if entry.source === 'session'}<SessionWaitingItem card={entry.card} desk={entry.desk?.name} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>
+  {:else if entry.source === 'skills'}
+    <a class="new-skills" href={entry.href}>
+      <span class="new-skills-kind">Skills</span>
+      <span class="new-skills-text">{entry.text}</span>
+      <span class="new-skills-ask">Keep or archive them on the Skills page</span>
+    </a>
   {:else}<SessionWaitingItem goal={entry.goal} desk={entry.desk?.name} layout={narrow ? 'card' : 'row'}/>{/if}
 {/snippet}
 
@@ -699,6 +711,13 @@
 </div>
 
 <style>
+  /* Skills New on a machine: one row opening their review on the Skills page. */
+  .new-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; box-sizing: border-box; padding: 14px 16px; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+  .new-skills:hover .new-skills-text { text-decoration: underline; text-underline-offset: 2px; }
+  .new-skills:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }
+  .new-skills-kind { flex: none; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent-text); font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+  .new-skills-text { min-width: 0; font-weight: 700; }
+  .new-skills-ask { min-width: 0; color: var(--muted); font-size: 0.875rem; }
   /* The head: the title and one line of counts, then the plans and the two ways to start something. On a narrow screen
      the title and the buttons share the first line and the Projects button, the plans and the counts the second. */
   .workspace-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 8px 0 12px; }

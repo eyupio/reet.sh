@@ -39,6 +39,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/skills')return json({skills,counts:{all:skills.length,used:skills.filter(s=>s.used).length,liked:0,bookmarked:0}})
   // The Skills page: the `skills` fixtures, all Active and on no machine. A test about the page answers the route itself.
   if(path==='/api/v2/skills'&&route.request().method()==='GET')return json(skillsPageOf(skills.map(shelfRow),new URL(route.request().url()).searchParams.get('status')||'active',{machines:0}))
+  // Skills New on a machine, for Home's Waiting for you and the bell: none unless a test answers the route itself.
+  if(path==='/api/v2/skills/new'&&route.request().method()==='GET')return json({newOnMachines:[]})
   if(path==='/api/environments')return json(inventory)
   // Library tools, under the Skills page, list what scans ignore.
   if(path==='/api/ignored')return json({ignored:[]})

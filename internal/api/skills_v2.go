@@ -45,6 +45,7 @@ func (s *server) registerSkillsPage(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/skills/status", s.requireWriter(s.skillsSetStatus))
 	mux.HandleFunc("POST /api/v2/skills/delete", s.requireWriter(s.skillsDelete))
 	mux.HandleFunc("POST /api/v2/skills/undelete", s.requireWriter(s.skillsUndelete))
+	mux.HandleFunc("GET /api/v2/skills/new", s.newSkills)
 	mux.HandleFunc("POST /api/v2/skills/new", s.requireWriter(s.skillsNew))
 	mux.HandleFunc("POST /api/v2/skills/notice", s.requireWriter(s.skillsNotice))
 	mux.HandleFunc("POST /api/v2/skills/{item}/use-version", s.requireWriter(s.skillUseVersion))
@@ -348,6 +349,17 @@ func (s *server) skillsUndelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventRequest(r, "undelete", "", map[string]any{"count": len(ids)})
 	writeJSON(w, 200, map[string]int{"restored": len(ids)})
+}
+
+// newSkills lists the skills New on a machine, for Home's Waiting for you,
+// without reading the whole Skills page.
+func (s *server) newSkills(w http.ResponseWriter, r *http.Request) {
+	found, err := s.st.NewOnMachinesFor(s.uid(r))
+	if err != nil {
+		skillsPageError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"newOnMachines": found})
 }
 
 // skillsNew decides skills new on a machine: body {"names":[…],

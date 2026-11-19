@@ -62,3 +62,20 @@ func TestListAddAllUsesTheChosenStatus(t *testing.T) {
 		t.Fatalf("an unknown status: %d %s", code, raw)
 	}
 }
+
+// Home's Waiting for you reads the skills New on a machine without reading the
+// whole Skills page.
+func TestNewSkillsReadsWhatWaitsForKeep(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", true)
+	if code, raw := e.owner(t, "GET", "/api/v2/skills/new", ""); code != 200 || raw != `{"newOnMachines":[]}`+"\n" && raw != `{"newOnMachines":[]}` {
+		t.Fatalf("empty: %d %q", code, raw)
+	}
+	if code, raw := e.call(t, "/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "unknown", Digest: strings.Repeat("c", 64)}), true); code != 200 {
+		t.Fatalf("report: %d %s", code, raw)
+	}
+	code, raw := e.owner(t, "GET", "/api/v2/skills/new", "")
+	if code != 200 || !strings.Contains(raw, `"name":"cq"`) || !strings.Contains(raw, `"host":"elitebook"`) || !strings.Contains(raw, `"seenAt":`) {
+		t.Fatalf("new: %d %s", code, raw)
+	}
+}

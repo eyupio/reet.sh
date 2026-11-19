@@ -535,7 +535,7 @@ export type SkillRow = {
   /** Why Use this version could not take editedOn's copy, when it tried: for example a file reet won't copy. */
   editedOnProblem?: string
 }
-export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
+export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string; digest?: string; seenAt?: number }[]; digestsDiffer: boolean }
 /** What the machines are doing over every skill (deleted ones still coming off included), each machine counted once. */
 export type SkillWork = { failed: number; installing: number; removing: number; updating: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string; paused?: number; pausedHost?: string }
 export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null; work: SkillWork }
@@ -579,6 +579,11 @@ export async function loadSyncSkills(): Promise<SyncSkills> {
 export async function retryMachineSkills(agentId: string, names: string[]): Promise<string[]> {
   const r = await (await req('/api/v2/sync/skills/retry', { method: 'POST', body: json({ agentId, names }) })).json() as { names?: string[] }
   return r.names ?? []
+}
+/** The skills New on a machine, for Home's Waiting for you and the bell, without the whole Skills page. A background
+ *  read: it does not drive the progress bar. */
+export async function loadNewSkills(signal?: AbortSignal): Promise<NewSkill[]> {
+  return ((await (await req('/api/v2/skills/new', signal ? { signal } : {}, true)).json()) as { newOnMachines?: NewSkill[] }).newOnMachines ?? []
 }
 /** Keep or Archive skills new on a machine; from is the agent whose copy to take, needed when the copies differ. */
 export async function decideNewSkills(names: string[], action: 'keep' | 'archive', from?: string): Promise<void> {

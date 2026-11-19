@@ -1386,7 +1386,12 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		test := true
 		in.Bookmarked = &test
 	}
-	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
+	// A skill the scan was told to ignore is taken off that list first, or
+	// nothing is added.
+	if err = s.st.UnignoreFor(s.uid(r), rf.ID); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	var sk store.Skill
 	if in.Status != "" {
 		// The status the person chose, applied in the same transaction:

@@ -58,6 +58,8 @@ func skillInventory(home string, d store.DesiredState, unmanaged []string) store
 		}
 		names, err := skillEntries(f.dir)
 		if err != nil {
+			// Reporting nothing would read as every removal done.
+			r.failAll(f, active, removals, "cannot read "+f.label+": "+err.Error())
 			continue
 		}
 		for _, lower := range slices.Sorted(maps.Keys(names)) {

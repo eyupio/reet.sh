@@ -2888,3 +2888,24 @@ func TestAgentCycleLeavesSkillsAloneOffTheControllersProtocol(t *testing.T) {
 		t.Fatalf("the kept desired state was deleted: %v", err)
 	}
 }
+
+// With allow-apply off, a managed folder reet cannot read says so for every
+// skill it might hold, as a pass does, rather than reporting nothing, which
+// the controller would take for removals done.
+func TestSkillInventoryReportsAnUnreadableFolderAsFailed(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the folder should be cannot be listed, even by root.
+	if err := os.WriteFile(filepath.Join(home, ".claude", "skills"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := skillBundle(t, "alpha", "a")
+	rep := skillInventory(home, store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a}, Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}}, nil)
+	for _, name := range []string{"alpha", "gone"} {
+		if e := entryOf(t, rep, "~/.claude/skills", name); e.State != "failed" || !strings.Contains(e.Detail, "cannot read") {
+			t.Fatalf("%s in an unreadable folder: %+v", name, e)
+		}
+	}
+}

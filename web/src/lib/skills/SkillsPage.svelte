@@ -104,11 +104,15 @@
     const row = id ? rowEl(id) : null
     focusQuietly(row?.querySelector<HTMLElement>(`[data-act="${act}"]`) ?? row?.querySelector<HTMLElement>('[data-act]') ?? tabEls[page.tab])
   }
+  // After an Undo: the row it brought back, or the tab when that row is on the other one.
   async function focusRow(id: string, act: Act) {
     await tick()
     const row = rowEl(id)
-    focusQuietly(row?.querySelector<HTMLElement>(`[data-act="${act}"]`) ?? row?.querySelector<HTMLElement>('[data-act]'))
+    focusQuietly(row?.querySelector<HTMLElement>(`[data-act="${act}"]`) ?? row?.querySelector<HTMLElement>('[data-act]') ?? tabEls[page.tab])
   }
+  // After a Delete, focus lands on the next row's Archive or Restore, never its Delete: pressing Enter again must not
+  // delete that one too.
+  const keepAct = (): Act => (page.tab === 'active' ? 'archive' : 'restore')
 
   function endSelecting() {
     selecting = false
@@ -189,13 +193,13 @@
     page.counts = { ...page.counts, [from]: Math.max(0, page.counts[from] - ids.length) }
     endSelecting()
     if (ids.includes(openId)) openId = ''
-    await refocus(order, ids, 'delete')
+    await refocus(order, ids, keepAct())
     const onMachines = targets.some(r => r.status === 'active' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health.state))
     say(pruneText('deleted', names, onMachines), async () => {
       await write(() => undeleteSkills(ids))
       await read(page.tab)
       void read(other(page.tab), true)
-      await focusRow(ids[0], 'delete')
+      await focusRow(ids[0], keepAct())
     })
   }
 

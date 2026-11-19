@@ -128,7 +128,8 @@ try {
   await expect(row(page, 'reet-babysit')).toHaveCount(0)
   expect(posts(w, 'delete')).toEqual([{ids:['item-reet-babysit'], writtenConfirmed:true, noCopyConfirmed:false}])
   await expect(toast(page)).toContainText('Deleted reet-babysit · coming off 3 machines')
-  await expect(row(page, 'seo-bing').locator('[data-act="delete"]')).toBeFocused()
+  // Focus lands on the next row's Archive, not its Delete, so pressing Enter again does not delete that one too.
+  await expect(row(page, 'seo-bing').locator('[data-act="archive"]')).toBeFocused()
   await toast(page).getByRole('button', {name:'Undo'}).click()
   await expect(row(page, 'reet-babysit')).toBeVisible()
   expect(posts(w, 'undelete')).toEqual([{ids:['item-reet-babysit']}])
@@ -266,6 +267,62 @@ try {
   await expect(row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'})).not.toHaveAttribute('aria-busy', 'true')
   await expect(tab(page, 'Active')).toHaveAttribute('aria-selected', 'true')
   await expect(toast(page)).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Undo from the keyboard: the toast names Ctrl+Z (⌘Z on a Mac), which undoes the last change from anywhere but a text
+ // field, and the toast stays while focus is on it.
+ if (run('keyboard')) {
+  const {context, page, errors, w} = await open()
+  const archive = row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'})
+  await archive.focus()
+  await page.keyboard.press('Enter')
+  await expect(row(page, 'seo-bing')).toHaveCount(0)
+  await expect(toast(page).getByRole('button', {name:'Undo (Ctrl+Z)'})).toBeVisible()
+  await expect(toast(page).getByRole('button', {name:'Undo (Ctrl+Z)'})).toHaveAttribute('aria-keyshortcuts', 'Control+Z')
+  // Typing in a field keeps its own undo.
+  await page.getByRole('searchbox', {name:'Search skills'}).focus()
+  await page.keyboard.press('Control+z')
+  await page.waitForTimeout(200)
+  expect(posts(w, 'status')).toHaveLength(1)
+  await row(page, 'seo-cluster').locator('[data-act="archive"]').focus()
+  await page.keyboard.press('Control+z')
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  expect(posts(w, 'status')[1]).toEqual({ids:['item-seo-bing'], status:'active', tab:'active'})
+  await expect(toast(page)).toHaveCount(0)
+  // With focus on the toast it stays past its 8 seconds.
+  await row(page, 'svg-animations').getByRole('button', {name:'Archive svg-animations'}).click()
+  await toast(page).getByRole('button', {name:/^Undo/}).focus()
+  await page.waitForTimeout(9000)
+  await expect(toast(page)).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+  // On a Mac it is ⌘Z.
+  const mac = world()
+  const m = await openWorkspace(browser, {width:1440, height:900, routes:routes(mac)})
+  await m.page.addInitScript(() => Object.defineProperty(navigator, 'platform', {get:() => 'MacIntel'}))
+  await m.page.goto(`${base}/skills`)
+  await row(m.page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await expect(toast(m.page).getByRole('button', {name:'Undo (⌘Z)'})).toHaveAttribute('aria-keyshortcuts', 'Meta+Z')
+  await m.page.keyboard.press('Meta+z')
+  await expect(row(m.page, 'seo-bing')).toBeVisible()
+  expect(m.errors).toEqual([])
+  await m.context.close()
+ }
+
+ // Undo after moving to the other tab: the skill goes back to where it was, and focus stays on the page, on the tab.
+ if (run('undo elsewhere')) {
+  const {context, page, errors, w} = await open()
+  await row(page, 'seo-bing').getByRole('button', {name:'Archive seo-bing'}).click()
+  await tab(page, 'Archived').click()
+  await expect(row(page, 'seo-bing')).toBeVisible()
+  await toast(page).getByRole('button', {name:/^Undo/}).click()
+  await expect(row(page, 'seo-bing')).toHaveCount(0)
+  expect(posts(w, 'status')[1]).toEqual({ids:['item-seo-bing'], status:'active', tab:'archived'})
+  await expect(tab(page, 'Archived')).toBeFocused()
+  await tab(page, 'Active').click()
+  await expect(row(page, 'seo-bing')).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }

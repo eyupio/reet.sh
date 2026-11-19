@@ -1,12 +1,13 @@
 <script lang="ts">
   import type { SkillRow } from '../api'
-  import { healthLine } from './skillsPage'
+  import CopyButton from '../CopyButton.svelte'
+  import { copyPrompt, healthLine, installCommandFor } from './skillsPage'
 
   // One skill on the Skills page, collapsed: its name, where it came from, its tags, where it stands on the machines,
   // and Archive or Restore beside Delete. Each action button carries data-act, which the page moves focus to when a row
   // leaves the list. Pressing the name opens the row (`open`); the opened detail is drawn below the row's line. `busy`
   // names the action on its way, so its button says so and neither action is sent twice.
-  let { row, selecting, selected, open, machines, canWrite, busy = '', onarchive, onrestore, ondelete, onselect, onopen, onretry, onlike }: {
+  let { row, selecting, selected, open, machines, canWrite, busy = '', onarchive, onrestore, ondelete, onselect, onopen, onretry, onlike, onnotes }: {
     row: SkillRow
     selecting: boolean
     selected: boolean
@@ -22,7 +23,41 @@
     onopen: (row: SkillRow) => void
     onretry: (row: SkillRow) => void
     onlike: (row: SkillRow) => void
+    /** Save the row's notes; resolves once saved, rejects when the save failed. */
+    onnotes: (row: SkillRow, notes: string) => Promise<void>
   } = $props()
+
+  // The opened row's notes: read, then edited in place. Escape or Cancel leaves them as they were.
+  let editingNotes = $state(false)
+  let notesDraft = $state('')
+  let savingNotes = $state(false)
+  let notesEl = $state<HTMLTextAreaElement>()
+  let notesButton = $state<HTMLButtonElement>()
+  const notesId = $derived(`skill-notes-${row.id}`)
+  async function startNotes() {
+    notesDraft = row.notes ?? ''
+    editingNotes = true
+    await Promise.resolve()
+    notesEl?.focus()
+  }
+  function stopNotes() {
+    editingNotes = false
+    queueMicrotask(() => notesButton?.focus())
+  }
+  async function saveNotes(e: SubmitEvent) {
+    e.preventDefault()
+    if (savingNotes) return
+    savingNotes = true
+    try {
+      await onnotes(row, notesDraft.trim())
+      stopNotes()
+    } catch {
+      // The page says why; the draft stays to try again.
+    } finally {
+      savingNotes = false
+    }
+  }
+  const install = $derived(installCommandFor(row))
 
   const line = $derived(healthLine(row.health, row.status))
   const detailId = $derived(`skill-detail-${row.id}`)
@@ -90,9 +125,31 @@
     {/if}
   </div>
   {#if open}
-    <!-- The opened skill: its tags and where it is on each machine. Lists, notes, Edit, Copy prompt and Publish join it here. -->
+    <!-- The opened skill: its notes, what to do with it, its tags and where it is on each machine. Lists, Publish and
+         Update from original join it with the full detail. -->
     <div class="detail" id={detailId}>
       {#if row.description}<p class="full">{row.description}</p>{/if}
+      <section class="notes" aria-labelledby={notesId}>
+        <h4 id={notesId}>Notes</h4>
+        {#if editingNotes}
+          <form class="notes-form" onsubmit={saveNotes}>
+            <textarea bind:this={notesEl} bind:value={notesDraft} rows="3" maxlength="4000" aria-label={`Notes on ${row.name}`} onkeydown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopNotes() } }}></textarea>
+            <div class="notes-acts">
+              <button type="submit" class="btn primary" aria-busy={savingNotes}>{savingNotes ? 'Saving…' : 'Save note'}</button>
+              <button type="button" class="btn" onclick={stopNotes}>Cancel</button>
+            </div>
+          </form>
+        {:else}
+          {#if row.notes}<p class="note-text">{row.notes}</p>{:else}<p class="note-none">No notes yet.</p>{/if}
+          {#if canWrite && row.shelfId}<button type="button" class="link" bind:this={notesButton} onclick={startNotes}>{row.notes ? 'Edit note' : 'Add a note'}</button>{/if}
+        {/if}
+      </section>
+      <div class="uses">
+        {#if row.yours && canWrite}<a class="btn" href={`/hosting?edit=${encodeURIComponent(row.name)}`} aria-label={`Edit ${row.name}`}>Edit</a>{/if}
+        <CopyButton text={copyPrompt(row)} label="Copy prompt" ariaLabel={`Copy prompt for ${row.name}`} />
+        {#if install}<CopyButton text={install} label="Copy install command" ariaLabel={`Copy install command for ${row.name}`} />{/if}
+      </div>
+      {#if row.yours && !install}<p class="hint">Private. Copy install command appears once it's published.</p>{/if}
       {#if row.tags.length}
         <div class="open-tags">
           <span class="label">Tags</span>
@@ -163,6 +220,16 @@
   .acts .btn[aria-busy='true'] svg { display: none; }
   .detail { padding: 0 20px 18px; display: grid; gap: 10px; }
   .full { margin: 0; color: var(--ink-soft); max-width: 72ch; overflow-wrap: anywhere; }
+  .notes { display: flex; flex-direction: column; gap: 4px; max-width: 640px; }
+  .notes h4 { margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
+  .note-text { margin: 0; color: var(--ink); font-size: 0.9375rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .note-none { margin: 0; color: var(--muted); font-size: 0.875rem; }
+  .link { align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--accent-text); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .notes-form { display: flex; flex-direction: column; gap: 8px; }
+  .notes-form textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 1rem; resize: vertical; box-sizing: border-box; }
+  .notes-acts, .uses { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .uses :global(.btn) { min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; }
+  .hint { margin: 0; color: var(--muted); font-size: 0.875rem; }
   .machines { list-style: none; margin: 0; padding: 0; max-width: 480px; }
   .machines li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 0.875rem; }
   .machines li:first-child { border-top: 0; }

@@ -869,6 +869,52 @@ try {
   await context.close()
  }
 
+ // The opened row keeps what the old card had until the full detail lands: notes, edited in place; Copy prompt; Copy
+ // install command once a skill is published; and Edit for a skill you wrote.
+ if (run('opened row')) {
+  const {context, page, errors, w} = await open({edit: w => {
+   w.rows = [...w.rows, skillRow('hosted-tips', {originKind:'written', origin:'', yours:true, published:true, publicUrl:'https://reet.example/sam/hosted-tips'})]
+  }})
+  await page.route('**/api/skill', route => {
+   const b = route.request().postDataJSON(); w.posts.push(['skill', b])
+   w.rows = w.rows.map(x => x.shelfId === b.id ? {...x, notes:b.notes} : x)
+   return route.fulfill({json:{id:b.id, notes:b.notes}})
+  })
+  // A written skill not yet published: Edit, Copy prompt, and no install command until it is published.
+  await row(page, 'reet-babysit').getByRole('button', {name:'reet-babysit', exact:true}).click()
+  const babysit = row(page, 'reet-babysit')
+  await expect(babysit.getByRole('link', {name:'Edit reet-babysit'})).toHaveAttribute('href', '/hosting?edit=reet-babysit')
+  await expect(babysit.getByRole('button', {name:'Copy prompt for reet-babysit'})).toBeVisible()
+  await expect(babysit.getByRole('button', {name:/Copy install command/})).toHaveCount(0)
+  await expect(babysit.getByText("Private. Copy install command appears once it's published.")).toBeVisible()
+  await expect(babysit.getByText('No notes yet.')).toBeVisible()
+  await babysit.getByRole('button', {name:'Add a note'}).click()
+  const box = babysit.getByRole('textbox', {name:'Notes on reet-babysit'})
+  await expect(box).toBeFocused()
+  await box.fill('Run before every merge.')
+  await babysit.getByRole('button', {name:'Save note'}).click()
+  await expect(babysit.locator('.note-text')).toHaveText('Run before every merge.')
+  expect(w.posts.filter(p => p[0] === 'skill').map(p => p[1])).toEqual([{id:'demo/toolkit/reet-babysit', notes:'Run before every merge.'}])
+  await expect(babysit.getByRole('button', {name:'Edit note'})).toBeFocused()
+  // Escape leaves the note as it was.
+  await babysit.getByRole('button', {name:'Edit note'}).click()
+  await babysit.getByRole('textbox', {name:'Notes on reet-babysit'}).fill('Changed my mind')
+  await page.keyboard.press('Escape')
+  await expect(babysit.locator('.note-text')).toHaveText('Run before every merge.')
+  // A published skill offers its install command; one from a link has no Edit.
+  await row(page, 'hosted-tips').getByRole('button', {name:'hosted-tips', exact:true}).click()
+  await expect(row(page, 'hosted-tips').getByRole('button', {name:'Copy install command for hosted-tips'})).toBeVisible()
+  await row(page, 'seo-bing').getByRole('button', {name:'seo-bing', exact:true}).click()
+  await expect(row(page, 'seo-bing').getByRole('link', {name:/^Edit/})).toHaveCount(0)
+  await expect(row(page, 'seo-bing').getByRole('button', {name:'Copy prompt for seo-bing'})).toBeVisible()
+  // Every target in the opened row is at least 44 px tall.
+  for (const el of await row(page, 'seo-bing').locator('.detail button, .detail a').all()) {
+   expect((await el.boundingBox()).height).toBeGreaterThanOrEqual(44)
+  }
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A paused machine is left alone, and the page says so rather than that there are no machines: alone when every
  // machine is paused, and beside what the others are doing when only some are.
  if (run('paused')) {

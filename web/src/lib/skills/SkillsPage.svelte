@@ -254,6 +254,17 @@
     }
   }
 
+  // Notes show at once, as the heart does; a failure puts them back and says why.
+  async function saveNotes(row: SkillRow, notes: string) {
+    try {
+      await page.writeRow(row.id, { notes }, { notes: row.notes }, () => patchSkill(row.shelfId, { notes }))
+      say(notes ? `Saved the note on ${row.name}.` : `Cleared the note on ${row.name}.`)
+    } catch (e) {
+      fail(e)
+      throw e
+    }
+  }
+
   const selectedRows = () => page.shown.filter(r => selected.includes(r.id))
   function pick(row: SkillRow, on: boolean) {
     selected = on ? [...new Set([...selected, row.id])] : selected.filter(id => id !== row.id)
@@ -527,7 +538,8 @@
             onselect={pick}
             onopen={r => (openId = openId === r.id ? '' : r.id)}
             onretry={retry}
-            onlike={like} />
+            onlike={like}
+            onnotes={saveNotes} />
         {/each}
       </ul>
     {:else}

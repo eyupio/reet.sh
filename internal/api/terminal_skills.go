@@ -119,14 +119,15 @@ var newSkillFolderAgents = map[string]string{
 }
 
 // buildSessionSkills builds the catalogue for a session running tool in dir
-// on host: native machine skills, other-agent machine skills, then the skills
-// New on this machine. An environment scoped to a project counts only when dir
+// on host: native machine skills, other-agent machine skills (each with the
+// session's project's own observed skills), then the skills New on this
+// machine. An environment scoped to a project counts only when dir
 // is that project or below it; a skill that no counting environment holds is
 // not listed at all. MachineSeen still follows every environment on the
 // machine, so the freshness line does not depend on where the session runs.
 // A new skill is listed when agentID, the session's machine, reported it; it
 // is in that machine's home folder, so the agent can use it there already.
-func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, news []store.NewSkill) SessionSkills {
+func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, news []store.NewSkill, projects ...store.ObservedProjectSkill) SessionSkills {
 	out := SessionSkills{Skills: []SessionSkill{}, Host: host, AgentID: agentID}
 	isNative := func(agent string) bool { return agent == tool || agent == "agents" }
 
@@ -163,6 +164,22 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 		}
 		if hasNative {
 			entry.Invocation = skillInvocation(tool, sk.Name, sk.Description)
+			native = append(native, entry)
+		} else {
+			other = append(other, entry)
+		}
+	}
+	// The session's project's own skills, as the machine observes them: they
+	// belong to the repository, so the library has no item of them and they
+	// need no Keep. One the library has is listed above already.
+	for _, p := range projects {
+		if installed[strings.ToLower(p.Name)] || !inProject(dir, p.Project) {
+			continue
+		}
+		installed[strings.ToLower(p.Name)] = true
+		entry := SessionSkill{ID: "project:" + p.Project + "/" + p.Name, Name: p.Name, Source: "machine", Agent: p.Agent, Native: isNative(p.Agent), OnMachine: true}
+		if entry.Native {
+			entry.Invocation = skillInvocation(tool, p.Name, "")
 			native = append(native, entry)
 		} else {
 			other = append(other, entry)
@@ -237,7 +254,12 @@ func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
-	writeJSON(w, 200, buildSessionSkills(session.Tool, host, session.Dir, agentID, activeOnly(skills), news))
+	projects, err := s.st.ObservedProjectSkillsFor(uid, agentID)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	writeJSON(w, 200, buildSessionSkills(session.Tool, host, session.Dir, agentID, activeOnly(skills), news, projects...))
 }
 
 // activeOnly drops the skills whose library item is Archived: they are coming

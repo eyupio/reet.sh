@@ -188,3 +188,35 @@ func (s *Store) ContentObservationFor(uid int64, env string) (out *contentobs.In
 	}
 	return out, nil
 }
+
+// ObservedProjectSkill is one skill a machine observed in a project folder.
+type ObservedProjectSkill struct {
+	Agent, Project, Name string
+}
+
+// ObservedProjectSkillsFor lists the skills machine agent last observed in
+// its project folders, from inventories still current. It only reads: a
+// project's skills belong to its repository and never become library items.
+func (s *Store) ObservedProjectSkillsFor(uid int64, agent string) ([]ObservedProjectSkill, error) {
+	rows, err := s.db.Query(`SELECT o.agent,o.project,o.skills FROM content_observation_scopes o JOIN sync_agents a ON a.id=o.agent_id AND a.user_id=o.user_id JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE AND e.agent=o.agent AND e.project=o.project JOIN environment_scans sc ON sc.env_id=e.id WHERE o.agent_id=? AND o.user_id=? AND o.project<>'' AND o.inventory_revision=sc.inventory_revision ORDER BY o.project,o.agent`, agent, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ObservedProjectSkill{}
+	for rows.Next() {
+		var scope ObservedProjectSkill
+		var raw string
+		if err = rows.Scan(&scope.Agent, &scope.Project, &raw); err != nil {
+			return nil, err
+		}
+		var skills []contentobs.Skill
+		if err = json.Unmarshal([]byte(raw), &skills); err != nil {
+			return nil, err
+		}
+		for _, sk := range skills {
+			out = append(out, ObservedProjectSkill{Agent: scope.Agent, Project: scope.Project, Name: sk.Name})
+		}
+	}
+	return out, rows.Err()
+}

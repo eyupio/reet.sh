@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/contentobs"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -501,5 +502,63 @@ func TestPickerAddStopsWhenTheIgnoreListCannotBeCleared(t *testing.T) {
 	}
 	if got := f.itemNamed(t, "slides"); got.ID != "" {
 		t.Fatalf("the skill was added anyway: %+v", got)
+	}
+}
+
+// A session in a project lists that project's own skills, as the machine
+// observes them, though the library has none of them: they belong to the
+// repository, so the picker never makes a library item of them and they need
+// no Keep.
+func TestTerminalSessionSkillsListsObservedProjectSkills(t *testing.T) {
+	f := installFixture(t)
+	caps, err := f.st.BeginRemoteConnectionFor(f.uid, f.agent.ID, terminalbroker.ID(), terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "tester", TerminalEnabled: true, Readiness: terminalproto.Ready})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, _, err := f.st.ReserveTerminalCreateFor(f.uid, f.agent.ID, terminalbroker.ID(), caps.Generation, terminalproto.Create{Title: "App", Tool: "claude", Dir: "/work/app/src", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.session = created.ID
+	scope := func(project, path string) {
+		t.Helper()
+		if err := f.st.TouchEnvironmentFor(f.uid, f.agent.Host, "claude", project, path); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.st.RecordInventoryFor(f.uid, store.EnvironmentIDFor(f.uid, f.agent.Host, "claude", project), true, store.MachineInfo{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope("/work/app", "/work/app/.claude/skills")
+	scope("/work/other", "/work/other/.claude/skills")
+	before, err := f.st.LibraryFor(f.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := f.st.PrepareContentObservationFor(f.uid, f.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := func(name string) contentobs.Skill {
+		return contentobs.Skill{Name: name, SchemaVersion: skillbundle.SchemaVersion, Algorithm: skillbundle.Algorithm, ModeSemantics: skillbundle.ModeSemantics, Complete: true, Digest: strings.Repeat("a", 64), Files: 1, Bytes: 12}
+	}
+	report := contentobs.Report{SchemaVersion: 1, ScanID: grant.ScanID, ObservedAt: time.Now().UnixMilli(), Scopes: []contentobs.Scope{
+		{Agent: "claude", Project: "/work/app", Complete: true, Skills: []contentobs.Skill{observed("app-release")}},
+		{Agent: "claude", Project: "/work/other", Complete: true, Skills: []contentobs.Skill{observed("other-only")}},
+	}}
+	if err = f.st.RecordContentObservationFor(f.uid, f.agent.ID, report); err != nil {
+		t.Fatal(err)
+	}
+	got := f.catalogue(t)
+	app := sessionSkillByName(got.Skills, "app-release")
+	if app == nil || !app.Native || !app.OnMachine || app.Agent != "claude" || app.Invocation != "Use the app-release skill." {
+		t.Fatalf("the project's skill: %+v (all %+v)", app, got.Skills)
+	}
+	if s := sessionSkillByName(got.Skills, "other-only"); s != nil {
+		t.Fatalf("another project's skill is listed: %+v", s)
+	}
+	after, err := f.st.LibraryFor(f.uid)
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("listing made library items: %d -> %d %v", len(before), len(after), err)
 	}
 }

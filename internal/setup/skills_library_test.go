@@ -55,7 +55,7 @@ func TestSetupRestoreSkipsSkillFoldersOfAnOldSnapshot(t *testing.T) {
 	snapshot := BuildSetupSnapshot(selection)
 	file := []SetupSkillFile{{Path: "SKILL.md", Mode: 0o644, Data: []byte("---\nname: alpha\n---\nBody\n")}}
 	snapshot.Skills = []SetupSkill{
-		{Name: "alpha", AgentID: "codex", Scope: "global", Root: filepath.Join(source.home, ".agents", "skills"), LocationKind: "shared_skills", LocationSource: ".agents/skills", Files: file, Digest: setupSkillDigest(file)},
+		{Name: "alpha", AgentID: "codex", Scope: "global", Root: filepath.Join(source.home, ".agents", "skills"), LocationKind: "shared_skills", LocationSource: ".agents/skills", Origin: "owner/repo", OriginType: "github", OriginPath: "skills/alpha/SKILL.md", Files: file, Digest: setupSkillDigest(file)},
 		{Name: "beta", AgentID: "claude", Scope: "global", Root: filepath.Join(source.home, ".claude", "skills"), LocationKind: "skills", LocationSource: ".claude/skills", Files: file, Digest: setupSkillDigest(file)},
 	}
 	destination := fixture(t)
@@ -70,7 +70,11 @@ func TestSetupRestoreSkipsSkillFoldersOfAnOldSnapshot(t *testing.T) {
 	if len(plan.Notes) != 1 || plan.Notes[0] != note {
 		t.Fatalf("plan notes: %q", plan.Notes)
 	}
+	lock := filepath.Join(destination.home, ".agents", ".skill-lock.json")
 	for _, action := range plan.Actions {
+		if action.Destination == lock {
+			t.Fatalf("the plan restores the skills lock file: %+v", action)
+		}
 		if action.Format == "skill" || strings.Contains(action.Destination, filepath.Join(".agents", "skills")) || strings.Contains(action.Destination, filepath.Join(".claude", "skills")) {
 			t.Fatalf("the plan restores a skill folder: %+v", action)
 		}
@@ -100,6 +104,9 @@ func TestSetupRestoreSkipsSkillFoldersOfAnOldSnapshot(t *testing.T) {
 	}
 	if strings.Count(text.String(), note) != 1 {
 		t.Fatalf("the restore should say it once:\n%s", text.String())
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatalf("the skills lock file was written: %v", err)
 	}
 	for _, dir := range []string{filepath.Join(destination.home, ".agents", "skills"), filepath.Join(destination.home, ".claude", "skills")} {
 		entries, err := os.ReadDir(dir)

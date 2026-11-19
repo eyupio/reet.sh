@@ -205,7 +205,8 @@ try {
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  // The older address for Sync shows the Sync page; with a machine it is a link into the plan controls.
  await page.goto(`${base}/machines?view=compare`)
- await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Everything is in sync.',exact:true})).toBeVisible()
+ expect(await page.title()).toMatch(/^Sync ·/)
  await expect(page.getByLabel('Machine',{exact:true})).toHaveCount(0)
  await page.goto(`${base}/machines?view=compare&machine=dev-laptop`)
  await expect(page).toHaveURL(`${base}/sync/advanced?machine=dev-laptop`)

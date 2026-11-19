@@ -17,6 +17,11 @@ test('stdio discovery declares schemas, strict inputs and correct mutation hints
   }
   assert.equal(tools.find(t => t.name === 'reet_remove_skill').annotations.destructiveHint, true);
   assert.equal(tools.find(t => t.name === 'reet_list_skills').annotations.readOnlyHint, true);
+  // Adding a skill or changing its stage changes what is on every machine, and the tools say so.
+  for (const name of ['reet_add_skill', 'reet_update_skill', 'reet_bulk_update_skills']) {
+    assert.match(tools.find(t => t.name === name).description, /every machine that follows the library/, name);
+  }
+  assert.doesNotMatch(tools.find(t => t.name === 'reet_add_skill').description, /run installs/);
 });
 
 test('real API filters, tags, IDs and pagination preserve all matching results', async () => {

@@ -164,11 +164,11 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return skill;
   });
 
-  tool('add_skill', 'Add a shelf skill', 'Add a skills.sh URL or owner/repo/skill reference. Existing skills keep unspecified flags and notes; ignored entries are unignored. Metadata fetch is queued by reet.sh. Does not add local files or run installs. Returns the skill and created flag.', {
+  tool('add_skill', 'Add a shelf skill', 'Add a skills.sh URL or owner/repo/skill reference. Existing skills keep unspecified flags and notes; ignored entries are unignored. Metadata fetch is queued by reet.sh. A new skill is Active: reet gets its files and installs it on every machine that follows the library. Does not add local files. Returns the skill and created flag.', {
     input: z.string().trim().min(1).max(1000).describe('e.g. anthropics/skills/mcp-builder or https://skills.sh/anthropics/skills/mcp-builder'), ...patch,
   }, async args => client.request('/api/skills', 'POST', args), { write: true, destructive: true });
 
-  tool('update_skill', 'Update shelf flags or notes', 'Change only supplied fields. For stage shelf set used=false, bookmarked=false; try: used=false, bookmarked=true; use: used=true. Does not edit tags or lists. Returns the updated skill.', { id, ...patch }, async args => {
+  tool('update_skill', 'Update shelf flags or notes', 'Change only supplied fields. For stage shelf set used=false, bookmarked=false; try: used=false, bookmarked=true; use: used=true. The stage changes the skill on machines: try or use makes it Active, so it is installed on every machine that follows the library; shelf archives it, so it is taken off those machines, each of which keeps a backup for 30 days. Does not edit tags or lists. Returns the updated skill.', { id, ...patch }, async args => {
     if (Object.keys(args).length === 1) throw new Error('Supply at least one of liked, bookmarked, used or notes.');
     return client.request('/api/skill', 'PATCH', args);
   }, { write: true, destructive: true, idempotent: true });
@@ -330,7 +330,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     return { id: data.id, name: data.name, skillCount: data.skillCount };
   }, { write: true, destructive: true, idempotent: true });
 
-  tool('bulk_update_skills', 'Update many skills at once', 'Apply flags, a stage, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. Does not edit notes or delete skills.', {
+  tool('bulk_update_skills', 'Update many skills at once', 'Apply flags, a stage, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. A stage changes the skills on machines: try or use makes them Active, so they are installed on every machine that follows the library; shelf archives them, so they are taken off those machines, each of which keeps a backup for 30 days. Does not edit notes or delete skills.', {
     ids: z.array(id).max(500).optional().describe('Exact shelf skill IDs; omit when using filter.'),
     filter: z.object({
       q: z.string().max(500).optional().describe('Search text.'),

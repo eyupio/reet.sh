@@ -34,7 +34,7 @@
   })
   const note = $derived(row.upgradedFrom === 'parked' ? 'was Parked' : row.upgradedFrom === 'removed' ? 'removed before the upgrade' : '')
   const machinesWord = $derived(machines === 1 ? 'your machine' : `your ${machines} machines`)
-  const STATES: Record<string, string> = { ok: 'Installed', installing: 'Installing', removing: 'Removing', failed: 'Failed', offline: 'Offline', blocked: "Can't write skills here" }
+  const STATES: Record<string, string> = { ok: 'Installed', off: 'Off', installing: 'Installing', removing: 'Removing', failed: 'Failed', offline: 'Offline', blocked: "Can't write skills here" }
   const machineState = (state: string) => STATES[state] ?? state
 </script>
 

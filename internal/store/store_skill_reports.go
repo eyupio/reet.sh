@@ -48,6 +48,9 @@ func (r SkillReport) Cut() bool {
 	return false
 }
 
+// MachineSkillState is one machine's part in a skill's health. State is ok
+// (an Active skill installed there), off (an Archived one not there),
+// installing, removing, failed, offline or blocked.
 type MachineSkillState struct {
 	Host    string `json:"host"`
 	AgentID string `json:"agentId"`
@@ -576,6 +579,10 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 				if r == rank {
 					h.State = state
 				}
+			}
+			if state == "ok" && status == SkillArchived {
+				// Nothing left to do for an Archived skill: it is off there.
+				state = "off"
 			}
 			h.Machines = append(h.Machines, MachineSkillState{Host: m.host, AgentID: m.id, State: state, Detail: detail})
 		}

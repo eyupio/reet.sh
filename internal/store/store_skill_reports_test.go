@@ -527,8 +527,15 @@ func TestReportArchivedItemOffEveryMachineIsOff(t *testing.T) {
 	later := reportT0.Add(time.Minute)
 	reportOf(t, s, uid, a, later, removed)
 	reportOf(t, s, uid, b, later, removed)
-	if h := healthOf(t, s, uid, item.id, later); h.State != "off" || h.Pending != 0 || h.Total != 2 {
+	h := healthOf(t, s, uid, item.id, later)
+	if h.State != "off" || h.Pending != 0 || h.Total != 2 {
 		t.Fatalf("archived, off every machine: %+v", h)
+	}
+	// Each machine says the same: it is off there, not installed.
+	for _, m := range h.Machines {
+		if m.State != "off" {
+			t.Fatalf("machine row of an archived skill taken off: %+v", h.Machines)
+		}
 	}
 }
 

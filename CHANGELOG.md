@@ -55,6 +55,10 @@ this file existed releases were described on their GitHub release pages.
   counted as before, marked with its desk's name, and **Open** takes you to its
   pane on the desk. If your desks cannot be read, Home shows every session as
   before.
+- **Sessions and desks**: the Sessions page leaves a session on a desk out too,
+  unless it needs you; then it stays, still marked with its desk and opening at
+  its pane. When every session left is on a desk, the page says so and points to
+  **Desks**. If your desks cannot be read, every session shows as before.
 - **Factory crew**: **Your Factory crew** in Gaffer settings now offers real
   choices instead of boxes to type in. **Model** lists the models your machines
   have listed for the chosen agent, with **Agent's default model** and

@@ -2194,6 +2194,8 @@ try {
   {
     reset()
     sessions = [running('sess-free', 'free'), ...sessions]
+    // Sessions lists a desk session only when it needs you, so the two moved from here are waiting.
+    sessions = sessions.map(s => s.id === 'sess-db' || s.id === 'sess-deploy' ? { ...s, attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: true, bellAt: now } : s)
     await page.goto(`${base}/sessions?view=list`)
     const row = title => page.locator('.session-row').filter({ has: page.locator('.title', { hasText: new RegExp(`^${title}$`) }) })
     await row('free').getByRole('button', { name: 'Actions for free' }).click()
@@ -2224,8 +2226,8 @@ try {
     expect(added).toMatchObject({ host: agent, kind: 'shell', name: 'free', dir: '/home/dev/PROD_reet', start: '' })
     expect(logs.root).toEqual({ split: 'right', ratio: 0.5, a: { pane: 'pane-logs' }, b: { pane: added.id } })
     expect(logs.active).toBe(added.id)
-    // The row now names its desk.
-    await expect(row('free').getByRole('link', { name: 'On the desk prod deploy' })).toHaveAttribute('href', `/desks/desk-prod#${added.id}`)
+    // It is on a desk and does not need anyone, so Sessions no longer lists it.
+    await expect(row('free')).toHaveCount(0)
 
     // One already on a desk is moved: taken off its old pane first, then added.
     patched = []
@@ -2260,10 +2262,12 @@ try {
     console.log('ok - Add to a desk puts a running session in a new pane')
   }
 
-  // ── a session on a desk shows the desk's name in Sessions ──
+  // ── a session on a desk that needs you shows the desk's name in Sessions ──
   {
     reset()
     sessions = [running('sess-free', 'free'), ...sessions]
+    // Only the desk session that needs you is listed here; the quiet ones belong to the desk alone.
+    sessions = sessions.map(s => s.id === 'sess-logs' ? { ...s, attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: true, bellAt: now } : s)
     // A desk whose only session is not listed here is not read.
     desks.set('desk-ghost', deskOf('desk-ghost', 'ghost', [tabOf('tab-g', 'g', '', paneOf('pane-g', 'g', 'sess-ghost', '/home/dev'))], { position: 5 }))
     const reads = []
@@ -2274,19 +2278,19 @@ try {
     const chip = row('logs').getByRole('link', { name: 'On the desk prod deploy' })
     await expect(chip).toHaveText('prod deploy')
     await expect(chip).toHaveAttribute('href', '/desks/desk-prod#pane-logs')
-    await expect(row('a').getByRole('link', { name: 'On the desk split desk' })).toHaveAttribute('href', '/desks/desk-split#pane-a')
+    // The quiet desk sessions are not on this page.
+    await expect(row('a')).toHaveCount(0)
+    await expect(row('b')).toHaveCount(0)
     await expect(row('free').getByRole('link')).toHaveCount(1)
     // The desk pane's colour (else its tab's) colours the row when the browser has no choice of its own.
     await expect(row('logs')).toHaveClass(/coloured/)
     await expect(row('logs').locator('.colour-name')).toHaveText('Blue')
-    await expect(row('b').locator('.colour-name')).toHaveText('Blue')
-    await expect(row('a').locator('.colour-name')).toHaveText('Red')
     await page.waitForLoadState('networkidle')
-    // The list once for the page (and once for the bell, which marks a waiting desk session with its desk), then each
-    // desk that holds a listed session once: no read per row, none of the empty desk and none of the desk whose session
-    // is not listed (nothing waits here, so the bell reads no desk of its own).
-    expect(reads.filter(p => p === '/api/v2/desks')).toHaveLength(2)
-    expect(reads.filter(p => p !== '/api/v2/desks').sort()).toEqual(['/api/v2/desks/desk-prod', '/api/v2/desks/desk-split'])
+    // The list for the page's sessions, again for the pane and colour of what it lists, and once for the bell, which
+    // marks the waiting desk session with its desk. Only that desk is read, and none of the empty desk, the quiet
+    // desk's or the ghost desk's.
+    expect(reads.filter(p => p === '/api/v2/desks')).toHaveLength(3)
+    expect([...new Set(reads.filter(p => p !== '/api/v2/desks'))]).toEqual(['/api/v2/desks/desk-prod'])
     page.off('request', note)
     if (shots) {
       for (const theme of ['light', 'dark']) {

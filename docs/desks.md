@@ -5,8 +5,8 @@ or an agent's terminal on any of your machines. A desk saves itself to your acco
 in any browser. Each shell pane keeps the folder its shell is in and, on a machine with reet updated, its own command
 history, so a shell lost to a restart comes back in the same place with the same history at one press.
 
-A desk's terminals are ordinary sessions: they are listed in Sessions, they count towards the session limits and they
-keep running when the desk is closed. Opening a desk never starts a shell. A shell starts only from **New tab**, a split,
+A desk's terminals are ordinary sessions: they count towards the session limits and they keep running when the desk is
+closed. Sessions lists one only when it needs you; otherwise the desk is where you see it. Opening a desk never starts a shell. A shell starts only from **New tab**, a split,
 or a press on a pane (**Reopen**, **Start**, **Reopen all**, **Continue**).
 
 ## The Desks tab
@@ -362,12 +362,14 @@ Templates count towards the 50 desks.
   neither desk and still running in Sessions.
 - **Add a running session…** in a desk's **+** menu does the same from the desk's side, into a new tab, listing the
   running sessions that are not already on this desk.
-- **The desk chip.** Sessions shows the desk a session is on as a chip after the row's words; it opens the desk at that
-  pane.
-- **Home leaves desk sessions out.** A session on a desk is not in Home's Continue working, its planning board or its
-  count of open sessions. When it needs you (an approval, a question, a failure, work to review) it is still in
-  **Waiting for you** and the bell, marked "Desk" and the desk's name, and its **Open** opens the desk at its pane. A
-  template's sessions do not count, and a Factory pipeline's session shows as its pipeline.
+- **The desk chip.** Sessions shows the desk a session that needs you is on as a chip after the row's words; it opens
+  the desk at that pane.
+- **Home and Sessions leave desk sessions out.** A session on a desk is not in Home's Continue working, its planning
+  board, its count of open sessions, or Sessions' list; the desk is where you see it. When it needs you (an approval, a
+  question, a failure, work to review) it is still in **Waiting for you** and the bell, marked "Desk" and the desk's
+  name, and its **Open** opens the desk at its pane; Sessions also lists it, with the desk chip. A template's sessions
+  do not count, and a Factory pipeline's session shows as its pipeline. If the desks cannot be read, Home and Sessions
+  show every session as they would without desks.
 
 A session can be in only one pane across all your desks.
 

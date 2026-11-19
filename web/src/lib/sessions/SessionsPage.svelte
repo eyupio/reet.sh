@@ -7,6 +7,7 @@
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { GROUP_CHOICES, needingIds, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
+  import { offDesks, type DeskRef } from '../home/deskSessions'
   import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
@@ -18,7 +19,8 @@
 
   // The Sessions page (/sessions): every session across machines from the account-wide listing, grouped as Home groups them
   // (the Group by choice is Home's), with search, filters and each session's actions menu; the projects come below with
-  // Add a project. Read again every 15 seconds while in view. A read that fails keeps the last list and says so. Only the
+  // Add a project. Read again every 15 seconds while in view. A read that fails keeps the last list and says so. Sessions on
+  // a desk are listed here only when they need the person (the desk is where they are seen), as on Home. Only the
   // Group by choice is stored (Home's key); the search and filters live on this page only. On a tablet or phone the projects
   // are the full project rail (the phone rail, moved here from Home): its menus, Select and the state words.
   // The bell and the title count by the app's one rule (App reads it on this page as on every page but Home); this page
@@ -56,6 +58,9 @@
   const { order, colors } = savedPanel()
 
   let sessions = $state<TerminalSession[] | undefined>()
+  // The desks, read with the sessions: a session on a desk leaves this page, as it leaves Home's lists, and only one that
+  // needs the person stays. A failed read keeps the last list (no problem line): without desks every session shows.
+  let desks = $state<DeskRef[] | undefined>()
   let projects = $state<FolderProject[] | undefined>()
   let projectGroups = $state<ProjectGroup[] | undefined>()
   let terminals = $state<TerminalMachine[] | undefined>()
@@ -96,9 +101,13 @@
   let placesRead = 0
   async function loadPlaces() {
     const mine = ++placesRead
-    const listed = new Set((sessions ?? []).map(s => s.id))
     try {
-      const holding = (await listDesks()).filter(d => !d.template && d.sessions.some(id => listed.has(id)))
+      // Read the desks fresh: an Add to or a move between desks changes what each holds before the page's next poll.
+      const list = await listDesks(bounded())
+      if (life.signal.aborted || mine !== placesRead) return
+      desks = list
+      const listedIds = new Set((listed ?? []).map(s => s.id))
+      const holding = list.filter(d => !d.template && d.sessions.some(id => listedIds.has(id)))
       const read = await Promise.allSettled(holding.map(d => getDesk(d.id)))
       if (life.signal.aborted || mine !== placesRead) return
       places = deskPlaces(read.flatMap(r => r.status === 'fulfilled' ? [r.value] : []))
@@ -109,13 +118,16 @@
   const cards = $derived(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines))
   // By the bell's rule: a session that only finished is not "Needs you".
   const needing = $derived(needingIds(cards))
+  // A session on a (non-template) desk belongs to the desk, not this page: it is listed here only when it needs the person.
+  // With no desks read (a failed read, or before the first one) every session is listed, as it was before desks.
+  const listed = $derived(offDesks(sessions ?? [], desks, needing))
 
-  const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, needing, colourOf))
+  const shown = $derived(filterSessions(searchSessions(listed, projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
-  const agents = $derived(agentChoicesOf(sessions ?? []))
+  const agents = $derived(agentChoicesOf(listed))
   const on = $derived(filtersOn(filter))
-  const running = $derived.by(() => { const m = new Map<string, number>(); for (const s of sessions ?? []) if (s.projectId && (s.state === 'running' || s.state === 'creating')) m.set(s.projectId, (m.get(s.projectId) ?? 0) + 1); return m })
-  const worktrees = $derived(projectWorktrees(sessions ?? []))
+  const running = $derived.by(() => { const m = new Map<string, number>(); for (const s of listed) if (s.projectId && (s.state === 'running' || s.state === 'creating')) m.set(s.projectId, (m.get(s.projectId) ?? 0) + 1); return m })
+  const worktrees = $derived(projectWorktrees(listed))
   // Whether each machine reports now (the rail's state words); a machine without a report is not called offline.
   const reportingNow = $derived(new Map((health ?? []).map(m => [m.agentId, m.state === 'connected'])))
   // A write's answer from the rail is the list as it now is: it supersedes a read on its way.
@@ -128,7 +140,7 @@
     const mine = ++generation
     loading = true; checking = true
     try {
-      const [s, p, t, h, g] = await Promise.allSettled([terminalSessions(bounded()), folderProjectList(bounded()), terminalMachines(bounded()), machineHealth(bounded()), listProjectGroups(bounded())])
+      const [s, p, t, h, g, d] = await Promise.allSettled([terminalSessions(bounded()), folderProjectList(bounded()), terminalMachines(bounded()), machineHealth(bounded()), listProjectGroups(bounded()), listDesks(bounded())])
       if (life.signal.aborted || mine !== generation) return
       if ([s, p, t, h].some(r => r.status === 'rejected' && refused(r.reason))) return signOut()
       // An account that lost terminal access (403) is shown nothing it can no longer open, as the workspace does.
@@ -143,8 +155,14 @@
       if (g.status === 'fulfilled') { projectGroups = g.value; groupsFailed = false } else groupsFailed = projectGroups === undefined
       // A health read that fails keeps the last one: the offline sentences stay as last known.
       if (h.status === 'fulfilled') health = h.value.machines ?? []
+      // A desk read that fails keeps the last list and says nothing: without desks every session shows, as before desks.
+      if (d.status === 'fulfilled') desks = d.value
       failed = bad
       now = Date.now()
+      // A session already on a desk that starts needing the person enters the list now: read its desk for the chip, pane
+      // and colour, as the first read does for one that was already waiting.
+      const held = new Set((desks ?? []).flatMap(m => m.template ? [] : m.sessions))
+      if ((sessions ?? []).some(s => held.has(s.id) && needing.has(s.id) && !places.has(s.id))) void loadPlaces()
     } finally {
       if (mine === generation) { loading = false; checking = false }
     }
@@ -204,8 +222,7 @@
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
-    // The desks are read once the sessions are, so only those holding a listed session are read.
-    void load().then(() => { if (sessions?.length) void loadPlaces() })
+    void load()
     void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) }).catch(() => { /* the safe default keeps history */ })
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }
@@ -266,8 +283,9 @@
   {:else if terminals !== undefined && terminals.length === 0 && (sessions ?? []).length === 0}
     <div class="first-machine"><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to start sessions here.</p><a class="btn primary" href={machinesAt('add-machine')}>Connect a machine</a></div>
   {:else if sessions !== undefined}
-    {#if sessions.length === 0}
-      <p class="none">No sessions yet. Start one from Home.</p>
+    {#if listed.length === 0}
+      {#if (sessions ?? []).length === 0}<p class="none">No sessions yet. Start one from Home.</p>
+      {:else}<p class="none">Every session here is on a desk. Open Desks to see them.</p>{/if}
     {:else if groups.length === 0}
       <p class="none">{filter.state === 'needs' ? 'Nothing marks a session as needing you yet, so none is listed here.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
     {:else}

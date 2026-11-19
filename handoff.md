@@ -139,6 +139,33 @@ history (the session list is bounded at 200, the per-tool sums are not).
 - An answer that an account has no plan with limits stands for five minutes (`freshFor`), like figures; a plan bought
   in those five minutes shows after them, or after **Check sign-ins** once 30 s have passed.
 
+## DESK-SESSIONS-1: desk sessions off the Sessions page, unless they need you (19 November 2026)
+
+The owner asked: "Desktop sessions shouldn't appear in sessions page." By the same rule as DESK-HOME-1, a session on a
+non-template desk leaves the Sessions list; one that needs the person stays (an approval, a question, a failure or work
+to review), still with its desk chip. A Factory pipeline's session is not special-cased here: it is on the desk, so the
+desk holds it.
+
+**What was built.** `SessionsPage.svelte` reads `listDesks` in its 15-second batch (bounded like the other reads) and
+filters through `offDesks` (`web/src/lib/home/deskSessions.ts`) with the needing set it already computes
+(`needsYou`/`needingIds`). The list, search, filters, agents, project running counts and worktrees all use the filtered
+list; the desk chip and pane reads use it too, so only a needing session's desk is read. Add to a desk reads the desks
+again before reading the pane, and a quiet desk session that starts needing the person has its desk read on that poll,
+so its chip, pane and colour are there at once. A failed desk read keeps the last list and never adds a problem line,
+and with no desks read every session shows as before. When every remaining session is on a desk the page says "Every session here is on a
+desk. Open Desks to see them." instead of "No sessions match."
+
+**Checked.** `web/tests/sessions.e2e.mjs` gained the "desk sessions" section: quiet and finished desk sessions leave the
+list, a waiting one stays with its chip (`/desks/desk1#pa`), and a 503 desk read shows every session without a problem
+line, and a quiet desk session that starts waiting enters with its chip on the next read. `web/tests/desks.e2e.mjs` was
+updated: a session added to a desk leaves Sessions, the moved sessions wait so they
+stay listed, and the chip block now holds one waiting session on `desk-prod` (quiet `desk-split` sessions are off the
+list). Full `sessions.e2e.mjs`, full `desks.e2e.mjs`, `npm run check` and the web build pass.
+
+**Not checked.** A real controller and desk; a session that is both a waiting desk session and a Factory pipeline's; the
+page with more than 100 sessions and many desks. Docs updated: `README.md`, `docs/desks.md`, `docs/session-board.md`,
+`docs/control-centre.md`, `CHANGELOG.md`.
+
 ## DESK-HOME-1: desk sessions off Home, unless they need you (18 November 2026)
 
 The owner asked: "Do not show desk sessions on the home page." Asked whether a desk session that needs them should still

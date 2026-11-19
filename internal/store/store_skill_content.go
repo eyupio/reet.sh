@@ -158,11 +158,13 @@ func (s *Store) skillCopyPlan(uid int64) (needs []SkillCopyNeed, unsourced []str
 
 // captureCandidate is the first machine that reports the skill in a managed
 // folder and that reet can ask for it: it must have an environment for that
-// folder tied to the skill. Machines that cannot be asked are skipped.
+// folder tied to the skill. Machines that cannot be asked are skipped. The
+// copy the skill was kept from (its origin_ref, set by Keep before the files
+// land) comes first.
 func (s *Store) captureCandidate(uid int64, item, name string) (agent, folder string, found bool, err error) {
 	rows, err := s.db.Query(`SELECT a.id,m.folder FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id AND a.user_id=m.user_id
  WHERE m.user_id=? AND lower(m.name)=lower(?) AND m.state IN ('installed','edited','unknown') AND a.paused=0 AND a.skills_protocol=2
- ORDER BY m.state='installed' DESC,a.host,m.folder,a.id`, uid, name)
+ ORDER BY 'machine:'||a.host||':'||m.folder=COALESCE((SELECT origin_ref FROM library_items WHERE user_id=? AND id=?),'') DESC,m.state='installed' DESC,a.host,m.folder,a.id`, uid, name, uid, item)
 	if err != nil {
 		return "", "", false, err
 	}

@@ -87,6 +87,8 @@ type server struct {
 	original         originalCache
 	originalTTL      time.Duration
 	skillPollKicks   pollKicks
+	// skillClock is when the Skills page's changes are made (tests only).
+	skillClock func() time.Time
 
 	sso                *oidc.Provider
 	ssoSaveMu          sync.Mutex // one change to the single sign-on settings at a time
@@ -467,6 +469,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v2/skills/bulk", s.requireWriter(s.bulkUpdateSkills))
 	mux.HandleFunc("GET /api/v2/skills/duplicates", s.findDuplicates)
 	s.registerSkillCopies(mux)
+	s.registerSkillsPage(mux)
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("POST /api/v2/tags", s.requireWriter(s.createTag))
 	mux.HandleFunc("PATCH /api/v2/tags/{id}", s.requireWriter(s.renameTagScoped))
@@ -1419,6 +1422,10 @@ func patchEvent(old, updated store.Skill, p store.Patch) (string, map[string]any
 	return "patch", detail
 }
 
+// remove is the old shelf Remove of one shelf row. It deletes the row's
+// library skill, as the Skills page's Delete does: it leaves every machine,
+// and its name is free again. When reet holds no copy of it, nothing changes
+// unless noCopyConfirmed=1 (409 {"code":"no-copy"}).
 func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -1426,21 +1433,33 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sk, _, _ := s.st.GetFor(s.uid(r), id)
-	if r.URL.Query().Get("ignore") == "1" {
-		if err := s.st.IgnoreFor(s.uid(r), id, sk.Name, "removed"); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		s.eventRequest(r, "ignore", id, map[string]any{"name": sk.Name})
-		w.WriteHeader(http.StatusNoContent)
+	ignore := r.URL.Query().Get("ignore") == "1"
+	if !s.removeShelfSkills(w, r, []string{id}, ignore, r.URL.Query().Get("noCopyConfirmed") == "1") {
 		return
 	}
-	if err := s.st.RemoveFor(s.uid(r), id); err != nil {
-		writeErr(w, 500, err.Error())
-		return
+	action := "remove"
+	if ignore {
+		action = "ignore"
 	}
-	s.eventRequest(r, "remove", id, map[string]any{"name": sk.Name})
+	s.eventRequest(r, action, id, map[string]any{"name": sk.Name})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeShelfSkills removes shelf rows and deletes their library skills, and
+// says so on w when it cannot.
+func (s *server) removeShelfSkills(w http.ResponseWriter, r *http.Request, ids []string, ignore, noCopyConfirmed bool) bool {
+	uid := s.uid(r)
+	_, noCopy, err := s.st.RemoveShelfSkillsFor(uid, ids, ignore, noCopyConfirmed, s.skillNow())
+	if errors.Is(err, store.ErrSkillNoCopy) {
+		writeNoCopy(w, noCopy)
+		return false
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return false
+	}
+	s.kickSkillCopies(uid)
+	return true
 }
 
 func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
@@ -2008,8 +2027,9 @@ func (s *server) tagMany(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		IDs    []string `json:"ids"`
-		Ignore bool     `json:"ignore"`
+		IDs             []string `json:"ids"`
+		Ignore          bool     `json:"ignore"`
+		NoCopyConfirmed bool     `json:"noCopyConfirmed"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -2018,11 +2038,17 @@ func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "choose between 1 and 500 skills")
 		return
 	}
-	n, err := s.st.RemoveManyFor(s.uid(r), in.IDs, in.Ignore)
+	uid := s.uid(r)
+	n, noCopy, err := s.st.RemoveShelfSkillsFor(uid, in.IDs, in.Ignore, in.NoCopyConfirmed, s.skillNow())
+	if errors.Is(err, store.ErrSkillNoCopy) {
+		writeNoCopy(w, noCopy)
+		return
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.kickSkillCopies(uid)
 	action := "bulk-remove"
 	if in.Ignore {
 		action = "bulk-ignore"

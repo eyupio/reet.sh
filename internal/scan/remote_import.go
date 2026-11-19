@@ -126,7 +126,15 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	if work.Instance != instance {
 		return true, nil
 	}
-	root, _, err := skillImportRoot(c, work.Agent, work.Project, work.Name)
+	// Use this version reads the backup of the copy edited here, not the
+	// live folder, which holds reet's copy again.
+	var root string
+	unchanged := func() bool { return true }
+	if work.BackupPath != "" {
+		root, unchanged, err = skillBackupRoot(c, work.Agent, work.Project, work.BackupPath)
+	} else {
+		root, _, err = skillImportRoot(c, work.Agent, work.Project, work.Name)
+	}
 	if err != nil {
 		return failure("scope_unavailable")
 	}
@@ -136,7 +144,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 			return failure("capture_failed")
 		}
 		_, files, err := skillbundle.ReadContents(root, m.Digest)
-		if err != nil {
+		if err != nil || !unchanged() {
 			return failure("source_changed")
 		}
 		p := skillimport.Preview{SchemaVersion: skillimport.RemoteVersion, SourceDigest: m.Digest, SkillValid: false, Files: []skillimport.PreviewFile{}}
@@ -163,7 +171,7 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 		return failure("transfer_failed")
 	}
 	_, files, err := skillbundle.ReadContents(root, work.Preview.SourceDigest)
-	if err != nil {
+	if err != nil || !unchanged() {
 		return failure("source_changed")
 	}
 	m, selected, err := skillimport.Select(files, work.Excluded)

@@ -1247,8 +1247,17 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 				k.CreatedAt, k.UpdatedAt); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT OR REPLACE INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?)`, userID, k.ID, b2i(&k.Liked), b2i(&k.Bookmarked), b2i(&k.Used), k.Notes, k.CreatedAt, k.UpdatedAt); err != nil {
+			// An upsert, not INSERT OR REPLACE: a REPLACE outer statement makes
+			// the shelf trigger's INSERT OR IGNOREs replace too, which would
+			// rebind the row's library alias and reset its library item.
+			if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
+				VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,skill_id) DO UPDATE SET liked=excluded.liked,bookmarked=excluded.bookmarked,used=excluded.used,notes=excluded.notes,created_at=excluded.created_at,updated_at=excluded.updated_at`,
+				userID, k.ID, b2i(&k.Liked), b2i(&k.Bookmarked), b2i(&k.Used), k.Notes, k.CreatedAt, k.UpdatedAt); err != nil {
+				return err
+			}
+			// Putting back a row the old Remove just took brings its skill
+			// back too.
+			if err := undeleteShelfItemTx(tx, userID, k.ID); err != nil {
 				return err
 			}
 			for _, tag := range k.Tags {

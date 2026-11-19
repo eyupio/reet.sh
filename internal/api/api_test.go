@@ -269,7 +269,12 @@ func TestResolveAndDelete(t *testing.T) {
 	if len(l.Skills) != 1 || l.Skills[0].ID != "vercel-labs/skills/find-skills" || !l.Skills[0].Used {
 		t.Fatalf("%+v", l)
 	}
-	if code, _ := do(t, srv, "DELETE", "/api/skill?id=vercel-labs/skills/find-skills", ""); code != 204 {
+	// reet has no copy of it (this server fetches nothing), so Remove asks
+	// first: it deletes the library skill from every machine.
+	if code, b := do(t, srv, "DELETE", "/api/skill?id=vercel-labs/skills/find-skills", ""); code != 409 || !strings.Contains(b, `"code":"no-copy"`) {
+		t.Fatal(code, b)
+	}
+	if code, _ := do(t, srv, "DELETE", "/api/skill?id=vercel-labs/skills/find-skills&noCopyConfirmed=1", ""); code != 204 {
 		t.Fatal(code)
 	}
 	if l := list(t, srv, ""); len(l.Skills) != 0 {
@@ -432,7 +437,7 @@ func TestTagsEventsAndIgnore(t *testing.T) {
 	if code, _ := do(t, srv, "POST", "/api/skill/install-copy", `{"id":"anthropics/skills/frontend-design"}`); code != 204 {
 		t.Fatalf("install copy event: %d", code)
 	}
-	if code, _ := do(t, srv, "DELETE", "/api/skill?id=anthropics%2Fskills%2Ffrontend-design&ignore=1", ""); code != 204 {
+	if code, _ := do(t, srv, "DELETE", "/api/skill?id=anthropics%2Fskills%2Ffrontend-design&ignore=1&noCopyConfirmed=1", ""); code != 204 {
 		t.Fatalf("ignore: %d", code)
 	}
 	if code, b := do(t, srv, "GET", "/api/ignored", ""); code != 200 || !strings.Contains(b, "frontend-design") {
@@ -522,7 +527,10 @@ func TestBulkPatchTagAndRemove(t *testing.T) {
 	if code, b := do(t, srv, "GET", "/api/skills?q=tag%3Abulk", ""); code != 200 || !strings.Contains(b, "a/b/one") || !strings.Contains(b, "a/b/three") {
 		t.Fatalf("bulk tag filter: %d %s", code, b)
 	}
-	if code, b := do(t, srv, "POST", "/api/skills/remove", mkBody(`"ignore":false`)); code != 200 || !strings.Contains(b, `"removed":3`) {
+	if code, b := do(t, srv, "POST", "/api/skills/remove", mkBody(`"ignore":false`)); code != 409 || !strings.Contains(b, `"names":["one","two","three"]`) {
+		t.Fatalf("bulk remove of skills reet has no copy of: %d %s", code, b)
+	}
+	if code, b := do(t, srv, "POST", "/api/skills/remove", mkBody(`"ignore":false,"noCopyConfirmed":true`)); code != 200 || !strings.Contains(b, `"removed":3`) {
 		t.Fatalf("bulk remove: %d %s", code, b)
 	}
 	if l := list(t, srv, ""); len(l.Skills) != 0 {

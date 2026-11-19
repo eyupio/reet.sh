@@ -482,6 +482,64 @@ export async function removeSkills(ids: string[], ignore = false): Promise<{ rem
 export async function refreshSkill(id: string): Promise<RefreshResult> {
   return (await req('/api/skill/refresh', { method: 'POST', body: json({ id }) })).json()
 }
+
+// The Skills page: one API keyed by library item. Likes, notes, tags and lists keep their endpoints, keyed by each
+// row's shelfId.
+export type HealthState = 'ok' | 'installing' | 'removing' | 'failed' | 'offline' | 'blocked' | 'copying' | 'copy-failed' | 'getting' | 'fetch-failed' | 'needs-update' | 'off'
+export type SkillHealth = { state: HealthState; pending: number; total: number; hosts: string[]; reason?: string; machines: { host: string; state: string; detail?: string }[] }
+export type SkillRow = {
+  id: string
+  shelfId: string
+  name: string
+  description: string
+  status: 'active' | 'archived'
+  originKind: 'written' | 'imported' | 'kept'
+  origin: string
+  yours: boolean
+  published: boolean
+  publicUrl?: string
+  hasCopy: boolean
+  liked: boolean
+  notes: string
+  tags: Tag[]
+  lists: ListRef[]
+  health: SkillHealth
+  upgradedFrom?: 'parked' | 'removed'
+  editedOn?: { agentId: string; host: string }
+}
+export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
+export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null }
+
+/** One tab of the Skills page, with both tabs' counts. */
+export async function loadSkillsPage(status: 'active' | 'archived'): Promise<SkillsPageData> {
+  return (await req(`/api/v2/skills?status=${encodeURIComponent(status)}`)).json()
+}
+/** Archive or Restore. The answer is the tab the skills went to, so an Undo puts them back in their places. */
+export async function setSkillStatus(ids: string[], status: 'active' | 'archived'): Promise<SkillsPageData> {
+  return (await req('/api/v2/skills/status', { method: 'POST', body: json({ ids, status }) })).json()
+}
+/** Delete. When reet has no copy of one, it throws an ApiError with code 'no-copy' unless noCopyConfirmed. */
+export async function deleteSkills(ids: string[], noCopyConfirmed = false): Promise<void> {
+  await req('/api/v2/skills/delete', { method: 'POST', body: json({ ids, noCopyConfirmed }) })
+}
+export async function undeleteSkills(ids: string[]): Promise<void> {
+  await req('/api/v2/skills/undelete', { method: 'POST', body: json({ ids }) })
+}
+/** Retry a skill whose files could not be fetched or copied into reet. */
+export async function retrySkill(id: string): Promise<void> {
+  await req('/api/v2/skills/retry', { method: 'POST', body: json({ items: [id] }) })
+}
+/** Keep or Archive skills new on a machine; from is the agent whose copy to take, needed when the copies differ. */
+export async function decideNewSkills(names: string[], action: 'keep' | 'archive', from?: string): Promise<void> {
+  await req('/api/v2/skills/new', { method: 'POST', body: json(from ? { names, action, from } : { names, action }) })
+}
+export async function skillNotice(action: 'dismiss' | 'restore-parked'): Promise<void> {
+  await req('/api/v2/skills/notice', { method: 'POST', body: json({ action }) })
+}
+/** Use this version: take the machine's backup of its edit as the skill's next revision. */
+export async function useMachineVersion(id: string, agentId: string): Promise<void> {
+  await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })
+}
 export async function resolveSkill(id: string, input: string): Promise<Skill> {
   return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }

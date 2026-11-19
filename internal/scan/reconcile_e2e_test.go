@@ -80,7 +80,10 @@ func TestSkillsEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "offline", 500) }))
-	h := api.New(st, meta.Fetcher{Client: dead.Client(), PageBase: dead.URL + "/", APIBase: dead.URL}, "", api.WithAuthMode(api.AuthAccounts), api.WithSkillFetcher(e2eFetcher{}))
+	// The Skills page's changes are made as if the grace period were already
+	// over, so the next poll carries them.
+	settled := func() time.Time { return time.Now().Add(-store.SkillGrace - time.Second) }
+	h := api.New(st, meta.Fetcher{Client: dead.Client(), PageBase: dead.URL + "/", APIBase: dead.URL}, "", api.WithAuthMode(api.AuthAccounts), api.WithSkillFetcher(e2eFetcher{}), api.WithSkillClock(settled))
 	srv := httptest.NewServer(h)
 	t.Cleanup(func() { srv.Close(); h.Close(); st.Close(); dead.Close() })
 	enroll := func(name string) e2eMachine {
@@ -110,9 +113,15 @@ func TestSkillsEndToEnd(t *testing.T) {
 		}
 		return m[item]
 	}
-	// A change made this long ago has held for the grace period, so the next
-	// poll carries it.
-	settled := func() time.Time { return time.Now().Add(-store.SkillGrace - time.Second) }
+	// page sends one of the Skills page's requests and wants a 2xx answer.
+	page := func(step, method, path, body string) string {
+		t.Helper()
+		code, out := agentTestRequest(t, srv.URL, method, path, body)
+		if code/100 != 2 {
+			t.Fatalf("%s: %s %s: %d %s", step, method, path, code, out)
+		}
+		return out
+	}
 	studio := enroll("studio")
 
 	// 1. Add a skill by link: the controller fetches it, and one cycle
@@ -145,11 +154,9 @@ func TestSkillsEndToEnd(t *testing.T) {
 		t.Fatalf("step 1: health %+v", h)
 	}
 
-	// 2. Archive it. Once the grace period is over, one cycle backs it up
-	// and removes it.
-	if err = st.SetSkillStatusFor(uid, []string{item}, store.SkillArchived, settled()); err != nil {
-		t.Fatal(err)
-	}
+	// 2. Archive it on the Skills page. Once the grace period is over, one
+	// cycle backs it up and removes it.
+	page("step 2", "POST", "/api/v2/skills/status", `{"ids":["`+item+`"],"status":"archived"}`)
 	cycle(studio)
 	if studio.present(t, "find-skills") || studio.backups(t, "find-skills") != 1 {
 		t.Fatalf("step 2: archived skill present=%t, backups=%d", studio.present(t, "find-skills"), studio.backups(t, "find-skills"))
@@ -159,9 +166,7 @@ func TestSkillsEndToEnd(t *testing.T) {
 	}
 
 	// 3. Restore it: it is installed again.
-	if err = st.SetSkillStatusFor(uid, []string{item}, store.SkillActive, settled()); err != nil {
-		t.Fatal(err)
-	}
+	page("step 3", "POST", "/api/v2/skills/status", `{"ids":["`+item+`"],"status":"active"}`)
 	cycle(studio)
 	if !studio.present(t, "find-skills") || folderDigest(t, filepath.Join(studio.skills(), "find-skills")) != digest {
 		t.Fatal("step 3: the restored skill was not installed again")
@@ -217,14 +222,89 @@ func TestSkillsEndToEnd(t *testing.T) {
 		t.Fatalf("step 4: laptop has cq=%t find-skills=%t", laptop.present(t, "cq"), laptop.present(t, "find-skills"))
 	}
 
-	// 5. Keep it; a second home gets it. Task 9 adds this step with
-	// POST /api/v2/skills/new.
+	// 5. Keep it on the Skills page: reet takes its files from studio, and a
+	// second home gets it. Studio's copy is left as it was.
+	page("step 5", "POST", "/api/v2/skills/new", `{"names":["cq"],"action":"keep"}`)
+	var cqItem, cqDigest string
+	for range 6 {
+		cycle(studio)
+		d, err := st.DesiredSkillsFor(uid, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range d.Active {
+			if a.Name == "cq" {
+				cqItem, cqDigest = a.Item, a.Digest
+			}
+		}
+		if cqItem != "" {
+			break
+		}
+	}
+	if cqItem == "" || cqDigest != before {
+		t.Fatalf("step 5: reet did not get studio's copy of cq: item %q digest %q, studio's %q", cqItem, cqDigest, before)
+	}
+	cycle(studio, laptop)
+	if !laptop.present(t, "cq") || folderDigest(t, filepath.Join(laptop.skills(), "cq")) != before {
+		t.Fatal("step 5: the kept skill did not reach the second home")
+	}
+	if folderDigest(t, cq) != before || studio.backups(t, "cq") != 0 {
+		t.Fatal("step 5: the kept skill's own copy was touched")
+	}
+	if found, err := st.NewOnMachinesFor(uid); err != nil || len(found) != 0 {
+		t.Fatalf("step 5: still new on a machine: %+v %v", found, err)
+	}
+	if h := healthOf(cqItem); h.State != "ok" || h.Total != 2 {
+		t.Fatalf("step 5: health %+v", h)
+	}
 
-	// 6. Delete the skill: it is gone from disk on both machines, with a
-	// backup, and once both have confirmed it, its name is forgotten.
-	if err = st.DeleteSkillsFor(uid, []string{item}, false, settled()); err != nil {
+	// 5b. cq is edited on the laptop: reet's copy is put back, with a
+	// backup. Use this version takes the laptop's backup as cq's next
+	// revision, and both machines get it.
+	edited := filepath.Join(laptop.skills(), "cq", "SKILL.md")
+	if err = os.WriteFile(edited, []byte("---\nname: cq\ndescription: Made on this machine\n---\nAsk sharper questions.\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	cycle(laptop)
+	if folderDigest(t, filepath.Join(laptop.skills(), "cq")) != before || laptop.backups(t, "cq") != 1 {
+		t.Fatalf("step 5b: the edit was not backed up and replaced: backups=%d", laptop.backups(t, "cq"))
+	}
+	laptopConfig, err := loadAgentConfig(laptop.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page("step 5b", "POST", "/api/v2/skills/"+cqItem+"/use-version", `{"agentId":"`+laptopConfig.ID+`"}`)
+	var newDigest string
+	for range 6 {
+		cycle(laptop)
+		d, err := st.DesiredSkillsFor(uid, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range d.Active {
+			if a.Name == "cq" && a.Digest != before {
+				newDigest = a.Digest
+			}
+		}
+		if newDigest != "" {
+			break
+		}
+	}
+	if newDigest == "" {
+		t.Fatal("step 5b: the laptop's version never became cq's content")
+	}
+	cycle(studio, laptop)
+	for _, m := range []e2eMachine{studio, laptop} {
+		got, err := os.ReadFile(filepath.Join(m.skills(), "cq", "SKILL.md"))
+		if err != nil || !strings.Contains(string(got), "Ask sharper questions.") || folderDigest(t, filepath.Join(m.skills(), "cq")) != newDigest {
+			t.Fatalf("step 5b: %s has %q %v", m.name, got, err)
+		}
+	}
+
+	// 6. Delete the skill on the Skills page: it is gone from disk on both
+	// machines, with a backup, and once both have confirmed it, its name is
+	// forgotten.
+	page("step 6", "POST", "/api/v2/skills/delete", `{"ids":["`+item+`"]}`)
 	if !onRemovalList(t, st, uid, "find-skills") {
 		t.Fatal("step 6: the deleted name is not on the removal list")
 	}

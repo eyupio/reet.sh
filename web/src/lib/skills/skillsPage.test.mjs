@@ -1,0 +1,103 @@
+import { readFileSync } from 'node:fs'
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import ts from 'typescript'
+
+// The Skills page's wording, focus and confirmation helpers.
+const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
+const install = dataUrl(compile('../install.ts'))
+const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
+const { healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence } = page
+
+const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
+const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
+
+test('healthLine words every state', () => {
+  const cases = [
+    [h('ok', { total: 3 }), 'On all 3 machines', 'ok', false],
+    [h('installing', { pending: 2, total: 3 }), 'Installing on 2 of 3', 'work', false],
+    [h('removing', { pending: 3 }), 'Coming off 3 machines', 'work', false],
+    [h('removing', { pending: 1, hosts: ['ThinkPad'] }), 'Coming off ThinkPad', 'work', false],
+    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad', 'bad', true],
+    [h('offline', { hosts: ['studio'] }), "Removing from studio when it's back online", 'work', false],
+    [h('blocked', { hosts: ['ThinkPad'] }), "Can't write skills on ThinkPad", 'bad', false],
+    [h('copying', { hosts: ['Elitebook'] }), 'Copying into reet from Elitebook', 'work', false],
+    [h('copy-failed', { reason: 'over 8 MiB', hosts: ['Elitebook'] }), "Couldn't copy into reet: over 8 MiB. It stays on Elitebook until you delete it.", 'bad', false],
+    [h('getting', { hosts: ['Elitebook'] }), 'Getting a copy from Elitebook', 'work', false],
+    [h('getting'), 'Getting the files', 'work', false],
+    [h('fetch-failed'), "Couldn't fetch the files", 'bad', true],
+    [h('needs-update', { hosts: ['ThinkPad'] }), 'Update reet on ThinkPad to keep its skills in sync', 'bad', false],
+    [h('needs-update', { hosts: ['a', 'b'] }), 'Update reet on 2 machines to keep their skills in sync', 'bad', false],
+    [h('off'), 'Off every machine', 'off', false],
+  ]
+  for (const [health, text, tone, retry] of cases) {
+    const got = healthLine(health)
+    assert.equal(got.text, text)
+    assert.equal(got.tone, tone, text)
+    assert.equal(got.retry, retry, text)
+  }
+  for (const s of ['ok', 'installing', 'removing', 'failed', 'offline', 'blocked', 'copying', 'copy-failed', 'getting', 'fetch-failed', 'needs-update', 'off']) {
+    assert.notEqual(healthLine(h(s)).text, '', s)
+  }
+})
+
+test('toastText', () => {
+  assert.equal(toastText('archived', ['seo-bing'], 3), 'Archived seo-bing · coming off 3 machines')
+  assert.equal(toastText('archived', ['a', 'b'], 1), 'Archived 2 skills · coming off 1 machine')
+  assert.equal(toastText('deleted', ['x'], 3), 'Deleted x · coming off 3 machines')
+  assert.equal(toastText('restored', ['x'], 3), 'Restored x · going back on 3 machines')
+  assert.equal(toastText('kept', ['paseo-help'], 3), 'Kept paseo-help · going on every machine')
+})
+
+test('focusAfterRemoval', () => {
+  assert.equal(focusAfterRemoval(['a', 'b', 'c'], ['b']), 'c')
+  assert.equal(focusAfterRemoval(['a', 'b', 'c'], ['c']), 'b')
+  assert.equal(focusAfterRemoval(['a', 'b'], ['a', 'b']), null)
+})
+
+test('deleteConfirm', () => {
+  const w = deleteConfirm([row({ name: 'reet-babysit', yours: true })])
+  assert.equal(w.title, 'Delete reet-babysit?')
+  assert.ok(w.body.startsWith('You wrote this one.'))
+  assert.deepEqual([w.writtenConfirmed, w.noCopyConfirmed], [true, false])
+  const n = deleteConfirm([row({ hasCopy: false })])
+  assert.ok(n.body.startsWith('reet has no copy of this skill.'))
+  assert.deepEqual([n.writtenConfirmed, n.noCopyConfirmed], [false, true])
+  assert.equal(deleteConfirm([row()]), null)
+  assert.equal(deleteConfirm([]), null)
+})
+
+test('deleteConfirm covers both cases together and several rows', () => {
+  const both = deleteConfirm([row({ name: 'a', yours: true, hasCopy: false })])
+  assert.ok(both.body.includes('You wrote this one.') && both.body.includes('reet has no copy of this skill.'))
+  assert.deepEqual([both.writtenConfirmed, both.noCopyConfirmed], [true, true])
+  const many = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', hasCopy: false }), row({ name: 'c' }), row({ name: 'd', yours: true }), row({ name: 'e', yours: true })])
+  assert.equal(many.title, 'Delete 5 skills?')
+  assert.ok(many.body.includes('a, d and e') || many.body.includes('and 2 more'))
+  assert.deepEqual([many.writtenConfirmed, many.noCopyConfirmed], [true, true])
+  const four = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', yours: true }), row({ name: 'c', yours: true }), row({ name: 'd', yours: true })])
+  assert.ok(four.body.includes('a, b, c and 1 more'))
+  assert.ok(!four.body.includes('d,'))
+})
+
+test('copyPrompt never carries a link', () => {
+  const p = copyPrompt({ name: 'seo-audit', description: 'Full SEO audit.' })
+  assert.equal(p, 'Use the seo-audit skill: Full SEO audit.')
+  const q = copyPrompt({ name: 'x', description: 'See https://github.com/o/r for more' })
+  assert.ok(!/https?:|github\.com/.test(copyPrompt({ name: 'x', description: 'Does things.' })))
+  assert.ok(!/https?:|github\.com/.test(q))
+})
+
+test('installCommandFor', () => {
+  assert.equal(installCommandFor(row()), null)
+  const cmd = installCommandFor(row({ published: true, publicUrl: 'https://reet.sh/s/demo' }))
+  assert.ok(cmd.includes('https://reet.sh/s/demo'))
+  assert.ok(!cmd.includes('github.com/o/r'))
+})
+
+test('syncSentence', () => {
+  assert.equal(syncSentence({ failed: 0, working: 0 }), 'Everything is in sync.')
+  assert.equal(syncSentence({ failed: 0, working: 2 }), 'Installing on 2 machines…')
+  assert.equal(syncSentence({ failed: 1, working: 0 }), '1 machine needs a look.')
+})

@@ -86,7 +86,7 @@ const MAX_BLURB = 280
 
 /** A skill's own description as one line: whitespace collapsed, cut at a word with an ellipsis when long, ending in
  *  punctuation. Mirrors skillBlurb in internal/api/terminal_skills.go. */
-function skillBlurb(description: string | undefined): string {
+export function skillBlurb(description: string | undefined): string {
   const text = (description || '').replace(/\s+/g, ' ').trim()
   const runes = Array.from(text)
   if (runes.length > MAX_BLURB) {

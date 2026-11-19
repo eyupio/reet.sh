@@ -475,3 +475,44 @@ func TestFollowsLibraryRefusalNamesTheResolvedMachine(t *testing.T) {
 		t.Fatalf("queue a scan: %v", err)
 	}
 }
+
+// A saved set for a folder of a machine that follows the library is refused
+// naming the machine as the person knows it, though its folder was recorded
+// under the host that is now only an alias.
+func TestSyncTargetRefusalNamesTheResolvedMachine(t *testing.T) {
+	s, uid, target := controlFixture(t) // the folder is laptop's agents folder
+	a, _, err := s.EnrollSyncAgent(uid, "work-laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "laptop", "work-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	err = s.SyncTargetFollowsLibraryFor(uid, target)
+	if !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "work-laptop follows your library. Make the skill Active to put it on every machine." {
+		t.Fatalf("refusal: %v", err)
+	}
+}
+
+// Sync to one machine that follows the library is refused naming the
+// machine by its merged name, not the alias the agent reports.
+func TestSyncLibraryMachineRefusalNamesTheResolvedMachine(t *testing.T) {
+	s, uid, _ := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "laptop", "work-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	err = s.SyncLibraryMachineFor(uid, "owner", "https://reet.example", a.ID)
+	if !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "work-laptop follows your library. Make the skill Active to put it on every machine." {
+		t.Fatalf("refusal: %v", err)
+	}
+}

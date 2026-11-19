@@ -539,6 +539,11 @@ func (s *Store) SyncTargetFollowsLibraryFor(uid int64, targetID string) error {
 	if err != nil || !follows {
 		return err
 	}
+	// The folder may have been recorded under a host that is now an alias;
+	// the person knows the machine by its resolved name.
+	if host, err = s.ResolveMachineHostFor(uid, host); err != nil {
+		return err
+	}
 	return FollowsLibraryError{Host: host}
 }
 

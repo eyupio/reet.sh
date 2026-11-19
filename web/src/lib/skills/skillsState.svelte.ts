@@ -61,6 +61,8 @@ export class SkillsPageState {
   // Rows a write has taken off a tab (a Delete, an Archive, a Restore), kept off it over any answer that lands while a
   // write is on its way: an answer to an older write cannot know they went. Let go as #ahead is, or by an Undo.
   #gone = new Map<string, Tab>()
+  // Waiting for no write to be on its way (settled).
+  #idle: (() => void)[] = []
 
   rows = $derived(this.held[this.tab] ?? [])
   everyRow = $derived([...(this.held.active ?? []), ...(this.held.archived ?? [])])
@@ -130,6 +132,7 @@ export class SkillsPageState {
         this.#ahead.clear()
         this.#gone.clear()
         if (this.#stale.size) void this.catchUp()
+        for (const wake of this.#idle.splice(0)) wake()
       }
     }
   }
@@ -146,6 +149,20 @@ export class SkillsPageState {
 
   /** An Undo brings rows back: answers that land from now on may show them again. */
   release(ids: string[]) { for (const id of ids) this.#gone.delete(id) }
+
+  /**
+   * Resolves once no write is on its way and the tabs that may miss a change have been read again (or tried), so the
+   * rows on the page are the server's: what an Undo waits on before it puts focus on the row it brought back.
+   */
+  async settled(): Promise<void> {
+    while (!this.destroyed) {
+      if (!this.writing) {
+        await this.catchUp()
+        if (!this.writing) return
+      }
+      await new Promise<void>(resolve => this.#idle.push(resolve))
+    }
+  }
 
   /**
    * A change to a row's own fields that shows at once, ahead of its answer (a Like). While any write is on its way it

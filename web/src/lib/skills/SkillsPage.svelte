@@ -216,11 +216,12 @@
     await refocus(order, ids, keepAct())
     const onMachines = targets.some(r => r.status === 'active' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health.state))
     say(pruneText('deleted', names, onMachines), async () => {
-      // The undelete answers with no page: its tab is read once no write is on its way, and the row is back for focus.
+      // The undelete answers with no page: its tab is read again once no write is on its way, and focus waits for that,
+      // so it lands on the row brought back even when another change was on its way.
       const tab = page.tab
       page.release(ids)
       await page.write(() => undeleteSkills(ids), () => page.markStale(tab))
-      await page.catchUp()
+      await page.settled()
       readAfterGrace()
       void read(other(tab), true)
       await focusRow(ids[0], keepAct())

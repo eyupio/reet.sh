@@ -734,6 +734,31 @@ try {
   }
  }
 
+ // A Delete's Undo while another change is on its way waits for its own row to come back, then puts focus on it, as it
+ // does when nothing else is on its way.
+ if (run('undo waits')) {
+  const w = world()
+  const r = routes(w)
+  r['/api/skill'] = async req => {
+   const b = req.postDataJSON()
+   w.rows = w.rows.map(x => x.shelfId === b.id ? {...x, liked:b.liked} : x)
+   await new Promise(resolve => setTimeout(resolve, 2000))
+   return {id:b.id, liked:b.liked}
+  }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  await row(page, 'svg-animations').getByRole('button', {name:'Delete svg-animations'}).click()
+  await expect(row(page, 'svg-animations')).toHaveCount(0)
+  await expect(toast(page)).toContainText('Deleted svg-animations')
+  await row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'}).click()
+  await toast(page).getByRole('button', {name:/^Undo/}).click()
+  await expect(row(page, 'svg-animations').locator('[data-act="archive"]'), 'focus on the restored row').toBeFocused({timeout:5000})
+  await expect(tab(page, 'Active')).not.toBeFocused()
+  await expect(row(page, 'ui-ux-pro-max').getByRole('button', {name:'Like ui-ux-pro-max'})).toHaveAttribute('aria-pressed', 'true')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The page gone (the sign-in screen took its place) while a change was on its way: when the change answers, the page
  // starts no reads, neither at once nor after the grace period.
  if (run('unmount')) {

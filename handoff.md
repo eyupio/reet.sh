@@ -124,7 +124,9 @@ desk. Open Desks to see them." instead of "No sessions match."
 
 **Checked.** `web/tests/sessions.e2e.mjs` gained the "desk sessions" section: quiet and finished desk sessions leave the
 list, a waiting one stays with its chip (`/desks/desk1#pa`), and a 503 desk read shows every session without a problem
-line. Full `sessions.e2e.mjs`, `npm run check` and the web build pass.
+line. `web/tests/desks.e2e.mjs` was updated: a session added to a desk leaves Sessions, the moved sessions wait so they
+stay listed, and the chip block now holds one waiting session on `desk-prod` (quiet `desk-split` sessions are off the
+list). Full `sessions.e2e.mjs`, full `desks.e2e.mjs`, `npm run check` and the web build pass.
 
 **Not checked.** A real controller and desk; a session that is both a waiting desk session and a Factory pipeline's; the
 page with more than 100 sessions and many desks. Docs updated: `README.md`, `docs/desks.md`, `docs/session-board.md`,

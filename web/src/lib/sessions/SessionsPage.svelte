@@ -101,9 +101,13 @@
   let placesRead = 0
   async function loadPlaces() {
     const mine = ++placesRead
-    const listedIds = new Set((listed ?? []).map(s => s.id))
     try {
-      const holding = (desks ?? []).filter(d => !d.template && d.sessions.some(id => listedIds.has(id)))
+      // Read the desks fresh: an Add to or a move between desks changes what each holds before the page's next poll.
+      const list = await listDesks(bounded())
+      if (life.signal.aborted || mine !== placesRead) return
+      desks = list
+      const listedIds = new Set((listed ?? []).map(s => s.id))
+      const holding = list.filter(d => !d.template && d.sessions.some(id => listedIds.has(id)))
       const read = await Promise.allSettled(holding.map(d => getDesk(d.id)))
       if (life.signal.aborted || mine !== placesRead) return
       places = deskPlaces(read.flatMap(r => r.status === 'fulfilled' ? [r.value] : []))
@@ -368,7 +372,7 @@
   </div>
 {/if}
 <SessionActions bind:this={actions} machines={machines} {offline} {terminals} {removeDefault} {factorySessionEndDefault}
-  onsignedout={signOut} onchanged={() => load(true)} ondesks={() => { void load(true).then(() => void loadPlaces()) }} onnotice={(n) => (notice = n)}
+  onsignedout={signOut} onchanged={() => load(true)} ondesks={() => void loadPlaces()} onnotice={(n) => (notice = n)}
   onopen={(item) => (openActionsFor = item.id)} onclose={() => (openActionsFor = '')} />
 {#if commandsOpen}<CommandLibrary onclose={() => void closeCommands()} />{/if}
 {#if worktreesFor}

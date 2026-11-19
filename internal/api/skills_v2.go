@@ -134,18 +134,28 @@ func pageIDs(w http.ResponseWriter, ids []string) ([]string, bool) {
 }
 
 // skillsSetStatus is Archive and Restore, one skill or many: body
-// {"ids":[…],"status":"active"|"archived"}. It answers with the page for the
-// tab the skills went to, so an Undo gets them back in their places.
+// {"ids":[…],"status":"active"|"archived","tab":"active"|"archived"}. It
+// answers with the page for tab, the tab the person is on, so pruning never
+// switches tabs. Without tab it answers with the tab the skills went to,
+// where an Undo gets them back in their places.
 func (s *server) skillsSetStatus(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		IDs    []string `json:"ids"`
 		Status string   `json:"status"`
+		Tab    string   `json:"tab"`
 	}
 	if !decodeStrictJSON(w, r, skillsPageIDLimit, &in, "Invalid or oversized status change.") {
 		return
 	}
 	if in.Status != store.SkillActive && in.Status != store.SkillArchived {
 		writeErrCode(w, 400, errInvalidArgument, "status", "Choose active or archived.", "")
+		return
+	}
+	if in.Tab == "" {
+		in.Tab = in.Status
+	}
+	if in.Tab != store.SkillActive && in.Tab != store.SkillArchived {
+		writeErrCode(w, 400, errInvalidArgument, "tab", "Choose active or archived.", "")
 		return
 	}
 	ids, ok := pageIDs(w, in.IDs)
@@ -169,7 +179,7 @@ func (s *server) skillsSetStatus(w http.ResponseWriter, r *http.Request) {
 	// An archived skill reet has no copy of is copied in before it leaves
 	// any machine.
 	s.kickSkillCopies(uid)
-	s.writeSkillsPage(w, r, in.Status)
+	s.writeSkillsPage(w, r, in.Tab)
 }
 
 func itemNames(items []store.SkillItemRef) []string {
@@ -444,6 +454,10 @@ func (s *server) skillUseVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid, item := s.uid(r), r.PathValue("item")
+	if len(item) > 64 {
+		writeErrCode(w, 400, errInvalidArgument, "item", "That is not a skill id.", "")
+		return
+	}
 	req, err := s.st.RequestSkillUseVersionFor(uid, item, in.AgentID, time.Now())
 	if err != nil {
 		name := "this skill"

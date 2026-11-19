@@ -41,6 +41,7 @@ type pageRow struct {
 		AgentID string `json:"agentId"`
 		Host    string `json:"host"`
 	} `json:"editedOn"`
+	EditedOnProblem string `json:"editedOnProblem"`
 }
 
 // pageData mirrors SkillsPageData in web/src/lib/api.ts.
@@ -261,6 +262,17 @@ func TestSkillsPageBulkStatus(t *testing.T) {
 	}
 	if r := e.removals(t); r["alpha"] != "archived" || r["beta"] != "archived" || r["gamma"] != "" {
 		t.Fatalf("removals: %v", r)
+	}
+	// With tab, the answer is that tab, so pruning never switches tabs.
+	code, raw = e.owner(t, "POST", "/api/v2/skills/status", `{"ids":["`+b+`"],"status":"active","tab":"archived"}`)
+	if err := json.Unmarshal([]byte(raw), &p); err != nil || code != 200 || !slices.Equal(p.names(), []string{"alpha"}) || p.Counts.Active != 2 || p.Counts.Archived != 1 {
+		t.Fatalf("restore from the Archived tab: %d %s", code, raw)
+	}
+	if code, raw = e.owner(t, "POST", "/api/v2/skills/status", `{"ids":["`+b+`"],"status":"archived","tab":"parked"}`); code != 400 {
+		t.Fatalf("a tab that is not one: %d %s", code, raw)
+	}
+	if code, raw = e.owner(t, "POST", "/api/v2/skills/status", `{"ids":["`+b+`"],"status":"archived","tab":"active"}`); code != 200 || !strings.Contains(raw, `"name":"gamma"`) || strings.Contains(raw, `"name":"alpha"`) {
+		t.Fatalf("archive from the Active tab: %d %s", code, raw)
 	}
 	code, raw = e.owner(t, "POST", "/api/v2/skills/status", `{"ids":["`+a+`"],"status":"active"}`)
 	if code != 200 || !strings.Contains(raw, `"name":"alpha"`) || strings.Contains(raw, `"name":"beta"`) {
@@ -848,5 +860,61 @@ func TestOldRemoveIgnoresAnIDNotOnTheShelf(t *testing.T) {
 	}
 	if _, raw := e.owner(t, "GET", "/api/ignored", ""); !strings.Contains(raw, "a/b/never-added") {
 		t.Fatalf("ignored: %s", raw)
+	}
+}
+
+// Use this version is offered only for a backup the controller would take,
+// and says why when the machine's edited copy cannot be copied in.
+func TestSkillsPageEditedOnOffersOnlyUsableBackups(t *testing.T) {
+	e := newReconcileEnv(t)
+	item := e.writtenSkill(t, "demo")
+	e.editedOn(t, "demo", "~/.agents/skills/demo")
+	if r := e.page(t, "active").row(t, "demo"); r.EditedOn != nil {
+		t.Fatalf("a backup the controller refuses is offered: %+v", r.EditedOn)
+	}
+	backup := "~/.agents/.reet-backups/2026-11-18/agents-demo"
+	e.editedOn(t, "demo", backup)
+	if r := e.page(t, "active").row(t, "demo"); r.EditedOn == nil || r.EditedOn.AgentID != e.agent.ID || r.EditedOnProblem != "" {
+		t.Fatalf("a usable backup is not offered: %+v %q", r.EditedOn, r.EditedOnProblem)
+	}
+	instance := strings.Repeat("a", 48)
+	if _, err := e.st.ClaimRemoteImportFor(e.uid, e.agent.ID, instance); err != nil {
+		t.Fatal(err)
+	}
+	if code, raw := e.owner(t, "POST", "/api/v2/skills/"+item+"/use-version", `{"agentId":"`+e.agent.ID+`"}`); code != 202 {
+		t.Fatalf("use version: %d %s", code, raw)
+	}
+	// The machine's preview names a file reet won't copy, so it waits.
+	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: demo\ndescription: Edited\n---\nBody.\n")}, {Path: ".env", Data: []byte("TOKEN=x")}}
+	m, err := skillbundle.FromContents(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := e.st.ClaimRemoteImportFor(e.uid, e.agent.ID, instance)
+	if err != nil || work == nil {
+		t.Fatalf("work: %+v %v", work, err)
+	}
+	preview := skillimport.Preview{SchemaVersion: skillimport.RemoteVersion, SourceDigest: m.Digest, SkillValid: true}
+	for _, f := range m.Files {
+		for _, c := range files {
+			if c.Path == f.Path {
+				preview.Files = append(preview.Files, skillimport.PreviewFile{File: f, Blocked: skillimport.BlockedReason(c)})
+			}
+		}
+	}
+	if err = e.st.RecordRemotePreviewFor(e.uid, e.agent.ID, work.ID, instance, preview); err != nil {
+		t.Fatal(err)
+	}
+	r := e.page(t, "active").row(t, "demo")
+	if r.EditedOn == nil || r.EditedOnProblem != "The edited copy on elitebook has a file reet won't copy: .env (credential or configuration path)." {
+		t.Fatalf("problem: %+v %q", r.EditedOn, r.EditedOnProblem)
+	}
+}
+
+func TestUseVersionRefusesALongItem(t *testing.T) {
+	e := newReconcileEnv(t)
+	code, raw := e.owner(t, "POST", "/api/v2/skills/"+strings.Repeat("a", 65)+"/use-version", `{"agentId":"`+e.agent.ID+`"}`)
+	if code != 400 {
+		t.Fatalf("a 65-byte item: %d %s", code, raw)
 	}
 }

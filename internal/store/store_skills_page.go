@@ -2,11 +2,14 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/skillimport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,6 +38,9 @@ type SkillPageRow struct {
 	Health       SkillHealth    `json:"health"`
 	UpgradedFrom string         `json:"upgradedFrom,omitempty"`
 	EditedOn     *SkillEditedOn `json:"editedOn,omitempty"`
+	// EditedOnProblem says, in plain words, why Use this version could not
+	// take the edited copy EditedOn names, when it tried and could not.
+	EditedOnProblem string `json:"editedOnProblem,omitempty"`
 	// HostedSlug is the written skill's name in the owner's hosted skills,
 	// from which the API makes PublicURL.
 	HostedSlug string `json:"-"`
@@ -141,10 +147,25 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	if err != nil {
 		return page, err
 	}
-	edited := map[string]*SkillEditedOn{}
+	// Use this version takes a machine's newest backup of the skill and
+	// refuses one outside the backups folders, so the page offers the newest
+	// of those that the controller would take.
+	type offer struct {
+		on     SkillEditedOn
+		backup string
+	}
+	edited, newest := map[string]offer{}, map[string]bool{}
 	for _, b := range backups { // newest first
-		if key := strings.ToLower(b.Name); edited[key] == nil {
-			edited[key] = &SkillEditedOn{AgentID: b.AgentID, Host: b.Host}
+		name := strings.ToLower(b.Name)
+		if newest[name+"\x00"+b.AgentID] {
+			continue
+		}
+		newest[name+"\x00"+b.AgentID] = true
+		if _, ok := managedBackupPath(b.Backup); !ok {
+			continue
+		}
+		if _, ok := edited[name]; !ok {
+			edited[name] = offer{SkillEditedOn{AgentID: b.AgentID, Host: b.Host}, b.Backup}
 		}
 	}
 	for i := range page.Skills {
@@ -154,7 +175,13 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 			h = SkillHealth{State: "off", Hosts: []string{}, Machines: []MachineSkillState{}}
 		}
 		r.Health = h
-		r.EditedOn = edited[strings.ToLower(r.Name)]
+		if o, ok := edited[strings.ToLower(r.Name)]; ok {
+			on := o.on
+			r.EditedOn = &on
+			if r.EditedOnProblem, err = s.useVersionProblem(uid, r.ID, on, o.backup); err != nil {
+				return page, err
+			}
+		}
 	}
 	if page.NewOnMachines, err = s.NewOnMachinesFor(uid); err != nil {
 		return page, err
@@ -164,6 +191,57 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	}
 	page.Notice, err = s.SkillUpgradeNoticeFor(uid)
 	return page, err
+}
+
+// useVersionProblem says why the last Use this version of item from the
+// backup on.AgentID took could not bring it in, or "" when it did not try or
+// has not failed: the backup holds a file reet will not copy, or the machine
+// could not send it.
+func (s *Store) useVersionProblem(uid int64, item string, on SkillEditedOn, backup string) (string, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT data FROM machine_import_requests WHERE user_id=? AND agent_id=? AND json_extract(data,'$.useVersionItem')=? AND json_extract(data,'$.backupPath')=? ORDER BY created_at DESC,rowid DESC LIMIT 1`, uid, on.AgentID, item, backup).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var r RemoteImport
+	if err = json.Unmarshal([]byte(raw), &r); err != nil {
+		return "", err
+	}
+	if activeImport(r.State) && r.ExpiresAt < now() {
+		r.State = "expired"
+	}
+	switch r.State {
+	case "reviewing":
+		if r.Preview == nil {
+			return "", nil
+		}
+		for _, f := range r.Preview.Files {
+			if f.Blocked != "" {
+				return fmt.Sprintf("The edited copy on %s has a file reet won't copy: %s (%s).", on.Host, f.Path, skillimport.BlockDescription(f.Blocked)), nil
+			}
+		}
+		if !r.Preview.SkillValid {
+			return fmt.Sprintf("The edited copy on %s has no valid SKILL.md.", on.Host), nil
+		}
+	case "failed":
+		why := map[string]string{
+			"capture_failed":         "reet couldn't read it",
+			"scope_unavailable":      "it isn't in that machine's skills backups",
+			"source_changed":         "it changed while it was being read",
+			"transfer_failed":        "sending it failed",
+			"invalid_skill_manifest": "its SKILL.md isn't valid",
+		}[r.Error]
+		if why == "" {
+			why = "it could not be read"
+		}
+		return fmt.Sprintf("%s couldn't send its edited copy: %s.", on.Host, why), nil
+	case "expired":
+		return fmt.Sprintf("%s didn't send its edited copy in time.", on.Host), nil
+	}
+	return "", nil
 }
 
 // skillOriginKind names how a skill arrived. An item from before origins were

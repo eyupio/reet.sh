@@ -511,6 +511,8 @@ export type SkillRow = {
   health: SkillHealth
   upgradedFrom?: 'parked' | 'removed'
   editedOn?: { agentId: string; host: string }
+  /** Why Use this version could not take editedOn's copy, when it tried: for example a file reet won't copy. */
+  editedOnProblem?: string
 }
 export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
 export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null }
@@ -519,9 +521,12 @@ export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; arc
 export async function loadSkillsPage(status: 'active' | 'archived'): Promise<SkillsPageData> {
   return (await req(`/api/v2/skills?status=${encodeURIComponent(status)}`)).json()
 }
-/** Archive or Restore. The answer is the tab the skills went to, so an Undo puts them back in their places. */
-export async function setSkillStatus(ids: string[], status: 'active' | 'archived'): Promise<SkillsPageData> {
-  return (await req('/api/v2/skills/status', { method: 'POST', body: json({ ids, status }) })).json()
+/**
+ * Archive or Restore. The answer is the page for tab, the tab the person is on, so pruning never switches tabs.
+ * Without tab it is the tab the skills went to, which is where an Undo puts them back in their places.
+ */
+export async function setSkillStatus(ids: string[], status: 'active' | 'archived', tab?: 'active' | 'archived'): Promise<SkillsPageData> {
+  return (await req('/api/v2/skills/status', { method: 'POST', body: json(tab ? { ids, status, tab } : { ids, status }) })).json()
 }
 /**
  * Delete. It throws an ApiError naming the skills in `names`, and deletes nothing, when one of them is a skill you

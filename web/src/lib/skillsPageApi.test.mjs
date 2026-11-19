@@ -49,3 +49,13 @@ test('the old Remove dialogs say what Remove now does to machines', () => {
   assert.ok(app.includes('Removing deletes it from your library and takes it off every machine. Each machine keeps a backup for 30 days.'))
   assert.ok(app.includes('They will be deleted from your library and taken off every machine. Each machine keeps a backup for 30 days.'))
 })
+
+test('setSkillStatus names the tab the person is on, when given', async () => {
+  let calls = replying(200, { skills: [], counts: { active: 0, archived: 0 }, newOnMachines: [], machines: 0, notice: null })
+  await api.setSkillStatus(['a'], 'archived', 'active')
+  assert.equal(calls[0].url, '/api/v2/skills/status')
+  assert.deepEqual(calls[0].body, { ids: ['a'], status: 'archived', tab: 'active' })
+  calls = replying(200, { skills: [], counts: { active: 0, archived: 0 }, newOnMachines: [], machines: 0, notice: null })
+  await api.setSkillStatus(['a'], 'active')
+  assert.deepEqual(calls[0].body, { ids: ['a'], status: 'active' })
+})

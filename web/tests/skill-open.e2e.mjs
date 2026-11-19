@@ -48,7 +48,12 @@ function routes(w) {
    post('original', req)
    return {updated:true, digest:w.original.digest, edited:w.original.edited}
   },
-  '/api/v2/skills/item-seo-cluster/use-version': req => { post('use-version', req); return {status:202, json:{requested:true, id:'r1'}} },
+  '/api/v2/skills/item-seo-cluster/use-version': req => {
+   post('use-version', req)
+   // The machine's copy lands a moment later, as a capture does: from then on the page reads it as reet's.
+   setTimeout(() => { w.rows = w.rows.map(r => r.id === 'item-seo-cluster' ? {...r, editedOn:undefined} : r) }, 1500)
+   return {status:202, json:{requested:true, id:'r1'}}
+  },
   '/api/v2/skills/item-seo-cluster/publish': req => {
    const b = post('publish', req)
    w.rows = w.rows.map(r => r.id === 'item-seo-cluster' ? {...r, published:b.public, publicUrl:b.public ? 'https://reet.example/sam/seo-cluster' : undefined} : r)
@@ -214,6 +219,8 @@ try {
   await detail.getByRole('button', {name:'Use this version'}).click()
   await expect.poll(() => posts(w, 'use-version')).toEqual([{agentId:'agent-thinkpad'}])
   await expect(page.getByRole('status').filter({hasText:'Asked ThinkPad for its version of seo-cluster'})).toBeVisible()
+  // The page reads itself again once the copy has landed, well before its 15-second poll.
+  await expect(detail.getByText("seo-cluster was edited on ThinkPad; reet's copy put back.")).toHaveCount(0, {timeout:8000})
   const kept = await openRow(page, 'improve-animations')
   await expect(kept.getByText("improve-animations was edited on Elitebook; reet's copy put back.")).toBeVisible()
   await expect(kept.getByText('The copy on Elitebook holds a file over 8 MiB, which reet does not copy.')).toBeVisible()

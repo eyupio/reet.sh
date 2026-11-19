@@ -322,9 +322,31 @@
       const out = await write(() => useMachineVersion(row.id, from.agentId))
       if (out.publicProblem) page.setRow(row.id, { publicProblem: out.publicProblem })
       say(`Asked ${from.host} for its version of ${row.name}. It goes on every machine once it arrives.`)
+      readUntilLanded(row.id, from.agentId)
     } catch (e) {
       refuse(e)
     }
+  }
+  // Use this version asks the machine for its copy, which lands a little later. The page reads itself again soon after,
+  // and then less often, until the row no longer says that machine's edit was put back (or two minutes have passed),
+  // rather than leave it to the next poll.
+  let landTimer: ReturnType<typeof setTimeout> | undefined
+  function readUntilLanded(id: string, agentId: string) {
+    clearTimeout(landTimer)
+    let wait = 2000, waited = 0
+    const next = () => {
+      if (page.destroyed) return
+      landTimer = setTimeout(async () => {
+        waited += wait
+        await read(page.tab, true)
+        const edited = page.shown.find(r => r.id === id)?.editedOn?.agentId === agentId
+        if (edited && waited < 120000) {
+          wait = Math.min(wait * 2, 30000)
+          next()
+        }
+      }, wait)
+    }
+    next()
   }
   async function updateOriginal(row: SkillRow, digest: string, revision: string) {
     let updated: boolean
@@ -533,6 +555,7 @@
       page.destroyed = true
       clearInterval(poll)
       clearTimeout(graceTimer)
+      clearTimeout(landTimer)
       window.removeEventListener('reet-shelf-changed', changed)
     }
   })

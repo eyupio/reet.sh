@@ -1079,3 +1079,54 @@ func TestAgentRestoreListsJobBackupsOutsideHome(t *testing.T) {
 	}
 	sameTree(t, "project", before, homeTree(t, project))
 }
+
+// One project's backup folder that cannot be read does not hide the backups
+// that can be: each unreadable folder gets a plain line, and the command
+// succeeds because something was listed.
+func TestAgentRestoreListCarriesOnPastAnUnreadableProjectFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	project := t.TempDir()
+	config := filepath.Join(t.TempDir(), "agent.json")
+	hostname, _ := os.Hostname()
+	if err := writePrivate(config, agentConfig{Server: "https://reet.example", Home: home, Hostname: hostname, Projects: []string{project}}); err != nil {
+		t.Fatal(err)
+	}
+	inCodex := filepath.Join(home, ".codex", ".reet-sync-backups", "removed-20261101", "codexy")
+	writeSkill(t, inCodex)
+	writeSkill(t, filepath.Join(project, ".claude", ".reet-sync-backups", "removed-20261101", "extra"))
+	badDir := filepath.Join(project, ".claude", ".reet-sync-backups")
+	real := readBackupDir
+	readBackupDir = func(name string) ([]os.DirEntry, error) {
+		if strings.HasPrefix(name, badDir) {
+			return nil, errors.New("permission denied")
+		}
+		return real(name)
+	}
+	t.Cleanup(func() { readBackupDir = real })
+	var out bytes.Buffer
+	if err := runAgentRestore([]string{"--config", config, "--list"}, &out); err != nil {
+		t.Fatalf("something was listed, so it should succeed: %v", err)
+	}
+	for _, want := range []string{
+		"codexy  from " + filepath.Join(home, ".codex", "skills"),
+		"Couldn't read the backups in " + filepath.Join(project, ".claude", "skills") + ": permission denied\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("list = %q, want %q", out.String(), want)
+		}
+	}
+	if strings.Contains(out.String(), "extra") {
+		t.Fatalf("the unreadable folder's backups were listed: %q", out.String())
+	}
+
+	// With nothing readable at all, it fails rather than say there are none.
+	if err := os.RemoveAll(filepath.Join(home, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err := runAgentRestore([]string{"--config", config, "--list"}, &out)
+	if err == nil || strings.Contains(out.String(), "No backed-up skills") || !strings.Contains(out.String(), "Couldn't read the backups in ") {
+		t.Fatalf("err = %v, out = %q", err, out.String())
+	}
+}

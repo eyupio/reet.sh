@@ -454,3 +454,24 @@ func TestJobBasedSyncRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
 		t.Fatalf("jobs: %+v %v", jobs, err)
 	}
 }
+
+// The refusal names the machine as the person knows it: its merged name, not
+// the host the agent reports, which is now only an alias.
+func TestFollowsLibraryRefusalNamesTheResolvedMachine(t *testing.T) {
+	s, uid, _ := controlFixture(t)
+	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	// The agent still reports "laptop", which is an alias of "work-laptop".
+	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "laptop", "work-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.QueueSyncJob(uid, a.ID, "", "scan")
+	if !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "work-laptop follows your library; its skills are checked on every poll, so there's nothing to scan." {
+		t.Fatalf("queue a scan: %v", err)
+	}
+}

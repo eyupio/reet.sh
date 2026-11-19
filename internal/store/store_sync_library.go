@@ -438,7 +438,11 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 			return ErrNotFound
 		}
 		if selected[0].SkillsProtocol >= CurrentSkillsProtocol {
-			return FollowsLibraryError{Host: selected[0].Host}
+			host, err := s.ResolveMachineHostFor(uid, selected[0].Host)
+			if err != nil {
+				return err
+			}
+			return FollowsLibraryError{Host: host}
 		}
 		agents = selected
 	}

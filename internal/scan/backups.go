@@ -373,85 +373,58 @@ func listBackups(home string) ([]backupEntry, error) {
 	return backupsBeside(folders)
 }
 
+// readBackupDir reads a backup folder; a variable so a test can make one fail.
+var readBackupDir = os.ReadDir
+
+// unreadableBackups is a skills folder whose backups could not all be read.
+type unreadableBackups struct {
+	Folder string
+	Err    error
+}
+
 // listJobBackups lists, as listBackups does, the backups beside the skills
 // folders a sync job could also have worked in: Codex's under home, and those
 // of the enrolled projects. It only reads.
-func listJobBackups(home string, projects []string) ([]backupEntry, error) {
+//
+// A folder whose backups cannot be read does not stop the rest: it is
+// returned in the second result, with what was read from the others.
+func listJobBackups(home string, projects []string) ([]backupEntry, []unreadableBackups) {
 	folders := []string{filepath.Join(home, ".codex", "skills")}
 	for _, p := range projects {
 		for _, d := range projectDirs {
 			folders = append(folders, filepath.Join(p, filepath.FromSlash(d.Dir)))
 		}
 	}
-	return backupsBeside(folders)
+	return backupsBesideEach(folders)
 }
 
 // shellQuote quotes s for a POSIX shell.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // backupsBeside lists the backups beside each of folders, newest date first,
-// then in the order folders are given.
+// then in the order folders are given. It stops at the first folder it cannot
+// read.
 func backupsBeside(folders []string) ([]backupEntry, error) {
+	out, bad := backupsBesideEach(folders)
+	if len(bad) > 0 {
+		return nil, bad[0].Err
+	}
+	return out, nil
+}
+
+// backupsBesideEach is backupsBeside that carries on past a folder it cannot
+// read, naming each such folder in the second result. What was read from the
+// others is listed.
+func backupsBesideEach(folders []string) ([]backupEntry, []unreadableBackups) {
 	var out []backupEntry
+	var bad []unreadableBackups
 	for _, folder := range folders {
-		root, prefix := backupRoot(folder), backupPrefix(folder)
-		for _, date := range dateFolders(root) {
-			dir := filepath.Join(root, date)
-			entries, err := os.ReadDir(dir)
-			if err != nil {
-				return nil, err
-			}
-			idx := readBackupIndex(dir)
-			present := map[string]bool{}
-			for _, e := range entries {
-				present[e.Name()] = true
-			}
-			for _, e := range entries {
-				if e.Name() == backupIndexFile {
-					continue
-				}
-				b := backupEntry{Folder: folder, Path: filepath.Join(dir, e.Name()), Date: date, index: e.Name()}
-				if rec, ok := idx.Entries[e.Name()]; ok && validBackupName(rec.Name) {
-					b.Name, b.At = rec.Name, rec.At
-				} else if name := strings.TrimPrefix(e.Name(), prefix); name != e.Name() && validBackupName(name) {
-					// Without an index, a trailing -N is a clash suffix only
-					// beside the entry it clashed with.
-					if stem, ok := clashStem(name); ok && present[prefix+stem] {
-						name = stem
-					}
-					b.Name = name
-				} else {
-					continue
-				}
-				out = append(out, b)
-			}
-		}
-		legacy := filepath.Join(filepath.Dir(folder), ".reet-sync-backups")
-		if !isRealDir(legacy) {
+		got, err := backupsInFolder(folder)
+		if err != nil {
+			bad = append(bad, unreadableBackups{Folder: folder, Err: err})
 			continue
 		}
-		groups, err := os.ReadDir(legacy)
-		if err != nil {
-			return nil, err
-		}
-		for _, g := range groups {
-			dir := filepath.Join(legacy, g.Name())
-			st, err := os.Lstat(dir)
-			if !strings.HasPrefix(g.Name(), "removed-") || err != nil || !st.IsDir() {
-				continue
-			}
-			entries, err := os.ReadDir(dir)
-			if err != nil {
-				return nil, err
-			}
-			for _, e := range entries {
-				if !validBackupName(e.Name()) {
-					continue
-				}
-				out = append(out, backupEntry{Name: e.Name(), Folder: folder, Path: filepath.Join(dir, e.Name()),
-					Date: st.ModTime().Format(backupDateLayout), At: st.ModTime().UnixMilli(), legacy: true})
-			}
-		}
+		out = append(out, got...)
 	}
 	order := map[string]int{}
 	for i, folder := range folders {
@@ -472,6 +445,71 @@ func backupsBeside(folders []string) ([]backupEntry, error) {
 		}
 		return out[i].Path > out[j].Path
 	})
+	return out, bad
+}
+
+// backupsInFolder lists the backups beside one skills folder, unsorted. An
+// error means some of them could not be read, and none are returned.
+func backupsInFolder(folder string) ([]backupEntry, error) {
+	var out []backupEntry
+	root, prefix := backupRoot(folder), backupPrefix(folder)
+	for _, date := range dateFolders(root) {
+		dir := filepath.Join(root, date)
+		entries, err := readBackupDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		idx := readBackupIndex(dir)
+		present := map[string]bool{}
+		for _, e := range entries {
+			present[e.Name()] = true
+		}
+		for _, e := range entries {
+			if e.Name() == backupIndexFile {
+				continue
+			}
+			b := backupEntry{Folder: folder, Path: filepath.Join(dir, e.Name()), Date: date, index: e.Name()}
+			if rec, ok := idx.Entries[e.Name()]; ok && validBackupName(rec.Name) {
+				b.Name, b.At = rec.Name, rec.At
+			} else if name := strings.TrimPrefix(e.Name(), prefix); name != e.Name() && validBackupName(name) {
+				// Without an index, a trailing -N is a clash suffix only
+				// beside the entry it clashed with.
+				if stem, ok := clashStem(name); ok && present[prefix+stem] {
+					name = stem
+				}
+				b.Name = name
+			} else {
+				continue
+			}
+			out = append(out, b)
+		}
+	}
+	legacy := filepath.Join(filepath.Dir(folder), ".reet-sync-backups")
+	if !isRealDir(legacy) {
+		return out, nil
+	}
+	groups, err := readBackupDir(legacy)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		dir := filepath.Join(legacy, g.Name())
+		st, err := os.Lstat(dir)
+		if !strings.HasPrefix(g.Name(), "removed-") || err != nil || !st.IsDir() {
+			continue
+		}
+		entries, err := readBackupDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if !validBackupName(e.Name()) {
+				continue
+			}
+			out = append(out, backupEntry{Name: e.Name(), Folder: folder, Path: filepath.Join(dir, e.Name()),
+				Date: st.ModTime().Format(backupDateLayout), At: st.ModTime().UnixMilli(), legacy: true})
+		}
+	}
 	return out, nil
 }
 

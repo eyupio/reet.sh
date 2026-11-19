@@ -596,6 +596,11 @@ func refuseJobsForSkillsAgentTx(q privateSkillQuery, uid int64, agentID, kind st
 		return nil
 	}
 	if err == nil && protocol >= CurrentSkillsProtocol {
+		// The agent's host may be an alias; the person knows the machine by
+		// its resolved name.
+		if host, err = resolveMachineHost(q, uid, host); err != nil {
+			return err
+		}
 		return FollowsLibraryError{Host: host, Action: kind}
 	}
 	return err

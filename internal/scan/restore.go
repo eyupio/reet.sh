@@ -79,11 +79,17 @@ func runAgentRestore(args []string, out io.Writer) error {
 		}
 		// A sync job's backups beside a project's or Codex's skills folder
 		// are listed too, with the command that restores each exactly.
-		jobs, err := listJobBackups(home, projects)
-		if err != nil {
-			return err
+		// A folder that cannot be read is said, one line each, and does not
+		// hide what the others hold.
+		jobs, unreadable := listJobBackups(home, projects)
+		for _, u := range unreadable {
+			fmt.Fprintf(out, "Couldn't read the backups in %s: %v\n", u.Folder, u.Err)
 		}
 		if len(entries)+len(jobs) == 0 {
+			if len(unreadable) > 0 {
+				// "No backed-up skills" would be untrue, and nothing was listed.
+				return fmt.Errorf("couldn't read the backups in %d folder(s), so none are listed", len(unreadable))
+			}
 			fmt.Fprintln(out, "No backed-up skills.")
 		}
 		for _, b := range entries {

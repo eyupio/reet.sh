@@ -450,6 +450,10 @@ func TestMCPLocalSkillsAndMachineCleanup(t *testing.T) {
 				for _, name := range skills {
 					items = append(items, map[string]any{"name": name, "host": host, "agent": "agents"})
 				}
+				// A scan only joins skills the library has: the names are typed first.
+				if len(skills) > 0 {
+					mcpJSON(t, browser, ts, "POST", "/api/import", map[string]any{"text": strings.Join(skills, "\n")}, 200)
+				}
 				mcpJSON(t, browser, ts, "POST", "/api/import", map[string]any{
 					"machine": map[string]any{"host": host}, "prune": true, "items": items,
 					"environments": []map[string]any{{"host": host, "agent": "agents", "skills": skills}},

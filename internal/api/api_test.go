@@ -454,6 +454,10 @@ func TestWriteRequiresJSONContentType(t *testing.T) {
 
 func TestImportEnvironmentAndPrune(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
+	// A scan only joins skills the library has; a typed name is the person's own choice.
+	if code, b := do(t, srv, "POST", "/api/import", `{"text":"alpha"}`); code != 200 {
+		t.Fatalf("%d %s", code, b)
+	}
 	body := `{"items":[{"name":"alpha","host":"laptop","agent":"claude","path":".claude/skills"}],"environments":[{"host":"laptop","agent":"claude","path":".claude/skills","skills":["alpha"]}],"prune":true}`
 	if code, b := do(t, srv, "POST", "/api/import", body); code != 200 {
 		t.Fatalf("%d %s", code, b)

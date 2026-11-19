@@ -546,23 +546,140 @@ func TestScanOfAProtocol2MachineMakesNoLibraryItems(t *testing.T) {
 	}
 }
 
-// An agent from before the skills protocol keeps today's scan: what it finds
-// becomes a library item.
-func TestScanOfAnOlderMachineStillMakesLibraryItems(t *testing.T) {
+// An inventory scan only reports what a machine has: from any machine, on the
+// skills protocol or not, a home-folder skill the library does not have makes
+// no library item, and neither does a lock-file entry with no folder.
+func TestScanImportDoesNotCreateItems(t *testing.T) {
 	e := newReconcileEnv(t)
 	e.poll(t, "", false)
+	before := e.libraryNames(t)
 	e.scanImport(t, []string{"cq"}, "locked")
-	names := e.libraryNames(t)
-	if _, ok := names["cq"]; !ok {
-		t.Fatalf("an older machine's scan made no item of cq: %+v", names)
+	after := e.libraryNames(t)
+	if len(after) != len(before) {
+		t.Fatalf("an older machine's scan changed the library: before %+v, after %+v", before, after)
 	}
-	if _, ok := names["locked"]; !ok {
-		t.Fatalf("an older machine's scan made no item of its lock entry: %+v", names)
+	for _, name := range []string{"cq", "locked"} {
+		if _, ok := after[name]; ok {
+			t.Fatalf("an older machine's scan made an item of %s: %+v", name, after)
+		}
 	}
 }
 
-// A project folder is not the machine's home: until Task 14 its skills keep
-// today's import, on any machine.
+// secondMachine enrolls studio and returns a call that speaks as it.
+func (e reconcileEnv) secondMachine(t *testing.T) (store.SyncAgent, func(path, body string, protocol bool) (int, string)) {
+	t.Helper()
+	a, secret, err := e.st.EnrollSyncAgent(e.uid, "studio", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a, func(path, body string, protocol bool) (int, string) {
+		t.Helper()
+		headers := []string{"X-Reet-Token", "fixture-owner", "X-Reet-Agent", a.ID, "X-Reet-Agent-Key", secret, "X-Reet-Version", "test"}
+		if protocol {
+			headers = append(headers, "X-Reet-Skills-Protocol", "2")
+		}
+		return doClient(t, e.srv.Client(), e.srv, "POST", path, body, headers...)
+	}
+}
+
+func skillReportBody(entries ...store.SkillReportEntry) string {
+	body, _ := json.Marshal(store.SkillReport{Version: "v1", Entries: entries})
+	return string(body)
+}
+
+func desiredNames(t *testing.T, st *store.Store, uid int64) map[string]bool {
+	t.Helper()
+	desired, err := st.DesiredSkillsFor(uid, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, d := range desired.Active {
+		out[d.Name] = true
+	}
+	return out
+}
+
+// A fleet of an older machine and one on the skills protocol: the older one's
+// scan and the newer one's unknown report of the same name leave it New on a
+// machine. Nothing spreads it to other machines until the person keeps it.
+func TestMixedFleetSightingDoesNotSpreadWithoutKeep(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", false)
+	studio, asStudio := e.secondMachine(t)
+	if code, raw := asStudio("/api/v2/sync/poll", `{"skillsVersion":""}`, true); code != 200 {
+		t.Fatalf("studio poll: %d %s", code, raw)
+	}
+	e.scanImport(t, []string{"cq"})
+	if code, raw := asStudio("/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "unknown", Digest: strings.Repeat("c", 64)}), true); code != 200 {
+		t.Fatalf("studio report: %d %s", code, raw)
+	}
+	e.scanItems(t, "studio", scanItem{Name: "cq", Host: "studio", Agent: "agents", Path: ".agents/skills"})
+	if _, ok := e.libraryNames(t)["cq"]; ok {
+		t.Fatal("the sightings made cq a library item")
+	}
+	if desiredNames(t, e.st, e.uid)["cq"] {
+		t.Fatal("cq is sent to every machine without Keep")
+	}
+	e.api.s.skillCopies.Wait()
+	if requests, _, err := e.st.RemoteImportsFor(e.uid); err != nil || len(requests) != 0 {
+		t.Fatalf("a capture of cq was asked for: %+v %v", requests, err)
+	}
+	found, err := e.st.NewOnMachinesFor(e.uid)
+	if err != nil || len(found) != 1 || found[0].Name != "cq" || len(found[0].Copies) != 1 || found[0].Copies[0].AgentID != studio.ID {
+		t.Fatalf("new on a machine: %+v %v", found, err)
+	}
+}
+
+// Once a deleted skill's name is forgotten, a machine that still has it shows
+// it as New on a machine again. An older machine's scan of it no longer makes
+// a new Active item of it.
+func TestReSightingAfterPurgeIsNewOnAMachine(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", false)
+	_, asStudio := e.secondMachine(t)
+	if code, raw := asStudio("/api/v2/sync/poll", `{"skillsVersion":""}`, true); code != 200 {
+		t.Fatalf("studio poll: %d %s", code, raw)
+	}
+	if _, err := e.st.UpsertLocalFor(e.uid, "cq", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	id := e.libraryNames(t)["cq"].ID
+	if id == "" {
+		t.Fatalf("no item for cq: %+v", e.libraryNames(t))
+	}
+	deletedAt := time.Now()
+	if err := e.st.DeleteSkillsFor(e.uid, []string{id}, true, deletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.PurgeDeletedSkillsFor(e.uid, deletedAt.Add(store.SkillUndoWindow+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// The one machine on the skills protocol confirms the removal, so the name is forgotten.
+	if code, raw := asStudio("/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "removed"}), true); code != 200 {
+		t.Fatalf("studio report: %d %s", code, raw)
+	}
+	if removals, err := e.st.SkillRemovalsFor(e.uid); err != nil || len(removals) != 0 {
+		t.Fatalf("the name is still on the removal list: %+v %v", removals, err)
+	}
+	e.scanImport(t, []string{"cq"})
+	if _, ok := e.libraryNames(t)["cq"]; ok {
+		t.Fatal("the older machine's scan made cq an Active item again")
+	}
+	if code, raw := asStudio("/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "unknown", Digest: strings.Repeat("c", 64)}), true); code != 200 {
+		t.Fatalf("studio report: %d %s", code, raw)
+	}
+	found, err := e.st.NewOnMachinesFor(e.uid)
+	if err != nil || len(found) != 1 || found[0].Name != "cq" {
+		t.Fatalf("new on a machine: %+v %v", found, err)
+	}
+	if desiredNames(t, e.st, e.uid)["cq"] {
+		t.Fatal("cq is sent to every machine without Keep")
+	}
+}
+
+// A project folder is not the machine's home, and reet does not manage it: its
+// skills keep today's import, on any machine.
 func TestScanOfAProjectFolderStillMakesLibraryItems(t *testing.T) {
 	e := newReconcileEnv(t)
 	e.poll(t, "", true)

@@ -167,6 +167,15 @@ func skillsEndpointFixture(t *testing.T) (call func(login, id string) (int, Sess
 	}
 	importSkill = func(host, agentName, name string) {
 		t.Helper()
+		// A scan only joins skills the library has: the skill is added first.
+		add := httptest.NewRequest("POST", "/api/skills", strings.NewReader(`{"input":"a/b/`+name+`"}`))
+		add.Header.Set("Content-Type", "application/json")
+		add.Header.Set("Authorization", "Bearer "+token)
+		added := httptest.NewRecorder()
+		srv.ServeHTTP(added, add)
+		if added.Code != 200 && added.Code != 409 {
+			t.Fatal("add", added.Code, added.Body.String())
+		}
 		body, _ := json.Marshal(map[string]any{"items": []map[string]string{{"name": name, "source": "a/b", "host": host, "agent": agentName}}})
 		r := httptest.NewRequest("POST", "/api/import", strings.NewReader(string(body)))
 		r.Header.Set("Content-Type", "application/json")

@@ -40,44 +40,23 @@ const (
 // which reet leaves alone.
 var scanHomeAgents = map[string]bool{"agents": true, "claude": true, "cursor": true, "codex": true, "opencode": true}
 
-// scanMakesItems says, for each sighting in an inventory scan from machine,
-// whether it may make a library item of a name the library does not have. A
-// machine on the skills protocol reports the skills in its managed folders
-// with its skills report, and a name reet does not know is New on a machine
-// there until the person keeps it, so the scan makes nothing of it from any
-// of its home folders. Codex's folder is left alone, so a skill only there
-// appears nowhere. The same goes for a skill one of its lock files names with
-// no folder: it is no skill reet has, and the scan reports it from the
-// machine's home. Older agents, project folders, a folder the person scans
-// with --dir (agent "other") and names typed into the import keep today's
-// import.
-func (s *server) scanMakesItems(uid int64, machine string) func(importItem) (bool, error) {
-	known := map[string]bool{}
-	onProtocol := func(host string) (bool, error) {
-		key := strings.ToLower(strings.TrimSpace(host))
-		if on, ok := known[key]; ok {
-			return on, nil
-		}
-		on, err := s.st.HostOnSkillsProtocolFor(uid, host)
-		if err == nil {
-			known[key] = on
-		}
-		return on, err
-	}
-	return func(item importItem) (bool, error) {
-		host := ""
-		switch {
-		case item.Host != "" && item.Project == "" && scanHomeAgents[item.Agent]:
-			host = item.Host
-		case item.Host == "" && item.Agent == "" && strings.TrimSpace(item.Source) != "":
-			host = machine
-		}
-		if strings.TrimSpace(host) == "" {
-			return true, nil
-		}
-		on, err := onProtocol(host)
-		return !on, err
-	}
+// scanMakesItems says, for each sighting in an inventory scan, whether it may
+// make a library item of a name the library does not have. An inventory scan
+// only reports what a machine has: a skill in one of its home folders that
+// reet does not know is New on a machine, from a skills report, until the
+// person keeps it, so the scan makes nothing of it, whichever skills protocol
+// the machine speaks. That holds after a deleted name is forgotten too: a
+// machine that still has it does not quietly bring it back as Active. Codex's
+// folder is left alone, so a skill only there appears nowhere. The same goes
+// for a skill one of the machine's lock files names with no folder (an item
+// with a source and no folder, in a scan that names its machine). Project
+// folders, a folder the person scans with --dir (agent "other") and names
+// typed into the import keep today's import. A sighting of a name the library
+// has still joins it.
+func scanMakesItems(item importItem, machine string) bool {
+	home := item.Host != "" && item.Project == "" && scanHomeAgents[item.Agent]
+	locked := strings.TrimSpace(machine) != "" && item.Host == "" && item.Agent == "" && strings.TrimSpace(item.Source) != ""
+	return !home && !locked
 }
 
 func (s *server) registerSkillReconcile(mux *http.ServeMux) {

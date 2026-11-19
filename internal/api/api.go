@@ -1774,13 +1774,8 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	itemIDs := map[string]string{}
-	mayCreate := s.scanMakesItems(s.uid(r), in.Machine.Host)
 	handle := func(item importItem) {
-		newItems, err := mayCreate(item)
-		id, wasCreated, wasIgnored := "", false, false
-		if err == nil {
-			id, wasCreated, wasIgnored, err = s.importEntry(s.uid(r), item, newItems, r)
-		}
+		id, wasCreated, wasIgnored, err := s.importEntry(s.uid(r), item, scanMakesItems(item, in.Machine.Host), r)
 		switch {
 		case err != nil:
 			errs = append(errs, err.Error())

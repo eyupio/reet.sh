@@ -28,6 +28,10 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 		}
 		return res
 	}
+	// A scan only joins skills the library has.
+	if code, res := doClient(t, client, srv, "POST", "/api/skills", `{"input":"o/r/alpha"}`, "X-Reet-Token", "tok"); code != 200 {
+		t.Fatalf("add %d %s", code, res)
+	}
 	scan("laptop", `[{"name":"alpha","source":"o/r","host":"laptop","agent":"agents"}]`, `["alpha"]`)
 	scan("server", `[]`, `[]`)
 	var state struct {
@@ -81,6 +85,10 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 func TestLocalScanErrorPreservesInventoryAndShelfIntent(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
 	good := `{"prune":true,"machine":{"host":"laptop"},"items":[{"name":"one","source":"a/b","host":"laptop","agent":"agents"}],"environments":[{"host":"laptop","agent":"agents","skills":["one"]}]}`
+	// A scan only joins skills the library has.
+	if code, b := do(t, srv, "POST", "/api/skills", `{"input":"a/b/one","used":true}`); code != 200 {
+		t.Fatal(b)
+	}
 	if code, b := do(t, srv, "POST", "/api/import", good); code != 200 {
 		t.Fatal(b)
 	}
@@ -121,6 +129,10 @@ func TestScanReadsAnInstalledFolderAsItsCataloguedSkill(t *testing.T) {
 	client := srv.Client()
 	const catalogued = "rknall/claude-skills/uiux-design-review"
 	if code, body := doClient(t, client, srv, "POST", "/api/skills", `{"input":"`+catalogued+`"}`, "X-Reet-Token", "tok"); code >= 300 {
+		t.Fatalf("add %d %s", code, body)
+	}
+	// A scan only joins skills the library has.
+	if code, body := doClient(t, client, srv, "POST", "/api/skills", `{"input":"rknall/claude-skills/alpha"}`, "X-Reet-Token", "tok"); code >= 300 {
 		t.Fatalf("add %d %s", code, body)
 	}
 	if err := st.SetMeta(catalogued, "UI/UX Design Review", "", 0, 0, nil); err != nil {

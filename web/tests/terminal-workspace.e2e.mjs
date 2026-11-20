@@ -449,6 +449,9 @@ try{
  await openFull()
  await expect(panel.getByRole('button',{name:/Build workspace on/})).toHaveCount(0)
  await expect(panel.getByRole('button',{name:/Deployment checks on/})).toHaveCount(1)
+ // The panel's count and the header's badge count the same listed sessions, so both drop the desk's one.
+ await expect(panel.locator('header strong')).toHaveText(/^Your sessions\s*1$/)
+ await expect(sessionsButton.locator('.count')).toHaveText('1')
  desks=[]
  await page.getByRole('button',{name:'✦ Start a new agent session',exact:true}).click()
  await expect(page.getByRole('dialog')).toBeVisible()

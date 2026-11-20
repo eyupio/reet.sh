@@ -36,6 +36,10 @@ type OutcomeLaunch struct {
 	// "yes" for GitHub's latest commit for the base, "no" for the machine's
 	// copy, "" for the project's setting, then the account's.
 	PullLatest string
+	// Images are every uploaded path the person attached to the outcome, in
+	// order. Every agent the outcome starts is given all of them, not only the
+	// first. Older outcomes have none, which starts an agent as before.
+	Images []string
 }
 
 // SessionStarter starts an approved session as its owner through the same
@@ -1269,7 +1273,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}
 		return err == nil
 	}
-	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, PullLatest: o.PullLatest, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
+	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, PullLatest: o.PullLatest, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt, Images: append([]string(nil), o.Images...)}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
 	// droppedEffort is whether the stage in hand starts without an effort its

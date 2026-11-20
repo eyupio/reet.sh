@@ -5,7 +5,7 @@
   import { onMount, untrack } from 'svelte'
   import { createGafferOutcome, getGafferCrew, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
-  import { imageFiles, imagePrompt } from './terminal/upload'
+  import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
   import { MAX_ATTACHMENTS, attachmentMessage, attachmentsFromPaste, type AttachmentReason } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
@@ -72,7 +72,7 @@
   let automation = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let images = $state<File[]>([]), imageUploading = $state(false), imageError = $state('')
-  let uploaded = $state<{ file: File; path: string; reference: string }[]>([])
+  let uploaded = $state<{ file: File; path: string }[]>([])
   let counter = 0
   const key = () => `plan-${++counter}`
   function clearImages() { images = []; uploaded = []; imageError = '' }
@@ -343,10 +343,10 @@
   }
   // Uploads every selected image by itself. One that fails keeps the others:
   // what uploaded travels with the outcome, and the rest is named on the result.
-  async function uploadImages(): Promise<{ paths: string[]; references: string[]; failed: string[] } | null> {
+  async function uploadImages(): Promise<{ paths: string[]; failed: string[] } | null> {
     const host = project?.host
     if (!host) return null
-    const results: { file: File; path: string; reference: string }[] = []
+    const results: { file: File; path: string }[] = []
     const failed: string[] = []
     for (const file of images) {
       const known = uploaded.find(item => item.file === file)
@@ -354,7 +354,7 @@
       imageUploading = true
       try {
         const next = await launchUpload(host, file, life.signal)
-        const item = { file, path: next.path, reference: next.reference }
+        const item = { file, path: next.path }
         uploaded = [...uploaded, item]
         results.push(item)
       } catch (e) {
@@ -366,19 +366,18 @@
       imageError = images.length === 1 ? 'The image could not be uploaded.' : 'The images could not be uploaded.'
       return null
     }
-    return { paths: results.map(item => item.path), references: results.map(item => item.reference), failed }
+    return { paths: results.map(item => item.path), failed }
   }
   async function approve() {
     if (busy || approveBlocker || !limitsOk || !provider || !project || !tool) return
     busy = true; startError = ''; imageError = ''
     const upload = await uploadImages()
     if (upload === null) { busy = false; return }
-    const references = upload.references
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
         objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: references.length ? imagePrompt(cleanPrompt(item.prompt), references) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
         ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
       }, life.signal)
       step = 'results'
@@ -528,6 +527,7 @@
       {:else}
       <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
       <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
+      {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>

@@ -536,7 +536,9 @@ try {
       await outcome.getByRole('button',{name:/^Approve and start/}).click()
       await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible({timeout:20000})
       expect(f.box.uploads).toBe(2)
-      for(const sent of f.box.approved[0].sessions) expect(sent.prompt).toMatch(/\n\nImage: \/home\/dev\/launch-uploads\/outcome-1\.png$/)
+      expect(f.box.approved[0].images).toEqual(['/home/dev/launch-uploads/outcome-1.png'])
+      // The controller gives every started agent the outcome's stored paths; the prompt stays the person's words.
+      for(const sent of f.box.approved[0].sessions) expect(sent.prompt).not.toMatch(/\n\nImages?: /)
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)
       const again=await openOutcome(w)
       await expect(again.outcome.getByText('outcome.png',{exact:true})).toHaveCount(0)
@@ -680,15 +682,13 @@ try {
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(2)
       await expect(attached.getByRole('listitem')).toHaveCount(8)
+      await expect(outcome.getByText('All 8 attached images travel with every pipeline this outcome starts.',{exact:true})).toBeVisible()
       // The second upload fails; the other seven are attached and carried.
       f.box.uploadFailAt=2
       await outcome.getByRole('button',{name:/^Approve and start/}).click()
       await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible({timeout:20000})
       expect(f.box.approved[0].images).toHaveLength(7)
-      for(const sent of f.box.approved[0].sessions){
-        expect(sent.prompt).toMatch(/\n\nImages: /)
-        expect((sent.prompt.match(/outcome-\d+\.png/g)||[])).toHaveLength(7)
-      }
+      for(const sent of f.box.approved[0].sessions) expect(sent.prompt).not.toMatch(/\n\nImages?: /)
       await expect(outcome.getByRole('list',{name:'Images attached to the outcome',exact:true}).getByRole('listitem')).toHaveCount(7)
       await expect(outcome.getByRole('alert')).toContainText('could not be uploaded; the other image was attached.')
       expect(w.errors).toEqual([])

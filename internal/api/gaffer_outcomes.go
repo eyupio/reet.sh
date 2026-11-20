@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -582,12 +583,40 @@ func (o outcomeStarter) OutcomeSessionChoice(ctx context.Context, uid int64, ses
 	return choice, nil
 }
 
+// outcomePromptImages gives the opening prompt every uploaded image the
+// outcome holds, not only the first. The launch carries raw machine paths, so
+// each is quoted when it needs to be one reference. An image the prompt
+// already names is left alone: a prompt written at approval is not doubled,
+// and an outcome with no images is sent exactly as it was.
+func outcomePromptImages(prompt string, images []string) string {
+	var add []string
+	for _, image := range images {
+		ref := uploadReference(image)
+		if ref == "" || strings.Contains(prompt, ref) {
+			continue
+		}
+		add = append(add, ref)
+	}
+	if len(add) == 0 {
+		return prompt
+	}
+	prompt = strings.TrimRight(prompt, " \t\r\n")
+	line := "Image: " + add[0]
+	if len(add) > 1 {
+		line = "Images: " + strings.Join(add, " ")
+	}
+	if prompt == "" {
+		return line
+	}
+	return prompt + "\n\n" + line
+}
+
 func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {
 	s := o.s
 	if !s.terminalEnabled() || s.terminals == nil {
 		return "", "", errors.New("Remote sessions are disabled on this controller.")
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Effort: in.Effort, Provider: in.Provider, Dir: in.Dir, Prompt: in.Prompt, ProjectID: in.ProjectID, Structured: true, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest}
+	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Effort: in.Effort, Provider: in.Provider, Dir: in.Dir, Prompt: outcomePromptImages(in.Prompt, in.Images), ProjectID: in.ProjectID, Structured: true, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest}
 	create.Title, create.TitleOrigin = terminalproto.ResolveTitle(in.Title, "", in.Tool, in.Prompt, in.Dir)
 	refusal := func(err error) (string, string, error) {
 		capture := &replyCapture{header: http.Header{}}

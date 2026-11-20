@@ -244,6 +244,28 @@ func TestOutcomeKeepsTheImagesThePersonAttached(t *testing.T) {
 	}
 }
 
+// Every session the outcome starts is given all of its images, not only the
+// first, and the record read at a later start is where they come from.
+func TestOutcomeStartsEveryAgentWithAllItsImages(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp", "/home/dev/launch-uploads/three.png"}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.settle(t, created.ID)
+	asked := r.starter.asked()
+	if len(asked) != len(r.in.Sessions) {
+		t.Fatalf("launches: %+v", asked)
+	}
+	for _, launch := range asked {
+		if len(launch.Images) != 3 || launch.Images[0] != r.in.Images[0] || launch.Images[1] != r.in.Images[1] || launch.Images[2] != r.in.Images[2] {
+			t.Fatalf("launch images: %+v", launch.Images)
+		}
+	}
+}
+
 func TestOutcomeRefusesMoreImagesThanAPromptCanCarry(t *testing.T) {
 	r := outcomeFixture(t)
 	r.s.StartGoalSupervisor()

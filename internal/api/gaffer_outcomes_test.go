@@ -38,6 +38,42 @@ func TestOutcomeStartCarriesTheSelectedEffortToTheMachine(t *testing.T) {
 	}
 }
 
+// Every image the outcome holds reaches the machine on the opening prompt,
+// not only the first; a path that needs quoting keeps its own reference, and
+// a start with no images sends exactly the prompt it was given.
+func TestOutcomeStartCarriesEveryImageToTheMachine(t *testing.T) {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions = true, true, true
+	caps.Tools = []string{"opencode"}
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5"}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	_, _, err := outcomeStarter{f.srv.s}.StartOutcomeSession(t.Context(), f.uid, gaffer.OutcomeLaunch{
+		AgentID: f.agent.ID, RequestID: terminalbroker.ID(), Title: "Export API", Tool: "opencode",
+		Dir: "/tmp", Trust: true, Prompt: "Add the CSV export endpoint with tests.",
+		Images: []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp", "/home/dev/launch-uploads/a b.png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Add the CSV export endpoint with tests.\n\nImages: /home/dev/launch-uploads/one.png /home/dev/launch-uploads/two.webp '/home/dev/launch-uploads/a b.png'"
+	if sent := f.sent(); len(sent) != 1 || sent[0].Prompt != want {
+		t.Fatalf("sent: %+v", sent)
+	}
+}
+
+func TestOutcomePromptImagesLeavesAPromptWithNoImagesAlone(t *testing.T) {
+	for _, prompt := range []string{"Do the work.", "", "Do it.\n"} {
+		if got := outcomePromptImages(prompt, nil); got != prompt {
+			t.Fatalf("no images changed %q to %q", prompt, got)
+		}
+	}
+	prompt := "Do the work.\n\nImages: /home/dev/launch-uploads/one.png /home/dev/launch-uploads/two.webp"
+	if got := outcomePromptImages(prompt, []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}); got != prompt {
+		t.Fatalf("an approval prompt was doubled: %q", got)
+	}
+}
+
 // A machine that refuses a start because the agent did not confirm the chosen
 // effort says so to the Factory as that refusal, with the machine's sentence
 // for the person; a refusal for the model is an ordinary one. A start asked

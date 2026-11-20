@@ -112,6 +112,7 @@
 <WorkspaceDialog title={proposals.length === 1 ? `Add “${proposals[0].title}”?` : `Add ${proposals.length} pipelines?`} onclose={oncancel}>
   <div class="add">
     <p>The controller starts each added pipeline as a chat in this outcome’s project, {record.yolo ? 'on YOLO like the rest of this outcome' : 'with ordinary approvals, never in YOLO'}, and Gaffer looks after it stage by stage. None of them merges by itself: each stops at <strong>Ready to merge</strong> and waits for you.</p>
+    {#if (record.images ?? []).length}<p class="hint" role="status">{record.images!.length === 1 ? 'The image attached to this outcome travels' : `All ${record.images!.length} images attached to this outcome travel`} with each new pipeline.</p>{/if}
     <ul class="rows" aria-label="Pipelines to add">
       {#each proposals as item (item.title)}{@const who = choice(item.title)}<li role="group" aria-label={item.title}>
         <div class="what"><strong>{item.title}</strong><span>{kinds(item).map(stageLabel).join(' → ')}</span></div>

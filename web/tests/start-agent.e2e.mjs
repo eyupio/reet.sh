@@ -1295,6 +1295,24 @@ try{
  delete tmachines[0].capabilities.acpStartOptions;delete tmachines[0].capabilities.acp;delete tmachines[0].capabilities.acpAgents
  tmachines[0].capabilities.tools=tmachines[0].capabilities.tools.filter(id=>id!=='opencode')
 
+ // A repository project whose worktrees are switched off still starts in one: the controller isolates any agent start in
+ // a saved repository. The latest-code choice is therefore offered, and travels with that worktree, so a folder behind
+ // GitHub can still start from GitHub's latest commit.
+ folderProjects=[{...projectFixture(),baseBranch:'main',worktreeDefault:'no'}]
+ d=await openAt(A);p=parts(d)
+ await p.project.selectOption(PROJECT_ID)
+ await expect(d.getByText('Code for this worktree',{exact:true})).toBeVisible()
+ await d.getByRole('button',{name:/GitHub’s latest/}).click()
+ await p.pick('Claude Code')
+ await p.prompt.fill('update the readme')
+ const latestPosts=posts.length
+ await p.start.click()
+ await expect.poll(()=>posts.length).toBe(latestPosts+1)
+ const latestBody=JSON.parse(posts.at(-1))
+ expect(latestBody).toMatchObject({agentId:A,dir:PROJECT_DIR,base:'main',pullLatest:true,projectId:PROJECT_ID})
+ expect(latestBody.worktree).toMatch(/^[0-9a-f]{32}$/)
+ folderProjects=[]
+
  // A repository From GitHub, with no project made first: chosen from the machine's list, cloned and saved as a project
  // as Start is pressed, then started on that project like any other, in its own worktree from its default branch.
  Object.assign(tmachines[0].capabilities,{repoClone:true,repoList:true,worktree:true})

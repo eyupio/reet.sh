@@ -59,6 +59,7 @@ async function home(options={}) {
  // `hold` delays the next sessions read, answering with the list as it was when the read arrived.
  const box = {sessions:baseSessions(), fail:new Set(), created:null, hold:null, projects:options.projects ?? fprojects(), savedWaiting:options.savedWaiting ?? 0, writes:[], holdProjects:null}
  const routes = {
+  '/api/v2/sync/skills': {active:1,activity:[],work:{},machines:[{agentId:'a1',host:'studio',state:'ok',lastSeen:Date.now()-5*MIN,failed:[],waiting:[]},{agentId:'a2',host:'desk',state:'offline',lastSeen:Date.now()-HOUR,failed:[],waiting:['one','two']}]},
   // As the server answers it: cookie only, so a single-token sign-in gets 401 and an open instance 403.
   '/api/v2/machines/health': (request, state) => {
    if (state.status.mode === 'token' && !request.headers()['x-reet-token']) return {status:401,json:{error:'missing or wrong token'}}
@@ -268,10 +269,10 @@ try {
   await expect(strip(page).getByRole('button', {name:'New on studio'})).toBeVisible()
   const desk = card(page,'desk')
   await expect(desk.locator('.os')).toHaveText('macOS')
-  await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
+  await expect(desk.locator('.skills')).toHaveText('Skill sync offline')
   await expect(desk.locator('.skills')).toHaveClass(/warn/)
   // An offline machine's count is what was last known: the card says so.
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date, 2 agents installed, installed skills not reported, MCP servers not reported, macOS$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 1 session running \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, Skill sync offline, 2 agents installed, installed skills not reported, MCP servers not reported, macOS$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')
   await expect(studio.locator('.caption')).toHaveCount(0)
   await expect(page.locator('main')).not.toContainText(/agents? running/i)
@@ -326,19 +327,19 @@ try {
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
-  // A right-click on the machine opens the full menu (New session, New project, New terminal, Open on Machines, Skills on this machine).
+  // A right-click on the machine opens the full menu (New session, New project, New terminal, Open on Machines, Manage library skills).
   await strip(page).getByRole('link',{name:/^studio, /}).click({button:'right'})
   const menu = page.getByRole('menu',{name:'studio'})
-  await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal','Open on Machines','Skills on this machine'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal','Open on Machines','Manage library skills'])
   await menu.getByRole('menuitem',{name:'New terminal'}).click()
   await expect.poll(() => box.createdBody?.title ?? null).toBe('Terminal')
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
-  // Skills on this machine no longer goes to the sync comparison page: it lands on the machine and opens its skill dialog once.
+  // Manage library skills no longer goes to the sync comparison page: it lands on the machine and opens its skill dialog once.
   await page.goto(base)
   await strip(page).getByRole('link',{name:/^studio, /}).click({button:'right'})
-  await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'Skills on this machine'}).click()
-  await expect(page).toHaveURL(/\/machines\?machine=studio&choose=skills/)
+  await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'Manage library skills'}).click()
+  await expect(page).toHaveURL(`${base}/skills`)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -401,7 +402,7 @@ try {
    session('s3','a2','Speed up the runner pool','end_requested'), session('s5','a2','Bench the cache','end_requested')]
   await page.goto(base)
   const desk = card(page,'desk')
-  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, 2 skills out of date, 2 agents installed, installed skills not reported, MCP servers not reported, macOS$/)
+  await expect(desk).toHaveAccessibleName(/^desk, offline, 0 sessions running · 2 ending \(last known, not reporting\), no worktrees in use, CPU No reading, memory No reading, disk No reading, Skill sync offline, 2 agents installed, installed skills not reported, MCP servers not reported, macOS$/)
   await expect(desk.locator('.figure')).toHaveText('0')
   await expect(desk.locator('.sessions')).toHaveText(/^0\s+sessions running\s*· 2 ending$/)
   await expect(desk.locator('.caption')).toHaveText('Last known count. desk is not reporting.')

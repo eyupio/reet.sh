@@ -12,15 +12,20 @@ content, history, local consent and recovery. README and changelog now describe
 the new model. SECURITY.md already documents outbound GitHub/site bundle fetches.
 Verification and limits are recorded in docs/ui-verification.md.
 
-**Next: Task 17 is still unfinished.** The merged tree retains SyncControl,
-SyncSetup, SyncActivity, MachineSkillSync, legacy sync helpers and tests, and the
-`/sync/advanced` route. App, Machines/EnvironmentSync, Account, MachineFleet,
-Hosting and old SkillCard paths still reference these controls even though the
-Go engine and tables were removed. Remove those web paths, preserve enrollment,
-updates, identity, inventory and recovery, and exercise the affected browser
-specs. Do not treat the old controls as a supported workflow. Complete Task 18's
-full runtime/browser verification after that removal; this documentation pass
-does not claim the entire plan is finished.
+**Task 17 continuation (PR #850).** Removed the old web engine, its exclusive
+helpers, API wrappers and tests: Advanced sync, plan selection, private pins and
+adoption, per-machine skill selection, manual skill sync and the job activity
+dock. Connection, inventory, manual content import, connector updates, pause,
+terminal access and local backup recovery remain. Old plan URLs redirect to
+`/sync`, discarding plan parameters. Home and session details now read the
+reconcile report instead of inferring skill state from preview jobs. Add a
+machine waits for that report before claiming library sync; unavailable reports
+remain unknown. Write a skill points to automatic library status.
+
+Checks and captures are recorded in docs/ui-verification.md. The local computer
+has no Go language toolchain (`/usr/bin/go` is an unrelated application), so Go
+vet/race verification belongs to CI. Next: finish the exact-head CI and review
+checks on #850; no live machine or paid provider has been used for acceptance.
 
 ## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
 

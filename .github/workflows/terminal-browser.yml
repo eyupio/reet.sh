@@ -109,7 +109,6 @@ jobs:
           node web/tests/spaces.e2e.mjs
           node web/tests/machines-search.e2e.mjs
           node web/tests/machines-fleet.e2e.mjs
-          node web/tests/sync-vocabulary.e2e.mjs
           node web/tests/written-skill-record.e2e.mjs
           node web/tests/setups.e2e.mjs
           node web/tests/inbox.e2e.mjs
@@ -126,27 +125,16 @@ jobs:
           node web/tests/account-profile.e2e.mjs
           node web/tests/account-security.e2e.mjs
           node web/tests/account-mcp.e2e.mjs
-          node web/tests/sync-activity.e2e.mjs
-          node web/tests/sync-remove.e2e.mjs
-          node web/tests/skills-sync-simple.e2e.mjs
-          node web/tests/selected-library.e2e.mjs
-          node web/tests/machine-item-states.e2e.mjs
           node web/tests/library.e2e.mjs
-          node web/tests/connect-flow.e2e.mjs
-          node web/tests/choose-entry.e2e.mjs
-          node web/tests/sync-left-out.e2e.mjs
-          node web/tests/sync-in-place.e2e.mjs
           node web/tests/fleet-software.e2e.mjs
-          node web/tests/machine-skill-sync.e2e.mjs
-          node web/tests/machine-add-skill.e2e.mjs
           node web/tests/skill-card.e2e.mjs
           node web/tests/skills-prune.e2e.mjs
           node web/tests/skills-new.e2e.mjs
           node web/tests/skill-open.e2e.mjs
           node web/tests/sync-page.e2e.mjs
+          node web/tests/library-machine-flow.e2e.mjs
           node web/tests/control.e2e.mjs
           node web/tests/machine-import.e2e.mjs
-          node web/tests/skill-content.e2e.mjs
           node web/tests/add-machine.e2e.mjs
           node web/tests/start-agent.e2e.mjs
           node web/tests/start-agent-source.e2e.mjs

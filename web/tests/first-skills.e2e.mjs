@@ -169,46 +169,6 @@ try {
  }
  // A skill you wrote is in the library without publishing: the Skills page lists it as yours, Active like any other, and
  // the Sync page lists it beside shelf skills, named as a private draft.
- if (run('sync-draft')) {
-  const now = Date.now()
-  const host = new URL(base).host
-  const draftId = `hosted/${host}/sam/reet-incident-notes`
-  const shelfSkill = skill('code-review')
-  const draft = {id:draftId,name:'reet-incident-notes',slug:'reet-incident-notes',source:'private:'+'a'.repeat(32)+':'+'b'.repeat(32)+':'+'c'.repeat(64),sourceType:'private'}
-  // A skill published then unpublished: the shelf still carries its public entry, the hosted list carries the draft that now serves it.
-  const stale = {...skill('reet-standup'),id:`hosted/${host}/sam/reet-standup`,source:`${host}/sam`,sourceType:'hosted'}
-  const nowDraft = {id:stale.id,name:'reet-standup',slug:'reet-standup',source:'private:'+'d'.repeat(32)+':'+'e'.repeat(32)+':'+'f'.repeat(64),sourceType:'private'}
-  const broken = {id:'hosted/127.0.0.1:4173/sam/reet-broken',name:'reet-broken',slug:'reet-broken',source:'',sourceType:'local',problem:'reet-broken cannot be synced privately: private skill storage is full'}
-  const scope = {id:'dev-laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
-  const sync = {environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[{id:'a1',host:'dev-laptop',version:'1.2.3',lastSeen:now,paused:false,autoUpdate:false}],targets:[{target:scope,sourceId:'shelf',sourceName:'Shelf',mode:'additive',desired:[draft],missing:[draft],extra:[],revision:'r1',updatedAt:now}],jobs:[],runs:[],updateJobs:[]}
-  const hosting = {username:'sam',prefix:'reet-',skills:[{slug:'reet-incident-notes',description:'A private draft.',content:'---\nname: reet-incident-notes\ndescription: x\n---\nbody',files:{},published:false,createdAt:now,updatedAt:now}]}
-  const library = [skillRow('code-review',{id:'item-code-review',shelfId:shelfSkill.id}), skillRow('reet-incident-notes',{shelfId:'',originKind:'written',origin:'',yours:true,description:'A private draft.'})]
-  const routes = {
-   '/api/v2/sync/candidates': req => { const collection=new URL(req.url()).searchParams.get('collection');return collection==='library'?{skills:[shelfSkill,draft,nowDraft,broken]}:collection==='hosted'?{skills:[draft,nowDraft,broken]}:{skills:[shelfSkill,stale]} },
-   '/api/v2/skills': req => skillsPageOf(library, new URL(req.url()).searchParams.get('status') || 'active'),
-  }
-  const {context,page,errors} = await open({width:1440,skills:[shelfSkill],hosting,sync,routes})
-  await page.goto(`${base}/skills`)
-  const written = page.locator('[data-skill="item-reet-incident-notes"]')
-  await expect(written).toContainText('written by you')
-  await expect(written.locator('.health')).toContainText('On all 3 machines')
-  await expect(page.locator('[data-skill="item-code-review"]')).toBeVisible()
-  await page.goto(`${base}/sync/advanced?skill=${encodeURIComponent(draftId)}`)
-  await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
-  await page.locator('.library-content > summary').filter({hasText:'In your library'}).click()
-  const choice = page.locator('.library-content li', {hasText:'reet-incident-notes'})
-  await expect(choice).toContainText('Private · only your machines')
-  await expect(page.locator('.library-content li', {hasText:'code-review'})).toBeVisible()
-  const unpublished = page.locator('.library-content li', {hasText:'reet-standup'})
-  await expect(unpublished).toHaveCount(1)
-  await expect(unpublished).toContainText('Private · only your machines')
-  // The page's one status sentence counts what is left out; the reason is in the note under it.
-  await expect(page.getByRole('region',{name:'Your skills, everywhere.'}).getByRole('status')).toContainText('1 skill is left out for now.')
-  await expect(page.locator('.left-out')).toContainText('private skill storage is full')
-  await expect(page.locator('.library-content li', {hasText:'reet-broken'})).toContainText('Left out for now')
-  expect(errors).toEqual([])
-  await context.close()
- }
  if (run('hosting')) {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}/hosting`)

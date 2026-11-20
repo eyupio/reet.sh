@@ -55,8 +55,7 @@ try {
     await expect(page.getByRole('heading', { name: /Your drafts/ })).toHaveCount(0)
 
     await page.goto(`${base}/hosting`)
-    await expect(page.getByText('Machines: Set to sync to dev-laptop', { exact: true })).toBeVisible()
-    await expect(page.getByText('Machines: Not on a machine yet', { exact: true })).toBeVisible()
+    await expect(page.getByText('Machines follow its library status. See Skills or Sync for progress.', { exact: false })).not.toHaveCount(0)
 
     await page.locator('.skill-choice').filter({ hasText: 'reet-published' }).click()
     await page.locator('.publish input[type=checkbox]').uncheck()

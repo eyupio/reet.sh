@@ -122,7 +122,7 @@ try {
   await expect(activity.nth(0).locator('strong')).toHaveText('seo-bing')
   await expect(activity.nth(1)).toContainText('1 hseo-cluster failed on ThinkPad: No write access to ~/.claude/skills.')
   await expect(activity.nth(2)).toContainText('YesterdayUpdated askme on Elitebook.')
-  await expect(page.getByRole('link', {name:'Advanced', exact:true})).toHaveAttribute('href', '/sync/advanced')
+  await expect(page.getByRole('link', {name:'Advanced', exact:true})).toHaveCount(0)
   expect(state.unexpected).toEqual([])
   expect(errors).toEqual([])
   await context.close()

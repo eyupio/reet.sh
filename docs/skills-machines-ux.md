@@ -24,6 +24,6 @@ Setups carry agent settings; skill folders are skipped on capture and restore. M
 
 ## Retired controls
 
-Board stages (In use, To test and Parked), per-machine selection, Add now, exact sets and preview/approve plans are superseded. Some legacy web components remained after PR #845; they must be removed rather than used as an alternative workflow. See the continuation entry in [the handoff](https://github.com/eyupio/reet.sh/blob/main/handoff.md).
+Board stages (In use, To test and Parked), per-machine selection, Add now, exact sets and preview/approve plans are superseded. The old web panels, per-machine selectors and activity dock are removed. Older Advanced sync and comparison links lead to the current Sync page without carrying obsolete plan choices.
 
 For the user workflow and recovery commands, see [sync skills between machines](sync-skills-between-machines.md).

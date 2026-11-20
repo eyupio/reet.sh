@@ -2,7 +2,7 @@
   import FleetPlanMeters from '../FleetPlanMeters.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
-  import { ApiError, getProfile, getSyncState, listGafferGoals, listGafferOutcomes, loadNewSkills, UnauthorizedError, type NewSkill, type SyncState, type GafferGoalOverviewView } from '../api'
+  import { ApiError, getProfile, loadMachineState, listGafferGoals, listGafferOutcomes, loadNewSkills, UnauthorizedError, type NewSkill, type SyncState, type GafferGoalOverviewView } from '../api'
   import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
@@ -130,7 +130,7 @@
   const life = new AbortController()
   const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(POLL_MS)])
 
-  const emptySync: SyncState = { environments: [], targets: [], agents: [], jobs: [] }
+  const emptySync: SyncState = { environments: [], agents: [], jobs: [] }
   const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now, terminals ?? []))
   const owners = $derived(sessionOwners(sessions ?? [], projects ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
@@ -267,7 +267,7 @@
     try {
       const [h, y, s, p, g, t, f, o, d, n] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
-        getSyncState(bounded()),
+        loadMachineState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
         writer ? folderProjectList(bounded()) : Promise.resolve(undefined),
         writer ? listProjectGroups(bounded()) : Promise.resolve(undefined),

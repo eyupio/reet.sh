@@ -1,5 +1,47 @@
 # UI verification — 4 November 2026
 
+## Retire the old skill-sync web controls (20 November 2026, PR #850)
+
+The continuation removes Advanced sync, per-machine selections, preview/approve
+controls, the job activity dock and private pin/adoption screens. Legacy plan
+addresses lead to `/sync`. Machine cards, Home and session details use current
+reconcile reports; inventory and old jobs cannot establish sync. Add a machine
+waits for its first reconcile result. Write a skill saves the library version
+and links to current progress without a Sync all action.
+
+New pure regressions cover missing reports, paused/offline/failed states,
+protocol mismatches, pending work and redirects. The browser regression
+`node web/tests/library-machine-flow.e2e.mjs` covers retained connector updates,
+pause, removal of old actions, failed status reads, legacy URLs and layout at
+1440 and 390 in light and dark. It passed locally using a headless Chromium
+build; the earlier Unix-socket startup limitation below was resolved for these
+checks. No real machine or paid AI provider was contacted.
+
+`npm run check --prefix web` passed (unit tests and svelte-check: zero errors and
+warnings). `npm run build --prefix web` passed. All 17 affected browser specs passed locally: `library-machine-flow`,
+`sync-page`, `machines-fleet`, `machines-search`, `first-machine`, `add-machine`,
+`first-skills`, `written-skill-record`, `home`, `sessions`, `control`,
+`machine-import`, `skill-open`, `skill-card`, `skills-new`, `skills-prune` and
+`empty-states` (each run with `node web/tests/<name>.e2e.mjs` against Vite preview).
+These cover updates and connection flows retained from the old Control suite,
+plus the existing skill lifecycle and version-history checks. Tests whose only
+subject was the removed plan/pin engine were deleted with that engine.
+
+The strict documentation build and rendered-site checks passed (59 pages).
+`git diff --check` passed. Local Go vet/race checks cannot run because this
+computer has no Go language toolchain; final Go and integration CI remains a
+required gate on the PR.
+
+Captures show a successful inventory read alongside a failed reconcile-status
+read: the card correctly says **Skill sync not confirmed** while retaining the
+connector update control. The desktop light and phone dark images were visually
+inspected; all four captures are retained:
+
+- [1440, light](images/ui/machines-library-1440-light.png)
+- [1440, dark](images/ui/machines-library-1440-dark.png)
+- [390, light](images/ui/machines-library-390-light.png)
+- [390, dark](images/ui/machines-library-390-dark.png)
+
 ## Skills lifecycle documentation continuation (20 November 2026)
 
 Reviewed merged PR #845 at `820631e74001eec6e2b8d2dcf4198384f213f060`.

@@ -16,7 +16,7 @@ this file existed releases were described on their GitHub release pages.
   earlier version from History. Machine removals and replacements have dated
   backups retained for 30 days, listed with `reet agent restore --list`.
 - **Simpler skill sync**: Sync reports fleet progress and offers Retry for a
-  failed machine. The old Go plan/preview/approve engine is removed. Update
+  failed machine. The old Go and web plan/preview/approve engines are removed; Advanced sync links now open the current Sync page. Update
   connectors to skills protocol 2; local allow-apply consent and Pause sync still
   apply. Setups skip skill folders. `reet sync` and `reet agent library-import`
   explain their replacements and exit without changing files. MCP uses

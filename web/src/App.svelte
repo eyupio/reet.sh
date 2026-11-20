@@ -5,7 +5,7 @@
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import { pageGroup, type JumpItem, type Tab } from './lib/shell/tabs'
   import { getDesk, listDesks, type DeskSummary } from './lib/desks/api'
-  import { ADVANCED_SYNC, syncRedirect } from './lib/syncRoutes'
+  import { syncRedirect } from './lib/sync/legacyRoutes'
   import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
@@ -13,15 +13,14 @@
   import { whatWaits } from './lib/home/whatWaits'
   import { deskPaneReader } from './lib/home/deskSessions'
   import type { WaitingEntry } from './lib/home/homeWaiting'
-  import { installationReports, inventoryMachines } from './lib/machines'
-  import { settledJobsKey } from './lib/skillSync'
+  import { inventoryMachines } from './lib/machines'
   import { listGafferGoals, listGafferOutcomes, loadNewSkills, type GafferGoalOverview, type GafferOutcome, type NewSkill } from './lib/api'
   import { DOCS_URL } from './lib/links'
   import FenceStrip from './lib/shell/FenceStrip.svelte'
   import { onMount, setContext } from 'svelte'
   import {
-    applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listSkills,
-    saveProfile, signOutAccount, syncLibraryMachines, takeThemeChoice, UnauthorizedError,
+    applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getToken, listEnvironments, listSkills,
+    saveProfile, signOutAccount, takeThemeChoice, UnauthorizedError,
     type Environment, type Skill, type User,
   } from './lib/api'
   import AccountMenu from './lib/AccountMenu.svelte'
@@ -35,8 +34,6 @@
   import NotFound from './lib/NotFound.svelte'
   import PageHeader from './lib/PageHeader.svelte'
   import ThemePicker from './lib/ThemePicker.svelte'
-  import SyncActivity from './lib/SyncActivity.svelte'
-  import { fleetSyncSentence, fleetSyncStatus } from './lib/fleetSync'
   import Toast from './lib/Toast.svelte'
   import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
   import Tools from './lib/Tools.svelte'
@@ -98,12 +95,7 @@
   let toastId = 0
   let environments = $state<Environment[]>([])
   let machines = $state<import('./lib/api').Machine[]>([])
-  let inventoryNow = $state(Date.now())
-  let syncWatch = $state<{ host: string; title: string; note: string } | null>(null)
-  let syncingAll = $state(false)
   const shelfMachines = $derived(inventoryMachines(machines))
-  const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
-  let syncSnapshot = $state<import('./lib/api').SyncState | undefined>(undefined)
   let metaLoaded = $state(false)
 
   // /projects and /projects/<id> are retired: folder projects live in Home's rail. The address becomes / at once (Home then
@@ -143,9 +135,7 @@
   // A bare /sessions is the workspace too (its empty state offers a new session); the older list stays at /sessions?view=list.
   const isSessions = isSessionsPage && machineView === 'list'
   const isTerminals = isSessionsPage && !isSessions || legacyMachinePage && machineView === 'terminal'
-  // The sync-plan controls on their own page. It is a Sync page for the tabs and the header's row.
-  const isSyncAdvanced = location.pathname === ADVANCED_SYNC
-  const isSync = location.pathname === '/sync' || isSyncAdvanced || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
+  const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
@@ -186,9 +176,6 @@
   const canLoad = $derived(authChecked && authenticated && !needsAuth && !isCommunity && !isPublicList)
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
-  // Sync all machines is one button wherever it appears. With a machine to sync to and a role that may, it does the job
-  // where it is. Otherwise it opens Sync, which explains what is missing.
-  const syncInPlace = $derived(canWrite && (syncSnapshot?.agents?.length ?? 0) > 0)
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   // Desks run the whole width with no footer; an open desk also takes the slim header, as the session workspace does.
   const desksLayout = $derived(isDesks && authMode === 'accounts' && authenticated && canWrite && !needsAuth && !setupRequired)
@@ -317,10 +304,8 @@
 
   async function loadMeta(): Promise<boolean> {
     try {
-      const [envs, sync] = await Promise.all([listEnvironments(), getSyncState().catch(() => undefined)])
+      const envs = await listEnvironments()
       environments = envs.environments
-      syncSnapshot = sync
-      settledJobs = settledJobsKey(sync)
       machines = envs.machines
       return true
     } catch (e) {
@@ -401,11 +386,10 @@
     // A page that cannot sign anyone in itself (the Skills page) says its sign-in has ended; the sign-in screen follows.
     const signedOut = () => fail(new UnauthorizedError())
     window.addEventListener('reet-signed-out', signedOut)
-    const timer = setInterval(() => (inventoryNow = Date.now()), 60000)
     const notifications = setInterval(() => { if (authenticated) void loadNotificationCount() }, 60000)
     const attentionPoll = setInterval(() => { if (authenticated && document.visibilityState === 'visible') void loadAttention() }, 15000)
     const offAttention = onAttentionChanged(() => { void loadAttention() })
-    return () => { offAttention(); clearInterval(timer); clearInterval(notifications); clearInterval(attentionPoll); window.removeEventListener('reet-shelf-changed', changed); window.removeEventListener('reet-signed-out', signedOut) }
+    return () => { offAttention(); clearInterval(notifications); clearInterval(attentionPoll); window.removeEventListener('reet-shelf-changed', changed); window.removeEventListener('reet-signed-out', signedOut) }
   })
 
   async function initAuth() {
@@ -547,37 +531,6 @@
     return () => clearTimeout(t)
   })
 
-  // The activity dock polls sync while an install runs. Keep Write a skill's sync line on that state, and when a job
-  // settles re-read inventory too, so Pending becomes Set without a reload.
-  let settledJobs = ''
-  function syncUpdated(next: import('./lib/api').SyncState) {
-    syncSnapshot = next
-    const key = settledJobsKey(next)
-    if (key === settledJobs) return
-    settledJobs = key
-    // The agent scans after applying, so this settle already holds the new inventory.
-    void reloadAll()
-  }
-
-  // The whole job in one press. When work starts, the activity dock follows it live; when there is nothing to start, one
-  // line says where things stand. A failure is a toast, so it shows on every page this button is on.
-  async function syncAll() {
-    if (!canWrite || syncingAll) return
-    syncingAll = true
-    try {
-      const next = await syncLibraryMachines()
-      syncUpdated(next)
-      const status = fleetSyncStatus(next)
-      if (status.state === 'syncing') syncWatch = { host: '', title: 'Syncing your machines', note: 'All connected machines · live progress' }
-      else ok(fleetSyncSentence(status))
-    } catch (e) {
-      if (e instanceof UnauthorizedError) fail(e)
-      else showToast(e instanceof Error ? e.message : String(e), undefined, undefined, 'bad')
-    } finally {
-      syncingAll = false
-    }
-  }
-
   // Library tools sit under the Skills page. Their changes reach the page (and Jump) through the shelf-changed signal.
   function toolsFail(e: unknown) {
     if (e instanceof UnauthorizedError) fail(e)
@@ -588,7 +541,7 @@
   }
 
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -738,7 +691,7 @@
     {#await pages.Hosting()}
       <RouteSkeleton variant="form" />
     {:then { default: Page }}
-      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} onsync={syncInPlace ? syncAll : undefined} syncing={syncingAll} {timeZone} {dateFormat} />
+      <Page {canWrite} {timeZone} {dateFormat} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -790,8 +743,8 @@
     {:catch}
       <PageLoadError />
     {/await}
-  {:else if isSync && !isSyncAdvanced}
-    <!-- Sync: one sentence, a row per machine and recent activity. The plan controls stay at /sync/advanced. -->
+  {:else if isSync}
+    <!-- One library status for all connected machines. -->
     {#await pages.SyncPage()}
       <RouteSkeleton variant="rows" />
     {:then { default: Page }}
@@ -803,7 +756,7 @@
     {#await pages.Machines()}
       <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} advanced={isSyncAdvanced} ontitle={title => (workspaceTitle = title)} />
+      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'}  ontitle={title => (workspaceTitle = title)} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -945,7 +898,7 @@
 {#if authMode === 'accounts' && currentUser && canWrite && !needsAuth && !isMCPConsent && !isPublicList && !isCommunity && !isJoin && !isReset && !setupRequired && !deskScreen}
   {#key currentUser.id}<GafferChatWidget userId={currentUser.id} onerror={fail} {timeZone} {dateFormat} />{/key}
 {/if}
-{#if isHosting && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
+
 {#if !terminalLayout && !homeLayout && !desksLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

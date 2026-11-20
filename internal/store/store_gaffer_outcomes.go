@@ -221,8 +221,8 @@ type GafferOutcome struct {
 	// copy, "" for the project's setting, then the account's.
 	PullLatest string `json:"pullLatest,omitempty"`
 	ProviderID string `json:"providerId"`
-	// Images are the uploaded references the person attached to the outcome.
-	// An outcome saved before images could be attached has none.
+	// Images are the uploaded machine paths the person attached to the
+	// outcome. An outcome saved before images could be attached has none.
 	Images     []string               `json:"images,omitempty"`
 	MaxReviews int                    `json:"maxReviews"`
 	Hours      int                    `json:"hours"`

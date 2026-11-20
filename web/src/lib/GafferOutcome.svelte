@@ -72,7 +72,7 @@
   let automation = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let images = $state<File[]>([]), imageUploading = $state(false), imageError = $state('')
-  let uploaded = $state<{ file: File; path: string }[]>([])
+  let uploaded = $state<{ file: File; host: string; path: string }[]>([])
   let counter = 0
   const key = () => `plan-${++counter}`
   function clearImages() { images = []; uploaded = []; imageError = '' }
@@ -346,15 +346,17 @@
   async function uploadImages(): Promise<{ paths: string[]; failed: string[] } | null> {
     const host = project?.host
     if (!host) return null
-    const results: { file: File; path: string }[] = []
+    const results: { file: File; host: string; path: string }[] = []
     const failed: string[] = []
     for (const file of images) {
-      const known = uploaded.find(item => item.file === file)
+      // A path only means something on the machine it was uploaded to: after a
+      // change of project the image is uploaded again rather than reused.
+      const known = uploaded.find(item => item.file === file && item.host === host)
       if (known) { results.push(known); continue }
       imageUploading = true
       try {
         const next = await launchUpload(host, file, life.signal)
-        const item = { file, path: next.path }
+        const item = { file, host, path: next.path }
         uploaded = [...uploaded, item]
         results.push(item)
       } catch (e) {
@@ -381,7 +383,7 @@
         ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
       }, life.signal)
       step = 'results'
-      const failed = upload.failed.length ? `${upload.failed.join(', ')} could not be uploaded; the other ${upload.failed.length === 1 ? 'image was' : 'images were'} attached.` : ''
+      const failed = upload.failed.length ? `${upload.failed.join(', ')} could not be uploaded; ${upload.paths.length === 1 ? 'the other image was' : `the other ${upload.paths.length} images were`} attached.` : ''
       clearImages()
       imageError = failed
       watch(record.id)

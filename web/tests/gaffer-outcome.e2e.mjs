@@ -690,7 +690,7 @@ try {
       expect(f.box.approved[0].images).toHaveLength(7)
       for(const sent of f.box.approved[0].sessions) expect(sent.prompt).not.toMatch(/\n\nImages?: /)
       await expect(outcome.getByRole('list',{name:'Images attached to the outcome',exact:true}).getByRole('listitem')).toHaveCount(7)
-      await expect(outcome.getByRole('alert')).toContainText('could not be uploaded; the other image was attached.')
+      await expect(outcome.getByRole('alert')).toContainText('could not be uploaded; the other 7 images were attached.')
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

@@ -131,8 +131,8 @@ type OutcomeInput struct {
 	// this machine's copy ("no"), or whichever the project, then the account,
 	// says (""). It changes nothing for a project that is not a repository.
 	PullLatest string `json:"pullLatest"`
-	// Images are the uploaded references the person attached to the outcome.
-	// They travel with every agent the outcome starts.
+	// Images are the uploaded machine paths the person attached to the
+	// outcome. They travel with every agent the outcome starts.
 	Images     []string         `json:"images,omitempty"`
 	Sessions   []OutcomeSession `json:"sessions"`
 	MaxReviews int              `json:"maxReviews"`

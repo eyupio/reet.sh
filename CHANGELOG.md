@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A message still goes after a finished turn**: a queued message no longer
+  waits behind a chat that looks busy after the agent has finished. The
+  connector now re-reads the native agent's status while it believes a turn is
+  running, so a late or missed busy update cannot hold the queue. **Stop and
+  send** also keeps the message when the stop is not confirmed at once and asks
+  again, instead of turning it into a failure you have to retry.
 - **Skills follow one library**: Active skills go to every connected machine;
   Archived skills stay in reet and are removed from machines. Delete removes the
   library entry and its copies. Archive, Restore and Delete keep your place and

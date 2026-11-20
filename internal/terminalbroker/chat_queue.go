@@ -241,7 +241,16 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 			return
 		}
 		if err := b.CancelChat(ctx, uid, session); err != nil {
-			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "The stop was not confirmed. Check the conversation before retrying.", b.queueOwner)
+			if errors.Is(err, ErrACPClosed) {
+				_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "The stop was not confirmed. Check the conversation before retrying.", b.queueOwner)
+				return
+			}
+			// A timeout or overloaded control path is transient. Keep the stop
+			// intent so the next pass asks again, and keep the message queued:
+			// it goes by itself once the turn ends (or is found already over)
+			// rather than becoming a failure the person has to retry.
+			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "queued", "stop", "Waiting for the current turn to stop.", b.queueOwner)
+			return
 		}
 		return
 	}

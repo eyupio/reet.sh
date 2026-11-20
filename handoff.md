@@ -1,5 +1,37 @@
 # Reet central-control implementation handoff
 
+## QUEUE-AFTER-FINISH-1: a queued message goes after a finished turn (20 November 2026)
+
+The owner reported that a message typed after an agent finished stayed queued;
+the only way out was **Stop and send**, which then seemed to time out and needed
+**Retry**. The chat transcript and its `Finished` attention were already idle
+while the machine's live controls still reported `working`.
+
+**Cause.** OpenCode 1.19.5's HTTP event stream emits `session.status: busy` more
+than once in a turn and can deliver a late busy after the idle that ended it.
+`acpagent`'s `nativeBusy` mirrors those events, so `Controls().Working` stayed
+true after the turn. The controller's queue waited behind it. A missed idle on
+the stream had the same effect. **Stop and send** cleared it because
+`session/cancel` provokes a fresh idle, but when its acknowledgement was not
+confirmed within ten seconds the queue marked the message failed, which is why
+the person then had to press **Retry**.
+
+**Fix.** `native_view.go` now polls `/session/status` every five seconds while
+it believes a native turn is running and reconciles `nativeBusy` from that
+snapshot; the event stream stays the fast path and a failed snapshot never
+invents an idle. `chat_queue.go` keeps a message queued when a stop's
+acknowledgement is transiently lost or refused, keeps the `stop` intent so the
+next pass asks again, and only fails it when the chat is confirmed closed. The
+message therefore goes by itself once the turn is over, without Retry.
+
+**Tests.** `TestNativeStaleBusyIsReconciledWhileConnected` proves a stuck busy
+clears through the snapshot poll; `TestTransientStopFailureKeepsTheMessageAndSendsWhenTheTurnEnds`
+proves a refused stop no longer becomes a failure. `go vet ./...`,
+`go test -race ./internal/acpagent ./internal/terminalbroker` pass. No real
+machine or paid provider was used for acceptance; the live symptom came from the
+owner's own OpenCode 1.19.5 chat on this machine. Recorded in CHANGELOG.md and
+docs/structured-sessions.md. Opened as a PR (number recorded when created).
+
 ## SKILLS-DOCS-18: document the shared library (20 November 2026)
 
 Continuation of merged PR #845 (`820631e7`), whose final head was `7f9b297a`.

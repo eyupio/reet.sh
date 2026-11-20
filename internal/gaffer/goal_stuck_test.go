@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -273,5 +274,134 @@ func TestAnInstructionThatFailedBringsTheGoalBackWithTheReason(t *testing.T) {
 	row, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
 	if row.State != "needs_user" || !strings.Contains(row.Note, "did not reach the working model") || !strings.Contains(row.Note, "approval mode is unknown") || calls.Load() != reviews {
 		t.Fatalf("a failed instruction: %+v calls=%d", row, calls.Load())
+	}
+}
+
+// askingGoalProvider answers a goal review with ask_user: the goal stops with
+// the person, as it does when Gaffer brings a question back.
+func askingGoalProvider(calls *atomic.Int32) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body struct {
+			Tools []json.RawMessage `json:"tools"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return
+		}
+		if len(body.Tools) == 0 {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Is this done?\"}}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{
+			"index": 0, "id": "call_one", "type": "function",
+			"function": map[string]any{"name": "ask_user", "arguments": `{"summary":"Is this done?"}`},
+		}}}}}})
+		fmt.Fprintf(w, "data: %s\n\n", raw)
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+	}))
+}
+
+// A goal that stopped for the person keeps watching its session. Once the
+// working model moves on by itself, what Gaffer stopped on no longer holds: it
+// follows again without the person resuming it, and the new progress is reviewed.
+func TestAGoalThatStoppedForThePersonFollowsAgainWhenTheSessionMovesOn(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := askingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 12)
+	workerProgress(t, st, g, 1)
+	s.reviewDueGoals(context.Background())
+	g = finishReview(t, s, g)
+	if g.State != "needs_user" || g.ReviewFailed || g.WaitingOnWorker {
+		t.Fatalf("the review should have brought the goal back: %+v", g)
+	}
+	reviews := calls.Load()
+	// Nothing new yet: it stays with the person, and no model request is made.
+	s.reviewStoppedGoal(context.Background(), g)
+	if row, _ := st.GafferGoalFor(p.UserID, g.ConversationID); row.State != "needs_user" || calls.Load() != reviews {
+		t.Fatalf("an unchanged session must not be resumed: %+v calls=%d", row, calls.Load())
+	}
+	// The working session moves on without the person touching the goal.
+	workerProgress(t, st, g, 2)
+	row, err := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.reviewStoppedGoal(context.Background(), row)
+	released, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if released.State != "active" || released.WaitingOnWorker || calls.Load() != reviews {
+		t.Fatalf("new progress should release the goal: %+v calls=%d", released, calls.Load())
+	}
+	// The progress that released it is reviewed like any other.
+	s.reviewDueGoals(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() == reviews && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if calls.Load() == reviews {
+		t.Fatal("the new progress was not reviewed")
+	}
+	finishReview(t, s, g)
+}
+
+// A review that failed is the person's to retry: new worker progress alone does
+// not clear it, so the reason is not silently lost.
+func TestAFailedReviewStaysWithThePersonWhenTheSessionMovesOn(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, `{"error":{"message":"model overloaded"}}`, http.StatusServiceUnavailable)
+	}))
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 12)
+	workerProgress(t, st, g, 1)
+	s.reviewDueGoals(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	row := g
+	for time.Now().Before(deadline) {
+		row, _ = st.GafferGoalFor(p.UserID, g.ConversationID)
+		if row.State == "needs_user" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !row.ReviewFailed {
+		t.Fatalf("the failed review should need the person: %+v", row)
+	}
+	workerProgress(t, st, g, 2)
+	s.reviewStoppedGoal(context.Background(), row)
+	if again, _ := st.GafferGoalFor(p.UserID, g.ConversationID); again.State != "needs_user" || !again.ReviewFailed {
+		t.Fatalf("a failed review must stay with the person: %+v", again)
+	}
+}
+
+// A session that is working now but has not retained a new event since the
+// stop is still followed again: the agent's own live report says it moved on.
+func TestALiveWorkingSessionReleasesAGoalWithoutANewEvent(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := askingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 12)
+	workerProgress(t, st, g, 1)
+	s.reviewDueGoals(context.Background())
+	g = finishReview(t, s, g)
+	if g.State != "needs_user" || g.ReviewFailed {
+		t.Fatalf("the review should have brought the goal back: %+v", g)
+	}
+	if err := st.SetTerminalChatAttentionFor(p.UserID, g.SessionID, time.Now().UnixMilli()+1000, 0, "working", 0); err != nil {
+		t.Fatal(err)
+	}
+	s.reviewStoppedGoal(context.Background(), g)
+	if row, _ := st.GafferGoalFor(p.UserID, g.ConversationID); row.State != "active" {
+		t.Fatalf("a working session should release the goal: %+v", row)
 	}
 }

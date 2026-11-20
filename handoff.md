@@ -1,5 +1,22 @@
 # Reet central-control implementation handoff
 
+## GAFFER-GOAL-WATCH-1: a stopped goal keeps watching its session (20 November 2026)
+
+The owner reported a Home **Waiting for you** Gaffer entry on a Factory pipeline that was running and needed nothing, and asked Gaffer to poll the sessions. The goal had gone `needs_user` (a review brought a question back) and was then never looked at again: `DueGafferGoals` only returned `needs_user` goals that were held because the working model itself was waiting, so any other stop was final until the person resumed it.
+
+**Fix.** `DueGafferGoals` now returns every `needs_user` goal that is due. `reviewGoal` sends those to the new `reviewStoppedGoal`, which keeps watching the working session without a model request:
+
+- A goal held for the working model still goes through `reviewHeldGoal` unchanged.
+- A goal whose Gaffer review failed stays with the person (deferred, never released by progress), so its reason is not lost.
+- Every other stop (a review's question, no next step, an idle agent, a stopped worker, an undelivered instruction) is released through `store.ReleaseGafferGoalWatch` once the session shows new retained progress after `LastSeq`, or is reported `working` with activity newer than the stop. Releasing clears `noStep`/`advice` from the old stop and marks the goal `active`, so the normal review sees the new progress.
+- When nothing has moved, `store.DeferGafferGoal` sets `nextAt` to look again in 15 seconds (five minutes for a failed review or an ended session) rather than every tick. It changes only `nextAt`, not `updatedAt`, so the entry's age stays true.
+
+`ReleaseGafferGoalWatch` keeps the account's ten-active-goals limit and leaves `LastSeq` alone. The held path and its release are untouched.
+
+**Tests.** `TestAGoalThatStoppedForThePersonFollowsAgainWhenTheSessionMovesOn` proves an unchanged session stays stopped with no model request, new progress releases the goal, and the new progress is then reviewed. `TestAFailedReviewStaysWithThePersonWhenTheSessionMovesOn` proves a failed review is not auto-released, and `TestALiveWorkingSessionReleasesAGoalWithoutANewEvent` covers the live `working` report. `go test ./internal/gaffer ./internal/store` pass; the full local `-race` package run hit the pre-existing sqlite schema-init hang recorded below, so CI is the arbiter.
+
+**PR.** [#861](https://github.com/eyupio/reet.sh/pull/861) opened against `main`; the checks above are this PR's. Its merge is recorded by the next handoff update.
+
 ## FACTORY-STAGES-LIST-1: finished Factory stages off Home and the session lists (20 November 2026)
 
 The owner asked: "Stop showing factory-finished stages on the home page and in sessions, as it's very confusing for
@@ -24,6 +41,8 @@ finished stages being left to the pipeline; `CHANGELOG.md` records the change.
 **Not checked.** No browser suite was run against the changed lists; the existing `gaffer-goal.e2e.mjs` fixture keeps
 its stage in hand, so its marker still shows, but a case for a finished stage disappearing from Home, Sessions and the
 workspace sidebar is still to add. No real controller, archived outcome or desk-and-Factory session was exercised.
+
+**PR.** [#860](https://github.com/eyupio/reet.sh/pull/860). **Merged** as `bbb92af8` on 20 November 2026.
 
 ## FACTORY-GITHUB-1: GitHub facts beside a Factory pipeline (20 November 2026)
 
@@ -57,8 +76,8 @@ package timeout under load, `internal/clientconfig` failed its pipe prompt test,
 
 **Docs.** [Factory](docs/factory.md), the README's Factory bullet and the changelog.
 
-**PR.** [#859](https://github.com/eyupio/reet.sh/pull/859) opened against `main`; the checks above are this PR's. Its
-merge is recorded by the next handoff update.
+**PR.** [#859](https://github.com/eyupio/reet.sh/pull/859) opened against `main`; the checks above are this PR's.
+**Merged** as `92e38f50` on 20 November 2026; its facts and outcome-bar change are in `main` and this branch is merged up to it.
 
 ## FACTORY-OUTCOME-IMAGES-2: every attached image travels into a started agent (20 November 2026)
 

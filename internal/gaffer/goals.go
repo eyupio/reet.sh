@@ -380,6 +380,62 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 	s.wakeGoals()
 }
 
+// reviewStoppedGoal looks again at a goal that needs the person for a reason
+// the working session may itself have moved past. Gaffer keeps watching the
+// session rather than leaving the goal stopped until the person resumes it:
+// if the session has made progress since the stop (or is working now), what
+// stopped the goal no longer holds and Gaffer follows again. No model request
+// is made here. A review that failed is the person's to retry, and nothing
+// else about the goal changes.
+func (s *Service) reviewStoppedGoal(ctx context.Context, g store.GafferGoal) {
+	lookAgain := func() {
+		if ctx.Err() == nil {
+			_ = s.store.DeferGafferGoal(g, time.Now().Add(heldGoalRecheck).UnixMilli())
+		}
+	}
+	if g.WaitingOnWorker {
+		s.reviewHeldGoal(ctx, g)
+		return
+	}
+	if g.ReviewFailed {
+		if ctx.Err() == nil {
+			_ = s.store.DeferGafferGoal(g, time.Now().Add(5*time.Minute).UnixMilli())
+		}
+		return
+	}
+	row, err := s.store.TerminalSessionFor(g.OwnerID, g.SessionID)
+	if err != nil || row.State != terminalproto.Running {
+		if ctx.Err() == nil {
+			_ = s.store.DeferGafferGoal(g, time.Now().Add(5*time.Minute).UnixMilli())
+		}
+		return
+	}
+	seq, err := s.store.GafferWorkerProgress(g.OwnerID, g.SessionID)
+	if err != nil {
+		lookAgain()
+		return
+	}
+	moved := seq > g.LastSeq
+	if !moved {
+		// A turn that is running may not have retained an event since the stop
+		// yet. Its own report of working is enough, as long as it is newer than
+		// the review that stopped the goal.
+		moved = row.ChatStatus == "working" && row.ActivityAt > g.LastReviewedAt
+	}
+	if !moved {
+		lookAgain()
+		return
+	}
+	note := "The working session has moved on since Gaffer stopped for you. Gaffer is following again."
+	if err := s.store.ReleaseGafferGoalWatch(g, note); err != nil {
+		// No room among the active goals yet, or the goal changed: look again later.
+		lookAgain()
+		return
+	}
+	s.auditGoal(g, "gaffer-goal-released", note)
+	s.wakeGoals()
+}
+
 func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 	if g.ActiveTurnID != "" {
 		return
@@ -403,7 +459,7 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		}
 	}
 	if g.State == "needs_user" {
-		s.reviewHeldGoal(ctx, g)
+		s.reviewStoppedGoal(ctx, g)
 		return
 	}
 	if g.ExpiresAt <= time.Now().UnixMilli() {

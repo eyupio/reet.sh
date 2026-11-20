@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Gaffer keeps watching a stopped session**: a goal that went to **Needs you**
+  no longer stays there after the working session has moved on. Gaffer keeps
+  polling the session's retained progress and live status; when the agent
+  carries on by itself (for example once you answer it in its own chat), the
+  reason for the stop no longer holds and Gaffer follows again and reviews the
+  new work. A review of Gaffer's own that failed still waits for you to resume
+  it.
 - **Factory stages the Factory has finished with leave the session lists**: Home, Sessions and the
   session workspace show the pipeline's stage in hand, marked with its stage, and leave the
   finished ones to the pipeline item on the Factory page. A Factory that cannot be read keeps

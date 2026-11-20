@@ -1,5 +1,20 @@
 # Reet central-control implementation handoff
 
+## GAFFER-GOAL-WATCH-1: a stopped goal keeps watching its session (20 November 2026)
+
+The owner reported a Home **Waiting for you** Gaffer entry on a Factory pipeline that was running and needed nothing, and asked Gaffer to poll the sessions. The goal had gone `needs_user` (a review brought a question back) and was then never looked at again: `DueGafferGoals` only returned `needs_user` goals that were held because the working model itself was waiting, so any other stop was final until the person resumed it.
+
+**Fix.** `DueGafferGoals` now returns every `needs_user` goal that is due. `reviewGoal` sends those to the new `reviewStoppedGoal`, which keeps watching the working session without a model request:
+
+- A goal held for the working model still goes through `reviewHeldGoal` unchanged.
+- A goal whose Gaffer review failed stays with the person (deferred, never released by progress), so its reason is not lost.
+- Every other stop (a review's question, no next step, an idle agent, a stopped worker, an undelivered instruction) is released through `store.ReleaseGafferGoalWatch` once the session shows new retained progress after `LastSeq`, or is reported `working` with activity newer than the stop. Releasing clears `noStep`/`advice` from the old stop and marks the goal `active`, so the normal review sees the new progress.
+- When nothing has moved, `store.DeferGafferGoal` sets `nextAt` to look again in 15 seconds (five minutes for a failed review or an ended session) rather than every tick. It changes only `nextAt`, not `updatedAt`, so the entry's age stays true.
+
+`ReleaseGafferGoalWatch` keeps the account's ten-active-goals limit and leaves `LastSeq` alone. The held path and its release are untouched.
+
+**Tests.** `TestAGoalThatStoppedForThePersonFollowsAgainWhenTheSessionMovesOn` proves an unchanged session stays stopped with no model request, new progress releases the goal, and the new progress is then reviewed. `TestAFailedReviewStaysWithThePersonWhenTheSessionMovesOn` proves a failed review is not auto-released. `go test ./internal/gaffer ./internal/store` pass.
+
 ## FACTORY-OUTCOME-IMAGES-2: every attached image travels into a started agent (20 November 2026)
 
 Every agent a Factory outcome starts now receives **all** of the outcome's images, not only the first. `gaffer.OutcomeLaunch` gained `Images []string`; `runOutcomeSession` fills it from the record (`o.Images`), so the same list reaches the first approval start, a retried pipeline, a later stage, and a pipeline added after approval. It is a copy, never the store's slice.

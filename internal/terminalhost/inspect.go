@@ -410,7 +410,7 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		Title, URL, State, ReviewDecision, Mergeable string
 		IsDraft                                      bool
 		Additions, Deletions                         int
-		StatusCheckRollup                            []struct{ Name, Context, Status, Conclusion, State, DetailsURL, TargetURL string }
+		StatusCheckRollup                            []struct{ Name, Context, Status, Conclusion, State, DetailsURL, TargetURL, StartedAt, CompletedAt string }
 		CreatedAt, MergedAt, ClosedAt                string
 		BaseRefName, HeadRefName                     string
 	}
@@ -448,7 +448,7 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		if link == "" {
 			link = c.TargetURL
 		}
-		r.Pull.Checks = append(r.Pull.Checks, terminalproto.InspectCheck{Name: inspectPlain(name, 180), State: state, URL: link})
+		r.Pull.Checks = append(r.Pull.Checks, terminalproto.InspectCheck{Name: inspectPlain(name, 180), State: state, URL: link, StartedAt: inspectTime(c.StartedAt), CompletedAt: inspectTime(c.CompletedAt)})
 	}
 	// Failures first, then active, then passing; truncation never hides a failure behind passes.
 	sort.SliceStable(r.Pull.Checks, func(i, j int) bool {

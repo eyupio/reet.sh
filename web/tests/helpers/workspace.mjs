@@ -85,6 +85,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/notifications/count')return json({unread})
   // Notifications on a device: off unless a test answers the route itself (device-push.e2e.mjs), so the Notifications page has no device card.
   if(path==='/api/v2/push')return json({available:false,devices:[]})
+  // A page that inspects a session's workspace reads GitHub by itself: no pull request unless a test answers this route.
+  if (/^\/api\/v2\/terminal\/sessions\/[^/]+\/inspect$/.test(path))return json({checkedAt:Date.now(),reason:'no_pr'})
   state.unexpected.push(path)
   return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  })

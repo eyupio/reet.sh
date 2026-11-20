@@ -15,7 +15,7 @@ The owner reported a Home **Waiting for you** Gaffer entry on a Factory pipeline
 
 **Tests.** `TestAGoalThatStoppedForThePersonFollowsAgainWhenTheSessionMovesOn` proves an unchanged session stays stopped with no model request, new progress releases the goal, and the new progress is then reviewed. `TestAFailedReviewStaysWithThePersonWhenTheSessionMovesOn` proves a failed review is not auto-released, and `TestALiveWorkingSessionReleasesAGoalWithoutANewEvent` covers the live `working` report. `go test ./internal/gaffer ./internal/store` pass; the full local `-race` package run hit the pre-existing sqlite schema-init hang recorded below, so CI is the arbiter.
 
-**PR.** [#861](https://github.com/eyupio/reet.sh/pull/861) opened against `main`; the checks above are this PR's. Its merge is recorded by the next handoff update.
+**PR.** [#861](https://github.com/eyupio/reet.sh/pull/861) opened against `main`; the checks above are this PR's. **Merged** as `89530cfd` on 20 November 2026, after the image, binary release, offline, benchmark, docs and CodeQL checks passed on the branch merged up to #860.
 
 ## FACTORY-STAGES-LIST-1: finished Factory stages off Home and the session lists (20 November 2026)
 

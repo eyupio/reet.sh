@@ -408,6 +408,10 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	if name == "reet_forget_machine" || name == "reet_merge_machines" {
 		return s.executeMCPMachines(ctx, api, access, origin, name, args)
 	}
+	switch name {
+	case "reet_update_skill", "reet_remove_skill", "reet_list_archived", "reet_restore_skill":
+		return s.executeMCPLibrary(ctx, api, access, origin, name, args)
+	}
 	str := func(key string) string { v, _ := args[key].(string); return v }
 	method, path := "GET", ""
 	query := url.Values{}
@@ -424,7 +428,9 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	case "reet_list_skills", "reet_get_skill":
 		path = "/api/skills"
 		collectionKey = "skills"
-		for _, key := range []string{"q", "tab", "stage", "sort", "env", "machine", "only"} {
+		// Library skills no shelf row stands for are listed too, by library id.
+		query.Set("library", "1")
+		for _, key := range []string{"q", "tab", "status", "sort", "env", "machine", "only"} {
 			if v := str(key); v != "" {
 				query.Set(key, v)
 			}
@@ -434,13 +440,16 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				query.Add("tag", mcpInteger(tag))
 			}
 		}
-		if args["compact"] == true {
-			query.Set("compact", "1")
-		}
-		if fields, ok := args["fields"].([]any); ok && len(fields) > 0 {
-			names := make([]string, 0, len(fields))
-			for _, field := range fields {
-				names = append(names, fmt.Sprint(field))
+		// The compact shape is always named field by field, so it carries
+		// status and no retired stage flags.
+		fields, _ := args["fields"].([]any)
+		if args["compact"] == true || len(fields) > 0 {
+			names := mcpCompactFields
+			if len(fields) > 0 {
+				names = make([]string, 0, len(fields))
+				for _, field := range fields {
+					names = append(names, fmt.Sprint(field))
+				}
 			}
 			query.Set("fields", strings.Join(names, ","))
 		}
@@ -449,22 +458,6 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		}
 	case "reet_add_skill":
 		method, path = "POST", "/api/skills"
-	case "reet_update_skill":
-		method, path = "PATCH", "/api/skill"
-		if len(body) <= 1 {
-			return nil, errors.New("supply liked, bookmarked, used or notes")
-		}
-	case "reet_remove_skill":
-		method, path = "DELETE", "/api/skill"
-		query.Set("id", str("id"))
-		if args["ignore"] == true {
-			query.Set("ignore", "1")
-		}
-		// Without a copy in reet, removing deletes the skill from every
-		// machine; that needs the caller's say-so (409 no-copy otherwise).
-		if args["noCopyConfirmed"] == true {
-			query.Set("noCopyConfirmed", "1")
-		}
 	case "reet_list_tags":
 		path, collectionKey = "/api/tags", "tags"
 	case "reet_tag_skill":
@@ -486,8 +479,6 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		method, path = "POST", "/api/v2/environments/delete"
 	case "reet_merge_environments":
 		method, path = "POST", "/api/v2/environments/merge"
-	case "reet_list_sync_targets":
-		path, collectionKey = "/api/v2/sync", "targets"
 	case "reet_list_lists":
 		path, collectionKey = "/api/v2/lists", "lists"
 	case "reet_get_list":
@@ -546,11 +537,6 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	case "reet_delete_tag":
 		method, path = "POST", "/api/v2/tags/"+mcpInteger(args["tag_id"])+"/delete"
 		delete(body, "tag_id")
-	case "reet_list_ignored":
-		path, collectionKey = "/api/ignored", "ignored"
-	case "reet_unignore_skill":
-		method, path = "DELETE", "/api/skill/ignore"
-		query.Set("id", str("id"))
 	default:
 		return nil, errors.New("unknown tool")
 	}
@@ -591,7 +577,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				return sk, nil
 			}
 		}
-		return nil, errors.New("skill not found in this account's library")
+		return nil, errMCPSkillNotFound
 	case "reet_list_skills":
 		meta["counts"] = data["counts"]
 	case "reet_list_environments":
@@ -643,4 +629,188 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		meta["list"] = data
 	}
 	return mcpPage(items, args, meta)
+}
+
+// mcpCompactFields is reet_list_skills' compact shape.
+var mcpCompactFields = []string{"id", "name", "source", "sourceType", "status", "liked", "tags", "environment_count"}
+
+// mcpGet reads one internal API GET as the MCP caller.
+func (s *server) mcpGet(ctx context.Context, api http.Handler, access mcpAccess, origin, path string, query url.Values) (map[string]any, error) {
+	w, err := s.mcpDo(ctx, api, access, origin, "GET", path, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{}
+	if json.Unmarshal(w.body.Bytes(), &data) != nil {
+		return nil, errors.New("unexpected API response")
+	}
+	return data, nil
+}
+
+// mcpShelfSkill is the shelf skill an exact ID names, from the listing
+// reet_get_skill reads, or nil.
+func (s *server) mcpShelfSkill(ctx context.Context, api http.Handler, access mcpAccess, origin, id string) (map[string]any, error) {
+	data, err := s.mcpGet(ctx, api, access, origin, "/api/skills", url.Values{"q": {id}})
+	if err != nil {
+		return nil, err
+	}
+	items, err := mcpItems(data, "skills")
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if sk, ok := item.(map[string]any); ok && sk["id"] == id {
+			return sk, nil
+		}
+	}
+	return nil, nil
+}
+
+var errMCPSkillNotFound = errors.New("Skill not found in this account's library. Use reet_list_skills or reet_list_archived to find its ID.")
+
+// mcpLibrarySkill is the library item a skill tool acts on, and its shelf ID
+// ("" when it has none): id is a skill ID from reet_list_skills or a library
+// id from reet_list_archived.
+func (s *server) mcpLibrarySkill(ctx context.Context, api http.Handler, access mcpAccess, origin, id string) (item, shelf string, err error) {
+	sk, err := s.mcpShelfSkill(ctx, api, access, origin, id)
+	if err != nil {
+		return "", "", err
+	}
+	if sk != nil {
+		item, _ = sk["libraryItemId"].(string)
+		if item == "" {
+			return "", "", errors.New("That skill is not in your library, so it has no status to change. Add it again with reet_add_skill.")
+		}
+		return item, id, nil
+	}
+	for _, tab := range []string{"active", "archived"} {
+		data, err := s.mcpGet(ctx, api, access, origin, "/api/v2/skills", url.Values{"status": {tab}})
+		if err != nil {
+			return "", "", err
+		}
+		rows, err := mcpItems(data, "skills")
+		if err != nil {
+			return "", "", err
+		}
+		for _, raw := range rows {
+			if row, ok := raw.(map[string]any); ok && row["id"] == id {
+				shelf, _ = row["shelfId"].(string)
+				return id, shelf, nil
+			}
+		}
+	}
+	return "", "", errMCPSkillNotFound
+}
+
+// executeMCPLibrary runs the tools that archive, restore, list and delete
+// library skills, through the Skills page's own routes.
+func (s *server) executeMCPLibrary(ctx context.Context, api http.Handler, access mcpAccess, origin, name string, args map[string]any) (map[string]any, error) {
+	if name == "reet_list_archived" {
+		data, err := s.mcpGet(ctx, api, access, origin, "/api/v2/skills", url.Values{"status": {"archived"}})
+		if err != nil {
+			return nil, err
+		}
+		items, err := mcpItems(data, "skills")
+		if err != nil {
+			return nil, err
+		}
+		return mcpPage(items, args, map[string]any{"counts": data["counts"]})
+	}
+	id, _ := args["id"].(string)
+	id = strings.TrimSpace(id)
+	fields := map[string]any{}
+	for _, key := range []string{"liked", "notes"} {
+		if v, ok := args[key]; ok {
+			fields[key] = v
+		}
+	}
+	status, _ := args["status"].(string)
+	if name == "reet_update_skill" && status == "" && len(fields) == 0 {
+		return nil, errors.New("Supply at least one of liked, notes or status.")
+	}
+	item, shelf, err := s.mcpLibrarySkill(ctx, api, access, origin, id)
+	if err != nil {
+		return nil, err
+	}
+	wrote := false
+	logged := func() {
+		if !wrote {
+			wrote = true
+			s.event(access.User.ID, "mcp", "mcp-call", "", map[string]any{"connection": access.Connection.Name, "tool": name})
+		}
+	}
+	if name == "reet_remove_skill" {
+		w, err := s.mcpDo(ctx, api, access, origin, "POST", "/api/v2/skills/delete", url.Values{}, map[string]any{
+			"ids": []string{item}, "noCopyConfirmed": args["noCopyConfirmed"] == true, "writtenConfirmed": args["writtenConfirmed"] == true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		logged()
+		data := map[string]any{}
+		if json.Unmarshal(w.body.Bytes(), &data) != nil {
+			return nil, errors.New("unexpected API response")
+		}
+		return data, nil
+	}
+	if name == "reet_restore_skill" {
+		status = "active"
+	}
+	if name == "reet_update_skill" && shelf == "" && len(fields) > 0 {
+		return nil, errors.New("That skill has no likes or notes to change: it is not on your shelf. Only its status can change.")
+	}
+	var row map[string]any
+	if status != "" {
+		w, err := s.mcpDo(ctx, api, access, origin, "POST", "/api/v2/skills/status", url.Values{}, map[string]any{"ids": []string{item}, "status": status})
+		if err != nil {
+			return nil, err
+		}
+		logged()
+		data := map[string]any{}
+		if json.Unmarshal(w.body.Bytes(), &data) != nil {
+			return nil, errors.New("unexpected API response")
+		}
+		rows, _ := mcpItems(data, "skills")
+		for _, raw := range rows {
+			if r, ok := raw.(map[string]any); ok && r["id"] == item {
+				row = r
+			}
+		}
+	}
+	if name == "reet_restore_skill" {
+		out := map[string]any{"id": item, "shelfId": shelf, "name": "", "status": "active"}
+		if row != nil {
+			out["shelfId"], out["name"] = row["shelfId"], row["name"]
+		}
+		return out, nil
+	}
+	if shelf == "" {
+		// A skill with no shelf entry, such as one this account wrote and
+		// never published, is its library row.
+		if row == nil {
+			return nil, errors.New("The status changed, but the skill could not be read back. Read it with reet_list_archived before changing it again.")
+		}
+		return row, nil
+	}
+	if len(fields) > 0 {
+		fields["id"] = shelf
+		w, err := s.mcpDo(ctx, api, access, origin, "PATCH", "/api/skill", url.Values{}, fields)
+		if err != nil {
+			return nil, err
+		}
+		logged()
+		data := map[string]any{}
+		if json.Unmarshal(w.body.Bytes(), &data) != nil {
+			return nil, errors.New("unexpected API response")
+		}
+		return data, nil
+	}
+	sk, err := s.mcpShelfSkill(ctx, api, access, origin, shelf)
+	if err != nil {
+		return nil, err
+	}
+	if sk == nil {
+		return nil, errMCPSkillNotFound
+	}
+	return sk, nil
 }

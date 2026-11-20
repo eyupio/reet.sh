@@ -22,19 +22,12 @@ type EnvironmentChange struct {
 }
 
 // DeleteEnvironmentsFor removes environment reports, refusing non-empty ones
-// unless force is set. A report that still holds ownership receipts is refused
-// the same way, since deleting it would silently forget them. Shelf skills are
-// never deleted, only their install links.
+// unless force is set. Shelf skills are never deleted, only their install
+// links.
 func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([]Environment, []EnvironmentChange, error) {
 	envs, err := s.ListEnvironmentsFor(userID)
 	if err != nil {
 		return nil, nil, err
-	}
-	receipts := map[string]int{}
-	if !force {
-		if receipts, err = s.ReceiptCountsFor(userID, ids); err != nil {
-			return nil, nil, err
-		}
 	}
 	index := make(map[string]Environment, len(envs))
 	for _, env := range envs {
@@ -51,10 +44,6 @@ func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([
 		}
 		if env.SkillCount > 0 && !force {
 			blocked = append(blocked, EnvironmentChange{ID: id, Name: env.Name, SkillCount: env.SkillCount, Code: "environment_has_skills", Message: "environment still has skills"})
-			continue
-		}
-		if receipts[id] > 0 {
-			blocked = append(blocked, EnvironmentChange{ID: id, Name: env.Name, Code: "environment_has_receipts", Message: "environment still holds ownership receipts; release them first"})
 			continue
 		}
 		deleted = append(deleted, env)
@@ -75,24 +64,6 @@ func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([
 		return nil, nil, err
 	}
 	return deleted, blocked, nil
-}
-
-// ErrEnvironmentJobRunning refuses a merge while the source report has a sync
-// job running: it may be writing, and its result belongs to the source.
-var ErrEnvironmentJobRunning = errors.New("a sync job is running on this environment; wait for it to finish, then merge")
-
-// MergeJobCountsFor counts the sync jobs on one report that a merge would
-// refuse (running) or cancel (queued or awaiting approval), and how many of the
-// cancelled ones are skill installs, so a preview can say so before a merge.
-func (s *Store) MergeJobCountsFor(userID int64, envID string) (running, pending, installs int, err error) {
-	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='running'`, userID, envID).Scan(&running); err != nil {
-		return
-	}
-	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status IN ('queued','awaiting-approval')`, userID, envID).Scan(&pending); err != nil {
-		return
-	}
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM skill_installs i JOIN sync_jobs j ON j.id=i.job_id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','awaiting-approval')`, userID, envID).Scan(&installs)
-	return
 }
 
 // MergeEnvironmentsFor moves one report's skills into another and removes the
@@ -119,33 +90,6 @@ func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, er
 		if err != nil {
 			return err
 		}
-		var contentPins int
-		if err := tx.QueryRow(`SELECT count(*) FROM skill_content_targets WHERE user_id=? AND environment_id=?`, userID, fromID).Scan(&contentPins); err != nil {
-			return err
-		}
-		if contentPins > 0 {
-			return ErrSkillContentTargetScopeMerge
-		}
-		var receipts int
-		if err := tx.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=? AND environment_id=?`, userID, fromID).Scan(&receipts); err != nil {
-			return err
-		}
-		if receipts > 0 {
-			return ErrSkillContentReceiptScope
-		}
-		var running int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='running'`, userID, fromID).Scan(&running); err != nil {
-			return err
-		}
-		if running > 0 {
-			return ErrEnvironmentJobRunning
-		}
-		// Pending work is cancelled before the saved set is copied, so an
-		// install's revert still finds the set on the source report and the
-		// copy never carries a skill nobody approved.
-		if err := endSyncJobsTx(tx, "cancelled", "Environment merged; preview again.", `j.user_id=? AND j.target_id=? AND j.status IN ('queued','awaiting-approval')`, userID, fromID); err != nil {
-			return err
-		}
 		res, err := tx.Exec(`INSERT OR IGNORE INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
 			SELECT skill_id,?,installed_at,last_seen,source_path FROM skill_envs WHERE env_id=?`, toID, fromID)
 		if err != nil {
@@ -158,14 +102,6 @@ func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, er
 			return err
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO scan_errors(env_id,error) SELECT ?,error FROM scan_errors WHERE env_id=?`, toID, fromID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at)
-			SELECT user_id,?,source_id,source_name,desired,revision,updated_at FROM sync_targets WHERE user_id=? AND target_id=?`, toID, userID, fromID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_options(target_id,mode,baseline,applied_revision)
-			SELECT ?,mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, toID, fromID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM environments WHERE user_id=? AND id=?`, userID, fromID); err != nil {
@@ -375,11 +311,13 @@ func (s *Store) DeleteTagFor(userID int64, id int64) (int, error) {
 	return affected, err
 }
 
-// BulkChange is the combined change reet_bulk_update_skills applies.
+// BulkChange is the combined change reet_bulk_update_skills applies. Status,
+// active or archived, moves each skill's library item as the Skills page's
+// Archive and Restore do, at StatusAt.
 type BulkChange struct {
 	Liked        *bool
-	Bookmarked   *bool
-	Used         *bool
+	Status       string
+	StatusAt     time.Time
 	AddTags      []string
 	RemoveTagIDs []int64
 	AddToListID  int64
@@ -393,9 +331,23 @@ type BulkItemResult struct {
 	Message string `json:"message,omitempty"`
 }
 
-// BulkUpdateFor applies flags, tags and one list membership in a single
-// transaction. dryRun runs the same work and rolls it back.
+// shelfChange says whether a bulk change touches what a shelf row holds:
+// likes, tags and list membership.
+func (c BulkChange) shelfChange() bool {
+	return c.Liked != nil || len(c.AddTags) > 0 || len(c.RemoveTagIDs) > 0 || c.AddToListID > 0
+}
+
+// BulkUpdateFor applies a like, a status, tags and one list membership in a
+// single transaction. dryRun runs the same work and rolls it back.
+//
+// An id is a shelf skill's, or the library id of a skill no shelf row stands
+// for, such as one written and never published, as reet_list_skills lists
+// them. Such a skill takes a status change only: a like, tag or list needs a
+// shelf row.
 func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dryRun bool) (int, []BulkItemResult, error) {
+	if change.Status != "" && !validLibraryStatus(change.Status) {
+		return 0, nil, ErrPrivateSkillInvalid
+	}
 	results := make([]BulkItemResult, 0, len(ids))
 	updated := 0
 	tx, err := s.db.Begin()
@@ -403,6 +355,11 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		return 0, nil, err
 	}
 	defer tx.Rollback()
+	if change.Status != "" {
+		if err := privateSkillOwner(tx, userID); err != nil {
+			return 0, nil, err
+		}
+	}
 	var addIDs []int64
 	for _, name := range change.AddTags {
 		name = strings.TrimSpace(name)
@@ -416,16 +373,23 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		addIDs = append(addIDs, tagID)
 	}
 	for _, id := range ids {
-		var one int
-		err := tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&one)
-		if errors.Is(err, sql.ErrNoRows) {
-			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
-			continue
-		}
+		item, shelf, err := bulkSkillItemTx(tx, userID, id)
 		if err != nil {
 			return 0, nil, err
 		}
-		if change.AddToListID > 0 {
+		if item == "" && !shelf {
+			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
+			continue
+		}
+		if !shelf && change.shelfChange() {
+			results = append(results, BulkItemResult{ID: id, Code: "library_only", Message: "this skill has no shelf row, so only its status can change; nothing was changed"})
+			continue
+		}
+		if change.Status != "" && item == "" {
+			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
+			continue
+		}
+		if shelf && change.AddToListID > 0 {
 			var visibility, sourceType string
 			if err := tx.QueryRow(`SELECT visibility FROM lists WHERE id=?`, change.AddToListID).Scan(&visibility); err != nil {
 				return 0, nil, err
@@ -438,16 +402,14 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 				continue
 			}
 		}
-		changed := change.Liked != nil || change.Bookmarked != nil || change.Used != nil
-		if changed {
-			if _, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
-				WHERE user_id=? AND skill_id=?`, nullBool(change.Liked), nullBool(change.Bookmarked), nullBool(change.Used), now(), userID, id); err != nil {
+		if change.Status != "" {
+			if err := setLiveSkillStatusTx(tx, userID, item, change.Status, change.StatusAt); err != nil {
 				return 0, nil, err
 			}
-			if change.Used != nil || change.Bookmarked != nil {
-				if err := shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
-					return 0, nil, err
-				}
+		}
+		if change.Liked != nil {
+			if _, err := tx.Exec(`UPDATE shelf SET liked=?,updated_at=? WHERE user_id=? AND skill_id=?`, b2i(change.Liked), now(), userID, id); err != nil {
+				return 0, nil, err
 			}
 		}
 		for _, tagID := range addIDs {
@@ -483,6 +445,25 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		return 0, nil, err
 	}
 	return updated, results, nil
+}
+
+// bulkSkillItemTx finds what a bulk id names: a shelf row, with the live
+// library item it stands for, or a live library skill no shelf row stands
+// for, by its library id. item is empty when there is no live item.
+func bulkSkillItemTx(tx *sql.Tx, uid int64, id string) (item string, shelf bool, err error) {
+	var one int
+	err = tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, uid, id).Scan(&one)
+	switch {
+	case err == nil:
+		shelf = true
+		err = tx.QueryRow(`SELECT i.id FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference=? AND i.deleted_at=0`, uid, id).Scan(&item)
+	case errors.Is(err, sql.ErrNoRows):
+		err = tx.QueryRow(`SELECT i.id FROM library_items i WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference JOIN skills k ON k.id=a.reference AND k.hidden=0 WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf')`, uid, id, LibrarySkill).Scan(&item)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	return item, shelf, err
 }
 
 // DuplicateSkill is one member of a suspected duplicate group.

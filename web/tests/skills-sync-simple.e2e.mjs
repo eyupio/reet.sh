@@ -21,7 +21,8 @@ try {
       },
     }})
     const {page}=fixture
-    await page.goto(`${base}/sync?skill=${encodeURIComponent(two.id)}`)
+    // The shared library's setup is part of the older panel, on Advanced sync until it goes.
+    await page.goto(`${base}/sync/advanced?skill=${encodeURIComponent(two.id)}`)
     await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
     await expect(page.getByRole('button',{name:'Sync all machines',exact:true})).toBeEnabled()
     if(width===390){const button=await page.getByRole('button',{name:'Sync all machines',exact:true}).boundingBox();expect(button.y+button.height).toBeLessThan(812-64)}
@@ -73,7 +74,7 @@ try {
   for(const [name,change,headline,details,button] of states){
     const world=initial();change(world)
     const fleet=await openWorkspace(browser,{width:1280,sync:world,routes:{'/api/v2/sync/candidates':{skills:[one,two]}}})
-    await fleet.page.goto(`${base}/sync`)
+    await fleet.page.goto(`${base}/sync/advanced`)
     const status=fleet.page.getByRole('region',{name:'Your skills, everywhere.'}).getByRole('status').filter({hasText:headline})
     await expect(status,name).toBeVisible()
     for(const detail of details)await expect(status,name).toContainText(detail)
@@ -83,59 +84,40 @@ try {
     expect(fleet.errors).toEqual([])
     await fleet.context.close()
   }
-  // The Sync page is one status sentence, a row per machine and recent activity. Everything a person has to act on
-  // is said on that machine's row; the sync-plan controls are one link away, on Advanced sync.
+  // Sync is one sentence, a row per machine and recent activity (sync-page.e2e.mjs). The older panel, with its job
+  // activity and the sync-plan controls, is one plain link away on Advanced sync, and older links still land there.
   for (const width of [390,1280]) {
     const world=initial()
     world.targets[0]={...world.targets[0],missing:[],appliedRevision:'r',updatedAt:Date.now()-600000}
     const job=(id,agentId,kind,status,ago,plan={})=>({id,agentId,targetId:kind==='update'?'':'shared',kind,status,revision:'r',hash:'h',plan,message:'',stage:'',stages:[],createdAt:Date.now()-ago,updatedAt:Date.now()-ago})
-    // Laptop has a plan waiting for review; Desktop finished an update a few minutes ago.
     world.jobs=[job('review-1','a1','preview','awaiting-approval',60000,{directory:'~/.agents/skills',actions:[{add:false,skill:one}]}),job('update-1','a2','update','succeeded',180000)]
     const plain=await openWorkspace(browser,{width,height:width===390?844:900,touch:width===390,sync:world,routes:{'/api/v2/sync':()=>world,'/api/v2/sync/candidates':{skills:[one,two]},'/api/v2/lists':{lists:[]}}})
     const p=plain.page
     await p.goto(`${base}/sync`)
     await expect(p.getByRole('heading',{level:1})).toHaveCount(1)
-    await expect(p.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
     expect(await p.title()).toBe('Sync · reet.sh')
-    const summary=p.getByRole('region',{name:'Your skills, everywhere.'})
-    await expect(summary.getByRole('status')).toContainText('1 machine needs a look. Laptop: 1 planned change needs your approval before applying.')
-    // Exactly one status sentence, and none of the headlines the activity block and the plan controls used to add.
-    await expect(p.locator('main [role="status"]:visible').filter({hasText:/\S/}),`one status sentence at ${width}px`).toHaveCount(1)
-    for(const gone of ['Sync has unresolved changes','Sync is up to date','Nothing needs you.','No skills set to sync','plan needs review','No sync activity yet'])await expect(p.locator('main').getByText(gone,{exact:false}),gone).toHaveCount(0)
-    // No plan controls and no second skills picker.
+    // No plan controls on Sync.
     for(const label of ['Source','Sync mode','List','Machine'])await expect(p.getByLabel(label,{exact:true}),label).toHaveCount(0)
-    await expect(p.getByText(/sync plan · revision|Plan revision (not yet )?acknowledged/i)).toHaveCount(0)
     await expect(p.getByRole('heading',{name:'Sync plans',exact:true})).toHaveCount(0)
-    await expect(p.getByRole('heading',{name:'Choose what to sync',exact:true})).toHaveCount(0)
-    await expect(p.getByRole('button',{name:'Scan all',exact:true})).toHaveCount(0)
-    await expect(p.getByRole('region',{name:'Skills to sync'})).toHaveCount(0)
-    await expect(p.getByText(/sha256/i)).toHaveCount(0)
-    // What needs a person, and what just finished, is on the machine's own row.
-    const laptop=summary.locator('.machine-list article',{hasText:'Laptop'})
-    await expect(laptop).toContainText('Review needed')
-    await expect(laptop).toContainText('1 plan is waiting for your review.')
-    await expect(laptop.getByRole('link',{name:'Review changes',exact:true})).toHaveAttribute('href','#sync-jobs')
-    await expect(summary.locator('.machine-list article',{hasText:'Desktop'})).toContainText('Update complete · 3 min ago')
-    // Recent activity is a log with a plain heading; the review is done there.
-    await expect(p.locator('#sync-jobs-title')).toHaveText('Recent activity')
-    await laptop.getByRole('link',{name:'Review changes',exact:true}).click()
-    await expect(p.locator('#sync-jobs')).toBeInViewport()
-    await expect(p.locator('#sync-jobs').getByRole('button',{name:'Apply changes',exact:true})).toBeVisible()
-    // One plain link to the plan controls, with a line saying what they are for.
-    const advanced=p.getByRole('link',{name:'Advanced sync',exact:true})
+    const advanced=p.getByRole('link',{name:'Advanced',exact:true})
     await expect(advanced).toHaveCount(1)
     await expect(advanced).toHaveAttribute('href','/sync/advanced')
-    await expect(summary.locator('.advanced')).toContainText('Sync plans that follow a list or keep an exact set of skills, plan revisions and manual scans.')
     expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`no sideways scroll on Sync at ${width}px`).toBe(true)
     await advanced.click()
-    // Advanced sync: its own page, with the plan controls as they were, and a way back.
+    // Advanced sync: its own page, with the older panel as it was, and a way back.
     await expect(p).toHaveURL(`${base}/sync/advanced`)
     await expect(p.getByRole('heading',{level:1})).toHaveCount(1)
     await expect(p.getByRole('heading',{level:1,name:'Advanced sync',exact:true})).toBeVisible()
     expect(await p.title()).toBe('Advanced sync · reet.sh')
-    await expect(p.getByText('plans that follow a list or keep an exact set of skills',{exact:false}).first()).toBeVisible()
     await expect(p.getByRole('link',{name:'Back to Sync',exact:true})).toHaveAttribute('href','/sync')
-    await expect(p.getByRole('heading',{name:'Your skills, everywhere.'})).toHaveCount(0)
+    await expect(p.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
+    // It does not link to itself.
+    await expect(p.getByRole('link',{name:'Advanced sync',exact:true})).toHaveCount(0)
+    const laptop=p.getByRole('region',{name:'Your skills, everywhere.'}).locator('.machine-list article',{hasText:'Laptop'})
+    await expect(laptop).toContainText('Review needed')
+    await laptop.getByRole('link',{name:'Review changes',exact:true}).click()
+    await expect(p.locator('#sync-jobs')).toBeInViewport()
+    await expect(p.locator('#sync-jobs').getByRole('button',{name:'Apply changes',exact:true})).toBeVisible()
     await expect(p.getByRole('heading',{name:'Choose what to sync',exact:true})).toBeVisible()
     await expect(p.getByLabel('Source',{exact:true})).toHaveValue('shelf')
     await expect(p.getByLabel('Sync mode',{exact:true}).locator('option')).toHaveText(['Additive','Bidirectional review','Exact set'])
@@ -153,10 +135,6 @@ try {
     await p.goto(`${base}/sync#sync-selection`)
     await expect(p).toHaveURL(`${base}/sync/advanced#sync-selection`)
     await expect(p.locator('#sync-selection')).toBeInViewport()
-    // A parameter no Sync page reads is no reason to leave the Sync page.
-    await p.goto(`${base}/sync?skill=${encodeURIComponent(two.id)}`)
-    await expect(p).toHaveURL(`${base}/sync?skill=${encodeURIComponent(two.id)}`)
-    await expect(p.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
     expect(plain.errors).toEqual([])
     await plain.context.close()
   }
@@ -166,9 +144,8 @@ try {
     const reader=await openWorkspace(browser,{width:1280,status,sync:world,routes:{'/api/v2/sync/candidates':{skills:[one,two]},'/api/v2/lists':{lists:[]}}})
     const p=reader.page
     await p.goto(`${base}/sync`)
-    await expect(p.getByRole('heading',{level:1,name:'Sync',exact:true}),name).toBeVisible()
-    await expect(p.locator('main [role="status"]:visible').filter({hasText:/\S/}),name).toHaveCount(1)
-    await expect(p.getByRole('link',{name:'Advanced sync',exact:true}),name).toHaveCount(1)
+    await expect(p.getByRole('heading',{level:1}),name).toHaveCount(1)
+    await expect(p.getByRole('link',{name:'Advanced',exact:true}),name).toHaveCount(1)
     await p.goto(`${base}/sync/advanced?machine=Laptop`)
     await expect(p.getByRole('heading',{level:1,name:'Advanced sync',exact:true}),name).toBeVisible()
     await expect(p.getByLabel('Machine',{exact:true}),name).toHaveValue('Laptop')
@@ -180,7 +157,7 @@ try {
     await reader.context.close()
   }
   const viewer=await openWorkspace(browser,{width:1280,status:{user:{id:2,name:'Reader',role:'viewer'}},sync:initial(),routes:{'/api/v2/sync/candidates':{skills:[one,two]}}})
-  await viewer.page.goto(`${base}/sync`)
+  await viewer.page.goto(`${base}/sync/advanced`)
   // A read-only account sees the answer but is not offered a button it cannot use.
   await expect(viewer.page.getByRole('status').filter({hasText:'1 machine needs syncing.'})).toBeVisible()
   await expect(viewer.page.getByRole('button',{name:'Sync all machines'})).toHaveCount(0)

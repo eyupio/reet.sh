@@ -276,3 +276,35 @@ func TestWideHomeKeepsItsFooterAtEveryHeightAndSelection(t *testing.T) {
 		}
 	}
 }
+
+// reet sync and reet agent library-import are gone: home, help and the
+// reference no longer offer them.
+func TestRemovedSkillCommandsAreNotOffered(t *testing.T) {
+	var help, reference bytes.Buffer
+	Help(&help)
+	Reference(&reference)
+	var visit func([]Command)
+	visit = func(cs []Command) {
+		for _, c := range cs {
+			if c.Name == "sync" || c.Name == "agent library-import" {
+				t.Fatalf("%s is still in the catalog", c.Name)
+			}
+			visit(c.Children)
+		}
+	}
+	visit(Commands())
+	for _, gone := range []string{"reet sync", "library-import", "  sync "} {
+		if strings.Contains(help.String(), gone) {
+			t.Fatalf("help still offers %q", gone)
+		}
+	}
+	for _, gone := range []string{"## reet sync", "`reet agent library-import` —"} {
+		if strings.Contains(reference.String(), gone) {
+			t.Fatalf("the reference still offers %q", gone)
+		}
+	}
+	// The reference says what replaced them.
+	if !strings.Contains(reference.String(), "`reet sync` and `reet agent library-import` are removed.") || !strings.Contains(reference.String(), "New on a machine") {
+		t.Fatal("the reference does not say what replaced the removed commands")
+	}
+}

@@ -281,7 +281,7 @@ func TestMachineCaptureRecordsWhereItCameFromAndFollowsArchive(t *testing.T) {
 	if _, err := s.ClaimRemoteImportFor(uid, agent.ID, strings.Repeat("a", 48)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MaintainSync(uid, "owner", agent); err != nil {
+	if err := s.RequestSkillCaptureFor(uid, item.id, agent.ID, "~/.agents/skills/demo"); err != nil {
 		t.Fatal(err)
 	}
 	var id string
@@ -538,5 +538,79 @@ func TestValidLibrarySkillName(t *testing.T) {
 	// Hosting still needs a hosted name.
 	if ValidHostedName("my_skill") {
 		t.Fatal("my_skill became a hosted name")
+	}
+}
+
+// A skill kept from a machine is captured once: when its copy has landed, the
+// copy worker asking again starts no second capture and no second bundle, and
+// the item keeps the bundle the capture made.
+func TestMachineCaptureReusesTheSkillsBundle(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if err := s.SetAgentSkillsProtocolFor(uid, agent.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	files := machineImportFixture(t).Files
+	m, err := skillbundle.FromContents(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportOf(t, s, uid, agent.ID, time.Now(), unknownOn("demo", m.Digest))
+	kept, err := s.KeepNewSkillsFor(uid, []string{"demo"}, SkillActive, "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := kept[0]
+	if _, err = s.ClaimRemoteImportFor(uid, agent.ID, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RequestSkillCaptureFor(uid, k.Item, k.AgentID, k.Folder+"/"+k.Name); err != nil {
+		t.Fatal(err)
+	}
+	requests := func() []string {
+		t.Helper()
+		rows, err := s.db.Query(`SELECT id FROM machine_import_requests WHERE user_id=? ORDER BY created_at`, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	first := requests()
+	if len(first) != 1 {
+		t.Fatalf("captures after Keep: %v", first)
+	}
+	r, err := s.RemoteImportFor(uid, first[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r = finishMachineCopy(t, s, uid, agent, r, files); r.State != "completed" || r.Receipt == nil {
+		t.Fatalf("capture: %+v", r)
+	}
+	item := skillStateNamed(t, s, uid, "demo")
+	if item.bundle != r.Receipt.Bundle.ID || item.revision != r.Receipt.Revision.ID {
+		t.Fatalf("the item %+v is not bound to the capture's bundle %s", item, r.Receipt.Bundle.ID)
+	}
+	before := privateCounts(t, s)
+	for i := 0; i < 2; i++ {
+		if err = s.RequestSkillCaptureFor(uid, k.Item, k.AgentID, k.Folder+"/"+k.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if again := requests(); len(again) != 1 {
+		t.Fatalf("a repeated capture was started: %v", again)
+	}
+	if after := privateCounts(t, s); !reflect.DeepEqual(after, before) {
+		t.Fatalf("a repeated capture added content: %v -> %v", before, after)
+	}
+	if again := skillStateNamed(t, s, uid, "demo"); again.bundle != item.bundle || again.revision != item.revision {
+		t.Fatalf("the item moved to another bundle: %+v, was %+v", again, item)
 	}
 }

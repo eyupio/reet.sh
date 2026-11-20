@@ -1,6 +1,6 @@
 # Environments and confirmed sync
 
-For reet.sh shelf/list/published-skill comparison, bidirectional review, enrolled agents and remotely approved jobs, see [Controller sync](controller-sync.md). The legacy reference-snapshot and manual flows below remain supported. Manual apply now requires enrollment.
+For reet.sh shelf/list/published-skill comparison, bidirectional review, enrolled agents and remotely approved jobs, see [Controller sync](controller-sync.md). The legacy reference snapshots below can still be saved and compared; `reet sync`, which applied them, has been removed.
 
 The **Account → Machines → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Run `reet` and choose **Connect machine** to open the existing enrollment command. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
 
@@ -34,17 +34,11 @@ The controller persists the desired snapshot and its revision in SQLite. A later
 
 ## Preview and apply locally
 
-Copy the target's command from **Account → Compare & sync** and run it on that machine. For a project target, run it from that exact project directory:
-
-```sh
-reet sync --server "$REET_URL" --env my-laptop --target 'account/environment/id'
-```
-
-After the target is chosen, an interactive run asks whether to preview or apply, previewing by default. `reet sync --apply` skips that question and goes straight to the plan. Applying prints the plan and asks you to type yes (or the target name). There is no unattended apply flag. The CLI rechecks the controller revision and local files after confirmation, takes a local target lock, and scopes installs through the vetted `npx --yes skills@1.7.4 add` command to the chosen agent and global/project location. Removed entries are moved into a uniquely named `.reet-sync-backups` folder beside the skills directory rather than permanently deleted. A symlink entry is backed up as a symlink, preserving its canonical contents. To restore an entry a sync job moved, run the command the Sync page shows for that job on that machine: `reet agent restore --target ID --backup PATH` puts that exact backup back in the target's skills folder, a project's included, and never over a skill already there. `reet agent restore NAME` restores the newest backup of a skill from the home skills folders, and `reet agent restore --list` shows those backups and a job's backups beside a project's or Codex's skills folder, each with the command that restores it. The skills CLI runs through `npx`. When Node.js is missing, an interactive apply offers to install it with the machine's own package manager (for example `sudo apt-get install -y nodejs npm`, or Homebrew on macOS). reet shows the exact command and asks first; sudo then prompts for the password on the real terminal, and reet never reads or stores it. Declining that offers a second, sudo-free choice: download a reviewed Node.js build from nodejs.org, verify its checksum, and keep it under `~/.reet/tools/node`. Declining both leaves the machine unchanged. Skills sourced from GitHub also need `git`, and the same confirmed system install is offered when it is missing. Non-interactive runs and the enrolled agent still require `npx` and, for GitHub sources, `git` on `PATH`, or a Node.js runtime a previous interactive run provisioned. Known shared-agent source conflicts, canonical shared-folder removals still referenced by another detected agent, and unknown/local-only skills stop the plan instead of overwriting or deleting them. Resolve their provenance in the skills CLI lock file first, or back up and remove local-only extras yourself.
-
-Commands run sequentially; this is not a filesystem transaction. If a command fails, sync stops and reports the current inventory so the controller can show remaining differences. Successful apply rescans with pruning and checks the local result. If a process is killed while applying, its `.reet-sync.lock` may remain in the skills folder; check that no sync is running before removing that stale lock and previewing again. A viewer account cannot apply a saved target. Custom `CLAUDE_CONFIG_DIR` or OpenCode `XDG_CONFIG_HOME` locations require manual syncing.
-
-This sync matches installed skill sets and their sources. It does not compare file contents, pin upstream commits, copy local notes/files, SSH into machines, or install the agent applications themselves. Review third-party skills before confirming installation. The browser stores plans on the controller. Enrolled agents can pull typed scan/preview/apply jobs; remote apply requires local opt-in and approval of the exact preview. The browser does not execute shell commands directly.
+`reet sync` has been removed. Every connected machine now follows your library:
+archive or restore a skill on the Skills page, and each machine takes it off or
+puts it back by itself, keeping a backup for 30 days of anything it takes off.
+Running `reet sync` prints a line saying so and changes nothing. Reference
+snapshots saved here are no longer applied to a machine.
 
 ## Servers
 
@@ -59,7 +53,7 @@ export REET_ENV='my-server'
 reet serve
 ```
 
-These settings are also available in `.env`/Docker Compose. Remote reports use the configured token's account, never every user's account. A container sees only its own filesystem; mount the skill directories to scan the host's skills. It does not automatically apply changes: run the target's confirmed `reet sync --apply` command locally. Server heartbeats older than five minutes are shown as not seen recently; agent inventory freshness uses the 14-day scan window.
+These settings are also available in `.env`/Docker Compose. Remote reports use the configured token's account, never every user's account. A container sees only its own filesystem; mount the skill directories to scan the host's skills. It reports what it sees and changes nothing on that server. Server heartbeats older than five minutes are shown as not seen recently; agent inventory freshness uses the 14-day scan window.
 
 **Forget environment** removes its reports and target configuration, not installed files. Existing snapshots captured from that environment remain on other targets. A new scan or active server heartbeat can register the environment again.
 

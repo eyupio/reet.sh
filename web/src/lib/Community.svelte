@@ -1,7 +1,7 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
-  import { getCommunity, addSkill, type ListSkill, type SharedList } from './api'
+  import { getCommunity, addSkill, listSkills, type ListSkill, type SharedList } from './api'
   import {
     communityCountLabel, filterCommunityLists, filterCommunitySkills, type CommunityTab,
   } from './community'
@@ -9,13 +9,23 @@
   import CollectionPanel from './CollectionPanel.svelte'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { installCommand } from './install'
+  import { copyPrompt, installCommand } from './install'
   import { t } from './copy'
+  import AddStatusDialog from './AddStatusDialog.svelte'
+  import { savedNotice, type AddStatus } from './addStatus'
 
   let { canSave = false }: { canSave?: boolean } = $props()
 
   let saving = $state('')
-  let saved = $state<string[]>([])
+  // Skills saved on this visit, with the status the server answered.
+  let saved = $state<Record<string, AddStatus>>({})
+  // The skill whose Save is asking Active or Archived.
+  let choosing = $state<ListSkill | null>(null)
+  // The skills already in the person's library. Theirs comes from reet's copy, so it offers Copy prompt, never the
+  // original's install command.
+  let mine = $state<Record<string, AddStatus>>({})
+  const libraryStatus = (skill: ListSkill): AddStatus | undefined => saved[skill.id] ?? mine[skill.id]
+  const inLibrary = (skill: ListSkill) => libraryStatus(skill) !== undefined
   let notice = $state('')
   let actionError = $state('')
   let lists = $state<SharedList[]>([])
@@ -34,14 +44,16 @@
   ))
   const countText = $derived(loading ? 'Reading the community…' : error ? 'Community unavailable' : countLabel)
 
-  async function save(skill: ListSkill) {
+  async function save(skill: ListSkill, status: AddStatus) {
     if (saving) return
     saving = skill.id
     actionError = ''
     try {
-      await addSkill(skill.id, { bookmarked: true })
-      saved = [...saved, skill.id]
-      notice = `Saved ${skill.name} to your library.`
+      // The notice says the status the library has now, as the server answered it.
+      const added = await addSkill(skill.id, { status })
+      const now: AddStatus = added.status === 'archived' ? 'archived' : 'active'
+      saved = { ...saved, [skill.id]: now }
+      notice = savedNotice(skill.name, now)
     } catch (e) {
       actionError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -52,6 +64,7 @@
   async function load() {
     loading = true
     error = ''
+    if (canSave) void listSkills({ tab: 'all', q: '', sort: 'name' }).then(r => { mine = Object.fromEntries((r.skills ?? []).map(skill => [skill.id, skill.status === 'archived' ? 'archived' : 'active'])) }, () => { /* the install commands stay */ })
     try {
       const r = await getCommunity()
       lists = r.lists
@@ -140,15 +153,26 @@
           </div>
           <div class="actions">
             {#if canSave}
-              <button type="button" class="btn" disabled={!!saving || saved.includes(skill.id)} onclick={() => save(skill)}>{saved.includes(skill.id) ? 'Saved to your library' : saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
+              {#if libraryStatus(skill)}
+                <!-- Already in the library: where it stands there, not a Save that would claim another status. -->
+                <span class="in-library">In your library · {libraryStatus(skill) === 'archived' ? 'Archived' : 'Active'}</span>
+              {:else}
+                <button type="button" class="btn" disabled={!!saving} onclick={() => { notice = ''; choosing = skill }}>{saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
+              {/if}
             {:else}<a class="btn" href="/skills">Open your library to save</a>{/if}
-            {#if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
+            {#if inLibrary(skill)}<CopyButton text={copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} />
+            {:else if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
           </div>
         </div>
       {/each}
     </div>
   {/if}
 </CollectionPanel>
+
+{#if choosing}
+  <AddStatusDialog title={() => `Save ${choosing?.name ?? 'this skill'} to your library`} body="Active puts it on every machine. Archived keeps it in your library, off your machines." confirmLabel="Save"
+    onconfirm={(status) => { const skill = choosing; choosing = null; if (skill) void save(skill, status) }} oncancel={() => (choosing = null)} />
+{/if}
 
 <p class="hint">This community contains lists explicitly published on this reet site. It does not expose private collections or search other reet servers.</p>
 <style>
@@ -177,6 +201,7 @@
   .meta-row > * { flex: none; }
   .go { width: 8px; height: 8px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
   .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .in-library { display: inline-flex; align-items: center; min-height: 36px; color: var(--muted); font-size: 0.875rem; }
   .actions :global(.btn) { min-height: 36px; padding: 6px 12px; font-size: 0.875rem; }
 
   .state { padding: 24px 0 16px; max-width: 60ch; }

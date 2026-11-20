@@ -28,34 +28,34 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 		}
 		return res
 	}
+	// A scan only joins skills the library has.
+	if code, res := doClient(t, client, srv, "POST", "/api/skills", `{"input":"o/r/alpha"}`, "X-Reet-Token", "tok"); code != 200 {
+		t.Fatalf("add %d %s", code, res)
+	}
 	scan("laptop", `[{"name":"alpha","source":"o/r","host":"laptop","agent":"agents"}]`, `["alpha"]`)
 	scan("server", `[]`, `[]`)
 	var state struct {
 		Environments []store.SyncEnvironment
-		Targets      []store.SyncTarget
+		Targets      []any
 	}
 	code, body := doClient(t, client, srv, "GET", "/api/v2/sync", "", "X-Reet-Token", "tok")
 	if code != 200 {
 		t.Fatal(body)
 	}
 	json.Unmarshal([]byte(body), &state)
-	source, target := "", ""
+	source := ""
 	for _, env := range state.Environments {
-		if env.Agent == "agents" {
-			if env.Host == "laptop" {
-				source = env.ID
-			} else {
-				target = env.ID
-			}
+		if env.Agent == "agents" && env.Host == "laptop" {
+			source = env.ID
 		}
 	}
-	code, body = doClient(t, client, srv, "PUT", "/api/v2/sync", `{"sourceId":"`+source+`","targetId":"`+target+`"}`, "X-Reet-Token", "tok")
-	if code != 200 {
-		t.Fatalf("save %d %s", code, body)
+	// Sync targets are gone: the state keeps the key, empty, and saving one is
+	// answered as gone, saying what took its place.
+	if state.Targets == nil || len(state.Targets) != 0 {
+		t.Fatalf("targets: %s", body)
 	}
-	json.Unmarshal([]byte(body), &state)
-	if len(state.Targets) != 1 || len(state.Targets[0].Missing) != 1 {
-		t.Fatalf("missing drift: %s", body)
+	if code, body = doClient(t, client, srv, "PUT", "/api/v2/sync", `{"sourceId":"`+source+`","targetId":"x"}`, "X-Reet-Token", "tok"); code != 410 || !strings.Contains(body, "every machine follows your library") {
+		t.Fatalf("saving a sync target: %d %s", code, body)
 	}
 	res := scan("laptop", `[{"name":"invalid/name"}]`, `[]`)
 	if !strings.Contains(res, `"errors":[`) {
@@ -72,15 +72,15 @@ func TestSyncAPIAndIncompleteScan(t *testing.T) {
 			t.Fatal("partial scan marked authoritative")
 		}
 	}
-	code, _ = doClient(t, client, srv, "PUT", "/api/v2/sync", `{"sourceId":"`+source+`","targetId":"`+target+`"}`, "X-Reet-Token", "tok")
-	if code != 400 {
-		t.Fatalf("incomplete reference accepted: %d", code)
-	}
 }
 
 func TestLocalScanErrorPreservesInventoryAndShelfIntent(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
 	good := `{"prune":true,"machine":{"host":"laptop"},"items":[{"name":"one","source":"a/b","host":"laptop","agent":"agents"}],"environments":[{"host":"laptop","agent":"agents","skills":["one"]}]}`
+	// A scan only joins skills the library has.
+	if code, b := do(t, srv, "POST", "/api/skills", `{"input":"a/b/one","used":true}`); code != 200 {
+		t.Fatal(b)
+	}
 	if code, b := do(t, srv, "POST", "/api/import", good); code != 200 {
 		t.Fatal(b)
 	}
@@ -123,6 +123,10 @@ func TestScanReadsAnInstalledFolderAsItsCataloguedSkill(t *testing.T) {
 	if code, body := doClient(t, client, srv, "POST", "/api/skills", `{"input":"`+catalogued+`"}`, "X-Reet-Token", "tok"); code >= 300 {
 		t.Fatalf("add %d %s", code, body)
 	}
+	// A scan only joins skills the library has.
+	if code, body := doClient(t, client, srv, "POST", "/api/skills", `{"input":"rknall/claude-skills/alpha"}`, "X-Reet-Token", "tok"); code >= 300 {
+		t.Fatalf("add %d %s", code, body)
+	}
 	if err := st.SetMeta(catalogued, "UI/UX Design Review", "", 0, 0, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +155,32 @@ func TestScanReadsAnInstalledFolderAsItsCataloguedSkill(t *testing.T) {
 	if strings.Join(ids, ",") != "rknall/claude-skills/alpha,"+catalogued {
 		t.Fatalf("installed folder was not read as the catalogued skill: %v", ids)
 	}
-	_, body = doClient(t, client, srv, "GET", "/api/skills", "", "X-Reet-Token", "tok")
-	if strings.Contains(body, "rknall/claude-skills/ui-ux-design-review") {
-		t.Fatalf("a second skill was made for the installed folder: %s", body)
+	// The folder is the catalogued skill on laptop: the library holds the two
+	// skills it had, with no item or shelf row of the folder's own name.
+	owner, _ := st.DefaultOwner()
+	items, err := st.LibraryFor(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, it := range items {
+		names = append(names, it.Name)
+	}
+	if len(items) != 2 {
+		t.Fatalf("the scan changed the library: %v", names)
+	}
+	if _, folderRow, err := st.GetFor(owner, "rknall/claude-skills/ui-ux-design-review"); err != nil || folderRow {
+		t.Fatalf("a second skill was made for the installed folder: %v %v", folderRow, err)
+	}
+	catalogue, ok, err := st.GetFor(owner, catalogued)
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	onLaptop := false
+	for _, env := range catalogue.Environments {
+		onLaptop = onLaptop || env.Host == "laptop" && env.Agent == "agents"
+	}
+	if !onLaptop {
+		t.Fatalf("the catalogued skill is not recorded on laptop: %+v", catalogue.Environments)
 	}
 }

@@ -39,13 +39,17 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/skills')return json({skills,counts:{all:skills.length,used:skills.filter(s=>s.used).length,liked:0,bookmarked:0}})
   // The Skills page: the `skills` fixtures, all Active and on no machine. A test about the page answers the route itself.
   if(path==='/api/v2/skills'&&route.request().method()==='GET')return json(skillsPageOf(skills.map(shelfRow),new URL(route.request().url()).searchParams.get('status')||'active',{machines:0}))
+  // Skills New on a machine, for Home's Waiting for you and the bell: none unless a test answers the route itself.
+  if(path==='/api/v2/skills/new'&&route.request().method()==='GET')return json({newOnMachines:[]})
   if(path==='/api/environments')return json(inventory)
-  // Library tools, under the Skills page, list what scans ignore.
-  if(path==='/api/ignored')return json({ignored:[]})
+  // The ignore list went with the old sync: the server answers its routes 410 Gone.
+  if(path==='/api/ignored'||path==='/api/skill/ignore')return route.fulfill({status:410,json:{error:'This was part of the old sync, which is gone: every machine follows your library. Make a skill Active or Archived on the Skills page, and see each machine on the Sync page.'}})
   if(path==='/api/tags')return json({tags:[]})
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/library')return json({schemaVersion:1,items:[]})
   if(path==='/api/v2/sync')return json(sync)
+  // The Sync page's read: no machine follows the library unless a test answers the route itself.
+  if(path==='/api/v2/sync/skills')return json({machines:[],activity:[],work:noWork,active:0})
   if(path==='/api/v2/sync/candidates')return json({skills})
   if(path==='/api/v2/setup/profiles')return json({profiles:[]})
   if(path==='/api/v2/hosting')return json(hosting)

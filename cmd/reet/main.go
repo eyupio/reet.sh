@@ -203,13 +203,16 @@ backup to preserve accounts, lists, teams and sync references.
 			os.Exit(1)
 		}
 	case "agent":
-		if err := scan.RunAgent(args, os.Stdout, version); err != nil {
+		if err := scan.RunAgent(args, os.Stdout, version); errors.Is(err, scan.ErrLibraryImportRemoved) {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		} else if err != nil {
 			log.Fatal(err)
 		}
 	case "sync":
-		if err := scan.RunSyncVersion(args, os.Stdin, os.Stdout, version); err != nil {
-			log.Fatal(err)
-		}
+		// Machines follow the library now; there is no plan to apply.
+		fmt.Fprintln(os.Stderr, syncRemoved)
+		os.Exit(2)
 	case "setup":
 		if err := setup.Run(args, os.Stdout, setup.HTTPRemote{}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -234,10 +237,13 @@ backup to preserve accounts, lists, teams and sync references.
 			os.Exit(code)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet branches | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet backup | reet branches | reet version")
 		os.Exit(2)
 	}
 }
+
+// syncRemoved is what reet sync says now that machines follow the library.
+const syncRemoved = "reet sync has been removed. Every connected machine now follows your library: archive or restore skills on the Skills page, and machines follow."
 
 // printVersion answers the agent update protocol probe before the ordinary
 // version line. The probe lets a newer agent know whether a target build can
@@ -289,8 +295,6 @@ func serve() error {
 		return err
 	}
 	defer st.Close()
-	// Internal rollout control for managed library removals; off unless explicitly set.
-	st.SetManagedRemovals(os.Getenv("REET_LIBRARY_MANAGED_REMOVALS") == "1")
 	// Saved Projects become folder projects once; a later start finds nothing
 	// to do. A failure is logged and never stops the controller: the saved
 	// Projects stay readable and the next start tries again.

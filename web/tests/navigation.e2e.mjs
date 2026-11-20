@@ -561,10 +561,8 @@ try {
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills',exact:true})).toBeVisible()
   expect(await page.title()).toMatch(/^Skills ·/)
-  // Machines follow the library, so there is nothing to start: the header has one line about them, which is not a
-  // link while the older Sync page could say otherwise.
-  await expect(page.locator('main .sync-chip')).toBeVisible()
-  await expect(page.locator('main a.sync-chip')).toHaveCount(0)
+  // Machines follow the library, so there is nothing to start: the header has one line about them, which opens Sync.
+  await expect(page.locator('main a.sync-chip')).toHaveAttribute('href','/sync')
   await expect(page.getByRole('button',{name:'Sync all machines',exact:true})).toHaveCount(0)
   await page.getByRole('button',{name:/^More/}).first().click()
   await expect(page.getByRole('navigation',{name:'More pages'}).getByRole('link',{name:'Sync',exact:true})).toHaveCount(0)

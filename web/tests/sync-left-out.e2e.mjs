@@ -31,7 +31,7 @@ try {
       '/api/v2/skill-imports': () => ({ requests: imports, capabilities: [] }),
     } })
     const { page, errors } = fixture
-    await page.goto(`${base}/sync`)
+    await page.goto(`${base}/sync/advanced`)
     const section = page.getByRole('region', { name: 'Your skills, everywhere.' })
     await expect(section.getByRole('button', { name: 'Sync all machines', exact: true })).toBeEnabled()
 
@@ -98,7 +98,7 @@ try {
       '/api/v2/skill-imports': () => ({ requests: [phase === 'copying' ? copyRequest('seo', 'previewing', '', 1) : copyRequest('seo', 'failed', 'capture_failed', 1)], capabilities: [] }),
     } })
     const { page, errors } = fixture
-    await page.goto(`${base}/sync`)
+    await page.goto(`${base}/sync/advanced`)
     const section = page.getByRole('region', { name: 'Your skills, everywhere.' })
     await expect(section.getByText('Copying seo privately from your machines.', { exact: false })).toBeVisible()
     await expect(section.locator('.left-out')).toHaveCount(0)

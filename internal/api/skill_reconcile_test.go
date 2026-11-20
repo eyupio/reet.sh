@@ -161,8 +161,8 @@ func TestPollBodyIsSmallAndWellFormed(t *testing.T) {
 
 func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 	e := newReconcileEnv(t)
-	scan, err := e.st.QueueSyncJob(e.uid, e.agent.ID, "", "scan")
-	if err != nil {
+	// A scan left queued by an older controller.
+	if _, err := e.db(t).Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-scan',?,?,'scan','queued',1,1)`, e.uid, e.agent.ID); err != nil {
 		t.Fatal(err)
 	}
 	if reply, raw := e.poll(t, "", true); reply.Job != nil {
@@ -175,17 +175,6 @@ func TestPollGivesProtocol2OnlyUpdateJobs(t *testing.T) {
 	reply, raw := e.poll(t, "", true)
 	if reply.Job == nil || reply.Job.ID != update.ID || reply.Job.Kind != "update" {
 		t.Fatalf("the update job: %s", raw)
-	}
-	jobs, err := e.st.SyncJobsFor(e.uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The machine's first poll on the protocol closed its job-based work,
-	// saying why, and no more can be queued for it.
-	for _, j := range jobs {
-		if j.ID == scan.ID && (j.Status != "cancelled" || j.Message != "This machine now follows your library; this job is no longer needed.") {
-			t.Fatalf("the scan job: %+v", j)
-		}
 	}
 	if code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/jobs", `{"agentId":"`+e.agent.ID+`","kind":"scan"}`, "X-Reet-Token", "fixture-owner"); code != 409 || !strings.Contains(raw, "elitebook follows your library; its skills are checked on every poll, so there's nothing to scan.") {
 		t.Fatalf("queueing a scan: %d %s", code, raw)
@@ -546,29 +535,171 @@ func TestScanOfAProtocol2MachineMakesNoLibraryItems(t *testing.T) {
 	}
 }
 
-// An agent from before the skills protocol keeps today's scan: what it finds
-// becomes a library item.
-func TestScanOfAnOlderMachineStillMakesLibraryItems(t *testing.T) {
+// An inventory scan only reports what a machine has: from any machine, on the
+// skills protocol or not, a home-folder skill the library does not have makes
+// no library item, and neither does a lock-file entry with no folder.
+func TestScanImportDoesNotCreateItems(t *testing.T) {
 	e := newReconcileEnv(t)
 	e.poll(t, "", false)
+	before := e.libraryNames(t)
 	e.scanImport(t, []string{"cq"}, "locked")
-	names := e.libraryNames(t)
-	if _, ok := names["cq"]; !ok {
-		t.Fatalf("an older machine's scan made no item of cq: %+v", names)
+	after := e.libraryNames(t)
+	if len(after) != len(before) {
+		t.Fatalf("an older machine's scan changed the library: before %+v, after %+v", before, after)
 	}
-	if _, ok := names["locked"]; !ok {
-		t.Fatalf("an older machine's scan made no item of its lock entry: %+v", names)
+	for _, name := range []string{"cq", "locked"} {
+		if _, ok := after[name]; ok {
+			t.Fatalf("an older machine's scan made an item of %s: %+v", name, after)
+		}
 	}
 }
 
-// A project folder is not the machine's home: until Task 14 its skills keep
-// today's import, on any machine.
-func TestScanOfAProjectFolderStillMakesLibraryItems(t *testing.T) {
+// secondMachine enrolls studio and returns a call that speaks as it.
+func (e reconcileEnv) secondMachine(t *testing.T) (store.SyncAgent, func(path, body string, protocol bool) (int, string)) {
+	t.Helper()
+	a, secret, err := e.st.EnrollSyncAgent(e.uid, "studio", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a, func(path, body string, protocol bool) (int, string) {
+		t.Helper()
+		headers := []string{"X-Reet-Token", "fixture-owner", "X-Reet-Agent", a.ID, "X-Reet-Agent-Key", secret, "X-Reet-Version", "test"}
+		if protocol {
+			headers = append(headers, "X-Reet-Skills-Protocol", "2")
+		}
+		return doClient(t, e.srv.Client(), e.srv, "POST", path, body, headers...)
+	}
+}
+
+func skillReportBody(entries ...store.SkillReportEntry) string {
+	body, _ := json.Marshal(store.SkillReport{Version: "v1", Entries: entries})
+	return string(body)
+}
+
+func desiredNames(t *testing.T, st *store.Store, uid int64) map[string]bool {
+	t.Helper()
+	desired, err := st.DesiredSkillsFor(uid, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, d := range desired.Active {
+		out[d.Name] = true
+	}
+	return out
+}
+
+// A fleet of an older machine and one on the skills protocol: the older one's
+// scan and the newer one's unknown report of the same name leave it New on a
+// machine. Nothing spreads it to other machines until the person keeps it.
+func TestMixedFleetSightingDoesNotSpreadWithoutKeep(t *testing.T) {
 	e := newReconcileEnv(t)
-	e.poll(t, "", true)
-	e.scanItems(t, "elitebook", scanItem{Name: "in-project", Host: "elitebook", Agent: "claude", Project: "/home/u/code/app", Path: "/home/u/code/app/.claude/skills"})
-	if _, ok := e.libraryNames(t)["in-project"]; !ok {
-		t.Fatal("a project sighting made no item")
+	e.poll(t, "", false)
+	studio, asStudio := e.secondMachine(t)
+	if code, raw := asStudio("/api/v2/sync/poll", `{"skillsVersion":""}`, true); code != 200 {
+		t.Fatalf("studio poll: %d %s", code, raw)
+	}
+	e.scanImport(t, []string{"cq"})
+	if code, raw := asStudio("/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "unknown", Digest: strings.Repeat("c", 64)}), true); code != 200 {
+		t.Fatalf("studio report: %d %s", code, raw)
+	}
+	e.scanItems(t, "studio", scanItem{Name: "cq", Host: "studio", Agent: "agents", Path: ".agents/skills"})
+	if _, ok := e.libraryNames(t)["cq"]; ok {
+		t.Fatal("the sightings made cq a library item")
+	}
+	if desiredNames(t, e.st, e.uid)["cq"] {
+		t.Fatal("cq is sent to every machine without Keep")
+	}
+	e.api.s.skillCopies.Wait()
+	if requests, _, err := e.st.RemoteImportsFor(e.uid); err != nil || len(requests) != 0 {
+		t.Fatalf("a capture of cq was asked for: %+v %v", requests, err)
+	}
+	found, err := e.st.NewOnMachinesFor(e.uid)
+	if err != nil || len(found) != 1 || found[0].Name != "cq" || len(found[0].Copies) != 1 || found[0].Copies[0].AgentID != studio.ID {
+		t.Fatalf("new on a machine: %+v %v", found, err)
+	}
+}
+
+// Once a deleted skill's name is forgotten, a machine that still has it shows
+// it as New on a machine again. An older machine's scan of it no longer makes
+// a new Active item of it.
+func TestReSightingAfterPurgeIsNewOnAMachine(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", false)
+	_, asStudio := e.secondMachine(t)
+	if code, raw := asStudio("/api/v2/sync/poll", `{"skillsVersion":""}`, true); code != 200 {
+		t.Fatalf("studio poll: %d %s", code, raw)
+	}
+	if _, err := e.st.UpsertLocalFor(e.uid, "cq", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	id := e.libraryNames(t)["cq"].ID
+	if id == "" {
+		t.Fatalf("no item for cq: %+v", e.libraryNames(t))
+	}
+	deletedAt := time.Now()
+	if err := e.st.DeleteSkillsFor(e.uid, []string{id}, true, deletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.PurgeDeletedSkillsFor(e.uid, deletedAt.Add(store.SkillUndoWindow+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// The one machine on the skills protocol confirms the removal, so the name is forgotten.
+	if code, raw := asStudio("/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "removed"}), true); code != 200 {
+		t.Fatalf("studio report: %d %s", code, raw)
+	}
+	if removals, err := e.st.SkillRemovalsFor(e.uid); err != nil || len(removals) != 0 {
+		t.Fatalf("the name is still on the removal list: %+v %v", removals, err)
+	}
+	e.scanImport(t, []string{"cq"})
+	if _, ok := e.libraryNames(t)["cq"]; ok {
+		t.Fatal("the older machine's scan made cq an Active item again")
+	}
+	if code, raw := asStudio("/api/v2/sync/skills/report", skillReportBody(store.SkillReportEntry{Folder: "~/.agents/skills", Name: "cq", State: "unknown", Digest: strings.Repeat("c", 64)}), true); code != 200 {
+		t.Fatalf("studio report: %d %s", code, raw)
+	}
+	found, err := e.st.NewOnMachinesFor(e.uid)
+	if err != nil || len(found) != 1 || found[0].Name != "cq" {
+		t.Fatalf("new on a machine: %+v %v", found, err)
+	}
+	if desiredNames(t, e.st, e.uid)["cq"] {
+		t.Fatal("cq is sent to every machine without Keep")
+	}
+}
+
+// A project folder is neither scanned for new skills nor written: a scan's
+// sighting there of a name the library does not have makes no item, so
+// nothing spreads, on any machine. A sighting of a name the library has still
+// joins it.
+func TestScanOfAProjectFolderMakesNoLibraryItems(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.poll(t, "", false)
+	if _, err := e.st.UpsertLocalFor(e.uid, "known", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	project := func(name string) scanItem {
+		return scanItem{Name: name, Host: "elitebook", Agent: "claude", Project: "/home/u/code/app", Path: "/home/u/code/app/.claude/skills"}
+	}
+	e.scanItems(t, "elitebook", project("in-project"), project("known"))
+	names := e.libraryNames(t)
+	if _, ok := names["in-project"]; ok || len(names) != 1 {
+		t.Fatalf("a project sighting made an item: %+v", names)
+	}
+	if desiredNames(t, e.st, e.uid)["in-project"] {
+		t.Fatal("a project skill is sent to every machine")
+	}
+	envs, err := e.st.SyncEnvironmentsFor(e.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := false
+	for _, env := range envs {
+		for _, sk := range env.Skills {
+			joined = joined || env.Project == "/home/u/code/app" && sk.Name == "known"
+		}
+	}
+	if !joined {
+		t.Fatalf("the project sighting of known did not join it: %+v", envs)
 	}
 }
 
@@ -660,7 +791,7 @@ func TestPollFromANewerAgentGetsOnlyUpdates(t *testing.T) {
 	if err != nil || agents[0].SkillsProtocol != 3 || agents[0].SkillsState != store.SkillsNeedNewerController {
 		t.Fatalf("recorded: %+v %v", agents, err)
 	}
-	if _, err = e.st.QueueSyncJob(e.uid, e.agent.ID, "", "scan"); err == nil {
+	if _, err = e.st.QueueSyncJob(e.uid, e.agent.ID, "scan"); err == nil {
 		t.Fatal("a scan was queued for a newer agent")
 	}
 	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1","Entries":[]}`, false, "X-Reet-Skills-Protocol", "3"); code != 409 {
@@ -695,40 +826,6 @@ func TestScanOfAnExtraFolderStillMakesLibraryItems(t *testing.T) {
 	}
 }
 
-// Asking reet to sync one machine that follows the library, as "Install on"
-// and Machines' "Add skill" do, is refused with what to do instead; the page
-// shows the server's words.
-func TestSyncOneMachineThatFollowsTheLibraryIsRefused(t *testing.T) {
-	e := newReconcileEnv(t)
-	e.poll(t, "", true)
-	code, raw := doClient(t, e.srv.Client(), e.srv, "POST", "/api/v2/sync/library", `{"agentId":"`+e.agent.ID+`"}`, "X-Reet-Token", "fixture-owner")
-	if code != 409 || !strings.Contains(raw, "elitebook follows your library. Make the skill Active to put it on every machine.") {
-		t.Fatalf("sync one machine: %d %s", code, raw)
-	}
-}
-
-// A saved set for a machine that follows the library is refused before
-// anything is written, so no stray set is left behind.
-func TestSaveDesiredRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
-	e := newReconcileEnv(t)
-	e.poll(t, "", true)
-	if err := e.st.TouchEnvironmentFor(e.uid, "elitebook", "agents", "", "/home/u/.agents/skills"); err != nil {
-		t.Fatal(err)
-	}
-	env := store.EnvironmentIDFor(e.uid, "elitebook", "agents", "")
-	if err := e.st.RecordInventoryFor(e.uid, env, true, store.MachineInfo{}); err != nil {
-		t.Fatal(err)
-	}
-	body, _ := json.Marshal(map[string]any{"targetId": env, "sourceId": "shelf", "listId": 0, "skillIds": []string{}, "mode": "additive", "revision": ""})
-	code, raw := doClient(t, e.srv.Client(), e.srv, "PUT", "/api/v2/sync/desired", string(body), "X-Reet-Token", "fixture-owner")
-	if code != 409 || !strings.Contains(raw, "elitebook follows your library. Make the skill Active to put it on every machine.") {
-		t.Fatalf("save a set: %d %s", code, raw)
-	}
-	if targets, err := e.st.SyncTargetsFor(e.uid); err != nil || len(targets) != 0 {
-		t.Fatalf("a set was written: %+v %v", targets, err)
-	}
-}
-
 // A newer agent may send fields this controller does not know yet; a poll and
 // a report that carry them are read for what this controller does know.
 func TestPollAndReportTakeFieldsFromANewerAgent(t *testing.T) {
@@ -742,5 +839,58 @@ func TestPollAndReportTakeFieldsFromANewerAgent(t *testing.T) {
 	}
 	if code, raw := e.call(t, "/api/v2/sync/skills/report", `{"Version":"v1"} {}`, true); code != 400 {
 		t.Fatalf("trailing data is still refused: %d %s", code, raw)
+	}
+}
+
+// An agent below the skills protocol is told it needs an update and gets
+// nothing else for skills: no desired state, and no job but its binary update.
+// A job the older engine left queued for it stays where it is.
+func TestPollGivesAnOlderAgentOnlyItsUpdate(t *testing.T) {
+	e := newReconcileEnv(t)
+	e.writtenSkill(t, "demo")
+	if _, err := e.db(t).Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-apply',?1,?2,'apply','queued',1,1),('old-scan',?1,?2,'scan','queued',2,2)`, e.uid, e.agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	reply, raw := e.poll(t, "", false)
+	if reply.Desired != nil || reply.Job != nil || reply.Agent.SkillsState != store.SkillsNeedUpdate {
+		t.Fatalf("an older agent was given skill work: %s", raw)
+	}
+	update, err := e.st.QueueAgentUpdate(e.uid, e.agent.ID, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, raw = e.poll(t, "", false)
+	if reply.Job == nil || reply.Job.ID != update.ID || reply.Desired != nil || reply.Agent.SkillsState != store.SkillsNeedUpdate {
+		t.Fatalf("the update for an older agent: %s", raw)
+	}
+	jobs, err := e.st.SyncJobsFor(e.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range jobs {
+		if (j.ID == "old-apply" || j.ID == "old-scan") && j.Status != "queued" {
+			t.Fatalf("an old job moved: %+v", j)
+		}
+	}
+}
+
+// An older agent may finish an engine job it was running before the upgrade,
+// with the job's whole plan in the body. That job is gone or no longer an
+// update, so the answer is a refusal (409, which the agent drops for good),
+// never a 400 for a body the old route took.
+func TestAnOlderAgentsLargeEngineResultIsRefusedNot400(t *testing.T) {
+	e := newReconcileEnv(t)
+	if _, err := e.db(t).Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-apply',?1,?2,'apply','running',1,1)`, e.uid, e.agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	plan := `{"actions":[` + strings.TrimSuffix(strings.Repeat(`{"op":"install","skill":"`+strings.Repeat("x", 200)+`"},`, 1500), ",") + `]}`
+	if len(plan) < 256<<10 {
+		t.Fatalf("plan is only %d bytes", len(plan))
+	}
+	for _, id := range []string{"old-apply", "gone"} {
+		body := `{"id":"` + id + `","status":"succeeded","hash":"h","message":"Applied","plan":` + plan + `}`
+		if code, raw := e.call(t, "/api/v2/sync/result", body, false); code != http.StatusConflict {
+			t.Fatalf("%s: a large engine result got %d %s, want 409", id, code, raw)
+		}
 	}
 }

@@ -45,6 +45,7 @@ func (s *server) registerSkillsPage(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/skills/status", s.requireWriter(s.skillsSetStatus))
 	mux.HandleFunc("POST /api/v2/skills/delete", s.requireWriter(s.skillsDelete))
 	mux.HandleFunc("POST /api/v2/skills/undelete", s.requireWriter(s.skillsUndelete))
+	mux.HandleFunc("GET /api/v2/skills/new", s.newSkills)
 	mux.HandleFunc("POST /api/v2/skills/new", s.requireWriter(s.skillsNew))
 	mux.HandleFunc("POST /api/v2/skills/notice", s.requireWriter(s.skillsNotice))
 	mux.HandleFunc("POST /api/v2/skills/{item}/use-version", s.requireWriter(s.skillUseVersion))
@@ -247,7 +248,11 @@ func (s *server) skillsDelete(w http.ResponseWriter, r *http.Request) {
 		default:
 			msg += " and their public pages too."
 		}
-		writeJSON(w, 409, map[string]any{"code": "written", "names": written, "error": msg, "message": msg})
+		hint := "Delete it again with writtenConfirmed to delete your writing too."
+		if len(written) > 1 {
+			hint = "Delete them again with writtenConfirmed to delete your writing too."
+		}
+		writeJSON(w, 409, map[string]any{"code": "written", "names": written, "error": msg, "message": msg, "hint": hint})
 		return
 	}
 	if len(noCopy) > 0 && !in.NoCopyConfirmed {
@@ -277,12 +282,15 @@ func (s *server) skillsDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeNoCopy refuses a delete of skills reet holds no copy of, naming them.
+// The hint says how to go ahead, for API and MCP callers.
 func writeNoCopy(w http.ResponseWriter, names []string) {
 	msg := "reet has no copy of " + strings.Join(names, ", ") + ". Deleting removes it from every machine, which keeps a backup for 30 days."
+	hint := "Delete it again with noCopyConfirmed to delete it from every machine."
 	if len(names) > 1 {
 		msg = fmt.Sprintf("reet has no copy of %d of these skills. Deleting removes them from every machine, which keeps a backup for 30 days.", len(names))
+		hint = "Delete them again with noCopyConfirmed to delete them from every machine."
 	}
-	writeJSON(w, 409, map[string]any{"code": "no-copy", "names": names, "error": msg, "message": msg})
+	writeJSON(w, 409, map[string]any{"code": "no-copy", "names": names, "error": msg, "message": msg, "hint": hint})
 }
 
 // writeNotRemoved is the old Remove's refusal, which changed nothing: of a
@@ -348,6 +356,17 @@ func (s *server) skillsUndelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventRequest(r, "undelete", "", map[string]any{"count": len(ids)})
 	writeJSON(w, 200, map[string]int{"restored": len(ids)})
+}
+
+// newSkills lists the skills New on a machine, for Home's Waiting for you,
+// without reading the whole Skills page.
+func (s *server) newSkills(w http.ResponseWriter, r *http.Request) {
+	found, err := s.st.NewOnMachinesFor(s.uid(r))
+	if err != nil {
+		skillsPageError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"newOnMachines": found})
 }
 
 // skillsNew decides skills new on a machine: body {"names":[…],
@@ -523,5 +542,11 @@ func (s *server) skillUseVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "use-version", "", map[string]any{"item": item, "host": req.Host})
-	writeJSON(w, 202, map[string]any{"requested": true, "id": req.ID})
+	// The machine's copy lands later; a public page that can't serve the
+	// skill as it stands is said now, and the row says it again once it lands.
+	out := map[string]any{"requested": true, "id": req.ID}
+	if problem := s.publicProblem(uid, item); problem != "" {
+		out["publicProblem"] = problem
+	}
+	writeJSON(w, 202, out)
 }

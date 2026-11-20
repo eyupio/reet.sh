@@ -111,6 +111,16 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/library') return json({schemaVersion:1,items:[]})
     if (path === '/api/v2/sync') return json(sync)
     if (path === '/api/v2/sync/candidates') return json({ skills })
+    // The Sync page, with the long host and a long skill name in a failure, a waiting list and the activity.
+    if (path === '/api/v2/sync/skills') return json({
+      machines: [
+        { agentId: A, host: 'dev-laptop', paused: false, online: true, protocol: 2, state: 'ok', failed: [], waiting: [], lastSeen: now },
+        { agentId: B, host: LONGHOST, paused: false, online: true, protocol: 2, state: 'failed', failed: [{ name: LONGSKILL, detail: 'No write access to ~/.claude/skills/' + LONGSKILL }], waiting: [], lastSeen: now },
+        { agentId: C, host: 'pi', paused: true, online: false, protocol: 1, state: 'paused', failed: [], waiting: [], lastSeen: now - 2 * DAY },
+      ],
+      activity: [{ at: now - 60000, host: LONGHOST, name: LONGSKILL, action: 'failed', detail: 'No write access' }, { at: now - 3600000, host: 'dev-laptop', name: LONGSKILL, action: 'installed', detail: '' }],
+      work: { failed: 1, installing: 0, removing: 0, updating: 0, paused: 1, pausedHost: 'pi' }, active: 12,
+    })
     if (path === '/api/v2/setup/profiles') return json({ profiles: [{ name: 'laptop-claude', revision: 2, snapshotId: 'snap-' + 'a'.repeat(24), snapshotDigest: 'sha256:' + 'b'.repeat(64), updatedAt: now }, { name: 'a_very_long_setup_profile_name_for_the_build_server', revision: 1, snapshotId: 'snap-x', snapshotDigest: 'sha256:' + 'd'.repeat(64), updatedAt: now - DAY }] })
     if (path.startsWith('/api/v2/setup/profiles/')) return json(profileRecord)
     if (path === '/api/v2/hosting') return json(hosting)
@@ -120,6 +130,8 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/terminal/sessions' && method === 'GET') return json({ sessions })
     // The Sessions page reads the desks once, to mark a session that is on one. None here.
     if (path === '/api/v2/desks' && method === 'GET') return json({ desks: [] })
+    // Skills New on a machine, for Home's Waiting for you and the bell: none.
+    if (path === '/api/v2/skills/new' && method === 'GET') return json({ newOnMachines: [] })
     if (path === '/api/v2/terminal/commands') return json({ commands: [{ id: 'c1', name: 'Tail the app log', command: 'tail -f /var/log/app/production-application-server.log | grep --line-buffered -i error', createdAt: now }] })
     if (path.endsWith('/attachments')) return json({ ticket: 'fixture-ticket00000000000' })
     if (path.endsWith('/history')) return route.fulfill({ body: '' })
@@ -131,7 +143,6 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/push') return json({ available: true, publicKey: 'BAEC_-8', devices: [{ id: 3, label: 'Samsung Internet on Android, the work tablet in the kitchen drawer with the long name', waiting: true, ended: true, createdAt: Date.now() - 9 * 86_400_000, lastOkAt: 0 }] })
     if (path === '/api/v2/admin/notifications/defaults') return json({ defaults })
     if (path === '/api/events') return json({ events })
-    if (path === '/api/ignored') return json({ ignored: [{ id: 'x/y/z', name: 'old-skill', reason: 'Not useful', at: now }] })
     if (path === '/api/v2/session-backlog' && method === 'GET') return json({ drafts: [] })
     if (path === '/api/v2/gaffer/goals' && method === 'GET') return json({ goals: [], readAt: Date.now() })
     if (path === '/api/v2/gaffer/outcomes' && method === 'GET') return json({ outcomes: [] })

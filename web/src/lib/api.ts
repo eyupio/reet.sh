@@ -86,7 +86,7 @@ export type Rollup = {
 export type Counts = { all: number; liked: number; bookmarked: number; used: number }
 export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
 export type Sort = 'recent' | 'name' | 'installs'
-export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string }
+export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string; status?: 'active' | 'archived' }
 export type AddResult = Skill & { created: boolean }
 export type RefreshResult = Skill & { changed: boolean; refreshed: boolean }
 
@@ -508,7 +508,7 @@ export async function refreshSkill(id: string): Promise<RefreshResult> {
 // The Skills page: one API keyed by library item. Likes, notes, tags and lists keep their endpoints, keyed by each
 // row's shelfId.
 export type HealthState = 'ok' | 'installing' | 'removing' | 'failed' | 'offline' | 'blocked' | 'copying' | 'copy-failed' | 'getting' | 'fetch-failed' | 'needs-update' | 'off'
-export type SkillHealth = { state: HealthState; pending: number; total: number; hosts: string[]; reason?: string; machines: { host: string; state: string; detail?: string }[] }
+export type SkillHealth = { state: HealthState; pending: number; total: number; hosts: string[]; reason?: string; machines: { host: string; agentId?: string; state: string; detail?: string }[] }
 export type SkillRow = {
   id: string
   shelfId: string
@@ -528,10 +528,14 @@ export type SkillRow = {
   health: SkillHealth
   upgradedFrom?: 'parked' | 'removed'
   editedOn?: { agentId: string; host: string }
+  /** When the skill came into the library, in Unix milliseconds. */
+  createdAt?: number
+  /** Why a published skill's public page no longer follows it: it keeps the version before. */
+  publicProblem?: string
   /** Why Use this version could not take editedOn's copy, when it tried: for example a file reet won't copy. */
   editedOnProblem?: string
 }
-export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string }[]; digestsDiffer: boolean }
+export type NewSkill = { name: string; copies: { agentId: string; host: string; folder: string; digest?: string; seenAt?: number }[]; digestsDiffer: boolean }
 /** What the machines are doing over every skill (deleted ones still coming off included), each machine counted once. */
 export type SkillWork = { failed: number; installing: number; removing: number; updating: number; needsUpdate?: number; needsUpdateHost?: string; needsNewerController?: number; needsNewerControllerHost?: string; paused?: number; pausedHost?: string }
 export type SkillsPageData = { skills: SkillRow[]; counts: { active: number; archived: number }; newOnMachines: NewSkill[]; machines: number; notice: { parked: number; removed: number } | null; work: SkillWork }
@@ -563,6 +567,24 @@ export async function retrySkill(id: string): Promise<number> {
   const r = await (await req('/api/v2/skills/retry', { method: 'POST', body: json({ items: [id] }) })).json() as { retried?: number }
   return r.retried ?? 0
 }
+/** The Sync page: each machine and what it is doing, and what the machines did, newest first (GET /api/v2/sync/skills). */
+export type SyncMachineState = 'ok' | 'installing' | 'removing' | 'updating' | 'failed' | 'offline' | 'blocked' | 'paused' | 'needs-update' | 'needs-newer-controller'
+export type SyncMachine = { agentId: string; host: string; paused: boolean; online: boolean; protocol: number; state: SyncMachineState; failed: { name: string; detail: string }[]; waiting: string[]; lastSeen: number }
+export type SkillActivity = { at: number; host: string; name: string; action: string; detail: string }
+export type SyncSkills = { machines: SyncMachine[]; activity: SkillActivity[]; work: SkillWork; active: number }
+export async function loadSyncSkills(): Promise<SyncSkills> {
+  return (await req('/api/v2/sync/skills')).json()
+}
+/** Retry: ask a machine to try skills that failed there again on its next poll. Resolves to the names it was asked. */
+export async function retryMachineSkills(agentId: string, names: string[]): Promise<string[]> {
+  const r = await (await req('/api/v2/sync/skills/retry', { method: 'POST', body: json({ agentId, names }) })).json() as { names?: string[] }
+  return r.names ?? []
+}
+/** The skills New on a machine, for Home's Waiting for you and the bell, without the whole Skills page. A background
+ *  read: it does not drive the progress bar. */
+export async function loadNewSkills(signal?: AbortSignal): Promise<NewSkill[]> {
+  return ((await (await req('/api/v2/skills/new', signal ? { signal } : {}, true)).json()) as { newOnMachines?: NewSkill[] }).newOnMachines ?? []
+}
 /** Keep or Archive skills new on a machine; from is the agent whose copy to take, needed when the copies differ. */
 export async function decideNewSkills(names: string[], action: 'keep' | 'archive', from?: string): Promise<void> {
   await req('/api/v2/skills/new', { method: 'POST', body: json(from ? { names, action, from } : { names, action }) })
@@ -571,14 +593,40 @@ export async function skillNotice(action: 'dismiss' | 'restore-parked'): Promise
   await req('/api/v2/skills/notice', { method: 'POST', body: json({ action }) })
 }
 /** Use this version: take the machine's backup of its edit as the skill's next revision. */
-export async function useMachineVersion(id: string, agentId: string): Promise<void> {
-  await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })
+export async function useMachineVersion(id: string, agentId: string): Promise<{ publicProblem?: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/use-version`, { method: 'POST', body: json({ agentId }) })).json()
+}
+/** What changed at an imported skill's original, against reet's copy: GET /api/v2/skills/{id}/original. revision is
+ *  what the confirmation names: "" for a skill reet has no copy of yet. */
+export type OriginalChanges = { changes: { path: string; kind: 'added' | 'removed' | 'modified' }[]; state: 'equal' | 'changed' | 'unknown'; digest: string; revision: string; edited: boolean }
+export async function originalChanges(id: string): Promise<OriginalChanges> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/original`)).json()
+}
+/** Update from original, confirmed: the digest and revision the changes were shown for. It refuses with 409 when either
+ *  moved on since. updated is false when the original matched reet's copy after all. */
+export async function updateFromOriginal(id: string, digest: string, revision: string): Promise<{ updated: boolean; edited: boolean; publicProblem?: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/original`, { method: 'POST', body: json({ digest, revision }) })).json()
+}
+/** Publish or Unpublish a library skill. It throws an ApiError with code 'not-publishable' and the reason when it can't. */
+export async function publishSkill(id: string, isPublic: boolean): Promise<{ published: boolean; publicUrl: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/publish`, { method: 'POST', body: json({ public: isPublic }) })).json()
+}
+/** A library skill's files at its head revision, for Write a skill. data is base64. */
+export type SkillContentFile = { path: string; data: string; executable: boolean }
+export type SkillContent = { id: string; name: string; revision: string; published?: boolean; files: SkillContentFile[] }
+export async function getSkillContent(id: string): Promise<SkillContent> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/content`)).json()
+}
+/** Saves an edit as the skill's next revision; revision is the one it edits. publicProblem says why a public page
+ *  could not follow. */
+export async function saveSkillContent(id: string, revision: string, files: SkillContentFile[]): Promise<{ revision: string; publicProblem?: string }> {
+  return (await req(`/api/v2/skills/${encodeURIComponent(id)}/content`, { method: 'PUT', body: json({ revision, files }) })).json()
 }
 export async function resolveSkill(id: string, input: string): Promise<Skill> {
   return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }
 /** imported counts every skill named; created the ones that were not in the library before. */
-export async function importText(text: string): Promise<{ imported: number; created?: number; ignored: number; errors: string[] }> {
+export async function importText(text: string): Promise<{ imported: number; created?: number; errors: string[] }> {
   return (await req('/api/import', { method: 'POST', body: json({ text }) })).json()
 }
 export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'csv' = 'json', filters?: SkillQuery): Promise<Blob> {
@@ -749,12 +797,6 @@ export async function getBranchPruneSetting(): Promise<BranchPruneSetting> {
 export async function setBranchPruneSetting(afterWorktree: boolean): Promise<BranchPruneSetting> {
   return (await req('/api/v2/settings/branch-prune', { method: 'PUT', body: json({ afterWorktree }) })).json()
 }
-export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
-  return (await req('/api/ignored')).json()
-}
-export async function unignore(id: string): Promise<void> {
-  await req(`/api/skill/ignore?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
-}
 export async function getBuildInfo(): Promise<{ version: string; commit: string; features?: string[] }> {
   return (await req('/api/version')).json()
 }
@@ -797,8 +839,8 @@ export async function removeListMember(id: number, userId: number): Promise<List
 export async function transferList(id: number, userId: number): Promise<ListDetail> {
   return (await req(`/api/v2/lists/${id}/transfer`, { method: 'POST', body: json({ userId }) })).json()
 }
-export async function addListToShelf(id: number): Promise<{ added: number }> {
-  return (await req(`/api/v2/lists/${id}/add-to-shelf`, { method: 'POST', body: json({}) })).json()
+export async function addListToShelf(id: number, status: 'active' | 'archived' = 'active'): Promise<{ added: number }> {
+  return (await req(`/api/v2/lists/${id}/add-to-shelf`, { method: 'POST', body: json({ status }) })).json()
 }
 export async function getRollup(): Promise<Rollup> {
   return (await req('/api/admin/rollup')).json()
@@ -1546,17 +1588,20 @@ export type LibraryItem = {
   aliases?: { kind: string; reference: string }[]
 }
 /** One saved version of an item: whether it became current or was kept beside the current one. */
-export type LibraryReceipt = { eventId: string; revisionId: string; won: boolean; base: string; savedAt: number; orderAt: number; uncertainty: number; clockFallback: boolean }
 export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
 export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
-export async function getLibraryHistory(id: string): Promise<LibraryReceipt[]> { return (await req(`/api/v2/library-history/${encodeURIComponent(id)}`)).json() }
-/** A connected machine holding a version of a library item that reet has never saved. `taking` is set while that version is being saved as the item's copy. */
-/** One file that is not the same in reet's copy and on the machine: in both but different (`changed`), only on the machine, or only in reet's copy. */
-export type DifferenceFile = { path: string; change: 'changed' | 'machine' | 'reet'; reetBytes?: number; machineBytes?: number }
-export type LibraryDifference = { environmentId: string; host: string; agent: string; digest: string; taking?: boolean; /** The machine is being asked which files it has. */ comparing?: boolean; /** The machine answered; `files` lists what differs. */ compared?: boolean; files?: DifferenceFile[] }
-export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[]; differences?: Record<string, LibraryDifference[]> | null }> { return (await req('/api/v2/library')).json() }
-/** `take` saves the machine's version as the item's copy; `keep` leaves reet's copy and stops flagging that machine's current files. */
-export async function resolveLibraryDifference(itemId: string, environmentId: string, action: 'take' | 'keep' | 'compare'): Promise<void> { await req(`/api/v2/library/${encodeURIComponent(itemId)}/difference`, { method: 'POST', body: json({ environmentId, action }) }) }
+export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
+/** One saved version of a library skill. kind is how it was saved: user or fork (written in reet), edit, original
+ *  (fetched from its link), capture or import (kept from a machine, named by machine), use-version, or restore (put back). */
+export type SkillVersion = { revision: string; kind: string; reference?: string; machine?: string; derivedFrom?: string; digest: string; files: number; savedAt: number; current: boolean }
+/** A skill's saved versions, newest first, the current one marked. */
+export async function getSkillHistory(item: string): Promise<SkillVersion[]> {
+  return ((await (await req(`/api/v2/library-history/${encodeURIComponent(item)}`)).json()) as { revisions: SkillVersion[] }).revisions
+}
+/** Put back: revision's files become the skill's new current version. head is the current version the person saw; 409 when it moved. */
+export async function putBackSkillVersion(item: string, revision: string, head: string): Promise<{ revision: string; publicProblem?: string }> {
+  return (await req(`/api/v2/library-history/${encodeURIComponent(item)}/restore`, { method: 'POST', body: json({ revision, head }) })).json()
+}
 export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
   const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
   return response.json()

@@ -139,12 +139,14 @@ try {
     await context.close()
   }
 
-  // The sync view is titled Sync and marks the Sync link current; the row stays, with Software beside the title.
+  // Sync's title is its one sentence about the machines, its tab says Sync, and it marks the Sync link current; the
+  // row stays, with Software beside the title.
   if (run('machines sync')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/sync`)
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
-    await expect(page.getByRole('heading', { level: 1, name: 'Sync', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: 'No machines yet.', exact: true })).toBeVisible()
+    expect(await page.title()).toMatch(/^Sync ·/)
     const row = page.getByRole('navigation', { name: 'Machines', exact: true })
     await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Inventory & connection' })).not.toHaveAttribute('aria-current', 'page')

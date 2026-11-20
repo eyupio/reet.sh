@@ -131,8 +131,8 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 			aliceSkill = item
 		}
 	}
-	if aliceSkill.ID == "" || aliceSkill.SourceType != "hosted" || !aliceSkill.Bookmarked {
-		t.Fatalf("hosted references not deduplicated or not in To test: %s", raw)
+	if aliceSkill.ID == "" || aliceSkill.SourceType != "hosted" || aliceSkill.Status != store.SkillActive {
+		t.Fatalf("hosted references not deduplicated or not Active: %s", raw)
 	}
 	if got := installCommand(aliceSkill); got != "npx skills@1.7.4 add "+srv.URL+"/alice/reet-demo --skill reet-demo" {
 		t.Fatal(got)
@@ -227,8 +227,8 @@ func TestHostedPrefixPreferenceRenameAndShelf(t *testing.T) {
 	expect("PUT", "/api/v2/hosting/skills/acme-demo", `{"content":"---\nname: acme-demo\ndescription: A skill.\n---\n\nInstructions.\n","files":{},"published":true}`, 200)
 	var shelf listResp
 	json.Unmarshal([]byte(expect("GET", "/api/skills", "", 200)), &shelf)
-	if len(shelf.Skills) != 1 || !shelf.Skills[0].Bookmarked || shelf.Skills[0].SourceType != "hosted" {
-		t.Fatalf("published skill not added to To test: %+v", shelf.Skills)
+	if len(shelf.Skills) != 1 || shelf.Skills[0].Status != store.SkillActive || shelf.Skills[0].SourceType != "hosted" {
+		t.Fatalf("published skill not added as Active: %+v", shelf.Skills)
 	}
 	oldID := shelf.Skills[0].ID
 	var created struct {

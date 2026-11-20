@@ -107,38 +107,6 @@ func TestReconcileConflictStopsBeforeInventoryImport(t *testing.T) {
 	}
 }
 
-func TestSyncAcceptsMergedHostAndTargetAliases(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".claude", "skills"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	posted := false
-	target := store.SyncTarget{Target: store.Environment{ID: "new-target", Host: "preferred", Agent: "claude", Name: "preferred · Claude Code"}, HostAliases: []string{"old-host"}, TargetAliases: []string{"old-target"}, Desired: []store.SyncSkill{}}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			json.NewEncoder(w).Encode(map[string]any{"targets": []store.SyncTarget{target}, "canWrite": true})
-			return
-		}
-		var v struct{ Machine store.MachineInfo }
-		json.NewDecoder(r.Body).Decode(&v)
-		if v.Machine.Host != "preferred" {
-			t.Error("report did not use preferred name")
-		}
-		posted = true
-		w.Write([]byte(`{"imported":0,"errors":[]}`))
-	}))
-	defer srv.Close()
-	if err := runSync([]string{"--server", srv.URL, "--env", "old-host", "--target", "old-target"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("must not install/remove skills"); return nil }, "test"); err != nil {
-		t.Fatal(err)
-	}
-	if !posted {
-		t.Fatal("inventory was not refreshed")
-	}
-	if err := runSync([]string{"--server", srv.URL, "--env", "unrelated-host", "--target", "old-target"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("must not execute"); return nil }, "test"); err == nil {
-		t.Fatal("unrelated host accepted")
-	}
-}
-
 var reconcileNow = time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 
 // stubBundles is a bundleFetcher that counts its calls.
@@ -1957,7 +1925,8 @@ type skillController struct {
 	desired      *store.DesiredState
 	revisions    map[string]store.PrivateSkillRevision
 	reportStatus int
-	protocol     int // the skills protocol the poll reply names for the machine
+	protocol     int      // the skills protocol the poll reply names for the machine
+	retry        []string // names the next poll reply asks the machine to try again, once
 	polls        []polled
 	attempts     int
 	reports      []store.SkillReport
@@ -1982,6 +1951,9 @@ func newSkillController(t *testing.T) *skillController {
 			reply := map[string]any{"agent": map[string]any{"id": testMachineID, "host": "studio", "skillsProtocol": c.protocol}}
 			if c.desired != nil {
 				reply["desired"] = c.desired
+			}
+			if len(c.retry) > 0 {
+				reply["retry"], c.retry = c.retry, nil
 			}
 			json.NewEncoder(w).Encode(reply)
 		case r.URL.Path == "/api/v2/sync/skills/report":
@@ -2024,6 +1996,12 @@ func (c *skillController) setDesired(d *store.DesiredState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.desired = d
+}
+
+func (c *skillController) setRetry(names ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.retry = names
 }
 
 func (c *skillController) setProtocol(p int) {
@@ -2129,6 +2107,67 @@ func TestAgentCycleReconcilesFromCachedDesired(t *testing.T) {
 	}
 	if _, _, _, fetches := srv.counts(); fetches != 1 {
 		t.Fatalf("fetched %d times", fetches)
+	}
+}
+
+// A failed install waits before it is tried again; a Retry from the
+// controller ends the wait for the names it carries, so the machine tries them
+// that cycle, and reports again even when nothing changed.
+func TestAgentCycleRetryEndsTheWaitAndReportsAgain(t *testing.T) {
+	srv := newSkillController(t)
+	config := enrolledMachine(t, srv.URL)
+	home := loaded(t, config).Home
+	a, aFiles := skillBundle(t, "alpha", "first")
+	a.Bundle, a.Revision = strings.Repeat("1", 32), strings.Repeat("2", 32)
+	b, _ := skillBundle(t, "beta", "second")
+	b.Bundle, b.Revision = strings.Repeat("3", 32), strings.Repeat("4", 32)
+	// Neither revision is served yet: both installs fail and wait.
+	srv.setDesired(&store.DesiredState{Version: "v1", Active: []store.DesiredSkill{a, b}})
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if e := entryOf(t, srv.lastReport(t), "~/.agents/skills", "alpha"); e.State != "failed" {
+		t.Fatalf("first pass: %+v", e)
+	}
+	_, _, reports, fetches := srv.counts()
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, r, f := srv.counts(); f != fetches || r != reports {
+		t.Fatalf("a waiting install was fetched (%d → %d) or an unchanged report sent (%d → %d)", fetches, f, reports, r)
+	}
+	// Retry while it still fails: alpha is fetched again, beta still waits,
+	// and the report goes again though it says the same.
+	srv.setRetry("ALPHA")
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	_, _, r, f := srv.counts()
+	if f != fetches+1 || r != reports+1 {
+		t.Fatalf("retry: fetches %d → %d, reports %d → %d", fetches, f, reports, r)
+	}
+	// The retry is spent: the next cycle waits again.
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, r2, f2 := srv.counts(); f2 != f || r2 != r {
+		t.Fatalf("a spent retry tried again: fetches %d → %d, reports %d → %d", f, f2, r, r2)
+	}
+	// Once the files can be had, a Retry installs alpha that cycle.
+	srv.serve(t, a, aFiles)
+	srv.setRetry("alpha")
+	if err := skillCycle(t, config); err != nil {
+		t.Fatal(err)
+	}
+	if got := folderDigest(t, filepath.Join(home, ".agents", "skills", "alpha")); got != a.Digest {
+		t.Fatal("alpha was not installed on the cycle the retry came")
+	}
+	rep := srv.lastReport(t)
+	if e := entryOf(t, rep, "~/.agents/skills", "alpha"); e.State != "installed" {
+		t.Fatalf("after the retry: %+v", e)
+	}
+	if e := entryOf(t, rep, "~/.agents/skills", "beta"); e.State != "failed" {
+		t.Fatalf("beta, not retried: %+v", e)
 	}
 }
 
@@ -3000,5 +3039,42 @@ func TestReconcileLeavesALinkToAnIdenticalCopyOutsideTheFolders(t *testing.T) {
 	}
 	if e := entryOf(t, rep, "~/.claude/skills", "alpha"); e.State != "installed" {
 		t.Fatalf("entry %+v", e)
+	}
+}
+
+// A removal whose backup moved across devices and copied the whole skill, but
+// could not then remove all of the original, did not take the skill off: it
+// is reported failed, with the reason, and the backup it made is kept on the
+// report. (P1: it was reported removed.)
+func TestReconcileReportsAPartlyRemovedSkillAsFailed(t *testing.T) {
+	home := t.TempDir()
+	gone := filepath.Join(home, ".agents", "skills", "gone")
+	writeSkill(t, gone)
+	was := reconcileBackup
+	t.Cleanup(func() { reconcileBackup = was })
+	reconcileBackup = func(folder, n string, now time.Time) (string, error) {
+		dest, err := backupSkill(folder, n, now)
+		if err != nil || n != "gone" {
+			return dest, err
+		}
+		// What a cross-device move leaves when it cannot remove a file.
+		if err = os.MkdirAll(filepath.Join(folder, n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(folder, n, "locked.txt"), []byte("still here"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dest, &sourceLeftError{errors.New("permission denied")}
+	}
+	rep, _ := reconcileSkills(context.Background(), home, store.DesiredState{Version: "v1", Remove: []store.DesiredRemoval{{Name: "gone", Reason: "archived"}}}, map[string]string{}, (&stubBundles{}).fetch, reconcileNow)
+	e := entryOf(t, rep, "~/.agents/skills", "gone")
+	if e.State != "failed" || !strings.Contains(e.Detail, "could not all be removed") || !strings.Contains(e.Detail, "permission denied") {
+		t.Fatalf("entry %+v", e)
+	}
+	if e.Backup == "" || !strings.HasPrefix(e.Backup, "~/.agents/.reet-backups/") {
+		t.Fatalf("the backup was not kept on the report: %+v", e)
+	}
+	if _, err := os.Stat(filepath.Join(home, strings.TrimPrefix(e.Backup, "~/"), "SKILL.md")); err != nil {
+		t.Fatalf("the backup: %v", err)
 	}
 }

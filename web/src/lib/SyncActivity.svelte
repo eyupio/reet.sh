@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SYNC_JOBS } from './syncRoutes'
   import { onMount } from 'svelte'
   import { getSyncState, queueSyncJob, resolveSyncSourceConflicts, startSyncRun, updateSyncAgent, type SyncJob, type SyncSourceFix, type SyncState } from './api'
   import { agentOnline, groupLabel } from './machines'
@@ -340,16 +341,16 @@
                 <p class="job-message">{job.message}</p>
               {/if}
             {/if}
-            {#if job.status === 'awaiting-approval'}<a class="btn primary review" href="/sync#sync-jobs">Review changes</a>{/if}
+            {#if job.status === 'awaiting-approval'}<a class="btn primary review" href={SYNC_JOBS}>Review changes</a>{/if}
           </article>
         {/each}
         {#if !displayJobs.length && !error}<p class="dock-empty">Waiting for the machine to report…</p>{/if}
-        {#if moreJobs}<a class="more-jobs" href="/sync#sync-jobs">+{moreJobs} more {moreJobs === 1 ? 'job' : 'jobs'}</a>{/if}
+        {#if moreJobs}<a class="more-jobs" href={SYNC_JOBS}>+{moreJobs} more {moreJobs === 1 ? 'job' : 'jobs'}</a>{/if}
       </div>
 
       <footer class="dock-foot">
         <span>{live ? 'Updating live' : !latest && open ? 'Starting sync…' : 'Finished'} · {agoLabel(latest?.updatedAt ?? now, now)}</span>
-        <a href="/sync#sync-jobs">View all activity</a>
+        <a href={SYNC_JOBS}>View all activity</a>
       </footer>
     {:else}
       <div class="collapsed">

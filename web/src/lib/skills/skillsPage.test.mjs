@@ -8,10 +8,16 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
+const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch, historyWhat, historyLine, versionDay } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
+
+test('retryText names the skill and the machines it is tried again on', () => {
+  assert.equal(page.retryText('seo-cluster', ['ThinkPad']), 'Trying seo-cluster again on ThinkPad.')
+  assert.equal(page.retryText('seo-cluster', ['ThinkPad', 'studio']), 'Trying seo-cluster again on ThinkPad and studio.')
+  assert.equal(page.retryText('seo-cluster', ['a', 'b', 'c']), 'Trying seo-cluster again on 3 machines.')
+})
 
 test('healthLine words every state', () => {
   const cases = [
@@ -21,8 +27,8 @@ test('healthLine words every state', () => {
     [h('installing', { pending: 2, total: 3 }), 'Installing on 2 of 3', 'work', false],
     [h('removing', { pending: 3 }), 'Coming off 3 machines', 'work', false],
     [h('removing', { pending: 1, hosts: ['ThinkPad'] }), 'Coming off ThinkPad', 'work', false],
-    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad · it tries again on its own', 'bad', false],
-    [h('failed', { hosts: ['ThinkPad', 'studio'] }), 'Failed on 2 machines · they try again on their own', 'bad', false],
+    [h('failed', { hosts: ['ThinkPad'] }), 'Failed on ThinkPad', 'bad', true],
+    [h('failed', { hosts: ['ThinkPad', 'studio'] }), 'Failed on 2 machines', 'bad', true],
     [h('offline', { hosts: ['studio'] }), "Removing from studio when it's back online", 'work', false],
     [h('blocked', { hosts: ['ThinkPad'] }), "Can't write skills on ThinkPad", 'bad', false],
     [h('copying', { hosts: ['Elitebook'] }), 'Copying into reet from Elitebook', 'work', false],
@@ -94,9 +100,26 @@ test('deleteConfirm covers both cases together and several rows', () => {
   assert.equal(many.title, 'Delete 5 skills?')
   assert.equal(many.body, 'You wrote a, d and e. reet has no copy of b. Deleting removes them from your machines, along with your writing and the public links of d; each machine keeps a backup for 30 days.')
   const four = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', yours: true }), row({ name: 'c', yours: true }), row({ name: 'd', yours: true })])
-  assert.equal(four.body, 'You wrote a, b, c and 1 more. Deleting removes them from your machines, along with your writing.')
+  assert.equal(four.body, 'You wrote a, b, c and 1 more. Deleting removes them from your machines, along with your writing; each machine keeps a backup for 30 days.')
   for (const d of [w1(), both, many, four]) assert.ok(!d.body.includes('nothing can bring it back'))
   function w1() { return deleteConfirm([row({ hasCopy: false })]) }
+})
+
+test('deleteConfirm says which of several skills come off the machines, and never that an Archived one does', () => {
+  const off = h('off')
+  // Active a and Archived b, both written: only a comes off the machines.
+  const mixed = deleteConfirm([row({ name: 'a', yours: true }), row({ name: 'b', yours: true, status: 'archived', health: off })])
+  assert.equal(mixed.body, 'You wrote a and b. Deleting removes them, along with your writing. a comes off your machines; each machine keeps a backup for 30 days.')
+  // An Archived skill still coming off a machine is on it until then.
+  const leaving = deleteConfirm([row({ name: 'a', yours: true, status: 'archived', health: h('removing', { pending: 1, hosts: ['studio'] }) }), row({ name: 'b', yours: true, status: 'archived', health: off }), row({ name: 'c', hasCopy: false })])
+  assert.equal(leaving.body, 'You wrote a and b. reet has no copy of c. Deleting removes them, along with your writing. a and c come off your machines; each machine keeps a backup for 30 days.')
+  // None of them is on a machine: no backup is promised.
+  const archived = deleteConfirm([row({ name: 'a', yours: true, published: true, status: 'archived', health: off }), row({ name: 'b', hasCopy: false, status: 'archived', health: off })])
+  assert.equal(archived.body, "You wrote a. reet has no copy of b. Deleting removes them, along with your writing and the public links of a. They're already off your machines.")
+  // One Archived skill reet has no copy of, off every machine.
+  assert.equal(deleteConfirm([row({ hasCopy: false, status: 'archived', health: off })]).body, "reet has no copy of this skill. Deleting removes it. It's already off your machines.")
+  // An Archived skill reet could not copy stays on its machine until it is deleted.
+  assert.equal(deleteConfirm([row({ hasCopy: false, status: 'archived', health: h('copy-failed', { hosts: ['Elitebook'] }) })]).body, 'reet has no copy of this skill. Deleting removes it from your machines; each machine keeps a backup for 30 days.')
 })
 
 test('copyPrompt never carries a link', () => {
@@ -168,4 +191,38 @@ test('pausedSentence names a paused machine, or counts several, and says nothing
   assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 2 }), 'Sync is paused on 2 machines.')
   assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0, paused: 0 }), '')
   assert.equal(pausedSentence({ failed: 0, installing: 0, removing: 0 }), '')
+})
+
+test('arrivedOn: day and month this year, with the year otherwise, and nothing without a date', () => {
+  const now = Date.UTC(2026, 10, 19, 12)
+  assert.equal(arrivedOn(Date.UTC(2026, 10, 12, 12), now), '12 Nov')
+  assert.equal(arrivedOn(Date.UTC(2025, 2, 3, 12), now), '3 Mar 2025')
+  assert.equal(arrivedOn(0, now), '')
+  assert.equal(arrivedOn(undefined, now), '')
+})
+
+test('historyLine: how each version was saved, in plain words, with its day', () => {
+  const now = Date.UTC(2026, 10, 20, 12)
+  const at = day => Date.UTC(2026, 10, day, 12)
+  assert.equal(historyLine({ kind: 'edit', savedAt: at(12) }, false, now), 'Edited 12 Nov')
+  assert.equal(historyLine({ kind: 'original', savedAt: at(3) }, false, now), 'Updated from original 3 Nov')
+  assert.equal(historyLine({ kind: 'original', savedAt: at(1) }, true, now), 'Imported 1 Nov')
+  assert.equal(historyLine({ kind: 'capture', machine: 'Elitebook', savedAt: at(1) }, true, now), 'Kept from Elitebook 1 Nov')
+  assert.equal(historyLine({ kind: 'import', savedAt: at(1) }, true, now), 'Kept from a machine 1 Nov')
+  assert.equal(historyLine({ kind: 'restore', savedAt: at(14) }, false, now), 'Put back 14 Nov')
+  assert.equal(historyLine({ kind: 'use-version', machine: 'ThinkPad', savedAt: at(9) }, false, now), 'Took the version on ThinkPad 9 Nov')
+  assert.equal(historyLine({ kind: 'user', savedAt: at(2) }, true, now), 'Written in reet 2 Nov')
+  assert.equal(historyLine({ kind: 'fork', savedAt: at(2) }, true, now), 'Copied into reet 2 Nov')
+  assert.equal(historyLine({ kind: 'edit', savedAt: Date.UTC(2025, 0, 5, 12) }, false, now), 'Edited 5 Jan 2025')
+  assert.equal(historyWhat({ kind: 'something-new' }, false), 'Saved')
+})
+
+test('versionDay: the day, with the time when another version shares it', () => {
+  const now = Date.UTC(2026, 10, 20, 12)
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime()
+  const all = [{ savedAt: at(12, 10, 0) }, { savedAt: at(3, 14, 5) }, { savedAt: at(3, 9, 5) }]
+  assert.equal(versionDay(all[0], all, now), '12 Nov')
+  assert.equal(versionDay(all[1], all, now), '3 Nov, 14:05')
+  assert.equal(versionDay(all[2], all, now), '3 Nov, 09:05')
+  assert.equal(historyLine({ kind: 'original', savedAt: all[2].savedAt }, true, now, versionDay(all[2], all, now)), 'Imported 3 Nov, 09:05')
 })

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 func mkSkill(t *testing.T, dir, name string, withFile bool) {
@@ -303,5 +305,34 @@ func TestMissingSkillsFolderUnderKnownAgentIsEmpty(t *testing.T) {
 	result := CollectScan(home, t.TempDir(), nil, "machine")
 	if len(result.Envs) != 1 || result.Envs[0].Agent != "claude" || len(result.Envs[0].Skills) != 0 {
 		t.Fatalf("missing directory not reported empty: %+v", result)
+	}
+}
+
+func TestHelpNeverPrintsEnvironmentToken(t *testing.T) {
+	t.Setenv("REET_TOKEN", "private-token-do-not-print")
+	var out bytes.Buffer
+	if err := Run([]string{"--help"}, &out); err != nil {
+		t.Fatalf("help failed: %v", err)
+	}
+	if strings.Contains(out.String(), "private-token-do-not-print") {
+		t.Fatal("help exposed the inherited token")
+	}
+}
+
+func TestEmptyScanRegistersMachine(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var machine store.MachineInfo
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Machine store.MachineInfo }
+		json.NewDecoder(r.Body).Decode(&in)
+		machine = in.Machine
+		w.Write([]byte(`{"errors":[]}`))
+	}))
+	defer srv.Close()
+	if err := RunVersion([]string{"--server", srv.URL, "--env", "server", "--server-host", "--prune"}, &bytes.Buffer{}, "v1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+	if machine.Host != "server" || !machine.Server || machine.Version != "v1.2.3" || machine.OS == "" {
+		t.Fatalf("missing host info: %+v", machine)
 	}
 }

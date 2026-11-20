@@ -1,5 +1,5 @@
 import type { Skill, SkillHealth, SkillRow } from '../api'
-import { installCommand, skillBlurb } from '../install'
+import { copyPrompt, installCommand } from '../install'
 
 export type Tone = 'ok' | 'work' | 'bad' | 'off'
 
@@ -21,8 +21,8 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
     case 'removing':
       return line(hosts.length === 1 ? `Coming off ${hosts[0]}` : `Coming off ${machines(h.pending)}`, 'work')
     case 'failed':
-      // The machine tries again by itself; until it can be asked to at once, there is no Retry to offer here.
-      return line(`Failed on ${where} · ${hosts.length > 1 ? 'they try again on their own' : 'it tries again on its own'}`, 'bad')
+      // Retry asks the machines it failed on to try it again on their next poll.
+      return line(`Failed on ${where}`, 'bad', true)
     case 'offline':
       if (status === 'active') return line(`Installing on ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
       return line(`Removing from ${where} when ${hosts.length > 1 ? "they're" : "it's"} back online`, 'work')
@@ -43,6 +43,12 @@ export function healthLine(h: SkillHealth, status?: SkillRow['status']): { text:
     default:
       return line('Checking', 'work')
   }
+}
+
+/** What the page says once Retry asked the machines a skill failed on to try it again. */
+export function retryText(name: string, hosts: string[]): string {
+  const where = hosts.length === 1 ? hosts[0] : hosts.length === 2 ? `${hosts[0]} and ${hosts[1]}` : machines(hosts.length)
+  return `Trying ${name} again on ${where}.`
 }
 
 const skillsLabel = (names: string[]) => (names.length === 1 ? names[0] : `${names.length} skills`)
@@ -71,9 +77,12 @@ export function focusAfterRemoval(order: string[], removed: string[]): string | 
   return null
 }
 
-/** Whether a skill is on any machine: an Active one is, and so is an Archived one still coming off. */
-function onMachines(r: SkillRow): boolean {
-  return r.status !== 'archived' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health?.state)
+/**
+ * Whether a skill is on any machine: an Active one is, and so is an Archived one still coming off, or one reet is
+ * copying or could not copy, which stays on its machine until it is deleted.
+ */
+export function onMachines(r: Pick<SkillRow, 'status' | 'health'>): boolean {
+  return r.status !== 'archived' || ['removing', 'offline', 'failed', 'blocked', 'copying', 'copy-failed', 'needs-update'].includes(r.health?.state)
 }
 
 function nameList(names: string[]): string {
@@ -100,25 +109,23 @@ export function deleteConfirm(rows: SkillRow[]): { title: string; body: string; 
     const fromMachines = onMachines(rows[0]) ? `${links.length ? ',' : ''} and the skill from your machines; ${backup}` : ''
     if (written.length && noCopy.length) parts.push(`Deleting removes ${writing}${fromMachines}.`)
     else if (written.length) parts.push(`Deleting it removes ${writing}${fromMachines}.`)
-    else parts.push(`Deleting removes it from your machines; ${backup}.`)
+    else if (onMachines(rows[0])) parts.push(`Deleting removes it from your machines; ${backup}.`)
+    else parts.push("Deleting removes it. It's already off your machines.")
   } else {
     if (written.length) parts.push(`You wrote ${nameList(written.map(r => r.name))}.`)
     if (noCopy.length) parts.push(`reet has no copy of ${nameList(noCopy.map(r => r.name))}.`)
-    let end = 'Deleting removes them from your machines'
-    if (written.length) end += links.length ? `, along with your writing and the public links of ${nameList(links.map(r => r.name))}` : ', along with your writing'
-    if (noCopy.length) end += `; ${backup}`
-    parts.push(end + '.')
+    // Only the skills on a machine come off one, and only those leave a backup there.
+    const on = rows.filter(onMachines)
+    const along = !written.length ? '' : links.length ? `, along with your writing and the public links of ${nameList(links.map(r => r.name))}` : ', along with your writing'
+    if (on.length === rows.length) parts.push(`Deleting removes them from your machines${along}; ${backup}.`)
+    else if (on.length) parts.push(`Deleting removes them${along}. ${nameList(on.map(r => r.name))} ${on.length === 1 ? 'comes' : 'come'} off your machines; ${backup}.`)
+    else parts.push(`Deleting removes them${along}. They're already off your machines.`)
   }
   return { title, body: parts.join(' '), writtenConfirmed: written.length > 0, noCopyConfirmed: noCopy.length > 0 }
 }
 
-/** Words to paste into a prompt to use a skill. It carries the name and description, never a link: a sentence of the description that holds one is left out. */
-export function copyPrompt(row: Pick<SkillRow, 'name' | 'description'>): string {
-  const link = /https?:\/\/|www\.|github\.com/i
-  const kept = (row.description ?? '').split(/(?<=[.!?])\s+/).filter(sentence => !link.test(sentence)).join(' ')
-  const blurb = skillBlurb(kept)
-  return blurb ? `Use the ${row.name} skill: ${blurb}` : `Use the ${row.name} skill.`
-}
+/** Words to paste into a prompt to use a skill: the session prompt pickers use the same words. */
+export { copyPrompt }
 
 /** The command to install a published skill from its public page; null for one that is not published. */
 export function installCommandFor(row: SkillRow): string | null {
@@ -202,4 +209,40 @@ export function savedSkillNotice(renamed: boolean, published: boolean): string {
   const library = "It's in your library as Active and goes on every machine."
   if (renamed) return published ? `Renamed and published. The public URL and install command changed; existing installs are untouched. ${library}` : 'Renamed. Update any private links you shared.'
   return published ? `Skill published. ${library}` : 'Draft saved. Only you can see it.'
+}
+
+/** When a skill came into the library, as the opened skill shows it beside where it came from: "12 Nov", with the year
+ *  when it is not this year's; '' without a date. */
+export function arrivedOn(ts: number | undefined, now = Date.now()): string {
+  if (!ts) return ''
+  const when = new Date(ts)
+  const sameYear = when.getFullYear() === new Date(now).getFullYear()
+  return when.toLocaleDateString('en-GB', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/** How one saved version of a skill came about, in plain words. oldest says it is the skill's first version. */
+export function historyWhat(e: { kind: string; machine?: string }, oldest: boolean): string {
+  switch (e.kind) {
+    case 'edit': return 'Edited'
+    case 'original': return oldest ? 'Imported' : 'Updated from original'
+    case 'capture': case 'import': return `Kept from ${e.machine || 'a machine'}`
+    case 'use-version': return `Took the version on ${e.machine || 'a machine'}`
+    case 'restore': return 'Put back'
+    case 'user': return 'Written in reet'
+    case 'fork': return 'Copied into reet'
+    default: return 'Saved'
+  }
+}
+
+/** One line of a skill's history: "Edited 12 Nov", "Kept from Elitebook 1 Nov". when overrides the day, as versionDay
+ *  words it. */
+export function historyLine(e: { kind: string; machine?: string; savedAt: number }, oldest: boolean, now = Date.now(), when = arrivedOn(e.savedAt, now)): string {
+  return `${historyWhat(e, oldest)} ${when}`
+}
+
+/** When a version was saved: its day ("3 Nov"), with the time ("3 Nov, 14:05") when another of all shares that day. */
+export function versionDay(v: { savedAt: number }, all: { savedAt: number }[], now = Date.now()): string {
+  const day = arrivedOn(v.savedAt, now)
+  if (all.filter(o => arrivedOn(o.savedAt, now) === day).length < 2) return day
+  return `${day}, ${new Date(v.savedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
 }

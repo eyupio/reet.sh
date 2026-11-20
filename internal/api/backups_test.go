@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/meta"
@@ -122,7 +123,7 @@ func TestBackupAndProfileAPI(t *testing.T) {
 	if userItem["kind"] != "user" {
 		t.Fatalf("user backup: %+v", userItem)
 	}
-	if err := st.RemoveFor(user.ID, r.ID); err != nil {
+	if _, _, err := st.RemoveShelfSkillsFor(user.ID, []string{r.ID}, true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	post("/api/v2/backups/items/"+userItem["id"].(string)+"/restore", map[string]any{})

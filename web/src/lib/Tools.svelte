@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { exportAll, importText, listIgnored, listSkills, restoreAll, unignore, type Backup, type Ignored, type SkillQuery } from './api'
+  import { exportAll, importText, listSkills, restoreAll, type Backup, type SkillQuery } from './api'
   import Bookmarklets from './Bookmarklets.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import ManageTags from './ManageTags.svelte'
@@ -23,51 +23,29 @@
   let pending = $state<{ data: Backup; overwrite: number } | null>(null)
   let includeHistory = $state(true)
   let format = $state<'json' | 'md' | 'csv'>('json')
-  let ignored = $state<Ignored[]>([])
   let showTags = $state(false)
   let restoreInput = $state<HTMLInputElement>()
   const noBookmarklets = $derived(hideBookmarklets || quiet)
   const title = $derived(noBookmarklets ? 'tools' : 'bookmarklets and tools')
-  const toggle = () => { open = !open; if (open) void loadIgnored() }
+  const toggle = () => { open = !open }
 
   onMount(() => {
     open = startOpen
-    void loadIgnored()
   })
 
   async function runImport() {
     try {
       const r = await importText(importBox)
       importBox = ''
-      const ignored = r.ignored ? `, skipped ${r.ignored} ignored` : ''
       // A skill already in the library keeps its state: only new ones become Active.
       const created = r.created ?? r.imported, existing = r.imported - created
       const what = (created ? `Imported ${created} new as Active` : 'Nothing new to import') + (existing ? `; ${existing} already in your library kept ${existing === 1 ? 'its' : 'their'} state` : '')
-      ok(`${what}${ignored}` + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
+      ok(what + (r.errors.length ? `, skipped ${r.errors.length}: ${r.errors.join('; ')}` : ''))
       await onchange()
     } catch (e) {
       fail(e)
     }
   }
-  async function loadIgnored() {
-    try {
-      const r = await listIgnored()
-      ignored = r.ignored
-    } catch (e) {
-      fail(e)
-    }
-  }
-
-  async function allowAgain(id: string) {
-    try {
-      await unignore(id)
-      await loadIgnored()
-      await onchange()
-    } catch (e) {
-      fail(e)
-    }
-  }
-
   async function backup() {
     try {
       const blob = await exportAll(includeHistory, format, filters)
@@ -162,23 +140,13 @@
           <input bind:this={restoreInput} type="file" accept="application/json" aria-label="Choose a JSON backup" onchange={pickRestore} hidden />
         </p>
       </section>
-      <section class="tool-card organise" aria-labelledby="organise-title">
-        <h3 id="organise-title">A little order</h3>
-        {#if canManageTags}
+      {#if canManageTags}
+        <section class="tool-card organise" aria-labelledby="organise-title">
+          <h3 id="organise-title">A little order</h3>
           <p>Rename or merge tags across your whole library.</p>
           <button type="button" class="btn" onclick={() => (showTags = true)}>Manage tags</button>
-        {/if}
-        <h4>Ignored skills</h4>
-        {#if ignored.length === 0}
-          <p>Nothing ignored.</p>
-        {:else}
-          <ul class="ignored">
-            {#each ignored as item}
-              <li><span>{item.name || item.id}</span><button type="button" class="btn quiet" onclick={() => allowAgain(item.id)}>Allow again</button></li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
+        </section>
+      {/if}
     </div>
   {/if}
 
@@ -209,7 +177,6 @@
   .eyebrow { margin: 0 0 6px; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   h2 { margin: 0; font: 500 1.8rem/1.2 var(--serif); letter-spacing: -0.025em; }
   h3 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
-  h4 { margin: 22px 0 8px; font-size: 0.875rem; }
   .panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 22px; }
   .tool-card { min-width: 0; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
   .import, .organise { grid-column: 1 / -1; }
@@ -222,10 +189,6 @@
   .export-row label { color: var(--muted); font-size: 0.875rem; }
   .export-row select { max-width: 100%; }
   .check input { min-height: 0; }
-  .ignored { list-style: none; margin: 8px 0 0; padding: 0; }
-  .ignored li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); min-height: 44px; }
-  .ignored li:last-child { border-bottom: 0; }
-  .ignored span { min-width: 0; overflow-wrap: anywhere; }
   @media (max-width: 720px) { .panel { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) { .tool-card { padding: 20px; } }
 </style>

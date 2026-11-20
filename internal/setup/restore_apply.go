@@ -42,6 +42,7 @@ type RestoreApplyResult struct {
 	Backups         []string  `json:"backups"`
 	JournalPath     string    `json:"journal_path"`
 	Resumed         bool      `json:"resumed,omitempty"`
+	Notes           []string  `json:"notes,omitempty"`
 	CompletedAt     time.Time `json:"completed_at"`
 }
 
@@ -71,6 +72,9 @@ type restoreJournalAction struct {
 // their rollback copies.
 func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyResult, error) {
 	if len(plan.Actions) == 0 {
+		if len(plan.Notes) > 0 {
+			return RestoreApplyResult{}, errors.New("the restore plan has no supported files to create. " + strings.Join(plan.Notes, " "))
+		}
 		return RestoreApplyResult{}, errors.New("the restore plan has no supported files to create")
 	}
 	if plan.files == nil {
@@ -406,6 +410,7 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		SchemaVersion: restoreApplySchemaVersion, SnapshotID: plan.SnapshotID,
 		PlanFingerprint: fingerprint, Created: created, Replaced: replaced,
 		Skipped: skipped, Backups: backups, JournalPath: journalPath, Resumed: resuming, CompletedAt: finished,
+		Notes: append([]string(nil), plan.Notes...),
 	}, nil
 }
 
@@ -681,6 +686,11 @@ func renderRestoreApply(out io.Writer, result RestoreApplyResult) error {
 	}
 	for _, path := range result.Created {
 		if _, err := fmt.Fprintf(out, "  %q\n", path); err != nil {
+			return err
+		}
+	}
+	for _, note := range result.Notes {
+		if _, err := fmt.Fprintln(out, note); err != nil {
 			return err
 		}
 	}

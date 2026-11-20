@@ -82,7 +82,10 @@ type server struct {
 
 	// skillFetcher gets public skills for the reet copy; skillCopies waits for
 	// the background runs (tests only) and the rest keeps them one per account.
-	skillFetcher     SkillFetcher
+	skillFetcher SkillFetcher
+	// refreshHosted checks a skill's public page follows its head after a
+	// content save; tests replace it to make it fail.
+	refreshHosted    func(uid int64, item string) error
 	skillCopyMu      sync.Mutex
 	skillCopyRunning map[int64]bool
 	skillCopyAgain   map[int64]bool
@@ -368,6 +371,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		skillCopyRunning: map[int64]bool{}, skillCopyAgain: map[int64]bool{},
 		originalTTL: skillOriginalTTL,
 	}
+	s.refreshHosted = st.RefreshHostedSkillFor
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -455,7 +459,6 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/skills/tags", s.requireWriter(s.tagMany))
 	mux.HandleFunc("POST /api/skills/remove", s.requireWriter(s.removeMany))
 	mux.HandleFunc("POST /api/skill/install-copy", s.requireWriter(s.installCopy))
-	mux.HandleFunc("DELETE /api/skill/ignore", s.requireWriter(s.unignore))
 	mux.HandleFunc("POST /api/import", s.requireWriter(s.importSkills))
 	mux.HandleFunc("GET /api/environments", s.environments)
 	mux.HandleFunc("GET /api/v2/setup/profiles", s.setupProfileList)
@@ -466,8 +469,6 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v2/sync", s.syncState)
 	mux.HandleFunc("POST /api/v2/machines/merge", s.requireWriter(s.mergeMachines))
 	mux.HandleFunc("DELETE /api/v2/machines", s.requireWriter(s.forgetMachine))
-	mux.HandleFunc("PUT /api/v2/sync", s.requireWriter(s.saveSync))
-	mux.HandleFunc("DELETE /api/v2/sync", s.requireWriter(s.deleteSync))
 	mux.HandleFunc("DELETE /api/v2/environments", s.requireWriter(s.forgetEnvironment))
 	mux.HandleFunc("POST /api/v2/environments/delete", s.requireWriter(s.deleteEnvironments))
 	mux.HandleFunc("POST /api/v2/environments/merge", s.requireWriter(s.mergeEnvironments))
@@ -475,6 +476,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v2/skills/duplicates", s.findDuplicates)
 	s.registerSkillCopies(mux)
 	s.registerSkillsPage(mux)
+	s.registerSkillDetail(mux)
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("POST /api/v2/tags", s.requireWriter(s.createTag))
 	mux.HandleFunc("PATCH /api/v2/tags/{id}", s.requireWriter(s.renameTagScoped))
@@ -482,7 +484,6 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/tag", s.requireAdmin(s.renameTag))
 	mux.HandleFunc("POST /api/tags/merge", s.requireAdmin(s.mergeTags))
 	mux.HandleFunc("GET /api/events", s.events)
-	mux.HandleFunc("GET /api/ignored", s.ignored)
 	mux.HandleFunc("GET /api/admin/status", s.requireAdmin(s.adminStatus))
 	mux.HandleFunc("GET /api/admin/rollup", s.requireAdmin(s.rollup))
 	mux.HandleFunc("GET /api/v2/auth/status", s.authStatus)
@@ -1163,22 +1164,19 @@ func writeErrCode(w http.ResponseWriter, code int, errCode, field, msg, hint str
 }
 
 const (
-	errConfirmRequired        = "confirm_required"
-	errEnvironmentHasSkills   = "environment_has_skills"
-	errEnvironmentHasReceipts = "environment_has_receipts"
-	errEnvironmentHasPins     = "environment_has_pins"
-	errEnvironmentNotFound    = "environment_not_found"
-	errEnvironmentJobRunning  = "environment_job_running"
-	errLocalSkillInList       = "local_skill_not_allowed_in_list"
-	errAmbiguousSkillID       = "ambiguous_skill_id"
-	errSkillNotFound          = "skill_not_found"
-	errListNotFound           = "list_not_found"
-	errTagNotFound            = "tag_not_found"
-	errInvalidArgument        = "invalid_argument"
-	errReadOnly               = "read_only"
-	errConflict               = "conflict"
-	errNoMatchingSkills       = "no_matching_skills"
-	errInvalidField           = "invalid_field"
+	errConfirmRequired      = "confirm_required"
+	errEnvironmentHasSkills = "environment_has_skills"
+	errEnvironmentNotFound  = "environment_not_found"
+	errLocalSkillInList     = "local_skill_not_allowed_in_list"
+	errAmbiguousSkillID     = "ambiguous_skill_id"
+	errSkillNotFound        = "skill_not_found"
+	errListNotFound         = "list_not_found"
+	errTagNotFound          = "tag_not_found"
+	errInvalidArgument      = "invalid_argument"
+	errReadOnly             = "read_only"
+	errConflict             = "conflict"
+	errNoMatchingSkills     = "no_matching_skills"
+	errInvalidField         = "invalid_field"
 )
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -1200,6 +1198,11 @@ func filterFromRequest(r *http.Request) store.Filter {
 		Machine: q.Get("machine"),
 		Only:    q.Get("only"),
 		Stage:   q.Get("stage"),
+	}
+	// status (active or archived) is the library status the MCP tools filter
+	// on; the store reads it as the stage of the same name.
+	if status := q.Get("status"); status != "" {
+		f.Stage = status
 	}
 	for _, raw := range q["tag"] {
 		for _, part := range strings.Split(raw, ",") {
@@ -1234,6 +1237,9 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 	filter.Compact = compact
 	filter.Canonical = canonicalShelfListing(filter)
 	skills, counts, err := s.st.ListFor(s.uid(r), filter)
+	if err == nil && q.Get("library") == "1" {
+		skills, err = s.withLibraryOnlySkills(s.uid(r), filter, skills, &counts)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1242,14 +1248,14 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		fields := []string{"id", "name", "source", "sourceType", "stage", "liked", "bookmarked", "tags", "environment_count"}
 		if raw := strings.TrimSpace(q.Get("fields")); raw != "" {
 			fields = nil
-			allowed := map[string]bool{"id": true, "name": true, "source": true, "sourceType": true, "stage": true, "liked": true, "bookmarked": true, "tags": true, "environment_count": true}
+			allowed := map[string]bool{"id": true, "name": true, "source": true, "sourceType": true, "status": true, "stage": true, "liked": true, "bookmarked": true, "tags": true, "environment_count": true}
 			for _, field := range strings.Split(raw, ",") {
 				field = strings.TrimSpace(field)
 				if field == "" {
 					continue
 				}
 				if !allowed[field] {
-					writeErrCode(w, 400, errInvalidField, "fields", "unknown compact field: "+field, "Use id, name, source, sourceType, stage, liked, bookmarked, tags or environment_count.")
+					writeErrCode(w, 400, errInvalidField, "fields", "unknown compact field: "+field, "Use id, name, source, sourceType, status, liked, tags or environment_count.")
 					return
 				}
 				fields = append(fields, field)
@@ -1283,6 +1289,8 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 					row["source"] = sk.Source
 				case "sourceType":
 					row["sourceType"] = sk.SourceType
+				case "status":
+					row["status"] = sk.Status
 				case "stage":
 					row["stage"] = stageKey(sk)
 				case "liked":
@@ -1301,6 +1309,66 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"skills": skills, "counts": counts})
+}
+
+// withLibraryOnlySkills adds, for library=1 (the MCP tools), the library
+// skills no shelf row stands for, such as one written and never published,
+// keyed by library id (ruling R47). They have no likes, tags or machines, so
+// a filter on those leaves them out; text matches name, id and description.
+// The whole list is put back in the listing's order. A paged listing is left
+// as it is.
+//
+// counts, when given, are the listing's counts over the whole library, and
+// count these skills too, whatever the filter.
+func (s *server) withLibraryOnlySkills(uid int64, f store.Filter, skills []store.Skill, counts *store.LibraryCounts) ([]store.Skill, error) {
+	extra, err := s.st.LibrarySkillsWithoutShelfFor(uid)
+	if err != nil || len(extra) == 0 {
+		return skills, err
+	}
+	if counts != nil {
+		counts.Add(extra)
+	}
+	if f.Limit > 0 || f.Offset > 0 || (f.Tab != "" && f.Tab != "all") || len(f.Tags) > 0 || f.Env != "" || f.Machine != "" || f.Only != "" || f.SourceType != "" {
+		return skills, nil
+	}
+	switch f.Stage {
+	case "", store.SkillActive, store.SkillArchived:
+	default:
+		return skills, nil
+	}
+	term := strings.ToLower(strings.TrimSpace(f.Query))
+	if strings.Contains(term, "#") {
+		return skills, nil
+	}
+	for _, sk := range extra {
+		if f.Stage != "" && sk.Status != f.Stage {
+			continue
+		}
+		if term != "" && !strings.Contains(strings.ToLower(sk.Name+"\n"+sk.ID+"\n"+sk.Description), term) {
+			continue
+		}
+		if f.Compact {
+			sk.Tags = []store.Tag{}
+		}
+		skills = append(skills, sk)
+	}
+	sort.SliceStable(skills, func(i, j int) bool {
+		a, b := skills[i], skills[j]
+		switch f.Sort {
+		case "name":
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		case "installs":
+			if a.Installs != b.Installs {
+				return a.Installs > b.Installs
+			}
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		}
+		if a.UpdatedAt != b.UpdatedAt {
+			return a.UpdatedAt > b.UpdatedAt
+		}
+		return a.CreatedAt > b.CreatedAt
+	})
+	return skills, nil
 }
 
 // compactSkill is the default compact listing shape. A struct marshals much
@@ -1346,9 +1414,17 @@ func stageKey(sk store.Skill) string {
 func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Input string `json:"input"`
+		// Status is the library status the person chose, active or
+		// archived, as Community's Save offers: a new skill starts with it,
+		// and one the library has moves to it. Empty keeps today's add.
+		Status string `json:"status"`
 		store.Patch
 	}
 	if !decode(w, r, &in) {
+		return
+	}
+	if in.Status != "" && in.Status != store.SkillActive && in.Status != store.SkillArchived {
+		writeErr(w, 400, "status must be active or archived")
 		return
 	}
 	rf, err := s.parseSkillInput(r, in.Input)
@@ -1373,8 +1449,14 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		test := true
 		in.Bookmarked = &test
 	}
-	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
-	sk, err := s.st.AddFor(s.uid(r), rf, in.Patch)
+	var sk store.Skill
+	if in.Status != "" {
+		// The status the person chose, applied in the same transaction:
+		// a new skill starts with it, one the library has moves to it.
+		sk, err = s.st.AddWithStatusFor(s.uid(r), rf, in.Patch, in.Status)
+	} else {
+		sk, err = s.st.AddFor(s.uid(r), rf, in.Patch)
+	}
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		writeErr(w, 409, "A skill with that name is already in your library.")
 		return
@@ -1445,23 +1527,18 @@ func (s *server) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sk, _, _ := s.st.GetFor(s.uid(r), id)
-	ignore := r.URL.Query().Get("ignore") == "1"
-	if !s.removeShelfSkills(w, r, []string{id}, ignore, r.URL.Query().Get("noCopyConfirmed") == "1") {
+	if !s.removeShelfSkills(w, r, []string{id}, r.URL.Query().Get("noCopyConfirmed") == "1") {
 		return
 	}
-	action := "remove"
-	if ignore {
-		action = "ignore"
-	}
-	s.eventRequest(r, action, id, map[string]any{"name": sk.Name})
+	s.eventRequest(r, "remove", id, map[string]any{"name": sk.Name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // removeShelfSkills removes shelf rows and deletes their library skills, and
 // says so on w when it cannot.
-func (s *server) removeShelfSkills(w http.ResponseWriter, r *http.Request, ids []string, ignore, noCopyConfirmed bool) bool {
+func (s *server) removeShelfSkills(w http.ResponseWriter, r *http.Request, ids []string, noCopyConfirmed bool) bool {
 	uid := s.uid(r)
-	_, refused, err := s.st.RemoveShelfSkillsFor(uid, ids, ignore, noCopyConfirmed, s.skillNow())
+	_, refused, err := s.st.RemoveShelfSkillsFor(uid, ids, noCopyConfirmed, s.skillNow())
 	if errors.Is(err, store.ErrSkillNoCopy) || errors.Is(err, store.ErrSkillWritten) {
 		writeNotRemoved(w, err, refused)
 		return false
@@ -1558,27 +1635,27 @@ type importItem struct {
 // importEntry marks one installed skill as used, keeping existing flags and notes.
 // Without newItems a sighting only joins a live library skill: one of a name
 // the library does not have returns no id and changes nothing.
-func (s *server) importEntry(userID int64, item importItem, newItems bool, request *http.Request) (string, bool, bool, error) {
+func (s *server) importEntry(userID int64, item importItem, newItems bool, request *http.Request) (string, bool, error) {
 	name, source := strings.TrimSpace(item.Name), strings.TrimSpace(item.Source)
 	if name == "" {
-		return "", false, false, errors.New("empty name")
+		return "", false, errors.New("empty name")
 	}
 	var rf ref.Ref
 	local := false
 	privateWritten, privatePublished := false, false
 	if source == "" && item.Host != "" && item.Agent != "" {
-		wanted, ok, err := s.st.PrivateSyncIdentityFor(userID, item.Host, item.Agent, item.Project, name)
+		wanted, ok, err := s.st.LibraryLocationIdentityFor(userID, item.Host, item.Agent, item.Project, name)
 		if err != nil {
-			return "", false, false, err
+			return "", false, err
 		}
 		if ok && wanted.ItemID != "" && !strings.HasPrefix(wanted.ID, "hosted/") {
 			id, err := s.st.RecordLibraryObservationFor(userID, wanted.ItemID, item.Host, item.Agent, item.Project, item.Path)
-			return id, false, false, err
+			return id, false, err
 		}
 		if ok && strings.HasPrefix(wanted.ID, "hosted/") {
 			username, err := s.st.PublishingUsername(userID)
 			if err != nil {
-				return "", false, false, err
+				return "", false, err
 			}
 			// Ownership and the saved private target authorize this identity;
 			// the public-input parser deliberately rejects unpublished drafts.
@@ -1586,7 +1663,7 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 			if err == nil && candidate.ID == wanted.ID {
 				written, err := s.st.HostedSkillsFor(userID)
 				if err != nil {
-					return "", false, false, err
+					return "", false, err
 				}
 				for _, skill := range written {
 					if skill.Slug == name {
@@ -1610,11 +1687,11 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 			// the shelf has no skill by the folder's name but has one from this
 			// source that installs into it, that is the skill the scan found.
 			if _, exact, err := s.st.GetFor(userID, r.ID); err != nil {
-				return "", false, false, err
+				return "", false, err
 			} else if !exact {
 				known, ok, err := s.st.SkillInstalledAsFor(userID, r.Source, name)
 				if err != nil {
-					return "", false, false, err
+					return "", false, err
 				}
 				if ok {
 					rf = known
@@ -1625,7 +1702,7 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 	if rf.ID == "" {
 		if r, err := s.parseSkillInput(request, name); err != nil {
 			if strings.ContainsAny(name, "/\\\t\r\n") {
-				return "", false, false, fmt.Errorf("can't tell what %q is", name)
+				return "", false, fmt.Errorf("can't tell what %q is", name)
 			}
 			local = true
 		} else {
@@ -1636,19 +1713,16 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 	if local {
 		id = "local/" + name
 	}
-	if ignored, err := s.st.IsIgnoredFor(userID, id); err != nil || ignored {
-		return id, false, ignored, err
-	}
 	if !newItems {
 		// Before any shelf row is written: a new one would make a library item.
 		live, err := s.st.LiveLibrarySkillFor(userID, name, id)
 		if err != nil || !live {
-			return "", false, false, err
+			return "", false, err
 		}
 	}
 	_, existed, err := s.st.GetFor(userID, id)
 	if err != nil {
-		return id, false, false, err
+		return id, false, err
 	}
 	used := true
 	flags := store.Patch{}
@@ -1667,7 +1741,7 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 		if errors.Is(err, store.ErrSkillNameTaken) && item.Host != "" && item.Agent != "" {
 			local, id = true, "local/"+name
 			if _, existed, err = s.st.GetFor(userID, id); err != nil {
-				return id, false, false, err
+				return id, false, err
 			}
 			flags = store.Patch{}
 			if !existed {
@@ -1677,11 +1751,11 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 		}
 	}
 	if err != nil {
-		return id, false, false, err
+		return id, false, err
 	}
 	if privateWritten {
 		if err = s.st.SetHostedSkillVisible(sk.ID, privatePublished); err != nil {
-			return id, false, false, err
+			return id, false, err
 		}
 	} else if !local {
 		s.enqueue(rf)
@@ -1692,10 +1766,10 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 			sourcePath = strings.TrimRight(sourcePath, "/") + "/" + name
 		}
 		if err := s.st.RecordEnvironmentFor(userID, sk.ID, item.Host, item.Agent, item.Project, item.Path, sourcePath); err != nil {
-			return id, false, false, err
+			return id, false, err
 		}
 	}
-	return sk.ID, !existed, false, nil
+	return sk.ID, !existed, nil
 }
 
 func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
@@ -1738,7 +1812,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	for i := range in.Environments {
 		in.Environments[i].Host = canonicalize(in.Environments[i].Host)
 	}
-	imported, created, ignoredCount := 0, 0, 0
+	imported, created := 0, 0
 	errs := []string{}
 	for _, env := range in.Environments {
 		for _, problem := range env.Errors {
@@ -1769,13 +1843,8 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	itemIDs := map[string]string{}
-	mayCreate := s.scanMakesItems(s.uid(r), in.Machine.Host)
 	handle := func(item importItem) {
-		newItems, err := mayCreate(item)
-		id, wasCreated, wasIgnored := "", false, false
-		if err == nil {
-			id, wasCreated, wasIgnored, err = s.importEntry(s.uid(r), item, newItems, r)
-		}
+		id, wasCreated, err := s.importEntry(s.uid(r), item, scanMakesItems(item, in.Machine.Host), r)
 		switch {
 		case err != nil:
 			errs = append(errs, err.Error())
@@ -1783,8 +1852,6 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 			// A sighting the scan makes no item of. From a managed folder it
 			// is New on a machine through the skills report; from Codex's
 			// folder, which reet leaves alone, it appears nowhere.
-		case wasIgnored:
-			ignoredCount++
 		default:
 			if !seen[id] {
 				seen[id] = true
@@ -1795,7 +1862,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		found := id != "" && err == nil
-		if found && !wasIgnored {
+		if found {
 			key := store.EnvironmentIDFor(s.uid(r), item.Host, item.Agent, item.Project) + "\x00" + item.Name
 			itemIDs[key] = id
 		}
@@ -1856,7 +1923,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Reet-Source") == "scan" {
 		source, action = "scan", "scan"
 	}
-	detail := map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned}
+	detail := map[string]any{"imported": imported, "created": created, "pruned": pruned}
 	if source == "scan" && created == 0 && pruned == 0 && len(errs) == 0 {
 		// A machine scans every minute. A scan that found nothing new is
 		// recorded once for the same counts, then again after six hours, so the
@@ -1867,7 +1934,7 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.event(s.uid(r), source, action, "", detail)
 	}
-	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned, "errors": errs, "user": s.currentUser(r).Name})
+	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "pruned": pruned, "errors": errs, "user": s.currentUser(r).Name})
 }
 
 func (s *server) environments(w http.ResponseWriter, r *http.Request) {
@@ -2040,7 +2107,6 @@ func (s *server) tagMany(w http.ResponseWriter, r *http.Request) {
 func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		IDs             []string `json:"ids"`
-		Ignore          bool     `json:"ignore"`
 		NoCopyConfirmed bool     `json:"noCopyConfirmed"`
 	}
 	if !decode(w, r, &in) {
@@ -2051,7 +2117,7 @@ func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
-	n, refused, err := s.st.RemoveShelfSkillsFor(uid, in.IDs, in.Ignore, in.NoCopyConfirmed, s.skillNow())
+	n, refused, err := s.st.RemoveShelfSkillsFor(uid, in.IDs, in.NoCopyConfirmed, s.skillNow())
 	if errors.Is(err, store.ErrSkillNoCopy) || errors.Is(err, store.ErrSkillWritten) {
 		writeNotRemoved(w, err, refused)
 		return
@@ -2061,11 +2127,7 @@ func (s *server) removeMany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.kickSkillCopies(uid)
-	action := "bulk-remove"
-	if in.Ignore {
-		action = "bulk-ignore"
-	}
-	s.eventRequest(r, action, "", map[string]any{"count": n})
+	s.eventRequest(r, "bulk-remove", "", map[string]any{"count": n})
 	writeJSON(w, 200, map[string]int{"removed": n})
 }
 
@@ -2155,38 +2217,6 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		out["next_after"] = newest
 	}
 	writeJSON(w, 200, out)
-}
-
-func (s *server) ignored(w http.ResponseWriter, r *http.Request) {
-	items, err := s.st.ListIgnoredFor(s.uid(r))
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]any{"ignored": items})
-}
-
-func (s *server) unignore(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		writeErr(w, 400, "id required")
-		return
-	}
-	name := id
-	if items, err := s.st.ListIgnoredFor(s.uid(r)); err == nil {
-		for _, item := range items {
-			if item.ID == id {
-				name = item.Name
-				break
-			}
-		}
-	}
-	if err := s.st.UnignoreFor(s.uid(r), id); err != nil {
-		writeErr(w, 500, err.Error())
-		return
-	}
-	s.eventRequest(r, "unignore", id, map[string]any{"name": name})
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
@@ -3442,7 +3472,6 @@ func (s *server) quick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	already := found && (actionName == "add" || old.Liked)
-	_ = s.st.UnignoreFor(s.uid(r), rf.ID)
 	sk, err := s.st.AddFor(s.uid(r), rf, p)
 	if errors.Is(err, store.ErrSkillNameTaken) {
 		quickPage(w, 409, "A skill with that name is already in your library")

@@ -3,7 +3,6 @@ package scan
 import (
 	"bytes"
 	"io"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,100 +12,37 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/meta"
-	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
-// olderAgent serves h as a controller sees an agent from before the skills
-// protocol. These tests drive the job-based sync, which only such an agent is
-// given until that sync is removed.
-func olderAgent(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Del("X-Reet-Skills-Protocol")
-		h.ServeHTTP(w, r)
-	})
-}
-
-func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
+// A run of the agent leaves the process's working directory as it was, and
+// an enrollment copied to another machine is refused.
+func TestEnrolledAgentRunKeepsItsDirectoryAndRefusesACopiedEnrollment(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("REET_TOKEN", "")
 	project := t.TempDir()
-	mkSkill(t, filepath.Join(project, ".claude", "skills"), "extra", true)
-	if err := os.WriteFile(filepath.Join(project, "skills-lock.json"), []byte(`{"skills":{"extra":{"source":"o/r"},"beta":{"source":"o/r"}}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "npx"), []byte("#!/bin/sh\nmkdir -p .claude/skills/beta\nprintf '%s\\n' '# Beta' > .claude/skills/beta/SKILL.md\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
+	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "agent.json")
-	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply"}, io.Discard, "test"); err != nil {
+	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply", "--skip-terminal-setup"}, io.Discard, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
-		t.Fatal(err)
-	}
-	rf, _ := ref.Parse("o/r/beta")
-	st.UpsertFor(uid, rf, store.Patch{})
-	target := store.EnvironmentIDFor(uid, "fixture", "claude", project)
-	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{rf.ID}, Mode: "mirror"}); err != nil {
-		t.Fatal(err)
-	}
-	agents, _ := st.SyncAgentsFor(uid)
-	j, err := st.QueueSyncJob(uid, agents[0].ID, target, "preview")
+	before, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := func() {
-		t.Helper()
-		before, err := os.Getwd()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
-			t.Fatal(err)
-		}
-		after, err := os.Getwd()
-		if err != nil || after != before {
-			t.Fatalf("agent run changed the process working directory: %q -> %q (%v)", before, after, err)
-		}
-	}
-	run()
-	jobs, _ := st.SyncJobsFor(uid)
-	if jobs[0].Status != "awaiting-approval" {
-		t.Fatalf("preview: %+v", jobs)
-	}
-	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta")); !os.IsNotExist(err) {
-		t.Fatal("preview installed files")
-	}
-	if err = st.ControlSyncJob(uid, j.ID, "approve", jobs[0].Hash); err != nil {
+	if err := RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
 		t.Fatal(err)
 	}
-	run()
-	jobs, _ = st.SyncJobsFor(uid)
-	if jobs[0].Status != "succeeded" {
-		t.Fatalf("apply: %+v", jobs)
-	}
-	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta", "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
-	backups, _ := filepath.Glob(filepath.Join(project, ".claude", ".reet-sync-backups", "removed-*", "extra", "SKILL.md"))
-	if len(backups) != 1 {
-		t.Fatal("removed skill not backed up")
-	}
-	targets, _ := st.SyncTargetsFor(uid)
-	if targets[0].AppliedRevision != targets[0].Revision || len(targets[0].Missing) != 0 || len(targets[0].Extra) != 0 {
-		t.Fatalf("not converged: %+v", targets)
+	after, err := os.Getwd()
+	if err != nil || after != before {
+		t.Fatalf("agent run changed the process working directory: %q -> %q (%v)", before, after, err)
 	}
 	c, _ := loadAgentConfig(cfg)
 	c.Hostname = "another-machine"
@@ -125,7 +61,7 @@ func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	}
 	defer st.Close()
 	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
+	srv := httptest.NewServer(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone)))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "agent.json")
 	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--config", cfg, "--skip-terminal-setup"}, io.Discard, "test"); err != nil {
@@ -144,98 +80,23 @@ func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	if _, err = os.Stat(cfg + ".result"); !os.IsNotExist(err) {
 		t.Fatal("a result the controller will never take kept blocking the agent")
 	}
-	if _, err = st.QueueSyncJob(uid, agents[0].ID, "", "scan"); err != nil {
+	// The next job is taken and answered: an update, which a run --once
+	// cannot do and says so.
+	if _, err = st.QueueAgentUpdate(uid, agents[0].ID, "latest"); err != nil {
 		t.Fatal(err)
 	}
 	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
 		t.Fatal(err)
 	}
 	jobs, _ := st.SyncJobsFor(uid)
-	if len(jobs) != 1 || jobs[0].Kind != "scan" || jobs[0].Status != "succeeded" {
+	if len(jobs) != 1 || jobs[0].Kind != "update" || jobs[0].Status != "failed" || !strings.Contains(jobs[0].Message, "long-running") {
 		t.Fatalf("agent did not resume polling: %+v", jobs)
 	}
 }
 
-func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("REET_TOKEN", "")
-	project := t.TempDir()
-	os.MkdirAll(filepath.Join(project, ".claude", "skills"), 0755)
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "npx"), []byte("#!/bin/sh\nmkdir -p .claude/skills/beta\nprintf '%s\\n' '# Beta' > .claude/skills/beta/SKILL.md\nprintf '%s\\n' '{\"skills\":{\"beta\":{\"source\":\"o/r\",\"sourceType\":\"github\"}}}' > skills-lock.json\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	st, err := storetest.Open(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	uid, _ := st.DefaultOwner()
-	srv := httptest.NewServer(olderAgent(api.New(st, meta.Fetcher{}, "", api.WithAuthMode(api.AuthNone))))
-	defer srv.Close()
-	cfg := filepath.Join(t.TempDir(), "agent.json")
-	if err = RunAgent([]string{"enroll", "--server", srv.URL, "--env", "fixture", "--project", project, "--config", cfg, "--allow-apply"}, io.Discard, "test"); err != nil {
-		t.Fatal(err)
-	}
-	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
-		t.Fatal(err)
-	}
-	rf, _ := ref.Parse("o/r/beta")
-	st.UpsertFor(uid, rf, store.Patch{})
-	target := store.EnvironmentIDFor(uid, "fixture", "claude", project)
-	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{rf.ID}, Mode: "additive"}); err != nil {
-		t.Fatal(err)
-	}
-	agents, _ := st.SyncAgentsFor(uid)
-	if _, err = st.QueueSyncJob(uid, agents[0].ID, target, "auto"); err != nil {
-		t.Fatal(err)
-	}
-	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
-		t.Fatal(err)
-	}
-	jobs, _ := st.SyncJobsFor(uid)
-	if len(jobs) != 1 || jobs[0].Kind != "apply" || jobs[0].Status != "queued" {
-		t.Fatalf("additive plan was not auto-approved: %+v", jobs)
-	}
-	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta")); !os.IsNotExist(err) {
-		t.Fatal("preview installed files before approval")
-	}
-	if err = RunAgent([]string{"run", "--once", "--config", cfg}, io.Discard, "test"); err != nil {
-		t.Fatal(err)
-	}
-	jobs, _ = st.SyncJobsFor(uid)
-	if jobs[0].Status != "succeeded" {
-		t.Fatalf("auto apply: %+v", jobs)
-	}
-	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta", "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
-	// The apply refreshed the inventory before reporting, so a page that reloads when the job
-	// settles already sees the skill rather than waiting for the next minute's scan.
-	envs, err := st.SyncEnvironmentsFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reported := false
-	for _, env := range envs {
-		if env.ID != target {
-			continue
-		}
-		for _, skill := range env.Skills {
-			if skill.Slug == "beta" {
-				reported = true
-			}
-		}
-	}
-	if !reported {
-		t.Fatalf("apply left the inventory stale: %+v", envs)
-	}
-}
-
-// The Sync page's restore command for an old sync job's backup names the job's
-// target and the exact backup: it puts that backup back where it was taken
-// from, a project's folder included, and never over what is there now.
+// The restore command for an old sync job's backup names the exact backup: it
+// puts that backup back where it was taken from, a project's folder included,
+// and never over what is there now.
 func TestAgentRestoreExactJobBackup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("REET_TOKEN", "")
@@ -291,24 +152,15 @@ func TestAgentRestoreExactJobBackup(t *testing.T) {
 			t.Fatalf("restored from %s", bad)
 		}
 	}
-	// A target that still has a saved set must be the backup's own folder.
-	homeTarget := store.EnvironmentIDFor(uid, "fixture", "claude", "")
-	if err = st.TouchEnvironmentFor(uid, "fixture", "claude", "", filepath.Join(c.Home, ".claude", "skills")); err != nil {
-		t.Fatal(err)
-	}
-	if err = st.RecordInventoryFor(uid, homeTarget, true, store.MachineInfo{}); err != nil {
-		t.Fatal(err)
-	}
-	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: homeTarget, SourceID: "shelf", SkillIDs: []string{}, Mode: "additive"}); err != nil {
-		t.Fatal(err)
-	}
+	// Sync targets are gone: --target, still taken from commands copied
+	// before, checks nothing, and the backup's own path says where it goes.
 	other := filepath.Join(c.Projects[0], ".claude", ".reet-sync-backups", "removed-20261102", "other")
 	writeSkill(t, other)
-	if err = restore("--target", homeTarget, "--backup", other); err == nil || !strings.Contains(err.Error(), "not from that target's skills folder") {
-		t.Fatalf("restored a backup into another target's folder: %v", err)
+	if err = restore("--target", "some-other-target", "--backup", other); err != nil {
+		t.Fatalf("restore with a target named: %v", err)
 	}
-	if err = restore("--target", target, "--backup", other); err != nil {
-		t.Fatalf("restore with the backup's own target: %v", err)
+	if _, err = os.Stat(filepath.Join(c.Projects[0], ".claude", "skills", "other", "SKILL.md")); err != nil {
+		t.Fatal("the backup did not go back to the folder its path names")
 	}
 	// A backup beside no skills folder this machine has is refused plainly.
 	stray := filepath.Join(t.TempDir(), "kit", ".reet-sync-backups", "removed-1", "extra")

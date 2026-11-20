@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,7 +49,7 @@ func TestAnUpdateJobCarriesItsTimeline(t *testing.T) {
 	if err = s.SetAgentUpdateStage(uid, a.ID, job.ID, "invented", ""); err == nil {
 		t.Fatal("an unknown stage was accepted")
 	}
-	if err = s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", "", "Updated from v1.2.0 to v1.3.0.", nil); err != nil {
+	if err = s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", "Updated from v1.2.0 to v1.3.0."); err != nil {
 		t.Fatal(err)
 	}
 	jobs, _ := s.SyncJobsFor(uid)
@@ -84,7 +83,7 @@ func TestAFailedUpdateStopsAtTheStageAndARollbackSaysSo(t *testing.T) {
 			if err := s.SetAgentUpdateStage(uid, a.ID, job.ID, UpdateStageCheck, "Waiting for the new agent"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.FinishSyncJob(uid, a.ID, job.ID, tc.status, "", "The new build did not report in.", nil); err != nil {
+			if err := s.FinishSyncJob(uid, a.ID, job.ID, tc.status, "The new build did not report in."); err != nil {
 				t.Fatal(err)
 			}
 			jobs, _ := s.SyncJobsFor(uid)
@@ -116,7 +115,7 @@ func TestAutoUpdateWaitsAfterAnAttemptSettlesButNotWhileOneIsQueued(t *testing.T
 	if settled, err := s.AgentUpdateSettledSince(uid, a.ID, recent); err != nil || settled {
 		t.Fatalf("a running attempt counted as settled: %t %v", settled, err)
 	}
-	if err := s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", "", "Updated.", nil); err != nil {
+	if err := s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", "Updated."); err != nil {
 		t.Fatal(err)
 	}
 	if settled, err := s.AgentUpdateSettledSince(uid, a.ID, recent); err != nil || !settled {
@@ -132,7 +131,7 @@ func TestAutoUpdateWaitsAfterAnAttemptSettlesButNotWhileOneIsQueued(t *testing.T
 	if _, err = s.ClaimSyncJob(uid, a); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.FinishSyncJob(uid, a.ID, job.ID, "rolled_back", "", "Restored the previous binary.", nil); err != nil {
+	if err = s.FinishSyncJob(uid, a.ID, job.ID, "rolled_back", "Restored the previous binary."); err != nil {
 		t.Fatal(err)
 	}
 	if settled, err := s.AgentUpdateSettledSince(uid, a.ID, time.Now().Add(-time.Minute).UnixMilli()); err != nil || !settled {
@@ -201,7 +200,7 @@ func TestALateUpdateReportReplacesTheTimeoutItOutlived(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE sync_jobs SET status='failed',message='The machine did not report back. It may still be restarting; check its build and try again.',updated_at=? WHERE id=?`, time.Now().Add(-11*time.Minute).UnixMilli(), job.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", "", "Updated from v1.2.0 to v1.3.0. The agent is reporting again.", nil); err != nil {
+	if err := s.FinishSyncJob(uid, a.ID, job.ID, "succeeded", "Updated from v1.2.0 to v1.3.0. The agent is reporting again."); err != nil {
 		t.Fatal(err)
 	}
 	jobs, _ := s.SyncJobsFor(uid)
@@ -220,7 +219,7 @@ func TestTheLatestUpdateIsKeptForEachMachineWhenJobHistoryIsBusy(t *testing.T) {
 	if _, err := s.ClaimSyncJob(uid, a); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.FinishSyncJob(uid, a.ID, first.ID, "failed", "", "Download failed.", nil); err != nil {
+	if err := s.FinishSyncJob(uid, a.ID, first.ID, "failed", "Download failed."); err != nil {
 		t.Fatal(err)
 	}
 	second, err := s.QueueAgentUpdate(uid, a.ID, "dev")
@@ -253,20 +252,20 @@ func TestTheLatestUpdateIsKeptForEachMachineWhenJobHistoryIsBusy(t *testing.T) {
 	}
 }
 
-// An agent on skills protocol 2 follows the desired state, not jobs: it takes
-// only binary updates, and other jobs queued for it stay where they are.
-func TestClaimUpdateJobTakesOnlyUpdates(t *testing.T) {
+// A machine follows the desired state, not jobs: it takes only binary
+// updates, and a scan or a job of the older engine left queued stays where it
+// is.
+func TestClaimSyncJobTakesOnlyUpdates(t *testing.T) {
 	s, uid, _ := controlFixture(t)
 	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan, err := s.QueueSyncJob(uid, a.ID, "", "scan")
-	if err != nil {
+	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-apply',?1,?2,'apply','queued',1,1),('old-scan',?1,?2,'scan','queued',1,1)`, uid, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := s.ClaimUpdateJob(uid, a); err != nil || claimed != nil {
-		t.Fatalf("an old-engine job was claimed: %+v %v", claimed, err)
+	if claimed, err := s.ClaimSyncJob(uid, a); err != nil || claimed != nil {
+		t.Fatalf("an old job was claimed: %+v %v", claimed, err)
 	}
 	update, err := s.QueueAgentUpdate(uid, a.ID, "latest")
 	if err != nil {
@@ -274,10 +273,10 @@ func TestClaimUpdateJobTakesOnlyUpdates(t *testing.T) {
 	}
 	paused := a
 	paused.Paused = true
-	if claimed, err := s.ClaimUpdateJob(uid, paused); err != nil || claimed != nil {
+	if claimed, err := s.ClaimSyncJob(uid, paused); err != nil || claimed != nil {
 		t.Fatalf("a paused machine claimed %+v %v", claimed, err)
 	}
-	claimed, err := s.ClaimUpdateJob(uid, a)
+	claimed, err := s.ClaimSyncJob(uid, a)
 	if err != nil || claimed == nil || claimed.ID != update.ID || claimed.Status != "running" || claimed.Stage != UpdateStageDownload {
 		t.Fatalf("claim: %+v %v", claimed, err)
 	}
@@ -286,9 +285,12 @@ func TestClaimUpdateJobTakesOnlyUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, j := range jobs {
-		if j.ID == scan.ID && j.Status != "queued" {
-			t.Fatalf("the scan job moved: %+v", j)
+		if (j.ID == "old-apply" || j.ID == "old-scan") && j.Status != "queued" {
+			t.Fatalf("an old job moved: %+v", j)
 		}
+	}
+	if _, err = s.QueueSyncJob(uid, a.ID, "scan"); err == nil {
+		t.Fatal("a scan was queued")
 	}
 }
 
@@ -360,159 +362,3 @@ func TestHostOnSkillsProtocolResolvesAliases(t *testing.T) {
 }
 
 const followsLibraryMessage = "This machine now follows your library; this job is no longer needed."
-
-// When a machine first announces the skills protocol, its queued job-based
-// sync work is closed, once, saying why; its update job stays.
-func TestSkillsProtocolClosesOldJobsOnce(t *testing.T) {
-	s, uid, _ := controlFixture(t)
-	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	scan, err := s.QueueSyncJob(uid, a.ID, "", "scan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	waiting := "waiting-" + scan.ID
-	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'','preview','awaiting-approval','',1,1)`, waiting, uid, a.ID); err != nil {
-		t.Fatal(err)
-	}
-	update, err := s.QueueAgentUpdate(uid, a.ID, "latest")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
-		t.Fatal(err)
-	}
-	status := func() map[string]SyncJob {
-		t.Helper()
-		jobs, err := s.SyncJobsFor(uid)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out := map[string]SyncJob{}
-		for _, j := range jobs {
-			out[j.ID] = j
-		}
-		return out
-	}
-	jobs := status()
-	for _, id := range []string{scan.ID, waiting} {
-		if j := jobs[id]; j.Status != "cancelled" || j.Message != followsLibraryMessage {
-			t.Fatalf("%s: %+v", id, j)
-		}
-	}
-	if j := jobs[update.ID]; j.Status != "queued" {
-		t.Fatalf("the update job: %+v", j)
-	}
-	// Only the change closes jobs: the same protocol again leaves a job alone.
-	late := "late-" + scan.ID
-	if _, err = s.db.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,'','scan','queued','',2,2)`, late, uid, a.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
-		t.Fatal(err)
-	}
-	if j := status()[late]; j.Status != "queued" {
-		t.Fatalf("the same protocol again closed a job: %+v", j)
-	}
-}
-
-// A machine on the skills protocol is given no job-based sync: queueing one
-// is refused, while an update is still queued.
-func TestJobBasedSyncRefusesAMachineThatFollowsTheLibrary(t *testing.T) {
-	s, uid, _ := controlFixture(t)
-	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.QueueSyncJob(uid, a.ID, "", "scan"); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "laptop follows your library; its skills are checked on every poll, so there's nothing to scan." {
-		t.Fatalf("queue a scan: %v", err)
-	}
-	if err = s.withTx(func(tx *sql.Tx) error {
-		_, err := insertSyncJobTx(tx, uid, a.ID, "", "auto")
-		return err
-	}); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "laptop follows your library. Make the skill Active to put it on every machine." {
-		t.Fatalf("queue an automatic sync: %v", err)
-	}
-	if _, err = s.QueueAgentUpdate(uid, a.ID, "latest"); err != nil {
-		t.Fatalf("queue an update: %v", err)
-	}
-	// Syncing that one machine is refused, saying what to do instead; syncing
-	// all machines leaves it out.
-	if err = s.SyncLibraryMachineFor(uid, "owner", "https://reet.example", a.ID); !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "laptop follows your library. Make the skill Active to put it on every machine." {
-		t.Fatalf("sync one machine that follows the library: %v", err)
-	}
-	if err = s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
-		t.Fatalf("sync all machines: %v", err)
-	}
-	jobs, err := s.SyncJobsFor(uid)
-	if err != nil || len(jobs) != 1 || jobs[0].Kind != "update" {
-		t.Fatalf("jobs: %+v %v", jobs, err)
-	}
-}
-
-// The refusal names the machine as the person knows it: its merged name, not
-// the host the agent reports, which is now only an alias.
-func TestFollowsLibraryRefusalNamesTheResolvedMachine(t *testing.T) {
-	s, uid, _ := controlFixture(t)
-	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
-		t.Fatal(err)
-	}
-	// The agent still reports "laptop", which is an alias of "work-laptop".
-	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "laptop", "work-laptop"); err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.QueueSyncJob(uid, a.ID, "", "scan")
-	if !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "work-laptop follows your library; its skills are checked on every poll, so there's nothing to scan." {
-		t.Fatalf("queue a scan: %v", err)
-	}
-}
-
-// A saved set for a folder of a machine that follows the library is refused
-// naming the machine as the person knows it, though its folder was recorded
-// under the host that is now only an alias.
-func TestSyncTargetRefusalNamesTheResolvedMachine(t *testing.T) {
-	s, uid, target := controlFixture(t) // the folder is laptop's agents folder
-	a, _, err := s.EnrollSyncAgent(uid, "work-laptop", "v1.2.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "laptop", "work-laptop"); err != nil {
-		t.Fatal(err)
-	}
-	err = s.SyncTargetFollowsLibraryFor(uid, target)
-	if !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "work-laptop follows your library. Make the skill Active to put it on every machine." {
-		t.Fatalf("refusal: %v", err)
-	}
-}
-
-// Sync to one machine that follows the library is refused naming the
-// machine by its merged name, not the alias the agent reports.
-func TestSyncLibraryMachineRefusalNamesTheResolvedMachine(t *testing.T) {
-	s, uid, _ := controlFixture(t)
-	a, _, err := s.EnrollSyncAgent(uid, "laptop", "v1.2.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.SetAgentSkillsProtocolFor(uid, a.ID, CurrentSkillsProtocol); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.db.Exec(`INSERT INTO machine_aliases(user_id,alias,host) VALUES(?,?,?)`, uid, "laptop", "work-laptop"); err != nil {
-		t.Fatal(err)
-	}
-	err = s.SyncLibraryMachineFor(uid, "owner", "https://reet.example", a.ID)
-	if !errors.Is(err, ErrAgentFollowsLibrary) || err.Error() != "work-laptop follows your library. Make the skill Active to put it on every machine." {
-		t.Fatalf("refusal: %v", err)
-	}
-}

@@ -7,8 +7,8 @@
   import NewOnMachineDialog from './NewOnMachineDialog.svelte'
   import SkillsBulkBar from './SkillsBulkBar.svelte'
   import UndoToast, { type UndoMessage } from './UndoToast.svelte'
-  import { addSkill, ApiError, deleteSkills, patchSkill, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, type SkillRow } from '../api'
-  import { deleteConfirm, focusAfterRemoval, pausedSentence, syncSentence, toastText } from './skillsPage'
+  import { addListSkill, addSkill, addSkillTags, ApiError, deleteSkills, patchSkill, publishSkill, retryMachineSkills, retrySkill, setSkillStatus, skillNotice, tagSkills, undeleteSkills, UnauthorizedError, updateFromOriginal, useMachineVersion, type ListRef, type SkillRow } from '../api'
+  import { deleteConfirm, focusAfterRemoval, onMachines, pausedSentence, retryText, syncSentence, toastText } from './skillsPage'
   import { other, SkillsPageState, TABS, type Tab } from './skillsState.svelte'
   import { skillsExport } from './exportFilters.svelte'
 
@@ -194,7 +194,7 @@
     if (!claim(ids, 'delete')) return
     const names = targets.map(r => r.name), from = page.tab
     try {
-      await page.write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }), () => page.takeOff(from, ids))
+      await page.write(() => deleteSkills(ids, { writtenConfirmed: flags.written, noCopyConfirmed: flags.noCopy }), () => page.takeOff(from, ids), { shared: true })
     } catch (e) {
       // The server knows better than the page: it refused a skill you wrote, or one reet has no copy of. The same
       // dialog asks, and the delete goes again with that flag only once the person agrees. A refusal for a flag already
@@ -222,13 +222,12 @@
     endSelecting()
     if (ids.includes(openId)) openId = ''
     await refocus(order, ids, keepAct())
-    const onMachines = targets.some(r => r.status === 'active' || ['removing', 'offline', 'failed', 'blocked'].includes(r.health.state))
-    say(pruneText('deleted', names, onMachines), async () => {
+    say(pruneText('deleted', names, targets.some(onMachines)), async () => {
       // The undelete answers with no page: its tab is read again once no write is on its way, and focus waits for that,
       // so it lands on the row brought back even when another change was on its way.
       const tab = page.tab
       page.release(ids)
-      await page.write(() => undeleteSkills(ids), () => page.markStale(tab))
+      await page.write(() => undeleteSkills(ids), () => page.markStale(tab), { shared: true })
       await page.settled()
       readAfterGrace()
       void read(other(tab), true)
@@ -237,6 +236,7 @@
   }
 
   async function retry(row: SkillRow) {
+    if (row.health.state === 'failed') return retryOnMachines(row)
     try {
       const retried = await write(() => retrySkill(row.id))
       // Only a skill the server cleared is tried again now; otherwise it is on its way already.
@@ -245,6 +245,33 @@
     } catch (e) {
       fail(e)
     }
+  }
+
+  // A failure on a machine: each machine it failed on is asked to try it again on its next poll.
+  async function retryOnMachines(row: SkillRow) {
+    const failed = row.health.machines.filter(m => m.state === 'failed' && m.agentId)
+    if (!failed.length) return
+    // Each machine is asked on its own: one that refuses does not hide that the others were asked.
+    let results: PromiseSettledResult<string[]>[]
+    try {
+      results = await write(() => Promise.allSettled(failed.map(m => retryMachineSkills(m.agentId!, [row.name]))))
+    } catch (e) {
+      fail(e)
+      return
+    }
+    const signedOut = results.find(r => r.status === 'rejected' && r.reason instanceof UnauthorizedError) as PromiseRejectedResult | undefined
+    if (signedOut) return fail(signedOut.reason)
+    const asked = failed.filter((_, i) => results[i].status === 'fulfilled').map(m => m.host)
+    const refused = failed.flatMap((m, i) => {
+      const r = results[i]
+      return r.status === 'rejected' ? [`Couldn't ask ${m.host}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`] : []
+    })
+    if (!asked.length) {
+      fail(new Error(refused.join(' ')))
+      return
+    }
+    say([retryText(row.name, asked), ...refused].join(' '))
+    void read(page.tab, true)
   }
 
   // The heart shows the change at once; an older change's answer landing meanwhile does not undo it (writeRow).
@@ -266,6 +293,87 @@
       fail(e)
       throw e
     }
+  }
+
+  // The opened row's writes. Each says what happened, and hands a refusal back to the row, which shows it beside what
+  // was pressed; an ended sign-in goes to the page. None of them changes what the rest of the app lists.
+  function refuse(e: unknown): never {
+    if (e instanceof UnauthorizedError) fail(e)
+    throw e
+  }
+  async function tag(row: SkillRow, name: string) {
+    try {
+      const skill = await write(() => addSkillTags(row.shelfId, [name], []))
+      const tags = skill.tags ?? [...row.tags, { id: -Date.now(), name }]
+      page.setRow(row.id, { tags })
+      say(`Sorted. Tagged ${row.name} with ${name}.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function addToList(row: SkillRow, list: ListRef) {
+    try {
+      await write(() => addListSkill(list.id, { id: row.shelfId }))
+      page.setRow(row.id, { lists: [...row.lists.filter(l => l.id !== list.id), list] })
+      say(`Sorted. Added ${row.name} to ${list.name}.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function publish(row: SkillRow, isPublic: boolean) {
+    try {
+      const out = await write(() => publishSkill(row.id, isPublic))
+      page.setRow(row.id, { published: out.published, publicUrl: out.publicUrl || undefined })
+      say(out.published ? `Published ${row.name}. Anyone can install it from its public page.` : `${row.name} is private again. Its public page is gone.`)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  async function useVersion(row: SkillRow) {
+    const from = row.editedOn
+    if (!from) return
+    try {
+      const out = await write(() => useMachineVersion(row.id, from.agentId))
+      if (out.publicProblem) page.setRow(row.id, { publicProblem: out.publicProblem })
+      say(`Asked ${from.host} for its version of ${row.name}. It goes on every machine once it arrives.`)
+      readUntilLanded(row.id, from.agentId)
+    } catch (e) {
+      refuse(e)
+    }
+  }
+  // Use this version asks the machine for its copy, which lands a little later. The page reads itself again soon after,
+  // and then less often, until the row no longer says that machine's edit was put back (or two minutes have passed),
+  // rather than leave it to the next poll.
+  let landTimer: ReturnType<typeof setTimeout> | undefined
+  function readUntilLanded(id: string, agentId: string) {
+    clearTimeout(landTimer)
+    let wait = 2000, waited = 0
+    const next = () => {
+      if (page.destroyed) return
+      landTimer = setTimeout(async () => {
+        waited += wait
+        await read(page.tab, true)
+        const edited = page.shown.find(r => r.id === id)?.editedOn?.agentId === agentId
+        if (edited && waited < 120000) {
+          wait = Math.min(wait * 2, 30000)
+          next()
+        }
+      }, wait)
+    }
+    next()
+  }
+  async function updateOriginal(row: SkillRow, digest: string, revision: string) {
+    let updated: boolean
+    try {
+      const out = await write(() => updateFromOriginal(row.id, digest, revision))
+      updated = out.updated
+      // A public page that could not follow says so on the row at once, before the page is read again.
+      page.setRow(row.id, { publicProblem: out.publicProblem })
+    } catch (e) {
+      refuse(e)
+    }
+    say(updated ? (page.machines ? `Updated ${row.name} from its original · going on every machine` : `Updated ${row.name} from its original.`) : `${row.name} already matches its original.`)
+    void read(page.tab, true)
   }
 
   const selectedRows = () => page.shown.filter(r => selected.includes(r.id))
@@ -307,7 +415,7 @@
     adding = true
     addError = ''
     try {
-      const added = await write(() => addSkill(value))
+      const added = await page.write(() => addSkill(value), undefined, { shared: true })
       addInput = ''
       say(!added.created && added.status === 'archived' ? `${added.name} is in your library as Archived. Restore it to put it back on your machines.`
         : !added.created ? `${added.name} is already in your library.`
@@ -332,7 +440,7 @@
     const parked = (page.held.archived ?? []).filter(r => r.upgradedFrom === 'parked')
     const ids = parked.map(r => r.id)
     try {
-      await page.write(() => skillNotice('restore-parked'), () => page.takeOff('archived', ids))
+      await page.write(() => skillNotice('restore-parked'), () => page.takeOff('archived', ids), { shared: true })
     } catch (e) {
       fail(e)
       return
@@ -454,12 +562,14 @@
       void read(page.tab, true)
       void read(other(page.tab), true)
     }, POLL_MS)
-    const changed = () => { void read(page.tab, true); void read(other(page.tab), true) }
+    // Another part of the app changed the library. A change this page made itself is already on it.
+    const changed = (e: Event) => { if (page.own(e)) return; void read(page.tab, true); void read(other(page.tab), true) }
     window.addEventListener('reet-shelf-changed', changed)
     return () => {
       page.destroyed = true
       clearInterval(poll)
       clearTimeout(graceTimer)
+      clearTimeout(landTimer)
       window.removeEventListener('reet-shelf-changed', changed)
     }
   })
@@ -472,8 +582,8 @@
       <h1>Skills<span aria-hidden="true">.</span></h1>
       <p class="lede">{lede}</p>
     </div>
-    <!-- Not a link until the Sync page reads the machines as this line does: its older view could say otherwise. -->
-    {#if page.readOk}<p class="sync-chip" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</p>{/if}
+    <!-- The Sync page reads the machines as this line does: one row each, with what failed and a Retry. -->
+    {#if page.readOk}<a class="sync-chip" href="/sync" data-tone={sync.tone}><span class="dot" aria-hidden="true"></span>{sync.text}</a>{/if}
   </header>
 
   {#if canWrite}
@@ -558,7 +668,15 @@
             onopen={r => (openId = openId === r.id ? '' : r.id)}
             onretry={retry}
             onlike={like}
-            onnotes={saveNotes} />
+            onnotes={saveNotes}
+            tagNames={page.tagNames}
+            ontag={tag}
+            onlist={addToList}
+            onpublish={publish}
+            onuseversion={useVersion}
+            onoriginal={updateOriginal}
+            onputback={(row, publicProblem) => page.setRow(row.id, { publicProblem })}
+            onerror={fail} />
         {/each}
       </ul>
     {:else}
@@ -591,7 +709,7 @@
 
 {#if reviewOpen}
   <NewOnMachineDialog items={page.newOnMachines} onerror={fail}
-    ondecided={() => { void read(page.tab, true); void read(other(page.tab), true); readAfterGrace() }}
+    ondecided={() => { page.announce(); void read(page.tab, true); void read(other(page.tab), true); readAfterGrace() }}
     onclose={() => { reviewOpen = false; void tick().then(() => focusQuietly(reviewEl ?? tabEls[page.tab])) }} />
 {/if}
 
@@ -610,6 +728,7 @@
   .sync-chip[data-tone='ok'] { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--card)); }
   .sync-chip[data-tone='work'] { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, var(--line)); background: color-mix(in srgb, var(--info) 8%, var(--card)); }
   .sync-chip[data-tone='bad'] { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); background: color-mix(in srgb, var(--bad) 8%, var(--card)); }
+  .sync-chip:hover { text-decoration: underline; text-underline-offset: 3px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 
   .add { display: flex; gap: 10px; flex-wrap: wrap; }

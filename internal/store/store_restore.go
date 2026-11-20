@@ -18,7 +18,7 @@ import (
 //
 // Releases cannot make this comparison: development builds carry no ordered
 // version, and a copy's manifest records only the release string.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 func stampSchemaVersion(db *sql.DB) error {
 	var have int

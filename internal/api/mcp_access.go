@@ -25,7 +25,7 @@ func (a mcpAccess) canWrite() bool { return a.Connection.Scope == "write" && a.U
 func mcpAPIPath(method, path string) bool {
 	if method == http.MethodGet {
 		switch path {
-		case "/api/skills", "/api/tags", "/api/environments", "/api/v2/sync", "/api/v2/lists", "/api/events", "/api/ignored", "/api/v2/skills/duplicates":
+		case "/api/skills", "/api/v2/skills", "/api/tags", "/api/environments", "/api/v2/lists", "/api/events", "/api/v2/skills/duplicates":
 			return true
 		}
 		if id, ok := strings.CutPrefix(path, "/api/v2/lists/"); ok {
@@ -34,7 +34,8 @@ func mcpAPIPath(method, path string) bool {
 		}
 	}
 	switch method + " " + path {
-	case "POST /api/skills", "PATCH /api/skill", "DELETE /api/skill", "POST /api/skill/tags", "POST /api/v2/lists", "DELETE /api/skill/ignore",
+	case "POST /api/skills", "PATCH /api/skill", "POST /api/skill/tags", "POST /api/v2/lists",
+		"POST /api/v2/skills/status", "POST /api/v2/skills/delete",
 		"DELETE /api/v2/machines", "POST /api/v2/machines/merge",
 		"POST /api/v2/environments/delete", "POST /api/v2/environments/merge", "POST /api/v2/skills/bulk",
 		"POST /api/v2/tags", "PATCH /api/tag":

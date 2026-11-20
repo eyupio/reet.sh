@@ -1,7 +1,6 @@
 package scan
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -108,58 +107,4 @@ func TestCollectRecoversAgentSpecificSourceURLWithoutCrossingScopes(t *testing.T
 			t.Fatalf("source crosses scope: %+v want %s", item, want)
 		}
 	}
-}
-
-func TestPrivateSkillSyncApplyAndSubsequentPreview(t *testing.T) {
-	for _, mode := range []string{"additive", "bidirectional"} {
-		t.Run(mode, func(t *testing.T) { privateSkillSyncApplyAndSubsequentPreview(t, mode) })
-	}
-}
-func privateSkillSyncApplyAndSubsequentPreview(t *testing.T, mode string) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".agents", "skills")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	files := []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: demo\ndescription: Transfer test\n---\nPrivate instructions.\n")}}
-	manifest, _ := skillbundle.FromContents(files)
-	revision := store.PrivateSkillRevision{ID: strings.Repeat("a", 32), BundleID: strings.Repeat("b", 32), ManifestDigest: manifest.Digest, Files: files}
-	skill := store.SyncSkill{ID: "local/demo", Name: "demo", Slug: "demo", SourceType: "private", Source: "private:" + revision.BundleID + ":" + revision.ID + ":" + manifest.Digest}
-	target := store.SyncTarget{Target: store.Environment{ID: "target", Name: "Desktop", Host: "desktop", Agent: "agents"}, Mode: mode, Revision: "revision", Desired: []store.SyncSkill{skill}}
-	downloads := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasPrefix(r.URL.Path, "/api/v2/skill-bundles/"):
-			downloads++
-			json.NewEncoder(w).Encode(revision)
-		case r.Method == "GET":
-			json.NewEncoder(w).Encode(map[string]any{"canWrite": true, "targets": []store.SyncTarget{target}})
-		default:
-			w.Write([]byte(`{"errors":[]}`))
-		}
-	}))
-	defer srv.Close()
-	args := []string{"--server", srv.URL, "--token", "token", "--env", "desktop", "--target", "target", "--apply"}
-	execute := func([]string, string) error { t.Fatal("private sync invoked public installer"); return nil }
-	var out bytes.Buffer
-	if err := runSync(args, strings.NewReader("Desktop\n"), &out, execute, "test"); err != nil {
-		t.Fatal(err, out.String())
-	}
-	out.Reset()
-	if err := runSync(args, strings.NewReader("Desktop\n"), &out, execute, "test"); err != nil {
-		t.Fatal(err, out.String())
-	}
-	if downloads != 1 {
-		t.Fatal("already matching private copy downloaded again", downloads, out.String())
-	}
-	if mode == "bidirectional" {
-		if err := os.WriteFile(filepath.Join(dir, "demo", "SKILL.md"), []byte("Changed after installation"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := runSync(args, strings.NewReader("Desktop\n"), &out, execute, "test"); err == nil || !strings.Contains(err.Error(), "local changes need review") {
-			t.Fatal("edited private files bypassed reconciliation", err)
-		}
-	}
-
 }

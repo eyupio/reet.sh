@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
   import SkillInstallPanel from './SkillInstallPanel.svelte'
-  import { groupSkills, seenLine, type SessionSkill, type SessionSkills } from './skills'
+  import { groupSkills, keepable, seenLine, type SessionSkill, type SessionSkills } from './skills'
 
   // The per-session skill picker: a modal sheet listing the skills a session could use, grouped by where they live.
   // Names and descriptions are untrusted text from a machine and are only ever rendered as text.
@@ -22,7 +22,8 @@
 
   const id = $props.id()
   let query = $state(untrack(() => initialQuery))
-  let installing = $state<SessionSkill | null>(null)
+  let keeping = $state<SessionSkill | null>(null)
+  let kept = $state('')
   let dialog = $state<HTMLDialogElement>(), list = $state<HTMLDivElement>(), input = $state<HTMLInputElement>()
   const now = Date.now()
 
@@ -30,7 +31,8 @@
   const unknownMachine = $derived(!!data && data.host === '')
   const empty = $derived(!!data && data.skills.length === 0)
   const noMatch = $derived(!!data && !empty && groups.length === 0)
-  const hasAction = (s: SessionSkill) => s.source === 'reet' && !s.onMachine
+  const hasAction = (s: SessionSkill) => keepable(s)
+  const anyNew = $derived(groups.some(g => g.key === 'new'))
   // Consecutive rows without an action stay together; a row with an action stands alone.
   function runsOf(skills: SessionSkill[]): SessionSkill[][] {
     const out: SessionSkill[][] = []
@@ -41,7 +43,7 @@
     }
     return out
   }
-  const reason = (s: SessionSkill) => (s.invocation ? '' : s.source === 'reet' ? 'not on this machine' : `not native to ${tool}`)
+  const reason = (s: SessionSkill) => (s.invocation ? '' : `not native to ${tool}`)
 
   onMount(() => {
     dialog?.showModal()
@@ -49,9 +51,10 @@
     return () => { if (dialog?.open) dialog.close() }
   })
   function close() { if (dialog?.open) dialog.close(); onclose() }
-  // The install panel takes the sheet over; when it closes the list comes back, reloaded if something was installed.
-  async function installed(done: boolean) {
-    installing = null
+  // The Keep panel takes the sheet over; when it closes the list comes back, reloaded if a skill was kept.
+  async function closedKeep(done: boolean, note = '') {
+    keeping = null
+    kept = note
     if (done) onrefresh()
     await tick()
     input?.focus()
@@ -100,8 +103,8 @@
       </button>
     </header>
     <div class="body" data-shell-body onkeydown={keys} role="presentation">
-      {#if installing && !unknownMachine}
-        <SkillInstallPanel {sessionId} skill={installing} host={data?.host ?? ''} {tool} onclose={installed} />
+      {#if keeping && !unknownMachine}
+        <SkillInstallPanel skill={keeping} host={data?.host ?? ''} agentId={data?.agentId ?? ''} onclose={closedKeep} />
       {:else}
       <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
       {#if loading}
@@ -128,15 +131,15 @@
                           <span class="name">{s.name}</span>
                           {#if s.description}<span class="description">{s.description}</span>{/if}
                           <span class="meta">
-                            <span class="source">{s.source === 'reet' ? (s.published ? 'Your skill · published' : 'Your skill · private draft') : `On this machine · ${s.agent}`}</span>
+                            <span class="source">{s.source === 'new' ? `New on this machine${s.agent ? ` · ${s.agent}` : ''}` : `On this machine · ${s.agent}`}</span>
                             {#if !s.invocation}<span class="reason">{reason(s)}</span>{/if}
                           </span>
                         </div>
                       {/each}
                     </div>
                     {#if hasAction(run[0]) && !unknownMachine}
-                      <!-- An unknown machine has no name to install on, so there is nothing to confirm. -->
-                      <button type="button" class="install" aria-label={`Install ${run[0].name}`} onclick={() => (installing = run[0])}>Install</button>
+                      <!-- Keep takes this machine's copy into the library and puts it on every machine. -->
+                      <button type="button" class="install" aria-label={`Keep ${run[0].name}`} onclick={() => { kept = ''; keeping = run[0] }}>Keep</button>
                     {/if}
                   </div>
                 {/each}
@@ -144,6 +147,8 @@
             </div>
           {/each}
         </div>
+        {#if anyNew}<p class="note"><a class="review" href="/skills?review=new" target="_blank" rel="noopener">Review new skills on the Skills page</a></p>{/if}
+        {#if kept}<p class="note" role="status">{kept}</p>{/if}
         {#if noMatch}<p class="note" role="status">No skills match.</p>{/if}
         {#if unknownMachine}<p class="note" role="status">This session's machine is not known to reet, so its skills cannot be listed.</p>
         {:else}
@@ -171,7 +176,7 @@
   .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--muted); }
   .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
-  .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .install { align-self: flex-start; min-height: 44px; margin: 0 0 6px 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   .option { display: flex; flex-direction: column; gap: 2px; min-height: 40px; justify-content: center; padding: 6px 10px; border-radius: 8px; color: var(--ink); cursor: pointer; }
   .option:hover, .option:focus-visible { background: var(--tint); }
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -184,7 +189,9 @@
   .note, .seen { margin: 0; padding: 4px 10px; font-size: 14px; color: var(--muted); }
   .note p { margin: 0 0 8px; }
   .seen { font-size: 14px; }
-  .retry { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .review { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent-text); font-weight: 600; }
+  .review:focus-visible, .install:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .retry { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   @media (max-width: 560px) { .card { border-radius: 12px; } }
   @media (pointer: coarse) {
     .option { min-height: 44px; padding: 8px 12px; }

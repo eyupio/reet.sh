@@ -1,13 +1,13 @@
 package store
 
 import (
-	"errors"
-	"github.com/eyupio/reet.sh/internal/syncproof"
 	"slices"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/syncproof"
 )
 
-func TestMachineMergePreservesInventoriesReferencesAndAliases(t *testing.T) {
+func TestMachineMergePreservesInventoriesAndAliases(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	if err != nil {
@@ -58,13 +58,6 @@ func TestMachineMergePreservesInventoriesReferencesAndAliases(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE environment_scans SET scanned_at=2000 WHERE env_id=?`, newID); err != nil {
 		t.Fatal(err)
 	}
-	// Reference snapshots are independent of the latest inventory timestamps.
-	if _, err := s.db.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, owner, oldID, EnvironmentIDFor(owner, "reference", "agents", ""), "Reference", "[]", "saved-revision", 3); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, owner, EnvironmentIDFor(owner, "follower", "agents", ""), oldID, "Old name", "[]", "follower-revision", 4); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.TouchEnvironmentFor(member.ID, "ns3142913", "agents", "", "other-path"); err != nil {
 		t.Fatal(err)
 	}
@@ -98,21 +91,6 @@ func TestMachineMergePreservesInventoriesReferencesAndAliases(t *testing.T) {
 	installed, err := s.EnvironmentSkillsFor(owner, newID)
 	if err != nil || len(installed) != 1 || installed[0].ID != b.ID {
 		t.Fatalf("inventories were unioned or newest was lost: %+v %v", installed, err)
-	}
-	targets, err := s.SyncTargetsFor(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(targets) != 2 {
-		t.Fatalf("references lost: %+v", targets)
-	}
-	for _, target := range targets {
-		if target.Revision == "saved-revision" && (!slices.Contains(target.TargetAliases, oldID) || !slices.Contains(target.HostAliases, "ns3142913") || target.Target.ID != newID) {
-			t.Fatalf("legacy command aliases lost: %+v", target)
-		}
-		if target.Revision == "follower-revision" && target.SourceID != newID {
-			t.Fatal("source reference not retargeted")
-		}
 	}
 	others, _ := s.ListEnvironmentsFor(member.ID)
 	if len(others) != 1 || others[0].Host != "ns3142913" {
@@ -181,28 +159,6 @@ func TestMachineMergePreservesInventoriesReferencesAndAliases(t *testing.T) {
 		if env.Agent == "reet-server" && env.Host != "ns3142913" {
 			t.Fatal("heartbeat resurrected old name")
 		}
-	}
-}
-
-func TestMachineMergeConflictingReferencesRollsBack(t *testing.T) {
-	s := newStore(t)
-	owner, _ := s.DefaultOwner()
-	for _, host := range []string{"old", "preferred"} {
-		if err := s.TouchEnvironmentFor(owner, host, "agents", "", ""); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.db.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, owner, EnvironmentIDFor(owner, host, "agents", ""), host, "Reference", "[]", host, 1); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := s.MergeMachinesFor(owner, "old", "preferred"); !errors.Is(err, ErrMachineConflict) {
-		t.Fatalf("wanted conflict, got %v", err)
-	}
-	envs, _ := s.ListEnvironmentsFor(owner)
-	aliases, _ := s.MachineAliasesFor(owner)
-	targets, _ := s.SyncTargetsFor(owner)
-	if len(envs) != 2 || len(aliases) != 0 || len(targets) != 2 {
-		t.Fatal("failed merge partially changed data")
 	}
 }
 

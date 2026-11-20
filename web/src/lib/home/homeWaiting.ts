@@ -11,6 +11,8 @@ export type WaitingEntry =
   | { source: 'factory'; id: string; since: number; item: FactoryItem; approval?: NeedCard['approval'] }
   | { source: 'session'; id: string; since: number; card: NeedCard; desk?: DeskMark }
   | { source: 'gaffer'; id: string; since: number; goal: GoalNeed; desk?: DeskMark }
+  // Skills New on a machine, all in one entry: how many, where, and the Skills page's review of them.
+  | { source: 'skills'; id: string; since: number; count: number; text: string; href: string }
 
 /** Pipelines waiting for the person, sessions needing them and Gaffer's goals that need review, oldest first. A finished
  *  session is not waiting. A session's card gives way to its pipeline's item only while that item waits and shows what
@@ -37,14 +39,16 @@ export function homeWaiting(items: FactoryItem[], cards: NeedCard[], goals: Goal
   return entries.sort((a, b) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }
 
-type Label = 'decision' | 'approval' | 'merge' | 'question' | 'waiting' | 'stopped' | 'failed' | 'review' | 'gaffer'
-const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'waiting', 'stopped', 'failed', 'review', 'gaffer']
+type Label = 'decision' | 'approval' | 'merge' | 'question' | 'waiting' | 'stopped' | 'failed' | 'review' | 'gaffer' | 'skills'
+const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'waiting', 'stopped', 'failed', 'review', 'gaffer', 'skills']
 const WORDS: Record<Label, [string, string]> = {
   decision: ['decision', 'decisions'], approval: ['approval', 'approvals'], merge: ['merge', 'merges'], question: ['question', 'questions'], waiting: ['waiting', 'waiting'],
   stopped: ['stopped', 'stopped'], failed: ['failed', 'failed'], review: ['to review', 'to review'], gaffer: ['Gaffer goal', 'Gaffer goals'],
+  skills: ['new skill', 'new skills'],
 }
 
 function labelOf(entry: WaitingEntry): Label {
+  if (entry.source === 'skills') return 'skills'
   if (entry.source === 'gaffer') return 'gaffer'
   if (entry.source === 'factory') {
     const kind = entry.item.kind
@@ -62,7 +66,8 @@ function labelOf(entry: WaitingEntry): Label {
 export function waitingSummary(entries: WaitingEntry[], now: number): string {
   if (!entries.length) return ''
   const counts = new Map<Label, number>()
-  for (const entry of entries) counts.set(labelOf(entry), (counts.get(labelOf(entry)) ?? 0) + 1)
+  // The new-skills entry counts each skill it holds.
+  for (const entry of entries) counts.set(labelOf(entry), (counts.get(labelOf(entry)) ?? 0) + (entry.source === 'skills' ? entry.count : 1))
   const parts = ORDER.filter(label => counts.has(label)).map(label => `${counts.get(label)} ${WORDS[label][counts.get(label) === 1 ? 0 : 1]}`)
   return `${parts.join(', ')} · oldest ${waited(now - Math.min(...entries.map(entry => entry.since)))}`
 }

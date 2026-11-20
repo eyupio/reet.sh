@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { SYNC_JOBS } from './syncRoutes'
  import { onMount, untrack } from 'svelte'
  import Icon from './Icon.svelte'
  import { shell } from './dialogShell'
@@ -298,7 +299,7 @@
    <p class="hint">Cancelled. Press Use {host} when you want to carry on.</p>
   {/if}
   {#if waitingOut}<p class="again"><button type="button" class="btn" onclick={checkAgain}>Check again</button></p>{/if}
-  {#if status.stage === 'sync_issue'}<a class="btn" href="/sync#sync-jobs">Open sync activity</a>{/if}
+  {#if status.stage === 'sync_issue'}<a class="btn" href={SYNC_JOBS}>Open sync activity</a>{/if}
  </div>
  <footer data-shell-foot>
   <small data-shell-aside>Your drafts stay private. Sync continues after you close this dialog.</small>

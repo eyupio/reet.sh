@@ -321,6 +321,13 @@ func (r *reconciler) folder(f *folderRun, active []store.DesiredSkill, removals 
 				continue
 			}
 			dest, err := r.backup(f.dir, name)
+			if err != nil && dest != "" {
+				// The backup is whole, so it is reported and kept, but part of
+				// the skill is still in the folder: it was not removed.
+				r.add(f.label, rm.Name, "failed", "", "backed up "+name+", but it is still partly here: "+err.Error(), r.tilde(dest))
+				r.tell(r.entries[len(r.entries)-1])
+				continue
+			}
 			if err != nil {
 				r.add(f.label, rm.Name, "failed", "", "could not back up "+name+": "+err.Error(), "")
 				continue
@@ -405,6 +412,12 @@ func (r *reconciler) activeSkill(f *folderRun, a store.DesiredSkill, matches []s
 		dest, err := r.backup(f.dir, name)
 		if err != nil {
 			detail := "could not back up " + name + ": " + err.Error()
+			if dest != "" {
+				// A whole backup whose original is still partly here: the
+				// install cannot take the name, and the backup stays where it
+				// is, reported, as it may hold someone's edit.
+				detail = "backed up " + name + " to " + r.tilde(dest) + ", but it is still partly here: " + err.Error()
+			}
 			if keep != "" {
 				// reet's copy is in place; only this other copy stays.
 				r.settle(f, a, keep)
@@ -630,7 +643,8 @@ func (r *reconciler) link(real, source string) error {
 }
 
 // backup moves dir/name into the dated backups beside dir and returns where
-// it went.
+// it went. A path comes back with an error when the backup is whole but part
+// of the original is still there: the skill was not taken off.
 func (r *reconciler) backup(dir, name string) (string, error) {
 	p := filepath.Join(dir, name)
 	// The last guard: an entry that is or holds a managed folder is never
@@ -646,12 +660,9 @@ func (r *reconciler) backup(dir, name string) (string, error) {
 	}
 	dest, err := reconcileBackup(dir, name, r.now)
 	delete(r.digests, p)
-	if dest == "" {
-		return "", err
-	}
 	// A move whose index could not be written still moved the copy; it is
-	// listed by its folder name instead.
-	return dest, nil
+	// listed by its folder name instead, and backupSkill says nothing of it.
+	return dest, err
 }
 
 // tilde writes p as a ~/ path when it is under home.

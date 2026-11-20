@@ -413,12 +413,28 @@ func (s *server) addListToShelf(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	n, err := s.st.AddListToShelf(s.uid(r), access.List.ID)
+	// Status is what the list's new skills start as: active, the default, or
+	// archived.
+	var in struct {
+		Status string `json:"status"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Status == "" {
+		in.Status = store.SkillActive
+	}
+	if in.Status != store.SkillActive && in.Status != store.SkillArchived {
+		writeErr(w, http.StatusBadRequest, "status must be active or archived")
+		return
+	}
+	n, err := s.st.AddListToShelf(s.uid(r), access.List.ID, in.Status)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.eventRequest(r, "list-add-shelf", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "count": n})
+	s.kickSkillCopies(s.uid(r))
+	s.eventRequest(r, "list-add-shelf", "", map[string]any{"list": access.List.Name, "id": access.List.ID, "count": n, "status": in.Status})
 	writeJSON(w, http.StatusOK, map[string]any{"added": n})
 }
 

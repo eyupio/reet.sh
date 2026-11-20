@@ -70,16 +70,21 @@ export function installPrompt(skill: Skill): string | null {
   return `Run \`npx ${SKILLS_CLI} use "${url}" --skill "${useSelector(skill)}"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`
 }
 
-/** The text to put in a prompt to use a skill. A skill with an install source is fetched and run; one without a source
- *  (a local copy reet knows about) is already on the machine, so the agent is asked to use it by name. reet is the source
- *  for a sourceless skill. */
-export function useSkillPrompt(skill: Skill): string | null {
-  const url = sourceURL(skill)
-  if (url) return installPrompt(skill)
+/** Words to paste into a prompt to use a skill. It carries the name and description, never a link: a sentence of the
+ *  description that holds one is left out. The Skills page's Copy prompt. */
+export function copyPrompt(row: { name: string; description?: string }): string {
+  const link = /https?:\/\/|www\.|github\.com/i
+  const kept = (row.description ?? '').split(/(?<=[.!?])\s+/).filter(sentence => !link.test(sentence)).join(' ')
+  const blurb = skillBlurb(kept)
+  return blurb ? `Use the ${row.name} skill: ${blurb}` : `Use the ${row.name} skill.`
+}
+
+/** The text a session's prompt pickers put in a prompt to use a library skill. reet's copy is on every machine, so the
+ *  agent is asked to use it by name, as Copy prompt does; the skill's original link is never used. */
+export function useSkillPrompt(skill: Pick<Skill, 'name' | 'slug' | 'description'>): string | null {
   const name = (skill.name || skill.slug || '').trim()
   if (!name) return null
-  const blurb = skillBlurb(skill.description)
-  return blurb ? `Use the ${name} skill: ${blurb}` : `Use the ${name} skill.`
+  return copyPrompt({ name, description: skill.description })
 }
 
 const MAX_BLURB = 280

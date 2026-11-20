@@ -10,11 +10,19 @@ import (
 // machine inventory still says it is there. The session catalogue reads that
 // inventory, so it must see the installed copy; ListFor keeps hiding it.
 func TestInstalledSkillsForIncludesAHiddenInstalledSkill(t *testing.T) {
-	e := installFixture(t)
-	if _, err := e.s.InstallHostedSkillFor(e.uid, e.req("draft")); err != nil {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if err := s.ClaimPublishingUsername(uid, "publisher"); err != nil {
 		t.Fatal(err)
 	}
-	rf, err := ref.ParseAt(installOrigin+"/publisher/draft", "reet.example")
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "draft", Description: "Fixture", Content: "---\nname: draft\ndescription: Fixture\n---\n\nBody"}); err != nil {
+		t.Fatal(err)
+	}
+	e := struct {
+		s   *Store
+		uid int64
+	}{s, uid}
+	rf, err := ref.ParseAt("https://reet.example/publisher/draft", "reet.example")
 	if err != nil {
 		t.Fatal(err)
 	}

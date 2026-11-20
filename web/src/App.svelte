@@ -15,7 +15,7 @@
   import type { WaitingEntry } from './lib/home/homeWaiting'
   import { installationReports, inventoryMachines } from './lib/machines'
   import { settledJobsKey } from './lib/skillSync'
-  import { listGafferGoals, listGafferOutcomes, type GafferGoalOverview, type GafferOutcome } from './lib/api'
+  import { listGafferGoals, listGafferOutcomes, loadNewSkills, type GafferGoalOverview, type GafferOutcome, type NewSkill } from './lib/api'
   import { DOCS_URL } from './lib/links'
   import FenceStrip from './lib/shell/FenceStrip.svelte'
   import { onMount, setContext } from 'svelte'
@@ -49,6 +49,7 @@
     Factory: () => loadPage(() => import('./lib/factory/Factory.svelte')),
     Desks: () => loadPage(() => import('./lib/desks/DesksPage.svelte')),
     Machines: () => loadPage(() => import('./lib/Machines.svelte')),
+    SyncPage: () => loadPage(() => import('./lib/sync/SyncPage.svelte')),
     Home: () => loadPage(() => import('./lib/home/Home.svelte')),
     Community: () => loadPage(() => import('./lib/Community.svelte')),
     SharedLists: () => loadPage(() => import('./lib/SharedLists.svelte')),
@@ -342,20 +343,21 @@
   // The Factory's outcomes and Gaffer's goals as last read: a failed read of either keeps the last count, as a failed
   // sessions read does.
   // The desks too: a waiting session on a desk is marked with it and opens on it. Until they are read none is marked.
-  let attentionGeneration = 0, lastOutcomes: GafferOutcome[] = [], lastGoals: GafferGoalOverview[] | undefined, lastDesks: DeskSummary[] | undefined
+  let attentionGeneration = 0, lastOutcomes: GafferOutcome[] = [], lastGoals: GafferGoalOverview[] | undefined, lastDesks: DeskSummary[] | undefined, lastNewSkills: NewSkill[] = []
   const readDeskPanes = deskPaneReader(getDesk)
   async function loadAttention() {
     if (!authenticated || needsAuth || !sessionsAccess || isHome) return
     const mine = ++attentionGeneration
     try {
       // A background read: like the terminal reads, it does not drive the progress bar.
-      const [read, outcomes, goals, desks] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true), listDesks()])
+      const [read, outcomes, goals, desks, fresh] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true), listDesks(), loadNewSkills()])
       if (mine !== attentionGeneration) return
       if (read.status === 'rejected') return
       const sessions = read.value
       if (outcomes.status === 'fulfilled') lastOutcomes = outcomes.value
       if (goals.status === 'fulfilled') lastGoals = goals.value.goals
       if (desks.status === 'fulfilled') lastDesks = desks.value
+      if (fresh.status === 'fulfilled') lastNewSkills = fresh.value
       let projects: FolderProject[] = []
       const hosts = environments.map(e => ({ agentId: e.id, host: e.host }))
       if (sessions.length > 0) {
@@ -366,13 +368,13 @@
       }
       if (mine !== attentionGeneration) return
       const owners = sessionOwners(sessions, projects), at = Date.now()
-      let entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks }).entries
+      let entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks }, lastNewSkills).entries
       // A waiting desk session opens on the desk at its pane: the panes of the desks holding one (each read once per version).
-      const onDesks = new Set(entries.flatMap(entry => entry.source !== 'factory' && entry.desk ? [entry.source === 'session' ? entry.card.sessionId : entry.goal.sessionId] : []))
+      const onDesks = new Set(entries.flatMap(entry => entry.source === 'session' && entry.desk ? [entry.card.sessionId] : entry.source === 'gaffer' && entry.desk ? [entry.goal.sessionId] : []))
       if (lastDesks && onDesks.size) {
         const panes = await readDeskPanes(lastDesks, onDesks, AbortSignal.timeout(15_000))
         if (mine !== attentionGeneration) return
-        entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks, panes }).entries
+        entries = whatWaits(sessions, at, owners, hosts, lastOutcomes, lastGoals, { desks: lastDesks, panes }, lastNewSkills).entries
       }
       waitingEntries = entries
       onAnswered = () => loadAttention()
@@ -788,6 +790,15 @@
     {:catch}
       <PageLoadError />
     {/await}
+  {:else if isSync && !isSyncAdvanced}
+    <!-- Sync: one sentence, a row per machine and recent activity. The plan controls stay at /sync/advanced. -->
+    {#await pages.SyncPage()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page {canWrite} accounts={authMode === 'accounts'} {timeZone} {dateFormat} onsignedout={fail} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isMachines}
     {#await pages.Machines()}
       <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
@@ -800,7 +811,7 @@
     {#await pages.Library()}
       <RouteSkeleton variant="rows" />
     {:then { default: Page }}
-      <Page {canWrite} {timeZone} onerror={fail} />
+      <Page {canWrite} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}

@@ -121,15 +121,6 @@ func keepNewSkillTx(tx *sql.Tx, uid int64, name, status, from string, at time.Ti
 	if err != nil {
 		return none, err
 	}
-	// The shelf flags the old pages read follow the status: In use is
-	// Active, Parked is Archived.
-	used := 0
-	if status == SkillActive {
-		used = 1
-	}
-	if _, err = tx.Exec(`UPDATE shelf SET used=?,bookmarked=CASE WHEN ?=1 THEN bookmarked ELSE 0 END WHERE user_id=? AND skill_id=?`, used, used, uid, "local/"+chosen.name); err != nil {
-		return none, err
-	}
 	// The copy it is kept from is where it came from, before its files
 	// land: the copy worker asks that machine first.
 	if _, err = tx.Exec(`UPDATE library_items SET origin=CASE WHEN origin='' THEN 'machine' ELSE origin END,origin_ref=CASE WHEN origin_ref='' AND revision_id='' THEN ? ELSE origin_ref END WHERE user_id=? AND id=?`, "machine:"+chosen.host+":"+chosen.folder, uid, item); err != nil {
@@ -196,7 +187,7 @@ func newSkillItemTx(tx *sql.Tx, uid int64, c newSkillCopy, kind string, at time.
 		return "", false, err
 	}
 	// The shelf trigger makes the item, or joins the live one of its name.
-	if _, err = tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at) VALUES(?,?,0,0,1,'',?,?) ON CONFLICT(user_id,skill_id) DO NOTHING`, uid, shelfID, t, t); err != nil {
+	if _, err = tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at) VALUES(?,?,0,'',?,?) ON CONFLICT(user_id,skill_id) DO NOTHING`, uid, shelfID, t, t); err != nil {
 		return "", false, err
 	}
 	bound, err := libraryAliasID(tx, uid, "shelf", shelfID)

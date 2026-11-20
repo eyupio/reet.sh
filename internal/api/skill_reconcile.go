@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -39,48 +40,95 @@ const (
 // which reet leaves alone.
 var scanHomeAgents = map[string]bool{"agents": true, "claude": true, "cursor": true, "codex": true, "opencode": true}
 
-// scanMakesItems says, for each sighting in an inventory scan from machine,
-// whether it may make a library item of a name the library does not have. A
-// machine on the skills protocol reports the skills in its managed folders
-// with its skills report, and a name reet does not know is New on a machine
-// there until the person keeps it, so the scan makes nothing of it from any
-// of its home folders. Codex's folder is left alone, so a skill only there
-// appears nowhere. The same goes for a skill one of its lock files names with
-// no folder: it is no skill reet has, and the scan reports it from the
-// machine's home. Older agents, project folders, a folder the person scans
-// with --dir (agent "other") and names typed into the import keep today's
-// import.
-func (s *server) scanMakesItems(uid int64, machine string) func(importItem) (bool, error) {
-	known := map[string]bool{}
-	onProtocol := func(host string) (bool, error) {
-		key := strings.ToLower(strings.TrimSpace(host))
-		if on, ok := known[key]; ok {
-			return on, nil
-		}
-		on, err := s.st.HostOnSkillsProtocolFor(uid, host)
-		if err == nil {
-			known[key] = on
-		}
-		return on, err
+// scanMakesItems says, for each sighting in an inventory scan, whether it may
+// make a library item of a name the library does not have. An inventory scan
+// only reports what a machine has: a skill in one of its home folders that
+// reet does not know is New on a machine, from a skills report, until the
+// person keeps it, so the scan makes nothing of it, whichever skills protocol
+// the machine speaks. That holds after a deleted name is forgotten too: a
+// machine that still has it does not quietly bring it back as Active. Codex's
+// folder is left alone, so a skill only there appears nowhere. The same goes
+// for a skill one of the machine's lock files names with no folder (an item
+// with a source and no folder, in a scan that names its machine), and for a
+// skill in a project folder (R45). A folder the person scans with --dir
+// (agent "other") and names typed into the import are the person's choice and
+// keep today's import. A sighting of a name the library has still joins it.
+func scanMakesItems(item importItem, machine string) bool {
+	// A project folder is neither scanned for new skills nor written (R45):
+	// a sighting there only joins a skill the library has.
+	if item.Host != "" && item.Project != "" {
+		return false
 	}
-	return func(item importItem) (bool, error) {
-		host := ""
-		switch {
-		case item.Host != "" && item.Project == "" && scanHomeAgents[item.Agent]:
-			host = item.Host
-		case item.Host == "" && item.Agent == "" && strings.TrimSpace(item.Source) != "":
-			host = machine
-		}
-		if strings.TrimSpace(host) == "" {
-			return true, nil
-		}
-		on, err := onProtocol(host)
-		return !on, err
-	}
+	home := item.Host != "" && scanHomeAgents[item.Agent]
+	locked := strings.TrimSpace(machine) != "" && item.Host == "" && item.Agent == "" && strings.TrimSpace(item.Source) != ""
+	return !home && !locked
 }
 
 func (s *server) registerSkillReconcile(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/skills/report", s.requireWriter(s.reportSkills))
+	mux.HandleFunc("GET /api/v2/sync/skills", s.syncSkillsState)
+	mux.HandleFunc("POST /api/v2/sync/skills/retry", s.requireWriter(s.retrySyncSkills))
+}
+
+// syncActivityShown is how many activity lines the Sync page shows.
+const syncActivityShown = 50
+
+// syncSkillsState is the Sync page: each machine, what it is doing, and what
+// the machines did, newest first. work is what the Skills page's header
+// counts, for the page's one sentence; active is how many skills go on every
+// machine.
+func (s *server) syncSkillsState(w http.ResponseWriter, r *http.Request) {
+	uid, now := s.uid(r), time.Now()
+	machines, err := s.st.SyncMachinesFor(uid, now)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	work, err := s.st.SkillWorkFor(uid, now)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	desired, err := s.st.DesiredSkillsFor(uid, now)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	activity, err := s.st.SkillActivityFor(uid, syncActivityShown)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"machines": machines, "activity": activity, "work": work, "active": len(desired.Active)})
+}
+
+// retrySyncSkills asks a machine to try failed skills again on its next poll.
+func (s *server) retrySyncSkills(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AgentID string   `json:"agentId"`
+		Names   []string `json:"names"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	names, err := s.st.RequestSkillRetryFor(s.uid(r), in.AgentID, in.Names, time.Now())
+	var refused store.SkillRetryRefused
+	switch {
+	case errors.Is(err, store.ErrNoSuchMachine):
+		writeErr(w, 404, err.Error())
+		return
+	case errors.As(err, &refused) && len(in.Names) == 0:
+		writeErr(w, 400, err.Error())
+		return
+	case errors.As(err, &refused):
+		writeErr(w, 409, err.Error())
+		return
+	case err != nil:
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.eventRequest(r, "sync-skills-retry", "", map[string]any{"agent": in.AgentID, "names": names})
+	writeJSON(w, 200, map[string]any{"names": names})
 }
 
 // announcedSkillsProtocol is the skills protocol the request's agent speaks:
@@ -142,12 +190,22 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 		if desired.Version != in.SkillsVersion {
 			reply["desired"] = desired
 		}
+		// Asked once: a retry handed over is gone, whatever the machine
+		// then does with it.
+		retry, err := s.st.TakeSkillRetriesFor(uid, a.ID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if len(retry) > 0 {
+			reply["retry"] = retry
+		}
 		if s.skillPollKicks.due(uid) {
 			s.kickSkillCopies(uid)
 		}
 	}
 	s.maybeAutoUpdateAgent(r, a)
-	job, err := s.st.ClaimUpdateJob(uid, a)
+	job, err := s.st.ClaimSyncJob(uid, a)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

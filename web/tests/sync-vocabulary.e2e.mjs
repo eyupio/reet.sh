@@ -30,10 +30,10 @@ try {
       },
     })
 
-    // The plan controls are their own page; the Sync page links to it once.
+    // The plan controls are their own page; the Sync page links to it once, as Advanced.
     await page.goto(`${base}/sync`)
     await expect(page.getByLabel('Machine', { exact: true })).toHaveCount(0)
-    await page.getByRole('link', { name: 'Advanced sync', exact: true }).click()
+    await page.getByRole('link', { name: 'Advanced', exact: true }).click()
     await expect(page).toHaveURL(`${base}/sync/advanced`)
     await expect(page.getByRole('heading', { level: 1, name: 'Advanced sync', exact: true })).toBeVisible()
     await expect(page.getByLabel('Machine', { exact: true })).toHaveValue('dev-laptop')
@@ -80,7 +80,18 @@ try {
     expect(errors).toEqual([])
     await context.close()
   }
+  if (run('no reet sync command')) {
+    // reet sync is gone from the CLI, so a plan for a machine whose agent is not connected offers no command to run it.
+    const elsewhere = { ...sync.agents[0], id: 'agent-2', host: 'other-box' }
+    const { context, page, errors } = await openWorkspace(browser, { width: 1280, skills: [one], sync: { ...sync, agents: [elsewhere] }, routes: { '/api/v2/sync/candidates': { skills: [one] } } })
+    await page.goto(`${base}/sync/advanced`)
+    await expect(page.getByRole('heading', { name: 'Sync plans', exact: true })).toBeVisible()
+    await expect(page.getByText('Local preview command', { exact: true })).toHaveCount(0)
+    expect(await page.locator('main').innerText()).not.toContain('reet sync')
+    expect(errors).toEqual([])
+    await context.close()
+  }
 } finally {
   await browser.close()
 }
-console.log('Skills and sync vocabulary: one glossary, Sync only under Machines, and a writing flow that names its next step.')
+console.log('Skills and sync vocabulary: one glossary, Sync only under Machines, a writing flow that names its next step, and no reet sync command.')

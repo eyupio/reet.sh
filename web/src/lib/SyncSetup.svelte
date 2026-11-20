@@ -9,7 +9,8 @@
   import { ADVANCED_SYNC } from './syncRoutes'
   import Skeleton from './Skeleton.svelte'
 
-  let { snapshot, canWrite, onupdate }: { snapshot: SyncState; canWrite: boolean; onupdate: (state: SyncState) => void } = $props()
+  // `advanced` is the Advanced sync page, which this sits on top of: it has no link to itself.
+  let { snapshot, canWrite, onupdate, advanced = false }: { snapshot: SyncState; canWrite: boolean; onupdate: (state: SyncState) => void; advanced?: boolean } = $props()
   let skills = $state<SyncSkill[]>([]), duplicates = $state<SyncDuplicate[]>([])
   let loading = $state(true), busy = $state(false), error = $state(''), query = $state('')
   let imports = $state<ImportRequest[]>([]), importError = $state(''), copying = $state<ImportRequest | null>(null)
@@ -153,7 +154,7 @@
     {#each agents as agent (agent.id)}<label class="automatic"><span>{agent.host}</span><input type="checkbox" role="switch" aria-label={`Keep ${agent.host} synced`} checked={!!agent.keepSynced} disabled={busy || !canWrite} onchange={async event => { const input = event.currentTarget; await automatic(agent.id, input.checked); input.checked = !!snapshot.agents?.find(item => item.id === agent.id)?.keepSynced }} /></label>{/each}
   </details>{/if}
   <p class="footnote">Reet checks each change and backs up replaced copies. Other local skills are kept.</p>
-  <p class="advanced"><a href={ADVANCED_SYNC}>Advanced sync</a><span>Sync plans that follow a list or keep an exact set of skills, plan revisions and manual scans.</span></p>
+  {#if !advanced}<p class="advanced"><a href={ADVANCED_SYNC}>Advanced sync</a><span>Sync plans that follow a list or keep an exact set of skills, plan revisions and manual scans.</span></p>{/if}
 </section>
 {#if copying}
   {@const destination = snapshot.environments.find(env => env.id === copying?.destinationId)?.host ?? copying.host}

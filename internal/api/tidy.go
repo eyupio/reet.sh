@@ -46,13 +46,6 @@ func (s *server) deleteEnvironments(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		receipts := map[string]int{}
-		if !in.Force {
-			if receipts, err = s.st.ReceiptCountsFor(s.uid(r), ids); err != nil {
-				writeErr(w, 500, err.Error())
-				return
-			}
-		}
 		index := map[string]store.Environment{}
 		for _, env := range envs {
 			index[env.ID] = env
@@ -67,10 +60,6 @@ func (s *server) deleteEnvironments(w http.ResponseWriter, r *http.Request) {
 			}
 			if env.SkillCount > 0 && !in.Force {
 				blocked = append(blocked, store.EnvironmentChange{ID: id, Name: env.Name, SkillCount: env.SkillCount, Code: errEnvironmentHasSkills, Message: "environment still has skills"})
-				continue
-			}
-			if receipts[id] > 0 {
-				blocked = append(blocked, store.EnvironmentChange{ID: id, Name: env.Name, Code: errEnvironmentHasReceipts, Message: "environment still holds ownership receipts; release them first"})
 				continue
 			}
 			would = append(would, env)
@@ -93,8 +82,6 @@ func (s *server) deleteEnvironments(w http.ResponseWriter, r *http.Request) {
 		switch first.Code {
 		case errEnvironmentNotFound:
 			hint = "Use IDs from reet_list_environments."
-		case errEnvironmentHasReceipts:
-			hint = "Release the ownership records first, or use force=true to forget them with the report."
 		}
 		writeJSON(w, 400, map[string]any{"error": first.Message, "code": first.Code, "message": first.Message, "hint": hint, "blocked": blocked})
 		return
@@ -146,36 +133,7 @@ func (s *server) mergeEnvironments(w http.ResponseWriter, r *http.Request) {
 			writeErrCode(w, 404, errEnvironmentNotFound, "from_id", "environment not found", "Use IDs from reet_list_environments.")
 			return
 		}
-		// The preview answers a refusal the confirmed merge would, in its order: pins, then receipts.
-		pins, err := s.st.PinCountsFor(s.uid(r), []string{from})
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if pins[from] > 0 {
-			writeEnvironmentMergeError(w, store.ErrSkillContentTargetScopeMerge)
-			return
-		}
-		receipts, err := s.st.ReceiptCountsFor(s.uid(r), []string{from})
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if receipts[from] > 0 {
-			writeEnvironmentMergeError(w, store.ErrSkillContentReceiptScope)
-			return
-		}
-		running, pending, installs, err := s.st.MergeJobCountsFor(s.uid(r), from)
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if running > 0 {
-			writeEnvironmentMergeError(w, store.ErrEnvironmentJobRunning)
-			return
-		}
-		// Pending previews and installs on the source are cancelled by the merge; the preview says how many.
-		writeJSON(w, 200, map[string]any{"dry_run": true, "from": source, "to": target, "skills_moved": source.SkillCount, "pending_jobs_cancelled": pending, "pending_installs_cancelled": installs})
+		writeJSON(w, 200, map[string]any{"dry_run": true, "from": source, "to": target, "skills_moved": source.SkillCount})
 		return
 	}
 	if !in.Confirm {
@@ -195,12 +153,6 @@ func (s *server) mergeEnvironments(w http.ResponseWriter, r *http.Request) {
 // confirmed merge and for its preview alike.
 func writeEnvironmentMergeError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrSkillContentTargetScopeMerge):
-		writeErrCode(w, 409, errEnvironmentHasPins, "from_id", err.Error(), "Remove the private skill pin first.")
-	case errors.Is(err, store.ErrEnvironmentJobRunning):
-		writeErrCode(w, 409, errEnvironmentJobRunning, "from_id", err.Error(), "Wait for the machine to finish its sync job, then merge.")
-	case errors.Is(err, store.ErrSkillContentReceiptScope):
-		writeErrCode(w, 409, errEnvironmentHasReceipts, "from_id", err.Error(), "Release the ownership record first.")
 	case strings.Contains(strings.ToLower(err.Error()), "not found"):
 		writeErrCode(w, 404, errEnvironmentNotFound, "from_id", err.Error(), "Use IDs from reet_list_environments.")
 	default:
@@ -438,6 +390,11 @@ func (s *server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"deleted": true, "dry_run": false, "id": id, "affected": affected})
 }
 
+// bulkUpdateSkills is reet_bulk_update_skills. A status (active or archived)
+// goes through the Skills page's own store path, so a skill reet has no copy
+// of is copied in before it leaves any machine. ids are those
+// reet_list_skills gives: a shelf skill's id, or the library id of a skill no
+// shelf row stands for; a filter finds both.
 func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		IDs    []string `json:"ids"`
@@ -446,25 +403,49 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 			SourceType string  `json:"source_type"`
 			Env        string  `json:"env"`
 			Stage      string  `json:"stage"`
+			Status     string  `json:"status"`
 			Sort       string  `json:"sort"`
 			Tags       []int64 `json:"tags"`
 			Untagged   bool    `json:"untagged"`
 		} `json:"filter"`
 		AddTags      []string `json:"add_tags"`
 		RemoveTagIDs []int64  `json:"remove_tag_ids"`
-		Stage        string   `json:"stage"`
-		Liked        *bool    `json:"liked"`
-		Bookmarked   *bool    `json:"bookmarked"`
-		AddToListID  int64    `json:"add_to_list_id"`
-		DryRun       bool     `json:"dry_run"`
+		// Stage is the old name of a status: In use and To test are Active,
+		// Parked is Archived.
+		Stage       string `json:"stage"`
+		Status      string `json:"status"`
+		Liked       *bool  `json:"liked"`
+		AddToListID int64  `json:"add_to_list_id"`
+		DryRun      bool   `json:"dry_run"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
+	if in.Filter.Status != "" {
+		in.Filter.Stage = in.Filter.Status
+	}
+	switch in.Status {
+	case "", store.SkillActive, store.SkillArchived:
+	default:
+		writeErrCode(w, 400, errInvalidArgument, "status", "status must be active or archived", "Use active or archived.")
+		return
+	}
+	if in.Status == "" {
+		switch in.Stage {
+		case "":
+		case "use", "try":
+			in.Status = store.SkillActive
+		case "shelf":
+			in.Status = store.SkillArchived
+		default:
+			writeErrCode(w, 400, errInvalidArgument, "stage", "stage must be shelf, try or use", "Use status active or archived.")
+			return
+		}
+	}
 	ids := uniqueStrings(in.IDs)
 	filtered := in.Filter.Q != "" || in.Filter.SourceType != "" || in.Filter.Env != "" || in.Filter.Stage != "" || len(in.Filter.Tags) > 0 || in.Filter.Untagged
 	if len(ids) == 0 && !filtered {
-		writeErrCode(w, 400, errInvalidArgument, "ids", "supply ids or a filter", "Use ids from reet_list_skills, or filter by q, source_type, env, stage, tags or untagged.")
+		writeErrCode(w, 400, errInvalidArgument, "ids", "supply ids or a filter", "Use ids from reet_list_skills, or filter by q, source_type, env, status, tags or untagged.")
 		return
 	}
 	if len(ids) > 500 {
@@ -472,10 +453,14 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(ids) == 0 {
-		skills, _, err := s.st.ListFor(s.uid(r), store.Filter{
+		filter := store.Filter{
 			Query: in.Filter.Q, SourceType: in.Filter.SourceType, Env: in.Filter.Env,
 			Stage: in.Filter.Stage, Sort: in.Filter.Sort, Tags: in.Filter.Tags, Untagged: in.Filter.Untagged,
-		})
+		}
+		skills, _, err := s.st.ListFor(s.uid(r), filter)
+		if err == nil {
+			skills, err = s.withLibraryOnlySkills(s.uid(r), filter, skills, nil)
+		}
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -488,27 +473,9 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var change store.BulkChange
-	change.Liked = in.Liked
-	change.Bookmarked = in.Bookmarked
-	change.AddTags = in.AddTags
-	change.RemoveTagIDs = in.RemoveTagIDs
-	change.AddToListID = in.AddToListID
-	if in.Stage != "" {
-		switch in.Stage {
-		case "shelf":
-			used, bookmarked := false, false
-			change.Used, change.Bookmarked = &used, &bookmarked
-		case "try":
-			used, bookmarked := false, true
-			change.Used, change.Bookmarked = &used, &bookmarked
-		case "use":
-			used := true
-			change.Used = &used
-		default:
-			writeErrCode(w, 400, errInvalidArgument, "stage", "stage must be shelf, try or use", "Use shelf, try or use.")
-			return
-		}
+	change := store.BulkChange{
+		Liked: in.Liked, Status: in.Status, StatusAt: s.skillNow(),
+		AddTags: in.AddTags, RemoveTagIDs: in.RemoveTagIDs, AddToListID: in.AddToListID,
 	}
 	if change.AddToListID > 0 {
 		access, err := s.st.ListAccessFor(s.uid(r), s.role(r), change.AddToListID)
@@ -527,7 +494,7 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, results, err := s.st.BulkUpdateFor(s.uid(r), ids, change, in.DryRun)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		skillsPageError(w, err)
 		return
 	}
 	failed := 0
@@ -537,7 +504,16 @@ func (s *server) bulkUpdateSkills(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !in.DryRun {
-		s.eventRequest(r, "bulk-update", "", map[string]any{"count": updated, "failed": failed, "add_tags": in.AddTags, "remove_tag_ids": in.RemoveTagIDs, "list": in.AddToListID})
+		detail := map[string]any{"count": updated, "failed": failed, "add_tags": in.AddTags, "remove_tag_ids": in.RemoveTagIDs, "list": in.AddToListID}
+		if in.Status != "" {
+			detail["status"] = in.Status
+		}
+		s.eventRequest(r, "bulk-update", "", detail)
+		// As the Skills page's Archive does: a skill reet has no copy of is
+		// copied in before it leaves any machine.
+		if in.Status != "" {
+			s.kickSkillCopies(s.uid(r))
+		}
 	}
 	writeJSON(w, 200, map[string]any{"dry_run": in.DryRun, "updated": updated, "failed": failed, "results": results})
 }

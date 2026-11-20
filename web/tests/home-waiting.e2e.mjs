@@ -447,6 +447,31 @@ try{
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
+ // Skills New on a machine wait as one entry, oldest sighting first among the rest, that opens their review on the Skills
+ // page. The bell lists it too. It belongs to no project, so a project's narrowing keeps it; it fits a phone in dark.
+ for(const [width,theme] of [[1440,'light'],[1024,'dark'],[390,'dark']]){
+  const copy=(host,seenAt)=>({agentId:`agent-${host}`,host,folder:'~/.agents/skills',digest:'d',seenAt})
+  const w=await open(width,theme,f=>{f.routes['/api/v2/skills/new']={newOnMachines:[{name:'paseo-help',copies:[copy('Elitebook',now-90*MIN)],digestsDiffer:false},{name:'cq',copies:[copy('Elitebook',now-60*MIN)],digestsDiffer:false}]}})
+  const page=w.page
+  try{
+   await expect(entries(page)).toHaveCount(6)
+   const entry=entries(page).first()
+   const link=entry.getByRole('link',{name:/2 new skills on Elitebook/})
+   await expect(link).toHaveAttribute('href','/skills?review=new')
+   await expect(link).toContainText('Keep or archive them on the Skills page')
+   await expect(head(page,'Waiting for you')).toContainText('2 new skills')
+   const box=await link.boundingBox()
+   expect(box.height,`new skills row at ${width}`).toBeGreaterThanOrEqual(44)
+   expect(await noSideways(page),`no sideways scroll at ${width}`).toBe(true)
+   await link.focus()
+   await expect(link).toBeFocused()
+   if(width===1440){
+    await page.getByRole('button',{name:'Needs you: 6',exact:true}).click()
+    await expect(page.getByRole('region',{name:'Needs you'}).getByRole('link',{name:'Review 2 new skills on Elitebook'})).toHaveAttribute('href','/skills?review=new')
+   }
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
  // The four captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page).
  // Saved only when REET_UI_SCREENSHOTS names a folder.
  if(process.env.REET_UI_SCREENSHOTS){
@@ -470,5 +495,5 @@ try{
   await shoot(390,'dark','390-dark',async()=>{},812)
   console.log('ok - Home captures saved')
  }
- console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, Details a link, the bell listing what it counts with links to the Factory, paging back to ten on a new project, desk sessions off the lists but a waiting one in the list and the bell marked with its desk and opening on it, only desk sessions nothing in flight, a failed desk read changing nothing, ok')
+ console.log('Home waiting: five entries oldest first with the summary, a pipeline’s session once with Allow and Deny, the finished session left to Continue working and the board as not seen yet, the title and bell at 5, Move to next stage confirmed and posted once, Factory working without you closed then remembered, both views kept, nothing waiting in one line, rows lined up at 1440 light and dark, cards narrowed by Projects at 834, 390 and 320, Details a link, the bell listing what it counts with links to the Factory, paging back to ten on a new project, desk sessions off the lists but a waiting one in the list and the bell marked with its desk and opening on it, only desk sessions nothing in flight, a failed desk read changing nothing, skills new on a machine as one entry opening their review, ok')
 }finally{await browser.close()}

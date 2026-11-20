@@ -218,8 +218,11 @@ var skillReportsSent = struct {
 
 // reconcileAgentSkills runs one reconcile with fresh, the desired state this
 // poll carried, or else cached, the one an earlier poll left. With neither it
-// does nothing. With allow-apply off it only reports what is there.
-func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fresh, cached *store.DesiredState, version string, now time.Time, out io.Writer) error {
+// does nothing. With allow-apply off it only reports what is there. retry
+// names skills someone asked to have tried again: their waits end, so this
+// pass tries them, and its report is sent even if it says what the last did,
+// so the controller hears how the retry went.
+func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fresh, cached *store.DesiredState, retry []string, version string, now time.Time, out io.Writer) error {
 	var errs []error
 	d := cached
 	if fresh != nil {
@@ -234,6 +237,12 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 	}
 	if d == nil {
 		return nil
+	}
+	if len(retry) > 0 {
+		endWaits(c.Home, retry)
+		skillReportsSent.Lock()
+		delete(skillReportsSent.last, config)
+		skillReportsSent.Unlock()
 	}
 	// Read the local opt-in fresh, so allow-apply takes effect on the next
 	// cycle without restarting the agent.

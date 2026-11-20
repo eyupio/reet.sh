@@ -54,6 +54,7 @@ const api = async route => {
   else if (path.endsWith('/command-history')) data = { entries: [], sources: [], truncated: false, skipped: 0 }
   else if (path.endsWith('/attachments')) data = { ticket: `ticket-${path.split('/').at(-2)}` }
   else if (path === '/api/v2/desks' && method === 'GET') data = { desks: [summary(desk)] }
+  else if (path === '/api/v2/skills/new' && method === 'GET') data = { newOnMachines: [] }
   else if (/^\/api\/v2\/desks\/[^/]+\/panes\/[^/]+\/reopen$/.test(path) && method === 'POST') {
     const pid = decodeURIComponent(path.split('/')[6]), body = request.postDataJSON()
     reopens.push({ pane: pid, ...body })

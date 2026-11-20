@@ -84,3 +84,21 @@ func (r *reconciler) forgetWaits(active []store.DesiredSkill) {
 		}
 	}
 }
+
+// endWaits drops the waits of names, in any case, in every folder under home,
+// so the next pass tries them at once.
+func endWaits(home string, names []string) {
+	retry := map[string]bool{}
+	for _, n := range names {
+		retry[strings.ToLower(n)] = true
+	}
+	installBackoffs.Lock()
+	defer installBackoffs.Unlock()
+	for key := range installBackoffs.m {
+		h, rest, _ := strings.Cut(key, "\x00")
+		_, name, _ := strings.Cut(rest, "\x00")
+		if h == home && retry[name] {
+			delete(installBackoffs.m, key)
+		}
+	}
+}

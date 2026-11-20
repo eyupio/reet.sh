@@ -43,7 +43,6 @@ async function open(options, answer) {
         sync = result
         return sync
       },
-      '/api/ignored': { ignored: [] },
       '/api/skills': request => request.method() === 'POST'
         ? { ...skill('fresh'), created: true }
         : { skills: [one], counts: { all: 1, used: 0, liked: 0, bookmarked: 0 } },
@@ -75,14 +74,13 @@ async function pressAfterSaving(page) {
 }
 
 try {
-  // The Skills header: nothing to start, one line about the machines, which is plain text while the older Sync page could
-  // say otherwise. The page stays where it is.
+  // The Skills header: nothing to start, one line about the machines, which opens Sync. The page stays where it is.
   if (run('header')) {
     for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
       const { context, page, presses, errors } = await open({ width, height: width === 390 ? 812 : 900, touch: width === 390, theme })
       await page.goto(`${base}/skills`)
       await expect(chip(page)).toHaveText('Everything is in sync.')
-      await expect(page.locator('main a.sync-chip')).toHaveCount(0)
+      await expect(page.locator('main a.sync-chip')).toHaveAttribute('href', '/sync')
       await expect(page.getByRole('link', { name: 'Sync all machines' })).toHaveCount(0)
       await expect(syncButton(page)).toHaveCount(0)
       expect(presses).toEqual([])
@@ -166,7 +164,23 @@ try {
     }
   }
 
-  // No machine yet: the header says so, as plain text, and clicking it goes nowhere; adding a skill says only that it is in.
+  // With no machine to sync in place, the written-skill notice links to Sync all machines where it still is, on
+  // Advanced sync, not to the Sync page, which has no such action.
+  if (run('written skill, no machine')) {
+    const empty = { environments: [], machines: [], agents: [], targets: [], jobs: [], runs: [], updateJobs: [] }
+    const hosted = { slug: 'reet-review', description: 'Reviews code', content: '---\nname: reet-review\ndescription: Reviews code\n---\nReview carefully.', files: {}, published: false, createdAt: now, updatedAt: now }
+    const { context, page, presses, errors } = await open({ width: 1280, sync: empty, hosting: { username: 'sam', prefix: 'reet-', skills: [hosted] }, routes: { '/api/v2/hosting/skills/reet-review': request => request.postDataJSON() } })
+    await page.goto(`${base}/hosting`)
+    await page.locator('.skill-choice').filter({ hasText: 'reet-review' }).click()
+    await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
+    const notice = page.getByRole('status').filter({ hasText: 'Ready for your machines.' })
+    await expect(notice.getByRole('link', { name: 'Sync all machines' })).toHaveAttribute('href', '/sync/advanced')
+    expect(presses).toEqual([])
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // No machine yet: the header says so, and clicking it opens Sync; adding a skill says only that it is in.
   if (run('no machine')) {
     const empty = { environments: [], machines: [], agents: [], targets: [], jobs: [], runs: [], updateJobs: [] }
     const { context, page, presses } = await open({ width: 1280, sync: empty })
@@ -176,7 +190,7 @@ try {
     await page.getByRole('button', { name: 'Add', exact: true }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Added fresh to your library.' })).toBeVisible()
     await chip(page).click()
-    expect(new URL(page.url()).pathname).toBe('/skills')
+    await expect(page).toHaveURL(`${base}/sync`)
     expect(presses).toEqual([])
     await context.close()
   }
@@ -222,12 +236,11 @@ try {
   }
 
   // A read-only account cannot change the library, so it is not handed a button that would be refused. It still reads
-  // the line about the machines.
+  // the line about the machines, which opens Sync.
   if (run('read-only')) {
     const { context, page, presses } = await open({ width: 1280, status: { user: { id: 2, name: 'Reader', role: 'viewer' } } })
     await page.goto(`${base}/skills`)
-    await expect(chip(page)).toBeVisible()
-    await expect(page.locator('main a.sync-chip')).toHaveCount(0)
+    await expect(page.locator('main a.sync-chip')).toHaveAttribute('href', '/sync')
     await expect(page.locator(`[data-skill="${one.id}"]`)).toBeVisible()
     await expect(syncButton(page)).toHaveCount(0)
     await expect(page.getByLabel('Add a skill', { exact: true })).toHaveCount(0)

@@ -1,19 +1,21 @@
 <script lang="ts">
+  import { ADVANCED_SYNC } from './syncRoutes'
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
-  import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, type HostedSkill } from './api'
+  import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, getSkillContent, saveSkillContent, type HostedSkill, type SkillContent } from './api'
   import { MAX_BUNDLE_BYTES, addPrefix, parseFrontmatter, prepareImports, renameSkillContent, sanitizeSkillName, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { installPrompt, SKILLS_CLI } from './install'
+  import { SKILLS_CLI } from './install'
   import { writtenSkillWhere } from './skillSync'
-  import { savedSkillNotice } from './skills/skillsPage'
+  import { copyPrompt, savedSkillNotice } from './skills/skillsPage'
   import type { InstallationReport } from './machines'
-  import type { Skill, SyncState } from './api'
+  import type { SyncState } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import { formatWhen } from './time'
 
-  // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to Sync.
+  // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to
+  // where that action still is, Advanced sync: the Sync page has none.
   let { canWrite = true, reports = [], snapshot, onsync, syncing = false, timeZone = '', dateFormat = 'locale' }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState; onsync?: () => void | Promise<void>; syncing?: boolean; timeZone?: string; dateFormat?: string } = $props()
   let username = $state('')
   let prefix = $state('')
@@ -41,8 +43,8 @@
   let filePicker = $state<HTMLInputElement>()
   let folderPicker = $state<HTMLInputElement>()
   const command = $derived(`npx ${SKILLS_CLI} add ${location.origin}/${username}/${originalSlug}`)
-  // The same prompt the shelf card and the Skills you create row offer, so a published skill can be handed to an agent from here too.
-  const prompt = $derived(installPrompt({ sourceType: 'hosted', url: `${location.origin}/${username}/${originalSlug}`, slug: originalSlug } as Skill) ?? '')
+  // The same prompt the Skills page offers: the skill is on every machine, so it is used by name, never fetched by link.
+  const prompt = $derived(copyPrompt({ name: originalSlug, description: editor?.description ?? '' }))
   const dirty = $derived(editor ? fingerprint(editor) !== baseline : false)
   const chosenImports = $derived(importBundles.filter(skill => skill.selected && !skill.problem))
   const publishedCount = $derived(skills.filter(skill => skill.published).length)
@@ -60,20 +62,77 @@
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
   // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
-  const syncHref = $derived(originalSlug ? '/sync' : '')
+  const syncHref = $derived(originalSlug ? ADVANCED_SYNC : '')
   function hostedId(slug: string) { return `hosted/${location.host.toLowerCase()}/${username}/${slug}` }
   function whereLine(skill: HostedSkill) { return writtenSkillWhere(hostedId(skill.slug), snapshot, reports) }
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }
   const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
   const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
-  onMount(() => { void load().then(() => {
+  onMount(() => {
     const params = new URLSearchParams(location.search)
-    const skill = skills.find(item => item.slug === params.get('edit'))
-    if (skill) edit(skill)
-    else if (params.has('new') && username && canWrite) newSkill()
-    else if (params.has('import') && username && canWrite) openImport()
-  }) })
+    // Edit on the Skills page opens a skill the person did not write here by its library item.
+    if (params.get('item')) { void loadItem(params.get('item')!); return }
+    void load().then(() => {
+      const skill = skills.find(item => item.slug === params.get('edit'))
+      if (skill) edit(skill)
+      else if (params.has('new') && username && canWrite) newSkill()
+      else if (params.has('import') && username && canWrite) openImport()
+    })
+  })
   function fail(e: unknown) { error = e instanceof Error ? e.message : String(e) }
+
+  // A library skill edited by its item (imported, or kept from a machine): its SKILL.md as reet holds it, saved as the
+  // skill's next revision against the revision it was read at. Its other files are kept as they are.
+  let itemId = $state('')
+  let item = $state<SkillContent | null>(null)
+  let itemText = $state('')
+  let itemBase = $state('')
+  let itemBusy = $state(false)
+  let itemError = $state('')
+  let itemNotice = $state('')
+  // Why the public page could not follow the last save: a warning of its own, not part of the save's success.
+  let itemPublicProblem = $state('')
+  const itemFiles = $derived(item ? item.files.filter(f => f.path !== 'SKILL.md') : [])
+  const itemDirty = $derived(itemText !== itemBase)
+  // The front matter's name does not rename the skill: machines keep it under the library's name.
+  const itemContentName = $derived(item ? (parseFrontmatter(itemText)?.fields.name ?? '').trim() : '')
+  const itemNameDiffers = $derived(!!item && itemContentName !== '' && itemContentName !== item.name)
+  function fromBase64(data: string) {
+    const binary = atob(data)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return new TextDecoder().decode(bytes)
+  }
+  async function loadItem(id: string) {
+    itemId = id
+    try {
+      item = await getSkillContent(id)
+      const md = item.files.find(f => f.path === 'SKILL.md')
+      itemText = itemBase = md ? fromBase64(md.data) : `---\nname: ${item.name}\ndescription: Describe what this skill does and when to use it.\n---\n\n`
+    } catch (e) {
+      itemError = e instanceof Error ? e.message : String(e)
+    } finally {
+      loading = false
+    }
+  }
+  async function saveItem(event: SubmitEvent) {
+    event.preventDefault()
+    if (!item || itemBusy) return
+    itemBusy = true; itemError = ''; itemNotice = ''; itemPublicProblem = ''
+    const md = { path: 'SKILL.md', data: toBase64(new TextEncoder().encode(itemText)), executable: item.files.find(f => f.path === 'SKILL.md')?.executable ?? false }
+    const files = [md, ...item.files.filter(f => f.path !== 'SKILL.md')]
+    try {
+      const out = await saveSkillContent(item.id, item.revision, files)
+      item = { ...item, revision: out.revision, files }
+      itemBase = itemText
+      itemNotice = `Sorted. Saved ${item.name}; it goes on every machine, and the version before stays in its history.`
+      itemPublicProblem = out.publicProblem ?? ''
+    } catch (e) {
+      itemError = e instanceof Error ? e.message : String(e)
+    } finally {
+      itemBusy = false
+    }
+  }
   function fingerprint(skill: HostedSkill) {
     return JSON.stringify({
       slug: skill.slug,
@@ -364,6 +423,37 @@
 {#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. {#if onsync}<button class="btn" type="button" disabled={syncing} onclick={() => void onsync()}>{syncing ? 'Starting…' : 'Sync all machines'}</button>{:else}<a href={syncHref}>Sync all machines</a>.{/if}</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
+{:else if itemId}
+  <section class="panel editor item-editor" aria-labelledby="item-heading">
+    <div class="panel-head">
+      <div>
+        <h2 id="item-heading">Edit {item?.name ?? 'skill'}</h2>
+        <p class="hint">Saving makes a new version that goes on every machine. The version before stays in its history.</p>
+      </div>
+      <a class="btn quiet" href="/skills">Back to Skills</a>
+    </div>
+    {#if itemError}<p class="notice bad" role="alert">{itemError}</p>{/if}
+    {#if itemNotice}<p class="notice good" role="status">{itemNotice}</p>{/if}
+    {#if itemPublicProblem}<p class="notice warn" role="status">{itemPublicProblem}</p>{/if}
+    {#if item}
+      <form onsubmit={saveItem}>
+        <div class="form-block">
+          <label for="item-content">SKILL.md</label>
+          <textarea id="item-content" bind:value={itemText} rows="18" required spellcheck="false" disabled={itemBusy}></textarea>
+          <p class="hint">Keep <code>name: {item.name}</code> in the front matter: each machine keeps the skill under that name.</p>
+          {#if itemNameDiffers}<p class="notice warn" role="status">SKILL.md says name: {itemContentName}, but this skill is {item.name}. Saving keeps it {item.name} on every machine; changing the name here does not rename it.{#if item.published} Its public page stops following it until the names match.{/if}</p>{/if}
+        </div>
+        {#if itemFiles.length}
+          <div class="form-block">
+            <h3>Supporting files</h3>
+            <p class="hint">Kept as they are.</p>
+            <ul class="file-list">{#each itemFiles as file (file.path)}<li><code>{file.path}</code></li>{/each}</ul>
+          </div>
+        {/if}
+        <div class="actions"><button class="btn primary" disabled={itemBusy || !itemDirty} aria-busy={itemBusy}>{itemBusy ? 'Saving…' : 'Save'}</button></div>
+      </form>
+    {/if}
+  </section>
 {:else if !username}
   <section class="panel">
     <h2>What publishing gives you</h2>
@@ -580,11 +670,12 @@
   .file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .install-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .install-links { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 2px; font-size: .88rem; }
-  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  .notice.good { border-color: var(--good); }
+  /* Each notice wears its tone in the app's colours, which follow light and dark: done, a warning, a refusal. */
+  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; background: var(--card); color: var(--ink); }
+  .notice.good { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); border-left-color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); }
   .notice .next-action { margin-left: 6px; }
-  .notice.bad { border-color: var(--bad); }
-  .notice.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+  .notice.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 7%, var(--card)); }
+  .notice.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--card)); }
   .publish { display: flex; align-items: center; gap: 10px; }
   .publish input { width: auto; }
   .actions { flex-wrap: wrap; margin-top: 12px; }
@@ -599,6 +690,7 @@
   .dropzone strong { font-size: 1rem; }
   .dropzone span { color: var(--muted); font-size: 0.875rem; }
   .hint { margin: 0; color: var(--muted); font-size: 0.875rem; }
+  .item-editor code { font-size: 0.875rem; }
   .import-list { display: grid; gap: 8px; list-style: none; margin: 4px 0 0; padding: 0; }
   .import-list li { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
   .import-list li.invalid { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: color-mix(in srgb, var(--bad) 5%, var(--card)); }

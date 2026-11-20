@@ -370,7 +370,7 @@ func TestTagsTopicsAndFilters(t *testing.T) {
 	}
 }
 
-func TestEventsAndIgnored(t *testing.T) {
+func TestEvents(t *testing.T) {
 	s := newStore(t)
 	r := mustRef(t, "a/b/alpha")
 	s.Upsert(r, Patch{})
@@ -380,21 +380,6 @@ func TestEventsAndIgnored(t *testing.T) {
 	events, err := s.ListEvents(10, r.ID)
 	if err != nil || len(events) != 1 || events[0].Action != "add" || events[0].SkillName != "alpha" {
 		t.Fatalf("events: %+v %v", events, err)
-	}
-	if err := s.Ignore(r.ID, "alpha", "removed"); err != nil {
-		t.Fatal(err)
-	}
-	if ignored, err := s.IsIgnored(r.ID); err != nil || !ignored {
-		t.Fatalf("ignored: %v %v", ignored, err)
-	}
-	if _, ok, _ := s.Get(r.ID); ok {
-		t.Fatal("ignored skill still exists")
-	}
-	if err := s.Unignore(r.ID); err != nil {
-		t.Fatal(err)
-	}
-	if ignored, _ := s.IsIgnored(r.ID); ignored {
-		t.Fatal("still ignored")
 	}
 }
 
@@ -421,11 +406,8 @@ func TestExportRestoreSnapshot(t *testing.T) {
 	if err := a.RemoveSkillTag(r.ID, designID); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Ignore("local/old", "old", "removed"); err != nil {
-		t.Fatal(err)
-	}
 	snap, err := a.ExportSnapshot(true)
-	if err != nil || len(snap.Skills) != 1 || len(snap.Ignored) != 1 || len(snap.Skills[0].HiddenTags) != 1 {
+	if err != nil || len(snap.Skills) != 1 || len(snap.Skills[0].HiddenTags) != 1 {
 		t.Fatalf("snapshot: %+v %v", snap, err)
 	}
 	b := newStore(t)
@@ -435,9 +417,6 @@ func TestExportRestoreSnapshot(t *testing.T) {
 	sk, ok, _ := b.Get(r.ID)
 	if !ok || len(sk.Tags) != 1 || len(sk.Environments) != 1 {
 		t.Fatalf("restored: %+v %v", sk, ok)
-	}
-	if ignored, _ := b.IsIgnored("local/old"); !ignored {
-		t.Fatal("ignored id not restored")
 	}
 	if err := b.ReplaceTopics([]Topic{{Slug: "design", Name: "Design & UI", Skills: []string{r.ID}}}); err != nil {
 		t.Fatal(err)
@@ -509,7 +488,7 @@ func TestPerUserShelvesAndScoping(t *testing.T) {
 		t.Fatalf("member list: %+v %v", memberList, err)
 	}
 	sk, ok, _ := s.GetFor(member, a.ID)
-	if !ok || !sk.Used || sk.Liked || sk.Notes != "member note" {
+	if !ok || sk.Status != SkillActive || sk.Liked || sk.Notes != "member note" {
 		t.Fatalf("member skill: %+v", sk)
 	}
 	if err := s.AddSkillTagsFor(owner, a.ID, []string{"owner-tag"}); err != nil {
@@ -541,12 +520,6 @@ func TestPerUserShelvesAndScoping(t *testing.T) {
 	if len(ownerEnvs) != 1 || len(memberEnvs) != 1 || ownerEnvs[0].Host != "laptop" || memberEnvs[0].Host != "desktop" {
 		t.Fatalf("envs: %+v %+v", ownerEnvs, memberEnvs)
 	}
-	if err := s.IgnoreFor(member, b.ID, "beta", "test"); err != nil {
-		t.Fatal(err)
-	}
-	if ignored, _ := s.IsIgnoredFor(owner, b.ID); ignored {
-		t.Fatal("owner ignored by member")
-	}
 	if err := s.AddEventFor(member, "ui", "test", a.ID, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +528,7 @@ func TestPerUserShelvesAndScoping(t *testing.T) {
 	if len(ownerEvents) != 0 || len(memberEvents) != 1 {
 		t.Fatalf("events: %+v %+v", ownerEvents, memberEvents)
 	}
-	if err := s.RemoveFor(member, a.ID); err != nil {
+	if _, _, err := s.RemoveShelfSkillsFor(member, []string{a.ID}, true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, _ := s.GetFor(owner, a.ID); !ok {
@@ -608,7 +581,7 @@ func TestMigrateLegacyEnvironment(t *testing.T) {
 
 func TestDeleteUserRemovesTheirData(t *testing.T) {
 	s := newStore(t)
-	owner, err := s.DefaultOwner()
+	_, err := s.DefaultOwner()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,9 +602,6 @@ func TestDeleteUserRemovesTheirData(t *testing.T) {
 	}
 	if _, ok, _ := s.UserByID(member.ID); ok {
 		t.Fatal("user still exists")
-	}
-	if ignored, _ := s.IsIgnoredFor(owner, r.ID); ignored {
-		t.Fatal("owner state was touched")
 	}
 }
 

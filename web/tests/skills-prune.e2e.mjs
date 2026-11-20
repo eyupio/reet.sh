@@ -16,7 +16,7 @@ function world() {
   rows: [
    skillRow('reet-babysit', {originKind:'written', origin:'', yours:true, description:'Watch a pull request until it is ready to merge.'}),
    skillRow('seo-bing', {description:'Bing Webmaster Tools checks and URL submissions.', tags:[{id:1,name:'seo'}]}),
-   skillRow('seo-cluster', {description:'Group keywords into topic clusters mapped to pages.', health:{state:'failed',pending:1,total:3,hosts:['ThinkPad'],reason:'no write access',machines:[{host:'Elitebook',state:'ok'},{host:'ThinkPad',state:'failed',detail:'no write access'},{host:'studio',state:'ok'}]}}),
+   skillRow('seo-cluster', {description:'Group keywords into topic clusters mapped to pages.', health:{state:'failed',pending:1,total:3,hosts:['ThinkPad'],reason:'no write access',machines:[{host:'Elitebook',agentId:'a-elite',state:'ok'},{host:'ThinkPad',agentId:'a-think',state:'failed',detail:'no write access'},{host:'studio',agentId:'a-studio',state:'ok'}]}}),
    skillRow('svg-animations', {liked:true}),
    skillRow('ui-ux-pro-max'),
    skillRow('writing-plans', {health:{state:'installing',pending:1,total:3,hosts:['studio'],machines:[]}}),
@@ -57,6 +57,7 @@ function routes(w) {
    return {restored:back.length}
   },
   '/api/v2/skills/retry': req => { w.posts.push(['retry', req.postDataJSON()]); return {retried:w.retried ?? 1} },
+  '/api/v2/sync/skills/retry': req => { const b = req.postDataJSON(); w.posts.push(['machine retry', b]); return {names:b.names} },
   '/api/v2/skills/notice': req => {
    const b = req.postDataJSON(); w.posts.push(['notice', b])
    if (b.action === 'restore-parked') w.rows = w.rows.map(r => r.upgradedFrom === 'parked' && r.status === 'archived' ? {...r, status:'active'} : r)
@@ -825,16 +826,18 @@ try {
   await context.close()
  }
 
- // A machine's failure is retried by the machine itself, so its row says so and offers no Retry (a Retry that only the
- // machine could act on would do nothing). A fetch that failed has Retry, which posts the skill and says it is trying
- // again only when the server retried something.
+ // A machine's failure has Retry, which asks each machine it failed on to try it again on its next poll, and says so. A
+ // fetch that failed has Retry, which posts the skill and says it is trying again only when the server retried something.
  if (run('retry')) {
   const fetchFailed = {state:'fetch-failed',pending:0,total:3,hosts:[],reason:'404 from github.com',machines:[]}
   const {context, page, errors, w} = await open({edit: w => { w.rows = w.rows.map(r => r.name === 'svg-animations' ? {...r, health:fetchFailed} : r) }})
   const health = row(page, 'seo-cluster').locator('.health')
-  await expect(health).toContainText('Failed on ThinkPad · it tries again on its own')
+  await expect(health).toContainText('Failed on ThinkPad')
   await expect(health).toHaveAttribute('data-tone', 'bad')
-  await expect(row(page, 'seo-cluster').getByRole('button', {name:/^Retry/})).toHaveCount(0)
+  await row(page, 'seo-cluster').getByRole('button', {name:'Retry seo-cluster'}).click()
+  await expect.poll(() => posts(w, 'machine retry')).toEqual([{agentId:'a-think', names:['seo-cluster']}])
+  await expect(page.getByRole('status').filter({hasText:'Trying seo-cluster again on ThinkPad.'})).toBeVisible()
+  expect(posts(w, 'retry')).toEqual([])
   await expect(row(page, 'writing-plans').locator('.health')).toContainText('Installing on 1 of 3')
   await expect(row(page, 'seo-bing').locator('.health')).toContainText('On all 3 machines')
   await expect(row(page, 'seo-bing').getByRole('button', {name:/^Retry/})).toHaveCount(0)
@@ -850,6 +853,25 @@ try {
   await row(page, 'svg-animations').getByRole('button', {name:'Retry svg-animations'}).click()
   await request
   await expect(page.getByRole('status').filter({hasText:'svg-animations is already being tried again.'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A Retry that one machine refuses still says which machines were asked, and why the other was not.
+ if (run('retry refused')) {
+  const both = {state:'failed',pending:2,total:3,hosts:['ThinkPad','studio'],reason:'no write access',machines:[{host:'Elitebook',agentId:'a-elite',state:'ok'},{host:'ThinkPad',agentId:'a-think',state:'failed',detail:'no write access'},{host:'studio',agentId:'a-studio',state:'failed',detail:'disk full'}]}
+  const w = world()
+  w.rows = w.rows.map(r => r.name === 'seo-cluster' ? {...r, health:both} : r)
+  const r = routes(w)
+  r['/api/v2/sync/skills/retry'] = req => {
+   const b = req.postDataJSON(); w.posts.push(['machine retry', b])
+   return b.agentId === 'a-studio' ? {status:409, json:{error:'Sync is paused on studio. Turn it back on to try again.'}} : {names:b.names}
+  }
+  const {context, page, errors} = await openWorkspace(browser, {width:1440, height:900, routes:r})
+  await page.goto(`${base}/skills`)
+  await row(page, 'seo-cluster').getByRole('button', {name:'Retry seo-cluster'}).click()
+  await expect.poll(() => posts(w, 'machine retry').length).toBe(2)
+  await expect(page.getByRole('status').filter({hasText:"Trying seo-cluster again on ThinkPad. Couldn't ask studio: Sync is paused on studio. Turn it back on to try again."})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -902,8 +924,8 @@ try {
   await context.close()
  }
 
- // The opened row keeps what the old card had until the full detail lands: notes, edited in place; Copy prompt; Copy
- // install command once a skill is published; and Edit for a skill you wrote.
+ // The opened row keeps what the old card had: notes, edited in place; Copy prompt; Copy install command once a skill
+ // is published; and Edit, by name for a skill you wrote and by library item for any other.
  if (run('opened row')) {
   const {context, page, errors, w} = await open({edit: w => {
    w.rows = [...w.rows, skillRow('hosted-tips', {originKind:'written', origin:'', yours:true, published:true, publicUrl:'https://reet.example/sam/hosted-tips'})]
@@ -934,11 +956,11 @@ try {
   await babysit.getByRole('textbox', {name:'Notes on reet-babysit'}).fill('Changed my mind')
   await page.keyboard.press('Escape')
   await expect(babysit.locator('.note-text')).toHaveText('Run before every merge.')
-  // A published skill offers its install command; one from a link has no Edit.
+  // A published skill offers its install command; one from a link is edited in Write a skill by its library item.
   await row(page, 'hosted-tips').getByRole('button', {name:'hosted-tips', exact:true}).click()
   await expect(row(page, 'hosted-tips').getByRole('button', {name:'Copy install command for hosted-tips'})).toBeVisible()
   await row(page, 'seo-bing').getByRole('button', {name:'seo-bing', exact:true}).click()
-  await expect(row(page, 'seo-bing').getByRole('link', {name:/^Edit/})).toHaveCount(0)
+  await expect(row(page, 'seo-bing').getByRole('link', {name:'Edit seo-bing'})).toHaveAttribute('href', '/hosting?item=item-seo-bing')
   await expect(row(page, 'seo-bing').getByRole('button', {name:'Copy prompt for seo-bing'})).toBeVisible()
   // Every target in the opened row is at least 44 px tall.
   for (const el of await row(page, 'seo-bing').locator('.detail button, .detail a').all()) {

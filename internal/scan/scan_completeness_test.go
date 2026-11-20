@@ -3,6 +3,7 @@ package scan
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,4 +39,12 @@ func TestHostedLockRetainsPublisherSource(t *testing.T) {
 	if len(scan.Found) != 1 || canonicalSource(scan.Found[0].Source) != "reet.sh/publisher" {
 		t.Fatalf("publisher lost: %+v", scan.Found)
 	}
+}
+
+// canonicalSource reads a source the way a person names it: no scheme, no
+// github.com, no trailing slash or .git.
+func canonicalSource(source string) string {
+	source = strings.TrimPrefix(strings.TrimPrefix(source, "https://"), "http://")
+	source = strings.TrimPrefix(source, "github.com/")
+	return strings.TrimSuffix(strings.TrimRight(source, "/"), ".git")
 }

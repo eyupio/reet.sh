@@ -112,7 +112,7 @@ func (s *Store) RollupFor(includeIndividual bool) (Rollup, error) {
 	}
 	listRows.Close()
 
-	shelfRows, err := s.db.Query(`SELECT sh.skill_id,sh.user_id,sh.used FROM shelf sh
+	shelfRows, err := s.db.Query(`SELECT sh.skill_id,sh.user_id,` + shelfRowActive + ` FROM shelf sh
 		JOIN users u ON u.id=sh.user_id WHERE u.disabled_at=0`)
 	if err != nil {
 		return out, err

@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { listSkills, type Skill } from '../api'
-  import { sourceURL, useSkillPrompt } from '../install'
+  import { useSkillPrompt } from '../install'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
 
-  // Search the person's shelf and hand back one skill to put into the prompt. The prompt itself is inserted as ordinary
-  // editable text by the composer; this dialog knows nothing about where the caret is.
+  // Search the person's Active skills and hand back one to put into the prompt. The prompt itself is inserted as ordinary
+  // editable text by the composer; this dialog knows nothing about where the caret is. Every Active skill is on every
+  // machine from reet's copy, so the prompt names it (as Copy prompt does) and never fetches its original link. Archived
+  // skills are off the machines and are not offered.
   let { opener = null, sheet = false, oninsert, onclose }: {
     opener: HTMLElement | null
     sheet: boolean
@@ -24,14 +26,11 @@
   const rank = (group: string): number => ['In use', 'Saved', 'In your library'].indexOf(group)
   const options = $derived(skills.map(skill => {
     const prompt = useSkillPrompt(skill)
-    // A skill with no install source is one reet knows from a machine: reet is its source, and the agent is asked to use
-    // it by name because its files are already there.
-    const fromReet = !sourceURL(skill)
     return {
       value: skill.id,
       label: skill.name || skill.slug || skill.id,
       description: skill.description || '',
-      detail: fromReet ? 'reet' : skill.source || skill.url || '',
+      detail: 'reet',
       group: skill.used ? 'In use' : skill.bookmarked ? 'Saved' : 'In your library',
       disabled: !prompt,
       reason: prompt ? undefined : 'This skill has no name to use it by.',
@@ -58,7 +57,7 @@
         new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error('timeout')), 15_000) }),
       ])
       if (!live.current || mine !== sequence) return
-      skills = answer.skills ?? []
+      skills = (answer.skills ?? []).filter(skill => skill.status !== 'archived')
     } catch {
       if (!live.current || mine !== sequence) return
       skills = []

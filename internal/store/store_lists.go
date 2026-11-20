@@ -357,7 +357,7 @@ func (s *Store) applyListAdoption(listID, ownerID int64, memberCount int, skills
 		}
 		var count int
 		if len(ids) > 0 {
-			if err = s.db.QueryRow(`SELECT COUNT(*) FROM shelf WHERE skill_id=? AND used=1 AND user_id IN (`+placeholders(len(ids))+`)`, args...).Scan(&count); err != nil {
+			if err = s.db.QueryRow(`SELECT COUNT(*) FROM shelf sh WHERE sh.skill_id=? AND `+shelfRowActive+` AND sh.user_id IN (`+placeholders(len(ids))+`)`, args...).Scan(&count); err != nil {
 				return err
 			}
 		}
@@ -595,8 +595,13 @@ func (s *Store) TransferList(listID, targetID int64) error {
 	})
 }
 
-// AddListToShelf adds missing list skills to the shelf as To test and reports how many were added.
-func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
+// AddListToShelf adds missing list skills to the library with status, Active
+// or Archived, and reports how many were added. A skill whose name the library
+// already has is left as it is.
+func (s *Store) AddListToShelf(userID, listID int64, status string) (int, error) {
+	if !validLibraryStatus(status) {
+		return 0, ErrPrivateSkillInvalid
+	}
 	rows, err := s.db.Query(`SELECT s.id,s.source,s.slug,s.source_type,s.url
 		FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=?`, listID)
 	if err != nil {
@@ -616,7 +621,6 @@ func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
 		return 0, err
 	}
 	rows.Close()
-	yes := true
 	n := 0
 	for _, it := range items {
 		var exists int
@@ -627,8 +631,10 @@ func (s *Store) AddListToShelf(userID, listID int64) (int, error) {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return n, err
 		}
-		// A skill whose name the library already has is already there.
-		if _, err := s.UpsertFor(userID, it, Patch{Bookmarked: &yes}); errors.Is(err, ErrSkillNameTaken) {
+		// A skill whose name the library already has is already there. A new
+		// one is added with the chosen status in one transaction, so an
+		// Archived one is never sent to a machine as Active.
+		if _, err := s.upsertForRevive(userID, it.ID, it.Source, it.Slug, it.SourceType, it.URL, it.Slug, Patch{}, false, status); errors.Is(err, ErrSkillNameTaken) {
 			continue
 		} else if err != nil {
 			return n, err

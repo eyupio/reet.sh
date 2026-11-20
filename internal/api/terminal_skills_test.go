@@ -46,18 +46,18 @@ func TestSkillInvocationIsASingleSafeLine(t *testing.T) {
 	}
 }
 
-func TestBuildSessionSkillsSplitsNativeOtherAndReet(t *testing.T) {
+func TestBuildSessionSkillsSplitsNativeOtherAndNew(t *testing.T) {
 	skills := []store.Skill{
 		tsSkill("s1", "Zeta", "zeta", tsEnv("box", "claude", 10)),
 		tsSkill("s2", "alpha", "alpha", tsEnv("box", "agents", 20)),
 		tsSkill("s3", "Codex Only", "codex-only", tsEnv("box", "codex", 5)),
 	}
-	hosted := []store.HostedSkill{{Slug: "mine", Description: "hosted desc"}}
-	got := buildSessionSkills("claude", "box", "", skills, hosted)
+	news := []store.NewSkill{{Name: "cq", Copies: []store.NewSkillCopy{{AgentID: "agent-box", Host: "box", Folder: "~/.agents/skills"}}}}
+	got := buildSessionSkills("claude", "box", "", "agent-box", skills, news)
 	if len(got.Skills) != 4 {
 		t.Fatalf("got %d skills: %+v", len(got.Skills), got.Skills)
 	}
-	order := []string{"s2", "s1", "s3", "reet:mine"}
+	order := []string{"s2", "s1", "s3", "new:cq"}
 	for i, id := range order {
 		if got.Skills[i].ID != id {
 			t.Fatalf("position %d = %q, want %q", i, got.Skills[i].ID, id)
@@ -72,8 +72,8 @@ func TestBuildSessionSkillsSplitsNativeOtherAndReet(t *testing.T) {
 	if s := got.Skills[2]; s.Native || !s.OnMachine || s.Agent != "codex" || s.Invocation != "" {
 		t.Fatalf("codex skill wrong: %+v", s)
 	}
-	if s := got.Skills[3]; s.Source != "reet" || s.OnMachine || s.Native || s.Invocation != "" || s.Name != "mine" || s.Description != "hosted desc" {
-		t.Fatalf("reet skill wrong: %+v", s)
+	if s := got.Skills[3]; s.Source != "new" || !s.OnMachine || !s.Native || s.Agent != "agents" || s.Invocation != "Use the cq skill." || s.Name != "cq" {
+		t.Fatalf("new skill wrong: %+v", s)
 	}
 }
 
@@ -82,7 +82,7 @@ func TestBuildSessionSkillsIgnoresOtherMachinesAndMatchesHostCaseInsensitively(t
 		tsSkill("a", "here", "here", tsEnv("BOX", "claude", 1)),
 		tsSkill("b", "elsewhere", "elsewhere", tsEnv("other", "claude", 99)),
 	}
-	got := buildSessionSkills("claude", "box", "", skills, nil)
+	got := buildSessionSkills("claude", "box", "", "", skills, nil)
 	if len(got.Skills) != 1 || got.Skills[0].ID != "a" {
 		t.Fatalf("got %+v", got.Skills)
 	}
@@ -91,11 +91,15 @@ func TestBuildSessionSkillsIgnoresOtherMachinesAndMatchesHostCaseInsensitively(t
 	}
 }
 
-func TestBuildSessionSkillsDoesNotRepeatAHostedSkillThatIsInstalled(t *testing.T) {
+func TestBuildSessionSkillsListsOnlyThisMachinesNewSkillsOnce(t *testing.T) {
 	skills := []store.Skill{tsSkill("a", "Mine", "mine", tsEnv("box", "claude", 1))}
-	hosted := []store.HostedSkill{{Slug: "mine"}, {Slug: "other"}}
-	got := buildSessionSkills("claude", "box", "", skills, hosted)
-	if len(got.Skills) != 2 || got.Skills[0].ID != "a" || got.Skills[1].ID != "reet:other" {
+	news := []store.NewSkill{
+		{Name: "mine", Copies: []store.NewSkillCopy{{AgentID: "agent-box", Folder: "~/.claude/skills"}}},
+		{Name: "other", Copies: []store.NewSkillCopy{{AgentID: "agent-elsewhere", Folder: "~/.claude/skills"}}},
+		{Name: "here", Copies: []store.NewSkillCopy{{AgentID: "agent-elsewhere", Folder: "~/.claude/skills"}, {AgentID: "agent-box", Folder: "~/.cursor/skills"}}},
+	}
+	got := buildSessionSkills("claude", "box", "", "agent-box", skills, news)
+	if len(got.Skills) != 2 || got.Skills[0].ID != "a" || got.Skills[1].ID != "new:here" || got.Skills[1].Native || got.Skills[1].Agent != "cursor" {
 		t.Fatalf("got %+v", got.Skills)
 	}
 }
@@ -105,10 +109,10 @@ func TestBuildSessionSkillsMachineSeenAndEmpty(t *testing.T) {
 		tsSkill("a", "a", "a", tsEnv("box", "claude", 5), tsEnv("box", "codex", 40)),
 		tsSkill("b", "b", "b", tsEnv("box", "claude", 12), tsEnv("other", "claude", 500)),
 	}
-	if got := buildSessionSkills("claude", "box", "", skills, nil); got.MachineSeen != 40 {
+	if got := buildSessionSkills("claude", "box", "", "", skills, nil); got.MachineSeen != 40 {
 		t.Fatalf("MachineSeen = %d, want 40", got.MachineSeen)
 	}
-	empty := buildSessionSkills("claude", "unscanned", "", nil, nil)
+	empty := buildSessionSkills("claude", "unscanned", "", "", nil, nil)
 	if empty.MachineSeen != 0 || len(empty.Skills) != 0 || empty.Skills == nil {
 		t.Fatalf("empty = %+v", empty)
 	}
@@ -123,7 +127,7 @@ func TestBuildSessionSkillsMachineSeenAndEmpty(t *testing.T) {
 
 func TestBuildSessionSkillsListsAnUnsafeNameWithoutAnInvocation(t *testing.T) {
 	skills := []store.Skill{tsSkill("a", "bad\nname", "bad", tsEnv("box", "claude", 1))}
-	got := buildSessionSkills("claude", "box", "", skills, nil)
+	got := buildSessionSkills("claude", "box", "", "", skills, nil)
 	if len(got.Skills) != 1 {
 		t.Fatalf("got %+v", got.Skills)
 	}
@@ -167,6 +171,15 @@ func skillsEndpointFixture(t *testing.T) (call func(login, id string) (int, Sess
 	}
 	importSkill = func(host, agentName, name string) {
 		t.Helper()
+		// A scan only joins skills the library has: the skill is added first.
+		add := httptest.NewRequest("POST", "/api/skills", strings.NewReader(`{"input":"a/b/`+name+`"}`))
+		add.Header.Set("Content-Type", "application/json")
+		add.Header.Set("Authorization", "Bearer "+token)
+		added := httptest.NewRecorder()
+		srv.ServeHTTP(added, add)
+		if added.Code != 200 && added.Code != 409 {
+			t.Fatal("add", added.Code, added.Body.String())
+		}
 		body, _ := json.Marshal(map[string]any{"items": []map[string]string{{"name": name, "source": "a/b", "host": host, "agent": agentName}}})
 		r := httptest.NewRequest("POST", "/api/import", strings.NewReader(string(body)))
 		r.Header.Set("Content-Type", "application/json")
@@ -237,7 +250,7 @@ func TestTerminalSessionSkillsRefusesAnotherAccountAndAnonymous(t *testing.T) {
 	}
 }
 
-func TestTerminalSessionSkillsStillListsHostedSkillsWhenTheMachineIsUnknown(t *testing.T) {
+func TestTerminalSessionSkillsListsNothingWhenTheMachineIsUnknown(t *testing.T) {
 	call, importSkill, st, uid, agent, session, cookie := skillsEndpointFixture(t)
 	importSkill(agent.Host, "claude", "pdf")
 	if err := st.ClaimPublishingUsername(uid, "skills-author"); err != nil {
@@ -256,12 +269,10 @@ func TestTerminalSessionSkillsStillListsHostedSkillsWhenTheMachineIsUnknown(t *t
 	if _, err := raw.Exec(`UPDATE sync_agents SET host='' WHERE id=?`, agent.ID); err != nil {
 		t.Fatal(err)
 	}
+	// A written skill is on every machine already, so it is not offered here.
 	code, got := call(cookie, session)
-	if code != 200 || got.Host != "" || got.MachineSeen != 0 || len(got.Skills) != 1 {
+	if code != 200 || got.Host != "" || got.MachineSeen != 0 || len(got.Skills) != 0 {
 		t.Fatalf("got %d %+v", code, got)
-	}
-	if s := got.Skills[0]; s.Source != "reet" || s.Name != "mine" || s.Invocation != "" || s.OnMachine || s.Native {
-		t.Fatalf("hosted entry %+v", s)
 	}
 }
 
@@ -298,7 +309,7 @@ func TestBuildSessionSkillsOnlyCountsProjectEnvironmentsForTheSessionsFolder(t *
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := buildSessionSkills("claude", "box", c.dir, c.skills, nil)
+			got := buildSessionSkills("claude", "box", c.dir, "", c.skills, nil)
 			var ids []string
 			for _, s := range got.Skills {
 				ids = append(ids, s.ID)
@@ -318,7 +329,7 @@ func TestBuildSessionSkillsListsAProjectSkillAsNativeAndAGlobalOneFromTheGlobalA
 		tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoA", 1)),
 		tsSkill("both", "both", "both", tsEnv("box", "codex", 1), tsProjectEnv("box", "claude", "/work/repoA", 1)),
 	}
-	got := buildSessionSkills("claude", "box", "/work/repoA", skills, nil)
+	got := buildSessionSkills("claude", "box", "/work/repoA", "", skills, nil)
 	if len(got.Skills) != 2 {
 		t.Fatalf("got %+v", got.Skills)
 	}
@@ -329,19 +340,53 @@ func TestBuildSessionSkillsListsAProjectSkillAsNativeAndAGlobalOneFromTheGlobalA
 	}
 }
 
-func TestBuildSessionSkillsMarksPublishedForMachineAndHostedSkills(t *testing.T) {
-	skills := []store.Skill{tsSkill("a", "onbox", "onbox", tsEnv("box", "claude", 1))}
-	hosted := []store.HostedSkill{{Slug: "live", Published: true}, {Slug: "draft"}}
-	got := buildSessionSkills("claude", "box", "", skills, hosted)
-	published := map[string]bool{}
-	for _, s := range got.Skills {
-		published[s.ID] = s.Published
-	}
-	if len(got.Skills) != 3 || !published["a"] || !published["reet:live"] || published["reet:draft"] {
+func projectSkill(agent, project, name string) store.ObservedProjectSkill {
+	return store.ObservedProjectSkill{Agent: agent, Project: project, Name: name}
+}
+
+// A skill a repository holds for several agents is insertable when one of
+// them is the session's, whichever copy is observed first.
+func TestBuildSessionSkillsPrefersTheProjectCopyNativeToTheSession(t *testing.T) {
+	got := buildSessionSkills("opencode", "box", "/work/my repo", "agent-box", nil, nil,
+		projectSkill("claude", "/work/my repo", "release"), projectSkill("opencode", "/work/my repo", "release"))
+	if len(got.Skills) != 1 {
 		t.Fatalf("got %+v", got.Skills)
 	}
-	b, _ := json.Marshal(got.Skills[0])
-	if !strings.Contains(string(b), `"published":true`) {
-		t.Fatalf("json = %s", b)
+	s := got.Skills[0]
+	if !s.Native || s.Agent != "opencode" || s.Invocation != "Use the release skill." {
+		t.Fatalf("release: %+v", s)
+	}
+	if strings.ContainsAny(s.ID, " /") {
+		t.Fatalf("the option id carries the path: %q", s.ID)
+	}
+}
+
+// A library skill on the machine only for another agent becomes insertable
+// when the session's project has a copy native to the session's tool.
+func TestBuildSessionSkillsUpgradesALibrarySkillWithANativeProjectCopy(t *testing.T) {
+	skills := []store.Skill{tsSkill("lib", "release", "release", tsEnv("box", "claude", 1))}
+	got := buildSessionSkills("opencode", "box", "/work/app", "agent-box", skills, nil, projectSkill("opencode", "/work/app", "release"))
+	if len(got.Skills) != 1 {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	if s := got.Skills[0]; s.ID != "lib" || !s.Native || s.Agent != "opencode" || s.Invocation != "Use the release skill: release desc." {
+		t.Fatalf("release: %+v", s)
+	}
+}
+
+// A home-folder skill New on this machine keeps its row and its Keep when the
+// repository has a skill of the same name, whose copy stays insertable.
+func TestBuildSessionSkillsKeepsANewSkillBesideAProjectCopy(t *testing.T) {
+	news := []store.NewSkill{{Name: "release", Copies: []store.NewSkillCopy{{AgentID: "agent-box", Folder: "~/.claude/skills"}}}}
+	got := buildSessionSkills("claude", "box", "/work/app", "agent-box", nil, news, projectSkill("claude", "/work/app", "release"))
+	if len(got.Skills) != 2 {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	project, found := got.Skills[0], got.Skills[1]
+	if project.Source != "machine" || !project.Native || project.Invocation != "Use the release skill." {
+		t.Fatalf("the project's copy: %+v", project)
+	}
+	if found.Source != "new" || found.ID != "new:release" {
+		t.Fatalf("the new skill: %+v", found)
 	}
 }

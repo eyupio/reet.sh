@@ -15,7 +15,9 @@ const found = (name, copies = [copy('a1', 'Elitebook')], digestsDiffer = false) 
 function routes(w) {
  return {
   '/api/v2/skills': req => skillsPageOf(w.rows, new URL(req.url()).searchParams.get('status') || 'active', {newOnMachines:w.found}),
+  // The bell's read of the new skills (GET), and Keep or Archive (POST).
   '/api/v2/skills/new': req => {
+   if (req.method() === 'GET') return {newOnMachines:w.found}
    const b = req.postDataJSON(); w.posts.push(b)
    w.found = w.found.filter(n => !b.names.includes(n.name))
    w.rows = [...w.rows, ...b.names.map(name => skillRow(name, {status:b.action === 'keep' ? 'active' : 'archived', originKind:'kept', origin:'Elitebook', hasCopy:false, health:{state:'copying',pending:0,total:3,hosts:['Elitebook'],machines:[]}}))]
@@ -81,7 +83,7 @@ try {
  if (run('keep all error')) {
   const {context, page, errors, w} = await open([found('paseo-help'), found('askme', [copy('a1', 'Elitebook'), copy('a2', 'ThinkPad')], true)])
   await page.route('**/api/v2/skills/new', async route => {
-   if (route.request().postDataJSON().names.includes('askme')) return route.fulfill({status:500, json:{error:'ThinkPad did not answer.'}})
+   if (route.request().method() === 'POST' && route.request().postDataJSON().names.includes('askme')) return route.fulfill({status:500, json:{error:'ThinkPad did not answer.'}})
    return route.fallback()
   })
   await banner(page).getByRole('button', {name:'Review'}).click()

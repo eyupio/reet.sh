@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -22,7 +21,7 @@ func legacyShelfCopy(t *testing.T, s *Store, uid int64, r ref.Ref) Skill {
 	if _, err := s.db.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?) ON CONFLICT(id) DO NOTHING`, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, at, at); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at) VALUES(?,?,0,0,0,'',?,?)`, uid, r.ID, at, at); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at) VALUES(?,?,0,'',?,?)`, uid, r.ID, at, at); err != nil {
 		t.Fatal(err)
 	}
 	sk, ok, err := s.GetFor(uid, r.ID)
@@ -30,203 +29,6 @@ func legacyShelfCopy(t *testing.T, s *Store, uid int64, r ref.Ref) Skill {
 		t.Fatal("legacy shelf copy missing", err)
 	}
 	return sk
-}
-
-// legacyUpsert is legacyShelfCopy in UpsertFor's shape, for the old sync
-// engine's fixtures that hold more than one source of a name.
-func legacyUpsert(t *testing.T, s *Store, uid int64, r ref.Ref) (Skill, error) {
-	t.Helper()
-	return legacyShelfCopy(t, s, uid, r), nil
-}
-
-// libraryFixture is the state an account is in when it presses Sync all
-// machines: one laptop with a complete home-folder scan, the shared library on,
-// and a shelf holding a/b/one.
-func libraryFixture(t *testing.T) (*Store, int64, string) {
-	t.Helper()
-	s, uid, id := controlFixture(t)
-	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.EnrollSyncAgent(uid, "laptop", "test"); err != nil {
-		t.Fatal(err)
-	}
-	return s, uid, id
-}
-
-func desiredIDs(t *testing.T, s *Store, uid int64, target string) []string {
-	t.Helper()
-	targets, err := s.SyncTargetsFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range targets {
-		if item.Target.ID == target {
-			ids := []string{}
-			for _, sk := range item.Desired {
-				ids = append(ids, sk.ID)
-			}
-			slices.Sort(ids)
-			return ids
-		}
-	}
-	t.Fatalf("no plan for %s: %+v", target, targets)
-	return nil
-}
-
-// Two shelf entries claiming one name used to flag every copy, make Sync all
-// machines fail and put every machine into "Sync needs attention", which held
-// back the rest of the library. One copy is chosen without asking.
-func TestSyncAllMachinesChoosesOneCopyOfADuplicatedName(t *testing.T) {
-	s, uid, id := controlFixture(t)
-	// A plan saved before the second copy arrived already installs the first.
-	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", Mode: "additive", SkillIDs: []string{"a/b/one"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.EnrollSyncAgent(uid, "laptop", "test"); err != nil {
-		t.Fatal(err)
-	}
-	for _, in := range []string{"c/d/one", "e/f/two"} {
-		if _, err := legacyUpsert(t, s, uid, mustRef(t, in)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
-		t.Fatalf("a duplicated name stopped Sync all machines: %v", err)
-	}
-
-	if got := desiredIDs(t, s, uid, id); !slices.Equal(got, []string{"a/b/one", "e/f/two"}) {
-		t.Fatalf("wrong skills selected: %v", got)
-	}
-	agents, err := s.SyncAgentsFor(uid)
-	if err != nil || len(agents) != 1 || !agents[0].KeepSynced {
-		t.Fatalf("automatic sync was not switched on: %+v %v", agents, err)
-	}
-	if err = s.MaintainSync(uid, "owner", agents[0]); err != nil {
-		t.Fatal(err)
-	}
-	targets, err := s.SyncTargetsFor(uid)
-	if err != nil || len(targets) != 1 || targets[0].Problem != "" {
-		t.Fatalf("the machine was still marked as needing attention: %+v %v", targets, err)
-	}
-	library, err := s.SyncLibraryFor(uid, "owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string]int{}
-	for _, sk := range library {
-		names[sk.Slug]++
-		if sk.Problem != "" {
-			t.Fatalf("a duplicated name is still reported as a problem: %+v", sk)
-		}
-	}
-	if names["one"] != 1 || names["two"] != 1 {
-		t.Fatalf("the library should hold one copy per name: %v", names)
-	}
-}
-
-// With no plan to follow, the copy that has been on the shelf longest is kept,
-// and the other is reported as left out rather than as an error.
-func TestDuplicateNameWithoutAPlanKeepsTheOldestCopy(t *testing.T) {
-	s, uid, _ := libraryFixture(t)
-	if _, err := s.db.Exec(`DELETE FROM skills WHERE id=?`, "a/b/one"); err != nil {
-		t.Fatal(err)
-	}
-	older := legacyShelfCopy(t, s, uid, mustRef(t, "z/y/one"))
-	time.Sleep(5 * time.Millisecond)
-	newer := legacyShelfCopy(t, s, uid, mustRef(t, "a/b/one"))
-
-	view, err := s.SyncLibraryViewFor(uid, "owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Duplicates) != 1 || view.Duplicates[0].Keep.ID != older.ID || len(view.Duplicates[0].Remove) != 1 || view.Duplicates[0].Remove[0].ID != newer.ID {
-		t.Fatalf("the oldest copy should be kept: %+v", view.Duplicates)
-	}
-	for _, sk := range view.Skills {
-		if sk.ID == newer.ID {
-			t.Fatalf("the left-out copy is still in the library: %+v", sk)
-		}
-	}
-}
-
-// A skill the account wrote itself outranks a third-party copy of the name when
-// no saved plan says otherwise. The library now refuses that copy, so it is one
-// left on the shelf from before names were unique.
-func TestDuplicateNamePrefersTheAccountsOwnWrittenSkill(t *testing.T) {
-	s, uid, _ := libraryFixture(t)
-	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-notes", Content: "---\nname: reet-notes\ndescription: Mine\n---\nBody\n"}); err != nil {
-		t.Fatal(err)
-	}
-	legacyShelfCopy(t, s, uid, mustRef(t, "x/y/reet-notes"))
-	view, err := s.SyncLibraryViewFor(uid, "owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Duplicates) != 1 || !strings.HasPrefix(view.Duplicates[0].Keep.ID, "hosted/") || view.Duplicates[0].Keep.SourceType != "private" {
-		t.Fatalf("the written skill should win: %+v", view.Duplicates)
-	}
-}
-
-// One skill that cannot be saved privately is left out and reported. It must not
-// stop Sync all machines from switching every machine on, nor take the rest of
-// the library with it.
-func TestSyncAllMachinesSkipsASkillThatCannotBeStoredPrivately(t *testing.T) {
-	lowerPrivateSkillLimits(t, 32, 64)
-	s, uid, id := libraryFixture(t)
-	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
-		t.Fatal(err)
-	}
-	// Every private bundle slot holds a live skill, so the draft cannot get one.
-	for i := 0; i < privateSkillBundleLimit; i++ {
-		if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite(fmt.Sprintf("full_bundle_%06d", i), "", fmt.Sprintf("skill %d", i))); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Stage 2 captures authored bytes on save; fill the store before saving this
-	// draft so the test still exercises an independently failed capture.
-	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-draft", Content: "---\nname: reet-draft\ndescription: Draft\n---\nBody\n"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
-		t.Fatalf("one skill that cannot be stored stopped Sync all machines: %v", err)
-	}
-
-	if got := desiredIDs(t, s, uid, id); !slices.Equal(got, []string{"a/b/one"}) {
-		t.Fatalf("the rest of the library should still sync: %v", got)
-	}
-	agents, err := s.SyncAgentsFor(uid)
-	if err != nil || len(agents) != 1 || !agents[0].KeepSynced {
-		t.Fatalf("automatic sync was not switched on: %+v %v", agents, err)
-	}
-	if err = s.MaintainSync(uid, "owner", agents[0]); err != nil {
-		t.Fatal(err)
-	}
-	targets, err := s.SyncTargetsFor(uid)
-	if err != nil || len(targets) != 1 || targets[0].Problem != "" {
-		t.Fatalf("one skill's problem became the machine's: %+v %v", targets, err)
-	}
-	library, err := s.SyncLibraryFor(uid, "owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var reported bool
-	for _, sk := range library {
-		if sk.Slug == "reet-draft" {
-			reported = strings.Contains(sk.Problem, "cannot be synced privately")
-		}
-	}
-	if !reported {
-		t.Fatalf("the skill left out is not explained: %+v", library)
-	}
 }
 
 // lowerPrivateSkillLimits shrinks the bundle and revision bounds for one test
@@ -360,9 +162,9 @@ func TestPrivateStorageFreesBlobsNoRevisionUses(t *testing.T) {
 }
 
 // Reclaiming deletes rows, so it must never free a revision something can still
-// need: a bundle head, a bound sync source, a pin or receipt (both foreign keys
-// that cascade), a saved plan, or an unfinished job's plan that an agent will
-// download by ID. A finished job's plan is history and does not keep one alive.
+// need: a bundle head, a bound sync source, or an unfinished job's plan that an
+// agent will download by ID. A finished job's plan is history and does not keep
+// one alive.
 func TestPrivateStorageKeepsEveryRevisionSomethingUses(t *testing.T) {
 	s, uid, env := controlFixture(t)
 	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
@@ -395,15 +197,9 @@ func TestPrivateStorageKeepsEveryRevisionSomethingUses(t *testing.T) {
 	// 1: a written skill's bound source. 2: a captured skill's bound source.
 	exec(`INSERT INTO hosted_sync_sources(user_id,slug,bundle_id,revision_id,digest) VALUES(?,?,?,?,?)`, uid, "written", bundle, revisions[1].Revision.ID, revisions[1].Revision.ManifestDigest)
 	exec(`INSERT INTO sync_private_sources(user_id,skill_id,bundle_id,revision_id,digest) VALUES(?,?,?,?,?)`, uid, "a/b/one", bundle, revisions[2].Revision.ID, revisions[2].Revision.ManifestDigest)
-	// 3: a saved plan. 4: a job that has not run yet. 7: a job that already finished.
-	exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, env, "library", "Library", `[{"id":"x","slug":"x","source":"`+source(3)+`","sourceType":"private"}]`, "r1", stamp)
+	// 4: a job that has not run yet. 7: a job that already finished.
 	exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,plan,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, "job_pending", uid, agent.ID, env, "apply", "queued", `{"actions":[{"add":true,"skill":{"source":"`+source(4)+`"}}]}`, stamp, stamp)
 	exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,plan,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, "job_done", uid, agent.ID, env, "apply", "succeeded", `{"actions":[{"add":true,"skill":{"source":"`+source(7)+`"}}]}`, stamp, stamp)
-	// 8: the last successful apply base for an offline pre-upgrade machine.
-	exec(`INSERT INTO sync_options(target_id,mode,baseline,applied_revision) VALUES(?,?,?,?)`, env, "additive", `[{"source":"`+source(8)+`"}]`, "old-base")
-	// 5: pinned to a machine. 6: recorded in an install receipt.
-	exec(`INSERT INTO skill_content_targets(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,mode,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, "pin_1", uid, env, agent.ID, "pinned", bundle, revisions[5].Revision.ID, "pin", "v1", stamp)
-	exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, "receipt_1", uid, env, agent.ID, "received", bundle, revisions[6].Revision.ID, "root", "agents", 1, "{}", "{}", "{}", "receipt_key_000001", "v1", stamp, stamp)
 
 	survivors := func(keep int) map[int]bool {
 		t.Helper()
@@ -421,36 +217,22 @@ func TestPrivateStorageKeepsEveryRevisionSomethingUses(t *testing.T) {
 		return out
 	}
 
-	// Gently: both unused revisions (0 and 7) stay as history; 8 is pinned
-	// by the last applied baseline even though the desired revision advanced.
+	// Gently: nothing in use is freed.
 	got := survivors(2)
-	for _, used := range []int{1, 2, 3, 4, 5, 6, 8, 9} {
+	for _, used := range []int{1, 2, 4, 9} {
 		if !got[used] {
 			t.Fatalf("revision %d is in use and was freed: %v", used, got)
 		}
-	}
-	if !got[8] || !got[7] || !got[0] {
-		t.Fatalf("expected pinned revisions and both unused history revisions: %v", got)
 	}
 
 	// Thoroughly: only what something uses remains. The finished job's revision (7)
 	// is history, not a use.
 	got = survivors(0)
-	for _, used := range []int{1, 2, 3, 4, 5, 6, 8, 9} {
-		if !got[used] {
-			t.Fatalf("revision %d is in use and was freed: %v", used, got)
+	for i := range revisions {
+		used := i == 1 || i == 2 || i == 4 || i == 9
+		if got[i] != used {
+			t.Fatalf("revision %d: kept %v, in use %v: %v", i, got[i], used, got)
 		}
-	}
-	if got[0] || got[7] {
-		t.Fatalf("unused revisions were kept: %v", got)
-	}
-
-	var pins, receipts int
-	if err = s.db.QueryRow(`SELECT count(*) FROM skill_content_targets WHERE user_id=?`, uid).Scan(&pins); err != nil || pins != 1 {
-		t.Fatalf("the pin was cascaded away: %d %v", pins, err)
-	}
-	if err = s.db.QueryRow(`SELECT count(*) FROM skill_content_receipts WHERE user_id=?`, uid).Scan(&receipts); err != nil || receipts != 1 {
-		t.Fatalf("the receipt was cascaded away: %d %v", receipts, err)
 	}
 	// Every blob left belongs to a revision that is left.
 	var stranded int
@@ -476,184 +258,10 @@ func TestPrivateStorageReclaimCoversEveryReferenceToARevision(t *testing.T) {
 		}
 		got = append(got, name)
 	}
-	// private_skill_revision_files is the revision's own file list. The other two
-	// are read by livePrivateRevisions.
-	want := []string{"library_bases", "library_edit_events", "private_skill_revision_files", "skill_content_receipts", "skill_content_targets"}
+	// private_skill_revision_files is the revision's own file list.
+	want := []string{"private_skill_revision_files"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("a table now references private_skill_revisions. Teach livePrivateRevisions to protect it, then update this list.\n got: %v\nwant: %v", got, want)
-	}
-}
-
-// libraryPair is two enrolled machines with complete scans: "laptop" holds a
-// skill that exists nowhere else, and "desktop" is the machine being brought up
-// to date. The shelf holds a/b/one.
-func libraryPair(t *testing.T) (s *Store, uid int64, laptop, desktop SyncAgent, desktopEnv string) {
-	t.Helper()
-	s = newStore(t)
-	uid, _ = s.DefaultOwner()
-	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpsertFor(uid, mustRef(t, "a/b/one"), Patch{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpsertLocalFor(uid, "huge", Patch{}); err != nil {
-		t.Fatal(err)
-	}
-	enrol := func(host string) (SyncAgent, string) {
-		agent, _, err := s.EnrollSyncAgent(uid, host, "test")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = s.TouchEnvironmentFor(uid, host, "agents", "", ""); err != nil {
-			t.Fatal(err)
-		}
-		env := EnvironmentIDFor(uid, host, "agents", "")
-		if err = s.RecordInventoryFor(uid, env, true, MachineInfo{}); err != nil {
-			t.Fatal(err)
-		}
-		return agent, env
-	}
-	laptop, _ = enrol("laptop")
-	if err := s.RecordEnvironmentFor(uid, "local/huge", "laptop", "agents", "", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	desktop, desktopEnv = enrol("desktop")
-	return
-}
-
-// requireDesktopSyncs presses Sync all machines, lets the desktop's agent poll, and
-// requires that the desktop is not stuck: it gets a plan holding the skills that
-// can be installed and a job to install them, with no problem recorded against it.
-func requireDesktopSyncs(t *testing.T, s *Store, uid int64, desktop SyncAgent, desktopEnv string) {
-	t.Helper()
-	if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
-		t.Fatalf("Sync all machines failed: %v", err)
-	}
-	desktop.KeepSynced = true
-	for range 3 {
-		if err := s.MaintainSync(uid, "owner", desktop); err != nil {
-			t.Fatal(err)
-		}
-	}
-	targets, err := s.SyncTargetsFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, target := range targets {
-		if target.Target.ID != desktopEnv {
-			continue
-		}
-		found = true
-		if target.Problem != "" {
-			t.Fatalf("one skill that cannot be copied yet put the whole machine into trouble: %q", target.Problem)
-		}
-		var ids []string
-		for _, sk := range target.Desired {
-			ids = append(ids, sk.ID)
-		}
-		if !slices.Contains(ids, "a/b/one") || slices.Contains(ids, "local/huge") {
-			t.Fatalf("the skills that can be installed should be planned, and the one that cannot should not: %v", ids)
-		}
-	}
-	if !found {
-		t.Fatal("the desktop has no plan")
-	}
-	jobs, err := s.SyncJobsFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, job := range jobs {
-		if job.AgentID == desktop.ID {
-			return
-		}
-	}
-	t.Fatalf("nothing was queued for the desktop although a/b/one is missing there: %+v", jobs)
-}
-
-// A skill that exists only on a machine that is switched off cannot be copied yet.
-// That is waiting, not a failure, and it must not freeze every other machine.
-func TestMachineOnlySkillOnAnOfflineMachineDoesNotFreezeTheOthers(t *testing.T) {
-	s, uid, _, desktop, desktopEnv := libraryPair(t)
-	// The laptop has never reported that it can hand over files, so no copy can be requested.
-	requireDesktopSyncs(t, s, uid, desktop, desktopEnv)
-}
-
-// A copy that is queued for a machine that has since gone offline, or that stopped
-// for a person to review some files, is also just waiting.
-func TestACopyThatIsStillWaitingDoesNotHoldBackTheMachine(t *testing.T) {
-	for _, state := range []string{"queued", "reviewing"} {
-		t.Run(state, func(t *testing.T) {
-			s, uid, laptop, desktop, desktopEnv := libraryPair(t)
-			if _, err := s.ClaimRemoteImportFor(uid, laptop.ID, strings.Repeat("a", 48)); err != nil {
-				t.Fatal(err)
-			}
-			request, err := s.RequestMachineSkillSync(uid, "local/huge", "desktop", "", "library_"+secretHash("local/huge"), desktopEnv, true)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// The request was made while the laptop was reachable; it then stopped answering.
-			if _, err = s.db.Exec(`UPDATE machine_import_requests SET state=?,data=json_set(data,'$.state',?) WHERE id=?`, state, state, request.ID); err != nil {
-				t.Fatal(err)
-			}
-			if _, err = s.db.Exec(`UPDATE machine_import_capabilities SET observed_at=1 WHERE agent_id=?`, laptop.ID); err != nil {
-				t.Fatal(err)
-			}
-			requireDesktopSyncs(t, s, uid, desktop, desktopEnv)
-		})
-	}
-}
-
-// Pressing Sync all machines is a person asking for another go. A machine whose last
-// attempt failed, or was cancelled, is tried again by that press, so the button is
-// never a dead end. The machine's own polls still leave it alone: a problem that
-// retrying cannot fix must not turn into a stream of failed jobs.
-func TestSyncAllMachinesTriesAgainAfterAFailedOrCancelledAttempt(t *testing.T) {
-	for _, outcome := range []string{"failed", "cancelled"} {
-		t.Run(outcome, func(t *testing.T) {
-			s, uid, _, desktop, desktopEnv := libraryPair(t)
-			requireDesktopSyncs(t, s, uid, desktop, desktopEnv)
-			attempts := func(statuses ...string) []SyncJob {
-				t.Helper()
-				jobs, err := s.SyncJobsFor(uid)
-				if err != nil {
-					t.Fatal(err)
-				}
-				var out []SyncJob
-				for _, job := range jobs {
-					if job.AgentID == desktop.ID && slices.Contains(statuses, job.Status) {
-						out = append(out, job)
-					}
-				}
-				return out
-			}
-			// The attempt that Sync all machines started ends badly.
-			if _, err := s.db.Exec(`UPDATE sync_jobs SET status=?,message=? WHERE user_id=? AND agent_id=?`, outcome, "The machine could not write to its skills folder.", uid, desktop.ID); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.db.Exec(`UPDATE sync_runs SET status=? WHERE user_id=? AND agent_id=?`, outcome, uid, desktop.ID); err != nil {
-				t.Fatal(err)
-			}
-			if got := attempts("queued", "running"); len(got) != 0 {
-				t.Fatalf("the fixture should have no attempt in progress: %+v", got)
-			}
-
-			desktop.KeepSynced = true
-			if err := s.MaintainSync(uid, "owner", desktop); err != nil {
-				t.Fatal(err)
-			}
-			if got := attempts("queued", "running"); len(got) != 0 {
-				t.Fatalf("the machine's own poll started a new attempt after a %s one: %+v", outcome, got)
-			}
-
-			if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
-				t.Fatalf("Sync all machines failed: %v", err)
-			}
-			if got := attempts("queued", "running"); len(got) != 1 {
-				t.Fatalf("pressing Sync all machines should try the machine again after a %s attempt, but it queued %d: %+v", outcome, len(got), attempts("queued", "running", "failed", "cancelled"))
-			}
-		})
 	}
 }
 
@@ -694,14 +302,11 @@ func bundleExists(t *testing.T, s *Store, uid int64, id string) bool {
 // one, it is freed when a slot is needed: oldest first, and only as many as needed.
 func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 	lowerPrivateSkillLimits(t, 32, 64)
-	s, uid, env := controlFixture(t)
-	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
-	if err != nil {
+	s, uid, _ := controlFixture(t)
+	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.ClaimPublishingUsername(uid, "sam"); err != nil {
-		t.Fatal(err)
-	}
+	var err error
 	for i := 0; i < 6; i++ {
 		writtenSkill(t, s, uid, fmt.Sprintf("written-%d", i))
 	}
@@ -720,13 +325,13 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// written-2 had been pinned to a machine, so it is still in use.
+	// written-2's bytes became a captured skill's bound source, so it is still in use.
 	pinned := bundleFor(t, s, uid, "written-2")
 	var pinnedHead string
 	if err = s.db.QueryRow(`SELECT head FROM private_skill_bundles WHERE user_id=? AND id=?`, uid, pinned).Scan(&pinnedHead); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.db.Exec(`INSERT INTO skill_content_targets(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,mode,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, "pin_1", uid, env, agent.ID, "pinned", pinned, pinnedHead, "pin", "v1", now()); err != nil {
+	if _, err = s.db.Exec(`INSERT INTO sync_private_sources(user_id,skill_id,bundle_id,revision_id,digest) VALUES(?,'a/b/one',?,?,'')`, uid, pinned, pinnedHead); err != nil {
 		t.Fatal(err)
 	}
 	fresh := writtenSkillOnly(t, s, uid, "fresh-1")
@@ -746,7 +351,7 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 	}
 	age("written-0", 2000)
 	age("written-1", 3000)
-	age("written-2", 1000) // the oldest, but pinned
+	age("written-2", 1000) // the oldest, but bound
 	age("written-3", 4000)
 	// Still bound to live skills, and as old as can be: only the binding protects them.
 	age("written-4", 1)
@@ -759,7 +364,7 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 		ids[slug] = bundleFor(t, s, uid, slug)
 	}
 
-	// One slot is needed, so exactly one unused bundle goes: the oldest that is not pinned.
+	// One slot is needed, so exactly one unused bundle goes: the oldest that is not bound.
 	if _, err = s.hostedPrivateSource(uid, fresh); err != nil {
 		t.Fatalf("a deleted skill's bundle still holds a slot: %v", err)
 	}
@@ -782,7 +387,7 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 	}
 
 	// Two more written skills need two more slots. written-1 and written-3 are free
-	// to go; the pinned one and the two still bound are not.
+	// to go; the captured skill's and the two still bound to written skills are not.
 	for _, slug := range []string{"fresh-2", "fresh-3"} {
 		if _, err = s.hostedPrivateSource(uid, writtenSkillOnly(t, s, uid, slug)); err != nil {
 			t.Fatalf("%s: %v", slug, err)
@@ -792,7 +397,7 @@ func TestDeletedWrittenSkillsDoNotKeepTheirBundleSlotForever(t *testing.T) {
 		t.Fatal("unused bundles were kept while skills waited for a slot")
 	}
 	if _, err = s.hostedPrivateSource(uid, writtenSkillOnly(t, s, uid, "fresh-4")); err == nil {
-		t.Fatal("a bundle that is pinned or bound was freed to make room")
+		t.Fatal("a bundle that is bound was freed to make room")
 	}
 	for _, slug := range []string{"written-2", "written-4", "written-5"} {
 		if !bundleExists(t, s, uid, ids[slug]) {
@@ -875,67 +480,5 @@ func TestUnusedCaptureBundlesAreFreedButBoundOnesStay(t *testing.T) {
 	var bundles int
 	if err = s.db.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&bundles); err != nil || bundles != privateSkillBundleLimit {
 		t.Fatalf("expected the account to be back at its bound: %d %v", bundles, err)
-	}
-}
-
-// A binary update can sit queued for a machine that is switched off. It is not
-// skill work, so it must not stop Sync all machines from putting that machine on
-// the shared library, nor stop a later poll from following the library.
-func TestAQueuedUpdateDoesNotBlockTheSharedLibrary(t *testing.T) {
-	s, uid, id := controlFixture(t)
-	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
-		t.Fatal(err)
-	}
-	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// An older custom selection that does not follow the library.
-	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.QueueAgentUpdate(uid, agent.ID, "latest"); err != nil {
-		t.Fatal(err)
-	}
-
-	if err = s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
-		t.Fatalf("a queued update stopped Sync all machines: %v", err)
-	}
-	targets, err := s.SyncTargetsFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(targets) != 1 || targets[0].SourceID != "library" || !targets[0].FollowSource {
-		t.Fatalf("the machine was not put on the shared library: %+v", targets)
-	}
-
-	// The library gains an entry. The machine's own poll follows it even though
-	// the update is still waiting for it. Let the plan the button just queued
-	// settle first, so only the update could hold the poll back.
-	if _, err = s.db.Exec(`UPDATE sync_jobs SET status='succeeded' WHERE user_id=? AND agent_id=? AND kind<>'update'`, uid, agent.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.UpsertFor(uid, mustRef(t, "c/d/two"), Patch{}); err != nil {
-		t.Fatal(err)
-	}
-	agent.KeepSynced = true
-	if err = s.MaintainSync(uid, "owner", agent); err != nil {
-		t.Fatalf("a queued update stopped the machine's poll: %v", err)
-	}
-	targets, err = s.SyncTargetsFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids := []string{}
-	for _, sk := range targets[0].Desired {
-		ids = append(ids, sk.ID)
-	}
-	slices.Sort(ids)
-	if !slices.Equal(ids, []string{"a/b/one", "c/d/two"}) {
-		t.Fatalf("the poll did not follow the library: %v", ids)
-	}
-	var updates int
-	if err = s.db.QueryRow(`SELECT count(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind='update' AND status='queued'`, uid, agent.ID).Scan(&updates); err != nil || updates != 1 {
-		t.Fatalf("the queued update should still wait its turn: %d %v", updates, err)
 	}
 }

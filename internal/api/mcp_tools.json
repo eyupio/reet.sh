@@ -1305,8 +1305,8 @@
   },
   {
     "name": "reet_list_skills",
-    "title": "Search the shelf",
-    "description": "Search personal shelf names, IDs, descriptions and notes. Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, stage, liked, bookmarked, tags and environment_count; use it to page a large shelf. Does not change anything. Example: {stage:\"try\",compact:true,limit:100}. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
+    "title": "Search your skills",
+    "description": "Search your skills’ names, IDs, descriptions and notes. A skill with no shelf entry, such as one written in reet and never published, is listed by its library id. Each skill’s status is active (on every machine that follows the library) or archived (kept in reet and taken off every machine). Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, status, liked, tags and environment_count; use it to page a large library. Does not change anything. Example: {status:\"archived\",compact:true,limit:100}. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1334,19 +1334,15 @@
           "type": "string",
           "enum": [
             "all",
-            "liked",
-            "bookmarked",
-            "used"
+            "liked"
           ]
         },
-        "stage": {
-          "description": "On shelf, to test, in use, or disabled. Reads the canonical library lifecycle.",
+        "status": {
+          "description": "Only Active skills, on every machine that follows the library, or only Archived ones, kept in reet and on no machine.",
           "type": "string",
           "enum": [
-            "shelf",
-            "try",
-            "use",
-            "disabled"
+            "active",
+            "archived"
           ]
         },
         "sort": {
@@ -1392,7 +1388,7 @@
         },
         "fields": {
           "description": "Compact fields to include; implies compact=true.",
-          "maxItems": 9,
+          "maxItems": 8,
           "type": "array",
           "items": {
             "type": "string",
@@ -1401,9 +1397,8 @@
               "name",
               "source",
               "sourceType",
-              "stage",
+              "status",
               "liked",
-              "bookmarked",
               "tags",
               "environment_count"
             ]
@@ -1578,8 +1573,8 @@
   },
   {
     "name": "reet_get_skill",
-    "title": "Get a shelf skill",
-    "description": "Get one personal shelf skill by exact ID, including notes, flags, tags and environments. Use reet_list_skills to discover IDs. Does not change anything. Returns {data: object} as structured content and text.",
+    "title": "Get a skill",
+    "description": "Get one of your skills by exact ID, including its status, notes, likes, tags and environments. Use reet_list_skills to discover IDs. Does not change anything. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1623,14 +1618,15 @@
             "liked": {
               "type": "boolean"
             },
-            "bookmarked": {
-              "type": "boolean"
-            },
-            "used": {
-              "type": "boolean"
-            },
             "installs": {
               "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
             }
           },
           "required": [
@@ -1638,8 +1634,6 @@
             "name",
             "notes",
             "liked",
-            "bookmarked",
-            "used",
             "installs"
           ],
           "additionalProperties": {
@@ -1695,8 +1689,8 @@
   },
   {
     "name": "reet_add_skill",
-    "title": "Add a shelf skill",
-    "description": "Add a skills.sh URL or owner/repo/skill reference. Existing skills keep unspecified flags and notes; ignored entries are unignored. Metadata fetch is queued by reet.sh. A new skill is Active: reet gets its files and installs it on every machine that follows the library. Does not add local files. Returns the skill and created flag. Returns {data: object} as structured content and text.",
+    "title": "Add a skill",
+    "description": "Add a skills.sh URL or owner/repo/skill reference. Existing skills keep unspecified likes and notes. Metadata fetch is queued by reet.sh. A new skill is Active unless status is archived: reet gets its files and installs it on every machine that follows the library. With status archived it is kept in reet and goes on no machine. Does not add local files. Returns the skill and created flag. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1710,18 +1704,18 @@
           "description": "Like or unlike this skill.",
           "type": "boolean"
         },
-        "bookmarked": {
-          "description": "Save for testing. Stage is try when bookmarked and not used.",
-          "type": "boolean"
-        },
-        "used": {
-          "description": "Mark in use; takes precedence over bookmarked when deriving stage.",
-          "type": "boolean"
-        },
         "notes": {
           "description": "Personal notes. Replaces existing notes; empty string clears them.",
           "type": "string",
           "maxLength": 20000
+        },
+        "status": {
+          "description": "active puts it on every machine that follows the library; archived keeps it in reet only. Omit for active, or to leave a skill already in the library as it is.",
+          "type": "string",
+          "enum": [
+            "active",
+            "archived"
+          ]
         },
         "response_format": {
           "default": "json",
@@ -1757,14 +1751,15 @@
             "liked": {
               "type": "boolean"
             },
-            "bookmarked": {
-              "type": "boolean"
-            },
-            "used": {
-              "type": "boolean"
-            },
             "installs": {
               "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
             },
             "created": {
               "type": "boolean"
@@ -1775,8 +1770,6 @@
             "name",
             "notes",
             "liked",
-            "bookmarked",
-            "used",
             "installs",
             "created"
           ],
@@ -1833,8 +1826,8 @@
   },
   {
     "name": "reet_update_skill",
-    "title": "Update shelf flags or notes",
-    "description": "Change only supplied fields. For stage shelf set used=false, bookmarked=false; try: used=false, bookmarked=true; use: used=true. The stage changes the skill on machines: try or use makes it Active, so it is installed on every machine that follows the library; shelf archives it, so it is taken off those machines, each of which keeps a backup for 30 days. Does not edit tags or lists. Returns the updated skill. Returns {data: object} as structured content and text.",
+    "title": "Update a skill",
+    "description": "Change only the fields supplied: liked, notes or status. status archived archives the skill: it is taken off every machine, each of which keeps a backup for 30 days, and it stays in reet to restore. status active makes it Active again, so it is installed on every machine that follows the library. Does not edit tags or lists. Returns the updated skill. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1842,24 +1835,24 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500,
-          "description": "Exact ID returned by a reet read tool; e.g. anthropics/skills/mcp-builder."
+          "description": "The skill’s ID from reet_list_skills, or its library ID from reet_list_archived."
         },
         "liked": {
           "description": "Like or unlike this skill.",
-          "type": "boolean"
-        },
-        "bookmarked": {
-          "description": "Save for testing. Stage is try when bookmarked and not used.",
-          "type": "boolean"
-        },
-        "used": {
-          "description": "Mark in use; takes precedence over bookmarked when deriving stage.",
           "type": "boolean"
         },
         "notes": {
           "description": "Personal notes. Replaces existing notes; empty string clears them.",
           "type": "string",
           "maxLength": 20000
+        },
+        "status": {
+          "description": "archived takes it off every machine (each keeps a backup for 30 days); active puts it back on every machine that follows the library.",
+          "type": "string",
+          "enum": [
+            "active",
+            "archived"
+          ]
         },
         "response_format": {
           "default": "json",
@@ -1895,14 +1888,12 @@
             "liked": {
               "type": "boolean"
             },
-            "bookmarked": {
-              "type": "boolean"
-            },
-            "used": {
-              "type": "boolean"
-            },
-            "installs": {
-              "type": "number"
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
             }
           },
           "required": [
@@ -1910,9 +1901,7 @@
             "name",
             "notes",
             "liked",
-            "bookmarked",
-            "used",
-            "installs"
+            "status"
           ],
           "additionalProperties": {
             "$ref": "#/$defs/__schema0"
@@ -1967,8 +1956,8 @@
   },
   {
     "name": "reet_remove_skill",
-    "title": "Remove a shelf skill",
-    "description": "Remove this account’s shelf entry, including personal notes and flags, and delete the library skill it stands for: it is taken off every connected machine, each of which keeps a backup for 30 days, and its name is free again. A skill this account wrote is refused with HTTP 409 [written] and nothing changes: delete it from Write a skill. When reet has no copy of the skill, removing deletes it from every machine and only those 30-day backups remain, so the call fails with HTTP 409 [no-copy] unless noCopyConfirmed=true. ignore=true also prevents reimport by future scans. Returns {ok:true}. Returns {data: object} as structured content and text.",
+    "title": "Delete a skill",
+    "description": "Delete a skill from your library: it is removed from every machine, each of which keeps a backup for 30 days, and its name is free again. To take it off the machines but keep it in reet, archive it with reet_update_skill instead. When reet has no copy of the skill, only those backups remain, so the call fails with HTTP 409 [no-copy] unless noCopyConfirmed=true. Deleting a skill this account wrote also deletes the writing and any public page, so it fails with HTTP 409 [written] unless writtenConfirmed=true. A refused call changes nothing. Returns {deleted:1}. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1976,16 +1965,16 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500,
-          "description": "Exact ID returned by a reet read tool; e.g. anthropics/skills/mcp-builder."
-        },
-        "ignore": {
-          "default": false,
-          "description": "Also add to this account’s ignored list.",
-          "type": "boolean"
+          "description": "The skill’s ID from reet_list_skills, or its library ID from reet_list_archived."
         },
         "noCopyConfirmed": {
           "default": false,
-          "description": "Remove it even when reet has no copy: it is deleted from every machine, and each machine keeps a backup for 30 days.",
+          "description": "Delete it even when reet has no copy: it is removed from every machine, and each machine keeps a backup for 30 days.",
+          "type": "boolean"
+        },
+        "writtenConfirmed": {
+          "default": false,
+          "description": "Delete it even though this account wrote it: the writing and any public page go too.",
           "type": "boolean"
         },
         "response_format": {
@@ -2010,12 +1999,14 @@
         "data": {
           "type": "object",
           "properties": {
-            "ok": {
-              "type": "boolean"
+            "deleted": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
             }
           },
           "required": [
-            "ok"
+            "deleted"
           ],
           "additionalProperties": false
         }
@@ -2029,7 +2020,7 @@
     "annotations": {
       "readOnlyHint": false,
       "destructiveHint": true,
-      "idempotentHint": true,
+      "idempotentHint": false,
       "openWorldHint": true
     }
   },
@@ -2292,14 +2283,15 @@
             "liked": {
               "type": "boolean"
             },
-            "bookmarked": {
-              "type": "boolean"
-            },
-            "used": {
-              "type": "boolean"
-            },
             "installs": {
               "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
             }
           },
           "required": [
@@ -2307,8 +2299,6 @@
             "name",
             "notes",
             "liked",
-            "bookmarked",
-            "used",
             "installs"
           ],
           "additionalProperties": {
@@ -3173,7 +3163,7 @@
   {
     "name": "reet_delete_environment",
     "title": "Delete environment reports",
-    "description": "Delete one or more environment reports. Dry run by default; set dry_run=false and confirm=true to apply. Refuses an environment that still has skills or ownership records unless force=true. Does not remove shelf skills or installed files. Returns {data: object} as structured content and text.",
+    "description": "Delete one or more environment reports. Dry run by default; set dry_run=false and confirm=true to apply. Refuses an environment that still has skills unless force=true. Does not remove shelf skills or installed files. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3196,7 +3186,7 @@
         },
         "force": {
           "default": false,
-          "description": "Also delete reports that still have linked skills or ownership records.",
+          "description": "Also delete reports that still have linked skills.",
           "type": "boolean"
         },
         "dry_run": {
@@ -3446,7 +3436,7 @@
   {
     "name": "reet_merge_environments",
     "title": "Merge environment reports",
-    "description": "Move one environment report’s skills into another and delete the source report. Dry run by default; set dry_run=false and confirm=true to apply. Refuses a report that still holds private skill pins or ownership records. Does not merge two enrolled machine identities. Returns {data: object} as structured content and text.",
+    "description": "Move one environment report’s skills into another and delete the source report. Dry run by default; set dry_run=false and confirm=true to apply. Does not merge two enrolled machine identities. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3736,7 +3726,7 @@
   {
     "name": "reet_merge_machines",
     "title": "Merge two machines",
-    "description": "Merge one machine name into another so a renamed host is not counted twice. Dry run by default; set confirm=true to apply. Moves environments, sync plans and aliases from the source host to the target host; shelf skills, lists and tags are unchanged. Returns {data: object} as structured content and text.",
+    "description": "Merge one machine name into another so a renamed host is not counted twice. Dry run by default; set confirm=true to apply. Moves environments and aliases from the source host to the target host; skills, lists and tags are unchanged. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3812,337 +3802,6 @@
       "readOnlyHint": false,
       "destructiveHint": true,
       "idempotentHint": false,
-      "openWorldHint": true
-    }
-  },
-  {
-    "name": "reet_list_sync_targets",
-    "title": "Inspect saved sync plans",
-    "description": "Read saved sync targets and desired/missing/extra inventories. Does not create a plan or apply installs/removals; use reet sync locally to preview and confirm changes. Returns a page of sync target objects. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "limit": {
-          "default": 20,
-          "description": "Maximum items per page (1–100).",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "offset": {
-          "default": 0,
-          "description": "Page offset; follow next_offset until has_more is false.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "response_format": {
-          "default": "json",
-          "description": "JSON or a Markdown JSON code block.",
-          "type": "string",
-          "enum": [
-            "json",
-            "markdown"
-          ]
-        }
-      },
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "data": {
-          "type": "object",
-          "properties": {
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "target": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "name": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "name"
-                    ],
-                    "additionalProperties": {
-                      "$ref": "#/$defs/__schema0"
-                    }
-                  },
-                  "sourceId": {
-                    "type": "string"
-                  },
-                  "desired": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name"
-                      ],
-                      "additionalProperties": {
-                        "$ref": "#/$defs/__schema1"
-                      }
-                    }
-                  },
-                  "missing": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name"
-                      ],
-                      "additionalProperties": {
-                        "$ref": "#/$defs/__schema1"
-                      }
-                    }
-                  },
-                  "extra": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name"
-                      ],
-                      "additionalProperties": {
-                        "$ref": "#/$defs/__schema1"
-                      }
-                    }
-                  }
-                },
-                "required": [
-                  "target",
-                  "sourceId",
-                  "desired",
-                  "missing",
-                  "extra"
-                ],
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema2"
-                }
-              }
-            },
-            "count": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "total_count": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "offset": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            },
-            "has_more": {
-              "type": "boolean"
-            },
-            "next_offset": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "truncated": {
-              "type": "boolean"
-            },
-            "truncated_reason": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "items",
-            "count",
-            "total_count",
-            "offset",
-            "has_more",
-            "next_offset"
-          ],
-          "additionalProperties": {
-            "$ref": "#/$defs/__schema3"
-          }
-        }
-      },
-      "required": [
-        "data"
-      ],
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "$defs": {
-        "__schema0": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema0"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema0"
-              }
-            }
-          ]
-        },
-        "__schema1": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema1"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema1"
-              }
-            }
-          ]
-        },
-        "__schema2": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema2"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema2"
-              }
-            }
-          ]
-        },
-        "__schema3": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema3"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema3"
-              }
-            }
-          ]
-        }
-      }
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "destructiveHint": false,
-      "idempotentHint": true,
       "openWorldHint": true
     }
   },
@@ -4413,14 +4072,15 @@
                   "liked": {
                     "type": "boolean"
                   },
-                  "bookmarked": {
-                    "type": "boolean"
-                  },
-                  "used": {
-                    "type": "boolean"
-                  },
                   "installs": {
                     "type": "number"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "archived"
+                    ]
                   }
                 },
                 "required": [
@@ -4428,8 +4088,6 @@
                   "name",
                   "notes",
                   "liked",
-                  "bookmarked",
-                  "used",
                   "installs"
                 ],
                 "additionalProperties": {
@@ -4698,14 +4356,15 @@
                       "liked": {
                         "type": "boolean"
                       },
-                      "bookmarked": {
-                        "type": "boolean"
-                      },
-                      "used": {
-                        "type": "boolean"
-                      },
                       "installs": {
                         "type": "number"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "active",
+                          "archived"
+                        ]
                       }
                     },
                     "required": [
@@ -4713,8 +4372,6 @@
                       "name",
                       "notes",
                       "liked",
-                      "bookmarked",
-                      "used",
                       "installs"
                     ],
                     "additionalProperties": {
@@ -5576,12 +5233,12 @@
   {
     "name": "reet_bulk_update_skills",
     "title": "Update many skills at once",
-    "description": "Apply flags, a stage, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. A stage changes the skills on machines: try or use makes them Active, so they are installed on every machine that follows the library; shelf archives them, so they are taken off those machines, each of which keeps a backup for 30 days. Does not edit notes or delete skills. Returns {data: object} as structured content and text.",
+    "description": "Apply a like, a status, tag additions/removals and one list membership to up to 500 skills, selected by ids or by a filter. dry_run=true previews without changing anything. Returns per-item success or failure. status active installs the skills on every machine that follows the library; status archived archives them: they are taken off every machine, each of which keeps a backup for 30 days. Does not edit notes or delete skills. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "ids": {
-          "description": "Exact shelf skill IDs; omit when using filter.",
+          "description": "Skill IDs as reet_list_skills gives them: a shelf skill’s ID, or the library id of a skill with no shelf row, which takes a status change only. Omit when using filter.",
           "maxItems": 500,
           "type": "array",
           "items": {
@@ -5611,12 +5268,12 @@
               "maxLength": 500,
               "description": "Exact environment ID returned by reet_list_environments."
             },
-            "stage": {
+            "status": {
+              "description": "Only Active or only Archived skills.",
               "type": "string",
               "enum": [
-                "shelf",
-                "try",
-                "use"
+                "active",
+                "archived"
               ]
             },
             "sort": {
@@ -5666,19 +5323,15 @@
             "maximum": 9007199254740991
           }
         },
-        "stage": {
-          "description": "Set the same stage for every skill.",
+        "status": {
+          "description": "Set the same status for every skill: active puts them on every machine that follows the library, archived takes them off every machine.",
           "type": "string",
           "enum": [
-            "shelf",
-            "try",
-            "use"
+            "active",
+            "archived"
           ]
         },
         "liked": {
-          "type": "boolean"
-        },
-        "bookmarked": {
           "type": "boolean"
         },
         "add_to_list_id": {
@@ -6268,9 +5921,9 @@
     }
   },
   {
-    "name": "reet_list_ignored",
-    "title": "List ignored skills",
-    "description": "List shelf entries excluded from scanner import, with reason and timestamp. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
+    "name": "reet_list_archived",
+    "title": "List Archived skills",
+    "description": "List your Archived skills: kept in reet and on no machine. Each machine kept a backup for 30 days of what archiving took off it. Each item has its library id; its shelfId, where it has one: shelfId is its ID in reet_list_skills, which shows the skill’s display name; name is the skill’s folder name, the name machines know it by; and its description, where it came from, whether reet holds a copy, and its health. counts gives how many skills are Active and Archived. Restore one with reet_restore_skill. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6317,11 +5970,27 @@
                   },
                   "name": {
                     "type": "string"
+                  },
+                  "shelfId": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "archived"
+                    ]
+                  },
+                  "hasCopy": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "id",
-                  "name"
+                  "name",
+                  "shelfId",
+                  "status",
+                  "hasCopy"
                 ],
                 "additionalProperties": {
                   "$ref": "#/$defs/__schema0"
@@ -6363,6 +6032,26 @@
             },
             "truncated_reason": {
               "type": "string"
+            },
+            "counts": {
+              "type": "object",
+              "properties": {
+                "active": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "archived": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "active",
+                "archived"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [
@@ -6371,7 +6060,8 @@
             "total_count",
             "offset",
             "has_more",
-            "next_offset"
+            "next_offset",
+            "counts"
           ],
           "additionalProperties": {
             "$ref": "#/$defs/__schema1"
@@ -6456,9 +6146,9 @@
     }
   },
   {
-    "name": "reet_unignore_skill",
-    "title": "Allow future skill imports",
-    "description": "Remove a skill from the ignored list. Future scans can import it again; this does not add it to the shelf now. Returns {ok:true}. Returns {data: object} as structured content and text.",
+    "name": "reet_restore_skill",
+    "title": "Restore an Archived skill",
+    "description": "Make an Archived skill Active again: reet installs it on every machine that follows the library. Each machine kept a backup for 30 days when the skill was archived; restoring leaves that backup where it is. Takes the library id from reet_list_archived or the skill’s ID. Returns the skill’s id, shelfId, name and status. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6466,7 +6156,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500,
-          "description": "Exact ID returned by a reet read tool; e.g. anthropics/skills/mcp-builder."
+          "description": "The skill’s ID from reet_list_skills, or its library ID from reet_list_archived."
         },
         "response_format": {
           "default": "json",
@@ -6490,12 +6180,25 @@
         "data": {
           "type": "object",
           "properties": {
-            "ok": {
-              "type": "boolean"
+            "id": {
+              "type": "string"
+            },
+            "shelfId": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "const": "active"
             }
           },
           "required": [
-            "ok"
+            "id",
+            "shelfId",
+            "name",
+            "status"
           ],
           "additionalProperties": false
         }

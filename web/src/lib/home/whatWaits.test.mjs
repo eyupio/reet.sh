@@ -87,3 +87,22 @@ test('a Factory pipeline’s session on a desk stays its Factory item, unmarked'
   const { entries } = runOn([waitingOn('s1')], [desk('d1', ['s1'])], undefined, [record], [])
   assert.ok(entries.every(e => !e.desk))
 })
+
+const newSkill = (name, host = 'Elitebook', seenAt = NOW - 30 * MIN) => ({ name, copies: [{ agentId: `a-${host}`, host, folder: '~/.agents/skills', digest: 'd', seenAt }], digestsDiffer: false })
+
+test('skills new on a machine are one entry that opens their review on the Skills page', () => {
+  const { entries } = whatWaits([], NOW, new Map(), [], [], [], {}, [newSkill('paseo-help', 'Elitebook', NOW - 40 * MIN), newSkill('cq')])
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].source, 'skills')
+  assert.equal(entries[0].text, '2 new skills on Elitebook')
+  assert.equal(entries[0].href, '/skills?review=new')
+  assert.equal(entries[0].since, NOW - 40 * MIN)
+})
+
+test('the new-skills entry names one skill, or how many machines', () => {
+  assert.equal(whatWaits([], NOW, new Map(), [], [], [], {}, [newSkill('cq')]).entries[0].text, '1 new skill on Elitebook')
+  const spread = [newSkill('cq', 'Elitebook'), newSkill('paseo-help', 'ThinkPad')]
+  assert.equal(whatWaits([], NOW, new Map(), [], [], [], {}, spread).entries[0].text, '2 new skills on 2 machines')
+  assert.deepEqual(whatWaits([], NOW, new Map(), [], [], [], {}, []).entries, [])
+  assert.deepEqual(whatWaits([], NOW, new Map(), [], [], []).entries, [])
+})

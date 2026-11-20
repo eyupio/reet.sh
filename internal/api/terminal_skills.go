@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -16,7 +18,10 @@ import (
 // turned into text typed into a terminal.
 const maxSkillInvocationName = 80
 
-// SessionSkill is one entry of the per-session skill picker.
+// SessionSkill is one entry of the per-session skill picker. Source is
+// "machine" for a skill reet knows on the session's machine (an Active skill,
+// or one in a project folder) and "new" for one New on this machine, which
+// waits for the person to Keep or Archive it.
 type SessionSkill struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -26,7 +31,6 @@ type SessionSkill struct {
 	Native      bool   `json:"native"`
 	OnMachine   bool   `json:"onMachine"`
 	Invocation  string `json:"invocation"`
-	Published   bool   `json:"published"`
 }
 
 // SessionSkills is the catalogue offered for one session.
@@ -34,6 +38,8 @@ type SessionSkills struct {
 	Skills      []SessionSkill `json:"skills"`
 	MachineSeen int64          `json:"machineSeen"`
 	Host        string         `json:"host"`
+	// AgentID is the session's machine, whose copy Keep takes.
+	AgentID string `json:"agentId,omitempty"`
 }
 
 // skillInvocation returns the single line of text that asks an agent to
@@ -105,18 +111,49 @@ func inProject(dir, project string) bool {
 	return strings.HasPrefix(dir, project)
 }
 
-// buildSessionSkills builds the catalogue for a session running tool in dir
-// on host: native machine skills, other-agent machine skills, then reet skills.
-// An environment scoped to a project counts only when dir is that project or
-// below it; a skill that no counting environment holds is not listed at all.
-// MachineSeen still follows every environment on the machine, so the freshness
-// line does not depend on where the session runs.
-func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []store.HostedSkill) SessionSkills {
-	out := SessionSkills{Skills: []SessionSkill{}, Host: host}
-	isNative := func(e store.Environment) bool { return e.Agent == tool || e.Agent == "agents" }
+// newSkillFolderAgents names the agent each home skills folder belongs to, as
+// a machine's skills report names the folder.
+var newSkillFolderAgents = map[string]string{
+	"~/.agents/skills":          "agents",
+	"~/.claude/skills":          "claude",
+	"~/.cursor/skills":          "cursor",
+	"~/.config/opencode/skills": "opencode",
+}
 
-	installed := map[string]bool{}
-	var native, other, reet []SessionSkill
+// buildSessionSkills builds the catalogue for a session running tool in dir
+// on host: native machine skills, other-agent machine skills (each with the
+// session's project's own observed skills), then the skills New on this
+// machine. An environment scoped to a project counts only when dir
+// is that project or below it; a skill that no counting environment holds is
+// not listed at all. MachineSeen still follows every environment on the
+// machine, so the freshness line does not depend on where the session runs.
+// A new skill is listed when agentID, the session's machine, reported it; it
+// is in that machine's home folder, so the agent can use it there already.
+func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, news []store.NewSkill, projects ...store.ObservedProjectSkill) SessionSkills {
+	out := SessionSkills{Skills: []SessionSkill{}, Host: host, AgentID: agentID}
+	isNative := func(agent string) bool { return agent == tool || agent == "agents" }
+
+	// One entry per name, from the library or the session's project. A name
+	// seen more than once keeps the copy native to the session's tool, so it
+	// stays insertable however the copies are ordered.
+	byName := map[string]*SessionSkill{}
+	var listed []*SessionSkill
+	library := map[string]bool{}
+	offer := func(entry SessionSkill, description string) {
+		key := strings.ToLower(entry.Name)
+		if entry.Native {
+			entry.Invocation = skillInvocation(tool, entry.Name, description)
+		}
+		if had := byName[key]; had != nil {
+			if !had.Native && entry.Native {
+				had.Agent, had.Native, had.Invocation = entry.Agent, true, skillInvocation(tool, had.Name, firstNonEmpty(had.Description, description))
+			}
+			return
+		}
+		e := entry
+		byName[key] = &e
+		listed = append(listed, &e)
+	}
 	for _, sk := range skills {
 		var here []store.Environment
 		for _, e := range sk.Environments {
@@ -133,35 +170,67 @@ func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []s
 		if len(here) == 0 {
 			continue
 		}
-		installed[sk.Slug] = true
+		library[strings.ToLower(sk.Name)] = true
 		agent := here[0].Agent
 		hasNative := false
 		for _, e := range here {
-			if isNative(e) {
+			if isNative(e.Agent) {
 				agent, hasNative = e.Agent, true
 				break
 			}
 		}
-		entry := SessionSkill{
-			ID: sk.ID, Name: sk.Name, Description: sk.Description,
-			Source: "machine", Agent: agent, Native: hasNative, OnMachine: true, Published: true,
-		}
-		if hasNative {
-			entry.Invocation = skillInvocation(tool, sk.Name, sk.Description)
-			native = append(native, entry)
-		} else {
-			other = append(other, entry)
-		}
+		offer(SessionSkill{ID: sk.ID, Name: sk.Name, Description: sk.Description, Source: "machine", Agent: agent, Native: hasNative, OnMachine: true}, sk.Description)
 	}
-	for _, h := range hosted {
-		if installed[h.Slug] {
+	// The session's project's own skills, as the machine observes them: they
+	// belong to the repository, so the library has no item of them and they
+	// need no Keep. A project copy native to the session's tool makes a
+	// library entry of that name insertable too.
+	for _, p := range projects {
+		if !inProject(dir, p.Project) {
 			continue
 		}
-		reet = append(reet, SessionSkill{
-			ID: "reet:" + h.Slug, Name: h.Slug, Description: h.Description, Source: "reet", Published: h.Published,
-		})
+		sum := sha256.Sum256([]byte(p.Project + "\x00" + p.Name))
+		offer(SessionSkill{ID: "project:" + hex.EncodeToString(sum[:8]), Name: p.Name, Source: "machine", Agent: p.Agent, Native: isNative(p.Agent), OnMachine: true}, "")
 	}
-	for _, group := range [][]SessionSkill{native, other, reet} {
+	var native, other, found []SessionSkill
+	for _, e := range listed {
+		if e.Native {
+			native = append(native, *e)
+		} else {
+			other = append(other, *e)
+		}
+	}
+	// A skill New on this machine keeps its row and its Keep even when the
+	// repository has a skill of that name: the project's copy is listed above.
+	for _, n := range news {
+		if library[strings.ToLower(n.Name)] || agentID == "" {
+			continue
+		}
+		agent, hasNative, here := "", false, false
+		for _, c := range n.Copies {
+			if c.AgentID != agentID {
+				continue
+			}
+			here = true
+			a := newSkillFolderAgents[c.Folder]
+			if agent == "" {
+				agent = a
+			}
+			if a != "" && isNative(a) {
+				agent, hasNative = a, true
+				break
+			}
+		}
+		if !here {
+			continue
+		}
+		entry := SessionSkill{ID: "new:" + n.Name, Name: n.Name, Source: "new", Agent: agent, Native: hasNative, OnMachine: true}
+		if hasNative {
+			entry.Invocation = skillInvocation(tool, n.Name, "")
+		}
+		found = append(found, entry)
+	}
+	for _, group := range [][]SessionSkill{native, other, found} {
 		sort.SliceStable(group, func(i, j int) bool {
 			a, b := strings.ToLower(group[i].Name), strings.ToLower(group[j].Name)
 			if a != b {
@@ -174,24 +243,28 @@ func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []s
 	return out
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // terminalSessionSkills lists the skills a running session can use: those
-// installed on its machine, then the account's reet-hosted ones. It only reads.
+// reet knows on its machine, then those New on it. Archived skills are off
+// every machine and are not offered. It only reads.
 func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
-	session, _, host, err := s.sessionMachine(uid, r.PathValue("id"))
-	if err != nil {
-		terminalError(w, err)
-		return
-	}
-	// The reet-hosted group does not depend on the machine, so it is read first.
-	hosted, err := s.st.HostedSkillsFor(uid)
+	session, agentID, host, err := s.sessionMachine(uid, r.PathValue("id"))
 	if err != nil {
 		terminalError(w, err)
 		return
 	}
 	if host == "" {
 		// The session's machine is not among the account's agents: no machine skills.
-		writeJSON(w, 200, buildSessionSkills(session.Tool, "", session.Dir, nil, hosted))
+		writeJSON(w, 200, buildSessionSkills(session.Tool, "", session.Dir, "", nil, nil))
 		return
 	}
 	// The machine inventory is the one source of truth for what is installed.
@@ -202,7 +275,29 @@ func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
-	writeJSON(w, 200, buildSessionSkills(session.Tool, host, session.Dir, skills, hosted))
+	news, err := s.st.NewOnMachinesFor(uid)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	projects, err := s.st.ObservedProjectSkillsFor(uid, agentID)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	writeJSON(w, 200, buildSessionSkills(session.Tool, host, session.Dir, agentID, activeOnly(skills), news, projects...))
+}
+
+// activeOnly drops the skills whose library item is Archived: they are coming
+// off every machine and are not offered.
+func activeOnly(skills []store.Skill) []store.Skill {
+	out := skills[:0:0]
+	for _, sk := range skills {
+		if sk.Status != store.SkillArchived {
+			out = append(out, sk)
+		}
+	}
+	return out
 }
 
 // sessionMachine resolves a session the account owns and the machine it runs

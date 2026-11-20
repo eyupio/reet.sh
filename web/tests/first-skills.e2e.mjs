@@ -19,9 +19,9 @@ try {
    await expect(page.getByLabel('Add a skill',{exact:true})).toBeVisible()
    await expect(page.getByRole('link',{name:'Sync all machines'}), `no Sync all machines at ${width}px`).toHaveCount(0)
    await expect(page.getByRole('button',{name:'Sync all machines'}), `no Sync all machines at ${width}px`).toHaveCount(0)
-   // The line about the machines is plain text: the older Sync page could say otherwise.
+   // The line about the machines opens Sync, which reads them as this line does.
    await expect(page.locator('main .sync-chip')).toHaveText('No machines yet')
-   await expect(page.getByRole('link',{name:'No machines yet'})).toHaveCount(0)
+   await expect(page.getByRole('link',{name:'No machines yet'})).toHaveAttribute('href','/sync')
    const write = page.locator('main').getByRole('link',{name:'Write a skill',exact:true})
    await expect(write).toHaveAttribute('href','/hosting')
    await expect(write).not.toHaveClass(/primary/)
@@ -40,9 +40,8 @@ try {
   await page.goto(`${base}/skills`)
   await expect(page.locator('[data-skill="demo/toolkit/code-review"]')).toBeVisible()
   await expect(page.getByRole('tab',{name:/^Active/})).toContainText('1')
-  // The line about the machines is not a link: the older Sync page could say otherwise.
-  await expect(page.locator('.sync-chip')).toBeVisible()
-  await expect(page.locator('.sync-chip')).not.toHaveAttribute('href', /.*/)
+  // The line about the machines opens Sync.
+  await expect(page.locator('.sync-chip')).toHaveAttribute('href','/sync')
   await expect(page.locator('main').getByRole('link',{name:'Write a skill',exact:true})).not.toHaveClass(/primary/)
   await context.close()
  }
@@ -52,19 +51,28 @@ try {
  // removes a skill "and ignores it" any more.
  if (run('tools')) {
   for (const skills of [[], [skill('code-review')]]) {
-   const {context,page} = await open({width:1440,skills})
+   const {context,page,errors} = await open({width:1440,skills})
+   // The ignore list is gone (its routes answer 410), so nothing here asks for it or toasts its refusal.
+   const ignoreAsks = []
+   page.on('request', r => { if (/\/api\/(ignored|skill\/ignore)/.test(new URL(r.url()).pathname)) ignoreAsks.push(r.url()) })
    await page.goto(`${base}/skills`)
    await expect(page.getByRole('heading',{name:'Library tools'})).toBeVisible()
    await page.getByRole('button',{name:/Show bookmarklets and tools/}).click()
    await expect(page.getByRole('heading',{name:'Import what you have installed'})).toBeVisible()
+   await page.waitForLoadState('networkidle')
+   await expect(page.locator('.toast.bad')).toHaveCount(0)
+   expect(ignoreAsks, 'the Skills page asked for the removed ignore list').toEqual([])
    await expect(page.getByRole('button',{name:'Import',exact:true})).toBeVisible()
    await expect(page.locator('#tools-panel')).not.toContainText(/in use|to test/i)
    // The bookmarklets add a skills.sh page to the library, or like it; there are no stages to put it in.
    await expect(page.locator('#tools-panel .links a')).toHaveText(['♡ Like on reet', '+ Add to reet'])
    await expect(page.locator('#tools-panel').getByRole('link', {name:'+ Add to reet'})).toHaveAttribute('href', /\/quick\?action=save&/)
-   await expect(page.getByText('Nothing ignored.',{exact:true})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Ignored skills'})).toHaveCount(0)
+   await expect(page.getByRole('button',{name:'Allow again'})).toHaveCount(0)
    await expect(page.getByRole('button',{name:'Restore from JSON'})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Keep a good find'})).toHaveCount(1)
+   await expect(page.getByRole('button',{name:'Manage tags'})).toBeVisible()
+   expect(errors).toEqual([])
    await context.close()
   }
  }
@@ -185,7 +193,7 @@ try {
   await expect(written).toContainText('written by you')
   await expect(written.locator('.health')).toContainText('On all 3 machines')
   await expect(page.locator('[data-skill="item-code-review"]')).toBeVisible()
-  await page.goto(`${base}/sync?skill=${encodeURIComponent(draftId)}`)
+  await page.goto(`${base}/sync/advanced?skill=${encodeURIComponent(draftId)}`)
   await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
   await page.locator('.library-content > summary').filter({hasText:'In your library'}).click()
   const choice = page.locator('.library-content li', {hasText:'reet-incident-notes'})

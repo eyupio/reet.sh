@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/eyupio/reet.sh/internal/auth"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/auth"
 
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
@@ -229,7 +230,8 @@ func TestPatchFlagsAndNotes(t *testing.T) {
 		t.Fatal(code)
 	}
 	s := list(t, srv, "").Skills[0]
-	if s.Liked || !s.Bookmarked || s.Notes != "hi" {
+	// To test is a stage the shelf no longer keeps: it makes the skill Active.
+	if s.Liked || s.Status != store.SkillActive || s.Notes != "hi" {
 		t.Fatalf("%+v", s)
 	}
 	if code, _ := do(t, srv, "PATCH", "/api/skill", `{"id":"nope/x/y","liked":true}`); code != 404 {
@@ -274,7 +276,7 @@ func TestImportKeepsLikes(t *testing.T) {
 	do(t, srv, "PATCH", "/api/skill", `{"id":"vercel-labs/skills/find-skills","notes":"keep me"}`)
 	do(t, srv, "POST", "/api/import", `{"items":[{"name":"find-skills","source":"vercel-labs/skills"}]}`)
 	s := list(t, srv, "").Skills[0]
-	if !s.Liked || !s.Bookmarked || s.Used || s.Notes != "keep me" {
+	if !s.Liked || s.Status != store.SkillActive || s.Notes != "keep me" {
 		t.Fatalf("%+v", s)
 	}
 }
@@ -287,7 +289,7 @@ func TestResolveAndDelete(t *testing.T) {
 		t.Fatalf("%d %s", code, b)
 	}
 	l := list(t, srv, "")
-	if len(l.Skills) != 1 || l.Skills[0].ID != "vercel-labs/skills/find-skills" || !l.Skills[0].Used {
+	if len(l.Skills) != 1 || l.Skills[0].ID != "vercel-labs/skills/find-skills" || l.Skills[0].Status != store.SkillActive {
 		t.Fatalf("%+v", l)
 	}
 	// reet has no copy of it (this server fetches nothing), so Remove asks
@@ -454,6 +456,10 @@ func TestWriteRequiresJSONContentType(t *testing.T) {
 
 func TestImportEnvironmentAndPrune(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
+	// A scan only joins skills the library has; a typed name is the person's own choice.
+	if code, b := do(t, srv, "POST", "/api/import", `{"text":"alpha"}`); code != 200 {
+		t.Fatalf("%d %s", code, b)
+	}
 	body := `{"items":[{"name":"alpha","host":"laptop","agent":"claude","path":".claude/skills"}],"environments":[{"host":"laptop","agent":"claude","path":".claude/skills","skills":["alpha"]}],"prune":true}`
 	if code, b := do(t, srv, "POST", "/api/import", body); code != 200 {
 		t.Fatalf("%d %s", code, b)
@@ -480,7 +486,7 @@ func TestImportEnvironmentAndPrune(t *testing.T) {
 	}
 }
 
-func TestTagsEventsAndIgnore(t *testing.T) {
+func TestTagsAndEvents(t *testing.T) {
 	srv := newSrv(t, deadFetcher(t), "")
 	do(t, srv, "POST", "/api/skills", `{"input":"anthropics/skills/frontend-design"}`)
 	code, b := do(t, srv, "POST", "/api/skill/tags", `{"id":"anthropics/skills/frontend-design","add":["client work"],"remove":[]}`)
@@ -496,15 +502,13 @@ func TestTagsEventsAndIgnore(t *testing.T) {
 	if code, _ := do(t, srv, "POST", "/api/skill/install-copy", `{"id":"anthropics/skills/frontend-design"}`); code != 204 {
 		t.Fatalf("install copy event: %d", code)
 	}
-	if code, _ := do(t, srv, "DELETE", "/api/skill?id=anthropics%2Fskills%2Ffrontend-design&ignore=1&noCopyConfirmed=1", ""); code != 204 {
-		t.Fatalf("ignore: %d", code)
+	// The ignore list is gone: Delete keeps the name on the removal list, and
+	// an Archived skill stays off machines.
+	if code, _ := do(t, srv, "DELETE", "/api/skill?id=anthropics%2Fskills%2Ffrontend-design&noCopyConfirmed=1", ""); code != 204 {
+		t.Fatalf("remove: %d", code)
 	}
-	if code, b := do(t, srv, "GET", "/api/ignored", ""); code != 200 || !strings.Contains(b, "frontend-design") {
+	if code, b := do(t, srv, "GET", "/api/ignored", ""); code != 410 {
 		t.Fatalf("ignored: %d %s", code, b)
-	}
-	code, b = do(t, srv, "POST", "/api/import", `{"items":[{"name":"frontend-design","source":"anthropics/skills"}]}`)
-	if code != 200 || !strings.Contains(b, `"ignored":1`) {
-		t.Fatalf("import ignored: %d %s", code, b)
 	}
 }
 
@@ -991,7 +995,7 @@ func TestSharedListsRolesAndPublicLink(t *testing.T) {
 	if code, body := doClient(t, editor, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, "list-skill") {
 		t.Fatalf("editor shelf: %d %s", code, body)
 	}
-	if code, body := doClient(t, editor, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, `"id":"a/b/list-skill","source"`) || !strings.Contains(body, `"used":true`) {
+	if code, body := doClient(t, editor, srv, "GET", "/api/skills", ""); code != 200 || !strings.Contains(body, `"id":"a/b/list-skill","source"`) || !strings.Contains(body, `"status":"active"`) {
 		t.Fatalf("existing shelf row changed: %d %s", code, body)
 	}
 	if code, body := doClient(t, editor, srv, "GET", "/api/v2/lists/"+strconv.FormatInt(list.ID, 10), ""); code != 200 || !strings.Contains(body, `"useCount":1`) {

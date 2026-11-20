@@ -42,6 +42,12 @@ type SkillPageRow struct {
 	// EditedOnProblem says, in plain words, why Use this version could not
 	// take the edited copy EditedOn names, when it tried and could not.
 	EditedOnProblem string `json:"editedOnProblem,omitempty"`
+	// PublicProblem says why a published skill's public page no longer
+	// follows it, when it doesn't (SkillPublicProblemFor).
+	PublicProblem string `json:"publicProblem,omitempty"`
+	// CreatedAt is when the skill came into the library, in Unix
+	// milliseconds: when it was imported, kept or first written.
+	CreatedAt int64 `json:"createdAt"`
 	// HostedSlug is the written skill's name in the owner's hosted skills,
 	// from which the API makes PublicURL.
 	HostedSlug string `json:"-"`
@@ -92,7 +98,7 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	if !validLibraryStatus(status) {
 		return page, ErrPrivateSkillInvalid
 	}
-	rows, err := s.db.Query(`SELECT i.id,i.name,i.status,i.origin,i.origin_ref,i.revision_id<>'',i.upgraded_from,
+	rows, err := s.db.Query(`SELECT i.id,i.name,i.status,i.origin,i.origin_ref,i.revision_id<>'',i.upgraded_from,i.created_at,
  COALESCE((SELECT a.reference FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference JOIN skills k ON k.id=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' ORDER BY k.hidden,k.source_type='local',a.reference LIMIT 1),''),
  COALESCE((SELECT h.slug FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' ORDER BY h.slug LIMIT 1),''),
  EXISTS(SELECT 1 FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' AND h.published=1),
@@ -108,7 +114,7 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 		var r SkillPageRow
 		var origin, originRef, hostedDescription string
 		var linked bool
-		if err = rows.Scan(&r.ID, &r.Name, &r.Status, &origin, &originRef, &r.HasCopy, &r.UpgradedFrom, &r.ShelfID, &r.HostedSlug, &r.Published, &hostedDescription, &linked); err != nil {
+		if err = rows.Scan(&r.ID, &r.Name, &r.Status, &origin, &originRef, &r.HasCopy, &r.UpgradedFrom, &r.CreatedAt, &r.ShelfID, &r.HostedSlug, &r.Published, &hostedDescription, &linked); err != nil {
 			break
 		}
 		r.OriginKind = skillOriginKind(origin, linked)
@@ -124,6 +130,13 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	rows.Close()
 	if err != nil {
 		return page, err
+	}
+	for i := range all {
+		if all[i].Published {
+			if all[i].PublicProblem, err = s.SkillPublicProblemFor(uid, all[i].ID); err != nil {
+				return page, err
+			}
+		}
 	}
 	for _, r := range all {
 		switch r.Status {
@@ -433,4 +446,31 @@ func (s *Store) DeletedSkillItemsFor(uid int64, ids []string) error {
 		}
 	}
 	return nil
+}
+
+// LibrarySkillsWithoutShelfFor lists the live library skills no visible shelf
+// row stands for, such as one written in reet and never published, as skills
+// keyed by their library id, in name order. SourceType says how each arrived
+// (written, imported or kept). The shelf listing does not show them.
+func (s *Store) LibrarySkillsWithoutShelfFor(uid int64) ([]Skill, error) {
+	rows, err := s.db.Query(`SELECT i.id,i.name,i.status,i.origin,i.created_at,i.updated_at,
+ COALESCE((SELECT h.description FROM library_aliases a JOIN hosted_skills h ON h.user_id=a.user_id AND h.slug=a.reference WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='hosted' ORDER BY h.slug LIMIT 1),'')
+ FROM library_items i WHERE i.user_id=? AND i.item_type=? AND i.deleted_at=0 AND `+privateSkillAccount+`
+ AND NOT EXISTS(SELECT 1 FROM library_aliases a JOIN shelf sh ON sh.user_id=a.user_id AND sh.skill_id=a.reference JOIN skills k ON k.id=a.reference AND k.hidden=0 WHERE a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf')
+ ORDER BY lower(i.name),i.id`, uid, LibrarySkill, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Skill{}
+	for rows.Next() {
+		var sk Skill
+		var origin string
+		if err = rows.Scan(&sk.ID, &sk.Name, &sk.Status, &origin, &sk.CreatedAt, &sk.UpdatedAt, &sk.Description); err != nil {
+			return nil, err
+		}
+		sk.LibraryItemID, sk.Slug, sk.SourceType = sk.ID, sk.Name, skillOriginKind(origin, false)
+		out = append(out, sk)
+	}
+	return out, rows.Err()
 }

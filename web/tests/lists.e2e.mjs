@@ -1,7 +1,7 @@
 // The Lists page: one collection surface, honest chip counts, the search and the saved
 // layout, on a desktop and on a phone.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace } from './helpers/workspace.mjs'
+import { openWorkspace, skill } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -154,14 +154,29 @@ try {
     await expect(chip(page, /^Legacy/)).toHaveCount(0)
     await context.close()
   }
-  // Adding a list to the library makes its skills Active, and the page says they go on every machine.
+  // Adding a list to the library makes its skills Active, as preselected, and the page says they go on every machine.
   if (run('add all')) {
-    const detail = { id: 7, ownerId: 1, ownerName: 'Sam', name: 'Launch checklist', description: 'Everything for a release week.', visibility: 'personal', slug: 'launch-checklist', role: 'owner', skillCount: 2, memberCount: 1, createdAt: now, updatedAt: now, skills: [], members: [], linkEnabled: false, canEdit: true, canManage: true, canTransfer: true }
+    const entries = ['pdf', 'docx'].map(name => ({ ...skill(name), useCount: 0, memberCount: 1, note: '' }))
+    const detail = { id: 7, ownerId: 1, ownerName: 'Sam', name: 'Launch checklist', description: 'Everything for a release week.', visibility: 'personal', slug: 'launch-checklist', role: 'owner', skillCount: 2, memberCount: 1, createdAt: now, updatedAt: now, skills: entries, members: [], linkEnabled: false, canEdit: true, canManage: true, canTransfer: true }
     const { context, page, errors } = await openWorkspace(browser, { width: 1440, routes: { '/api/v2/lists/7': detail, '/api/v2/lists/7/add-to-shelf': { added: 2 } } })
     await page.goto(`${base}/lists/7`)
     await page.getByRole('button', { name: 'Add all to my library' }).click()
+    await page.getByRole('dialog', { name: 'Add 2 skills to your library?' }).getByRole('button', { name: 'Add all', exact: true }).click()
     await expect(page.getByText('Added 2 skills to your library as Active · going on every machine')).toBeVisible()
     await expect(page.getByText(/To test/)).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+  // Add all counts what the server adds: a list skill whose name the library already has, from another source, is not
+  // counted, just as the server leaves it.
+  if (run('add all counts by name')) {
+    const entries = ['pdf', 'docx'].map(name => ({ ...skill(name), useCount: 0, memberCount: 1, note: '' }))
+    const detail = { id: 7, ownerId: 1, ownerName: 'Sam', name: 'Launch checklist', description: '', visibility: 'personal', slug: 'launch-checklist', role: 'owner', skillCount: 2, memberCount: 1, createdAt: now, updatedAt: now, skills: entries, members: [], linkEnabled: false, canEdit: true, canManage: true, canTransfer: true }
+    const mine = { ...skill('pdf'), id: 'other/repo/pdf', source: 'other/repo', status: 'active' }
+    const { context, page, errors } = await openWorkspace(browser, { width: 1440, routes: { '/api/v2/lists/7': detail, '/api/skills': { skills: [mine], counts: { all: 1, used: 0, liked: 0, bookmarked: 0 } } } })
+    await page.goto(`${base}/lists/7`)
+    await page.getByRole('button', { name: 'Add all to my library' }).click()
+    await expect(page.getByRole('dialog', { name: 'Add 1 skill to your library?' })).toBeVisible()
     expect(errors).toEqual([])
     await context.close()
   }

@@ -57,6 +57,11 @@ const skillStatesCopy = `INSERT INTO library_items_v2(user_id,id,item_type,name,
 // library_status_projection mirrored the shelf flags and are not.
 var skillStatesTriggers = []string{"library_shelf_insert", "library_shelf_stage", "library_status_projection", "library_hosted_insert", "library_hosted_update", "library_hosted_delete", "library_bundle_delete", "library_intent_fence"}
 
+// libraryItemState finds an account's deleted and Archived items without
+// reading the others, for the listings that leave out the first and count the
+// second (liveShelfRow, archivedShelfRows).
+const libraryItemState = `CREATE INDEX IF NOT EXISTS library_item_state ON library_items(user_id,deleted_at,status)`
+
 func (s *Store) migrateSkillStates() error {
 	return s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
@@ -77,7 +82,7 @@ func (s *Store) migrateSkillStates() error {
 				return err
 			}
 		}
-		for _, stmt := range append([]string{libraryItemProjection, libraryIntentFence}, canonicalLibraryTriggers...) {
+		for _, stmt := range append([]string{libraryItemProjection, libraryItemState}, canonicalLibraryTriggers...) {
 			if _, err := tx.Exec(stmt); err != nil {
 				return err
 			}
@@ -135,6 +140,11 @@ func (s *Store) upgradeSkillStates(tx *sql.Tx) error {
 // its name and no content, which the ignored ID points to so a later sighting
 // of it finds the archived item.
 func ignoredIntoArchived(tx *sql.Tx) error {
+	// A database made after skills-engine-drop-v1 has no ignore list.
+	var lists int
+	if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='ignored'`).Scan(&lists); err != nil || lists == 0 {
+		return err
+	}
 	for _, stmt := range []string{
 		`UPDATE library_items SET status='archived',upgraded_from='removed' WHERE deleted_at=0 AND EXISTS(SELECT 1 FROM ignored g JOIN library_aliases a ON a.user_id=g.user_id AND a.kind='shelf' AND a.reference=g.id WHERE a.user_id=library_items.user_id AND a.item_id=library_items.id)`,
 		`INSERT INTO library_aliases(user_id,kind,reference,item_id) SELECT g.user_id,'shelf',g.id,lower(hex(randomblob(16))) FROM ignored g WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=g.user_id) AND NOT EXISTS(SELECT 1 FROM library_aliases a WHERE a.user_id=g.user_id AND a.kind='shelf' AND a.reference=g.id)`,
@@ -368,14 +378,13 @@ func dropSkillRemovalTx(tx *sql.Tx, uid int64, it skillStateItem) error {
 	return err
 }
 
-// shelfStageStatusTx moves a skill's live library item to the status its
-// shelf stage now names, for the Skills page that still sets stages: In use or
-// To test is Active, Parked is Archived, as the upgrade maps them. It goes
-// through setSkillStatusTx so the removal list follows.
-func shelfStageStatusTx(tx *sql.Tx, uid int64, skill string, at time.Time) error {
-	var used, bookmarked bool
+// shelfStageStatusTx moves the live library item a shelf row stands for to
+// status, for the old stage controls, which still send In use, To test and
+// Parked: see Patch.stageStatus. It goes through setSkillStatusTx so the
+// removal list follows.
+func shelfStageStatusTx(tx *sql.Tx, uid int64, skill, status string, at time.Time) error {
 	var item string
-	err := tx.QueryRow(`SELECT sh.used,sh.bookmarked,a.item_id FROM shelf sh JOIN library_aliases a ON a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id WHERE sh.user_id=? AND sh.skill_id=?`, uid, skill).Scan(&used, &bookmarked, &item)
+	err := tx.QueryRow(`SELECT item_id FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference=?`, uid, skill).Scan(&item)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -385,10 +394,6 @@ func shelfStageStatusTx(tx *sql.Tx, uid int64, skill string, at time.Time) error
 	it, err := skillStateItemTx(tx, uid, item)
 	if err != nil || it.deletedAt != 0 {
 		return err
-	}
-	status := SkillArchived
-	if used || bookmarked {
-		status = SkillActive
 	}
 	return setSkillStatusTx(tx, uid, it, status, at)
 }
@@ -412,19 +417,26 @@ func (s *Store) SetSkillStatusFor(uid int64, ids []string, status string, at tim
 			return err
 		}
 		for _, id := range ids {
-			it, err := skillStateItemTx(tx, uid, id)
-			if err == nil && it.deletedAt != 0 {
-				err = ErrPrivateSkillMissing
-			}
-			if err != nil {
-				return err
-			}
-			if err = setSkillStatusTx(tx, uid, it, status, at); err != nil {
+			if err := setLiveSkillStatusTx(tx, uid, id, status, at); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// setLiveSkillStatusTx archives or restores one live library item by its id.
+// The Skills page's Archive and Restore and the MCP tools' bulk status change
+// both go through it.
+func setLiveSkillStatusTx(tx *sql.Tx, uid int64, id, status string, at time.Time) error {
+	it, err := skillStateItemTx(tx, uid, id)
+	if err == nil && it.deletedAt != 0 {
+		err = ErrPrivateSkillMissing
+	}
+	if err != nil {
+		return err
+	}
+	return setSkillStatusTx(tx, uid, it, status, at)
 }
 
 // DeleteSkillsFor marks items deleted and puts their names on the removal
@@ -467,22 +479,19 @@ func deleteSkillItemTx(tx *sql.Tx, uid int64, it skillStateItem, at time.Time) e
 // library skill is deleted as DeleteSkillsFor deletes it, so it leaves every
 // machine and frees its name, and the row goes from the shelf; a row that is
 // not the last shelf row standing for its skill goes alone, and the skill
-// stays; with ignore
-// each ID also goes on the ignore list, which older machines' scans still
-// read, whether it is on the shelf or not. removed counts the rows that went.
+// stays. removed counts the rows that went.
 //
 // Some removals change nothing and return the skills' names in refused:
 //   - ErrSkillWritten: a skill the person wrote (origin written), which is
 //     deleted from Write a skill and never by this Remove.
 //   - ErrSkillNoCopy: a skill reet holds no copy of, unless noCopyConfirmed,
 //     since its machines then keep only their backup.
-func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCopyConfirmed bool, at time.Time) (removed int, refused []string, err error) {
+func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, noCopyConfirmed bool, at time.Time) (removed int, refused []string, err error) {
 	err = s.withTx(func(tx *sql.Tx) error {
 		type row struct {
 			id, name string
 			item     skillStateItem
 			live     bool
-			onShelf  bool
 			// aliasOnly: another shelf row, not removed here, stands for
 			// the same item, so only this row goes.
 			aliasOnly bool
@@ -495,17 +504,10 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 				continue
 			}
 			seen[id] = true
-			r := row{id: id, onShelf: true}
+			r := row{id: id}
 			e := tx.QueryRow(`SELECT k.name FROM shelf sh JOIN skills k ON k.id=sh.skill_id WHERE sh.user_id=? AND sh.skill_id=?`, uid, id).Scan(&r.name)
 			if errors.Is(e, sql.ErrNoRows) {
-				// Not on the shelf: only ignore has anything to do.
-				if ignore {
-					r.onShelf = false
-					if e = tx.QueryRow(`SELECT name FROM skills WHERE id=?`, id).Scan(&r.name); e != nil && !errors.Is(e, sql.ErrNoRows) {
-						return e
-					}
-					found = append(found, r)
-				}
+				// Not on the shelf: nothing to remove.
 				continue
 			}
 			if e != nil {
@@ -560,14 +562,6 @@ func (s *Store) RemoveShelfSkillsFor(uid int64, shelfIDs []string, ignore, noCop
 					return e
 				}
 				deleted[r.item.id] = true
-			}
-			if ignore {
-				if _, e := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,'removed',?) ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name,reason=excluded.reason,at=excluded.at`, uid, r.id, r.name, now()); e != nil {
-					return e
-				}
-			}
-			if !r.onShelf {
-				continue
 			}
 			if e := s.removeShelfTx(tx, uid, r.id, false); e != nil {
 				return e

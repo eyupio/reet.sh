@@ -18,39 +18,15 @@ const {
   connectorFor, groupBundles, preselectBundle, newestFirst, modeLabel, MODES, pinChangeNote, shortId, samePin, bundleLabel, revisionLabels, revisionLabel, missingNote,
 } = review
 
-// The closed tables are read from the Go side, so a code the server starts to send fails loudly here instead of
-// reading as "Something changed". Paths are relative to this file; every extractor is asserted non-empty in the
-// "Go sources" test below, so a regex that silently stops matching cannot shrink a list unnoticed.
-const go = (path) => readFileSync(new URL(`../../../internal/${path}`, import.meta.url), 'utf8')
-const planGo = go('skillplan/plan.go')
-const previewGo = go('store/store_content_previews.go')
-const literals = (text, re) => [...text.matchAll(re)].map(m => m[1]) // the first capture group of every match
+// The closed tables were read from the Go sources of the content preview and its planner. Those were removed with the
+// old sync engine (Task 16), so the tables are now checked against the codes they close over, as this module sends
+// them; the module itself goes with the old pages in Task 17.
 const unique = (xs) => [...new Set(xs)].sort()
-// Planner block and conflict codes: block("x"), conflict("x") and the one Conflict{... Code: "x"} literal.
-// "root_"+ownership is built at run time, so root_shared and root_unknown are named here, once the source is seen to build them.
-const buildsRootCodes = /block\("root_"\s*\+\s*s\.RootOwnership\)/.test(planGo)
-const PLAN_CODES = unique([
-  ...literals(planGo, /\b(?:block|conflict)\("([a-z_]+)"\)/g),
-  ...literals(planGo, /Conflict\{[^}]*Code:\s*"([a-z_]+)"/g),
-  ...(buildsRootCodes ? ['root_shared', 'root_unknown'] : []),
-])
-// Preserved{... Reason: "x"}
-const PRESERVED_REASONS = unique(literals(planGo, /Preserved\{[^}]*Reason:\s*"([a-z_]+)"/g))
-// Preview states: `State: "x"` in a literal, and the first string after the `=` of any statement that sets or compares a State
-// (this reaches `p.State, p.Error = "failed", ...` and `p.InventoryRevision, p.State = revision, "capturing"` too).
-const STATES = unique([...literals(previewGo, /\bState:\s*"([a-z_0-9]+)"/g), ...literals(previewGo, /\bState\b[^=\n"]*=[^\n]*?"([a-z_0-9]+)"/g)])
-// Failure codes: the connector may report the cases of the switch in FailSkillContentPreviewFor; the controller itself records plan_unavailable.
-const FAILURE_CODES = unique([
-  ...literals(previewGo, /switch code \{([\s\S]*?)default:/g).flatMap(list => literals(list, /"([a-z_]+)"/g)),
-  ...literals(previewGo, /p\.State, p\.Error = "failed", "([a-z_]+)"/g),
-])
-// Fence reasons: every reasons = append(reasons, "x") inside previewFence.
-const fenceStart = previewGo.indexOf('func previewFence(')
-const fenceBody = previewGo.slice(fenceStart, previewGo.indexOf('\nfunc ', fenceStart + 1))
-const GO_FENCE_REASONS = unique(literals(fenceBody, /reasons = append\(reasons, "([a-z_]+)"\)/g))
-// The reasons table also words two reasons that come from a state rather than the fence: a check can be "expired" or "stale".
-const STATE_REASONS = ['expired', 'stale']
-const FENCE_REASONS = unique([...GO_FENCE_REASONS, ...STATE_REASONS])
+const STATES = unique(CLOSED_CODES.states)
+const FAILURE_CODES = unique(CLOSED_CODES.failures)
+const PLAN_CODES = unique(CLOSED_CODES.planCodes)
+const PRESERVED_REASONS = unique(CLOSED_CODES.preserved)
+const FENCE_REASONS = unique(CLOSED_CODES.reasons)
 const TABLES = [
   ['checkStateLabel', checkStateLabel, STATES],
   ['reasonText', reasonText, FENCE_REASONS],
@@ -82,18 +58,6 @@ test('the three exact constants', () => {
   assert.equal(FALLBACK, 'Something changed. Check again.')
 })
 
-test('the Go sources: every extractor found something, and the closed tables hold exactly the codes the server can send', () => {
-  assert.ok(buildsRootCodes, 'plan.go no longer builds root_shared and root_unknown from RootOwnership; update this test')
-  const found = { states: STATES, reasons: GO_FENCE_REASONS, failures: FAILURE_CODES, planCodes: PLAN_CODES, preserved: PRESERVED_REASONS }
-  for (const [name, codes] of Object.entries(found)) assert.ok(codes.length > 0, `nothing was extracted for ${name}: a regex has stopped matching`)
-  // The two reasons the table words beyond the fence are real states.
-  for (const r of STATE_REASONS) assert.ok(STATES.includes(r), `${r} is not a preview state`)
-  assert.deepEqual([...CLOSED_CODES.states].sort(), STATES)
-  assert.deepEqual([...CLOSED_CODES.reasons].sort(), FENCE_REASONS)
-  assert.deepEqual([...CLOSED_CODES.failures].sort(), FAILURE_CODES)
-  assert.deepEqual([...CLOSED_CODES.planCodes].sort(), PLAN_CODES)
-  assert.deepEqual([...CLOSED_CODES.preserved].sort(), PRESERVED_REASONS)
-})
 
 // One distinguishing word per sentence, written out by hand from the sentences themselves, so that swapping two rows of a
 // table (or rewording one into another's meaning) fails. Each pattern must match its own sentence and no other in its table.

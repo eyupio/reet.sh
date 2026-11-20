@@ -40,13 +40,10 @@ reet doctor
 2. Select individual skills or **Select all In use**, then **Save selection**. An offline machine or stale inventory does not prevent saving intent.
 3. Leave the connector running. It verifies and installs ready items automatically, with no browser preview/apply chain. Edits from either selected machine or the controller propagate through immutable private revisions. A failed item leaves healthy items running.
 
-To capture local content initially, run this explicitly on the source machine:
-
-```sh
-reet agent library-import
-# Include another absolute skill folder when needed:
-reet agent library-import --folder /work/shared-skills
-```
+`reet agent library-import` has been removed. A skill found on a machine now
+appears on the Skills page under **New on a machine**, where you keep it (Active)
+or archive it, and reet takes its copy from that machine. Running
+`reet agent library-import` prints a line saying so and changes nothing.
 
 Capture retains complete supporting files and executable flags. A proven existing source keeps its identity and lifecycle; a new capture starts To test. Library-only captures use the canonical status API during this staged rollout (`PATCH /api/v2/library/{item}` with `status` and `expectedVersion`); the existing Skills controls remain available for shelf-backed items. Only In use items are sent, even when an inactive item remains selected. Imported root receipts let subsequent edits sync automatically when local apply consent is enabled.
 
@@ -160,7 +157,7 @@ A killed agent or sync may leave a `.lock` file. Check that the relevant process
 
 Renaming an enrolled machine preserves its identity and mode/baseline, cancels old queued approvals, and requires a new preview. Renaming during a running job is rejected. Two active enrolled installations cannot be merged; revoke one enrollment first if consolidating duplicate reports.
 
-Local `reet sync --apply` also requires enrollment and verifies the actual local hostname/home binding and controller identity. Preview remains available without enrollment. Existing one-way reference snapshots remain supported.
+`reet sync` has been removed: every connected machine follows the library, and the command prints a line saying so.
 
 ## Inventory correctness
 
@@ -176,10 +173,9 @@ See [the control centre workflow](control-centre.md) for fleet controls and sele
 
 The [Stage 2 library foundation](https://github.com/eyupio/reet.sh/blob/main/docs/handoffs/simple-library-machine-sync-stage-2.md)
 adds stable item IDs, lifecycle and complete typed content beneath the current
-pages. An enrolled connector can explicitly capture known/project skill folders
-and additional absolute folders with `reet agent library-import --folder PATH`.
-It reports per-item issues and retains healthy captures, without creating machine
-selections. Selected-library connectors use those import receipts for subsequent background edits. Older/custom plans keep the compatibility behaviour described above. Managed removal/restoration and the new minimal interface follow separately.
+pages. Skills found in known/project skill folders appear on the Skills page under
+**New on a machine**, where keeping one captures it; `reet agent library-import`
+has been removed. Selected-library connectors use those import receipts for subsequent background edits. Older/custom plans keep the compatibility behaviour described above. Managed removal/restoration and the new minimal interface follow separately.
 
 A skill written on the Hosting page reaches a selected machine through an immutable, account-owned private revision, whether published or private. Publishing is not required and does not select a destination. The connector fetches the exact revision from `GET /api/v2/skill-bundles/{bundle}/revisions/{revision}` and verifies paths, bytes and modes before applying it. Unchanged content creates no revision or repeated install.
 

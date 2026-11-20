@@ -88,35 +88,6 @@ func TestMemoryVerificationContinuesAfterBlockedDatabase(t *testing.T) {
 	}
 }
 
-func TestSkillVerificationReportsOneBlockedResult(t *testing.T) {
-	e, _ := skillFixture(t)
-	source, err := discover(e)
-	if err != nil {
-		t.Fatal(err)
-	}
-	selection, err := BuildSnapshotSelection(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	destination := fixture(t)
-	report, err := discover(destination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyRestorePlan(planForSelection(t, selection, report), RestoreApplyOptions{JournalDir: t.TempDir()}); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(destination.home, ".claude", "skills", "alpha", "SKILL.md")
-	os.Remove(path)
-	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), path); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	result := VerifySetupSnapshot(BuildSetupSnapshot(selection), testManifest("review"), report)
-	if result.Summary.Blocked != 1 || result.Summary.Verified != 0 || len(result.Components) != 1 {
-		t.Fatalf("contradictory verification: %+v", result)
-	}
-}
-
 func TestVerificationFailureIsNotSuccess(t *testing.T) {
 	for _, summary := range []SetupVerifySummary{{Missing: 1}, {Changed: 1}, {Blocked: 1}} {
 		if setupVerificationError(SetupVerifyResult{Summary: summary}) == nil {

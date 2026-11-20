@@ -37,10 +37,6 @@ List merged local branches and prune them.
 
 Report installed skills to your account.
 
-## reet sync
-
-Preview a saved target, then choose whether to apply it.
-
 ## reet setup
 
 Discover, save and restore agent setups.
@@ -58,7 +54,6 @@ Enroll a machine and manage its local agent.
 
 - `reet agent enroll` — Enroll with a controller.
 - `reet agent status` — This machine's enrollment and daemon.
-- `reet agent library-import` — Capture complete skills from known or explicitly selected folders.
 
 ## reet terminal
 
@@ -90,6 +85,10 @@ Binary version and source commit.
 Read the command reference.
 
 `reet init` and `reet update` alias `install` and `upgrade`.
+
+`reet sync` and `reet agent library-import` are removed. Every connected machine
+follows your library, and a skill found on a machine appears on the Skills page
+under New on a machine. Running either one prints a line saying what replaced it.
 
 The old dashboard is removed. `reet tui` is not a command. The legacy `--tui`
 flag runs the selected CLI command and offers a return home. It does not create

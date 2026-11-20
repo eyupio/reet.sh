@@ -168,7 +168,7 @@ func ownsTerminal(args []string) bool {
 		action = args[1]
 	}
 	switch args[0] {
-	case "configure", "install", "init", "upgrade", "update", "serve", "sync":
+	case "configure", "install", "init", "upgrade", "update", "serve":
 		return true
 	case "terminal":
 		return action == "start" || action == "restart"

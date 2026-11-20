@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -63,7 +64,7 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 	if item.ID != first.ID || len(canonicalItems(t, s, uid)) != 1 {
 		t.Fatal("publishing provenance duplicated the authored identity")
 	}
-	if item.Metadata == nil || !item.Metadata.Liked || !item.Metadata.Bookmarked || item.Metadata.Notes != notes || len(item.Metadata.Lists) != 1 || len(item.Metadata.Tags) == 0 {
+	if item.Metadata == nil || !item.Metadata.Liked || item.Metadata.Notes != notes || len(item.Metadata.Lists) != 1 || len(item.Metadata.Tags) == 0 {
 		t.Fatalf("organisation not projected: %+v", item)
 	}
 	if err = s.SetLibraryStatusFor(uid, item.ID, SkillArchived, item.Version); err != nil {
@@ -74,7 +75,7 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
-	if item.Status != SkillArchived || item.Metadata.Used || !item.Metadata.Bookmarked {
+	if item.Status != SkillArchived || item.Metadata.Liked {
 		t.Fatalf("organisation reset archived status: %+v", item)
 	}
 	if item.Metadata.Status != SkillArchived || item.Metadata.LibraryItemID != item.ID {
@@ -91,8 +92,8 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 	if err = s.SetLibraryStatusFor(uid, item.ID, SkillActive, first.Version); !errors.Is(err, ErrLibraryConflict) {
 		t.Fatal("stale lifecycle write accepted", err)
 	}
-	// A stage set on the shelf moves the status: To test is Active.
-	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Used: &no, Bookmarked: &yes}, false); err != nil {
+	// A bulk status change moves the canonical status.
+	if _, _, err = s.BulkUpdateFor(uid, []string{rf.ID}, BulkChange{Status: SkillActive, StatusAt: time.Now()}, false); err != nil {
 		t.Fatal(err)
 	}
 	item, _ = s.LibraryItemFor(uid, item.ID)
@@ -105,11 +106,6 @@ func TestCanonicalLibraryAuthoringStatusAndOrganisation(t *testing.T) {
 	item, _ = s.LibraryItemFor(uid, item.ID)
 	if item.Status != SkillActive {
 		t.Fatal("bulk lifecycle diverged", item.Status)
-	}
-	// Organisation alone never creates a machine selection.
-	targets, err := s.SyncTargetsFor(uid)
-	if err != nil || len(targets) != 0 {
-		t.Fatal("metadata created deployment intent", targets, err)
 	}
 	skill.Content = strings.Replace(skill.Content, "first version", "second version", 1)
 	skill.Published = true
@@ -200,91 +196,6 @@ func TestCanonicalLibraryTypedContentAndReceiptCompatibility(t *testing.T) {
 	}
 }
 
-func TestCanonicalLibraryLocationIdentityIsolationAndPartialCapture(t *testing.T) {
-	s, uid, a, _ := observationFixture(t)
-	location := LibraryLocation{ID: strings.Repeat("a", 32), Application: "shared", Path: "/fixture/skills"}
-	if _, err := s.RegisterLibraryLocationFor(uid, a.ID, location); err != nil {
-		t.Fatal(err)
-	}
-	fixture := machineImportFixture(t)
-	base := ""
-	in := LibraryLocationImport{LocationID: location.ID, Name: "demo", RequestID: "location_create_0001", ExpectedBase: &base, Files: fixture.Files}
-	first, err := s.ImportLibraryLocationFor(uid, a.ID, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	location2 := LibraryLocation{ID: strings.Repeat("b", 32), Application: "codex", Project: "/project", Path: "/project/custom/skills"}
-	if _, err = s.RegisterLibraryLocationFor(uid, a.ID, location2); err != nil {
-		t.Fatal(err)
-	}
-	// One live item per name: a second location's copy of demo is refused,
-	// not merged into the first and not kept as a second item.
-	secondIn := in
-	secondIn.LocationID = location2.ID
-	secondIn.RequestID = "location_create_0002"
-	if _, err = s.ImportLibraryLocationFor(uid, a.ID, secondIn); !errors.Is(err, ErrSkillNameTaken) {
-		t.Fatal("a second location made a second item named demo", err)
-	}
-	items := canonicalItems(t, s, uid)
-	if len(items) != 1 || items[0].BundleID != first.Bundle.ID {
-		t.Fatal("the refused location changed the library", items)
-	}
-	bad := in
-	bad.Name = "broken"
-	bad.RequestID = "location_broken_0001"
-	bad.Files = []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("invalid metadata")}}
-	if _, err = s.ImportLibraryLocationFor(uid, a.ID, bad); !errors.Is(err, ErrPrivateSkillInvalid) {
-		t.Fatal("malformed capture accepted", err)
-	}
-	bad = in
-	bad.RequestID = "location_secret_0001"
-	bad.Files = append(append([]skillbundle.ContentFile{}, in.Files...), skillbundle.ContentFile{Path: ".env", Data: []byte("EXAMPLE_SECRET=private")})
-	if _, err = s.ImportLibraryLocationFor(uid, a.ID, bad); !errors.Is(err, ErrPrivateSkillInvalid) {
-		t.Fatal("blocked capture accepted", err)
-	}
-	changed := in
-	changed.RequestID = "location_update_0001"
-	changed.ExpectedBase = &first.Revision.ID
-	changed.Files = append([]skillbundle.ContentFile{}, in.Files...)
-	changed.Files[0].Data = bytes.ReplaceAll(changed.Files[0].Data, []byte("Use this skill."), []byte("Updated instructions."))
-	updated, err := s.ImportLibraryLocationFor(uid, a.ID, changed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	late, err := s.ImportLibraryLocationFor(uid, a.ID, in)
-	if err != nil || late.Revision.ID != first.Revision.ID {
-		t.Fatal("lost acknowledgement replay was not idempotent", err)
-	}
-	entries, err := s.RegisterLibraryLocationFor(uid, a.ID, location)
-	if err != nil || len(entries) != 1 || entries[0].RevisionID != updated.Revision.ID {
-		t.Fatal("late receipt moved the canonical head backwards", entries, err)
-	}
-	if len(canonicalItems(t, s, uid)) != 1 {
-		t.Fatal("failed capture changed healthy items")
-	}
-	if _, err = s.ImportLibraryLocationFor(uid+999, a.ID, in); err == nil {
-		t.Fatal("other account imported this location")
-	}
-	other, _, err := s.EnrollSyncAgent(uid, "other", "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ImportLibraryLocationFor(uid, other.ID, in); err == nil {
-		t.Fatal("other enrollment imported this location")
-	}
-	if err = s.ControlSyncAgent(uid, a.ID, "revoke"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ImportLibraryLocationFor(uid, a.ID, in); err == nil {
-		t.Fatal("revoked connector replayed an import")
-	}
-	// The source may now be unavailable; both exact captured revisions remain.
-	read, err := s.PrivateSkillRevisionFor(uid, first.Bundle.ID, first.Revision.ID)
-	if err != nil || !reflect.DeepEqual(read.Files, in.Files) {
-		t.Fatal("offline source made private bytes unavailable", err)
-	}
-}
-
 func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.T) {
 	s, uid, a, env := observationFixture(t)
 	member, err := s.CreateUser("migration-member@example.com", "Member", "member", "")
@@ -295,8 +206,8 @@ func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.
 	if _, err = s.UpsertFor(member.ID, mustRef(t, "a/b/member-only"), Patch{Notes: &memberNote}); err != nil {
 		t.Fatal(err)
 	}
-	yes, no := true, false
-	for i, patch := range []Patch{{Used: &yes, Liked: &yes}, {Bookmarked: &yes}, {Used: &no, Bookmarked: &no}} {
+	yes := true
+	for i, patch := range []Patch{{Liked: &yes}, {}, {}} {
 		if _, err := s.UpsertFor(uid, mustRef(t, fmt.Sprintf("a/b/skill-%d", i)), patch); err != nil {
 			t.Fatal(err)
 		}
@@ -324,7 +235,16 @@ func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.
 	if _, err := s.SavePrivateSkillRevisionFor(uid, "", PrivateSkillWrite{Name: "demo", RequestID: "migration_legacy_0001", ExpectedBase: ptrString(""), Files: machineImportFixture(t).Files}); err != nil {
 		t.Fatal(err)
 	}
+	// The stages and a saved selection, as a database from before
+	// skills-engine-drop-v1 holds them.
+	addLegacyShelfFlags(t, s, legacyShelfStage{uid, "a/b/skill-0", true, false}, legacyShelfStage{uid, "a/b/skill-1", false, true})
+	if _, err := s.db.Exec(`CREATE TABLE sync_targets(user_id INTEGER NOT NULL,target_id TEXT NOT NULL,source_id TEXT NOT NULL,source_name TEXT NOT NULL,desired TEXT NOT NULL,revision TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(user_id,target_id))`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.db.Exec(`INSERT INTO sync_targets(user_id,source_id,source_name,target_id,desired,revision,updated_at) VALUES(?,'manual','Manual',?,'[]','legacy-revision',?)`, uid, env, now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM library_migrations WHERE name='skills-engine-drop-v1'`); err != nil {
 		t.Fatal(err)
 	}
 	before, _, err := s.ListFor(uid, Filter{})
@@ -397,9 +317,9 @@ func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.
 			t.Fatal(name, statuses[name], want)
 		}
 	}
-	var desired, revision string
-	if err = s.db.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, env).Scan(&desired, &revision); err != nil || desired != "[]" || revision != "legacy-revision" {
-		t.Fatal("migration changed saved intent", desired, revision, err)
+	// The saved selection went with the old engine, and so did the flags.
+	if schemaObjectExists(t, s, "sync_targets") || shelfHasColumn(t, s, "used") {
+		t.Fatal("the upgrade kept the old engine's selection or the shelf flags")
 	}
 	agents, err := s.SyncAgentsFor(uid)
 	if err != nil || len(agents) != 1 || agents[0].ID != a.ID {
@@ -443,16 +363,8 @@ func TestCanonicalLibraryKnownRootReusesProvenMachineCapture(t *testing.T) {
 		t.Fatal("completed machine capture not in library", items)
 	}
 	id := items[0].ID
-	location := LibraryLocation{ID: strings.Repeat("c", 32), Application: "shared", Path: "/fixture/home/.agents/skills", LegacyAgent: "agents"}
-	entries, err := s.RegisterLibraryLocationFor(uid, agent.ID, location)
-	if err != nil || len(entries) != 1 || entries[0].ItemID != id || entries[0].BundleID != first.Bundle.ID {
-		t.Fatal("known root duplicated the proven capture", entries, err)
-	}
-	// A different, explicit folder with the same name is never adopted by name.
-	custom := LibraryLocation{ID: strings.Repeat("d", 32), Application: "shared", Path: "/fixture/custom"}
-	entries, err = s.RegisterLibraryLocationFor(uid, agent.ID, custom)
-	if err != nil || len(entries) != 0 {
-		t.Fatal("custom root claimed unrelated same-name content", entries, err)
+	if items[0].BundleID != first.Bundle.ID {
+		t.Fatal("the capture is not the item's content", items[0])
 	}
 	// Old capture APIs can start a fresh bundle for the same proven source.
 	in.RequestID = "machine_recapture_0001"
@@ -523,24 +435,6 @@ func TestCanonicalLibraryFailedAuthoredCaptureKeepsPreviousCompleteRevision(t *t
 	}
 }
 
-func TestCanonicalLibraryTypedContentCannotEnterSkillOnlyTargets(t *testing.T) {
-	s, uid, agent, environment := observationFixture(t)
-	base := ""
-	in := PrivateSkillWrite{Name: "review", RequestID: "typed_target_0001", ExpectedBase: &base, ItemType: LibraryAgent, Application: "claude", Format: "markdown", Files: []skillbundle.ContentFile{{Path: "review.md", Data: []byte("---\nname: review\ndescription: Review\n---\nInspect the patch.\n")}}}
-	out, err := s.SaveLibraryContentFor(uid, "", in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = s.SaveSkillContentTargetFor(uid, SkillContentTargetWrite{EnvironmentID: environment, AgentID: agent.ID, BundleID: out.Bundle.ID, RevisionID: out.Revision.ID, Mode: "additive", ExpectedVersion: &base})
-	if !errors.Is(err, ErrSkillContentTargetInvalid) {
-		t.Fatal("typed item was dispatched to a skill-only adapter", err)
-	}
-	targets, err := s.SkillContentTargetsFor(uid)
-	if err != nil || len(targets) != 0 {
-		t.Fatal("unsupported deployment intent was saved", targets, err)
-	}
-}
-
 // A linked library item is the single source for a name. Capturing a machine
 // copy of the same name is refused rather than made a second library entry, so
 // the Library shows the linked item once and sync keeps maintaining it.
@@ -564,16 +458,6 @@ func TestCanonicalLibraryShowsOneEntryWhenAMachineCopyDuplicatesALinkedSkill(t *
 	}
 	if !hasAlias(items[0], "hosted") {
 		t.Fatalf("the linked item was not the one kept: %+v", items[0])
-	}
-	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
-		t.Fatal(err)
-	}
-	view, err := s.SyncLibraryViewFor(uid, "owner")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(view.Skills) != 1 || view.Skills[0].Name != "demo" {
-		t.Fatalf("automatic sync did not resolve the same source: %+v", view)
 	}
 }
 
@@ -603,35 +487,6 @@ func TestCanonicalLibraryKeepsAManuallyAddedMachineCopyAndItsName(t *testing.T) 
 	}
 	if len(items) != 1 || hasAlias(items[0], "hosted") {
 		t.Fatalf("the manual copy was replaced: %+v", items)
-	}
-}
-
-// One live item per name: a second machine location's copy of a name the
-// library already has is refused, so the library keeps the first one only.
-func TestCanonicalLibraryRefusesASecondUnlinkedCopyOfAName(t *testing.T) {
-	s, uid, agent, _ := observationFixture(t)
-	base := ""
-	for i, id := range []string{strings.Repeat("e", 32), strings.Repeat("f", 32)} {
-		location := LibraryLocation{ID: id, Application: "shared", Path: "/fixture/skills/" + id}
-		if _, err := s.RegisterLibraryLocationFor(uid, agent.ID, location); err != nil {
-			t.Fatal(err)
-		}
-		fixture := machineImportFixture(t)
-		in := LibraryLocationImport{LocationID: id, Name: "demo", RequestID: fmt.Sprintf("location_duplicate_%04d", i), ExpectedBase: &base, Files: fixture.Files}
-		_, err := s.ImportLibraryLocationFor(uid, agent.ID, in)
-		if i == 0 && err != nil {
-			t.Fatal(err)
-		}
-		if i == 1 && !errors.Is(err, ErrSkillNameTaken) {
-			t.Fatal("a second copy named demo was made an item", err)
-		}
-	}
-	items, err := s.LibraryViewFor(uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("want the first copy only: %+v", items)
 	}
 }
 
@@ -757,7 +612,7 @@ func TestListCanonicalFoldsAnUnlinkedCopyOfALinkedSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(one) != 1 || one[0].SourceType == "local" || canonical.All != 1 || canonical.Used != 1 {
+	if len(one) != 1 || one[0].SourceType == "local" || canonical.All != 1 || canonical.Active != 1 {
 		t.Fatalf("canonical list = %+v, counts %+v", one, canonical)
 	}
 }

@@ -25,7 +25,6 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/profile')data={profile:{theme:'light',shelfView:'list',cardsExpanded:false}}
  else if(path==='/api/skills')data={skills,counts:{all:3,used:3,liked:0,bookmarked:0}}
  else if(path==='/api/v2/skills'&&request.method()==='GET'){const status=new URL(request.url()).searchParams.get('status')||'active';data={skills:status==='active'?skills.map(s=>({id:s.id,shelfId:s.id,name:s.name,description:s.description,status:'active',originKind:'imported',origin:s.url,yours:false,published:false,hasCopy:true,liked:false,notes:'',tags:[],lists:[],health:{state:'ok',pending:0,total:2,hosts:[],machines:[]}})):[],counts:{active:skills.length,archived:0},newOnMachines:[],machines:2,notice:null}}
- else if(path==='/api/ignored')data={ignored:[]}
  else if(path==='/api/environments')data={environments,machines:snapshot.machines}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
@@ -34,6 +33,9 @@ await page.route('**/api/**',async route=>{
   if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}})
   data=snapshot
  }
+ // The shared library's setup sits on Advanced sync now, and reads copies in progress.
+ else if(path==='/api/v2/skill-imports')data={requests:[],capabilities:[]}
+ else if(path==='/api/v2/sync/skills')data={machines:snapshot.agents.map(a=>({agentId:a.id,host:a.host,paused:!!a.paused,online:true,protocol:2,state:a.paused?'paused':'ok',failed:[],waiting:[],lastSeen:now})),activity:[],work:{failed:0,installing:0,removing:0,updating:0},active:skills.length}
  else if(path==='/api/v2/sync/candidates'){if(failSource)return route.fulfill({status:503,json:{error:'Source unavailable'}});data={skills}}
  else if(path==='/api/v2/sync/desired'){
   writes.push({path,body})
@@ -133,10 +135,10 @@ try {
  await noOverflow()
  // The Sync page carries no plan controls: they are one link away, on Advanced sync.
  await page.goto(`${base}/sync`)
- await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1})).toHaveCount(1)
  await expect(page.getByLabel('Sync mode',{exact:true})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
- await page.getByRole('link',{name:'Advanced sync',exact:true}).click()
+ await page.getByRole('link',{name:'Advanced',exact:true}).click()
  await expect(page).toHaveURL(`${base}/sync/advanced`)
  await expect(page.getByRole('heading',{level:1,name:'Advanced sync',exact:true})).toBeVisible()
  // The plan controls open on the machine's saved set, not a blank form that contradicts it.
@@ -202,7 +204,8 @@ try {
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  // The older address for Sync shows the Sync page; with a machine it is a link into the plan controls.
  await page.goto(`${base}/machines?view=compare`)
- await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Everything is in sync.',exact:true})).toBeVisible()
+ expect(await page.title()).toMatch(/^Sync ·/)
  await expect(page.getByLabel('Machine',{exact:true})).toHaveCount(0)
  await page.goto(`${base}/machines?view=compare&machine=dev-laptop`)
  await expect(page).toHaveURL(`${base}/sync/advanced?machine=dev-laptop`)
@@ -256,7 +259,8 @@ try {
  writes.length=0
  snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
  await page.setViewportSize({width:390,height:844})
- await page.goto(`${base}/sync`)
+ // Sync jobs and their retries are on Advanced sync until the job-based sync goes.
+ await page.goto(`${base}/sync/advanced`)
  const devJob=page.locator('.activity-host').filter({hasText:'dev-laptop'}).locator('.activity-job').filter({hasText:'Apply failed'})
  const devRetry=devJob.getByRole('button',{name:/run it/})
  await devRetry.scrollIntoViewIfNeeded()

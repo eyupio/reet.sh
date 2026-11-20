@@ -1,6 +1,6 @@
 <evaluation>
   <qa_pair>
-    <question>In the frozen evaluation fixture, among skills in Interface kit that are saved for testing but absent from the laptop inventory, which has the largest install count? Answer with the skill name.</question>
+    <question>In the frozen evaluation fixture, among Active skills in Interface kit that are absent from the laptop inventory, which has the largest install count? Answer with the skill name.</question>
     <answer>Layout Lab</answer>
   </qa_pair>
   <qa_pair>
@@ -8,11 +8,11 @@
     <answer>Test Pilot</answer>
   </qa_pair>
   <qa_pair>
-    <question>In the frozen evaluation fixture, which skill missing from the desktop's saved sync target carries the Security tag on the personal shelf? Answer with the skill name.</question>
+    <question>In the frozen evaluation fixture, which skill in the laptop inventory but not the desktop inventory carries the Security tag? Answer with the skill name.</question>
     <answer>Audit Trail</answer>
   </qa_pair>
   <qa_pair>
-    <question>In the frozen evaluation fixture, inspect the skills missing from the desktop's saved sync target. Which has the largest shelf install count? Answer with the skill name.</question>
+    <question>In the frozen evaluation fixture, inspect the skills in the laptop inventory but not the desktop inventory. Which has the largest install count? Answer with the skill name.</question>
     <answer>Metric Watch</answer>
   </qa_pair>
   <qa_pair>
@@ -24,7 +24,7 @@
     <answer>Tone guidance for forms</answer>
   </qa_pair>
   <qa_pair>
-    <question>In the frozen evaluation fixture, which Release kit skill is saved for testing and has no recorded environment installation? Answer with the skill name.</question>
+    <question>In the frozen evaluation fixture, which Release kit skill has no recorded environment installation? Answer with the skill name.</question>
     <answer>Deploy Guide</answer>
   </qa_pair>
   <qa_pair>
@@ -32,11 +32,11 @@
     <answer>False</answer>
   </qa_pair>
   <qa_pair>
-    <question>In the frozen evaluation fixture, the desktop's saved sync target has an extra skill outside its desired inventory. Which accessible list contains that extra skill? Answer with the list name.</question>
+    <question>In the frozen evaluation fixture, one skill is in the desktop inventory but not the laptop inventory. Which accessible list contains that skill? Answer with the list name.</question>
     <answer>Interface kit</answer>
   </qa_pair>
   <qa_pair>
-    <question>In the frozen evaluation fixture, add the shelf install counts of all skills missing from the desktop's saved sync target. What is the total? Answer with an integer.</question>
+    <question>In the frozen evaluation fixture, add the install counts of all skills in the laptop inventory but not the desktop inventory. What is the total? Answer with an integer.</question>
     <answer>900</answer>
   </qa_pair>
 </evaluation>

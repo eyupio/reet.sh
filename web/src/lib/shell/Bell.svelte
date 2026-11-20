@@ -87,6 +87,13 @@
               <a class="btn open" href={`/factory?pipeline=${encodeURIComponent(entry.item.id)}`} aria-label={`Open ${entry.item.title} in the Factory`} onclick={() => close()}>Open in the Factory</a>
             </div>
           </li>
+          {:else if entry.source === 'skills'}
+          <li class="item" data-status="waiting">
+            <span class="kind">Skills</span>
+            <span class="title">{entry.text}</span>
+            <span class="ask">Keep or archive them on the Skills page.</span>
+            <div class="actions"><a class="btn open" href={entry.href} aria-label={`Review ${entry.text}`} onclick={() => close()}>Review</a></div>
+          </li>
           {:else if entry.source === 'gaffer'}
           <li class="item" data-status="waiting">
             <span class="kind">Gaffer</span>

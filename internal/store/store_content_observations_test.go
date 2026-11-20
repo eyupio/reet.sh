@@ -316,3 +316,42 @@ func TestContentObservationMigrationAndExpiredGrant(t *testing.T) {
 		t.Fatal(envs, err)
 	}
 }
+
+// The picker lists a project's observed skills only from a complete scope:
+// a scope read only in part (here, a skill in it had issues) lists nothing.
+func TestObservedProjectSkillsAreCompleteOnes(t *testing.T) {
+	s, uid, a, _ := observationFixture(t)
+	for _, project := range []string{"/work/done", "/work/partial"} {
+		if err := s.TouchEnvironmentFor(uid, "laptop", "claude", project, project+"/.claude/skills"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RecordInventoryFor(uid, EnvironmentIDFor(uid, "laptop", "claude", project), true, MachineInfo{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := s.PrepareContentObservationFor(uid, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := func(name string, complete bool, issues ...string) contentobs.Skill {
+		v := contentobs.Skill{Name: name, SchemaVersion: skillbundle.SchemaVersion, Algorithm: skillbundle.Algorithm, ModeSemantics: skillbundle.ModeSemantics, Complete: complete, Files: 1, Bytes: 12, Issues: issues}
+		if complete {
+			v.Digest = strings.Repeat("a", 64)
+		}
+		return v
+	}
+	r := contentobs.Report{SchemaVersion: 1, ScanID: g.ScanID, ObservedAt: now(), Scopes: []contentobs.Scope{
+		{Agent: "claude", Project: "/work/done", Complete: true, Skills: []contentobs.Skill{skill("good", true)}},
+		{Agent: "claude", Project: "/work/partial", Complete: false, Skills: []contentobs.Skill{skill("half", true), skill("cut", false, "symlink")}},
+	}}
+	if err = s.RecordContentObservationFor(uid, a.ID, r); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ObservedProjectSkillsFor(uid, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "good" || got[0].Project != "/work/done" {
+		t.Fatalf("observed: %+v", got)
+	}
+}

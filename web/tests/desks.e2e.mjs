@@ -170,6 +170,7 @@ const api = async route => {
     // A desk from a newer reet: the controller never lists one, and the browser does not show one either.
     if (hidden) data.desks.push({ ...summary(deskOf('desk-new', 'from the future', [])), schema: 2 })
   }
+  else if (path === '/api/v2/skills/new' && method === 'GET') data = { newOnMachines: [] }
   else if (path === '/api/v2/desks' && method === 'POST') {
     const body = request.postDataJSON()
     posts.push(body)

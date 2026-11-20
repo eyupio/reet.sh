@@ -331,14 +331,14 @@ func TestMCPExistingClientsFollowRoleChangesDisablingAndAdminRevocation(t *testi
 	}
 	session := mcpSession(t, ts, token)
 	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 48 {
+	if err != nil || len(tools.Tools) != 47 {
 		t.Fatalf("member tools: %v", err)
 	}
 	if err = st.UpdateUserRole(u.ID, "viewer"); err != nil {
 		t.Fatal(err)
 	}
 	tools, err = session.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 11 {
+	if err != nil || len(tools.Tools) != 10 {
 		t.Fatalf("viewer tools: %v", err)
 	}
 	if err = st.SetUserDisabled(u.ID, true); err != nil {
@@ -449,6 +449,10 @@ func TestMCPLocalSkillsAndMachineCleanup(t *testing.T) {
 				items := []map[string]any{}
 				for _, name := range skills {
 					items = append(items, map[string]any{"name": name, "host": host, "agent": "agents"})
+				}
+				// A scan only joins skills the library has: the names are typed first.
+				if len(skills) > 0 {
+					mcpJSON(t, browser, ts, "POST", "/api/import", map[string]any{"text": strings.Join(skills, "\n")}, 200)
 				}
 				mcpJSON(t, browser, ts, "POST", "/api/import", map[string]any{
 					"machine": map[string]any{"host": host}, "prune": true, "items": items,

@@ -17,6 +17,8 @@ export async function readPromptLibrary(signal?: AbortSignal): Promise<PromptLib
   const [prompts, shelf] = await Promise.all([promptRead, shelfRead])
   const skills: Record<string, string> = {}
   for (const skill of shelf.skills) {
+    // An Archived skill is off every machine: its token stays as written.
+    if (skill.status === 'archived') continue
     const text = useSkillPrompt(skill)
     if (!text) continue
     if (skill.slug) skills[skill.slug] = text

@@ -44,6 +44,8 @@ type pageRow struct {
 		Host    string `json:"host"`
 	} `json:"editedOn"`
 	EditedOnProblem string `json:"editedOnProblem"`
+	CreatedAt       int64  `json:"createdAt"`
+	PublicProblem   string `json:"publicProblem"`
 }
 
 // pageData mirrors SkillsPageData in web/src/lib/api.ts.
@@ -761,15 +763,12 @@ func TestOldRemoveWithoutCopyNeedsConfirm(t *testing.T) {
 	if code, raw = e.owner(t, "DELETE", "/api/skill?id=a%2Fb%2Fone&noCopyConfirmed=1", ""); code != 204 || e.live(t, one) {
 		t.Fatalf("confirmed remove: %d %s", code, raw)
 	}
-	code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"],"ignore":true}`)
+	code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"]}`)
 	if code != 409 || !strings.Contains(raw, `"names":["two"]`) || !e.live(t, two) {
 		t.Fatalf("bulk remove without a copy: %d %s", code, raw)
 	}
-	if code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"],"ignore":true,"noCopyConfirmed":true}`); code != 200 || !strings.Contains(raw, `"removed":1`) || e.live(t, two) {
+	if code, raw = e.owner(t, "POST", "/api/skills/remove", `{"ids":["a/b/two"],"noCopyConfirmed":true}`); code != 200 || !strings.Contains(raw, `"removed":1`) || e.live(t, two) {
 		t.Fatalf("confirmed bulk remove: %d %s", code, raw)
-	}
-	if _, raw = e.owner(t, "GET", "/api/ignored", ""); !strings.Contains(raw, "a/b/two") {
-		t.Fatalf("ignored: %s", raw)
 	}
 }
 
@@ -877,18 +876,6 @@ func TestSkillsPageDeleteAsksOnceForWrittenSkills(t *testing.T) {
 	}
 	if e.live(t, written) || e.live(t, linked) {
 		t.Fatal("confirmed delete left a skill")
-	}
-}
-
-// Ignore of an ID that is not on the shelf still puts it on the ignore
-// list, as the old Remove did.
-func TestOldRemoveIgnoresAnIDNotOnTheShelf(t *testing.T) {
-	e := newReconcileEnv(t)
-	if code, raw := e.owner(t, "DELETE", "/api/skill?id=a%2Fb%2Fnever-added&ignore=1", ""); code != 204 {
-		t.Fatalf("ignore: %d %s", code, raw)
-	}
-	if _, raw := e.owner(t, "GET", "/api/ignored", ""); !strings.Contains(raw, "a/b/never-added") {
-		t.Fatalf("ignored: %s", raw)
 	}
 }
 
@@ -1159,5 +1146,420 @@ func TestExportMarkdownEscapesEmphasisCodeAndHeadings(t *testing.T) {
 	want := "- my\\_skill \\*beta\\* — \\# Big \\`code\\` and \\_under\\_ \\*\\*bold\\*\\*"
 	if !slices.Contains(strings.Split(md, "\n"), want) {
 		t.Fatalf("got:\n%s\nwant the line:\n%s", md, want)
+	}
+}
+
+// contentReply mirrors SkillContent in web/src/lib/api.ts.
+type contentReply struct {
+	ID        string                    `json:"id"`
+	Name      string                    `json:"name"`
+	Revision  string                    `json:"revision"`
+	Published bool                      `json:"published"`
+	Files     []skillbundle.ContentFile `json:"files"`
+}
+
+func getContent(t *testing.T, e copyEnv, item string) contentReply {
+	t.Helper()
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/content", "")
+	var r contentReply
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET content: %d %s", code, body)
+	}
+	return r
+}
+
+func putContent(t *testing.T, e copyEnv, item, revision, skillMD string) (int, string) {
+	t.Helper()
+	files, _ := json.Marshal([]skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte(skillMD)}})
+	return do(t, e.srv, "PUT", "/api/v2/skills/"+item+"/content", `{"revision":"`+revision+`","files":`+string(files)+`}`)
+}
+
+// Write a skill edits any library skill: its head revision's files come out,
+// and a save makes a new revision of kind edit that every machine gets.
+func TestSkillContentEditMakesRevision(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	got := getContent(t, e, item)
+	if got.ID != item || got.Name != "find-skills" || got.Revision == "" || len(got.Files) != 1 || got.Files[0].Path != "SKILL.md" || !strings.Contains(string(got.Files[0].Data), "v1") {
+		t.Fatalf("content: %+v", got)
+	}
+	if edited, _ := e.st.SkillEditedSinceImportFor(e.uid, item); edited {
+		t.Fatal("not edited yet")
+	}
+	edit := "---\nname: find-skills\ndescription: Finds skills\n---\nmy own words\n"
+	code, body := putContent(t, e, item, got.Revision, edit)
+	if code != 200 {
+		t.Fatalf("PUT content: %d %s", code, body)
+	}
+	var saved struct{ Revision string }
+	if json.Unmarshal([]byte(body), &saved) != nil || saved.Revision == "" || saved.Revision == got.Revision {
+		t.Fatalf("PUT must answer the new revision: %s", body)
+	}
+	li, err := e.st.LibraryItemFor(e.uid, item)
+	if err != nil || li.RevisionID != saved.Revision {
+		t.Fatalf("the edit must be the head: %+v %v", li, err)
+	}
+	rev, err := e.st.PrivateSkillRevisionFor(e.uid, li.BundleID, li.RevisionID)
+	if err != nil || rev.Origin.Kind != "edit" {
+		t.Fatalf("the revision's kind: %+v %v", rev.Origin, err)
+	}
+	if edited, _ := e.st.SkillEditedSinceImportFor(e.uid, item); !edited {
+		t.Fatal("an edit through Write a skill counts as edited since import")
+	}
+	if after := getContent(t, e, item); after.Revision != saved.Revision || string(after.Files[0].Data) != edit {
+		t.Fatalf("GET after the edit: %+v", after)
+	}
+	// A save against a revision that is no longer the head changes nothing.
+	if code, body := putContent(t, e, item, got.Revision, edit+"again\n"); code != 409 {
+		t.Fatalf("a stale revision: %d %s", code, body)
+	}
+	if code, body := do(t, e.srv, "PUT", "/api/v2/skills/"+item+"/content", `{"files":[]}`); code != 400 {
+		t.Fatalf("a save must say which revision it edits: %d %s", code, body)
+	}
+	if code, _ := putContent(t, e, item, saved.Revision, "no front matter"); code != 400 {
+		t.Fatalf("content that is not a skill: %d", code)
+	}
+	if code, _ := do(t, e.srv, "GET", "/api/v2/skills/nosuchitem/content", ""); code != 404 {
+		t.Fatalf("unknown item: %d", code)
+	}
+}
+
+// Publishing an imported skill serves reet's copy at its public address, and
+// the page credits the original. Unpublishing hides the page again.
+func TestPublishImportedSkillCreditsOriginal(t *testing.T) {
+	e := newCopyEnv(t)
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	item := e.item(t)
+	url := "/api/v2/skills/" + item + "/publish"
+	code, body := do(t, e.srv, "POST", url, `{"public":true}`)
+	if code != 409 || !strings.Contains(body, "publishing username") {
+		t.Fatalf("publishing needs a publishing username first: %d %s", code, body)
+	}
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"public":true}`)
+	if code != 200 || !strings.Contains(body, `"published":true`) || !strings.Contains(body, `"publicUrl":"`+e.srv.URL+`/sam/find-skills"`) {
+		t.Fatalf("publish: %d %s", code, body)
+	}
+	code, page := do(t, e.srv, "GET", "/sam/find-skills", "")
+	if code != 200 || !strings.Contains(page, "Imported from "+findSkillsOrigin) {
+		t.Fatalf("the public page must credit the original: %d %s", code, page)
+	}
+	if code, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); code != 200 || !strings.Contains(md, "v1") {
+		t.Fatalf("the public page serves reet's copy: %d %s", code, md)
+	}
+	// The skill stays imported and one item: not a skill you wrote.
+	row := func() pageRow {
+		t.Helper()
+		code, raw := do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+		var p pageData
+		if code != 200 || json.Unmarshal([]byte(raw), &p) != nil {
+			t.Fatalf("page: %d %s", code, raw)
+		}
+		if len(p.Skills) != 1 {
+			t.Fatalf("one skill: %+v", p.Skills)
+		}
+		return p.Skills[0]
+	}
+	if r := row(); !r.Published || r.OriginKind != "imported" || r.Yours || r.PublicURL == "" {
+		t.Fatalf("after publish: %+v", r)
+	}
+	// An edit reaches the public page.
+	got := getContent(t, e, item)
+	if code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nedited for everyone\n"); code != 200 {
+		t.Fatalf("edit: %d %s", code, body)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); !strings.Contains(md, "edited for everyone") {
+		t.Fatalf("the public page follows an edit: %s", md)
+	}
+	code, body = do(t, e.srv, "POST", url, `{"public":false}`)
+	if code != 200 || !strings.Contains(body, `"published":false`) {
+		t.Fatalf("unpublish: %d %s", code, body)
+	}
+	if code, _ := do(t, e.srv, "GET", "/sam/find-skills", ""); code != 404 {
+		t.Fatalf("an unpublished skill has no public page: %d", code)
+	}
+	if r := row(); r.Published || r.PublicURL != "" {
+		t.Fatalf("after unpublish: %+v", r)
+	}
+	if code, _ := do(t, e.srv, "POST", url, `{}`); code != 400 {
+		t.Fatalf("publish must say which way: %d", code)
+	}
+}
+
+// A library skill may have a name a machine accepts but a public address
+// does not (my_skill). Publishing it says why, in plain words.
+func TestPublishRefusesANameThatCannotBeHosted(t *testing.T) {
+	e := newCopyEnv(t)
+	e.fetch.setName("My_Skill")
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"https://www.skills.sh/vercel-labs/skills/My_Skill"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	code, body := do(t, e.srv, "POST", "/api/v2/skills/"+e.item(t)+"/publish", `{"public":true}`)
+	if code != 409 || !strings.Contains(body, "lowercase letters, numbers and single hyphens") {
+		t.Fatalf("a name that cannot be hosted: %d %s", code, body)
+	}
+}
+
+// Publish on the Skills page does for a skill you wrote what Write a skill's
+// switch does: its content stays the editor's, it joins the shelf as a
+// public skill, and Unpublish takes its page down and its public entry off.
+func TestPublishWrittenSkillAsWriteASkillDoes(t *testing.T) {
+	e := newCopyEnv(t)
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	draft := `{"content":"---\nname: reet-demo\ndescription: A written skill.\n---\n\nDo the thing.\n","files":{},"published":false}`
+	if code, body := do(t, e.srv, "PUT", "/api/v2/hosting/skills/reet-demo", draft); code != 200 {
+		t.Fatalf("draft: %d %s", code, body)
+	}
+	item := e.item(t)
+	shelf := func() string {
+		t.Helper()
+		_, body := do(t, e.srv, "GET", "/api/skills?tab=all", "")
+		return body
+	}
+	if strings.Contains(shelf(), "/sam/reet-demo") {
+		t.Fatal("a draft has no public entry")
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/publish", `{"public":true}`); code != 200 || !strings.Contains(body, "/sam/reet-demo") {
+		t.Fatalf("publish: %d %s", code, body)
+	}
+	if code, page := do(t, e.srv, "GET", "/sam/reet-demo", ""); code != 200 || strings.Contains(page, "Imported from") {
+		t.Fatalf("a written skill's page credits no one: %d", code)
+	}
+	if !strings.Contains(shelf(), "/sam/reet-demo") {
+		t.Fatalf("a published written skill joins the shelf as Write a skill's publish does: %s", shelf())
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/publish", `{"public":false}`); code != 200 {
+		t.Fatalf("unpublish: %d %s", code, body)
+	}
+	if code, _ := do(t, e.srv, "GET", "/sam/reet-demo", ""); code != 404 {
+		t.Fatalf("unpublished: %d", code)
+	}
+	if strings.Contains(shelf(), "/sam/reet-demo") {
+		t.Fatalf("Unpublish takes the public entry off the shelf, as Write a skill's does: %s", shelf())
+	}
+}
+
+// publishedImport adds find-skills by link, claims the username sam and
+// publishes it, as the opened skill does.
+func publishedImport(t *testing.T, e copyEnv) string {
+	t.Helper()
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	if err := e.st.ClaimPublishingUsername(e.uid, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	item := e.item(t)
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/publish", `{"public":true}`); code != 200 {
+		t.Fatalf("publish: %d %s", code, body)
+	}
+	return item
+}
+
+// A published skill's page follows every new head, not only an edit through
+// Write a skill: here Update from original.
+func TestPublishedSkillFollowsUpdateFromOriginal(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	e.fetch.set("v2 from the original", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`); code != 200 || !strings.Contains(body, `"updated":true`) {
+		t.Fatalf("update: %d %s", code, body)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); !strings.Contains(md, "v2 from the original") {
+		t.Fatalf("the public page must follow the update: %s", md)
+	}
+}
+
+// A published import is still one entry in the library: its link on the
+// shelf, with no second hosted entry of the same name.
+func TestPublishedImportIsOneLibraryEntry(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	items, err := e.st.LibraryViewFor(e.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := 0
+	for _, it := range items {
+		if it.Name == "find-skills" {
+			named++
+			if it.ID != item {
+				t.Fatalf("the library entry must be the import, not its public page: %+v", it)
+			}
+		}
+	}
+	if named != 1 {
+		t.Fatalf("one entry for find-skills: %+v", items)
+	}
+	// What every machine is told to install is the item's head revision,
+	// before and after Update from original.
+	atHead := func() {
+		t.Helper()
+		li, err := e.st.LibraryItemFor(e.uid, item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := e.st.DesiredSkillsFor(e.uid, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := 0
+		for _, sk := range d.Active {
+			if sk.Name == "find-skills" {
+				found++
+				if sk.Revision != li.RevisionID || sk.Item != item {
+					t.Fatalf("machines get %+v, the head is %s", sk, li.RevisionID)
+				}
+			}
+		}
+		if found != 1 {
+			t.Fatalf("one desired find-skills: %+v", d.Active)
+		}
+	}
+	atHead()
+	e.fetch.set("v2", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	if code, body := do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`); code != 200 {
+		t.Fatalf("update: %d %s", code, body)
+	}
+	atHead()
+}
+
+// Write a skill holds the skills written there. A published import is not
+// one: it is not listed, and its public page can't be saved over, renamed or
+// deleted from there.
+func TestWriteASkillLeavesPublishedImportsAlone(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	if _, body := do(t, e.srv, "GET", "/api/v2/hosting", ""); strings.Contains(body, "find-skills") {
+		t.Fatalf("Write a skill lists the import: %s", body)
+	}
+	save := `{"content":"---\nname: find-skills\ndescription: Mine now.\n---\n\nOverwritten.\n","files":{},"published":true}`
+	for _, c := range []struct{ method, path, body string }{
+		{"PUT", "/api/v2/hosting/skills/find-skills", save},
+		{"POST", "/api/v2/hosting/skills/find-skills/rename", `{"name":"reet-other"}`},
+		{"DELETE", "/api/v2/hosting/skills/find-skills", ""},
+	} {
+		code, body := do(t, e.srv, c.method, c.path, c.body)
+		if code != 409 || !strings.Contains(body, "Archive or delete it from Skills") {
+			t.Fatalf("%s %s: %d %s", c.method, c.path, code, body)
+		}
+	}
+	if items, err := e.st.SkillItemsFor(e.uid, []string{item}); err != nil || len(items) != 1 {
+		t.Fatalf("the import must still be in the library: %v", err)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); strings.Contains(md, "Overwritten") {
+		t.Fatalf("the public page must be the library's copy: %s", md)
+	}
+}
+
+// A content edit that saved answers 200 even when the later look at its
+// public page fails, and is recorded.
+func TestContentSaveSaysWhenThePublicPageCouldNotFollow(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	e.api.s.refreshHosted = func(int64, string) error { return errors.New("database is locked") }
+	got := getContent(t, e, item)
+	code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nsaved anyway\n")
+	// The save already brought the page up to date; a failure of the second
+	// look says nothing about the page.
+	if code != 200 || strings.Contains(body, `"publicProblem"`) {
+		t.Fatalf("a saved edit is a 200 that claims nothing about the page: %d %s", code, body)
+	}
+	events, err := e.st.ListEventsFor(e.uid, 20, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ev := range events {
+		found = found || ev.Action == "skill-edit"
+	}
+	if !found {
+		t.Fatalf("the edit must be recorded: %+v", events)
+	}
+}
+
+// Each row carries when the skill came into the library, which the opened
+// skill shows beside where it came from.
+func TestSkillsPageRowsSayWhenTheSkillArrived(t *testing.T) {
+	e := newCopyEnv(t)
+	before := time.Now().Add(-time.Second).UnixMilli()
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	e.settle()
+	code, raw := do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+	var p pageData
+	if code != 200 || json.Unmarshal([]byte(raw), &p) != nil || len(p.Skills) != 1 {
+		t.Fatalf("page: %d %s", code, raw)
+	}
+	if at := p.Skills[0].CreatedAt; at < before || at > time.Now().UnixMilli() {
+		t.Fatalf("createdAt %d is not when it was added", at)
+	}
+}
+
+// A published skill whose head its public page can't serve (here the
+// original renamed itself in SKILL.md) keeps its page as it was, and says
+// so: in the Update from original answer, on the Skills page row, and when
+// Write a skill opens it.
+func TestPublicPageThatStopsFollowingSaysWhy(t *testing.T) {
+	e := newCopyEnv(t)
+	item := publishedImport(t, e)
+	if got := getContent(t, e, item); !got.Published {
+		t.Fatalf("GET content says the skill is published: %+v", got)
+	}
+	e.fetch.setName("Find Skills")
+	e.fetch.set("v2", nil)
+	var r struct{ Digest, Revision string }
+	code, body := do(t, e.srv, "GET", "/api/v2/skills/"+item+"/original", "")
+	if code != 200 || json.Unmarshal([]byte(body), &r) != nil {
+		t.Fatalf("GET original: %d %s", code, body)
+	}
+	code, body = do(t, e.srv, "POST", "/api/v2/skills/"+item+"/original", `{"digest":"`+r.Digest+`","revision":"`+r.Revision+`"}`)
+	if code != 200 || !strings.Contains(body, `"updated":true`) || !strings.Contains(body, `"publicProblem":"The public page still shows the version before`) {
+		t.Fatalf("the update says the page stopped following: %d %s", code, body)
+	}
+	if _, md := do(t, e.srv, "GET", "/sam/find-skills/SKILL.md", ""); strings.Contains(md, "v2") {
+		t.Fatalf("the page keeps what it could serve: %s", md)
+	}
+	_, raw := do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+	var p pageData
+	if json.Unmarshal([]byte(raw), &p) != nil || len(p.Skills) != 1 || !strings.HasPrefix(p.Skills[0].PublicProblem, "The public page still shows the version before") {
+		t.Fatalf("the row says the page stopped following: %s", raw)
+	}
+	// Once the head can be served again, the problem goes.
+	got := getContent(t, e, item)
+	if code, body := putContent(t, e, item, got.Revision, "---\nname: find-skills\ndescription: Finds skills\n---\nfixed\n"); code != 200 || strings.Contains(body, "publicProblem") {
+		t.Fatalf("a servable edit: %d %s", code, body)
+	}
+	_, raw = do(t, e.srv, "GET", "/api/v2/skills?status=active", "")
+	var after pageData
+	if json.Unmarshal([]byte(raw), &after) != nil || after.Skills[0].PublicProblem != "" {
+		t.Fatalf("the problem goes once the page follows: %s", raw)
 	}
 }

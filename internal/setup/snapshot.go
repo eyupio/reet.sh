@@ -112,7 +112,7 @@ func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (Sna
 			"Preview reads supported configuration files into memory to apply policy; selected values are never returned or written.",
 			"Credential-bearing fields are counted but not selected; portable credentials remain unimplemented.",
 			"Opt-in sources are not read. Unsupported classes and unknown fields are reported, not collected.",
-			"Installed skill folders are selected as whole directories up to 256 files and 8 MiB each; symlinks and special files make the whole skill an omission.",
+			"Skill folders are not selected: your skills come from your reet library.",
 			"This is a preview, not a backup: archive writing, encryption, key management, restore and cross-OS translation are not implemented.",
 		},
 	}
@@ -128,7 +128,6 @@ func BuildSnapshotSelectionWithOptions(r Report, opts SnapshotBuildOptions) (Sna
 		}
 		preview.Agents = append(preview.Agents, sa)
 	}
-	selectSkillContent(cp, &preview, &selection)
 	selectMemoryContent(cp, &preview, &selection)
 	selection.Preview = preview
 	return selection, nil

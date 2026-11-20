@@ -145,6 +145,13 @@ func TestRemoteImportCancellationExpiryGenerationAndOwners(t *testing.T) {
 				if _, err := s.ClaimRemoteImportFor(uid, a.ID, strings.Repeat("b", 48)); err != nil {
 					t.Fatal(err)
 				}
+				// A person's own import is never retried under a new process:
+				// it stays expired, and its request key is still the one they
+				// asked with.
+				after, err := s.RemoteImportFor(uid, r.ID)
+				if err != nil || after.State != "expired" || after.RequestKey != r.RequestKey {
+					t.Fatalf("manual consent was changed by a new instance: %+v: %v", after, err)
+				}
 			case "expire":
 				if err := s.withTx(func(tx *sql.Tx) error {
 					r, err := readImport(tx, uid, r.ID)
@@ -204,4 +211,23 @@ func TestRemoteImportCancellationExpiryGenerationAndOwners(t *testing.T) {
 	if _, err = s.CreateRemoteImportFor(uid, RemoteImportCreate{RequestKey: r.RequestKey, AgentID: a.ID, EnvironmentID: r.EnvironmentID, Name: "changed"}); err == nil {
 		t.Fatal("changed create retry")
 	}
+}
+
+func finishMachineCopy(t *testing.T, s *Store, uid int64, a SyncAgent, r RemoteImport, files []skillbundle.ContentFile) RemoteImport {
+	t.Helper()
+	r = reviewRemote(t, s, uid, a, r, files)
+	if r.State != "approved" {
+		t.Fatalf("explicit safe copy should proceed without second approval: %+v", r)
+	}
+	if _, err := s.ClaimRemoteImportFor(uid, a.ID, r.Instance); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CommitRemoteImportFor(uid, a.ID, r.ID, r.Instance, r.Preview.SourceDigest, files); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.RemoteImportFor(uid, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

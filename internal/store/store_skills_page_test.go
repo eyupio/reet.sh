@@ -120,7 +120,7 @@ func TestRemoveShelfSkillsDeletesTheLibrarySkill(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
 	item := importedItem(t, s, uid, "vercel-labs/skills/find-skills")
-	removed, noCopy, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "not/on/shelf"}, false, false, time.Now())
+	removed, noCopy, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "not/on/shelf"}, false, time.Now())
 	if !errors.Is(err, ErrSkillNoCopy) || removed != 0 || len(noCopy) != 1 || noCopy[0] != "find-skills" {
 		t.Fatalf("remove without a copy: %d %v %v", removed, noCopy, err)
 	}
@@ -134,7 +134,7 @@ func TestRemoveShelfSkillsDeletesTheLibrarySkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "not/on/shelf"}, false, false, time.Now()); err != nil || removed != 1 {
+	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "not/on/shelf"}, false, time.Now()); err != nil || removed != 1 {
 		t.Fatalf("remove: %d %v", removed, err)
 	}
 	if skillStateNamed(t, s, uid, "find-skills").deletedAt == 0 || skillRemovals(t, s, uid)["find-skills"].Reason != "deleted" {
@@ -171,7 +171,7 @@ func TestRemoveShelfSkillsKeepsTheSkillWhileAnotherRowStandsForIt(t *testing.T) 
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM library_aliases WHERE user_id=? AND kind='shelf' AND item_id=?`, uid, item.id).Scan(&aliases); err != nil || aliases != 2 {
 		t.Fatalf("both rows stand for the skill: %d %v", aliases, err)
 	}
-	removed, _, err := s.RemoveShelfSkillsFor(uid, []string{"local/find-skills"}, false, false, time.Now())
+	removed, _, err := s.RemoveShelfSkillsFor(uid, []string{"local/find-skills"}, false, time.Now())
 	if err != nil || removed != 1 {
 		t.Fatalf("remove the duplicate: %d %v", removed, err)
 	}
@@ -191,7 +191,7 @@ func TestRemoveShelfSkillsKeepsTheSkillWhileAnotherRowStandsForIt(t *testing.T) 
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM library_aliases WHERE user_id=? AND kind='shelf' AND reference='local/find-skills'`, uid).Scan(&aliases); err != nil || aliases != 0 {
 		t.Fatalf("the removed row still stands for the skill: %d %v", aliases, err)
 	}
-	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, false, time.Now()); err != nil || removed != 1 {
+	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, time.Now()); err != nil || removed != 1 {
 		t.Fatalf("remove the last row: %d %v", removed, err)
 	}
 	if skillStateNamed(t, s, uid, "find-skills").deletedAt == 0 {
@@ -219,7 +219,7 @@ func TestRemoveShelfSkillsRefusesOnlyWrittenSkills(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE library_items SET origin='written' WHERE id=?`, written.id); err != nil {
 		t.Fatal(err)
 	}
-	removed, refused, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "me/skills/mine"}, true, true, time.Now())
+	removed, refused, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills", "me/skills/mine"}, true, time.Now())
 	if !errors.Is(err, ErrSkillWritten) || removed != 0 || len(refused) != 1 || refused[0] != "mine" {
 		t.Fatalf("remove with a written skill: %d %v %v", removed, refused, err)
 	}
@@ -228,10 +228,7 @@ func TestRemoveShelfSkillsRefusesOnlyWrittenSkills(t *testing.T) {
 			t.Fatalf("a refused remove took %s off the shelf", id)
 		}
 	}
-	if ignored, _ := s.IsIgnoredFor(uid, "vercel-labs/skills/find-skills"); ignored {
-		t.Fatal("a refused remove ignored a skill")
-	}
-	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, false, time.Now()); err != nil || removed != 1 {
+	if removed, _, err = s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, time.Now()); err != nil || removed != 1 {
 		t.Fatalf("remove of an imported skill with a hosted alias: %d %v", removed, err)
 	}
 	if skillStateNamed(t, s, uid, "find-skills").deletedAt == 0 || skillStateNamed(t, s, uid, "mine").deletedAt != 0 {
@@ -358,7 +355,7 @@ func TestAddingADeletedSkillAgainBringsItBack(t *testing.T) {
 			t.Fatalf("late=%v after the purge: %+v", late, r)
 		}
 		// Start the next case from nothing.
-		if _, _, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, false, true, time.Now()); err != nil {
+		if _, _, err := s.RemoveShelfSkillsFor(uid, []string{"vercel-labs/skills/find-skills"}, true, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.PurgeDeletedSkillsFor(uid, time.Now().Add(2*SkillUndoWindow)); err != nil {

@@ -226,7 +226,7 @@ func TestListForIndependentMetadata(t *testing.T) {
 	}
 	for i := range 3 {
 		r := mustRef(t, fmt.Sprintf("rows/repo/skill-%d", i))
-		if _, err := s.UpsertFor(u.ID, r, Patch{Liked: bp(i == 0), Bookmarked: bp(i == 1), Used: bp(i == 2)}); err != nil {
+		if _, err := s.UpsertFor(u.ID, r, Patch{Liked: bp(i == 0)}); err != nil {
 			t.Fatal(err)
 		}
 		var trend []int64
@@ -247,7 +247,7 @@ func TestListForIndependentMetadata(t *testing.T) {
 		}
 		ids := map[string]bool{}
 		for i, row := range rows {
-			if row.ID != fmt.Sprintf("rows/repo/skill-%d", i) || row.Name != fmt.Sprintf("Row %d", i) || row.Liked != (i == 0) || row.Bookmarked != (i == 1) || row.Used != (i == 2) {
+			if row.ID != fmt.Sprintf("rows/repo/skill-%d", i) || row.Name != fmt.Sprintf("Row %d", i) || row.Liked != (i == 0) || row.Status != SkillActive {
 				t.Fatalf("row %d: %+v", i, row)
 			}
 			if row.LibraryItemID == "" || ids[row.LibraryItemID] {

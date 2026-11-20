@@ -22,18 +22,21 @@ inspected implicitly just because the command runs inside one.
 
 | Agent | Command on PATH | Default global locations | Project locations |
 | --- | --- | --- | --- |
-| Claude Code | `claude` | `~/.claude`, `~/.claude.json`, `~/.claude/CLAUDE.md`, `~/.claude/skills` | `.claude`, `CLAUDE.md`, `.mcp.json`, `.claude/skills` |
-| Codex | `codex` | `~/.codex`, `~/.codex/AGENTS.md`, shared `~/.agents/skills`, `~/.codex/skills` | `.codex`, shared `.agents/skills`, shared `AGENTS.md`, `.codex/skills` |
-| OpenCode | `opencode` | `~/.config/opencode`, `~/.config/opencode/AGENTS.md`, `~/.config/opencode/skills` | `.opencode`, `opencode.json`, `opencode.jsonc`, `.opencode/skills` |
-| Pi | `pi` | `~/.pi/agent`, `~/.pi/agent/AGENTS.md`, `~/.pi/agent/skills` | `.pi`, `.pi/skills` |
-| Cursor | `cursor` | `~/.cursor`, `~/.cursor/skills` | `.cursor`, `.cursorrules`, `.cursor/skills` |
+| Claude Code | `claude` | `~/.claude`, `~/.claude.json`, `~/.claude/CLAUDE.md` | `.claude`, `CLAUDE.md`, `.mcp.json` |
+| Codex | `codex` | `~/.codex`, `~/.codex/AGENTS.md` | `.codex`, shared `AGENTS.md` |
+| OpenCode | `opencode` | `~/.config/opencode`, `~/.config/opencode/AGENTS.md` | `.opencode`, `opencode.json`, `opencode.jsonc` |
+| Pi | `pi` | `~/.pi/agent`, `~/.pi/agent/AGENTS.md` | `.pi` |
+| Cursor | `cursor` | `~/.cursor` | `.cursor`, `.cursorrules` |
+
+Skill folders are not Setup locations. Skills come from your reet library, which puts every Active skill on
+every machine, so a Setup neither captures nor restores them.
 
 Gemini CLI is retired. reet no longer discovers, reads or restores its settings, MCP servers or
 instructions under `~/.gemini`, and nothing on a machine is changed or deleted because of it. Setup history
 that already recorded Gemini CLI is kept.
 
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR` and
-`XDG_CONFIG_HOME` also move the corresponding skills folders. They override the corresponding
+`XDG_CONFIG_HOME` override the corresponding
 global directory, including its instruction file. OpenCode honours `XDG_CONFIG_HOME` (with `/opencode` appended)
 and additionally reports `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG` when set.
 Overrides must be absolute paths; a relative override is reported as an error
@@ -93,8 +96,8 @@ Without `--probe-versions`, application versions are not collected and agents ar
 never executed. Package provenance and conversation history are not collected; the
 Codex memory database is captured only by an explicit snapshot.
 The scanner installs nothing and sends no reports to a server. The report
-is inventory metadata, not a recoverable backup. Existing `reet scan`, `reet sync`
-and `reet backup` retain their existing meanings.
+is inventory metadata, not a recoverable backup. Existing `reet scan` and
+`reet backup` retain their existing meanings.
 
 ## Opt-in component summaries (S1a/S1b)
 
@@ -214,7 +217,7 @@ agent:
 | Class | Selection | Handling |
 | --- | --- | --- |
 | instructions | include | portable |
-| skills | include | portable |
+| skills | exclude | library |
 | behaviour | unsupported | not_implemented |
 | memory | include | portable |
 | history | opt_in | not_implemented |
@@ -253,8 +256,7 @@ reet setup backup --preview --project /path/to/project
 selection without writing an archive. It emits schema v1 with a policy version,
 captured OS/architecture, per-agent selected components, included field names,
 credential-bearing field names, preserved reference names, excluded field names,
-unknown-field counts, MCP declaration counts, installed skill folder names with file
-counts and a SHA-256 digest of each selected component. It also lists omissions with fixed reasons such as `source_opt_in`,
+unknown-field counts, MCP declaration counts and a SHA-256 digest of each selected component. It also lists omissions with fixed reasons such as `source_opt_in`,
 `source_symlink`, `file_too_large`, `credentials_not_selected`,
 `excluded_by_policy`, `unlisted_fields`, `declarations_without_selected_fields`,
 `invalid_mcp_declarations`, `skill_symlink`, `skill_manifest_missing`,
@@ -303,23 +305,17 @@ payload. The writer opens the sealed bytes before writing and opens the file on
 disk again afterwards; a mismatch fails and removes the file.
 
 The encrypted payload includes the policy preview, selected settings/MCP content,
-selected project instruction text, whole installed skill folders, the omissions report
-and optional software evidence. A skill is copied as a bounded directory (256 files and
-8 MiB each, 64 MiB per snapshot); symlinked skills or special files are omitted as a
-whole rather than silently copied in part. When the skills CLI lock files are present,
-each skill's sanitised source, source type and source-in-repository path are recorded
-from the lock entry. Restore creates a missing global `.agents/.skill-lock.json` or project
-`skills-lock.json` and merges missing entries into an existing lock file. Entries already
-present keep their source; a conflicting source is reported as
-`skill_lock_source_conflict` rather than overwritten. `--probe-versions` records bounded
+selected project instruction text, the omissions report and optional software evidence.
+It holds no skill folders. A Setup saved before skills moved to the library may hold
+some: restoring it writes none of them, nor any skills CLI lock file, and says once
+`Skipped skill folders; your skills come from your library.` `--probe-versions` records bounded
 application `--version` reports and `--inspect-installation` records local Node package
 associations; both are opt-in because probing executes the discovered executable.
 Software evidence deliberately omits executable and metadata paths, and it is not
 authenticated provenance.
 
 Credential-bearing values, opt-in sources, memory other than the Codex database,
-history, hooks and caches remain excluded by default. The snapshot is not a complete AI setup: skill dependency
-resolution, cross-OS translation and runtime health verification remain unimplemented. `--preview` remains read-only.
+history, hooks and caches remain excluded by default. The snapshot is not a complete AI setup: cross-OS translation and runtime health verification remain unimplemented. `--preview` remains read-only.
 
 `--include-credentials` explicitly includes literal values from the policy's
 `encrypted_only` fields in the encrypted payload. It is rejected with `--preview`
@@ -607,10 +603,9 @@ push and pull remain CLI-only.
 `fetch --s3 --profile` use the newest revision's snapshot unless `--revision N` selects
 an older one; restore/verify apply its overrides.
 
-Profiles are local named snapshot revisions and can now include whole installed skill
-folders. Library/sync remains the live skill inventory and install/update path; setup
-profiles copy the selected folders into the encrypted snapshot for restore. Skill
-dependency resolution, broader memory/history adapters, web profile editing and verified
+Profiles are local named snapshot revisions. They carry no skill folders: the library is
+where skills live, and it puts every Active skill on every machine. An older revision's
+skill folders are shown but never restored. Broader memory/history adapters, web profile editing and verified
 cross-OS restore remain unimplemented.
 
 ## Pruning local snapshots (S2f)

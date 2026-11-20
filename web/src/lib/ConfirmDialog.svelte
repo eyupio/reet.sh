@@ -83,6 +83,8 @@
   p { margin: 8px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   .details { width: 100%; box-sizing: border-box; margin: 16px 0 0; padding: 12px; max-height: 240px; overflow: auto; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.5 var(--mono); border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
+  /* Every target at least 44 px, on a desktop pointer too. */
+  .actions button { min-height: 44px; }
   .danger { background: var(--bad); border-color: var(--bad); color: var(--bg); }
   .secondary { color: var(--bad); }
   @media (max-width: 560px) {

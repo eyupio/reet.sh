@@ -15,7 +15,10 @@ import (
 
 const canonicalShelfJoin = ` LEFT JOIN library_aliases la INDEXED BY library_shelf_projection ON la.user_id=sh.user_id AND la.kind='shelf' AND la.reference=sh.skill_id LEFT JOIN library_items li INDEXED BY library_item_projection ON li.user_id=la.user_id AND li.id=la.item_id `
 const canonicalShelfColumn = `,COALESCE(li.id||':'||li.status,'')`
-const shelfCols = `s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,sh.notes,s.installs,s.installs_week,s.trend,sh.liked,sh.bookmarked,sh.used,sh.created_at,sh.updated_at`
+
+// shelfCols reads a shelf row as a Skill. A shelf row has no In use or To
+// test flags: its status is its library item's, Active or Archived.
+const shelfCols = `s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,sh.notes,s.installs,s.installs_week,s.trend,sh.liked,0,0,sh.created_at,sh.updated_at`
 
 func hasColumn(db *sql.DB, table, name string) (bool, error) {
 	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
@@ -84,11 +87,16 @@ func migrateMultiUser(db *sql.DB) error {
 			return err
 		}
 	}
+	// A database made after skills-engine-drop-v1 has no ignore list.
+	var ignoredList int
+	if err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='ignored'`).Scan(&ignoredList); err != nil {
+		return err
+	}
 	ok, err = hasColumn(db, "ignored", "user_id")
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if ignoredList > 0 && !ok {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -115,9 +123,13 @@ func migrateMultiUser(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_skill_tags_user ON skill_tags(user_id, skill_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_environments_user ON environments(user_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_ignored_user ON ignored(user_id)`,
 	} {
 		if _, err := db.Exec(idx); err != nil {
+			return err
+		}
+	}
+	if ignoredList > 0 {
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_ignored_user ON ignored(user_id)`); err != nil {
 			return err
 		}
 	}
@@ -173,8 +185,8 @@ func (s *Store) MigrateToOwner(ownerID int64) error {
 		}
 		// These shelf rows cannot make a second item of a name: the
 		// library_shelf_insert trigger joins the live item that has it.
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
-			SELECT ?,id,liked,bookmarked,used,notes,created_at,updated_at FROM skills`, ownerID); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at)
+			SELECT ?,id,liked,notes,created_at,updated_at FROM skills`, ownerID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO skill_tags(user_id,skill_id,tag_id,source,hidden)
@@ -182,13 +194,6 @@ func (s *Store) MigrateToOwner(ownerID int64) error {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=0`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO ignored(user_id,id,name,reason,at)
-			SELECT ?,id,name,reason,at FROM ignored WHERE user_id=0`, ownerID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`DELETE FROM ignored WHERE user_id=0`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE events SET user_id=? WHERE user_id=0`, ownerID); err != nil {
@@ -435,7 +440,7 @@ func (s *Store) InstalledSkillsFor(userID int64, host string) ([]Skill, error) {
 		return nil, err
 	}
 	rows.Close()
-	if err := s.attachMetaForMode(userID, out, attachMode{}); err != nil {
+	if err := s.attachMetaForMode(userID, out, attachMode{library: true}); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -456,45 +461,96 @@ func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 	return one[0], true, nil
 }
 
-func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
+// liveShelfRow keeps out shelf rows whose library skill is deleted, and
+// archivedShelfRows are the shelf rows whose skill is Archived. Each takes
+// the user's id. Both are subqueries SQLite reads once per listing, not once
+// per row, starting from library_item_state: deleted and Archived skills are
+// few, and a listing reads every shelf row of the account.
+const (
+	liveShelfRow      = ` AND sh.skill_id NOT IN (SELECT a.reference FROM library_items i INDEXED BY library_item_state JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' WHERE i.user_id=? AND i.deleted_at>0)`
+	archivedShelfRows = `(SELECT a.reference FROM library_items i INDEXED BY library_item_state JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' WHERE i.user_id=? AND i.deleted_at=0 AND i.status='archived')`
+)
+
+// shelfRowActive says a shelf row's skill is in use: its library skill is
+// Active and not deleted. A row with no library item yet reads as Active, as
+// the item it gets starts.
+const shelfRowActive = `NOT EXISTS(SELECT 1 FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=sh.user_id AND a.kind='shelf' AND a.reference=sh.skill_id AND (i.status<>'active' OR i.deleted_at<>0))`
+
+// LibraryCounts counts a listing's skills over the whole library, whatever
+// the filter: all of them, the liked ones, and how many are Active and
+// Archived.
+type LibraryCounts struct {
+	All      int `json:"all"`
+	Liked    int `json:"liked"`
+	Active   int `json:"active"`
+	Archived int `json:"archived"`
+}
+
+// Add counts more skills, such as the library skills no shelf row stands for.
+func (c *LibraryCounts) Add(skills []Skill) {
+	for _, sk := range skills {
+		c.All++
+		if sk.Liked {
+			c.Liked++
+		}
+		switch sk.Status {
+		case SkillActive:
+			c.Active++
+		case SkillArchived:
+			c.Archived++
+		}
+	}
+}
+
+func (s *Store) ListFor(userID int64, f Filter) ([]Skill, LibraryCounts, error) {
 	if f.Machine != "" {
 		host, err := s.ResolveMachineHostFor(userID, f.Machine)
 		if err != nil {
-			return nil, Counts{}, err
+			return nil, LibraryCounts{}, err
 		}
 		f.Machine = host
 	}
-	canonical := ""
+	// A shelf row whose library skill was deleted is gone from the listing
+	// until Undo brings the skill back; the purge removes the row later.
+	canonical := liveShelfRow
+	canonicalArgs := []any{userID}
 	if f.Canonical {
-		canonical = ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
+		canonical += ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
 	}
-	var c Counts
-	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
-		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
+	var c LibraryCounts
+	// A shelf row whose skill has no library item yet reads as Active, as
+	// the item it gets starts.
+	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.skill_id IN `+archivedShelfRows+`),0)
+		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical, append([]any{userID, userID}, canonicalArgs...)...).Scan(&c.All, &c.Liked, &c.Archived); err != nil {
 		return nil, c, err
 	}
+	c.Active = c.All - c.Archived
 	// An unpaged list attaches the canonical item and status after its rows are
 	// read (attachMode.library), by user range when it is the whole library:
 	// a join is evaluated for every matching row and costs more than one range
 	// read. A page selects its rows first and joins the metadata for those only.
 	paged := f.Limit > 0 || f.Offset > 0
 	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0` + canonical
-	args := []any{userID}
-	tabWhere := map[string]string{
-		"liked":      ` AND sh.liked=1`,
-		"bookmarked": ` AND sh.bookmarked=1`,
-		"used":       ` AND sh.used=1`,
-	}
-	if clause, ok := tabWhere[f.Tab]; ok {
-		q += clause
+	args := append([]any{userID}, canonicalArgs...)
+	// The old tabs: In use reads as Active, and nothing is To test any more.
+	switch f.Tab {
+	case "liked":
+		q += ` AND sh.liked=1`
+	case "used":
+		q += ` AND sh.skill_id NOT IN ` + archivedShelfRows
+		args = append(args, userID)
+	case "bookmarked":
+		q += ` AND 0`
 	}
 	// The old stages read as the new statuses: In use as Active, Parked as
 	// Archived. Nothing is To test or Disabled any more.
 	switch f.Stage {
 	case "active", "use":
-		q += ` AND ` + canonicalShelfStatus + `='active'`
+		q += ` AND sh.skill_id NOT IN ` + archivedShelfRows
+		args = append(args, userID)
 	case "archived", "shelf":
-		q += ` AND ` + canonicalShelfStatus + `='archived'`
+		q += ` AND sh.skill_id IN ` + archivedShelfRows
+		args = append(args, userID)
 	case "try", "disabled":
 		q += ` AND 0`
 	}
@@ -607,7 +663,18 @@ func (s *Store) UpsertFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
 // is still waiting to be purged comes back (see reviveShelfItemTx), where a
 // machine's sighting through UpsertFor leaves it deleted.
 func (s *Store) AddFor(userID int64, r ref.Ref, f Patch) (Skill, error) {
-	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true)
+	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true, "")
+}
+
+// AddWithStatusFor is AddFor with the library status the person chose,
+// active or archived, applied in the same transaction. A skill new to the
+// library starts with it and was never anything else, so it has no grace
+// period; one the library has moves to it as Archive or Restore would.
+func (s *Store) AddWithStatusFor(userID int64, r ref.Ref, f Patch, status string) (Skill, error) {
+	if !validLibraryStatus(status) {
+		return Skill{}, ErrPrivateSkillInvalid
+	}
+	return s.upsertForRevive(userID, r.ID, r.Source, r.Slug, r.SourceType, r.URL, r.Slug, f, true, status)
 }
 
 func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error) {
@@ -618,10 +685,10 @@ func (s *Store) UpsertLocalFor(userID int64, name string, f Patch) (Skill, error
 // linked source cannot take a name the library already has; a machine
 // sighting (a local row) joins the skill of its name instead.
 func (s *Store) upsertFor(userID int64, id, source, slug, typ, url, name string, f Patch) (Skill, error) {
-	return s.upsertForRevive(userID, id, source, slug, typ, url, name, f, false)
+	return s.upsertForRevive(userID, id, source, slug, typ, url, name, f, false, "")
 }
 
-func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name string, f Patch, revive bool) (Skill, error) {
+func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name string, f Patch, revive bool, status string) (Skill, error) {
 	t := now()
 	notes := ""
 	if f.Notes != nil {
@@ -637,16 +704,21 @@ func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name s
 				return err
 			}
 		}
+		_, aliasErr := libraryAliasID(tx, userID, "shelf", id)
+		if aliasErr != nil && !errors.Is(aliasErr, sql.ErrNoRows) {
+			return aliasErr
+		}
+		fresh := aliasErr != nil
 		if _, err := tx.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,'','',0,0,'',0,0,0,?,?)
 		ON CONFLICT(id) DO NOTHING`, id, source, slug, typ, url, name, t, t); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)
+		if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at)
+		VALUES(?,?,?,?,?,?)
 		ON CONFLICT(user_id,skill_id) DO UPDATE SET
-			updated_at=CASE WHEN (shelf.liked=0 AND excluded.liked=1) OR (shelf.bookmarked=0 AND excluded.bookmarked=1) OR (shelf.used=0 AND excluded.used=1) THEN excluded.updated_at ELSE shelf.updated_at END,
-			liked=shelf.liked OR excluded.liked, bookmarked=shelf.bookmarked OR excluded.bookmarked, used=shelf.used OR excluded.used`,
-			userID, id, b2i(f.Liked), b2i(f.Bookmarked), b2i(f.Used), notes, t, t); err != nil {
+			updated_at=CASE WHEN shelf.liked=0 AND excluded.liked=1 THEN excluded.updated_at ELSE shelf.updated_at END,
+			liked=shelf.liked OR excluded.liked`,
+			userID, id, b2i(f.Liked), notes, t, t); err != nil {
 			return err
 		}
 		if f.Notes != nil {
@@ -659,11 +731,28 @@ func (s *Store) upsertForRevive(userID int64, id, source, slug, typ, url, name s
 				return err
 			}
 		}
+		if status != "" {
+			item, err := libraryAliasID(tx, userID, "shelf", id)
+			if err != nil {
+				return err
+			}
+			it, err := skillStateItemTx(tx, userID, item)
+			if err != nil {
+				return err
+			}
+			if err = setSkillStatusTx(tx, userID, it, status, time.Now()); err != nil {
+				return err
+			}
+			if fresh {
+				_, err = tx.Exec(`UPDATE library_items SET prev_status='' WHERE user_id=? AND id=?`, userID, item)
+			}
+			return err
+		}
 		// Marking a skill already on the shelf In use or To test makes it
 		// Active. A new row keeps the status of the item it made or joined, so
 		// a sighting of an Archived skill stays Archived.
-		if existed > 0 && ((f.Used != nil && *f.Used) || (f.Bookmarked != nil && *f.Bookmarked)) {
-			return shelfStageStatusTx(tx, userID, id, time.Now())
+		if existed > 0 && f.makesActive() {
+			return shelfStageStatusTx(tx, userID, id, SkillActive, time.Now())
 		}
 		return nil
 	})
@@ -681,17 +770,17 @@ func (s *Store) PatchFor(userID int64, id string, p Patch) (Skill, error) {
 		notes = sql.NullString{String: *p.Notes, Valid: true}
 	}
 	err := s.withTx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), notes=COALESCE(?,notes), updated_at=?
+		res, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), notes=COALESCE(?,notes), updated_at=?
 		WHERE user_id=? AND skill_id=?`,
-			nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), notes, now(), userID, id)
+			nullBool(p.Liked), notes, now(), userID, id)
 		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
 		}
-		if p.Used != nil || p.Bookmarked != nil {
-			return shelfStageStatusTx(tx, userID, id, time.Now())
+		if status := p.stageStatus(); status != "" {
+			return shelfStageStatusTx(tx, userID, id, status, time.Now())
 		}
 		return nil
 	})
@@ -720,52 +809,6 @@ func (s *Store) removeShelfTx(tx *sql.Tx, userID int64, id string, keepCatalogue
 	return nil
 }
 
-func (s *Store) RemoveFor(userID int64, id string) error {
-	return s.withTx(func(tx *sql.Tx) error { return s.removeShelfTx(tx, userID, id, false) })
-}
-
-func (s *Store) IgnoreFor(userID int64, id, name, reason string) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,?,?)
-			ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`,
-			userID, id, name, reason, now()); err != nil {
-			return err
-		}
-		return s.removeShelfTx(tx, userID, id, false)
-	})
-}
-
-func (s *Store) IsIgnoredFor(userID int64, id string) (bool, error) {
-	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM ignored WHERE user_id=? AND id=?`, userID, id).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-func (s *Store) UnignoreFor(userID int64, id string) error {
-	_, err := s.db.Exec(`DELETE FROM ignored WHERE user_id=? AND id=?`, userID, id)
-	return err
-}
-
-func (s *Store) ListIgnoredFor(userID int64) ([]Ignored, error) {
-	rows, err := s.db.Query(`SELECT id,name,reason,at FROM ignored WHERE user_id=? ORDER BY at DESC`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Ignored{}
-	for rows.Next() {
-		var i Ignored
-		if err := rows.Scan(&i.ID, &i.Name, &i.Reason, &i.At); err != nil {
-			return nil, err
-		}
-		out = append(out, i)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) ResolveFor(userID int64, oldID string, r ref.Ref) (Skill, error) {
 	old, ok, err := s.GetFor(userID, oldID)
 	if err != nil {
@@ -781,7 +824,7 @@ func (s *Store) ResolveFor(userID int64, oldID string, r ref.Ref) (Skill, error)
 			return Skill{}, err
 		}
 	}
-	nk, err := s.UpsertFor(userID, r, Patch{Liked: &old.Liked, Bookmarked: &old.Bookmarked, Used: &old.Used})
+	nk, err := s.UpsertFor(userID, r, Patch{Liked: &old.Liked})
 	if err != nil {
 		return Skill{}, err
 	}
@@ -816,9 +859,9 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 	if p.Notes != nil {
 		return 0, errors.New("bulk notes are not supported")
 	}
-	q := `UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
+	q := `UPDATE shelf SET liked=COALESCE(?,liked), updated_at=?
 		WHERE user_id=? AND skill_id IN (` + placeholders(len(ids)) + `)`
-	args := []any{nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), now(), userID}
+	args := []any{nullBool(p.Liked), now(), userID}
 	for _, id := range ids {
 		args = append(args, id)
 	}
@@ -829,11 +872,12 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 			return err
 		}
 		n, err = res.RowsAffected()
-		if err != nil || (p.Used == nil && p.Bookmarked == nil) {
+		status := p.stageStatus()
+		if err != nil || status == "" {
 			return err
 		}
 		for _, id := range ids {
-			if err = shelfStageStatusTx(tx, userID, id, time.Now()); err != nil {
+			if err = shelfStageStatusTx(tx, userID, id, status, time.Now()); err != nil {
 				return err
 			}
 		}
@@ -874,28 +918,6 @@ func (s *Store) TagManyFor(userID int64, ids []string, add []string, remove []in
 		return nil
 	})
 	return len(ids), err
-}
-
-func (s *Store) RemoveManyFor(userID int64, ids []string, ignore bool) (int, error) {
-	n := 0
-	for _, id := range ids {
-		sk, ok, err := s.GetFor(userID, id)
-		if err != nil {
-			return n, err
-		}
-		if !ok {
-			continue
-		}
-		if ignore {
-			if err := s.IgnoreFor(userID, id, sk.Name, "removed"); err != nil {
-				return n, err
-			}
-		} else if err := s.RemoveFor(userID, id); err != nil {
-			return n, err
-		}
-		n++
-	}
-	return n, nil
 }
 
 func (s *Store) AddSkillTagsFor(userID int64, skillID string, names []string) error {
@@ -1219,11 +1241,9 @@ func (s *Store) ExportFor(userID int64, includeEvents bool) (Snapshot, error) {
 	if err := s.attachHiddenTagsFor(userID, skills); err != nil {
 		return Snapshot{}, err
 	}
-	ignored, err := s.ListIgnoredFor(userID)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	snap := Snapshot{Version: 2, ExportedAt: now(), Skills: skills, Ignored: ignored}
+	// The ignore list is gone: a skill on it became an Archived skill, which
+	// the export lists with the rest.
+	snap := Snapshot{Version: 2, ExportedAt: now(), Skills: skills}
 	if includeEvents {
 		events, err := s.ListEventsFor(userID, 0, "")
 		if err != nil {
@@ -1266,9 +1286,9 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 			// An upsert, not INSERT OR REPLACE: a REPLACE outer statement makes
 			// the shelf trigger's INSERT OR IGNOREs replace too, which would
 			// rebind the row's library alias and reset its library item.
-			if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,bookmarked,used,notes,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,skill_id) DO UPDATE SET liked=excluded.liked,bookmarked=excluded.bookmarked,used=excluded.used,notes=excluded.notes,created_at=excluded.created_at,updated_at=excluded.updated_at`,
-				userID, k.ID, b2i(&k.Liked), b2i(&k.Bookmarked), b2i(&k.Used), k.Notes, k.CreatedAt, k.UpdatedAt); err != nil {
+			if _, err := tx.Exec(`INSERT INTO shelf(user_id,skill_id,liked,notes,created_at,updated_at)
+				VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,skill_id) DO UPDATE SET liked=excluded.liked,notes=excluded.notes,created_at=excluded.created_at,updated_at=excluded.updated_at`,
+				userID, k.ID, b2i(&k.Liked), k.Notes, k.CreatedAt, k.UpdatedAt); err != nil {
 				return err
 			}
 			// Putting back a row the old Remove just took brings its skill
@@ -1351,20 +1371,9 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 					return err
 				}
 			}
-			if _, err := tx.Exec(`DELETE FROM ignored WHERE user_id=? AND id=?`, userID, k.ID); err != nil {
-				return err
-			}
 		}
-		for _, i := range snapshot.Ignored {
-			if i.ID == "" {
-				continue
-			}
-			if _, err := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(?,?,?,?,?)
-				ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`,
-				userID, i.ID, i.Name, i.Reason, i.At); err != nil {
-				return err
-			}
-		}
+		// An older export's ignore list is not restored: the list is gone,
+		// and Archived skills took its place.
 		return nil
 	})
 }
@@ -1586,7 +1595,6 @@ func (s *Store) DeleteUser(id int64) error {
 			`DELETE FROM skill_tags WHERE user_id=?`,
 			`DELETE FROM skill_envs WHERE env_id IN (SELECT id FROM environments WHERE user_id=?)`,
 			`DELETE FROM environments WHERE user_id=?`,
-			`DELETE FROM ignored WHERE user_id=?`,
 			`DELETE FROM events WHERE user_id=?`,
 			`DELETE FROM api_tokens WHERE user_id=?`,
 			`DELETE FROM mcp_connections WHERE user_id=?`,

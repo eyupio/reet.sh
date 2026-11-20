@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -107,11 +106,12 @@ type Ignored struct {
 
 // Snapshot is the export format. Version 1 backups have skills only.
 type Snapshot struct {
-	Version    int       `json:"version"`
-	ExportedAt int64     `json:"exportedAt"`
-	Skills     []Skill   `json:"skills"`
-	Ignored    []Ignored `json:"ignored,omitempty"`
-	Events     []Event   `json:"events,omitempty"`
+	Version    int     `json:"version"`
+	ExportedAt int64   `json:"exportedAt"`
+	Skills     []Skill `json:"skills"`
+	// Ignored is an older export's ignore list, read and not restored.
+	Ignored []Ignored `json:"ignored,omitempty"`
+	Events  []Event   `json:"events,omitempty"`
 }
 
 // User is an account. PasswordHash is never written to JSON.
@@ -126,11 +126,32 @@ type User struct {
 }
 
 // Patch holds optional changes; nil fields are left alone.
+// Patch changes a skill's like and notes. Used and Bookmarked are the old
+// stages In use and To test, which a shelf row no longer keeps: they only
+// move the skill's library status (see stageStatus).
 type Patch struct {
 	Liked      *bool   `json:"liked,omitempty"`
 	Bookmarked *bool   `json:"bookmarked,omitempty"`
 	Used       *bool   `json:"used,omitempty"`
 	Notes      *string `json:"notes,omitempty"`
+}
+
+// makesActive says whether the patch names the stage In use or To test.
+func (p Patch) makesActive() bool {
+	return (p.Used != nil && *p.Used) || (p.Bookmarked != nil && *p.Bookmarked)
+}
+
+// stageStatus is the library status an old stage names: In use or To test is
+// Active, and Parked (neither, said as false) is Archived. A patch that names
+// no stage leaves the status alone and gives "".
+func (p Patch) stageStatus() string {
+	switch {
+	case p.makesActive():
+		return SkillActive
+	case p.Used != nil || p.Bookmarked != nil:
+		return SkillArchived
+	}
+	return ""
 }
 
 // Filter selects and orders List results. Tab: all|liked|bookmarked|used. Sort: recent|name|installs.
@@ -186,10 +207,6 @@ type Store struct {
 	healthErr     error
 	healthCountAt time.Time
 	healthCount   int
-
-	// managedRemovals gates controller approval and advertisement of managed
-	// removals. See SetManagedRemovals.
-	managedRemovals atomic.Bool
 }
 
 const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`
@@ -206,18 +223,10 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS scan_errors (env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, error TEXT NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS sync_private_sources (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE, bundle_id TEXT NOT NULL,revision_id TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(user_id,skill_id))`,
 	hostedSyncSourcesTable,
-	`CREATE TABLE IF NOT EXISTS sync_library (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, origin TEXT NOT NULL)`,
-	`CREATE TABLE IF NOT EXISTS sync_policies (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, follow_source INTEGER NOT NULL DEFAULT 0, problem TEXT NOT NULL DEFAULT '')`,
-	`CREATE TABLE IF NOT EXISTS sync_options (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, mode TEXT NOT NULL DEFAULT 'mirror', baseline TEXT NOT NULL DEFAULT '[]', applied_revision TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS sync_agents (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, host TEXT NOT NULL, secret_hash TEXT NOT NULL, version TEXT NOT NULL, source_commit TEXT NOT NULL DEFAULT '', last_seen INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, auto_update INTEGER NOT NULL DEFAULT 1, UNIQUE(user_id,host))`,
 	`CREATE TABLE IF NOT EXISTS sync_jobs (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE, target_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, status TEXT NOT NULL, revision TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL DEFAULT '{}', hash TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', stage TEXT NOT NULL DEFAULT '', stages TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-	`CREATE TABLE IF NOT EXISTS skill_installs (job_id TEXT PRIMARY KEY REFERENCES sync_jobs(id) ON DELETE CASCADE, user_id INTEGER NOT NULL, target_id TEXT NOT NULL, slug TEXT NOT NULL, created_target INTEGER NOT NULL DEFAULT 0, added INTEGER NOT NULL DEFAULT 0, revision TEXT NOT NULL, prev_revision TEXT NOT NULL DEFAULT '', replaced TEXT NOT NULL DEFAULT '')`,
-	`CREATE TABLE IF NOT EXISTS sync_receipts (job_id TEXT NOT NULL REFERENCES sync_jobs(id) ON DELETE CASCADE, status TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(job_id,status,hash))`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS sync_agents_host ON sync_agents(user_id,host COLLATE NOCASE)`,
 	`CREATE INDEX IF NOT EXISTS sync_jobs_agent ON sync_jobs(agent_id,status)`,
-	`CREATE TABLE IF NOT EXISTS sync_runs (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES sync_agents(id) ON DELETE CASCADE, targets TEXT NOT NULL, cursor INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-	`CREATE TABLE IF NOT EXISTS sync_run_jobs (job_id TEXT PRIMARY KEY REFERENCES sync_jobs(id) ON DELETE CASCADE, run_id TEXT NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE, position INTEGER NOT NULL DEFAULT 0)`,
-	`CREATE INDEX IF NOT EXISTS sync_runs_agent ON sync_runs(agent_id,status)`,
 	fenceMachinesTable,
 	`CREATE TABLE IF NOT EXISTS machine_aliases (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, alias TEXT NOT NULL, host TEXT NOT NULL, PRIMARY KEY(user_id,alias))`,
 	`CREATE TABLE IF NOT EXISTS environments (
@@ -245,9 +254,6 @@ var schemaV12 = []string{
 		id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, user_id INTEGER NOT NULL DEFAULT 0,
 		actor TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'ui', action TEXT NOT NULL,
 		skill_id TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '')`,
-	`CREATE TABLE IF NOT EXISTS ignored (
-		user_id INTEGER NOT NULL DEFAULT 0, id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
-		reason TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL, PRIMARY KEY (user_id, id))`,
 	`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -293,7 +299,7 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS shelf (
 		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
-		liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
+		liked INTEGER NOT NULL DEFAULT 0,
 		notes TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
 		PRIMARY KEY (user_id, skill_id))`,
 	`CREATE INDEX IF NOT EXISTS idx_shelf_skill ON shelf(skill_id)`,
@@ -329,11 +335,6 @@ var schemaV12 = []string{
  env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE,
  scanned_at INTEGER NOT NULL, complete INTEGER NOT NULL DEFAULT 0,
  os TEXT NOT NULL DEFAULT '', arch TEXT NOT NULL DEFAULT '', version TEXT NOT NULL DEFAULT '')`,
-	`CREATE TABLE IF NOT EXISTS sync_targets (
- user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
- source_id TEXT NOT NULL, source_name TEXT NOT NULL, desired TEXT NOT NULL,
- revision TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(user_id,target_id))`,
 	`CREATE TRIGGER IF NOT EXISTS public_lists_require_sources BEFORE UPDATE OF visibility ON lists WHEN NEW.visibility='public' AND EXISTS (SELECT 1 FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=NEW.id AND s.source_type='local') BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
 	`CREATE TRIGGER IF NOT EXISTS public_list_insert_requires_source BEFORE INSERT ON list_skills WHEN (SELECT visibility FROM lists WHERE id=NEW.list_id)='public' AND (SELECT source_type FROM skills WHERE id=NEW.skill_id)='local' BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
 	`CREATE TRIGGER IF NOT EXISTS public_list_update_requires_source BEFORE UPDATE OF list_id,skill_id ON list_skills WHEN (SELECT visibility FROM lists WHERE id=NEW.list_id)='public' AND (SELECT source_type FROM skills WHERE id=NEW.skill_id)='local' BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
@@ -457,31 +458,11 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := st.migrateSkillInstalls(); err != nil {
-		db.Close()
-		return nil, err
-	}
 	if err := st.migrateContentObservations(); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if err := st.migrateLibraryDifferences(); err != nil {
-		db.Close()
-		return nil, err
-	}
 	if err := st.migrateRemoteImports(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := st.migrateSkillContentTargets(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := st.migrateSkillContentPreviews(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if err := st.migrateSkillContentReceipts(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -551,7 +532,17 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateSkillRetries(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateSkillBackups(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// Last: it drops what the engine kept, which earlier migrations of an
+	// older database may still read.
+	if err := st.migrateSkillsEngineDrop(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -1054,21 +1045,11 @@ func (s *Store) TagMany(ids []string, add []string, remove []int64) (int, error)
 	return s.TagManyFor(0, ids, add, remove)
 }
 
-// RemoveMany deletes many skills, optionally recording each as ignored.
-func (s *Store) RemoveMany(ids []string, ignore bool) (int, error) {
+// RemoveMany deletes many skills.
+func (s *Store) RemoveMany(ids []string) (int, error) {
 	n := 0
 	err := s.withTx(func(tx *sql.Tx) error {
 		for _, id := range ids {
-			name := id
-			if err := tx.QueryRow(`SELECT name FROM skills WHERE id=?`, id).Scan(&name); err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			if ignore {
-				if _, err := tx.Exec(`INSERT INTO ignored(id,name,reason,at) VALUES(?,?,?,?)
-					ON CONFLICT(id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`, id, name, "removed", now()); err != nil {
-					return err
-				}
-			}
 			res, err := tx.Exec(`DELETE FROM skills WHERE id=?`, id)
 			if err != nil {
 				return err
@@ -1195,17 +1176,13 @@ func (s *Store) Export() ([]Skill, error) {
 	return out, nil
 }
 
-// ExportSnapshot returns skills, ignored ids and optionally the local event history.
+// ExportSnapshot returns skills and optionally the local event history.
 func (s *Store) ExportSnapshot(includeEvents bool) (Snapshot, error) {
 	skills, err := s.Export()
 	if err != nil {
 		return Snapshot{}, err
 	}
-	ignored, err := s.ListIgnored()
-	if err != nil {
-		return Snapshot{}, err
-	}
-	snap := Snapshot{Version: 2, ExportedAt: now(), Skills: skills, Ignored: ignored}
+	snap := Snapshot{Version: 2, ExportedAt: now(), Skills: skills}
 	if includeEvents {
 		events, err := s.ListEvents(0, "")
 		if err != nil {
@@ -1480,48 +1457,6 @@ func (s *Store) ReplaceTopics(topics []Topic) error {
 func (s *Store) applyTopics(id string) error {
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO skill_tags(skill_id,tag_id,source,hidden)
 		SELECT ?,tag_id,'topic',0 FROM topic_skills WHERE skill_id=?`, id, id)
-	return err
-}
-
-func (s *Store) ListIgnored() ([]Ignored, error) {
-	rows, err := s.db.Query(`SELECT id,name,reason,at FROM ignored ORDER BY at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Ignored{}
-	for rows.Next() {
-		var i Ignored
-		if err := rows.Scan(&i.ID, &i.Name, &i.Reason, &i.At); err != nil {
-			return nil, err
-		}
-		out = append(out, i)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) IsIgnored(id string) (bool, error) {
-	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM ignored WHERE id=?`, id).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-func (s *Store) Ignore(id, name, reason string) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(0,?,?,?,?)
-			ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`, id, name, reason, now()); err != nil {
-			return err
-		}
-		_, err := tx.Exec(`DELETE FROM skills WHERE id=?`, id)
-		return err
-	})
-}
-
-func (s *Store) Unignore(id string) error {
-	_, err := s.db.Exec(`DELETE FROM ignored WHERE id=?`, id)
 	return err
 }
 
@@ -1805,24 +1740,10 @@ func (s *Store) Restore(all []Skill) error {
 	return s.withTx(func(tx *sql.Tx) error { return restoreSkills(tx, all) })
 }
 
-// RestoreSnapshot restores skills and ignored ids; local history is not rewritten.
+// RestoreSnapshot restores skills; local history is not rewritten. An older
+// export's ignore list is not restored: the list is gone.
 func (s *Store) RestoreSnapshot(snapshot Snapshot) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		if err := restoreSkills(tx, snapshot.Skills); err != nil {
-			return err
-		}
-		for _, i := range snapshot.Ignored {
-			if i.ID == "" {
-				continue
-			}
-			if _, err := tx.Exec(`INSERT INTO ignored(user_id,id,name,reason,at) VALUES(0,?,?,?,?)
-				ON CONFLICT(user_id,id) DO UPDATE SET name=excluded.name, reason=excluded.reason, at=excluded.at`,
-				i.ID, i.Name, i.Reason, i.At); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return s.withTx(func(tx *sql.Tx) error { return restoreSkills(tx, snapshot.Skills) })
 }
 
 // restoreSkills writes the shared skills catalog only. It adds no shelf row, so
@@ -1926,9 +1847,6 @@ func restoreSkills(tx *sql.Tx, all []Skill) error {
 				k.ID, id, first, last, env.SourcePath); err != nil {
 				return err
 			}
-		}
-		if _, err := tx.Exec(`DELETE FROM ignored WHERE id=?`, k.ID); err != nil {
-			return err
 		}
 	}
 	return nil

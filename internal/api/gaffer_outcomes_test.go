@@ -64,12 +64,12 @@ func TestOutcomeStartCarriesEveryImageToTheMachine(t *testing.T) {
 
 func TestOutcomePromptImagesLeavesAPromptWithNoImagesAlone(t *testing.T) {
 	for _, prompt := range []string{"Do the work.", "", "Do it.\n"} {
-		if got := outcomePromptImages(prompt, nil); got != prompt {
+		if got := gaffer.OutcomePromptImages(prompt, nil); got != prompt {
 			t.Fatalf("no images changed %q to %q", prompt, got)
 		}
 	}
 	prompt := "Do the work.\n\nImages: /home/dev/launch-uploads/one.png /home/dev/launch-uploads/two.webp"
-	if got := outcomePromptImages(prompt, []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}); got != prompt {
+	if got := gaffer.OutcomePromptImages(prompt, []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}); got != prompt {
 		t.Fatalf("an approval prompt was doubled: %q", got)
 	}
 }

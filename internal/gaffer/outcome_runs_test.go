@@ -282,6 +282,39 @@ func TestOutcomeRefusesMoreImagesThanAPromptCanCarry(t *testing.T) {
 	}
 }
 
+// An unstaged brief is checked with the image line it will be launched with,
+// so approval cannot save a pipeline whose opening prompt the machine would
+// refuse as too long.
+func TestOutcomeRefusesABriefAndItsImagesThatCannotFitTogether(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png"}
+	r.in.Sessions[0].Prompt = strings.Repeat("a", MaxOutcomePromptBytes-1)
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("a brief plus its images over the limit: %v", err)
+	}
+	// The same brief without an image is unchanged: it fits on its own.
+	r.in.Images = nil
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err != nil {
+		t.Fatalf("a brief at the limit with no images: %v", err)
+	}
+}
+
+// A added pipeline is held to the same combined limit as an approved one.
+func TestAddedPipelinesRefuseABriefAndImagesThatCannotFitTogether(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png"}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := AddPipelinesInput{Revision: mustOutcome(t, r, created.ID).Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "Long", Prompt: strings.Repeat("a", MaxOutcomePromptBytes-1)}}}
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, add); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("an added brief plus the outcome's images over the limit: %v", err)
+	}
+}
+
 func TestOutcomeStartsAndFollowsItsApprovedSessionsWithoutABrowser(t *testing.T) {
 	r := outcomeFixture(t)
 	r.s.StartGoalSupervisor()
@@ -1452,6 +1485,28 @@ func TestALongHandoverAndBriefKeepTheStagesBoundary(t *testing.T) {
 	}
 	if !strings.Contains(got, "for context only") || !strings.Contains(got, "The later stages (code) are done separately") || !strings.HasSuffix(got, "Do not merge.") {
 		t.Fatalf("the boundary was lost: …%q", got[len(got)-400:])
+	}
+}
+
+// The images are added after the stage prompt is built, so the stage prompt
+// must leave room for their line: at the limit the boundary and the images
+// both still reach the machine.
+func TestAStageAtTheLimitLeavesRoomForItsImages(t *testing.T) {
+	brief := strings.Repeat("The whole brief, for context. ", MaxOutcomePromptBytes/31+1)
+	item := store.GafferOutcomeSession{Prompt: brief, Stage: 1, Stages: []store.GafferOutcomeStage{{Kind: "plan", State: "done", Summary: "Plan done."}, {Kind: "code"}, {Kind: "pr"}}}
+	images := []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}
+	prompt := stagePrompt(store.GafferOutcome{Images: images}, item, 1)
+	if len(prompt) > MaxOutcomePromptBytes || !utf8.ValidString(prompt) {
+		t.Fatalf("prompt is %d bytes", len(prompt))
+	}
+	if !strings.Contains(prompt, "Images: /home/dev/launch-uploads/one.png /home/dev/launch-uploads/two.webp") {
+		t.Fatalf("the images were left out: …%q", prompt[len(prompt)-300:])
+	}
+	if !strings.Contains(prompt, "Do not merge.") {
+		t.Fatalf("the boundary was lost: …%q", prompt[len(prompt)-400:])
+	}
+	if full := OutcomePromptImages(prompt, images); full != prompt {
+		t.Fatalf("the launch would add the images again: %d bytes", len(full))
 	}
 }
 

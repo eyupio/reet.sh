@@ -56,6 +56,12 @@ try{
    await expect(decision).toContainText('Code stage');await expect(decision).toContainText('Gaffer brought a question back to you.')
    // Gaffer's recommendation leads, marked, with its reason. There is nothing to open: this is the session.
    await expect(decision).toContainText('Gaffer recommends: Move to next stage. The endpoint and its tests are committed; the review stage will catch the rest.')
+   // The card says who decides and why, and its pointer to the latest review opens that review in place.
+   await expect(decision).toContainText('You decide this outcome’s decisions.')
+   const review=decision.locator('details.review')
+   await expect(review).toContainText('Gaffer’s latest review')
+   await review.locator('summary').click()
+   await expect(review.getByText('The endpoint and its tests are committed.',{exact:true})).toBeVisible()
    const choices=decision.getByRole('group',{name:'Choices for Export API',exact:true}).getByRole('button')
    await expect(choices).toHaveText(['Move to next stage Recommended','Have Gaffer look again','Tell the agent…'])
    await expect(decision.getByRole('link',{name:'Export API',exact:true})).toHaveAttribute('href',`/factory#pipeline-${oid}-a`)
@@ -110,6 +116,23 @@ try{
   await expect(page.getByText('You decide · Ask me · merge waits for you',{exact:true})).toBeVisible()
   await page.screenshot({path:`${shots}/factory-yolo-switch-1280.png`})
  }finally{await yw.context.close()}
+ // A long recommendation on a phone must not bury the decision's own choices under the fixed-height workspace: the
+ // block keeps a bounded height and scrolls itself, so the last choice can be brought into view and pressed.
+ const long=fixture()
+ long.goal.advice={choice:'tell',why:'The plan leaves one thing open: the persisted image cap is not settled, and changing it alters validation and tests. '.repeat(3),text:'Two things, plan stage only, no code changes. '.repeat(40)}
+ const lw=await openWorkspace(browser,{width:390,height:700,touch:true,sessionFocus:false,routes:long.routes})
+ await lw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+ try{
+  await lw.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+  const block=lw.page.locator('.session-screen .below-head')
+  await expect(block).toHaveCSS('overflow-y','auto')
+  const last=lw.page.getByRole('region',{name:'Decision for Export API',exact:true}).getByRole('button').last()
+  await last.scrollIntoViewIfNeeded()
+  await expect(last).toBeInViewport()
+  await lw.page.screenshot({path:`${shots}/factory-decision-long-390.png`})
+  await last.click()
+  await expect(lw.page.getByRole('dialog',{name:'Move “Export API” on?',exact:true})).toBeVisible()
+ }finally{await lw.context.close()}
  console.log('factory yolo switch: ok')
  console.log('factory decision in a session: ok')
 }finally{await browser.close()}

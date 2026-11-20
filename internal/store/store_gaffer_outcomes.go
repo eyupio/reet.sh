@@ -113,8 +113,12 @@ type GafferOutcomeStage struct {
 	Decided       int    `json:"decided,omitempty"`
 	BudgetRenewed bool   `json:"budgetRenewed,omitempty"`
 	DecidedFor    string `json:"decidedFor,omitempty"`
-	StartedAt     int64  `json:"startedAt,omitempty"`
-	EndedAt       int64  `json:"endedAt,omitempty"`
+	// DecidingSince is when the stop named by DecidedFor was put to Gaffer, so
+	// a controller that stopped before it recorded the decision asks again
+	// instead of leaving the pipeline waiting for ever.
+	DecidingSince int64 `json:"decidingSince,omitempty"`
+	StartedAt     int64 `json:"startedAt,omitempty"`
+	EndedAt       int64 `json:"endedAt,omitempty"`
 	// What Gaffer's own model used following this stage, recorded when the
 	// stage was handed over. It is Gaffer's usage, not the working agent's.
 	Reviews       int  `json:"reviews,omitempty"`

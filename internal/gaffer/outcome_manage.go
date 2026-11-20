@@ -184,6 +184,11 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	if err != nil {
 		return current, err
 	}
+	for _, piece := range pieces {
+		if len(piece.Stages) == 0 && len(OutcomePromptImages(piece.Prompt, current.Images)) > MaxOutcomePromptBytes {
+			return current, invalid("images", "The brief and this outcome's attached images must fit in "+strconv.Itoa(MaxOutcomePromptBytes)+" bytes together. Shorten the brief or attach fewer images.")
+		}
+	}
 	if !current.Trust {
 		// Trust is given once, when the outcome is approved, and Antigravity never starts without it.
 		for _, piece := range pieces {

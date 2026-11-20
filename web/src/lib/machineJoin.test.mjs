@@ -18,7 +18,7 @@ const joinSource = transpile('./machineJoin.ts')
 const join = await import(url(joinSource))
 const setup = await import(setupURL)
 const review = await import(reviewURL)
-const { MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, landingFor, joinDelay, JOIN_AUTO_MS, fromPrivateSkills, landingNote } = join
+const { MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, joinDelay } = join
 
 const now = 1_800_000_000_000
 const DAY = 86_400_000
@@ -29,21 +29,14 @@ const readyMachine = () => machine([group('claude')])
 const opts = (changes = {}) => ({ accounts: true, canWrite: true, now, ...changes })
 const view = (changes = {}) => joinState({ name: 'studio', machines: [readyMachine()], agents: [agent()], baseline: null, now, ...changes })
 
-test('new machine setup waits for verified library sync and exposes actionable failures', () => {
+test('new machine setup waits for a reconcile report rather than an inventory or old plan', () => {
   const ready = view()
-  const target = { target:{host:'studio',project:'',id:'t'},sourceId:'library',missing:[],desired:[],revision:'r' }
-  const state = { agents:[agent({keepSynced:true})],targets:[],jobs:[],environments:[] }
-  assert.equal(join.joinSyncState(ready,'studio',state).stage,'syncing')
-  state.targets=[{...target,missing:[{id:'draft'}]}]
-  assert.equal(join.joinSyncState(ready,'studio',state).canUse,false)
-  state.targets=[target]
-  assert.equal(join.joinSyncState(ready,'studio',state).label,'Ready · library in sync')
-  state.jobs=[{agentId:'a1',kind:'apply',status:'failed',message:'Remote apply is disabled locally',updatedAt:now}]
-  assert.equal(join.joinSyncState(ready,'studio',state).detail,'Remote apply is disabled locally')
-  state.jobs=[]
-  state.targets=[{...target,problem:'Connect the source machine to copy your skill.'}]
-  assert.equal(join.joinSyncState(ready,'studio',state).stage,'sync_issue')
-  assert.equal(join.joinSyncState({...ready,stage:'first_scan'},'studio',state).stage,'first_scan')
+  const health = state => ({active:1,machines:[{agentId:'a1',host:'studio',state,waiting:[],failed:[]}]})
+  assert.equal(join.joinSyncState(ready).canUse,false)
+  assert.equal(join.joinSyncState(ready,health('installing')).stage,'syncing')
+  assert.equal(join.joinSyncState(ready,health('ok')).label,'Ready · library in sync')
+  for (const status of ['failed','paused','offline','blocked','needs-update','needs-newer-controller']) assert.equal(join.joinSyncState(ready,health(status)).stage,'sync_issue')
+  assert.equal(join.joinSyncState({...ready,stage:'first_scan'},health('ok')).stage,'first_scan')
 })
 
 test('validateMachineName trims and refuses empty, too long and control characters, each with its own reason', () => {
@@ -224,39 +217,9 @@ test('joinState: anything it does not recognise is unknown, with the fallback se
   }
 })
 
-test('landingFor prefers the same agent, otherwise the first qualifying folder, and counts the others', () => {
-  const m = machine([group('claude'), group('cursor'), group('opencode')])
-  const a = [agent()]
-  assert.deepEqual(landingFor({ skill: 'tidy', agent: 'cursor' }, m, a, opts()), { kind: 'open', environmentId: 'cursor-id', name: 'tidy', chosen: 'Cursor', others: 2 })
-  assert.deepEqual(landingFor({ agent: 'codex' }, m, a, opts()), { kind: 'open', environmentId: 'claude-id', chosen: 'Claude Code', others: 2 })
-  assert.deepEqual(landingFor({}, machine([group('claude')]), a, opts()), { kind: 'open', environmentId: 'claude-id', chosen: 'Claude Code', others: 0 })
-  // A preferred folder that does not qualify is skipped; the others are counted without it.
-  const mixed = machine([group('cursor', { complete: false }), group('opencode'), group('claude')])
-  assert.deepEqual(landingFor({ agent: 'cursor' }, mixed, a, opts()), { kind: 'open', environmentId: 'opencode-id', chosen: 'OpenCode', others: 1 })
-  // Project folders keep their label.
-  const project = machine([group('claude', { id: 'p', project: '/work/app' })])
-  assert.equal(landingFor({}, project, a, opts()).chosen, 'Claude Code · /work/app')
-})
 
-test('landingFor says plainly why nothing qualifies', () => {
-  const a = [agent()]
-  const none = (m, agents = a, o = opts(), ctx = {}) => {
-    const r = landingFor(ctx, m, agents, o)
-    assert.equal(r.kind, 'none')
-    assert.match(r.reason, /\S/)
-    return r.reason
-  }
-  assert.equal(none(undefined), "That machine isn't listed yet.")
-  assert.equal(none(machine([])), "That machine hasn't reported an agent folder yet.")
-  assert.equal(none(machine([group('codex')])), 'Its agent folders are scan-only, so private skills cannot be pinned to them.')
-  assert.equal(none(machine([group('claude', { scannedAt: now - 15 * DAY })])), "This machine hasn't reported a complete scan of this folder in the last 14 days.")
-  assert.equal(none(machine([group('claude', { complete: false })])), "This machine hasn't reported a complete scan of this folder in the last 14 days.")
-  assert.equal(none(machine([group('claude')]), [agent({ paused: true })]), 'The connector on this machine is paused. Resume it to check this machine.')
-  assert.equal(none(machine([group('claude')]), []), "No connector is enrolled on this machine, so it can't be checked.")
-  assert.equal(none(machine([group('claude')]), [agent()], opts({ canWrite: false })), "Your account can only view, so it can't pin or check private skills.")
-  // The reason follows the folder that got furthest: a stale preferred folder does not hide a paused good one.
-  assert.equal(none(machine([group('cursor', { scannedAt: 0 }), group('claude')]), [agent({ paused: true })], opts(), { agent: 'cursor' }), 'The connector on this machine is paused. Resume it to check this machine.')
-})
+
+
 
 test('joinDelay starts at 3000, grows and is capped at 20000; the watch cap is fifteen minutes', () => {
   assert.equal(joinDelay(0), 3000)
@@ -295,12 +258,8 @@ test('malformed machines and groups are unknown, never a throw', () => {
   for (const bad of [{ host: 'studio', groups: [null] }, { host: 'studio', groups: [{ id: 'x', scannedAt: now, complete: true }] }, { host: 'studio', groups: [{ agent: 3 }] }]) {
     const v = view({ machines: [bad] })
     assert.equal(v.stage, 'unknown', JSON.stringify(bad))
-    const l = landingFor({}, bad, [agent()], opts())
-    assert.equal(l.kind, 'none')
-    assert.match(l.reason, /\S/)
   }
   assert.equal(joinBaseline('studio', [agent()], [{ host: 'studio', groups: [null] }]).scannedAt, 0)
-  assert.equal(landingFor({}, readyMachine(), [null], opts()).kind, 'none')
 })
 
 test('names with text-direction overrides are refused, but zero-width joiners are allowed', () => {
@@ -319,9 +278,7 @@ test('joinCommands only quotes: refusing control characters is validateMachineNa
   assert.match(joinCommands('https://reet.example', 'a\nb', 'stable'), /--name 'a\nb'$/)
 })
 
-test('landingFor passes on the sign-in reason when accounts are off', () => {
-  assert.deepEqual(landingFor({}, readyMachine(), [agent()], opts({ accounts: false })), { kind: 'none', reason: 'Private skills need a signed-in account.' })
-})
+
 
 const aliased = (host, aliases, groups = [group('claude', { host })]) => ({ host, aliases, groups, skillCount: 0 })
 
@@ -402,16 +359,11 @@ test('alias handling never throws on odd machines', () => {
   }
 })
 
-test('the Private skills context is told apart from the Machines page, and the landing note says only what was chosen', () => {
-  assert.equal(JOIN_AUTO_MS, 3000)
-  assert.equal(fromPrivateSkills({}), false)
-  assert.equal(fromPrivateSkills({ skill: 'demo' }), true)
-  assert.equal(fromPrivateSkills({ agent: 'claude' }), true)
-  assert.equal(fromPrivateSkills({ bundleId: 'b' }), false)   // a bundle alone says nothing about where the person came from
-  assert.equal(fromPrivateSkills({ agent: 'claude', bundleId: 'b' }), true)   // an agent alone is enough
-  const open = (others) => ({ kind: 'open', environmentId: 'e', chosen: 'Claude Code', others })
-  assert.equal(landingNote('rack', open(0)), 'Opened on Claude Code on rack.')
-  assert.equal(landingNote('rack', open(1)), 'Opened on Claude Code on rack. 1 other folder also qualifies; open it from the Machines page.')
-  assert.equal(landingNote('rack', open(3)), 'Opened on Claude Code on rack. 3 other folders also qualify; open them from the Machines page.')
-  assert.doesNotMatch(landingNote('rack', open(2)), /verified|healthy/i)
+test('replacement connector waits for its own library report', () => {
+  const ready = view({ agents: [agent(), agent({ id: 'a2' })], baseline: { agentIds: ['a1'], scannedAt: 0 } })
+  const old = { agentId: 'a1', state: 'ok', waiting: [], failed: [] }
+  const replacement = { ...old, agentId: 'a2' }
+  assert.equal(join.joinSyncState(ready, { machines: [old] }).canUse, false)
+  assert.equal(join.joinSyncState(ready, { machines: [old, { ...replacement, state: 'installing' }] }).canUse, false)
+  assert.equal(join.joinSyncState(ready, { machines: [old, replacement] }).canUse, true)
 })

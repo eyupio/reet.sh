@@ -3,25 +3,23 @@
   import FeedbackToast from './FeedbackToast.svelte'
   import { onMount, tick } from 'svelte'
   import type { Snippet } from 'svelte'
-  import { getBuildInfo, getSyncState, mergeMachines, forgetMachine, listSetupProfiles, type SetupProfileSummary, type SyncState, type SyncEnvironment } from './api'
+  import { getBuildInfo, getSyncState, loadSyncSkills, mergeMachines, forgetMachine, listSetupProfiles, type SyncSkills, type SetupProfileSummary, type SyncState, type SyncEnvironment } from './api'
   import CopyButton from './CopyButton.svelte'
-  import SyncControl from './SyncControl.svelte'
   import MachineSetup from './MachineSetup.svelte'
   import MachineFleet from './MachineFleet.svelte'
   import AddMachineDialog from './AddMachineDialog.svelte'
   import { sameHost } from './contentReview'
   import { elapsed } from './time'
-  import type { JoinContext } from './machineJoin'
   import { agentGroups, inventoryMachines } from './machines'
   import ConfirmDialog from './ConfirmDialog.svelte'
-  import SyncActivity from './SyncActivity.svelte'
   import MachineSkillImports from './MachineSkillImports.svelte'
-  import { agoLabel } from './syncOverview'
+  import { agoLabel } from './time'
   import { formatWhen } from './time'
 
-  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, view = 'machines', advanced = false, startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; advanced?: boolean; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
-  let syncState = $state<SyncState>({ environments: [], targets: [] })
+  let skills = $state<SyncSkills | null>(null)
+  let syncState = $state<SyncState>({ environments: [] })
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
   let serverMachines = $derived((syncState.machines ?? []).filter((machine) => agentGroups(machine).length === 0))
   let reportedMachines = $derived(syncState.machines ?? [])
@@ -55,18 +53,8 @@
   const arrivedForDialog = typeof location !== 'undefined' && location.hash === '#add-machine'
   let setupHost = $state('')
   // The Add a machine dialog, with what opened it, and the machine it just brought in (highlighted for a few seconds).
-  let joining = $state<{ context: JoinContext; opener: HTMLElement | null } | null>(null)
-  // Set when the dialog was opened from the Private skills dialog and a folder was chosen for the new machine: the fleet opens
-  // the Private skills dialog on it once and clears this.
-  let landing = $state<{ environmentId: string; name?: string; note: string } | null>(null)
+  let joining = $state<{ opener: HTMLElement | null } | null>(null)
   let importSource = $state<{ environmentId: string; name: string; direct?: boolean } | null>(null)
-  // ?choose=skills on a machine's own address opens its skill dialog once, then the address is tidied.
-  let chooseHost = $state(new URLSearchParams(location.search).get('choose') === 'skills' ? (new URLSearchParams(location.search).get('machine') ?? '') : '')
-  function choseDone() {
-    chooseHost = ''
-    const url = new URL(location.href)
-    if (url.searchParams.has('choose')) { url.searchParams.delete('choose'); history.replaceState(history.state, '', url) }
-  }
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
@@ -76,7 +64,7 @@
   const focusedMachine = $derived(focusHost ? machines.find(machine => machine.host.toLowerCase() === focusHost.toLowerCase()) : undefined)
   const visibleMachines = $derived(focusedMachine ? [focusedMachine] : machines)
   // Offered to a signed-in account that can write, on the Machines view only (never to a viewer or in a legacy sign-in mode).
-  const canAdd = $derived(accounts && canWrite && view === 'machines')
+  const canAdd = $derived(accounts && canWrite)
   let now = $state(Date.now())
 
   function quote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }
@@ -141,9 +129,10 @@
     const generation = ++loadGeneration
     if (!background) { loading = true; error = '' }
     try {
-      const next = await getSyncState()
+      const [next, health] = await Promise.all([getSyncState(), loadSyncSkills().catch(() => null)])
       if (generation !== loadGeneration) return
       syncState = next
+      skills = health
       loaded = true
       loadFailure = undefined
       lastRefresh = Date.now()
@@ -162,9 +151,9 @@
     await load(true)
     if (loadFailure !== undefined) throw loadFailure
   }
-  // From the Machines page there is no context; the Private skills dialog passes the skill, bundle and agent it came with.
-  function openJoin(opener: HTMLElement | null, context: JoinContext = {}) {
-    joining = { context, opener }
+  // The connection flow returns to the machine that was added.
+  function openJoin(opener: HTMLElement | null) {
+    joining = { opener }
   }
   // Closing the dialog hands focus to the entry that opened it; if that entry has moved (the machines were read while it was
   // open), to wherever the entry is now.
@@ -172,20 +161,12 @@
     const opener = joining?.opener
     joining = null
     void tick().then(() => {
-      // Never take focus from a dialog that has just opened (the Private skills landing), or from the opener.
-      if (opener?.isConnected || landing || document.querySelector('dialog[open]')) return
+      // Never take focus from another open dialog or from the opener.
+      if (opener?.isConnected || document.querySelector('dialog[open]')) return
       document.querySelector<HTMLElement>('[data-add-machine]')?.focus()
     })
   }
-  // The new machine is reported in and ready. From the Machines page that means showing it. From the Private skills dialog the
-  // dialog has already chosen the folder (at the moment Use was pressed), so the fleet opens the Private skills dialog on it.
-  function joinReady(r: { host: string; context: JoinContext; landing?: { environmentId: string; name?: string }; note?: string }) {
-    if (r.landing) {
-      landing = { environmentId: r.landing.environmentId, name: r.landing.name, note: r.note ?? '' }
-      return
-    }
-    void showMachine(r.host)
-  }
+  function joinReady(r: { host: string }) { void showMachine(r.host) }
   async function showMachine(host: string) {
     const machine = machines.find(m => sameHost(m.host, host))
     if (!machine) return
@@ -245,33 +226,24 @@
   })
 </script>
 
-<section class="sync" class:compare={view === 'compare'} aria-labelledby={view === 'compare' ? undefined : 'sync-title'}>
-  {#if view !== 'compare'}
-  <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Sync'}</h2>
+<section class="sync" aria-labelledby="sync-title">
+  <h2 class="vh" id="sync-title">Machines</h2>
   <div class="page-tools">
-    {#if view === 'machines' && canAdd}<button class="btn primary" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
-    {#if view === 'machines' && canWrite && !canAdd}<button class="btn" type="button" onclick={() => openSetup()}>Connect a machine</button>{/if}
-    {#if view === 'machines' && canWrite && visibleMachines.length}<button class="btn quiet" type="button" onclick={() => (importSource = { environmentId: '', name: '' })}>Import a machine skill…</button>{/if}
+    {#if canAdd}<button class="btn primary" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
+    {#if canWrite && !canAdd}<button class="btn" type="button" onclick={() => openSetup()}>Connect a machine</button>{/if}
+    {#if canWrite && visibleMachines.length}<button class="btn quiet" type="button" onclick={() => (importSource = { environmentId: '', name: '' })}>Import a machine skill…</button>{/if}
     <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
     <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
   </div>
-  {/if}
-  {#if view === 'compare'}<!-- On the Sync pages `machine` chooses the machine a plan is for, not a machine to show. -->{:else if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
+  {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   <div class="banners">
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   </div>
 
-  {#if view === 'compare'}
-    {#if loading && !loaded}
-      <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
-    {:else}
-      <SyncControl snapshot={syncState} {canWrite} {view} {advanced} onupdate={updateState} />
-    {/if}
-  {:else}
     {#if loading && !loaded}
       <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {timeZone} {dateFormat} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} {chooseHost} onchose={choseDone} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} onimport={(source) => (importSource = source)} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {skills} {site} {canWrite} {accounts} {timeZone} {dateFormat} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} />
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>
@@ -280,9 +252,8 @@
       </section>
     {/if}
     <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
-  {/if}
 
-  {#if view === 'machines' && canWrite && machines.length}
+  {#if canWrite && machines.length}
     <details class="advanced-fleet">
       <summary>Advanced machine maintenance</summary>
       <p class="hint">Duplicate reports, fleet refreshes and server-only heartbeats. Most people will not need these.</p>
@@ -307,7 +278,7 @@
             <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label="Copy refresh" ariaLabel={`Copy refresh for ${machine.host}`} /></div>
           </div>
         {/each}
-        <p class="hint">For enrolled machines, use Scan all from Control or Sync. For other machines, run the commands above, then refresh status.</p>
+        <p class="hint">Connected machines refresh inventory automatically. To check immediately, run the commands above, then refresh status.</p>
       </details>
       {#if serverMachines.length}
         <details class="maintenance">
@@ -321,12 +292,12 @@
 </section>
 
 
-{#if view !== 'compare'}<SyncActivity snapshot={syncState} {canWrite} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e) }} />{/if}
+
 
 {#if importSource}<MachineSkillImports snapshot={syncState} source={importSource} onclose={() => (importSource = null)} />{/if}
 
 {#if joining && canAdd}
-  <AddMachineDialog {site} {machines} snapshot={loaded ? syncState : undefined} {accounts} {canWrite} {token} {tokenSetup} context={joining.context} opener={joining.opener}
+  <AddMachineDialog {skills} {site} {machines} snapshot={loaded ? syncState : undefined} {accounts} {canWrite} {token} {tokenSetup} opener={joining.opener}
     channel={serverBuild?.version === 'dev' ? 'dev' : 'stable'} onrefresh={refreshForJoin} onready={joinReady} onstepbystep={joinStepByStep} {onsignedout} onclose={joinClosed} />
 {/if}
 
@@ -346,7 +317,6 @@
   .sync-empty h3 { margin: 0 0 12px; font: 500 1.3rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .sync-empty p { margin: 12px 0 0; max-width: 60ch; color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
   .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
-  .sync.compare { padding: 0; border: 0; background: transparent; }
   .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: 0.875rem; }
   .hint { color: var(--muted); font-size: 0.875rem; margin: 6px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

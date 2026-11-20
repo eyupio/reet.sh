@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,8 +26,6 @@ const (
 	// uploadRequestTimeout bounds one image from the controller's side.
 	uploadRequestTimeout = 30 * time.Second
 )
-
-var uploadSafePath = regexp.MustCompile(`^[A-Za-z0-9_./:@%+-]+$`)
 
 // uploadLimits holds the per-account rate and concurrency limits. Its zero
 // value is ready: the limiter is made on first use, and nothing is global.
@@ -242,10 +239,7 @@ func (s *server) readUploadImage(w http.ResponseWriter, r *http.Request, declare
 // uploadReference is the text a browser inserts after an upload. It is the
 // absolute path unchanged unless it needs POSIX single quoting.
 func uploadReference(path string) string {
-	if uploadSafePath.MatchString(path) {
-		return path
-	}
-	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
+	return terminalproto.UploadReference(path)
 }
 
 func uploadSizeBucket(size int) string {

@@ -51,6 +51,7 @@ await page.route('**/api/**',async route=>{
   if(failRetry&&body.agentId==='b')return route.fulfill({status:409,json:{error:'Machine busy'}})
   data=snapshot
  }
+ else if(path==='/api/v2/sync/skills')data={active:0,work:{failed:0,installing:0,removing:0,updating:0},activity:[],machines:[]}
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude','codex'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'},{tool:'codex',adapter:'codex-acp',state:'missing',minimumVersion:'1.13.1'}]}}))}}
@@ -70,11 +71,6 @@ try {
  await page.goto(`${base}/machines`)
  await page.getByText('Agents on this machine',{exact:true}).first().click()
  await page.getByText('Agents on this machine',{exact:true}).last().click()
- await expect(page.getByText('Content not reported',{exact:true}).first()).toBeVisible()
- await expect(page.getByText('Content report out of date · 1 skill',{exact:true})).toBeVisible()
- await page.getByText('Content observed · 1 skill',{exact:true}).click()
- await expect(page.getByText('a'.repeat(64),{exact:true})).toBeVisible()
- await expect(page.getByText(/No skill files have been uploaded/).first()).toBeVisible()
  expect(writes).toEqual([])
  await noOverflow()
  // The update card speaks about the machine as it is now: a finished update is one line, not its steps.
@@ -133,83 +129,10 @@ try {
  await expect(page.getByRole('dialog')).toHaveCount(0)
  writes.length=0
  await noOverflow()
- // The Sync page carries no plan controls: they are one link away, on Advanced sync.
- await page.goto(`${base}/sync`)
- await expect(page.getByRole('heading',{level:1})).toHaveCount(1)
+ // Retired comparison links lead to current status, without plan selectors.
+ await page.goto(`${base}/sync/advanced?machine=dev-laptop`)
+ await expect(page).toHaveURL(`${base}/sync`)
  await expect(page.getByLabel('Sync mode',{exact:true})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
- await page.getByRole('link',{name:'Advanced',exact:true}).click()
- await expect(page).toHaveURL(`${base}/sync/advanced`)
- await expect(page.getByRole('heading',{level:1,name:'Advanced sync',exact:true})).toBeVisible()
- // The plan controls open on the machine's saved set, not a blank form that contradicts it.
- await expect(page.getByText('Editing sync plan · revision rev-laptop-shared')).toBeVisible()
- await expect(page.getByText('3 of 3 skills selected')).toBeVisible()
- await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
- await page.getByRole('button',{name:'Sync all · preview'}).click()
- await expect(page.getByRole('dialog')).toContainText('3 jobs will be queued')
- await page.getByRole('button',{name:'Cancel',exact:true}).click()
- expect(writes).toHaveLength(0)
- failQueue=true
- await page.getByRole('button',{name:'Sync all · preview'}).click()
- await page.getByRole('button',{name:'Queue jobs',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'2 of 3 jobs queued'})).toBeVisible()
- await expect(page.getByRole('alert')).toContainText('Machine busy')
- expect(writes.filter(w=>w.body.kind==='preview')).toHaveLength(3)
- expect(writes.some(w=>w.body.action==='approve')).toBe(false)
- failQueue=false
- // An older link that names a machine is sent on to Advanced sync, which honours it.
- await page.goto(`${base}/sync?machine=*`)
- await expect(page).toHaveURL(`${base}/sync/advanced?machine=*`)
- await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('*')
- // Nothing selected never offers a plain Save: an empty set is only cleared deliberately.
- await expect(page.getByText('0 of 3 skills selected')).toBeVisible()
- await expect(page.getByRole('button',{name:'Save sync plan (no files change yet)'})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'Clear this sync plan'})).toBeVisible()
- await expect(page.locator('.scope-option')).toHaveCount(3)
- await page.getByLabel('Find skills',{exact:true}).fill('code-review')
- await page.getByRole('button',{name:'Select visible',exact:true}).click()
- failSave=true
- await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
- await expect(page.getByRole('alert')).toContainText('1 of 3 install locations saved')
- expect(writes.filter(w=>w.path.endsWith('/desired'))).toHaveLength(2)
- failSave=false
- await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'Sync plan saved for 3 install locations across 2 machines'})).toBeVisible()
- expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).map(w=>[w.body.targetId,w.body.skillIds])).toEqual(environments.map(e=>[e.id,['demo/toolkit/code-review']]))
- await page.getByLabel('Sync mode',{exact:true}).selectOption('bidirectional')
- const beforeCancel=writes.length
- await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
- await expect(page.getByRole('dialog')).toContainText('removes extra skills')
- await page.getByRole('button',{name:'Cancel',exact:true}).click()
- expect(writes.length).toBe(beforeCancel)
- await page.getByLabel('Sync mode',{exact:true}).selectOption('additive')
- await expect(page.getByText('Differences by machine',{exact:true})).toBeVisible()
- const incoming=page.locator('#sync-selection details').filter({has:page.locator('summary').filter({hasText:'Only on selected install locations (2)'})})
- await incoming.locator('summary').click()
- for(const checkbox of await incoming.getByRole('checkbox').all())await checkbox.check()
- await incoming.getByRole('button',{name:'Add selected to reet.sh',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'2 selected skills added to reet.sh'})).toBeVisible()
- expect(writes.filter(w=>w.path.endsWith('/adopt')).map(w=>[w.body.targetId,w.body.skillIds])).toEqual([['laptop-shared',['demo/toolkit/testing']],['build-shared',['demo/toolkit/deployment']]])
- await page.getByLabel('Source',{exact:true}).selectOption('build-shared')
- await page.getByRole('button',{name:'Select visible',exact:true}).click()
- await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'Sync plan saved for 3 install locations across 2 machines'})).toBeVisible()
- expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).every(w=>w.body.sourceId==='build-shared'&&w.body.skillIds.length===3)).toBe(true)
- await noOverflow()
- await page.goto(`${base}/skills`)
- await expect(page.getByRole('heading',{name:'Skills',exact:true})).toBeVisible()
- await expect(page.locator('main').getByRole('link',{name:'Write a skill',exact:true})).toBeVisible()
- await expect(page.locator('[data-skill="demo/toolkit/code-review"]')).toBeVisible()
- await page.goto(`${base}/terminals`)
- await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
- // The older address for Sync shows the Sync page; with a machine it is a link into the plan controls.
- await page.goto(`${base}/machines?view=compare`)
- await expect(page.getByRole('heading',{level:1,name:'Everything is in sync.',exact:true})).toBeVisible()
- expect(await page.title()).toMatch(/^Sync ·/)
- await expect(page.getByLabel('Machine',{exact:true})).toHaveCount(0)
- await page.goto(`${base}/machines?view=compare&machine=dev-laptop`)
- await expect(page).toHaveURL(`${base}/sync/advanced?machine=dev-laptop`)
- await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('dev-laptop')
  // A scan is not proof of a live terminal connection. The wizard verifies both separately.
  terminalReady=false
  await page.goto(`${base}/machines#connect-machine`)
@@ -249,53 +172,10 @@ try {
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings-phone-dark.png`})
   await page.getByRole('button',{name:'Close settings'}).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await page.goto(`${base}/sync?machine=*`)
-  await expect(page.locator('.scope-option')).toHaveCount(3)
+  await page.goto(`${base}/sync`)
+  await expect(page.locator('.scope-option')).toHaveCount(0)
   await noOverflow()
  }
- // A failed job's retry answers on the card that was pressed, not only in the banner at the top.
- // The panel's message is the real agent refusal: opting into apply is a local command.
- const failedJob=(id,agentId,targetId)=>({id,agentId,targetId,kind:'apply',status:'failed',revision:'rev',hash:'h',plan:{},message:'remote apply disabled locally; run reet agent allow-apply on in a terminal on this machine to opt in',stage:'',stages:[],createdAt:now-120000,updatedAt:now-60000})
- writes.length=0
- snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
- await page.setViewportSize({width:390,height:844})
- // Sync jobs and their retries are on Advanced sync until the job-based sync goes.
- await page.goto(`${base}/sync/advanced`)
- const devJob=page.locator('.activity-host').filter({hasText:'dev-laptop'}).locator('.activity-job').filter({hasText:'Apply failed'})
- const devRetry=devJob.getByRole('button',{name:/run it/})
- await devRetry.scrollIntoViewIfNeeded()
- await devRetry.click()
- const devQueued=devJob.getByRole('status').filter({hasText:'Fresh sync queued for dev-laptop'})
- await expect(devQueued).toBeVisible()
- await devQueued.scrollIntoViewIfNeeded()
- await expect(devQueued).toBeInViewport()
- await expect.poll(()=>writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'auto'}})
- await expect(devJob.getByRole('button',{name:/run it/})).toHaveCount(0)
- failRetry=true
- const serverJob=page.locator('.activity-host').filter({hasText:'build-server'}).locator('.activity-job').filter({hasText:'Apply failed'})
- await serverJob.locator('summary').click()
- const serverRetry=serverJob.getByRole('button',{name:/run it/})
- await serverRetry.scrollIntoViewIfNeeded()
- await serverRetry.click()
- const refused=serverJob.getByRole('alert').filter({hasText:'Machine busy'})
- await expect(refused).toBeVisible()
- await refused.scrollIntoViewIfNeeded()
- await expect(refused).toBeInViewport()
- await expect(serverJob.getByRole('button',{name:/run it/})).toBeVisible()
- failRetry=false
- snapshot={...snapshot,jobs:[]}
- writes.length=0
- await page.setViewportSize({width:1440,height:900})
- failSource=true
- await page.goto(`${base}/sync?machine=*`)
- await expect(page.getByRole('alert').first()).toContainText('Source unavailable')
- await expect(page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true})).toBeDisabled()
- failSource=false
- viewer=true
- await page.goto(`${base}/machines`)
- await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
- await expect(page.getByRole('link',{name:'Sessions',exact:true})).toHaveCount(0)
- viewer=false
  expect(errors).toEqual([])
- console.log('Control UI passed: /control to Home, navigation, all-machine selection, partial save/queue failures, no automatic apply, light/dark responsive layouts, viewer controls.')
+ console.log('Control UI passed: updates, settings, connection, terminal readiness and responsive layouts.')
 } finally { await browser.close() }

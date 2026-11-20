@@ -116,60 +116,68 @@ func validPlanPrevious(in *OutcomePlanPrevious) (*OutcomePlanPrevious, error) {
 	return out, nil
 }
 
+// planRequest is one validated plan ask: the provider row it was checked
+// against, its normalized settings and the text sent to the model.
+type planRequest struct {
+	old      store.GafferProvider
+	cfg      Input
+	ask      string
+	sessions int
+}
+
 // PlanOutcome asks the chosen provider for a session plan. The provider
 // receives the typed objective and project name; a reply to an earlier
 // proposal also carries that reply and a compact copy of what it answered.
 func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in OutcomePlanInput) (OutcomePlan, error) {
-	var plan OutcomePlan
+	request, err := s.preparePlan(p, id, in)
+	if err != nil {
+		return OutcomePlan{}, err
+	}
+	ctx, done, err := s.begin(parent, p, id, 90*time.Second)
+	if err != nil {
+		return OutcomePlan{}, err
+	}
+	defer done()
+	return s.executePlan(ctx, parent, p, request)
+}
+
+func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (planRequest, error) {
 	objective, project := strings.TrimSpace(in.Objective), strings.TrimSpace(in.Project)
 	if objective == "" || len(objective) > MaxOutcomeObjectiveBytes || !store.ValidWorkerText(objective) {
-		return plan, invalid("objective", "Write the objective in up to 4,000 UTF-8 bytes of plain text.")
+		return planRequest{}, invalid("objective", "Write the objective in up to 4,000 UTF-8 bytes of plain text.")
 	}
 	if len(project) > 200 || !utf8.ValidString(project) || strings.ContainsAny(project, "\x00\r\n") {
-		return plan, invalid("project", "Use a project name of up to 200 bytes on one line.")
+		return planRequest{}, invalid("project", "Use a project name of up to 200 bytes on one line.")
 	}
 	if in.Sessions < 1 || in.Sessions > MaxOutcomeSessions {
-		return plan, invalid("sessions", "Choose between 1 and 5 sessions.")
+		return planRequest{}, invalid("sessions", "Choose between 1 and 5 sessions.")
 	}
 	reply := strings.TrimSpace(in.Reply)
 	if reply != "" && (len(reply) > MaxOutcomeReplyBytes || !store.ValidWorkerText(reply)) {
-		return plan, invalid("reply", "Write the reply in up to 2,000 UTF-8 bytes of plain text.")
+		return planRequest{}, invalid("reply", "Write the reply in up to 2,000 UTF-8 bytes of plain text.")
 	}
 	var previous *OutcomePlanPrevious
 	if reply != "" {
 		var err error
 		previous, err = validPlanPrevious(in.Previous)
 		if err != nil {
-			return plan, err
+			return planRequest{}, err
 		}
 	}
 	old, err := s.owned(p, Input{ID: id, Revision: in.Revision})
 	if err != nil {
-		return plan, err
+		return planRequest{}, err
 	}
 	if old.ID == "" {
-		return plan, store.ErrNotFound
+		return planRequest{}, store.ErrNotFound
 	}
 	if !old.Enabled {
-		return plan, invalid("provider", "Enable this Gaffer provider before asking it for a plan.")
+		return planRequest{}, invalid("provider", "Enable this Gaffer provider before asking it for a plan.")
 	}
 	cfg, err := normalize(p, inputFrom(old), true)
 	if err != nil {
-		return plan, err
+		return planRequest{}, err
 	}
-	ctx, done, err := s.begin(parent, p, id, 90*time.Second)
-	if err != nil {
-		return plan, err
-	}
-	defer done()
-	if err = s.current(p, old); err != nil {
-		return plan, err
-	}
-	backend, client, err := s.open(p, cfg, old, "")
-	if err != nil {
-		return plan, err
-	}
-	defer client.CloseIdleConnections()
 	ask := "Objective:\n" + objective
 	if project != "" {
 		ask += "\n\nProject: " + project
@@ -191,9 +199,22 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 		}
 		ask += "\n\nThe person replied:\n" + reply + "\n\nRevise the proposal as a direct response to that reply. Keep what is still right, change what the person asked, and address their reply in the summary. Call propose_sessions exactly once."
 	}
-	stream, err := backend.Chat(ctx, elicore.Request{Model: cfg.Model, System: outcomeSystem(in.Sessions), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: ask}}, Tools: []elicore.Tool{planSessionsTool}, MaxTokens: 4096})
+	return planRequest{old: old, cfg: cfg, ask: ask, sessions: in.Sessions}, nil
+}
+
+func (s *Service) executePlan(ctx context.Context, outer context.Context, p Principal, request planRequest) (OutcomePlan, error) {
+	var plan OutcomePlan
+	if err := s.current(p, request.old); err != nil {
+		return plan, err
+	}
+	backend, client, err := s.open(p, request.cfg, request.old, "")
 	if err != nil {
-		return plan, planFailure(parent, err)
+		return plan, err
+	}
+	defer client.CloseIdleConnections()
+	stream, err := backend.Chat(ctx, elicore.Request{Model: request.cfg.Model, System: outcomeSystem(request.sessions), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: request.ask}}, Tools: []elicore.Tool{planSessionsTool}, MaxTokens: 4096})
+	if err != nil {
+		return plan, planFailure(outer, err)
 	}
 	defer stream.Close()
 	var calls []elicore.ToolCall
@@ -204,7 +225,7 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 			break
 		}
 		if event.Err != nil {
-			return plan, planFailure(parent, event.Err)
+			return plan, planFailure(outer, event.Err)
 		}
 		if event.ToolCall != nil {
 			calls = append(calls, *event.ToolCall)
@@ -217,10 +238,10 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 			break
 		}
 	}
-	if parent.Err() != nil {
-		return plan, parent.Err()
+	if outer.Err() != nil {
+		return plan, outer.Err()
 	}
-	if err = s.current(p, old); err != nil {
+	if err = s.current(p, request.old); err != nil {
 		return plan, err
 	}
 	if cut {
@@ -229,12 +250,88 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 	if len(calls) != 1 || calls[0].Name != planSessionsTool.Name {
 		return plan, &ProbeError{"This model did not return a plan. Choose a model that supports tools, or write the plan yourself."}
 	}
-	summary, sessions, err := outcomeSessions(calls[0].Arguments, in.Sessions)
+	summary, sessions, err := outcomeSessions(calls[0].Arguments, request.sessions)
 	if err != nil {
 		return plan, err
 	}
-	plan.Summary, plan.Sessions, plan.Model = summary, sessions, cfg.Model
+	plan.Summary, plan.Sessions, plan.Model = summary, sessions, request.cfg.Model
 	return plan, nil
+}
+
+// planJobTTL is how long a finished plan stays available for the browser to
+// read. Planning has no side effects, so an expired job is simply asked for
+// again.
+const planJobTTL = 5 * time.Minute
+
+type planJob struct {
+	uid      int64
+	provider string
+	ready    bool
+	plan     OutcomePlan
+	err      error
+	finished time.Time
+}
+
+// StartPlan begins a plan in the background and returns its job ID. The
+// provider call is not tied to the browser request: a proxy that gives up
+// waiting (Cloudflare ends an origin response after 100 seconds) no longer
+// cancels the plan, and the browser reads it with PlanResult.
+func (s *Service) StartPlan(p Principal, id string, in OutcomePlanInput) (string, error) {
+	request, err := s.preparePlan(p, id, in)
+	if err != nil {
+		return "", err
+	}
+	ctx, done, err := s.begin(context.Background(), p, id, 90*time.Second)
+	if err != nil {
+		return "", err
+	}
+	jobID, err := newChatID()
+	if err != nil {
+		done()
+		return "", err
+	}
+	job := &planJob{uid: p.UserID, provider: id}
+	s.mu.Lock()
+	s.prunePlansLocked(time.Now())
+	s.plans[jobID] = job
+	s.mu.Unlock()
+	go s.runPlan(ctx, done, job, p, request)
+	return jobID, nil
+}
+
+func (s *Service) runPlan(ctx context.Context, done func(), job *planJob, p Principal, request planRequest) {
+	defer done()
+	plan, err := s.executePlan(ctx, context.Background(), p, request)
+	s.mu.Lock()
+	job.plan, job.err, job.ready, job.finished = plan, err, true, time.Now()
+	s.mu.Unlock()
+}
+
+// PlanResult returns a finished plan, or ready=false while it is still being
+// asked for. A failed plan returns its error, which the API maps as usual.
+func (s *Service) PlanResult(p Principal, providerID, jobID string) (OutcomePlan, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prunePlansLocked(time.Now())
+	job := s.plans[jobID]
+	if job == nil || job.uid != p.UserID || job.provider != providerID {
+		return OutcomePlan{}, false, store.ErrNotFound
+	}
+	if !job.ready {
+		return OutcomePlan{}, false, nil
+	}
+	if job.err != nil {
+		return OutcomePlan{}, false, job.err
+	}
+	return job.plan, true, nil
+}
+
+func (s *Service) prunePlansLocked(now time.Time) {
+	for id, job := range s.plans {
+		if job.ready && now.Sub(job.finished) > planJobTTL {
+			delete(s.plans, id)
+		}
+	}
 }
 
 func planFailure(parent context.Context, err error) error {

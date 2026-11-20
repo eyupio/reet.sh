@@ -51,7 +51,7 @@ export function machineLine(m: SyncMachine, active: number, now = Date.now()): {
   const waiting = m.waiting.length
   switch (m.state) {
     case 'ok':
-      return { text: `In sync · ${count(active, 'skill')} · checked ${agoInText(m.lastSeen, now)}`, tone: 'ok' }
+      return { text: `In sync · ${count(active, 'skill')} · connector seen ${agoInText(m.lastSeen, now)}`, tone: 'ok' }
     case 'installing':
       return { text: `Installing ${count(waiting, 'skill')}…`, tone: 'work' }
     case 'removing':

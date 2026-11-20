@@ -53,7 +53,8 @@ try {
   const scope = {id:'laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:Date.now(),lastSeen:Date.now(),os:'linux',arch:'amd64',version:'test'}
   const {context,page} = await open({width:1440,sync:{environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}})
   await page.goto(`${base}/sync/advanced`)
-  await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
+  await expect(page).toHaveURL(`${base}/sync`)
+  await expect(page.getByRole('heading',{name:'No machines yet.'})).toBeVisible()
   await expect(page.getByRole('heading',{name:'Connect a machine to start syncing'})).toHaveCount(0)
   await context.close()
  }

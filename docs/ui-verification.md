@@ -1,5 +1,104 @@
 # UI verification — 4 November 2026
 
+## A Factory decision in its session (20 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (FACTORY-DECISION-1); what a person sees is in
+[Factory](factory.md#gaffer-decides).
+
+The fixture in `web/tests/factory-decision.e2e.mjs`: a code stage whose review recommends telling the agent, at 1440
+light and 390 dark. Checked: the card names the stage and why it stopped, **Gaffer recommends** with its reason,
+**Gaffer's latest review** opening in place, the note that says **You decide this outcome's decisions** and how to
+hand them to Gaffer, and the choices. At 390 with a long recommendation the block scrolls and the last choice can be
+brought into view and pressed; the choices stay at its foot while the review scrolls.
+
+Seen and fixed while looking: the long card was taller than the fixed-height workspace and its buttons were clipped
+with nothing to scroll; the block now keeps a bounded height and scrolls itself. The session card also repeated the
+dead end "Read its latest review" without showing it, and said nothing about who was deciding.
+
+Commands run in this container: `npm --prefix web run check` (unit tests and svelte-check: zero errors and warnings),
+`npm --prefix web run build`, `go vet ./...`, `go test -race ./...`, and `factory-decision.e2e.mjs`,
+`gaffer-factory.e2e.mjs`, `gaffer-factory-session.e2e.mjs`, `factory-pieces.e2e.mjs` and `session-workspace.e2e.mjs`
+against `vite preview` with the container's Chromium. Fixtures only; no real controller, machine or paid AI provider
+was contacted.
+
+![A Factory decision at 390, dark](images/ui/factory-decision-390-dark.png)
+![A long Factory decision at 390, light](images/ui/factory-decision-long-390.png)
+
+## Retire the old skill-sync web controls (20 November 2026, PR #850)
+
+The continuation removes Advanced sync, per-machine selections, preview/approve
+controls, the job activity dock and private pin/adoption screens. Legacy plan
+addresses lead to `/sync`. Machine cards, Home and session details use current
+reconcile reports; inventory and old jobs cannot establish sync. Add a machine
+waits for its first reconcile result. Write a skill saves the library version
+and links to current progress without a Sync all action.
+
+New pure regressions cover missing reports, paused/offline/failed states,
+protocol mismatches, pending work and redirects. The browser regression
+`node web/tests/library-machine-flow.e2e.mjs` covers retained connector updates,
+pause, removal of old actions, failed status reads, legacy URLs and layout at
+1440 and 390 in light and dark. It passed locally using a headless Chromium
+build; the earlier Unix-socket startup limitation below was resolved for these
+checks. No real machine or paid AI provider was contacted.
+
+`npm run check --prefix web` passed (unit tests and svelte-check: zero errors and
+warnings). `npm run build --prefix web` passed. All 17 affected browser specs passed locally: `library-machine-flow`,
+`sync-page`, `machines-fleet`, `machines-search`, `first-machine`, `add-machine`,
+`first-skills`, `written-skill-record`, `home`, `sessions`, `control`,
+`machine-import`, `skill-open`, `skill-card`, `skills-new`, `skills-prune` and
+`empty-states` (each run with `node web/tests/<name>.e2e.mjs` against Vite preview).
+These cover updates and connection flows retained from the old Control suite,
+plus the existing skill lifecycle and version-history checks. Tests whose only
+subject was the removed plan/pin engine were deleted with that engine.
+
+The strict documentation build and rendered-site checks passed (59 pages).
+`git diff --check` passed. Local Go vet/race checks cannot run because this
+computer has no Go language toolchain; final Go and integration CI remains a
+required gate on the PR.
+
+Captures show a successful inventory read alongside a failed reconcile-status
+read: the card correctly says **Skill sync not confirmed** while retaining the
+connector update control. The desktop light and phone dark images were visually
+inspected; all four captures are retained:
+
+- [1440, light](images/ui/machines-library-1440-light.png)
+- [1440, dark](images/ui/machines-library-1440-dark.png)
+- [390, light](images/ui/machines-library-390-light.png)
+- [390, dark](images/ui/machines-library-390-dark.png)
+
+## Skills lifecycle documentation continuation (20 November 2026)
+
+Reviewed merged PR #845 at `820631e74001eec6e2b8d2dcf4198384f213f060`.
+Its final head `7f9b297a` has successful test, web, benchmark comparison,
+CodeQL and both real-agent checks. The archived foreign published-skill review
+thread is resolved; its fix is `9caf1cf7` and the query optimisation is `5a1bba96`.
+Those are GitHub CI results, not new local Go test runs.
+
+The continuation changes documentation only: README, changelog, library/sync
+and machine guides, and retirement notices at the five old skill-content guide
+URLs. Controller-move identity and recovery instructions remain available.
+
+Local checks on this continuation:
+
+- `npm ci --prefix web` — passed.
+- `npm run check --prefix web` — passed, including unit tests; svelte-check
+  reported zero errors and zero warnings.
+- `npm run build --prefix web` — passed.
+- `mkdocs build --strict` (using `docs/requirements.txt` in a virtual environment)
+  — passed.
+- `python scripts/check-docs.py` — passed: 59 pages, including links, anchors,
+  assets, metadata, schema, search, sitemap and crawler files.
+- `git diff --check` — passed.
+- `node web/tests/skill-open.e2e.mjs` and
+  `node web/tests/sync-page.e2e.mjs`, with Vite preview running — blocked before
+  any page assertions: Chromium cannot create its process singleton Unix socket
+  in this execution environment (`socket() failed: Operation not permitted`).
+  No fresh captures or successful local browser checks are claimed.
+
+Remaining: Task 17's legacy web engine removal and its affected browser checks,
+then Task 18's full Go/browser verification and 1440/390 light/dark captures.
+The plan is not complete merely because PR #845 was merged.
+
 ## Usage page, and plan limits always on (18 November 2026)
 
 What was checked: the new page at **More → Usage** (`web/src/lib/UsagePage.svelte`, words in `web/src/lib/usage.ts`),

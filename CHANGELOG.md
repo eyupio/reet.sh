@@ -5,6 +5,44 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A message still goes after a finished turn**: a queued message no longer
+  waits behind a chat that looks busy after the agent has finished. The
+  connector now re-reads the native agent's status while it believes a turn is
+  running, so a late or missed busy update cannot hold the queue. **Stop and
+  send** also keeps the message when the stop is not confirmed at once and asks
+  again, instead of turning it into a failure you have to retry.
+- **Factory decisions**: a stage decision shown in its session now says who is taking it and why. When Gaffer is not
+  going to send the choice itself it says so: this outcome is **You decide** (and how to hand it over), the stage has
+  used Gaffer's three decisions, Gaffer left this one to you, or Gaffer is deciding now. **Gaffer's latest review**
+  opens in the card instead of pointing at a review the session did not show. On a phone the card keeps a bounded
+  height, scrolls and keeps its choices at the foot, so a long recommendation no longer hides the buttons. A stop whose
+  request was lost when the controller restarted is asked again after two minutes without using another of the three
+  decisions.
+- **Gaffer planning behind a proxy**: asking Gaffer for a Factory plan no longer
+  holds one request open while the model thinks. The controller starts the plan
+  in the background and the browser reads it in short polls, so a reverse proxy
+  or Cloudflare, which ends an origin response after about 100 seconds, no
+  longer cuts a slow plan and shows a bare `502`. The provider call also keeps
+  running if the page closes; a finished plan is readable for five minutes.
+  Bad input still answers immediately, and the same per-account concurrency
+  limit and provider error wording apply.
+- **Skills follow one library**: Active skills go to every connected machine;
+  Archived skills stay in reet and are removed from machines. Delete removes the
+  library entry and its copies. Archive, Restore and Delete keep your place and
+  offer Undo. In use and To test migrate to Active; Parked migrates to Archived.
+- **Machine discoveries ask first**: New on a machine offers Keep or Archive,
+  with the same review linked from Home. Scans do not create library items.
+- **Skill content and recovery**: edit reet's saved copy, review Update from
+  original, adopt a backed-up machine edit with Use this version, or put back an
+  earlier version from History. Machine removals and replacements have dated
+  backups retained for 30 days, listed with `reet agent restore --list`.
+- **Simpler skill sync**: Sync reports fleet progress and offers Retry for a
+  failed machine. The old Go and web plan/preview/approve engines are removed; Advanced sync links now open the current Sync page. Update
+  connectors to skills protocol 2; local allow-apply consent and Pause sync still
+  apply. Setups skip skill folders. `reet sync` and `reet agent library-import`
+  explain their replacements and exit without changing files. MCP uses
+  Active/Archived and archive/restore/delete in place of shelf stages and targets.
+
 - **Usage**: a new page, **More → Usage**, lists every agent in one place: how
   much of each signed-in plan is left, and the tokens its chats and Factory
   stages reported today, over the last 7 days or over the last 30 days (in your

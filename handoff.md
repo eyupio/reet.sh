@@ -16,7 +16,9 @@ The browser no longer writes image references into the approved session prompts:
 
 Two fixes: the partial-upload result sentence counted the *failed* files instead of the attached ones, so one failure among seven said "the other image was attached" — it now counts `upload.paths` ("the other 7 images were attached"), and the e2e asserts the corrected sentence. The upload cache is now keyed by machine as well as file, so a path uploaded to one machine cannot be reused after the person switches project to another machine. Comments in `store.GafferOutcome`, `gaffer.OutcomeInput` and the web types now call `images` machine paths rather than references.
 
-Open for the test/PR stages: no real machine was exercised. A stored prompt at the 8,000-byte ceiling can now gain up to eight image references at launch that the old approval-time writer would have counted against that ceiling; nothing downstream rejects the initial prompt, so it starts, but the controller's own cap is exceeded by the size of the `Images:` line. Also, a later stage's launch is covered by the shared `runOutcomeSession` path but has no test of its own.
+**Review thread fix (20 November 2026).** Codex's P2 on `internal/api/gaffer_outcomes.go` was right: `CreateSessionReserved` validates the prompt, so appending the image line after a prompt already at 8,000 bytes would refuse the launch. The line is now reserved where the prompt is built. `stagePrompt` leaves room for `outcomeImagesSuffix("x", o.Images)` before it clips the brief, so a staged prompt at the limit keeps both its boundary and every image. An unstaged brief and an added pipeline are checked with the same image line at approval (`CreateOutcome`, `addPipelinesOnce`) and refused there if the two cannot fit together. The line itself moved to `gaffer.OutcomePromptImages`; the launch path calls it, and `terminalproto.UploadReference` is the one place an upload path is quoted.
+
+Open for the test/PR stages: no real machine was exercised. A later stage's launch is covered by the shared `runOutcomeSession` path but has no test of its own.
 
 ## FACTORY-OUTCOME-IMAGES-1: several images on a Factory outcome (20 November 2026)
 
@@ -27,6 +29,142 @@ At approval the browser uploads every selected image through the ordinary machin
 `web/src/lib/imageAttachment.ts` now has `attachmentsFromPaste` and `MAX_ATTACHMENTS`. `web/src/lib/ImageAttachment.svelte` binds `files: File[]` with a `max` (1 in the goal, 8 in an outcome), allows multi-select, removes each image on its own, and drops only the image whose preview cannot be read. `GafferOutcome.svelte` owns the list and the uploads; `GafferGoal.svelte` uses the same picker for its one image.
 
 For the part that carries images into later agent starts: `GafferOutcome.Images` are raw machine paths, not shell-quoted references and not bytes. A later start reads `Images` itself rather than parsing the prompt; IMAGES-2 carries them on `OutcomeLaunch.Images` and turns them into references at the launch.
+
+## QUEUE-AFTER-FINISH-1: a queued message goes after a finished turn (20 November 2026)
+
+The owner reported that a message typed after an agent finished stayed queued;
+the only way out was **Stop and send**, which then seemed to time out and needed
+**Retry**. The chat transcript and its `Finished` attention were already idle
+while the machine's live controls still reported `working`.
+
+**Cause.** OpenCode 1.19.5's HTTP event stream emits `session.status: busy` more
+than once in a turn and can deliver a late busy after the idle that ended it.
+`acpagent`'s `nativeBusy` mirrors those events, so `Controls().Working` stayed
+true after the turn. The controller's queue waited behind it. A missed idle on
+the stream had the same effect. **Stop and send** cleared it because
+`session/cancel` provokes a fresh idle, but when its acknowledgement was not
+confirmed within ten seconds the queue marked the message failed, which is why
+the person then had to press **Retry**.
+
+**Fix.** `native_view.go` now polls `/session/status` every five seconds while
+it believes a native turn is running and reconciles `nativeBusy` from that
+snapshot; the event stream stays the fast path and a failed snapshot never
+invents an idle. `chat_queue.go` keeps a message queued when a stop's
+acknowledgement is transiently lost or refused, keeps the `stop` intent so the
+next pass asks again, and only fails it when the chat is confirmed closed. The
+message therefore goes by itself once the turn is over, without Retry.
+
+**Tests.** `TestNativeStaleBusyIsReconciledWhileConnected` proves a stuck busy
+clears through the snapshot poll; `TestTransientStopFailureKeepsTheMessageAndSendsWhenTheTurnEnds`
+proves a refused stop no longer becomes a failure. `go vet ./...`,
+`go test -race ./internal/acpagent ./internal/terminalbroker` pass. No real
+machine or paid provider was used for acceptance; the live symptom came from the
+owner's own OpenCode 1.19.5 chat on this machine. Recorded in CHANGELOG.md and
+docs/structured-sessions.md. Merged as [#856](https://github.com/eyupio/reet.sh/pull/856) (`ea7a0042`).
+
+## FACTORY-DECISION-1: a lost decision is asked again, and the session says who decides (20 November 2026)
+
+The owner sent a phone screenshot of a Factory stage's decision in its session: the recommendation and its instruction
+filled the screen, the buttons sat under the fixed-height workspace where nothing could scroll them into view, and the
+card only said "Gaffer needs your decision" on an outcome they believed Gaffer was deciding. They asked what had
+happened and what they had to do.
+
+**Why it was not sending itself.** Two defects, not a missing feature. A stop is claimed before Gaffer's model is asked
+so a slow request is not asked twice; if the controller stopped between that claim and recording the choice, the claim
+stayed and `autoDecisions` skipped the stop for ever while the session said "Gaffer is deciding". The stage now records
+`decidingSince`, and a claim with no recorded decision is asked again after `decisionClaimTTL` (two minutes) without
+spending another of the stage's three decisions. A decision that failed is still recorded, answers the claim and stays
+with the person. The second: the Factory card said "Gaffer is deciding this" even after a failed or left-to-the-person
+decision; both the card and the session now say it is yours and point at what Gaffer decided.
+
+**Reading the card.** The session card for a goal stop now always says who decides: "You decide this outcome's
+decisions. Pick one below, or turn on Gaffer decides on the Factory card…", the three-decision cap, that Gaffer left it
+to you (with its reason on the Factory card), or that Gaffer is deciding now. Gaffer's latest review opens in place
+under **Gaffer's latest review** instead of telling the person to read a review the session did not show. On a phone
+the decision block keeps a bounded height and scrolls, and the choices stick to its foot, so a long recommendation
+cannot bury its own buttons. A lost session or a merge carries no decisions note: those are the person's whatever the
+setting.
+
+**Data.** `GafferOutcomeStage.DecidingSince` (`decidingSince` in the outcome JSON; absent in older records, which are
+treated as stale claims). No migration; older records are read as before.
+
+**Tests.** `go test ./internal/gaffer` (including `TestAStopWhoseAnswerNeverCameIsAskedAgain` and
+`TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered`), `go test ./internal/store`, `go vet ./...`,
+`go test -race ./...`, `cd web && npm run check`, and against `vite preview`: `factory-decision.e2e.mjs` (including a
+long recommendation at 390 whose last choice must scroll into view), `gaffer-factory.e2e.mjs`,
+`gaffer-factory-session.e2e.mjs`, `factory-pieces.e2e.mjs` and `session-workspace.e2e.mjs`.
+
+**Docs.** [Factory](docs/factory.md), [Gaffer AI](docs/gaffer-ai.md), [UI verification](docs/ui-verification.md) and
+the changelog.
+
+**Merged.** [#854](https://github.com/eyupio/reet.sh/pull/854) as `ec3a3343`. Every required check on the final head
+passed.
+
+## PLAN-JOB-1: a Gaffer plan survives a proxy that gives up waiting (20 November 2026)
+
+**Merged.** [#851](https://github.com/eyupio/reet.sh/pull/851) as `da10b002`. Every required check on the final head passed.
+
+The owner reported intermittent `502` errors when asking Gaffer for a Factory plan, and sometimes when starting an
+agent. The screenshot showed a bare `502` in the outcome dialog. That number is not reet's: every reet 502 writes a
+JSON body with a sentence, and `web/src/lib/api.ts` falls back to the raw status only when the body is not JSON. A
+bare `502` therefore comes from the gateway in front of reet. The owner confirmed **Cloudflare**, which ends an origin
+response after about 100 seconds.
+
+Planning asked the provider on the browser's own request and could hold it for up to 90 seconds. A slow reasoning
+model (the report used `deepseek-v4.1-flash:1017` on Ollama Cloud) pushed that close enough to the edge limit that
+Cloudflare sometimes cut the connection; the browser then had only the status number to show.
+
+**How it works.** Planning is now a background job. `POST /api/v2/gaffer/providers/{id}/plan` validates the ask
+synchronously (so bad input still answers 400/422 before any provider call), registers a job, starts the provider
+call detached from the request context, and answers `202 {"id","state":"running"}` at once. A new
+`GET /api/v2/gaffer/providers/{id}/plan/{job}` answers `{"state":"running"}` while the model is working and the
+finished plan afterwards; a provider or plan-shaping failure is mapped with the existing `gafferError` (so the
+sentence is unchanged). `StartPlan`/`PlanResult` live in `internal/gaffer/outcomes.go`: jobs are per account and
+provider, finished plans are kept for five minutes, and `s.begin` still applies the account's concurrency limit.
+The browser (`planGafferOutcome` in `web/src/lib/api.ts`) starts the job, then polls once a second with the existing
+abort signal; every request it makes is short, so no proxy can time it out.
+
+**Tests.** `internal/api/gaffer_plan_test.go` starts a plan, polls it to the same plan and checks the provider was
+asked once; `TestStartPlanRunsInTheBackgroundAndIsReadWithoutAskingTwice` in `internal/gaffer/outcomes_test.go`
+covers the running state, another account's or provider's job answering not-found, and a second read returning the
+same plan without another provider request. `web/tests/gaffer-outcome.e2e.mjs` mocks the 202 then the read.
+
+**Checked.** `go vet ./internal/gaffer ./internal/api`; `go test ... -run 'TestPlanOutcome|TestGafferOutcomePlan|TestStartPlan|TestPlanOutcomeRatesEachStage'`;
+`npx svelte-check` (0 errors, 0 warnings); `npm run build`; and the whole `web/tests/gaffer-outcome.e2e.mjs` passed
+against `vite preview` on desktop and phone. Not checked against a real Cloudflare-fronted controller.
+
+**Still open.** Starting an agent still holds its create request for up to 60 seconds (structured chat) or 180 seconds
+(worktree) in `internal/terminalbroker/broker.go`. 60 seconds is under Cloudflare's limit; the worktree path is not,
+so a slow worktree create can still be cut at the edge. The browser already gives up such a start after 60 seconds
+and offers to resend the same request id, so the agent can still be running. A real fix would give the create the
+same background-job treatment as the plan; it is not included here.
+
+## SKILLS-DOCS-18: document the shared library (20 November 2026)
+
+Continuation of merged PR #845 (`820631e7`), whose final head was `7f9b297a`.
+The final head's checks passed, including benchmarks and both real-agent jobs;
+the Archived published-skill picker finding is fixed and its thread resolved.
+
+Task 18's documentation pass replaces the superseded user guides for plans,
+stages, pins and adoption with Active/Archived/Delete, discovery review, saved
+content, history, local consent and recovery. README and changelog now describe
+the new model. SECURITY.md already documents outbound GitHub/site bundle fetches.
+Verification and limits are recorded in docs/ui-verification.md.
+
+**Task 17 continuation (PR #850).** Removed the old web engine, its exclusive
+helpers, API wrappers and tests: Advanced sync, plan selection, private pins and
+adoption, per-machine skill selection, manual skill sync and the job activity
+dock. Connection, inventory, manual content import, connector updates, pause,
+terminal access and local backup recovery remain. Old plan URLs redirect to
+`/sync`, discarding plan parameters. Home and session details now read the
+reconcile report instead of inferring skill state from preview jobs. Add a
+machine waits for that report before claiming library sync; unavailable reports
+remain unknown. Write a skill points to automatic library status.
+
+Checks and captures are recorded in docs/ui-verification.md. The local computer
+has no Go language toolchain (`/usr/bin/go` is an unrelated application), so Go
+vet/race verification belongs to CI. Next: finish the exact-head CI and review
+checks on #850; no live machine or paid provider has been used for acceptance.
 
 ## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
 

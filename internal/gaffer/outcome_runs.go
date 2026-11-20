@@ -355,14 +355,19 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if stage.Kind != "merge" {
 		end += " Do not merge."
 	}
-	if room := MaxOutcomePromptBytes - len(text) - len(end); len(brief) > room {
+	// The launch appends the outcome's images after this prompt. Reserve room
+	// for that line now so the boundary is not lost to it and the combined
+	// prompt stays within what the machine accepts.
+	imageRoom := len(outcomeImagesSuffix("x", o.Images))
+	if room := MaxOutcomePromptBytes - len(text) - len(end) - imageRoom; len(brief) > room {
 		if room < len("…") {
 			// Even the start is too long: it is cut, and the boundary kept.
-			return clipTo(text, MaxOutcomePromptBytes-len(end)) + end
+			return clipTo(text, MaxOutcomePromptBytes-len(end)-imageRoom) + end
 		}
 		brief = clipTo(brief, room)
 	}
-	return text + brief + end
+	base := text + brief + end
+	return base + outcomeImagesSuffix(base, o.Images)
 }
 
 // clipTo cuts text to at most limit bytes on a character boundary, marking
@@ -494,6 +499,11 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, crew, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
 		return o, err
+	}
+	for _, piece := range sessions {
+		if len(piece.Stages) == 0 && len(OutcomePromptImages(piece.Prompt, in.Images)) > MaxOutcomePromptBytes {
+			return o, invalid("images", "The brief and its attached images must fit in "+strconv.Itoa(MaxOutcomePromptBytes)+" bytes together. Shorten the brief or attach fewer images.")
+		}
 	}
 	if !validBalanceBelow(in.BalanceBelow) {
 		return o, invalid("balance", "Choose between 5 and 90 percent for when a backup takes over.")

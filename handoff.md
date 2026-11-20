@@ -2,6 +2,8 @@
 
 ## PLAN-JOB-1: a Gaffer plan survives a proxy that gives up waiting (20 November 2026)
 
+**Merged.** [#851](https://github.com/eyupio/reet.sh/pull/851) as `da10b002`. Every required check on the final head passed.
+
 The owner reported intermittent `502` errors when asking Gaffer for a Factory plan, and sometimes when starting an
 agent. The screenshot showed a bare `502` in the outcome dialog. That number is not reet's: every reet 502 writes a
 JSON body with a sentence, and `web/src/lib/api.ts` falls back to the raw status only when the body is not JSON. A

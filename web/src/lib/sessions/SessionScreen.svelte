@@ -516,7 +516,14 @@
   .session-screen { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); container: session-screen / inline-size; }
   .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); }
   .head { grid-column: 1; grid-row: 1; }
-  .below-head { grid-column: 1; grid-row: 2; min-width: 0; }
+  .below-head { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; }
+  /* A long Factory decision sits above the conversation. On a phone (or a sideways one) it keeps a bounded height and
+     scrolls itself, so its own choices stay reachable instead of being clipped by the fixed-height workspace. */
+  @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    .below-head { max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; }
+    /* While a long decision scrolls, its choices stay at the foot of the block: the next step is always in reach. */
+    .below-head :global(.choices) { position: sticky; bottom: 0; z-index: 1; background: var(--card); box-shadow: 0 -10px 14px -10px var(--scrim); }
+  }
   .stage { grid-column: 1; grid-row: 3; }
   /* The context panel is hidden until JS says it is docked or shown as a sheet; either way it keeps the same cell it
      always had beside the terminal's right edge. */

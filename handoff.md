@@ -1,5 +1,43 @@
 # Reet central-control implementation handoff
 
+## FACTORY-DECISION-1: a lost decision is asked again, and the session says who decides (20 November 2026)
+
+The owner sent a phone screenshot of a Factory stage's decision in its session: the recommendation and its instruction
+filled the screen, the buttons sat under the fixed-height workspace where nothing could scroll them into view, and the
+card only said "Gaffer needs your decision" on an outcome they believed Gaffer was deciding. They asked what had
+happened and what they had to do.
+
+**Why it was not sending itself.** Two defects, not a missing feature. A stop is claimed before Gaffer's model is asked
+so a slow request is not asked twice; if the controller stopped between that claim and recording the choice, the claim
+stayed and `autoDecisions` skipped the stop for ever while the session said "Gaffer is deciding". The stage now records
+`decidingSince`, and a claim with no recorded decision is asked again after `decisionClaimTTL` (two minutes) without
+spending another of the stage's three decisions. A decision that failed is still recorded, answers the claim and stays
+with the person. The second: the Factory card said "Gaffer is deciding this" even after a failed or left-to-the-person
+decision; both the card and the session now say it is yours and point at what Gaffer decided.
+
+**Reading the card.** The session card for a goal stop now always says who decides: "You decide this outcome's
+decisions. Pick one below, or turn on Gaffer decides on the Factory card…", the three-decision cap, that Gaffer left it
+to you (with its reason on the Factory card), or that Gaffer is deciding now. Gaffer's latest review opens in place
+under **Gaffer's latest review** instead of telling the person to read a review the session did not show. On a phone
+the decision block keeps a bounded height and scrolls, and the choices stick to its foot, so a long recommendation
+cannot bury its own buttons. A lost session or a merge carries no decisions note: those are the person's whatever the
+setting.
+
+**Data.** `GafferOutcomeStage.DecidingSince` (`decidingSince` in the outcome JSON; absent in older records, which are
+treated as stale claims). No migration; older records are read as before.
+
+**Tests.** `go test ./internal/gaffer` (including `TestAStopWhoseAnswerNeverCameIsAskedAgain` and
+`TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered`), `go test ./internal/store`, `go vet ./...`,
+`go test -race ./...`, `cd web && npm run check`, and against `vite preview`: `factory-decision.e2e.mjs` (including a
+long recommendation at 390 whose last choice must scroll into view), `gaffer-factory.e2e.mjs`,
+`gaffer-factory-session.e2e.mjs`, `factory-pieces.e2e.mjs` and `session-workspace.e2e.mjs`.
+
+**Docs.** [Factory](docs/factory.md), [Gaffer AI](docs/gaffer-ai.md), [UI verification](docs/ui-verification.md) and
+the changelog.
+
+**PR.** Opened against `main`; the checks and captures above are this PR's. Its merge is recorded by the next handoff
+update.
+
 ## SKILLS-DOCS-18: document the shared library (20 November 2026)
 
 Continuation of merged PR #845 (`820631e7`), whose final head was `7f9b297a`.

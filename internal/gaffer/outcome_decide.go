@@ -18,6 +18,25 @@ import (
 // outcome whose decisions it was given. After that the stage is the person's.
 const maxStageDecisions = 3
 
+// decisionClaimTTL is how long a stop put to Gaffer waits for its answer before
+// it is put again. A model request is bounded to 90 seconds; two minutes also
+// covers a controller that stopped between claiming a stop and recording what
+// Gaffer decided, so no pipeline waits for a decision that is never coming.
+const decisionClaimTTL = 2 * time.Minute
+
+// decisionAnswersStop reports whether one of Gaffer's recorded decisions already
+// answers a claimed stop on a pipeline stage. A claim made before DecidingSince
+// was recorded (since 0) is answered by any decision on that stage, which keeps
+// a stop Gaffer already left to the person from being asked again.
+func decisionAnswersStop(o store.GafferOutcome, key, kind string, since int64) bool {
+	for _, d := range o.Decisions {
+		if d.Key == key && d.Stage == kind && (since == 0 || d.At >= since) {
+			return true
+		}
+	}
+	return false
+}
+
 // The choices Gaffer can take for the person. They are the person's own
 // buttons on a pipeline that has stopped, less the ones that are only theirs:
 // opening a session, stopping the outcome, a merge.
@@ -106,16 +125,17 @@ func (s *Service) autoDecisions(ctx context.Context) {
 				return
 			}
 			stop, ok := s.pipelineStop(o, piece)
-			if !ok || piece.Stages[piece.Stage].DecidedFor == stop.sign {
+			if !ok {
 				continue
 			}
 			p, err := s.chatPrincipal(o.OwnerID)
 			if err != nil {
 				continue
 			}
-			// Recorded before the request, as a report's event is: a slow or
-			// failed request is not asked again, and only the look that
-			// recorded the stop asks.
+			// Recorded before the request, as a report's event is, so a slow
+			// request is not asked twice; only the look that recorded the
+			// stop asks. A claim whose answer never comes back is asked
+			// again once decisionClaimTTL has passed.
 			key, at, recorded := piece.Key, piece.Stage, false
 			if _, err = s.outcomeStep(o.OwnerID, o.ID, func(o *store.GafferOutcome) bool {
 				recorded = false
@@ -125,10 +145,25 @@ func (s *Service) autoDecisions(ctx context.Context) {
 						continue
 					}
 					stage := &row.Stages[row.Stage]
-					if stage.DecidedFor == stop.sign || stage.Decided >= maxStageDecisions {
+					if stage.Decided >= maxStageDecisions {
 						return false
 					}
-					stage.DecidedFor, stage.Decided = stop.sign, stage.Decided+1
+					now := time.Now().UnixMilli()
+					if stage.DecidedFor == stop.sign {
+						// A stop already put to Gaffer is not asked again, unless its answer never came back
+						// (the controller stopped between the claim and the decision). Then it is asked again
+						// without spending another of the stage's decisions.
+						if stage.DecidingSince == 0 {
+							if decisionAnswersStop(*o, row.Key, stage.Kind, 0) {
+								return false
+							}
+						} else if now-stage.DecidingSince < decisionClaimTTL.Milliseconds() || decisionAnswersStop(*o, row.Key, stage.Kind, stage.DecidingSince) {
+							return false
+						}
+					} else {
+						stage.Decided++
+					}
+					stage.DecidedFor, stage.DecidingSince = stop.sign, now
 					recorded = true
 					return true
 				}

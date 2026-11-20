@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory decisions**: a stage decision shown in its session now says who is taking it and why. When Gaffer is not
+  going to send the choice itself it says so: this outcome is **You decide** (and how to hand it over), the stage has
+  used Gaffer's three decisions, Gaffer left this one to you, or Gaffer is deciding now. **Gaffer's latest review**
+  opens in the card instead of pointing at a review the session did not show. On a phone the card keeps a bounded
+  height, scrolls and keeps its choices at the foot, so a long recommendation no longer hides the buttons. A stop whose
+  request was lost when the controller restarted is asked again after two minutes without using another of the three
+  decisions.
 - **Skills follow one library**: Active skills go to every connected machine;
   Archived skills stay in reet and are removed from machines. Delete removes the
   library entry and its copies. Archive, Restore and Delete keep your place and

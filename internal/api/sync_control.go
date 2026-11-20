@@ -41,7 +41,6 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 		"POST /api/v2/library/deployment-intent", "POST /api/v2/library/install-evidence", "POST /api/v2/library/deletion-observed",
 		"POST /api/v2/library/restore-receipt", "POST /api/v2/library/bases", "POST /api/v2/library/protocol",
 		"POST /api/v2/library/edits", "POST /api/v2/library/locations", "POST /api/v2/library/locations/content",
-		"GET /api/v2/library-history/{item}",
 		"/api/v2/skill-content-targets", "/api/v2/skill-content-targets/{id}",
 		"/api/v2/skill-content-previews", "/api/v2/skill-content-previews/{id}", "/api/v2/skill-content-previews/{id}/{action...}",
 		"/api/v2/skill-content-receipts", "/api/v2/skill-content-receipts/{id}", "/api/v2/sync/skill-content-preview/{action}",

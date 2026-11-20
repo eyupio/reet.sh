@@ -12,6 +12,10 @@ this file existed releases were described on their GitHub release pages.
   reason for the stop no longer holds and Gaffer follows again and reviews the
   new work. A review of Gaffer's own that failed still waits for you to resume
   it.
+- **Factory stages the Factory has finished with leave the session lists**: Home, Sessions and the
+  session workspace show the pipeline's stage in hand, marked with its stage, and leave the
+  finished ones to the pipeline item on the Factory page. A Factory that cannot be read keeps
+  every session listed, as before.
 - **Factory GitHub facts**: a pipeline's detail now shows the pull request number and link, every CI check with its
   state, how long CI has run, and how many of Gaffer's decisions put a stage right. The figures are read from the
   session in hand through the GitHub CLI signed in on its machine. A finished outcome's action bar now puts **Archive

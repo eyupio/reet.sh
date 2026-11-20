@@ -563,6 +563,18 @@ export function factoryMembers(records: { id: string; objective: string; session
   }
   return out
 }
+/** The sessions of stages the Factory has finished with: an earlier stage's, or any stage of a pipeline that is no longer
+ *  being worked on. Their pipeline's own item says what became of them, so Home and the session lists leave them out. */
+export function finishedFactorySessions(members: ReadonlyMap<string, FactoryMember>): Set<string> {
+  const out = new Set<string>()
+  for (const [id, member] of members) if (!member.working) out.add(id)
+  return out
+}
+/** The sessions with the Factory-finished ones taken out. With nothing known of the Factory, every session stays. */
+export function offFinishedFactory<T extends { id: string }>(sessions: readonly T[], members: ReadonlyMap<string, FactoryMember>): T[] {
+  const finished = finishedFactorySessions(members)
+  return finished.size ? sessions.filter(session => !finished.has(session.id)) : [...sessions]
+}
 /** What stopping a session does to a Factory outcome whose pipeline still works in it. */
 export type FactorySessionEndMode = 'leave' | 'archive' | 'delete'
 /** The system default: stopping a pipeline's session stops following the outcome and deletes it. */

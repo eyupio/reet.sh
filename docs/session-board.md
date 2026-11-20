@@ -36,9 +36,11 @@ and the count of open sessions leave them out, and the desk is where you see the
 Sessions page leaves them out too, apart from one that needs you. One that needs you
 is the exception: it is still in **Waiting for you** and the bell, marked **Desk** and
 the desk's name, and **Open** takes you to its pane on the desk; Sessions also lists
-it, with its desk chip. A session that is part of a Factory pipeline shows as its
-pipeline, desk or not. If the desks cannot be read, Home and Sessions show every
-session as they would without desks.
+it, with its desk chip. A Factory pipeline's stage in hand is listed, marked with
+its stage; the stages the Factory has finished with are left out, because the
+pipeline on the Factory page is the item that says what became of them. If the
+desks or the Factory cannot be read, Home and Sessions show every session as they
+would without them.
 
 Two more sections sit under it and start closed: **Factory, working without you**
 (the pipelines that are running by themselves, each a link to its place on the

@@ -126,7 +126,10 @@ type OutcomeInput struct {
 	// whether each starts from GitHub's latest commit for its base ("yes"),
 	// this machine's copy ("no"), or whichever the project, then the account,
 	// says (""). It changes nothing for a project that is not a repository.
-	PullLatest string           `json:"pullLatest"`
+	PullLatest string `json:"pullLatest"`
+	// Images are the uploaded references the person attached to the outcome.
+	// They travel with every agent the outcome starts.
+	Images     []string         `json:"images,omitempty"`
 	Sessions   []OutcomeSession `json:"sessions"`
 	MaxReviews int              `json:"maxReviews"`
 	Hours      int              `json:"hours"`
@@ -446,6 +449,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if len(in.Sessions) < 1 || len(in.Sessions) > store.MaxGafferOutcomeSessions {
 		return o, invalid("sessions", "An outcome starts between 1 and 5 sessions.")
 	}
+	if !terminalproto.ValidACPPrompt("outcome", in.Images) {
+		return o, invalid("images", "Attach up to "+strconv.Itoa(MaxOutcomeImages)+" uploaded images to an outcome.")
+	}
 	project, err := s.store.FolderProjectFor(uid, in.ProjectID)
 	if err != nil {
 		return o, invalid("projectId", "Choose a project on this account.")
@@ -507,7 +513,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if in.PullLatest != "" && in.PullLatest != "yes" && in.PullLatest != "no" {
 		return o, invalid("pullLatest", "Choose GitHub's latest code, this machine's copy, or the project's default.")
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Images: append([]string(nil), in.Images...), Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err

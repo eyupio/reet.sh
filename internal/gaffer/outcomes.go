@@ -19,7 +19,10 @@ import (
 // session, saves nothing and grants nothing: the person reviews and edits the
 // plan, and their browser starts each session through the ordinary launch path.
 const (
-	MaxOutcomeSessions       = 5
+	MaxOutcomeSessions = 5
+	// MaxOutcomeImages matches the images one ACP prompt can carry: an
+	// outcome's images are handed to its sessions, so more could not travel.
+	MaxOutcomeImages         = terminalproto.MaxACPImages
 	MaxOutcomeObjectiveBytes = 4000
 	MaxOutcomePromptBytes    = 8000
 	MaxOutcomeReplyBytes     = 2000

@@ -33,7 +33,7 @@ const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 const oid='e'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
 function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmpty=false}={}){
-  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewFails,crewEmpty,crewSaves:[]}
+  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploaded:0,uploadFails:false,uploadFailAt:0,crew,crewFails,crewEmpty,crewSaves:[]}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -61,7 +61,7 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
     '/api/v2/gaffer/crew':request=>{if(box.crewFails&&request.method()==='GET')return{status:500,json:{error:'The crew could not be read.'}};if(request.method()==='PUT'){box.crew=request.postDataJSON();box.crewSaves.push(box.crew)}return {crew:box.crew??{light:{},standard:{},heavy:{}},saved:!!box.crew||box.crewEmpty,tiers:['light','standard','heavy'],defaults:{}}},
     '/api/v2/folder-projects':{projects,savedWaiting:0},
     '/api/v2/settings/yolo':{allowed:true,changedBy:'owner@example.test'},
-    '/api/v2/machines/a1/uploads':request=>{expect(request.method()).toBe('POST');box.uploads++;if(box.uploadFails)return{status:502,json:{error:'The image could not be uploaded.'}};return{status:200,headers:{'X-Reet-Upload-Path':'/home/dev/launch-uploads/outcome.png','X-Reet-Upload-Reference':'/home/dev/launch-uploads/outcome.png'},json:{uploaded:'true'}}},
+    '/api/v2/machines/a1/uploads':request=>{expect(request.method()).toBe('POST');box.uploads++;if(box.uploadFails||box.uploads===box.uploadFailAt)return{status:502,json:{error:'The image could not be uploaded.'}};const path=`/home/dev/launch-uploads/outcome-${++box.uploaded}.png`;return{status:200,headers:{'X-Reet-Upload-Path':path,'X-Reet-Upload-Reference':path},json:{uploaded:'true'}}},
     '/api/v2/profile/model-favourites':{version:1,favourites:[{tool:'claude',model:'starred-model',agentDefault:false}]},
     '/api/v2/machines/a1/models':request=>{const tool=new URL(request.url()).searchParams.get('tool');return {tool,state:'listed',models:[{id:`${tool}/on-the-machine`,provider:'workshop'}],more:false,source:'cli',version:'1',fetchedAt:now,checkedAt:now,reason:'',sentence:''}},
     '/api/v2/gaffer/goals':()=>({goals:box.goals,readAt:now}),
@@ -75,7 +75,7 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()!=='POST')return {outcomes:box.record?[box.record]:[]}
       const input=request.postDataJSON();box.approved.push(input)
-      box.record={id:oid,revision:1,objective:input.objective,state:'starting',note:'',agentId:'a1',projectId:input.projectId,projectName:'billing',dir:'/work/billing',tool:input.tool,model:input.model,trust:input.trust,providerId:pid,maxReviews:input.maxReviews,hours:input.hours,autoMerge:input.autoMerge,sessions:input.sessions.map((s,n)=>({...item(n,s.title,s.prompt,s.stages),autoMerge:input.autoMerge})),createdAt:now,updatedAt:now}
+      box.record={id:oid,revision:1,objective:input.objective,state:'starting',note:'',agentId:'a1',projectId:input.projectId,projectName:'billing',dir:'/work/billing',tool:input.tool,model:input.model,trust:input.trust,providerId:pid,images:input.images??[],maxReviews:input.maxReviews,hours:input.hours,autoMerge:input.autoMerge,sessions:input.sessions.map((s,n)=>({...item(n,s.title,s.prompt,s.stages),autoMerge:input.autoMerge})),createdAt:now,updatedAt:now}
       return {status:201,json:box.record}
     },
     [`/api/v2/gaffer/outcomes/${oid}`]:()=>{advance();return box.record},
@@ -536,7 +536,7 @@ try {
       await outcome.getByRole('button',{name:/^Approve and start/}).click()
       await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible({timeout:20000})
       expect(f.box.uploads).toBe(2)
-      for(const sent of f.box.approved[0].sessions) expect(sent.prompt).toMatch(/\n\nImage: \/home\/dev\/launch-uploads\/outcome\.png$/)
+      for(const sent of f.box.approved[0].sessions) expect(sent.prompt).toMatch(/\n\nImage: \/home\/dev\/launch-uploads\/outcome-1\.png$/)
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)
       const again=await openOutcome(w)
       await expect(again.outcome.getByText('outcome.png',{exact:true})).toHaveCount(0)
@@ -645,5 +645,54 @@ try {
       expect(starts).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, passed on desktop and phone.')
+  // Several images on one outcome: many chosen at once, a paste adds to them, each is removed on its own,
+  // the field stops at eight, and one upload failing still attaches the others.
+  {
+    const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    const png=name=>({name,mimeType:'image/png',buffer:PNG})
+    try {
+      const {outcome}=await openOutcome(w)
+      const paste=async names=>outcome.getByRole('textbox',{name:'Outcome',exact:true}).evaluate((el,{b64,names})=>{
+        const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0))
+        const data=new DataTransfer()
+        for(const name of names)data.items.add(new File([bytes],name,{type:'image/png'}))
+        el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}))
+      },{b64:PNG.toString('base64'),names})
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      const input=outcome.locator('input[type=file]'),attached=outcome.getByRole('list',{name:'Attached images',exact:true})
+      await expect(input).toHaveJSProperty('multiple',true)
+      await input.setInputFiles([png('one.png'),png('two.png'),png('three.png')])
+      await expect(attached.getByRole('listitem')).toHaveCount(3)
+      await outcome.getByRole('button',{name:'Remove two.png',exact:true}).click()
+      await expect(attached.getByRole('listitem')).toHaveCount(2)
+      await expect(outcome.getByText('two.png',{exact:true})).toHaveCount(0)
+      await paste(['paste-a.png','paste-b.png','paste-c.png'])
+      await expect(attached.getByRole('listitem')).toHaveCount(5)
+      await paste(['paste-d.png','paste-e.png','paste-f.png'])
+      await expect(attached.getByRole('listitem')).toHaveCount(8)
+      // Eight is the whole field: another paste is refused and nothing already attached is lost.
+      await paste(['overflow.png'])
+      await expect(outcome.getByRole('alert')).toHaveText('Attach up to 8 images.')
+      await expect(attached.getByRole('listitem')).toHaveCount(8)
+      expect(f.box.uploads).toBe(0)
+      await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(2)
+      await expect(attached.getByRole('listitem')).toHaveCount(8)
+      // The second upload fails; the other seven are attached and carried.
+      f.box.uploadFailAt=2
+      await outcome.getByRole('button',{name:/^Approve and start/}).click()
+      await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible({timeout:20000})
+      expect(f.box.approved[0].images).toHaveLength(7)
+      for(const sent of f.box.approved[0].sessions){
+        expect(sent.prompt).toMatch(/\n\nImages: /)
+        expect((sent.prompt.match(/outcome-\d+\.png/g)||[])).toHaveLength(7)
+      }
+      await expect(outcome.getByRole('list',{name:'Images attached to the outcome',exact:true}).getByRole('listitem')).toHaveCount(7)
+      await expect(outcome.getByRole('alert')).toContainText('could not be uploaded; the other image was attached.')
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, several images at once, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, passed on desktop and phone.')
 } finally { await browser.close() }

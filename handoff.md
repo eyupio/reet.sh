@@ -1,5 +1,15 @@
 # Reet central-control implementation handoff
 
+## FACTORY-OUTCOME-IMAGES-1: several images on a Factory outcome (20 November 2026)
+
+`gaffer_outcomes`' JSON gains `images`: the raw machine upload paths the person attached, in order, at most eight (the ACP ceiling). Outcomes saved before this change simply have no field and read with none. `gaffer.OutcomeInput.Images` validates each as an absolute upload path and `store.GafferOutcome.Images` keeps them.
+
+At approval the browser uploads every selected image through the ordinary machine launch upload, stores the successful paths on the outcome, and still appends their references to the approved session prompts: one image keeps the old `Image:` line, several become `Images: a b c`. If one of several uploads fails, the others are attached and the result names the failed file; a single failed image still refuses approval as before.
+
+`web/src/lib/imageAttachment.ts` now has `attachmentsFromPaste` and `MAX_ATTACHMENTS`. `web/src/lib/ImageAttachment.svelte` binds `files: File[]` with a `max` (1 in the goal, 8 in an outcome), allows multi-select, removes each image on its own, and drops only the image whose preview cannot be read. `GafferOutcome.svelte` owns the list and the uploads; `GafferGoal.svelte` uses the same picker for its one image.
+
+For the part that carries images into later agent starts: `GafferOutcome.Images` are raw machine paths, not shell-quoted references and not bytes. The approval start has already written their references into each session's opening prompt, so a later start should read `Images` itself rather than parse the prompt.
+
 ## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
 
 The owner asked: "If we recognise that a machine folder doesn't have the latest code from GitHub, then we need a config

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -218,6 +219,44 @@ func (r *outcomeRig) settle(t *testing.T, id string) store.GafferOutcome {
 			t.Fatalf("outcome never settled: %+v", o)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestOutcomeKeepsTheImagesThePersonAttached(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.Images) != 2 || created.Images[0] != "/home/dev/launch-uploads/one.png" {
+		t.Fatalf("created images: %+v", created.Images)
+	}
+	// Read back from the store: the record, not the request, is what a later
+	// start reads.
+	saved, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Images) != 2 || saved.Images[1] != "/home/dev/launch-uploads/two.webp" {
+		t.Fatalf("saved images: %+v", saved.Images)
+	}
+}
+
+func TestOutcomeRefusesMoreImagesThanAPromptCanCarry(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = make([]string, MaxOutcomeImages+1)
+	for i := range r.in.Images {
+		r.in.Images[i] = "/home/dev/launch-uploads/" + strconv.Itoa(i) + ".png"
+	}
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("too many images: %v", err)
+	}
+	r.in.Images = []string{"relative.png"}
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("relative image: %v", err)
 	}
 }
 

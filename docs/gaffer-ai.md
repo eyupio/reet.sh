@@ -513,6 +513,13 @@ An agent that is still working is waited for however long it takes, and one
 waiting for your approval is held and picked up again once you answer. A resume
 starts the thirty minutes again.
 
+A goal that does need you is not left stopped for good. Gaffer keeps watching
+its session: if the working model moves on by itself — you answer it in its own
+chat, or it carries on after Gaffer's question — the reason for stopping no
+longer holds, and Gaffer follows again and reviews the new progress. A review
+of Gaffer's own that failed is the exception: that one waits for you to resume
+it, so its reason is not lost.
+
 ### Why a pipeline moved or stopped
 
 The activity log keeps a history of what happened to a pipeline without you, so

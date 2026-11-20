@@ -279,7 +279,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	return saveGoal(tx, *g)
 }
 func (s *Store) DueGafferGoals(at int64) ([]GafferGoal, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_goals WHERE (json_extract(data,'$.state')='active' OR (json_extract(data,'$.state')='needs_user' AND json_extract(data,'$.waitingOnWorker'))) AND json_extract(data,'$.nextAt')<=? ORDER BY json_extract(data,'$.nextAt'),conversation_id LIMIT 50`, at)
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_goals WHERE (json_extract(data,'$.state')='active' OR json_extract(data,'$.state')='needs_user') AND json_extract(data,'$.nextAt')<=? ORDER BY json_extract(data,'$.nextAt'),conversation_id LIMIT 50`, at)
 	if err != nil {
 		return nil, err
 	}
@@ -390,6 +390,59 @@ func (s *Store) ReleaseGafferGoalHold(g GafferGoal, note string) error {
 			return ErrGafferChatBusy
 		}
 		cur.State, cur.Note, cur.NextAt, cur.WaitingOnWorker = "active", note, now(), false
+		return saveGoal(tx, cur)
+	})
+}
+
+// DeferGafferGoal pushes back when a goal that needs the person is looked at
+// next, without changing anything else. The supervisor uses it to keep
+// watching a stopped session without asking again every tick, and without
+// making the goal look freshly updated.
+func (s *Store) DeferGafferGoal(g GafferGoal, next int64) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		cur, err := goalRow(tx, g.OwnerID, g.ConversationID)
+		if err != nil {
+			return err
+		}
+		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || cur.ActiveTurnID != "" {
+			return ErrGafferConflict
+		}
+		cur.NextAt = next
+		raw, err := json.Marshal(cur)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE gaffer_goals SET data=? WHERE user_id=? AND conversation_id=?`, string(raw), g.OwnerID, g.ConversationID)
+		return err
+	})
+}
+
+// ReleaseGafferGoalWatch makes a goal that stopped for the person active again
+// because the working session has moved on, within the account's limit of
+// active goals. Nothing else about it changes: what Gaffer has already
+// reviewed stays reviewed.
+func (s *Store) ReleaseGafferGoalWatch(g GafferGoal, note string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, g.OwnerID); err != nil {
+			return err
+		}
+		cur, err := goalRow(tx, g.OwnerID, g.ConversationID)
+		if err != nil {
+			return err
+		}
+		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || cur.WaitingOnWorker || cur.ActiveTurnID != "" {
+			return ErrGafferConflict
+		}
+		var active int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, g.OwnerID, g.ConversationID).Scan(&active); err != nil {
+			return err
+		}
+		if active >= 10 {
+			return ErrGafferChatBusy
+		}
+		cur.State, cur.Note, cur.NextAt, cur.WaitingOnWorker = "active", note, now(), false
+		// The stop this goal carried is over; a later one is its own.
+		cur.NoStep, cur.Advice = false, nil
 		return saveGoal(tx, cur)
 	})
 }

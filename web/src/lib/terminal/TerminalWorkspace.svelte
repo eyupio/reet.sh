@@ -1,6 +1,6 @@
 <script lang="ts">
   import { listGafferOutcomes } from '../api'
-  import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, offFinishedFactory, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   let factory=$state<Map<string,FactoryMember>>(new Map())
  import { structuredAgent } from './api'
  import type { ChatState } from '../chat'
@@ -200,15 +200,17 @@
   const machine = $derived(machines.find(item=>item.agentId===selectedAgent))
   const ownSessions = $derived(sessions.filter(item=>item.agentId===selectedAgent))
   // The sessions listed in the workspace: the needing set is read exactly as the Sessions page does, so a desk session
-  // only stays when it needs the person. With no desks read, every session is listed (as before desks).
+  // only stays when it needs the person. With no desks read, every session is listed (as before desks). The stages the
+  // Factory has finished with are left out too: their pipeline is the item that says what became of them, and the stage
+  // in hand stays.
   const cards = $derived(needsYou(sessions, now, sessionOwners(sessions, projects ?? []), machines))
   const needing = $derived(needingIds(cards))
-  const listed = $derived(offDesks(sessions, desks, needing))
+  const listed = $derived(offFinishedFactory(offDesks(sessions, desks, needing), factory))
+  const listedOwn = $derived(listed.filter(item=>item.agentId===selectedAgent))
   const listedActive = $derived(listed.filter(item=>['creating','running','end_requested'].includes(item.state)))
   // What the "nothing open" screen offers to jump back into: the chosen machine's running sessions, or every machine's
   // when none is chosen (the Sessions tab on a phone), with anything waiting for the person first, then the latest.
-  const resumeSessions = $derived((selectedAgent?listed.filter(item=>item.agentId===selectedAgent):listed)
-    .filter(item=>['creating','running','end_requested'].includes(item.state))
+  const resumeSessions = $derived((selectedAgent?listedOwn.filter(item=>['creating','running','end_requested'].includes(item.state)):listedActive)
     .map(item=>({item,status:sessionStatus(item)}))
     .sort((a,b)=>Number(b.status==='waiting')-Number(a.status==='waiting')||b.item.updatedAt-a.item.updatedAt))
   const accountActive = $derived(sessions.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
@@ -327,7 +329,7 @@
       if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
       return
     }
-    const target=reusableSessionFor(sessions,agent)
+    const target=reusableSessionFor(listed,agent)
     if(target){
       chooseSession(target)
       if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
@@ -349,8 +351,10 @@
     signal?.addEventListener('abort',stop,{once:true})
     const timeout=setTimeout(stop,10000)
     const firstLoad=loading
+    // The Factory read is a helper: bounded on its own, so a slow one cannot hold up the sessions or fail the refresh.
+    const factorySignal=AbortSignal.any([request.signal,AbortSignal.timeout(4000)])
     try {
-      const [nextMachines,nextSessions,nextHealth,nextProjects,nextDesks]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listDesks(request.signal).then(data=>({data})).catch(()=>({data:undefined}))])
+      const [nextMachines,nextSessions,nextHealth,nextProjects,nextDesks,nextOutcomes]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listDesks(request.signal).then(data=>({data})).catch(()=>({data:undefined})),listGafferOutcomes(factorySignal).then(found=>({found})).catch(()=>({found:undefined}))])
       if(disposed)return
       // A pre-mutation observation must not overwrite a confirmed local result.
       if(version!==inventoryVersion){refreshAgain=true;return}
@@ -360,8 +364,9 @@
       machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error;now=Date.now()
       // A desk read that fails keeps the last list and says nothing: without desks every session shows, as before desks.
       if(nextDesks.data)desks=nextDesks.data
-      // Which sessions belong to a Factory pipeline. A helper only: without it the lists simply carry no marker.
-      void listGafferOutcomes().then(found=>{if(!disposed)factory=factoryMembers(found)}).catch(()=>{})
+      // Which sessions belong to a Factory pipeline, so the stages the Factory has finished with leave the lists. A read
+      // that fails keeps the last map and says nothing: with nothing read every session shows, as before the Factory.
+      if(nextOutcomes.found)factory=factoryMembers(nextOutcomes.found)
       if(nextProjects.projects)projects=nextProjects.projects
       dismissConfirmedEnds()
       if(removedAfterClose&&selectedSession===selectionBeforeRefresh){selectedSession='';remember()}

@@ -226,6 +226,17 @@ test('sessions of a pipeline are marked with the stage they are doing', () => {
   assert.equal(members.get('s2').pipeline, 'API')
 })
 
+test('the stages the Factory has finished with leave the session lists, while the pipeline in hand stays', () => {
+  const records = [{ id: 'o1', objective: 'Ship export', sessions: [
+    { key: 'a', title: 'API', state: 'following', sessionId: 's2', stage: 1, stages: [{ kind: 'plan', sessionId: 's1', state: 'done' }, { kind: 'code', sessionId: 's2', state: 'running' }, { kind: 'review', state: 'pending' }] },
+    { key: 'b', title: 'Docs', state: 'done', sessionId: 's3', stage: 0, stages: [{ kind: 'code', sessionId: 's3', state: 'done' }] },
+  ] }]
+  const members = o.factoryMembers(records)
+  const sessions = [{ id: 's1' }, { id: 's2' }, { id: 's3' }, { id: 'plain' }]
+  assert.deepEqual(o.offFinishedFactory(sessions, members).map(s => s.id), ['s2', 'plain'])
+  assert.deepEqual(o.offFinishedFactory(sessions, new Map()).map(s => s.id), ['s1', 's2', 's3', 'plain'], 'nothing read of the Factory keeps every session')
+})
+
 test('a tier\'s effort is sent with its stages', () => {
   const one = { tool: 'claude', model: 'opus' }
   const crew = { heavy: { ...one, effort: 'high' }, standard: { ...one, effort: '' }, light: { ...one, effort: 'low' } }

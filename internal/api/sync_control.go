@@ -201,13 +201,21 @@ func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.pollSkillsAgent(w, r, a)
 }
+// finishJobBodyLimit is the largest job result a machine may send.
+const finishJobBodyLimit = 16 << 20
+
 func (s *server) finishSyncJob(w http.ResponseWriter, r *http.Request) {
 	a, ok := s.agentIdentity(w, r)
 	if !ok {
 		return
 	}
+	// An older agent finishing an engine job it ran before the upgrade sends
+	// that job's whole plan beside its status. The cap is the one the old
+	// route had, so such a result is read and refused (409, which the agent
+	// drops) rather than called malformed; only the id, status and message
+	// are kept.
 	var in struct{ ID, Status, Message string }
-	if !decodeAgentJSON(w, r, 64<<10, &in, "Invalid or oversized job result.") {
+	if !decodeAgentJSON(w, r, finishJobBodyLimit, &in, "Invalid or oversized job result.") {
 		return
 	}
 	if err := s.st.FinishSyncJob(s.uid(r), a.ID, in.ID, in.Status, in.Message); err != nil {

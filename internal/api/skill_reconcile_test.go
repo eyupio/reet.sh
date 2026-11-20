@@ -873,3 +873,24 @@ func TestPollGivesAnOlderAgentOnlyItsUpdate(t *testing.T) {
 		}
 	}
 }
+
+// An older agent may finish an engine job it was running before the upgrade,
+// with the job's whole plan in the body. That job is gone or no longer an
+// update, so the answer is a refusal (409, which the agent drops for good),
+// never a 400 for a body the old route took.
+func TestAnOlderAgentsLargeEngineResultIsRefusedNot400(t *testing.T) {
+	e := newReconcileEnv(t)
+	if _, err := e.db(t).Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,kind,status,created_at,updated_at) VALUES('old-apply',?1,?2,'apply','running',1,1)`, e.uid, e.agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	plan := `{"actions":[` + strings.TrimSuffix(strings.Repeat(`{"op":"install","skill":"`+strings.Repeat("x", 200)+`"},`, 1500), ",") + `]}`
+	if len(plan) < 256<<10 {
+		t.Fatalf("plan is only %d bytes", len(plan))
+	}
+	for _, id := range []string{"old-apply", "gone"} {
+		body := `{"id":"` + id + `","status":"succeeded","hash":"h","message":"Applied","plan":` + plan + `}`
+		if code, raw := e.call(t, "/api/v2/sync/result", body, false); code != http.StatusConflict {
+			t.Fatalf("%s: a large engine result got %d %s, want 409", id, code, raw)
+		}
+	}
+}

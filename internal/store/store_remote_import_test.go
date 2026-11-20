@@ -145,6 +145,13 @@ func TestRemoteImportCancellationExpiryGenerationAndOwners(t *testing.T) {
 				if _, err := s.ClaimRemoteImportFor(uid, a.ID, strings.Repeat("b", 48)); err != nil {
 					t.Fatal(err)
 				}
+				// A person's own import is never retried under a new process:
+				// it stays expired, and its request key is still the one they
+				// asked with.
+				after, err := s.RemoteImportFor(uid, r.ID)
+				if err != nil || after.State != "expired" || after.RequestKey != r.RequestKey {
+					t.Fatalf("manual consent was changed by a new instance: %+v: %v", after, err)
+				}
 			case "expire":
 				if err := s.withTx(func(tx *sql.Tx) error {
 					r, err := readImport(tx, uid, r.ID)

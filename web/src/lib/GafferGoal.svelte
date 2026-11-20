@@ -19,12 +19,12 @@
  const goalId=$props.id()
  let view=$state<GafferGoalView|null>(null),text=$state(''),maxReviews=$state(12),hours=$state(24),loading=$state(true),busy=$state(false),error=$state(''),notice=$state(''),confirming=$state(''),editOpen=$state(false)
  let goalInput=$state<HTMLTextAreaElement>(),promptButton=$state<HTMLButtonElement>(),promptOpen=$state(false),touch=$state(false)
- let image=$state<File|null>(null),imageUploading=$state(false),imageError=$state('')
+ let images=$state<File[]>([]),imageUploading=$state(false),imageError=$state('')
  let userPrompts=$state<GoalPrompt[]>([])
  let controller:AbortController|undefined,epoch=0
  const bytes=$derived(new TextEncoder().encode(text).length)
  const canSetup=$derived(view?.setupAllowed??view?.allowed??false)
- $effect(()=>{void image;imageError=''})
+ $effect(()=>{void images;imageError=''})
  const promptOptions=$derived<SlotOption[]>([
   ...BUILT_IN_GOAL_PROMPTS.map(prompt=>({value:`builtin:${prompt.id}`,label:prompt.title,description:prompt.text,group:'reet prompts'})),
   ...userPrompts.map(prompt=>({value:`user:${prompt.id}`,label:goalPromptTitle(prompt.text),description:prompt.text,group:'Your prompts',removeLabel:`Remove “${goalPromptTitle(prompt.text)}”`,onremove:()=>removePrompt(prompt.id)})),
@@ -65,12 +65,13 @@
   notice='Prompt removed.'
  }
  const promptId=()=>globalThis.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
- function clearImage(){image=null;imageError=''}
- function pasted(event:ClipboardEvent){if(busy)return;const data=event.clipboardData;const found=attachmentFromPaste(data?.files.length?data.files:imageFiles(data?.items));if(!found)return;event.preventDefault();if(!found.ok){imageError=attachmentMessage(found.reason);return}image=found.file;imageError=''}
+ function clearImage(){images=[];imageError=''}
+ function pasted(event:ClipboardEvent){if(busy)return;const data=event.clipboardData;const found=attachmentFromPaste(data?.files.length?data.files:imageFiles(data?.items));if(!found)return;event.preventDefault();if(!found.ok){imageError=attachmentMessage(found.reason);return}images=[found.file];imageError=''}
  function toggleEdit(){editOpen=!editOpen;clearImage()}
  async function save(){if(!view||busy||!text.trim()||bytes>2000)return;busy=true;error='';imageError='';controller?.abort();controller=new AbortController();const mine=++epoch
   try{
    let goalText=text
+   const image=images[0]
    if(image){
     if(!sessionId){imageError='Images need a running session. Remove the image and try again.';return}
     imageUploading=true
@@ -106,7 +107,7 @@
   {#if view.goal}<button class="edit-goal btn quiet" type="button" aria-expanded={editOpen} onclick={toggleEdit}>{editOpen?'Close goal editor':'Edit goal or start a new budget'}</button>{/if}
   {#if !view.goal||editOpen}<form onsubmit={event=>{event.preventDefault();if(view?.goal)confirming='replace';else void save()}}>
    <div class="goal-field"><div class="goal-head"><label for={`${goalId}-goal`}>Agreed goal</label><div class="goal-tools"><button type="button" class="prompt-add" bind:this={promptButton} aria-haspopup="listbox" aria-expanded={promptOpen} disabled={busy} onclick={()=>promptOpen=!promptOpen}>Use a prompt</button><button type="button" class="prompt-add" disabled={busy||!text.trim()||bytes>MAX_GOAL_PROMPT_BYTES} onclick={savePrompt}>Save as prompt</button></div></div><textarea id={`${goalId}-goal`} bind:this={goalInput} aria-label="Agreed goal" bind:value={text} maxlength="2000" rows="3" placeholder="Ensure a PR is raised and its checks and conflicts are addressed. Bring decisions back to me. Do not merge." disabled={busy} onpaste={pasted}></textarea></div>
-   <ImageAttachment bind:file={image} label="Attach an image to the goal" disabled={busy} busy={imageUploading} error={imageError} />
+   <ImageAttachment bind:files={images} max={1} label="Attach an image to the goal" disabled={busy} busy={imageUploading} error={imageError} />
    <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours <span>Change limits</span></summary><div class="limits"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews} required disabled={busy}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours} required disabled={busy}/></label></div></details>
    <p class="hint">Gaffer keeps going with new progress while you’re offline, and pauses for decisions or limits. Reviews may use provider credits.</p>
    <details><summary>How looking after works</summary><p class="hint">Each review may queue one instruction and use up to two model requests. Closing the browser keeps the goal running. Pause or Stop removes instructions still queued; already claimed work cannot be recalled. A readiness report needs your verification.</p></details>

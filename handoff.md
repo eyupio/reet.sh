@@ -1,5 +1,35 @@
 # Reet central-control implementation handoff
 
+## FACTORY-OUTCOME-IMAGES-2: every attached image travels into a started agent (20 November 2026)
+
+Every agent a Factory outcome starts now receives **all** of the outcome's images, not only the first. `gaffer.OutcomeLaunch` gained `Images []string`; `runOutcomeSession` fills it from the record (`o.Images`), so the same list reaches the first approval start, a retried pipeline, a later stage, and a pipeline added after approval. It is a copy, never the store's slice.
+
+The launch path (`outcomeStarter.StartOutcomeSession`) builds the opening prompt with `outcomePromptImages`: it turns each raw machine path into a reference (`uploadReference`, so a path with spaces or quotes is one shell-safe word), then appends one `Image:` line or one `Images: a b c` line. An image the prompt already names is left alone, so an outcome saved by the previous part (whose session prompts already carry references) is not doubled, and an outcome with no images sends exactly the prompt it did before. Because the prompt line is built at the launch, new pipelines and MCP-added pipelines get the images too.
+
+The browser no longer writes image references into the approved session prompts: `GafferOutcome.svelte` stores `upload.paths` on the outcome and sends the person's clean prompt. This leaves the outcome record as the single source of truth for what every started agent receives. The plan step now says "All N attached images travel with every pipeline this outcome starts", the result step still lists the stored paths, and AddPipelines says the outcome's images travel with each new pipeline.
+
+**Ambiguity.** The previous handover said the approval prompt already carried references and a later start should read `Images`. I made the launch the only place that adds them, rather than trying to keep two writers in step; existing stored prompts that already carry references are detected and not duplicated.
+
+**Checked.** `gofmt`, `go vet ./...`; `go test ./internal/gaffer ./internal/api ./internal/store ./internal/terminalproto`; targeted `-race` on the new tests; `go test ./...` (only the pre-existing terminal-pipe failures in `internal/clientconfig` and `internal/lifecycle` fail in this non-TTY shell); `npm run test`, `npm run build`, `svelte-check`; and `web/tests/gaffer-outcome.e2e.mjs` against a locally built preview (all desktop and phone cases passed, including eight attached images with one upload failing). A Go test starts an outcome holding three images through the controller and asserts both its launches carry all three and the machine receives one `Images:` line with every path; another covers zero images and an already-referenced prompt.
+
+**Review (20 November 2026).** Re-read the two commits (`21e35143`, `e7a7dc07`) and confirmed: the only construction of a launch with prompts is `runOutcomeSession`, so the first start, a retry, a later stage and an added pipeline all take `o.Images` from the stored record; the browser sends a clean prompt and stores only paths; zero images return the prompt unchanged (tested by `TestOutcomePromptImagesLeavesAPromptWithNoImagesAlone`); the attach UI from IMAGES-1 was not reworked. Re-ran gofmt, vet, the Go packages above, `npm run test`, `svelte-check`, `npm run build`, and both `gaffer-outcome` and `gaffer-goal` e2e against a fresh preview: all pass. `go test ./...` still fails only in `internal/clientconfig` and `internal/lifecycle`, which this branch does not touch (terminal-pipe tests in a non-TTY shell).
+
+Two fixes: the partial-upload result sentence counted the *failed* files instead of the attached ones, so one failure among seven said "the other image was attached" — it now counts `upload.paths` ("the other 7 images were attached"), and the e2e asserts the corrected sentence. The upload cache is now keyed by machine as well as file, so a path uploaded to one machine cannot be reused after the person switches project to another machine. Comments in `store.GafferOutcome`, `gaffer.OutcomeInput` and the web types now call `images` machine paths rather than references.
+
+**Review thread fix (20 November 2026).** Codex's P2 on `internal/api/gaffer_outcomes.go` was right: `CreateSessionReserved` validates the prompt, so appending the image line after a prompt already at 8,000 bytes would refuse the launch. The line is now reserved where the prompt is built. `stagePrompt` leaves room for `outcomeImagesSuffix("x", o.Images)` before it clips the brief, so a staged prompt at the limit keeps both its boundary and every image. An unstaged brief and an added pipeline are checked with the same image line at approval (`CreateOutcome`, `addPipelinesOnce`) and refused there if the two cannot fit together. The line itself moved to `gaffer.OutcomePromptImages`; the launch path calls it, and `terminalproto.UploadReference` is the one place an upload path is quoted.
+
+Open for the test/PR stages: no real machine was exercised. A later stage's launch is covered by the shared `runOutcomeSession` path but has no test of its own.
+
+## FACTORY-OUTCOME-IMAGES-1: several images on a Factory outcome (20 November 2026)
+
+`gaffer_outcomes`' JSON gains `images`: the raw machine upload paths the person attached, in order, at most eight (the ACP ceiling). Outcomes saved before this change simply have no field and read with none. `gaffer.OutcomeInput.Images` validates each as an absolute upload path and `store.GafferOutcome.Images` keeps them.
+
+At approval the browser uploads every selected image through the ordinary machine launch upload and stores the successful paths on the outcome. (IMAGES-2 moved the writing of `Image:` / `Images:` references out of the browser and into the launch path, so this record stays the single source.) If one of several uploads fails, the others are attached and the result names the failed file; a single failed image still refuses approval as before.
+
+`web/src/lib/imageAttachment.ts` now has `attachmentsFromPaste` and `MAX_ATTACHMENTS`. `web/src/lib/ImageAttachment.svelte` binds `files: File[]` with a `max` (1 in the goal, 8 in an outcome), allows multi-select, removes each image on its own, and drops only the image whose preview cannot be read. `GafferOutcome.svelte` owns the list and the uploads; `GafferGoal.svelte` uses the same picker for its one image.
+
+For the part that carries images into later agent starts: `GafferOutcome.Images` are raw machine paths, not shell-quoted references and not bytes. A later start reads `Images` itself rather than parsing the prompt; IMAGES-2 carries them on `OutcomeLaunch.Images` and turns them into references at the launch.
+
 ## QUEUE-AFTER-FINISH-1: a queued message goes after a finished turn (20 November 2026)
 
 The owner reported that a message typed after an agent finished stayed queued;

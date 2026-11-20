@@ -5,9 +5,9 @@
   import { onMount, untrack } from 'svelte'
   import { createGafferOutcome, getGafferCrew, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
-  import { imageFiles, imagePrompt } from './terminal/upload'
+  import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
-  import { attachmentFromPaste, attachmentMessage } from './imageAttachment'
+  import { MAX_ATTACHMENTS, attachmentMessage, attachmentsFromPaste, type AttachmentReason } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
   import ClineSourceSelect from './ClineSourceSelect.svelte'
   import { resolveStartSource, sourceOptions } from './clineSource'
@@ -71,22 +71,28 @@
   // Who takes the decisions when a stage stops: the person, or Gaffer for them. The person's unless they say so.
   let automation = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
-  let image = $state<File | null>(null), imageUploading = $state(false), imageError = $state('')
+  let images = $state<File[]>([]), imageUploading = $state(false), imageError = $state('')
+  let uploaded = $state<{ file: File; host: string; path: string }[]>([])
   let counter = 0
   const key = () => `plan-${++counter}`
-  function clearImage() { image = null; imageError = '' }
-  $effect(() => { void image; imageError = '' })
-  // A pasted screenshot becomes the outcome's image, exactly as if it had been picked. Text pastes are left alone.
+  function clearImages() { images = []; uploaded = []; imageError = '' }
+  // Every image on the clipboard is added at once, and another paste adds to them.
+  function addImages(found: File[], rejected: AttachmentReason[] = []) {
+    const room = Math.max(0, MAX_ATTACHMENTS - images.length)
+    const accepted = found.slice(0, room)
+    if (accepted.length) images = [...images, ...accepted]
+    const over = found.length > accepted.length
+    imageError = rejected.length ? attachmentMessage(rejected[0]) : over ? `Attach up to ${MAX_ATTACHMENTS} images.` : ''
+  }
+  // A pasted screenshot becomes part of the outcome's images, exactly as if it had been picked. Text pastes are left alone.
   function pasted(event: ClipboardEvent) {
     if (planning || busy) return
     const data = event.clipboardData
     const files = data?.files.length ? data.files : imageFiles(data?.items)
-    const found = attachmentFromPaste(files)
+    const found = attachmentsFromPaste(files)
     if (!found) return
     event.preventDefault()
-    if (!found.ok) { imageError = attachmentMessage(found.reason); return }
-    image = found.file
-    imageError = ''
+    addImages(found.files, found.rejected)
   }
 
   // A repository From GitHub instead of a saved project: the person names it and a machine that can clone it, and it
@@ -335,27 +341,51 @@
       }).catch(e => { if (!life.signal.aborted) watchError = e instanceof Error ? e.message : 'The outcome could not be read.' })
     }, 1500)
   }
+  // Uploads every selected image by itself. One that fails keeps the others:
+  // what uploaded travels with the outcome, and the rest is named on the result.
+  async function uploadImages(): Promise<{ paths: string[]; failed: string[] } | null> {
+    const host = project?.host
+    if (!host) return null
+    const results: { file: File; host: string; path: string }[] = []
+    const failed: string[] = []
+    for (const file of images) {
+      // A path only means something on the machine it was uploaded to: after a
+      // change of project the image is uploaded again rather than reused.
+      const known = uploaded.find(item => item.file === file && item.host === host)
+      if (known) { results.push(known); continue }
+      imageUploading = true
+      try {
+        const next = await launchUpload(host, file, life.signal)
+        const item = { file, host, path: next.path }
+        uploaded = [...uploaded, item]
+        results.push(item)
+      } catch (e) {
+        if (life.signal.aborted) return null
+        failed.push(file.name)
+      } finally { imageUploading = false }
+    }
+    if (images.length && !results.length) {
+      imageError = images.length === 1 ? 'The image could not be uploaded.' : 'The images could not be uploaded.'
+      return null
+    }
+    return { paths: results.map(item => item.path), failed }
+  }
   async function approve() {
     if (busy || approveBlocker || !limitsOk || !provider || !project || !tool) return
     busy = true; startError = ''; imageError = ''
-    let reference = ''
-    if (image) {
-      imageUploading = true
-      try { reference = (await launchUpload(project.host, image, life.signal)).reference }
-      catch (e) {
-        if (!life.signal.aborted) imageError = e instanceof Error ? e.message : 'The image could not be uploaded.'
-        imageUploading = false; busy = false; return
-      }
-      finally { imageUploading = false }
-    }
+    const upload = await uploadImages()
+    if (upload === null) { busy = false; return }
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
         ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
       }, life.signal)
-      step = 'results'; clearImage()
+      step = 'results'
+      const failed = upload.failed.length ? `${upload.failed.join(', ')} could not be uploaded; ${upload.paths.length === 1 ? 'the other image was' : `the other ${upload.paths.length} images were`} attached.` : ''
+      clearImages()
+      imageError = failed
       watch(record.id)
       await onstarted()
     } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The outcome was not saved. Nothing was started.' }
@@ -384,7 +414,7 @@
         <form onsubmit={event => { event.preventDefault(); void ask() }}>
           <label for={`${formId}-objective`}>Outcome</label>
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning} onpaste={pasted}></textarea>
-          <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
+          <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
             <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning || cloning}>
               <option value="">Choose a project…</option>
@@ -498,7 +528,8 @@
         <p class="declined" role="status">Proposal declined. Nothing was started. Reply below to tell Gaffer what you want instead, or go back to the outcome.</p>
       {:else}
       <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
-      <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
+      <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
+      {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
@@ -564,6 +595,10 @@
     {:else if record}
       <p class="objective"><span class="eyebrow">Outcome</span>{record.objective}</p>
       <p role="status" class="result-line">{done ? outcomeSummary(record.sessions) : startingProgress(record.sessions)}</p>
+      {#if (record.images ?? []).length}<ul class="outcome-images" aria-label="Images attached to the outcome">
+        {#each record.images ?? [] as path (path)}<li title={path}>{path.split('/').filter(Boolean).at(-1) || path}</li>{/each}
+      </ul>{/if}
+      {#if imageError}<p class="warning" role="alert">{imageError}</p>{/if}
       {#if record.state === 'stopped' && record.note}<p class="hint">{record.note}</p>{/if}
       {#if watchError}<p class="warning" role="alert">{watchError}</p>{/if}
       <ul class="results" aria-label="Outcome sessions">
@@ -623,7 +658,7 @@
   .choice{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;justify-self:start}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{background:var(--tint);color:var(--ink)}.choice label.off{cursor:not-allowed;opacity:.6}.choice input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--accent)}
   .hint.warn{color:var(--warn)}
   .result-line{font-weight:600}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
-  .results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
+  .outcome-images{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}.outcome-images li{padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem;overflow-wrap:anywhere}.results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}
   button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   @media(max-width:559px){.pair,.pair.two{grid-template-columns:1fr}}

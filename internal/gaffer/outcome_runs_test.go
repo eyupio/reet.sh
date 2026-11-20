@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -218,6 +219,99 @@ func (r *outcomeRig) settle(t *testing.T, id string) store.GafferOutcome {
 			t.Fatalf("outcome never settled: %+v", o)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestOutcomeKeepsTheImagesThePersonAttached(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.Images) != 2 || created.Images[0] != "/home/dev/launch-uploads/one.png" {
+		t.Fatalf("created images: %+v", created.Images)
+	}
+	// Read back from the store: the record, not the request, is what a later
+	// start reads.
+	saved, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Images) != 2 || saved.Images[1] != "/home/dev/launch-uploads/two.webp" {
+		t.Fatalf("saved images: %+v", saved.Images)
+	}
+}
+
+// Every session the outcome starts is given all of its images, not only the
+// first, and the record read at a later start is where they come from.
+func TestOutcomeStartsEveryAgentWithAllItsImages(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp", "/home/dev/launch-uploads/three.png"}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.settle(t, created.ID)
+	asked := r.starter.asked()
+	if len(asked) != len(r.in.Sessions) {
+		t.Fatalf("launches: %+v", asked)
+	}
+	for _, launch := range asked {
+		if len(launch.Images) != 3 || launch.Images[0] != r.in.Images[0] || launch.Images[1] != r.in.Images[1] || launch.Images[2] != r.in.Images[2] {
+			t.Fatalf("launch images: %+v", launch.Images)
+		}
+	}
+}
+
+func TestOutcomeRefusesMoreImagesThanAPromptCanCarry(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = make([]string, MaxOutcomeImages+1)
+	for i := range r.in.Images {
+		r.in.Images[i] = "/home/dev/launch-uploads/" + strconv.Itoa(i) + ".png"
+	}
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("too many images: %v", err)
+	}
+	r.in.Images = []string{"relative.png"}
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("relative image: %v", err)
+	}
+}
+
+// An unstaged brief is checked with the image line it will be launched with,
+// so approval cannot save a pipeline whose opening prompt the machine would
+// refuse as too long.
+func TestOutcomeRefusesABriefAndItsImagesThatCannotFitTogether(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png"}
+	r.in.Sessions[0].Prompt = strings.Repeat("a", MaxOutcomePromptBytes-1)
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("a brief plus its images over the limit: %v", err)
+	}
+	// The same brief without an image is unchanged: it fits on its own.
+	r.in.Images = nil
+	if _, err := r.s.CreateOutcome(r.p.UserID, r.in); err != nil {
+		t.Fatalf("a brief at the limit with no images: %v", err)
+	}
+}
+
+// A added pipeline is held to the same combined limit as an approved one.
+func TestAddedPipelinesRefuseABriefAndImagesThatCannotFitTogether(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Images = []string{"/home/dev/launch-uploads/one.png"}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := AddPipelinesInput{Revision: mustOutcome(t, r, created.ID).Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "Long", Prompt: strings.Repeat("a", MaxOutcomePromptBytes-1)}}}
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, add); err == nil || !strings.Contains(err.Error(), "images") {
+		t.Fatalf("an added brief plus the outcome's images over the limit: %v", err)
 	}
 }
 
@@ -1391,6 +1485,28 @@ func TestALongHandoverAndBriefKeepTheStagesBoundary(t *testing.T) {
 	}
 	if !strings.Contains(got, "for context only") || !strings.Contains(got, "The later stages (code) are done separately") || !strings.HasSuffix(got, "Do not merge.") {
 		t.Fatalf("the boundary was lost: …%q", got[len(got)-400:])
+	}
+}
+
+// The images are added after the stage prompt is built, so the stage prompt
+// must leave room for their line: at the limit the boundary and the images
+// both still reach the machine.
+func TestAStageAtTheLimitLeavesRoomForItsImages(t *testing.T) {
+	brief := strings.Repeat("The whole brief, for context. ", MaxOutcomePromptBytes/31+1)
+	item := store.GafferOutcomeSession{Prompt: brief, Stage: 1, Stages: []store.GafferOutcomeStage{{Kind: "plan", State: "done", Summary: "Plan done."}, {Kind: "code"}, {Kind: "pr"}}}
+	images := []string{"/home/dev/launch-uploads/one.png", "/home/dev/launch-uploads/two.webp"}
+	prompt := stagePrompt(store.GafferOutcome{Images: images}, item, 1)
+	if len(prompt) > MaxOutcomePromptBytes || !utf8.ValidString(prompt) {
+		t.Fatalf("prompt is %d bytes", len(prompt))
+	}
+	if !strings.Contains(prompt, "Images: /home/dev/launch-uploads/one.png /home/dev/launch-uploads/two.webp") {
+		t.Fatalf("the images were left out: …%q", prompt[len(prompt)-300:])
+	}
+	if !strings.Contains(prompt, "Do not merge.") {
+		t.Fatalf("the boundary was lost: …%q", prompt[len(prompt)-400:])
+	}
+	if full := OutcomePromptImages(prompt, images); full != prompt {
+		t.Fatalf("the launch would add the images again: %d bytes", len(full))
 	}
 }
 

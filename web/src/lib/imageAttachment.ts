@@ -1,7 +1,9 @@
-// The optional image attached in Gaffer's goal and outcome modals. The limits match the
-// existing machine upload path, but the modal accepts only the three types people expect
-// for a reference picture; the terminal uploader's GIF support is not carried over.
+// The images attached in Gaffer's goal and outcome modals. The limits match the
+// existing machine upload path, but the modal accepts only the three types people
+// expect for a reference picture; the terminal uploader's GIF support is not
+// carried over. An outcome holds up to the same eight images one prompt can.
 export const MAX_ATTACHMENT_BYTES = 5 << 20
+export const MAX_ATTACHMENTS = 8
 export const ACCEPTED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 export const ATTACHMENT_ACCEPT = ACCEPTED_ATTACHMENT_TYPES.join(',')
 
@@ -31,8 +33,28 @@ export type PastedAttachment = { ok: true; file: File } | { ok: false; reason: A
 
 /** The first image in a paste, if any. A paste without an image is left to the field itself. */
 export function attachmentFromPaste(files: ArrayLike<File> | null | undefined): PastedAttachment {
-  const image = Array.from(files ?? []).find(file => file.type.startsWith('image/'))
-  if (!image) return null
-  const check = validateAttachment({ type: image.type, size: image.size })
-  return check.ok ? { ok: true, file: image } : { ok: false, reason: check.reason }
+  const found = attachmentsFromPaste(files)
+  if (!found) return null
+  if (!found.files.length) return { ok: false, reason: found.rejected[0] }
+  return { ok: true, file: found.files[0] }
+}
+
+export type PastedAttachments = { files: File[]; rejected: AttachmentReason[] } | null
+
+/**
+ * Every image in a paste, in clipboard order, with the ones that cannot be
+ * attached kept as reasons. A paste without an image is left to the field
+ * itself, so text and files paste normally.
+ */
+export function attachmentsFromPaste(files: ArrayLike<File> | null | undefined): PastedAttachments {
+  const images = Array.from(files ?? []).filter(file => file.type.startsWith('image/'))
+  if (!images.length) return null
+  const accepted: File[] = []
+  const rejected: AttachmentReason[] = []
+  for (const image of images) {
+    const check = validateAttachment({ type: image.type, size: image.size })
+    if (check.ok) accepted.push(image)
+    else rejected.push(check.reason)
+  }
+  return { files: accepted, rejected }
 }

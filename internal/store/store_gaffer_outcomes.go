@@ -223,8 +223,11 @@ type GafferOutcome struct {
 	// PullLatest is the person's answer for this outcome's fresh worktrees:
 	// "yes" for GitHub's latest commit for the base, "no" for the machine's
 	// copy, "" for the project's setting, then the account's.
-	PullLatest string                 `json:"pullLatest,omitempty"`
-	ProviderID string                 `json:"providerId"`
+	PullLatest string `json:"pullLatest,omitempty"`
+	ProviderID string `json:"providerId"`
+	// Images are the uploaded machine paths the person attached to the
+	// outcome. An outcome saved before images could be attached has none.
+	Images     []string               `json:"images,omitempty"`
 	MaxReviews int                    `json:"maxReviews"`
 	Hours      int                    `json:"hours"`
 	Sessions   []GafferOutcomeSession `json:"sessions"`

@@ -339,6 +339,11 @@ was typed: the controller isolates any agent start whose folder is a saved repos
 cannot answer the question never holds the start up. The session also says where it started from on
 its Overview, under **Where it's working**.
 
+A repository project also offers the **Code for this worktree** choice — **GitHub's latest** or **This
+machine's copy** — and the choice travels with the start. It is offered whatever the project's
+**Worktree for each session** setting says, because the controller isolates the start either way; a
+folder that is behind GitHub can therefore start from GitHub's latest commit.
+
 The yes belongs to the start it was given for: the machine, folder, base and agent it named. A start
 whose own are different, or one pressed after the first was refused (the machine stopped taking
 sessions while the question was on screen, say), asks again. The same holds in Home's launch bar.

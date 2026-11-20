@@ -109,7 +109,10 @@
   // Gaffer's latest review sits with what waits when it is why the pipeline waits, and with the stage otherwise.
   const reviewWaits = $derived(item.section === 'waiting' && !lost && status.label === 'Needs you' && !!goal)
   const used = $derived(inHand?.decided ?? 0)
-  const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' ? '' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : taken.some(d => d.failed && d.key === piece.key) && used > 0 ? 'Gaffer could not take this one. See what it decided, below.' : 'Gaffer is deciding this. You can still choose first.')
+  // A decision Gaffer could not take, or chose to leave, keeps this stop with the person; saying it is deciding would be
+  // a promise nothing is going to keep.
+  const leftToYou = $derived(used > 0 && taken.some(d => d.failed && d.key === piece.key && d.stage === inHand?.kind))
+  const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' ? '' : leftToYou ? 'Gaffer left this one to you. See what it decided, below.' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.')
 
   // One bar: the choices of what waits, then the buttons a pipeline has today, each only once. A choice and a button
   // that do the same thing share a key. Opening the session is a link (`href`).

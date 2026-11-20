@@ -13,7 +13,44 @@ The owner reported a Home **Waiting for you** Gaffer entry on a Factory pipeline
 
 `ReleaseGafferGoalWatch` keeps the account's ten-active-goals limit and leaves `LastSeq` alone. The held path and its release are untouched.
 
-**Tests.** `TestAGoalThatStoppedForThePersonFollowsAgainWhenTheSessionMovesOn` proves an unchanged session stays stopped with no model request, new progress releases the goal, and the new progress is then reviewed. `TestAFailedReviewStaysWithThePersonWhenTheSessionMovesOn` proves a failed review is not auto-released. `go test ./internal/gaffer ./internal/store` pass.
+**Tests.** `TestAGoalThatStoppedForThePersonFollowsAgainWhenTheSessionMovesOn` proves an unchanged session stays stopped with no model request, new progress releases the goal, and the new progress is then reviewed. `TestAFailedReviewStaysWithThePersonWhenTheSessionMovesOn` proves a failed review is not auto-released, and `TestALiveWorkingSessionReleasesAGoalWithoutANewEvent` covers the live `working` report. `go test ./internal/gaffer ./internal/store` pass; the full local `-race` package run hit the pre-existing sqlite schema-init hang recorded below, so CI is the arbiter.
+
+**PR.** [#861](https://github.com/eyupio/reet.sh/pull/861) opened against `main`; the checks above are this PR's. Its merge is recorded by the next handoff update.
+
+## FACTORY-GITHUB-1: GitHub facts beside a Factory pipeline (20 November 2026)
+
+The owner asked for more GitHub metadata on the Factory item detail: the pull request number and link, the stages of CI
+and their status, whether Gaffer had to put any stage right and how many times, the CI run time, and a clear next
+action such as ending the Factory sessions and archiving or removing the outcome.
+
+**How it works.** The detail reads the GitHub observation the session surfaces already share (`ensurePullInsight` on the
+session in hand, which every stage of a pipeline shares the folder and branch of). When a pull request is known, a
+**GitHub** block shows its number, state and link, the CI counts, the run time and Gaffer's fixes. **CI stages** opens
+the checks with each state and link. Gaffer's fixes count decisions for this pipeline whose choice was `again`, `tell`
+or `restart`; a failed or left-to-the-person decision is not a fix. A finished outcome's action bar adds **Archive
+outcome** and **Delete outcome…**, with Delete still asking first; the outcome menu keeps both.
+
+**Data.** `terminalproto.InspectCheck` gains optional `startedAt` and `completedAt` (Unix milliseconds), read from
+`gh pr view --json statusCheckRollup` and validated like the pull request times. No migration; older machines simply
+report no run time. The browser's `InsightCheck` carries the same optional fields.
+
+**Tests.** `web/src/lib/factory/githubFacts.test.mjs` holds the CI counts, run span and fix-count rules;
+`internal/terminalhost` checks the times are read and sorted with the checks; `internal/terminalproto` bounds the new
+fields and still fits forty checks in the frame. The factory browser test now answers an inspect read with a pull
+request, CI checks and times, and checks the GitHub block and the finished bar. The shared test workspace answers an
+unmocked session inspect with `no_pr`, so the automatic read does not count as an unexpected API call.
+
+**Checked.** `npm run check` (all node tests, 0 Svelte diagnostics, 0 warnings), `go vet ./...`,
+`go test ./internal/terminalproto ./internal/terminalhost` (also under `-race`), and against `vite preview`:
+`gaffer-factory.e2e.mjs`, `factory-pieces.e2e.mjs`, `factory-decision.e2e.mjs` and `gaffer-layout.e2e.mjs`. The full
+`go test -race ./...` did not finish cleanly in this environment: `internal/api` and `internal/gaffer` hit the ten-minute
+package timeout under load, `internal/clientconfig` failed its pipe prompt test, and `internal/lifecycle` failed
+`TestDoctorIsReadOnlyAndRedactsCredentials` ("token not sent"); all are outside this change and CI is the arbiter.
+
+**Docs.** [Factory](docs/factory.md), the README's Factory bullet and the changelog.
+
+**PR.** [#859](https://github.com/eyupio/reet.sh/pull/859) opened against `main`; the checks above are this PR's.
+**Merged** as `92e38f50` on 20 November 2026; its facts and outcome-bar change are in `main` and this branch is merged up to it.
 
 ## FACTORY-OUTCOME-IMAGES-2: every attached image travels into a started agent (20 November 2026)
 

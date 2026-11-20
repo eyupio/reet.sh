@@ -79,11 +79,15 @@ func TestInspectPullDetailBoundaries(t *testing.T) {
 		"huge merged":               func(r *InspectResult) { r.Pull.MergedAt = MaxCounter + 1 },
 		"huge closed":               func(r *InspectResult) { r.Pull.ClosedAt = MaxCounter + 1 },
 		"negative push":             func(r *InspectResult) { r.Pull.LastPushAt = -1 },
-		"remote without owner":      func(r *InspectResult) { r.Remote = "reet.sh" },
-		"remote with space":         func(r *InspectResult) { r.Remote = "eyupio/reet sh" },
-		"remote with extra slash":   func(r *InspectResult) { r.Remote = "a/b/c" },
-		"remote with newline":       func(r *InspectResult) { r.Remote = "a/b\n" },
-		"remote too long":           func(r *InspectResult) { r.Remote = "a/" + strings.Repeat("b", 139) },
+		"negative check start":      func(r *InspectResult) { r.Pull.Checks = []InspectCheck{{Name: "ci", State: "SUCCESS", StartedAt: -1}} },
+		"huge check finish": func(r *InspectResult) {
+			r.Pull.Checks = []InspectCheck{{Name: "ci", State: "SUCCESS", CompletedAt: MaxCounter + 1}}
+		},
+		"remote without owner":    func(r *InspectResult) { r.Remote = "reet.sh" },
+		"remote with space":       func(r *InspectResult) { r.Remote = "eyupio/reet sh" },
+		"remote with extra slash": func(r *InspectResult) { r.Remote = "a/b/c" },
+		"remote with newline":     func(r *InspectResult) { r.Remote = "a/b\n" },
+		"remote too long":         func(r *InspectResult) { r.Remote = "a/" + strings.Repeat("b", 139) },
 	} {
 		r := fullInspectResult()
 		mutate(&r)
@@ -131,6 +135,9 @@ func TestAFullFortyCheckResultWithEveryNewFieldFitsTheFrame(t *testing.T) {
 			Name:  fmt.Sprintf("build / matrix (linux, go-1.2%d) / unit-tests-%02d", i%10, i),
 			State: "SUCCESS",
 			URL:   fmt.Sprintf("https://github.com/eyupio/reet.sh/actions/runs/123456789%02d/job/987654321%02d", i, i),
+			// The two extra fields every current machine sends with a check.
+			StartedAt:   1_700_000_000_000,
+			CompletedAt: 1_700_000_030_000,
 		})
 	}
 	r.Pull.More = true

@@ -35,8 +35,9 @@ long recommendation at 390 whose last choice must scroll into view), `gaffer-fac
 **Docs.** [Factory](docs/factory.md), [Gaffer AI](docs/gaffer-ai.md), [UI verification](docs/ui-verification.md) and
 the changelog.
 
-**PR.** Opened against `main`; the checks and captures above are this PR's. Its merge is recorded by the next handoff
-update.
+**Merged.** [#854](https://github.com/eyupio/reet.sh/pull/854) as `ec3a3343`. Every required check on the final head
+passed.
+
 ## PLAN-JOB-1: a Gaffer plan survives a proxy that gives up waiting (20 November 2026)
 
 **Merged.** [#851](https://github.com/eyupio/reet.sh/pull/851) as `da10b002`. Every required check on the final head passed.

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { ADVANCED_SYNC } from './syncRoutes'
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, getSkillContent, saveSkillContent, type HostedSkill, type SkillContent } from './api'
@@ -7,16 +6,11 @@
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
   import { SKILLS_CLI } from './install'
-  import { writtenSkillWhere } from './skillSync'
   import { copyPrompt, savedSkillNotice } from './skills/skillsPage'
-  import type { InstallationReport } from './machines'
-  import type { SyncState } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import { formatWhen } from './time'
 
-  // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to
-  // where that action still is, Advanced sync: the Sync page has none.
-  let { canWrite = true, reports = [], snapshot, onsync, syncing = false, timeZone = '', dateFormat = 'locale' }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState; onsync?: () => void | Promise<void>; syncing?: boolean; timeZone?: string; dateFormat?: string } = $props()
+  let { canWrite = true, timeZone = '', dateFormat = 'locale' }: { canWrite?: boolean; timeZone?: string; dateFormat?: string } = $props()
   let username = $state('')
   let prefix = $state('')
   let wantedName = $state('')
@@ -62,9 +56,7 @@
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
   // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
-  const syncHref = $derived(originalSlug ? ADVANCED_SYNC : '')
-  function hostedId(slug: string) { return `hosted/${location.host.toLowerCase()}/${username}/${slug}` }
-  function whereLine(skill: HostedSkill) { return writtenSkillWhere(hostedId(skill.slug), snapshot, reports) }
+  function whereLine(_skill: HostedSkill) { return 'Machines follow its library status. See Skills or Sync for progress.' }
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }
   const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
   const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
@@ -420,7 +412,7 @@
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
 <PageHeader group="Skills & tools" title="Write a skill" lede="Keep it on your machines, or publish it for anyone to install." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. {#if onsync}<button class="btn" type="button" disabled={syncing} onclick={() => void onsync()}>{syncing ? 'Starting…' : 'Sync all machines'}</button>{:else}<a href={syncHref}>Sync all machines</a>.{/if}</span>{/if}</p>{/if}
+{#if notice}<p class="notice good" role="status">{notice}{#if /saved|published|Renamed/.test(notice)}<span class="next-action">Machines follow your library. <a href="/sync">View sync status</a>.</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if itemId}
@@ -504,7 +496,7 @@
           <button class="skill-choice" aria-current={originalSlug === skill.slug ? 'true' : undefined} onclick={() => requestEdit(skill)} disabled={busy || importBusy}>
             <span class="choice-top"><strong>{skill.slug}</strong><span class="pill" class:published={skill.published}>{skill.published ? 'Published' : 'Draft'}</span></span>
             <small>{skill.description || 'No description yet'}</small>
-            <span class="choice-meta"><span>Updated {formatWhen(skill.updatedAt, timeZone, dateFormat)}</span><span class="where">Machines: {whereLine(skill)}</span></span>
+            <span class="choice-meta"><span>Updated {formatWhen(skill.updatedAt, timeZone, dateFormat)}</span><span class="where">{whereLine(skill)}</span></span>
           </button>
         {/each}
       </div>

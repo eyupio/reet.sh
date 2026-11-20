@@ -12,7 +12,7 @@
   // Sync: one sentence for every machine, a row per machine and what the machines did lately. Each machine follows the
   // library unless it is paused; the switch is the only choice a machine has. A machine that failed a skill offers Retry,
   // which asks it to try again on its next poll. A machine below the skills protocol is offered the update it needs;
-  // one newer than this controller can only wait for the controller. The plan controls live at Advanced until they go.
+  // one newer than this controller can only wait for the controller. All skill work follows the shared library.
   let { canWrite, accounts = false, timeZone = '', dateFormat = 'locale', onsignedout }: { canWrite: boolean; accounts?: boolean; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void } = $props()
 
   // How often the page reads the machines again.
@@ -194,7 +194,6 @@
     </div>
 
   {/if}
-  <p class="advanced"><a href="/sync/advanced">Advanced</a><span>Sync plans set up by hand, and the commands to restore a job's backups.</span></p>
 </div>
 
 {#if softwareOpen}<FleetSoftware onclose={() => (softwareOpen = false)} />{/if}
@@ -239,8 +238,5 @@
   .first-title { margin: 0; font-weight: 600; color: var(--ink); }
   .first .btn { min-height: 44px; }
   .empty { margin: 8px 0; font-size: 0.875rem; color: var(--muted); }
-  .advanced a { color: var(--accent-text); }
-  .advanced { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; margin: 0; font-size: 0.875rem; color: var(--muted); }
-  .advanced a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { .track, .track span { transition: none; } }
 </style>

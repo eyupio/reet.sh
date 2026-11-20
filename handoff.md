@@ -1,5 +1,32 @@
 # Reet central-control implementation handoff
 
+## SKILLS-DOCS-18: document the shared library (20 November 2026)
+
+Continuation of merged PR #845 (`820631e7`), whose final head was `7f9b297a`.
+The final head's checks passed, including benchmarks and both real-agent jobs;
+the Archived published-skill picker finding is fixed and its thread resolved.
+
+Task 18's documentation pass replaces the superseded user guides for plans,
+stages, pins and adoption with Active/Archived/Delete, discovery review, saved
+content, history, local consent and recovery. README and changelog now describe
+the new model. SECURITY.md already documents outbound GitHub/site bundle fetches.
+Verification and limits are recorded in docs/ui-verification.md.
+
+**Task 17 continuation (PR #850).** Removed the old web engine, its exclusive
+helpers, API wrappers and tests: Advanced sync, plan selection, private pins and
+adoption, per-machine skill selection, manual skill sync and the job activity
+dock. Connection, inventory, manual content import, connector updates, pause,
+terminal access and local backup recovery remain. Old plan URLs redirect to
+`/sync`, discarding plan parameters. Home and session details now read the
+reconcile report instead of inferring skill state from preview jobs. Add a
+machine waits for that report before claiming library sync; unavailable reports
+remain unknown. Write a skill points to automatic library status.
+
+Checks and captures are recorded in docs/ui-verification.md. The local computer
+has no Go language toolchain (`/usr/bin/go` is an unrelated application), so Go
+vet/race verification belongs to CI. Next: finish the exact-head CI and review
+checks on #850; no live machine or paid provider has been used for acceptance.
+
 ## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
 
 The owner asked: "If we recognise that a machine folder doesn't have the latest code from GitHub, then we need a config

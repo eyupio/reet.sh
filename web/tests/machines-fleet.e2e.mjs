@@ -34,7 +34,8 @@ const sync = {
   runs: [],
   updateJobs: [],
 }
-const open = options => openWorkspace(browser, { width: 1440, sync, ...options })
+const skillHealth = {active:2,work:{},activity:[],machines:hosts.filter(h=>h!=='setup-1').map(host=>({agentId:`${host}-agent`,host,state:host==='work-1'?'installing':host.startsWith('att')?'paused':'ok',waiting:[],failed:[]}))}
+const open = options => openWorkspace(browser, { width: 1440, sync, routes:{'/api/v2/sync/skills':skillHealth}, ...options })
 const order = async page => (await page.locator('article.machine h3').allTextContents()).map((name) => name.trim())
 const status = page => page.getByLabel('Status')
 

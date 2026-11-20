@@ -1,5 +1,5 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
-import type { GafferGoalOverview, SyncJob, SyncState } from './api'
+import type { GafferGoalOverview, SyncState } from './api'
 import { ATTENTION_WINDOW_MS, attentionRuleOf, isBlocked } from './attention'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
@@ -121,44 +121,12 @@ function ago(ms: number): string {
   return `${Math.floor(ms / DAY)} d ago`
 }
 
-/** The differences a finished check found, or null when the job is not a finished check. */
-function checkFound(job: SyncJob): number | null {
-  const actions = Array.isArray(job.plan?.actions) ? job.plan.actions.length : null
-  if (actions === null) return null
-  // A preview (or an automatic run held for review) stops with its plan: the plan is what the check found.
-  if ((job.kind === 'preview' || job.kind === 'auto') && job.status === 'awaiting-approval') return actions
-  // An automatic run whose plan was empty finishes as an apply with nothing applied: it found no differences.
-  // An apply that changed files is not a check, so it never reads as "in sync".
-  if (job.kind === 'apply' && job.status === 'succeeded' && actions === 0) return 0
-  return null
-}
-
 function skillsOf(agentId: string, sync: SyncState, now: number): FleetCard['skills'] {
-  const notChecked = { text: 'Not checked', tone: 'muted' } as const
-  const agent = (sync.agents ?? []).find(a => a.id === agentId)
-  if (!agent) return notChecked
-  const host = agent.host.toLowerCase()
-  // Each target with the desired revision it is held to now. A job records the revision it was made for, so a check made
-  // before the desired skills last changed says nothing about them and is not counted.
-  const targets = new Map<string, string>()
-  for (const t of sync.targets ?? []) if (t.target.host.toLowerCase() === host) targets.set(t.target.id, t.revision ?? '')
-  if (targets.size === 0) return notChecked
-  let differences = 0, oldest = Infinity, unchecked = false
-  for (const [id, revision] of targets) {
-    let latest: { found: number; at: number } | null = null
-    for (const job of sync.jobs ?? []) {
-      if (job.agentId !== agentId || job.targetId !== id) continue
-      if (revision && job.revision !== revision) continue
-      const found = checkFound(job)
-      if (found !== null && (!latest || job.updatedAt > latest.at)) latest = { found, at: job.updatedAt }
-    }
-    if (!latest) { unchecked = true; continue }
-    differences += latest.found
-    oldest = Math.min(oldest, latest.at)
-  }
-  if (differences > 0) return { text: `${differences} skill${differences === 1 ? '' : 's'} out of date`, tone: 'warn' }
-  if (unchecked) return notChecked
-  return { text: `skills in sync · checked ${ago(Math.max(0, now - oldest))}`, tone: 'good' }
+  const report = sync.skillReports?.machines.find(m => m.agentId === agentId)
+  if (!report) return { text: 'Not checked', tone: 'muted' }
+  if (report.state === 'ok') return { text: `skills in sync · connector seen ${ago(Math.max(0, now - report.lastSeen))}`, tone: 'good' }
+  const labels = {installing:'Installing skills',removing:'Removing skills',updating:'Updating skills',paused:'Skill sync paused',offline:'Skill sync offline',blocked:"Can't write skills",failed:'Skill sync failed','needs-update':'Update connector for skills','needs-newer-controller':'Update controller for skills'}
+  return { text: labels[report.state] ?? 'Not checked', tone: 'warn' }
 }
 
 /** What one machine's last scan and terminal report say is installed. Nothing is inferred from another machine. */

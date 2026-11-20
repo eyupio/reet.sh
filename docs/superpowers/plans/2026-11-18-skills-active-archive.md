@@ -3,6 +3,22 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or
 > superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Continuation status — 20 November 2026
+
+| Tasks | Implementation record | Sign-off |
+| --- | --- | --- |
+| 1–11 | PRs #836 and #842 | Merged before #845 |
+| 12–16 | PR #845 | Merged; its final CI head passed |
+| 17 | PR #850 removes the remaining web engine and its callers | Local web checks and 17 affected browser specs pass; full CI/review pending |
+| 18 | PR #850 updates the guides, changelog, handoff and UI evidence, with 1440/390 captures in both themes | Documentation checks pass; final Go/integration CI, fresh code review and merge pending |
+
+The implementation is present, but this handoff is **not yet fully signed off**.
+The detailed checkboxes below are the original execution checklist, including
+historical test-first steps; unchecked boxes must not be read as a second list
+of missing implementations. Current commands, results and limitations are in
+`docs/ui-verification.md`. Mark the handoff complete only after #850's final
+head passes the remaining checks and review and is merged.
+
 **Goal:** A skill in reet.sh is Active (on every machine), Archived (kept in reet, off every machine) or Deleted. A
 plain reconcile loop makes machines match, and the Skills page prunes in place.
 

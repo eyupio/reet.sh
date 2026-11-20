@@ -1,6 +1,6 @@
 import type { Machine, SyncAgent, SyncEnvironment } from './api'
-import { sameHost, scopeEligibility } from './contentReview'
-import { groupLabel, agentGroups } from './machines'
+import { sameHost } from './contentReview'
+import { agentGroups } from './machines'
 import { shellQuote, retryDelay, supportedAgents } from './machineSetup'
 import type { ReleaseChannel } from './machineSetup'
 
@@ -36,22 +36,19 @@ export function joinCommands(site: string, name: string, channel: ReleaseChannel
 }
 
 export type JoinStage = 'waiting' | 'already_here' | 'connected' | 'first_scan' | 'syncing' | 'sync_issue' | 'ready' | 'unknown'
-export type JoinView = { stage: JoinStage; label: string; detail: string; canUse: boolean }
+export type JoinView = { stage: JoinStage; label: string; detail: string; canUse: boolean; connectorIds?: string[] }
 /** What was already reporting under the name: connector ids, and the newest complete supported scan (0 if none). */
 export type JoinBaseline = { agentIds: string[]; scannedAt: number } | null
 
 /** A first scan is only the start: new enrolments finish after library sync. */
-export function joinSyncState(view: JoinView, host: string, snapshot: import('./api').SyncState): JoinView {
+export function joinSyncState(view: JoinView, skills: import('./api').SyncSkills | null = null): JoinView {
   if (view.stage !== 'ready') return view
-  const agent = snapshot.agents?.find(item => sameHost(item.host, host))
-  if (!agent?.keepSynced) return view // legacy or deliberately manual enrolment
-  const targets = snapshot.targets.filter(item => sameHost(item.target.host, host) && !item.target.project && item.sourceId === 'library')
-  const jobs = (snapshot.jobs ?? []).filter(job => job.agentId === agent.id && job.kind !== 'update')
-  const problem = targets.find(target => target.problem)?.problem
-  const latest = [...jobs].sort((a, b) => b.updatedAt - a.updatedAt)[0]
-  if (problem || latest?.status === 'failed' || jobs.some(job => job.status === 'awaiting-approval')) return { stage: 'sync_issue', label: 'Sync needs attention', detail: problem || latest?.message || 'Review the pending changes in Sync activity.', canUse: false }
-  if (!targets.length || targets.some(target => target.missing.length > 0) || jobs.some(job => ['queued', 'running'].includes(job.status))) return { stage: 'syncing', label: 'Syncing your skill library', detail: latest?.stages?.find(stage => stage.status === 'running')?.detail || 'Reet is bringing this machine up to date. You can close this dialog; sync will continue.', canUse: false }
-  return { stage: 'ready', label: 'Ready · library in sync', detail: 'Your skill library is on this machine. New skills and edits to your written skills will follow automatically.', canUse: true }
+  const reports = skills?.machines.filter(item => view.connectorIds?.includes(item.agentId)) ?? []
+  const report = reports.find(item => item.state === 'ok') ?? reports[0]
+  if (!report) return { stage: 'syncing', label: 'Waiting for skill sync report', detail: 'The connection and inventory arrived. Reet is waiting for this machine to confirm its library state.', canUse: false }
+  if (report.state === 'ok') return { stage: 'ready', label: 'Ready · library in sync', detail: 'Active skills follow your library automatically.', canUse: true }
+  if (['installing', 'removing', 'updating'].includes(report.state)) return { stage: 'syncing', label: 'Syncing your skill library', detail: 'This machine is applying the library. You can close this dialog; sync continues.', canUse: false }
+  return { stage: 'sync_issue', label: 'Sync needs attention', detail: report.failed.map(f => `${f.name}: ${f.detail}`).join('; ') || 'Open Sync to see why this machine is waiting.', canUse: false }
 }
 
 const isAgent = (a: unknown): a is SyncAgent => !!a && typeof a === 'object' && typeof (a as SyncAgent).id === 'string' && typeof (a as SyncAgent).host === 'string'
@@ -131,50 +128,7 @@ function normal(host: string, typed: string, connectors: SyncAgent[], machines: 
   const j = judge(host, connectors, machines, now, after)
   if (j.paused) return { stage: 'connected', label: 'Connected', detail: PAUSED, canUse: false }
   if (!j.scanned) return { stage: 'first_scan', label: 'Waiting for its first scan', detail: 'A connector has reported in. ' + NO_SCAN, canUse: false }
-  return { stage: 'ready', label: 'Ready', detail: 'A connector has reported in and a complete scan of an agent folder has arrived. That does not show the machine works as you expect.', canUse: true }
-}
-
-export type JoinContext = { skill?: string; bundleId?: string; agent?: string }
-export type Landing = { kind: 'open'; environmentId: string; name?: string; chosen: string; others: number } | { kind: 'none'; reason: string }
-
-export function landingFor(context: JoinContext, machine: Machine | undefined, agents: SyncAgent[], opts: { accounts: boolean; canWrite: boolean; now: number }): Landing {
-  if (!machine) return { kind: 'none', reason: "That machine isn't listed yet." }
-  if (!isMachine(machine) || !Array.isArray(agents) || !agents.every(isAgent)) return { kind: 'none', reason: "reet.sh couldn't read that machine's folders. Check again." }
-  const folders = supportedAgents(machine)
-  if (folders.length === 0) {
-    return agentGroups(machine).length === 0
-      ? { kind: 'none', reason: "That machine hasn't reported an agent folder yet." }
-      : { kind: 'none', reason: 'Its agent folders are scan-only, so private skills cannot be pinned to them.' }
-  }
-  const verdicts = folders.map(folder => ({ folder, result: scopeEligibility(folder, agents, opts) }))
-  const prefer = <T extends { folder: SyncEnvironment }>(list: T[]): T | undefined => list.find(v => v.folder.agent === context.agent) ?? list[0]
-  const qualifying = verdicts.filter(v => v.result.ok)
-  const best = prefer(qualifying)
-  if (best) {
-    const landing: Landing = { kind: 'open', environmentId: best.folder.id, chosen: groupLabel(best.folder), others: qualifying.length - 1 }
-    if (context.skill !== undefined) landing.name = context.skill
-    return landing
-  }
-  // Report on the folder that got furthest: one with a good recent scan fails on the connector, not on the scan.
-  const failures = verdicts.flatMap(v => (v.result.ok ? [] : [{ folder: v.folder, reason: v.result.reason }]))
-  const scanned = failures.filter(f => f.folder.complete === true && f.folder.scannedAt > 0 && opts.now - f.folder.scannedAt <= SCAN_WINDOW_MS)
-  return { kind: 'none', reason: (prefer(scanned) ?? prefer(failures)!).reason }
+  return { stage: 'ready', label: 'Ready', detail: 'A connector has reported in and a complete scan of an agent folder has arrived. That does not show the machine works as you expect.', canUse: true, connectorIds: connectors.filter(agent => !agent.paused).map(agent => agent.id) }
 }
 
 export const joinDelay = (failures: number): number => retryDelay(failures, 3000, 20000)
-
-/** The pause before the dialog carries on by itself from the Private skills dialog. */
-export const JOIN_AUTO_MS = 3000
-
-/** True when the dialog was opened from the Private skills dialog: that carries the skill, or at least the agent of its folder.
- *  A context with neither is a Machines-page context (it is opened with `{}`), so it is not from Private skills. */
-export const fromPrivateSkills = (context: JoinContext): boolean => context.skill !== undefined || context.agent !== undefined
-
-/** One plain line saying which folder was chosen and how many others qualified. It says nothing more than that. */
-export function landingNote(host: string, landing: Extract<Landing, { kind: 'open' }>): string {
-  const opened = `Opened on ${landing.chosen} on ${host}.`
-  if (landing.others <= 0) return opened
-  return landing.others === 1
-    ? `${opened} 1 other folder also qualifies; open it from the Machines page.`
-    : `${opened} ${landing.others} other folders also qualify; open them from the Machines page.`
-}

@@ -138,34 +138,14 @@ test('installed pills report agents, skills and MCP from that machine only', () 
   assert.deepEqual(unknown.installed, { agents: null, skills: null, mcp: null })
 })
 
-test('skills line never says in sync without a check', () => {
-  const studio = [machine('a1', 'studio')]
-  const line = sync => fleetCards(studio, [], sync, NOW)[0].skills
-  const notChecked = { text: 'Not checked', tone: 'muted' }
-  assert.deepEqual(line(emptySync()), notChecked, 'no sync state at all')
-  assert.deepEqual(line(syncWith([])), notChecked, 'a target but no job')
-  assert.deepEqual(line(syncWith([], [])), notChecked, 'no target to compare')
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'scan', 'succeeded', 0, NOW - MIN)])), notChecked, 'a scan is not a check')
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'queued', undefined, NOW - MIN)])), notChecked, 'a queued check')
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'running', undefined, NOW - MIN)])), notChecked, 'a running check')
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'failed', 0, NOW - MIN)])), notChecked, 'a failed check')
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'apply', 'succeeded', 2, NOW - MIN)])), notChecked, 'an apply that changed files is not a check that found none')
-  assert.deepEqual(line(syncWith([job('j', 'a2', 't1', 'preview', 'awaiting-approval', 0, NOW - MIN)])), notChecked, "another machine's check")
-  // One target checked, the other never: the machine as a whole is not known to be in sync.
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - MIN)], [target('t1', 'studio'), target('t2', 'Studio')])), notChecked, 'a target without a check')
-
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 3 * HOUR)])), { text: 'skills in sync · checked 3 h ago', tone: 'good' })
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'apply', 'succeeded', 0, NOW - 20 * MIN)])), { text: 'skills in sync · checked 20 min ago', tone: 'good' }, 'an automatic check that found nothing to do')
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'awaiting-approval', 1, NOW - MIN)])), { text: '1 skill out of date', tone: 'warn' })
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'auto', 'awaiting-approval', 3, NOW - MIN)])), { text: '3 skills out of date', tone: 'warn' })
-  // The newest finished check wins; an older clean one does not hide a newer difference, nor the reverse.
-  assert.deepEqual(line(syncWith([job('old', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 2 * HOUR), job('new', 'a1', 't1', 'preview', 'awaiting-approval', 1, NOW - HOUR)])), { text: '1 skill out of date', tone: 'warn' })
-  assert.deepEqual(line(syncWith([job('old', 'a1', 't1', 'preview', 'awaiting-approval', 1, NOW - 2 * HOUR), job('new', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - HOUR)])), { text: 'skills in sync · checked 1 h ago', tone: 'good' })
-  // Two targets both clean: the age is the older check's.
-  assert.deepEqual(line(syncWith([job('a', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 2 * 86_400_000), job('b', 'a1', 't2', 'preview', 'awaiting-approval', 0, NOW - MIN)], [target('t1', 'studio'), target('t2', 'studio')])), { text: 'skills in sync · checked 2 d ago', tone: 'good' })
-  // A difference on one target is reported even while another is unchecked.
-  assert.deepEqual(line(syncWith([job('a', 'a1', 't1', 'preview', 'awaiting-approval', 1, NOW - MIN)], [target('t1', 'studio'), target('t2', 'studio')])), { text: '1 skill out of date', tone: 'warn' })
-  assert.deepEqual(line(syncWith([job('j', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 10_000)])), { text: 'skills in sync · checked just now', tone: 'good' })
+test('skills line uses reconcile reports and never falls back to inventory or retired jobs', () => {
+ const line=sync=>fleetCards([machine('a1','studio')],[],sync,NOW)[0].skills
+ assert.deepEqual(line(emptySync()),{text:'Not checked',tone:'muted'})
+ assert.deepEqual(line(syncWith([job('old','a1','t1','preview','awaiting-approval',0,NOW)])),{text:'Not checked',tone:'muted'})
+ const state=report=>({...emptySync(),skillReports:{machines:[{agentId:'a1',state:report,lastSeen:NOW-HOUR}]}})
+ assert.deepEqual(line(state('ok')),{text:'skills in sync · connector seen 1 h ago',tone:'good'})
+ assert.deepEqual(line(state('failed')),{text:'Skill sync failed',tone:'warn'})
+ assert.deepEqual(line(state('offline')),{text:'Skill sync offline',tone:'warn'})
 })
 
 test('group by folder project from projectId', () => {
@@ -397,15 +377,7 @@ test('an offline machine keeps its live sessions in In flight and on its card', 
   }
 })
 
-test('a check made for an older desired revision is not counted', () => {
-  const t = { ...target('t1', 'studio'), revision: 'r2' }
-  // The only finished check was made before the desired skills changed: nothing is known about the current set.
-  assert.deepEqual(fleetCards([machine('a1', 'studio')], [], syncWith([job('j1', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - HOUR)], [t]), NOW)[0].skills, { text: 'Not checked', tone: 'muted' })
-  // A newer check for the current revision is what the line reports, even when an older one found differences.
-  const current = { ...job('j2', 'a1', 't1', 'preview', 'awaiting-approval', 0, NOW - 2 * HOUR), revision: 'r2' }
-  const stale = job('j3', 'a1', 't1', 'preview', 'awaiting-approval', 3, NOW - MIN)
-  assert.deepEqual(fleetCards([machine('a1', 'studio')], [], syncWith([current, stale], [t]), NOW)[0].skills, { text: 'skills in sync · checked 2 h ago', tone: 'good' })
-})
+
 
 test('a project counts only its own live sessions as running, and its worktrees in use', () => {
   const sessions = [session('s1', 'a1', 'running', { projectId: 'p1', ...tree('a') }), session('s2', 'a1', 'exited', { exitCode: 0, projectId: 'p1', ...tree('b') }),

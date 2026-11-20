@@ -582,11 +582,11 @@
   {:else if section === 'activity'}
     <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}
-    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} timeZone={profile.timezone} dateFormat={profile.dateFormat} onsignedout={onerror} view="machines">
+    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} timeZone={profile.timezone} dateFormat={profile.dateFormat} onsignedout={onerror}>
       {#snippet tokenSetup()}{@render tokenForm()}{/snippet}
     </EnvironmentSync>
   {:else if section === 'sync'}
-    <EnvironmentSync {canWrite} timeZone={profile.timezone} dateFormat={profile.dateFormat} view="compare" />
+    <p>Machines follow your library automatically. <a href="/sync">View sync status</a>.</p>
   {:else if section === 'tokens'}
     {#if !canWrite}
       <p class="muted">Viewer accounts cannot create API tokens.</p>

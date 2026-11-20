@@ -570,12 +570,13 @@
  let promptSuppressed = false, promptLife: AbortController | undefined
  let promptMenuEl = $state<InlinePromptMenu>()
  // A start that will get its own worktree in a saved repository: the only one a "latest code" choice means anything for.
+ // The controller isolates every agent start whose folder is a saved repository, whatever the project's worktree
+ // setting says, so the choice must be offered for any repository on a machine that can make a worktree.
  const launchBranch = $derived(pickedProject?.baseBranch || accountDefaults?.defaultBaseBranch || '')
  const launchesInWorktree = $derived.by(() => {
   const p = pickedProject
   if (!p || !machine || p.host !== machine.agentId || dir !== p.dir || !p.isRepo) return false
-  const worktree = p.worktreeDefault === 'yes' ? true : p.worktreeDefault === 'no' ? false : accountDefaults?.worktreesByDefault !== false
-  return worktree && !!machine.capabilities?.worktree
+  return !!machine.capabilities?.worktree
  })
  const latestChoice = $derived<LatestChoice>(latestOverride === null ? (startsFromLatest(pickedProject, accountDefaults ?? {}) ? 'github' : 'machine') : latestOverride ? 'github' : 'machine')
  const promptContext = $derived({ project: pickedProject?.name, branch: pickedProject?.baseBranch || '', folder: pickedProject?.dir || typedDir || '', sessionTitle: promptTitle(prompt) })
@@ -735,17 +736,15 @@
    const chosenProject = pickedProject
    const onProject = !!chosenProject && machine.agentId === chosenProject.host && dir === chosenProject.dir
    if (onProject) launch.projectId = chosenProject.id
-   // A chosen project's own defaults apply however the dialog was opened: a repository that asks for a worktree (or
-   // inherits the account's default) starts in one, from its own base branch, never in the shared checkout.
-   if (onProject && !structured && chosenProject?.isRepo) {
-    const worktree = chosenProject.worktreeDefault === 'yes' ? true : chosenProject.worktreeDefault === 'no' ? false : accountDefaults?.worktreesByDefault !== false
-    if (worktree && machine.capabilities?.worktree) {
-     launch.worktree = crypto.randomUUID().replaceAll('-', '')
-     launch.project = projectSlug(chosenProject.name)
-     const base = chosenProject.baseBranch || accountDefaults?.defaultBaseBranch || ''
-     if (base) launch.base = base
-     if (latestOverride !== null) launch.pullLatest = latestOverride
-    }
+   // A chosen project that is a repository always starts in a worktree of its own, from its own base branch: the
+   // controller isolates such a start whatever the project's worktree setting says, so the dialog asks for it too and
+   // the latest-code choice travels with it. A project that is not a repository, or a chat, keeps its own folder.
+   if (onProject && !structured && chosenProject?.isRepo && machine.capabilities?.worktree) {
+    launch.worktree = crypto.randomUUID().replaceAll('-', '')
+    launch.project = projectSlug(chosenProject.name)
+    const base = chosenProject.baseBranch || accountDefaults?.defaultBaseBranch || ''
+    if (base) launch.base = base
+    if (latestOverride !== null) launch.pullLatest = latestOverride
    }
    const host = machine.host, agent = machine.agentId
    // Starting from GitHub's latest means the base check has nothing to warn about: the worktree is cut from GitHub's

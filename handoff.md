@@ -1,5 +1,29 @@
 # Reet central-control implementation handoff
 
+## LATEST-CODE-2: Start an agent offers latest code for a repository with worktrees off (20 November 2026)
+
+The owner reported: "Start Agent modal doesnt allow the user to pull latest code from github if project folder is
+behind." A repository project whose **Worktree for each session** setting was off (or whose account default was off)
+hid the **Code for this worktree** choice in Start an agent, even though the controller's `isolateWorktree` gives every
+agent start in a saved repository a worktree of its own whatever that setting says. The dialog also sent no worktree,
+base or `pullLatest` in that case, so the choice could not have travelled with the start even if it had been shown.
+
+**How it works.** `StartAgentDialog.svelte`'s `launchesInWorktree` now depends only on the chosen folder being a saved
+repository on a machine that negotiated worktrees; the project's `worktreeDefault` and the account's
+`worktreesByDefault` no longer gate it. The start's worktree block uses the same rule, so a repository project always
+sends its worktree token, its base and the person's latest-code answer. A non-repository project, or a Gaffer chat,
+still keeps its own folder. The controller needed no change: it already isolated these starts and applied
+`pullLatestFor`.
+
+**Tests.** `web/tests/start-agent.e2e.mjs` gains a case with a `worktreeDefault: 'no'` repository project: the choice is
+visible, **GitHub's latest** is picked, and the create carries `worktree`, `base: 'main'` and `pullLatest: true`.
+`svelte-check` is 0/0, `npm test` and `npm run build` pass, and the whole `start-agent.e2e.mjs` passes against
+`vite preview`.
+
+**Docs.** `docs/start-agent-session.md` (the dialog says the choice is offered whatever the worktree setting says) and
+the changelog.
+
+**PR.** Opened against `main`; its checks are this change's. The merge is recorded by the next handoff update.
 ## GAFFER-GOAL-WATCH-1: a stopped goal keeps watching its session (20 November 2026)
 
 The owner reported a Home **Waiting for you** Gaffer entry on a Factory pipeline that was running and needed nothing, and asked Gaffer to poll the sessions. The goal had gone `needs_user` (a review brought a question back) and was then never looked at again: `DueGafferGoals` only returned `needs_user` goals that were held because the working model itself was waiting, so any other stop was final until the person resumed it.

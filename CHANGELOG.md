@@ -16,6 +16,10 @@ this file existed releases were described on their GitHub release pages.
   session workspace show the pipeline's stage in hand, marked with its stage, and leave the
   finished ones to the pipeline item on the Factory page. A Factory that cannot be read keeps
   every session listed, as before.
+- **Latest code in Start an agent**: a repository project now offers the GitHub's-latest / this-machine's-copy choice
+  even when its **Worktree for each session** setting is off. The controller isolates every agent start whose folder
+  is a saved repository, so the dialog now asks for the worktree it gets and sends the choice with it; a folder that is
+  behind GitHub can start from GitHub's latest commit.
 - **Factory GitHub facts**: a pipeline's detail now shows the pull request number and link, every CI check with its
   state, how long CI has run, and how many of Gaffer's decisions put a stage right. The figures are read from the
   session in hand through the GitHub CLI signed in on its machine. A finished outcome's action bar now puts **Archive

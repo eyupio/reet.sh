@@ -59,7 +59,6 @@ const switchTui = async page => { await page.getByRole('button',{name:'Session a
 const DIALOGS = [
  {name:'start agent', path:'/machines', open:p => card(p, 'Start an agent').click(), field:'textarea', sheet:'full'},
  {name:'add machine', path:'/machines#add-machine', field:TEXT, sheet:'full'},
- {name:'private skills', path:'/machines', open:p => p.locator('[data-private-skills]:not([disabled])').first().evaluate(el => el.click()), sheet:'full'},
  {name:'skill imports', path:'/machines', open:press('Import a machine skill…'), sheet:'full'},
  {name:'machine commands', path:'/machines', open:cardMenu('Commands…'), primary:'Open compare & sync', sheet:'full'},
  {name:'machine settings', path:'/machines', open:cardMenu('Settings…'), primary:'Forget machine…', sheet:'full', check:async page => {

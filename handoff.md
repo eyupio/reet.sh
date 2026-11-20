@@ -23,7 +23,10 @@ visible, **GitHub's latest** is picked, and the create carries `worktree`, `base
 **Docs.** `docs/start-agent-session.md` (the dialog says the choice is offered whatever the worktree setting says) and
 the changelog.
 
-**PR.** Opened against `main`; its checks are this change's. The merge is recorded by the next handoff update.
+**PR.** [#864](https://github.com/eyupio/reet.sh/pull/864) opened against `main`; its checks are this change's.
+**Merged** as `555be568` on 20 November 2026, after the build, gaffer-settings, offline, phone, source,
+terminal-browser, test, web and CodeQL checks passed.
+
 ## GAFFER-GOAL-WATCH-1: a stopped goal keeps watching its session (20 November 2026)
 
 The owner reported a Home **Waiting for you** Gaffer entry on a Factory pipeline that was running and needed nothing, and asked Gaffer to poll the sessions. The goal had gone `needs_user` (a review brought a question back) and was then never looked at again: `DueGafferGoals` only returned `needs_user` goals that were held because the working model itself was waiting, so any other stop was final until the person resumed it.

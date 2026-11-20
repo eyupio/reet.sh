@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/meta"
@@ -69,12 +70,33 @@ func TestGafferOutcomePlanNeedsTheOwningBrowserAndStartsNothing(t *testing.T) {
 		t.Fatalf("refused requests reached the provider %d times", asked)
 	}
 	code, body = gafferClient(t, owner, srv, "POST", path, ask)
+	var started struct {
+		ID    string `json:"id"`
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal([]byte(body), &started); code != 202 || err != nil || started.ID == "" || started.State != "running" {
+		t.Fatalf("start plan: %d %v %s", code, err, body)
+	}
 	var plan struct {
 		Summary  string `json:"summary"`
 		Model    string `json:"model"`
 		Sessions []struct{ Title, Prompt string }
 	}
-	if err := json.Unmarshal([]byte(body), &plan); code != 200 || err != nil || plan.Summary != "One job." || plan.Model != "plan-model" || len(plan.Sessions) != 1 || plan.Sessions[0].Title != "Export" || strings.Contains(body, "synthetic-key") {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		code, body = gafferClient(t, owner, srv, "GET", path+"/"+started.ID, "")
+		if err := json.Unmarshal([]byte(body), &plan); err != nil {
+			t.Fatalf("plan read: %d %v %s", code, err, body)
+		}
+		if code != 200 || plan.Summary != "" || !strings.Contains(body, `"running"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("plan did not finish: %d %s", code, body)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if code != 200 || plan.Summary != "One job." || plan.Model != "plan-model" || len(plan.Sessions) != 1 || plan.Sessions[0].Title != "Export" || strings.Contains(body, "synthetic-key") {
 		t.Fatalf("plan: %d %v %s", code, err, body)
 	}
 	if asked != 1 {

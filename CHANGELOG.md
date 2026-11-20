@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Gaffer planning behind a proxy**: asking Gaffer for a Factory plan no longer
+  holds one request open while the model thinks. The controller starts the plan
+  in the background and the browser reads it in short polls, so a reverse proxy
+  or Cloudflare, which ends an origin response after about 100 seconds, no
+  longer cuts a slow plan and shows a bare `502`. The provider call also keeps
+  running if the page closes; a finished plan is readable for five minutes.
+  Bad input still answers immediately, and the same per-account concurrency
+  limit and provider error wording apply.
 - **Skills follow one library**: Active skills go to every connected machine;
   Archived skills stay in reet and are removed from machines. Delete removes the
   library entry and its copies. Archive, Restore and Delete keep your place and

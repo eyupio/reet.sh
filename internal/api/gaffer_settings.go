@@ -27,6 +27,7 @@ func (s *server) registerGafferRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/providers/models", access(s.gafferModels))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/test", access(s.gafferAction))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/plan", access(s.gafferPlan))
+	mux.HandleFunc("GET /api/v2/gaffer/providers/{id}/plan/{job}", access(s.gafferPlanResult))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/default", access(s.gafferAction))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/enabled", access(s.gafferAction))
 	mux.HandleFunc("DELETE /api/v2/gaffer/providers/{id}", access(s.gafferAction))
@@ -190,6 +191,10 @@ func (s *server) gafferAction(w http.ResponseWriter, r *http.Request) {
 // gafferPlan asks the person's provider to propose the sessions for an
 // objective. It reads no reet data and starts nothing: the browser shows the
 // plan for review and starts approved sessions through the launch routes.
+//
+// Planning can take longer than a proxy in front of reet will hold a request
+// open, so the provider call runs in the background and this answers 202 with
+// a job ID. The browser polls gafferPlanResult, which is always short.
 func (s *server) gafferPlan(w http.ResponseWriter, r *http.Request) {
 	var in gaffer.OutcomePlanInput
 	if !decodeStrictJSON(w, r, 16<<10, &in, "That outcome request is invalid or too large.") {
@@ -200,14 +205,29 @@ func (s *server) gafferPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	plan, err := s.gafferProviders.PlanOutcome(r.Context(), s.gafferPrincipal(r), id, in)
+	job, err := s.gafferProviders.StartPlan(s.gafferPrincipal(r), id, in)
 	if err != nil {
 		gafferError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-outcome-planned", "", map[string]any{"provider": id, "sessions": len(plan.Sessions)})
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, plan)
+	writeJSON(w, http.StatusAccepted, map[string]string{"id": job, "state": "running"})
+}
+
+func (s *server) gafferPlanResult(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	plan, ready, err := s.gafferProviders.PlanResult(s.gafferPrincipal(r), id, r.PathValue("job"))
+	if err != nil {
+		gafferError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if !ready {
+		writeJSON(w, http.StatusOK, map[string]string{"state": "running"})
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-planned", "", map[string]any{"provider": id, "sessions": len(plan.Sessions)})
+	writeJSON(w, http.StatusOK, plan)
 }
 
 func gafferError(w http.ResponseWriter, err error) {

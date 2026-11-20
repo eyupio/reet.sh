@@ -22,7 +22,7 @@ and content could draw two scrollbars side by side.
 `vite preview`: the full `sessions.e2e.mjs`, `phone-dialogs.e2e.mjs` (25 dialogs across six phone viewports) and
 `terminal-organisation.e2e.mjs` all pass. Light and dark screenshots at 1360, 768 and 390 were reviewed.
 
-**PR.** [#863](https://github.com/eyupio/reet.sh/pull/863) opened against `main`; its checks are this PR's. The merge outcome is recorded by the next handoff update.
+**PR.** [#863](https://github.com/eyupio/reet.sh/pull/863) opened against `main` and **merged** as `424f4809` on 20 November 2026 after the source, test, web, build, image, phone, terminal-browser, Gaffer, offline and CodeQL checks passed on the merged head.
 
 ## LATEST-CODE-2: Start an agent offers latest code for a repository with worktrees off (20 November 2026)
 

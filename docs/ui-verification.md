@@ -1,5 +1,38 @@
 # UI verification — 4 November 2026
 
+## Skills lifecycle documentation continuation (20 November 2026)
+
+Reviewed merged PR #845 at `820631e74001eec6e2b8d2dcf4198384f213f060`.
+Its final head `7f9b297a` has successful test, web, benchmark comparison,
+CodeQL and both real-agent checks. The archived foreign published-skill review
+thread is resolved; its fix is `9caf1cf7` and the query optimisation is `5a1bba96`.
+Those are GitHub CI results, not new local Go test runs.
+
+The continuation changes documentation only: README, changelog, library/sync
+and machine guides, and retirement notices at the five old skill-content guide
+URLs. Controller-move identity and recovery instructions remain available.
+
+Local checks on this continuation:
+
+- `npm ci --prefix web` — passed.
+- `npm run check --prefix web` — passed, including unit tests; svelte-check
+  reported zero errors and zero warnings.
+- `npm run build --prefix web` — passed.
+- `mkdocs build --strict` (using `docs/requirements.txt` in a virtual environment)
+  — passed.
+- `python scripts/check-docs.py` — passed: 59 pages, including links, anchors,
+  assets, metadata, schema, search, sitemap and crawler files.
+- `git diff --check` — passed.
+- `node web/tests/skill-open.e2e.mjs` and
+  `node web/tests/sync-page.e2e.mjs`, with Vite preview running — blocked before
+  any page assertions: Chromium cannot create its process singleton Unix socket
+  in this execution environment (`socket() failed: Operation not permitted`).
+  No fresh captures or successful local browser checks are claimed.
+
+Remaining: Task 17's legacy web engine removal and its affected browser checks,
+then Task 18's full Go/browser verification and 1440/390 light/dark captures.
+The plan is not complete merely because PR #845 was merged.
+
 ## Usage page, and plan limits always on (18 November 2026)
 
 What was checked: the new page at **More → Usage** (`web/src/lib/UsagePage.svelte`, words in `web/src/lib/usage.ts`),

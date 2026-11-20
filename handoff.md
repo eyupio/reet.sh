@@ -1,5 +1,27 @@
 # Reet central-control implementation handoff
 
+## SKILLS-DOCS-18: document the shared library (20 November 2026)
+
+Continuation of merged PR #845 (`820631e7`), whose final head was `7f9b297a`.
+The final head's checks passed, including benchmarks and both real-agent jobs;
+the Archived published-skill picker finding is fixed and its thread resolved.
+
+Task 18's documentation pass replaces the superseded user guides for plans,
+stages, pins and adoption with Active/Archived/Delete, discovery review, saved
+content, history, local consent and recovery. README and changelog now describe
+the new model. SECURITY.md already documents outbound GitHub/site bundle fetches.
+Verification and limits are recorded in docs/ui-verification.md.
+
+**Next: Task 17 is still unfinished.** The merged tree retains SyncControl,
+SyncSetup, SyncActivity, MachineSkillSync, legacy sync helpers and tests, and the
+`/sync/advanced` route. App, Machines/EnvironmentSync, Account, MachineFleet,
+Hosting and old SkillCard paths still reference these controls even though the
+Go engine and tables were removed. Remove those web paths, preserve enrollment,
+updates, identity, inventory and recovery, and exercise the affected browser
+specs. Do not treat the old controls as a supported workflow. Complete Task 18's
+full runtime/browser verification after that removal; this documentation pass
+does not claim the entire plan is finished.
+
 ## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
 
 The owner asked: "If we recognise that a machine folder doesn't have the latest code from GitHub, then we need a config

@@ -5,6 +5,23 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Skills follow one library**: Active skills go to every connected machine;
+  Archived skills stay in reet and are removed from machines. Delete removes the
+  library entry and its copies. Archive, Restore and Delete keep your place and
+  offer Undo. In use and To test migrate to Active; Parked migrates to Archived.
+- **Machine discoveries ask first**: New on a machine offers Keep or Archive,
+  with the same review linked from Home. Scans do not create library items.
+- **Skill content and recovery**: edit reet's saved copy, review Update from
+  original, adopt a backed-up machine edit with Use this version, or put back an
+  earlier version from History. Machine removals and replacements have dated
+  backups retained for 30 days, listed with `reet agent restore --list`.
+- **Simpler skill sync**: Sync reports fleet progress and offers Retry for a
+  failed machine. The old Go plan/preview/approve engine is removed. Update
+  connectors to skills protocol 2; local allow-apply consent and Pause sync still
+  apply. Setups skip skill folders. `reet sync` and `reet agent library-import`
+  explain their replacements and exit without changing files. MCP uses
+  Active/Archived and archive/restore/delete in place of shelf stages and targets.
+
 - **Usage**: a new page, **More → Usage**, lists every agent in one place: how
   much of each signed-in plan is left, and the tokens its chats and Factory
   stages reported today, over the last 7 days or over the last 30 days (in your

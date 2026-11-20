@@ -1,10 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { listLists, UnauthorizedError, type ListRef, type SkillRow } from '../api'
+  import { getSkillHistory, listLists, putBackSkillVersion, UnauthorizedError, type ListRef, type SkillRow, type SkillVersion } from '../api'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import CopyButton from '../CopyButton.svelte'
   import UpdateFromOriginalDialog from './UpdateFromOriginalDialog.svelte'
-  import { arrivedOn, copyPrompt, installCommandFor } from './skillsPage'
+  import { arrivedOn, copyPrompt, historyLine, installCommandFor } from './skillsPage'
 
   // A skill, opened: where it is on each machine, its tags and lists, where it came from, its notes and what to do with
   // it. Nothing here chooses machines: it reports them. Each write goes through the page (the props below), which keeps
@@ -180,6 +180,56 @@
     void tick().then(() => updateButton?.focus())
   }
 
+  // History: shut until asked for, then the skill's saved versions, newest first. Put back asks, then makes an earlier
+  // version the current one again; the one it replaces stays in the list.
+  let historyOpen = $state(false)
+  let versions = $state<SkillVersion[] | null>(null)
+  let historyProblem = $state('')
+  let putBackDone = $state('')
+  let putBackAsk = $state<SkillVersion | null>(null)
+  let puttingBack = $state(false)
+  const putBackButtons: Record<string, HTMLButtonElement> = {}
+  const dayOf = (v: SkillVersion) => arrivedOn(v.savedAt)
+  // The day of the version Put back asks about; kept while the dialog closes.
+  let askDay = $state('')
+  async function readHistory() {
+    try {
+      versions = await getSkillHistory(row.id)
+    } catch (err) {
+      if (err instanceof UnauthorizedError) { onerror(err); return }
+      historyProblem = err instanceof Error ? err.message : String(err)
+    }
+  }
+  function toggleHistory() {
+    historyOpen = !historyOpen
+    historyProblem = ''
+    putBackDone = ''
+    if (historyOpen) { versions = null; void readHistory() }
+  }
+  function backTo(revision: string) {
+    void tick().then(() => putBackButtons[revision]?.focus())
+  }
+  async function putBack() {
+    const v = putBackAsk
+    putBackAsk = null
+    const head = versions?.find(x => x.current)
+    if (!v || !head || puttingBack) return
+    puttingBack = true
+    historyProblem = ''
+    putBackDone = ''
+    try {
+      await putBackSkillVersion(row.id, v.revision, head.revision)
+      putBackDone = `Put back the version from ${dayOf(v)}. Every machine gets it when it next checks in.`
+    } catch (err) {
+      if (err instanceof UnauthorizedError) { onerror(err); return }
+      historyProblem = err instanceof Error ? err.message : String(err)
+    } finally {
+      puttingBack = false
+    }
+    await readHistory()
+    backTo(v.revision)
+  }
+
   const install = $derived(installCommandFor(row))
   const editHref = $derived(row.originKind === 'written' ? `/hosting?edit=${encodeURIComponent(row.name)}` : `/hosting?item=${encodeURIComponent(row.id)}`)
   const arrived = $derived(arrivedOn(row.createdAt))
@@ -299,7 +349,47 @@
       {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
     </div>
   </div>
+  {#if canWrite}
+    <section class="history" aria-labelledby={`${uid}-history`}>
+      <div class="history-head">
+        <h4 id={`${uid}-history`}>History</h4>
+        <button type="button" class="link" aria-expanded={historyOpen} aria-controls={`${uid}-versions`} onclick={toggleHistory}>{historyOpen ? 'Hide history' : 'Show history'}</button>
+      </div>
+      {#if historyOpen}
+        <div class="versions-box" id={`${uid}-versions`}>
+          {#if versions === null}
+            {#if !historyProblem}<p class="none" role="status">Reading its history…</p>{/if}
+          {:else if versions.length === 0}
+            <p class="none">reet has no copy of {row.name} yet, so it has no saved versions.</p>
+          {:else}
+            <ol class="versions" aria-label={`Versions of ${row.name}`}>
+              {#each versions as v, i (v.revision)}
+                <li>
+                  <span class="vline">{historyLine(v, i === versions.length - 1)}</span>
+                  {#if v.current}
+                    <span class="current">Current</span>
+                  {:else}
+                    <button type="button" class="btn" bind:this={putBackButtons[v.revision]} aria-label={`Put back the version from ${dayOf(v)}`}
+                      aria-busy={puttingBack} aria-disabled={puttingBack} onclick={() => { if (!puttingBack) { putBackDone = ''; askDay = dayOf(v); putBackAsk = v } }}>Put back</button>
+                  {/if}
+                </li>
+              {/each}
+            </ol>
+          {/if}
+          {#if putBackDone}<p class="done" role="status">{putBackDone}</p>{/if}
+          {#if historyProblem}<p class="problem" role="alert">{historyProblem}</p>{/if}
+        </div>
+      {/if}
+    </section>
+  {/if}
 </div>
+
+{#if putBackAsk}
+  <ConfirmDialog title={`Put back the version from ${askDay}?`} confirmLabel="Put back"
+    body="It goes on every machine; the current version stays in history."
+    onconfirm={() => void putBack()}
+    oncancel={() => { const r = putBackAsk?.revision; putBackAsk = null; if (r) backTo(r) }} />
+{/if}
 
 {#if asking}
   <ConfirmDialog title={`Publish ${row.name}?`} confirmLabel="Publish"
@@ -357,6 +447,16 @@
   .detail :global(.btn[aria-disabled='true']) { opacity: 0.6; cursor: progress; }
   .behind { margin: 0; padding: 8px 10px; border-left: 3px solid var(--warn); border-radius: 6px; background: color-mix(in srgb, var(--warn) 10%, var(--card)); color: var(--ink); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
   .problem { margin: 0; color: var(--bad); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .history { gap: 8px; width: 100%; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+  .history-head { display: flex; align-items: center; gap: 4px 16px; flex-wrap: wrap; }
+  .history-head h4 { margin: 0; }
+  .versions-box { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  .versions { list-style: none; margin: 0; padding: 0; width: 100%; max-width: 640px; }
+  .versions li { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; min-height: 44px; padding: 6px 0; border-top: 1px solid var(--line-soft); font-size: 0.9375rem; }
+  .versions li:first-child { border-top: 0; }
+  .vline { color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+  .current { padding: 4px 10px; border-radius: 999px; background: var(--bg-sunk); color: var(--ink-soft); font-size: 0.875rem; font-weight: 600; }
+  .done { margin: 0; color: var(--good); font-size: 0.875rem; overflow-wrap: anywhere; }
   /* A narrower screen: the machines beside everything else, then one column on a phone. */
   @media (max-width: 1000px) {
     .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }

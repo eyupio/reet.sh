@@ -219,3 +219,22 @@ export function arrivedOn(ts: number | undefined, now = Date.now()): string {
   const sameYear = when.getFullYear() === new Date(now).getFullYear()
   return when.toLocaleDateString('en-GB', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+/** How one saved version of a skill came about, in plain words. oldest says it is the skill's first version. */
+export function historyWhat(e: { kind: string; machine?: string }, oldest: boolean): string {
+  switch (e.kind) {
+    case 'edit': return 'Edited'
+    case 'original': return oldest ? 'Imported' : 'Updated from original'
+    case 'capture': case 'import': return `Kept from ${e.machine || 'a machine'}`
+    case 'use-version': return `Took the version on ${e.machine || 'a machine'}`
+    case 'restore': return 'Put back'
+    case 'user': return 'Written in reet'
+    case 'fork': return 'Copied into reet'
+    default: return 'Saved'
+  }
+}
+
+/** One line of a skill's history: "Edited 12 Nov", "Kept from Elitebook 1 Nov". */
+export function historyLine(e: { kind: string; machine?: string; savedAt: number }, oldest: boolean, now = Date.now()): string {
+  return `${historyWhat(e, oldest)} ${arrivedOn(e.savedAt, now)}`
+}

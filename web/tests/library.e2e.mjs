@@ -4,8 +4,9 @@ import { mkdir } from 'node:fs/promises'
 
 // The minimal Library view: one entry per canonical item, with its status and the shelf details
 // migration preserved. It reads the canonical library only; what is installed where is the
-// Machines page's job, and nothing here claims it. The old sync's per-machine selections, saved
-// history and machine differences are gone (their routes answer 410), and the page never asks.
+// Machines page's job, and nothing here claims it. The old sync's per-machine selections and
+// machine differences are gone (their routes answer 410), and the page never asks. A skill's
+// saved versions are in the opened skill on the Skills page (skill-open.e2e.mjs).
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const now=Date.now()
@@ -24,7 +25,7 @@ const sync={environments:[laptop,desktop],machines:[{host:laptop.host,groups:[la
  agents:[{id:'a1',host:laptop.host,paused:false,autoUpdate:false,keepSynced:true,lastSeen:now},{id:'a2',host:desktop.host,paused:false,autoUpdate:false,keepSynced:true,lastSeen:now}],targets:[],jobs:[],runs:[],updateJobs:[]}
 // What the server answers the old sync's library routes now.
 const gone={status:410,json:{error:'This was part of the old sync, which is gone: every machine follows your library. Make a skill Active or Archived on the Skills page, and see each machine on the Sync page.'}}
-const removed=path=>/^\/api\/v2\/(library\/selections(\/|$)|library-history\/|library\/[^/]+\/difference$)/.test(path)
+const removed=path=>/^\/api\/v2\/(library\/selections(\/|$)|library\/[^/]+\/difference$)/.test(path)
 
 async function open(width,{theme='light',library=initial,libraryAnswer,viewer=false,patch}={}){
  const routes={
@@ -34,7 +35,6 @@ async function open(width,{theme='light',library=initial,libraryAnswer,viewer=fa
  }
  for(const entry of initial()){
   routes[`/api/v2/library/${entry.id}`]=request=>patch?patch(request,entry):{json:{...entry}}
-  routes[`/api/v2/library-history/${entry.id}`]=gone
   routes[`/api/v2/library/${entry.id}/difference`]=gone
  }
  const opened=await openWorkspace(browser,{width,theme,touch:width<600,sync,routes,status:viewer?{user:{...owner,role:'viewer'}}:undefined})
@@ -146,7 +146,7 @@ try {
   console.log('PASS read failure and retry')
  }
 
- { // The old sync's selections, history and differences are gone: the page never asks for them, so no route answers 410
+ { // The old sync's selections and differences are gone: the page never asks for them, so no route answers 410
   // and nothing says a part of it could not be read. Each item offers its status, and nothing else from the old sync.
   for(const width of [390,1280]){
    const {page,context,errors,asked}=await open(width)

@@ -1590,6 +1590,17 @@ export type LibraryItem = {
 export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
 export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
 export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
+/** One saved version of a library skill. kind is how it was saved: user or fork (written in reet), edit, original
+ *  (fetched from its link), capture or import (kept from a machine, named by machine), use-version, or restore (put back). */
+export type SkillVersion = { revision: string; kind: string; reference?: string; machine?: string; derivedFrom?: string; digest: string; files: number; savedAt: number; current: boolean }
+/** A skill's saved versions, newest first, the current one marked. */
+export async function getSkillHistory(item: string): Promise<SkillVersion[]> {
+  return ((await (await req(`/api/v2/library-history/${encodeURIComponent(item)}`)).json()) as { revisions: SkillVersion[] }).revisions
+}
+/** Put back: revision's files become the skill's new current version. head is the current version the person saw; 409 when it moved. */
+export async function putBackSkillVersion(item: string, revision: string, head: string): Promise<{ revision: string; publicProblem?: string }> {
+  return (await req(`/api/v2/library-history/${encodeURIComponent(item)}/restore`, { method: 'POST', body: json({ revision, head }) })).json()
+}
 export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
   const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
   return response.json()

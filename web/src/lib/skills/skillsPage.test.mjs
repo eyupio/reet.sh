@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch } = page
+const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch, historyWhat, historyLine } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
@@ -199,4 +199,20 @@ test('arrivedOn: day and month this year, with the year otherwise, and nothing w
   assert.equal(arrivedOn(Date.UTC(2025, 2, 3, 12), now), '3 Mar 2025')
   assert.equal(arrivedOn(0, now), '')
   assert.equal(arrivedOn(undefined, now), '')
+})
+
+test('historyLine: how each version was saved, in plain words, with its day', () => {
+  const now = Date.UTC(2026, 10, 20, 12)
+  const at = day => Date.UTC(2026, 10, day, 12)
+  assert.equal(historyLine({ kind: 'edit', savedAt: at(12) }, false, now), 'Edited 12 Nov')
+  assert.equal(historyLine({ kind: 'original', savedAt: at(3) }, false, now), 'Updated from original 3 Nov')
+  assert.equal(historyLine({ kind: 'original', savedAt: at(1) }, true, now), 'Imported 1 Nov')
+  assert.equal(historyLine({ kind: 'capture', machine: 'Elitebook', savedAt: at(1) }, true, now), 'Kept from Elitebook 1 Nov')
+  assert.equal(historyLine({ kind: 'import', savedAt: at(1) }, true, now), 'Kept from a machine 1 Nov')
+  assert.equal(historyLine({ kind: 'restore', savedAt: at(14) }, false, now), 'Put back 14 Nov')
+  assert.equal(historyLine({ kind: 'use-version', machine: 'ThinkPad', savedAt: at(9) }, false, now), 'Took the version on ThinkPad 9 Nov')
+  assert.equal(historyLine({ kind: 'user', savedAt: at(2) }, true, now), 'Written in reet 2 Nov')
+  assert.equal(historyLine({ kind: 'fork', savedAt: at(2) }, true, now), 'Copied into reet 2 Nov')
+  assert.equal(historyLine({ kind: 'edit', savedAt: Date.UTC(2025, 0, 5, 12) }, false, now), 'Edited 5 Jan 2025')
+  assert.equal(historyWhat({ kind: 'something-new' }, false), 'Saved')
 })

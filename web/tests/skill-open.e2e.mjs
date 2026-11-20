@@ -2,8 +2,10 @@
 // its notes and what to do with it. Copy prompt never carries the original link; Copy install command is offered only
 // once a skill is published; Update from original shows what changed and posts the digest it showed; Use this version
 // asks the machine that edited a skill for its copy; Publish and Unpublish say plainly when a skill can't be published.
-// A like, a note or a tag reads nothing again, and the page does not read itself again for a change it made.
+// A like, a note or a tag reads nothing again, and the page does not read itself again for a change it made. History
+// lists the skill's saved versions and Put back makes an earlier one current again, after asking.
 import { chromium, expect } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
 import { openWorkspace, skillRow, skillsPageOf } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
@@ -11,6 +13,7 @@ const browser = await chromium.launch({headless:true, executablePath:process.env
 const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
 const passed = []
+const shot = async (page, name) => { if (process.env.REET_UI_SCREENSHOTS) { await mkdir(process.env.REET_UI_SCREENSHOTS, {recursive:true}); await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/${name}.png`, fullPage:true}) } }
 
 // When seo-cluster came into the library, and how the opened skill writes that date.
 const importedAt = Date.now() - 3600_000
@@ -29,6 +32,13 @@ function world() {
    skillRow('my_skill', {originKind:'kept', origin:'studio'}),
   ],
   posts: [], gets: [],
+  // seo-cluster's saved versions, newest first, as GET /api/v2/library-history answers them.
+  history: [
+   {revision:'rev-3', kind:'edit', digest:'d3', files:2, savedAt:Date.UTC(2026, 10, 12, 12), current:true},
+   {revision:'rev-2', kind:'original', reference:'https://github.com/demo/toolkit/seo-cluster', digest:'d2', files:2, savedAt:Date.UTC(2026, 10, 3, 12), current:false},
+   {revision:'rev-1', kind:'capture', reference:'machine:Elitebook:~/.agents/skills', machine:'Elitebook', digest:'d1', files:1, savedAt:Date.UTC(2026, 10, 1, 12), current:false},
+  ],
+  restoreAnswer: null,
   original: {changes:[{path:'SKILL.md', kind:'modified'}, {path:'references/terms.md', kind:'added'}], state:'changed', digest:'digest-2', revision:'rev-1', edited:true},
  }
 }
@@ -70,6 +80,14 @@ function routes(w) {
    const tags = [...r.tags, ...b.add.map((name, i) => ({id:100 + i, name}))]
    w.rows = w.rows.map(x => x === r ? {...x, tags} : x)
    return {id:b.id, tags}
+  },
+  '/api/v2/library-history/item-seo-cluster': () => { w.gets.push(['history', Date.now()]); return {revisions:w.history} },
+  '/api/v2/library-history/item-seo-cluster/restore': req => {
+   const b = post('restore', req)
+   if (w.restoreAnswer) return w.restoreAnswer
+   const from = w.history.find(h => h.revision === b.revision)
+   w.history = [{revision:'rev-4', kind:'restore', derivedFrom:b.revision, digest:from.digest, files:from.files, savedAt:Date.now(), current:true}, ...w.history.map(h => ({...h, current:false}))]
+   return {revision:'rev-4'}
   },
   '/api/v2/lists': {lists:[{id:7, name:'SEO kit'}, {id:8, name:'Writing'}], linkEnabled:false},
   '/api/v2/lists/8/skills': req => { post('list', req); return {id:8, name:'Writing', skills:[]} },
@@ -403,12 +421,75 @@ try {
   passed.push('write a skill')
  }
 
+ // History is shut until asked for, then lists each saved version in plain words with the current one marked. Put back
+ // asks first, says what happens, posts the version and the current one it was asked against, and the list then shows
+ // the version put back as current. A refusal says why and reads the history again.
+ if (run('history')) {
+  const {context, page, errors, w} = await open()
+  const detail = await openRow(page, 'seo-cluster')
+  const toggle = detail.getByRole('button', {name:'Show history'})
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(detail.getByRole('list', {name:'Versions of seo-cluster'})).toHaveCount(0)
+  expect(w.gets.filter(g => g[0] === 'history'), 'history read before it was asked for').toEqual([])
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(detail.getByRole('button', {name:'Hide history'})).toHaveAttribute('aria-expanded', 'true')
+  const versions = detail.getByRole('list', {name:'Versions of seo-cluster'})
+  await expect(versions.getByRole('listitem')).toHaveCount(3)
+  const [head, fetched, kept] = [0, 1, 2].map(i => versions.getByRole('listitem').nth(i))
+  await expect(head).toContainText('Edited 12 Nov')
+  await expect(head).toContainText('Current')
+  await expect(head.getByRole('button')).toHaveCount(0)
+  await expect(fetched).toContainText('Updated from original 3 Nov')
+  await expect(fetched).not.toContainText('Current')
+  await expect(kept).toContainText('Kept from Elitebook 1 Nov')
+  const putBack = fetched.getByRole('button', {name:'Put back the version from 3 Nov'})
+  await expect(putBack).toHaveText('Put back')
+  // Cancel posts nothing and gives focus back.
+  await putBack.click()
+  let dialog = page.getByRole('dialog', {name:'Put back the version from 3 Nov?'})
+  await expect(dialog).toContainText('It goes on every machine; the current version stays in history.')
+  await dialog.getByRole('button', {name:'Cancel'}).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(putBack).toBeFocused()
+  expect(posts(w, 'restore')).toEqual([])
+  // Confirmed, it posts the version and the current one, and the list shows it put back as current.
+  await page.keyboard.press('Enter')
+  dialog = page.getByRole('dialog', {name:'Put back the version from 3 Nov?'})
+  await dialog.getByRole('button', {name:'Put back'}).click()
+  await expect.poll(() => posts(w, 'restore')).toEqual([{revision:'rev-2', head:'rev-3'}])
+  await expect(versions.getByRole('listitem')).toHaveCount(4)
+  const today = new Date().toLocaleDateString('en-GB', {day:'numeric', month:'short'})
+  await expect(versions.getByRole('listitem').first()).toContainText(`Put back ${today}`)
+  await expect(versions.getByRole('listitem').first()).toContainText('Current')
+  await expect(versions.getByRole('listitem').nth(1)).toContainText('Edited 12 Nov')
+  await expect(versions.getByRole('listitem').nth(1).getByRole('button', {name:'Put back the version from 12 Nov'})).toBeVisible()
+  await expect(detail.getByRole('status').filter({hasText:'Put back the version'})).toHaveText('Put back the version from 3 Nov. Every machine gets it when it next checks in.')
+  // A refusal says why beside the history, and the history is read again.
+  w.restoreAnswer = {status:409, json:{error:'The skill changed since you opened it. Open it again to see its history now.'}}
+  const reads = w.gets.filter(g => g[0] === 'history').length
+  await versions.getByRole('listitem').nth(2).getByRole('button', {name:'Put back the version from 3 Nov'}).click()
+  await page.getByRole('dialog', {name:'Put back the version from 3 Nov?'}).getByRole('button', {name:'Put back'}).click()
+  await expect(detail.getByRole('alert')).toContainText('The skill changed since you opened it.')
+  await expect.poll(() => w.gets.filter(g => g[0] === 'history').length).toBeGreaterThan(reads)
+  // Hide shuts it again.
+  await detail.getByRole('button', {name:'Hide history'}).click()
+  await expect(versions).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+  passed.push('history')
+ }
+
  // At each width, light and dark: nothing under 14 px, every target at least 44 px, no sideways scroll.
  if (run('layout')) {
   for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) {
    const {context, page, errors} = await open({width, height:900, theme, touch:width === 390})
    const detail = await openRow(page, 'seo-cluster')
    await expect(detail.getByRole('button', {name:'Use this version'})).toBeVisible()
+   // The history open, so its lines and Put back are measured too.
+   await detail.getByRole('button', {name:'Show history'}).click()
+   await expect(detail.getByRole('list', {name:'Versions of seo-cluster'}).getByRole('listitem')).toHaveCount(3)
+   if (width === 1440 && theme === 'light' || width === 390 && theme === 'dark') await shot(page, `skill-history-${width}-${theme}`)
    expect(await under14(page, '[data-skill="item-seo-cluster"] .detail'), `text under 14 px at ${width}px ${theme}`).toEqual([])
    for (const el of await detail.locator('button, a, select, input').all()) {
     if (!(await el.isVisible())) continue
@@ -416,6 +497,13 @@ try {
     expect(box.height, `${await el.textContent()} at ${width}px ${theme}`).toBeGreaterThanOrEqual(44)
    }
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `no sideways scroll at ${width}px ${theme}`).toBe(true)
+   await detail.getByRole('button', {name:'Put back the version from 3 Nov'}).click()
+   const putBack = page.getByRole('dialog', {name:'Put back the version from 3 Nov?'})
+   await expect(putBack).toBeVisible()
+   await page.waitForTimeout(300)
+   expect(await under14(page, 'dialog[open]'), `Put back text under 14 px at ${width}px ${theme}`).toEqual([])
+   for (const el of await putBack.getByRole('button').all()) expect((await el.boundingBox()).height, `${await el.textContent()} in Put back at ${width}px ${theme}`).toBeGreaterThanOrEqual(44)
+   await putBack.getByRole('button', {name:'Cancel'}).click()
    await detail.getByRole('button', {name:'Update from original'}).click()
    const dialog = page.getByRole('dialog', {name:'Update seo-cluster from its original?'})
    await expect(dialog.getByRole('list', {name:'What changed'})).toBeVisible()

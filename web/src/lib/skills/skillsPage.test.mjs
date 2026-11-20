@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
 const install = dataUrl(compile('../install.ts'))
 const page = await import(dataUrl(compile('./skillsPage.ts').replace(/(['"])\.\.\/install\1/, JSON.stringify(install))))
-const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch, historyWhat, historyLine } = page
+const { arrivedOn, pausedSentence, savedSkillNotice, healthLine, toastText, focusAfterRemoval, deleteConfirm, copyPrompt, installCommandFor, syncSentence, matchesSearch, historyWhat, historyLine, versionDay } = page
 
 const h = (state, o = {}) => ({ state, pending: 0, total: 0, hosts: [], machines: [], ...o })
 const row = (o = {}) => ({ id: 'x', name: 'demo', description: 'Demo.', yours: false, published: false, hasCopy: true, origin: 'https://github.com/o/r', health: h('ok'), ...o })
@@ -215,4 +215,14 @@ test('historyLine: how each version was saved, in plain words, with its day', ()
   assert.equal(historyLine({ kind: 'fork', savedAt: at(2) }, true, now), 'Copied into reet 2 Nov')
   assert.equal(historyLine({ kind: 'edit', savedAt: Date.UTC(2025, 0, 5, 12) }, false, now), 'Edited 5 Jan 2025')
   assert.equal(historyWhat({ kind: 'something-new' }, false), 'Saved')
+})
+
+test('versionDay: the day, with the time when another version shares it', () => {
+  const now = Date.UTC(2026, 10, 20, 12)
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime()
+  const all = [{ savedAt: at(12, 10, 0) }, { savedAt: at(3, 14, 5) }, { savedAt: at(3, 9, 5) }]
+  assert.equal(versionDay(all[0], all, now), '12 Nov')
+  assert.equal(versionDay(all[1], all, now), '3 Nov, 14:05')
+  assert.equal(versionDay(all[2], all, now), '3 Nov, 09:05')
+  assert.equal(historyLine({ kind: 'original', savedAt: all[2].savedAt }, true, now, versionDay(all[2], all, now)), 'Imported 3 Nov, 09:05')
 })

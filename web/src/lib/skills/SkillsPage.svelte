@@ -675,6 +675,7 @@
             onpublish={publish}
             onuseversion={useVersion}
             onoriginal={updateOriginal}
+            onputback={(row, publicProblem) => page.setRow(row.id, { publicProblem })}
             onerror={fail} />
         {/each}
       </ul>

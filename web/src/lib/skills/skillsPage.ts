@@ -234,7 +234,15 @@ export function historyWhat(e: { kind: string; machine?: string }, oldest: boole
   }
 }
 
-/** One line of a skill's history: "Edited 12 Nov", "Kept from Elitebook 1 Nov". */
-export function historyLine(e: { kind: string; machine?: string; savedAt: number }, oldest: boolean, now = Date.now()): string {
-  return `${historyWhat(e, oldest)} ${arrivedOn(e.savedAt, now)}`
+/** One line of a skill's history: "Edited 12 Nov", "Kept from Elitebook 1 Nov". when overrides the day, as versionDay
+ *  words it. */
+export function historyLine(e: { kind: string; machine?: string; savedAt: number }, oldest: boolean, now = Date.now(), when = arrivedOn(e.savedAt, now)): string {
+  return `${historyWhat(e, oldest)} ${when}`
+}
+
+/** When a version was saved: its day ("3 Nov"), with the time ("3 Nov, 14:05") when another of all shares that day. */
+export function versionDay(v: { savedAt: number }, all: { savedAt: number }[], now = Date.now()): string {
+  const day = arrivedOn(v.savedAt, now)
+  if (all.filter(o => arrivedOn(o.savedAt, now) === day).length < 2) return day
+  return `${day}, ${new Date(v.savedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
 }

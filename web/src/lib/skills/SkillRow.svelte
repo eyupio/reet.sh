@@ -7,7 +7,7 @@
   // and Archive or Restore beside Delete. Each action button carries data-act, which the page moves focus to when a row
   // leaves the list. Pressing the name opens the row (`open`); the opened detail (SkillDetail) is drawn below the row's
   // line. `busy` names the action on its way, so its button says so and neither action is sent twice.
-  let { row, selecting, selected, open, machines, canWrite, busy = '', tagNames = [], onarchive, onrestore, ondelete, onselect, onopen, onretry, onlike, onnotes, ontag, onlist, onpublish, onuseversion, onoriginal, onerror }: {
+  let { row, selecting, selected, open, machines, canWrite, busy = '', tagNames = [], onarchive, onrestore, ondelete, onselect, onopen, onretry, onlike, onnotes, ontag, onlist, onpublish, onuseversion, onoriginal, onputback, onerror }: {
     row: SkillRow
     selecting: boolean
     selected: boolean
@@ -32,6 +32,7 @@
     onpublish: (row: SkillRow, isPublic: boolean) => Promise<void>
     onuseversion: (row: SkillRow) => Promise<void>
     onoriginal: (row: SkillRow, digest: string, revision: string) => Promise<void>
+    onputback?: (row: SkillRow, publicProblem: string | undefined) => void
     onerror: (e: unknown) => void
   } = $props()
 
@@ -99,7 +100,7 @@
     {/if}
   </div>
   {#if open}
-    <SkillDetail {row} id={detailId} {canWrite} {tagNames} {onnotes} {ontag} {onlist} {onpublish} {onuseversion} {onoriginal} {onerror} />
+    <SkillDetail {row} id={detailId} {canWrite} {machines} {tagNames} {onnotes} {ontag} {onlist} {onpublish} {onuseversion} {onoriginal} {onputback} {onerror} />
   {/if}
 </li>
 

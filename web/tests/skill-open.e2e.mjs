@@ -44,7 +44,7 @@ function world() {
 }
 
 function routes(w) {
- const page = status => skillsPageOf(w.rows, status)
+ const page = status => skillsPageOf(w.rows, status, {machines:w.machines ?? 3})
  const post = (kind, req) => { const b = req.postDataJSON(); w.posts.push([kind, b]); return b }
  return {
   '/api/v2/skills': req => { w.gets.push(['page', Date.now()]); return page(new URL(req.url()).searchParams.get('status') || 'active') },
@@ -56,12 +56,16 @@ function routes(w) {
   '/api/v2/skills/item-seo-cluster/original': req => {
    if (req.method() === 'GET') { w.gets.push(['original', Date.now()]); return w.original }
    post('original', req)
+   w.history = [{revision:`rev-o${w.history.length}`, kind:'original', digest:'do', files:2, savedAt:Date.now(), current:true}, ...w.history.map(h => ({...h, current:false}))]
    return {updated:true, digest:w.original.digest, edited:w.original.edited}
   },
   '/api/v2/skills/item-seo-cluster/use-version': req => {
    post('use-version', req)
    // The machine's copy lands a moment later, as a capture does: from then on the page reads it as reet's.
-   setTimeout(() => { w.rows = w.rows.map(r => r.id === 'item-seo-cluster' ? {...r, editedOn:undefined} : r) }, 1500)
+   setTimeout(() => {
+    w.rows = w.rows.map(r => r.id === 'item-seo-cluster' ? {...r, editedOn:undefined} : r)
+    w.history = [{revision:`rev-u${w.history.length}`, kind:'use-version', machine:'ThinkPad', digest:'du', files:2, savedAt:Date.now(), current:true}, ...w.history.map(h => ({...h, current:false}))]
+   }, 1500)
    return {status:202, json:{requested:true, id:'r1'}}
   },
   '/api/v2/skills/item-seo-cluster/publish': req => {
@@ -87,7 +91,7 @@ function routes(w) {
    if (w.restoreAnswer) return w.restoreAnswer
    const from = w.history.find(h => h.revision === b.revision)
    w.history = [{revision:'rev-4', kind:'restore', derivedFrom:b.revision, digest:from.digest, files:from.files, savedAt:Date.now(), current:true}, ...w.history.map(h => ({...h, current:false}))]
-   return {revision:'rev-4'}
+   return {revision:'rev-4', ...(w.publicProblem ? {publicProblem:w.publicProblem} : {})}
   },
   '/api/v2/lists': {lists:[{id:7, name:'SEO kit'}, {id:8, name:'Writing'}], linkEnabled:false},
   '/api/v2/lists/8/skills': req => { post('list', req); return {id:8, name:'Writing', skills:[]} },
@@ -478,6 +482,81 @@ try {
   expect(errors).toEqual([])
   await context.close()
   passed.push('history')
+ }
+
+ // Put back says what happens to the machines as it is: an Archived skill stays off them, and with no machine
+ // following the library nothing promises one.
+ if (run('history words')) {
+  for (const [status, machines, ask, done] of [
+   ['archived', 3, 'It stays off your machines; it goes on them when you restore it. The current version stays in history.', 'Put back the version from 3 Nov. It stays off your machines until you restore it.'],
+   ['active', 0, 'The current version stays in history.', 'Put back the version from 3 Nov.'],
+   ['active', 3, 'It goes on every machine; the current version stays in history.', 'Put back the version from 3 Nov. Every machine gets it when it next checks in.'],
+  ]) {
+   const {context, page, errors, w} = await open({edit: w => { w.machines = machines; w.rows = w.rows.map(r => r.id === 'item-seo-cluster' ? {...r, status} : r) }})
+   if (status === 'archived') await page.getByRole('tab', {name:/^Archived/}).click()
+   const detail = await openRow(page, 'seo-cluster')
+   await detail.getByRole('button', {name:'Show history'}).click()
+   await detail.getByRole('button', {name:'Put back the version from 3 Nov'}).click()
+   const dialog = page.getByRole('dialog', {name:'Put back the version from 3 Nov?'})
+   await expect(dialog.locator('p').first()).toHaveText(ask)
+   await dialog.getByRole('button', {name:'Put back'}).click()
+   await expect(detail.getByRole('status').filter({hasText:'Put back the version'})).toHaveText(done)
+   expect(posts(w, 'restore')).toHaveLength(1)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  passed.push('history words')
+ }
+
+ // A published skill whose public page cannot follow the version put back says so at once.
+ if (run('history public problem')) {
+  const problem = 'The public page still shows the version before: its SKILL.md has no description.'
+  const {context, page, errors, w} = await open({edit: w => { w.publicProblem = problem; w.rows = w.rows.map(r => r.id === 'item-seo-cluster' ? {...r, published:true, publicUrl:'https://reet.example/sam/seo-cluster'} : r) }})
+  const detail = await openRow(page, 'seo-cluster')
+  await detail.getByRole('button', {name:'Show history'}).click()
+  await detail.getByRole('button', {name:'Put back the version from 3 Nov'}).click()
+  await page.getByRole('dialog', {name:'Put back the version from 3 Nov?'}).getByRole('button', {name:'Put back'}).click()
+  await expect(detail.locator('.behind')).toHaveText(problem)
+  expect(errors).toEqual([])
+  await context.close()
+  passed.push('history public problem')
+ }
+
+ // The open history follows a new version made another way: Update from original and Use this version. Two versions
+ // of one day are told apart by their time.
+ if (run('history follows')) {
+  const at = (h, m) => new Date(2026, 10, 3, h, m).getTime()
+  const {context, page, errors, w} = await open({edit: w => {
+   w.history = [
+    {revision:'rev-3', kind:'edit', digest:'d3', files:2, savedAt:Date.UTC(2026, 10, 12, 12), current:true},
+    {revision:'rev-2', kind:'original', digest:'d2', files:2, savedAt:at(14, 5), current:false},
+    {revision:'rev-1', kind:'original', digest:'d1', files:2, savedAt:at(9, 5), current:false},
+   ]
+  }})
+  const detail = await openRow(page, 'seo-cluster')
+  await detail.getByRole('button', {name:'Show history'}).click()
+  const versions = detail.getByRole('list', {name:'Versions of seo-cluster'})
+  await expect(versions.getByRole('listitem')).toHaveCount(3)
+  await expect(versions.getByRole('listitem').nth(0)).toContainText('Edited 12 Nov')
+  await expect(versions.getByRole('listitem').nth(1)).toContainText('Updated from original 3 Nov, 14:05')
+  await expect(versions.getByRole('listitem').nth(2)).toContainText('Imported 3 Nov, 09:05')
+  await versions.getByRole('button', {name:'Put back the version from 3 Nov, 09:05'}).click()
+  await expect(page.getByRole('dialog', {name:'Put back the version from 3 Nov, 09:05?'})).toBeVisible()
+  await page.getByRole('dialog', {name:'Put back the version from 3 Nov, 09:05?'}).getByRole('button', {name:'Cancel'}).click()
+  // Update from original makes a new version: the open history shows it.
+  await detail.getByRole('button', {name:'Update from original'}).click()
+  await page.getByRole('dialog', {name:'Update seo-cluster from its original?'}).getByRole('button', {name:'Update from original'}).click()
+  await expect(versions.getByRole('listitem')).toHaveCount(4)
+  await expect(versions.getByRole('listitem').first()).toContainText('Updated from original')
+  await expect(versions.getByRole('listitem').first()).toContainText('Current')
+  // Use this version: once the machine's copy lands, the open history shows it.
+  await detail.getByRole('button', {name:'Use this version'}).click()
+  await expect(versions.getByRole('listitem')).toHaveCount(5, {timeout:15000})
+  await expect(versions.getByRole('listitem').first()).toContainText('Took the version on ThinkPad')
+  await expect(versions.getByRole('listitem').first()).toContainText('Current')
+  expect(errors).toEqual([])
+  await context.close()
+  passed.push('history follows')
  }
 
  // At each width, light and dark: nothing under 14 px, every target at least 44 px, no sideways scroll.

@@ -4,12 +4,12 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import CopyButton from '../CopyButton.svelte'
   import UpdateFromOriginalDialog from './UpdateFromOriginalDialog.svelte'
-  import { arrivedOn, copyPrompt, historyLine, installCommandFor } from './skillsPage'
+  import { arrivedOn, copyPrompt, historyLine, installCommandFor, versionDay } from './skillsPage'
 
   // A skill, opened: where it is on each machine, its tags and lists, where it came from, its notes and what to do with
   // it. Nothing here chooses machines: it reports them. Each write goes through the page (the props below), which keeps
   // the row and says what happened; a refusal shows here, beside what was pressed.
-  let { row, id, canWrite, tagNames = [], onnotes, ontag, onlist, onpublish, onuseversion, onoriginal, onerror }: {
+  let { row, id, canWrite, machines = 0, tagNames = [], onnotes, ontag, onlist, onpublish, onuseversion, onoriginal, onputback, onerror }: {
     row: SkillRow
     /** The detail's element id, which the name's aria-controls names. */
     id: string
@@ -25,6 +25,10 @@
     onoriginal: (row: SkillRow, digest: string, revision: string) => Promise<void>
     /** A refusal no one here can answer, such as a sign-in that has ended. */
     onerror: (e: unknown) => void
+    /** How many machines follow the library, so Put back promises none when there are none. */
+    machines?: number
+    /** A version was put back: the page keeps the row's public page problem, if its page could not follow. */
+    onputback?: (row: SkillRow, publicProblem: string | undefined) => void
   } = $props()
 
   const uid = $props.id()
@@ -166,6 +170,7 @@
     problem = ''
     try {
       await onuseversion(row)
+      refreshHistory()
     } catch (err) {
       refused(err)
     } finally {
@@ -189,7 +194,23 @@
   let putBackAsk = $state<SkillVersion | null>(null)
   let puttingBack = $state(false)
   const putBackButtons: Record<string, HTMLButtonElement> = {}
-  const dayOf = (v: SkillVersion) => arrivedOn(v.savedAt)
+  const dayOf = (v: SkillVersion) => versionDay(v, versions ?? [v])
+  // What Put back does to the machines, as the skill is: an Archived skill stays off them, and with no machine
+  // following the library there is none to promise.
+  const putBackBody = $derived(row.status === 'archived' ? 'It stays off your machines; it goes on them when you restore it. The current version stays in history.'
+    : machines ? 'It goes on every machine; the current version stays in history.' : 'The current version stays in history.')
+  const putBackAfter = $derived(row.status === 'archived' ? ' It stays off your machines until you restore it.' : machines ? ' Every machine gets it when it next checks in.' : '')
+  // An open history is read again when the skill gets a new version some other way: Update from original, or Use this
+  // version once the machine's copy has landed (the row then no longer says the machine's edit was put back).
+  function refreshHistory() {
+    if (historyOpen && versions) void readHistory()
+  }
+  let editedOnBefore: string | undefined
+  $effect(() => {
+    const now = row.editedOn?.agentId
+    if (editedOnBefore && !now) refreshHistory()
+    editedOnBefore = now
+  })
   // The day of the version Put back asks about; kept while the dialog closes.
   let askDay = $state('')
   async function readHistory() {
@@ -218,8 +239,9 @@
     historyProblem = ''
     putBackDone = ''
     try {
-      await putBackSkillVersion(row.id, v.revision, head.revision)
-      putBackDone = `Put back the version from ${dayOf(v)}. Every machine gets it when it next checks in.`
+      const out = await putBackSkillVersion(row.id, v.revision, head.revision)
+      putBackDone = `Put back the version from ${dayOf(v)}.${putBackAfter}`
+      onputback?.(row, out.publicProblem)
     } catch (err) {
       if (err instanceof UnauthorizedError) { onerror(err); return }
       historyProblem = err instanceof Error ? err.message : String(err)
@@ -365,7 +387,7 @@
             <ol class="versions" aria-label={`Versions of ${row.name}`}>
               {#each versions as v, i (v.revision)}
                 <li>
-                  <span class="vline">{historyLine(v, i === versions.length - 1)}</span>
+                  <span class="vline">{historyLine(v, i === versions.length - 1, Date.now(), dayOf(v))}</span>
                   {#if v.current}
                     <span class="current">Current</span>
                   {:else}
@@ -386,7 +408,7 @@
 
 {#if putBackAsk}
   <ConfirmDialog title={`Put back the version from ${askDay}?`} confirmLabel="Put back"
-    body="It goes on every machine; the current version stays in history."
+    body={putBackBody}
     onconfirm={() => void putBack()}
     oncancel={() => { const r = putBackAsk?.revision; putBackAsk = null; if (r) backTo(r) }} />
 {/if}
@@ -400,7 +422,7 @@
 
 {#if updating}
   <UpdateFromOriginalDialog name={row.name} id={row.id} onerror={onerror}
-    onupdate={(digest, revision) => onoriginal(row, digest, revision)}
+    onupdate={(digest, revision) => onoriginal(row, digest, revision).then(refreshHistory)}
     onclose={closeUpdate} />
 {/if}
 

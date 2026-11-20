@@ -38,7 +38,6 @@ try {
       routes: {
         '/api/skills': () => ({ skills: shelf, counts: { all: shelf.length, used: 0, liked: 0, bookmarked: 0 } }),
         '/api/environments': { environments: [], machines: [] },
-        '/api/ignored': { ignored: [] },
         '/api/v2/hosting': () => ({ username: 'sam', prefix: 'reet-', skills: hosted }),
         '/api/v2/hosting/skills/reet-draft': saveHosted,
         '/api/v2/hosting/skills/reet-published': saveHosted,

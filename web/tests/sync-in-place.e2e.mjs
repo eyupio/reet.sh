@@ -43,7 +43,6 @@ async function open(options, answer) {
         sync = result
         return sync
       },
-      '/api/ignored': { ignored: [] },
       '/api/skills': request => request.method() === 'POST'
         ? { ...skill('fresh'), created: true }
         : { skills: [one], counts: { all: 1, used: 0, liked: 0, bookmarked: 0 } },

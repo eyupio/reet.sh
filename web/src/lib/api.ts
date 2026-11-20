@@ -626,7 +626,7 @@ export async function resolveSkill(id: string, input: string): Promise<Skill> {
   return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }
 /** imported counts every skill named; created the ones that were not in the library before. */
-export async function importText(text: string): Promise<{ imported: number; created?: number; ignored: number; errors: string[] }> {
+export async function importText(text: string): Promise<{ imported: number; created?: number; errors: string[] }> {
   return (await req('/api/import', { method: 'POST', body: json({ text }) })).json()
 }
 export async function exportAll(includeEvents = true, format: 'json' | 'md' | 'csv' = 'json', filters?: SkillQuery): Promise<Blob> {
@@ -796,12 +796,6 @@ export async function getBranchPruneSetting(): Promise<BranchPruneSetting> {
 }
 export async function setBranchPruneSetting(afterWorktree: boolean): Promise<BranchPruneSetting> {
   return (await req('/api/v2/settings/branch-prune', { method: 'PUT', body: json({ afterWorktree }) })).json()
-}
-export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
-  return (await req('/api/ignored')).json()
-}
-export async function unignore(id: string): Promise<void> {
-  await req(`/api/skill/ignore?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 export async function getBuildInfo(): Promise<{ version: string; commit: string; features?: string[] }> {
   return (await req('/api/version')).json()

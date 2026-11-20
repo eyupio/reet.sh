@@ -143,7 +143,6 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/push') return json({ available: true, publicKey: 'BAEC_-8', devices: [{ id: 3, label: 'Samsung Internet on Android, the work tablet in the kitchen drawer with the long name', waiting: true, ended: true, createdAt: Date.now() - 9 * 86_400_000, lastOkAt: 0 }] })
     if (path === '/api/v2/admin/notifications/defaults') return json({ defaults })
     if (path === '/api/events') return json({ events })
-    if (path === '/api/ignored') return json({ ignored: [{ id: 'x/y/z', name: 'old-skill', reason: 'Not useful', at: now }] })
     if (path === '/api/v2/session-backlog' && method === 'GET') return json({ drafts: [] })
     if (path === '/api/v2/gaffer/goals' && method === 'GET') return json({ goals: [], readAt: Date.now() })
     if (path === '/api/v2/gaffer/outcomes' && method === 'GET') return json({ outcomes: [] })

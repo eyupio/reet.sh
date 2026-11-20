@@ -42,8 +42,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   // Skills New on a machine, for Home's Waiting for you and the bell: none unless a test answers the route itself.
   if(path==='/api/v2/skills/new'&&route.request().method()==='GET')return json({newOnMachines:[]})
   if(path==='/api/environments')return json(inventory)
-  // Library tools, under the Skills page, list what scans ignore.
-  if(path==='/api/ignored')return json({ignored:[]})
+  // The ignore list went with the old sync: the server answers its routes 410 Gone.
+  if(path==='/api/ignored'||path==='/api/skill/ignore')return route.fulfill({status:410,json:{error:'This was part of the old sync, which is gone: every machine follows your library. Make a skill Active or Archived on the Skills page, and see each machine on the Sync page.'}})
   if(path==='/api/tags')return json({tags:[]})
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/library')return json({schemaVersion:1,items:[]})

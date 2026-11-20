@@ -811,7 +811,7 @@
     {#await pages.Library()}
       <RouteSkeleton variant="rows" />
     {:then { default: Page }}
-      <Page {canWrite} {timeZone} onerror={fail} />
+      <Page {canWrite} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}

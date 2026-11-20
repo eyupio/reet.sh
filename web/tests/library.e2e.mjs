@@ -2,9 +2,10 @@ import { chromium, expect } from '@playwright/test'
 import { owner, openWorkspace } from './helpers/workspace.mjs'
 import { mkdir } from 'node:fs/promises'
 
-// The minimal Library view: one entry per canonical item, with its status, the machines that
-// keep it, the shelf details migration preserved and its saved history. It reads the canonical
-// library only; what is installed where is the Machines page's job, and nothing here claims it.
+// The minimal Library view: one entry per canonical item, with its status and the shelf details
+// migration preserved. It reads the canonical library only; what is installed where is the
+// Machines page's job, and nothing here claims it. The old sync's per-machine selections, saved
+// history and machine differences are gone (their routes answer 410), and the page never asks.
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const now=Date.now()
@@ -21,20 +22,26 @@ const laptop={id:'laptop-shared',host:'Dev laptop',agent:'agents',name:'Shared',
 const desktop={id:'desktop-claude',host:'Office desktop',agent:'claude',name:'Claude Code',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now}
 const sync={environments:[laptop,desktop],machines:[{host:laptop.host,groups:[laptop],skillCount:0},{host:desktop.host,groups:[desktop],skillCount:0}],
  agents:[{id:'a1',host:laptop.host,paused:false,autoUpdate:false,keepSynced:true,lastSeen:now},{id:'a2',host:desktop.host,paused:false,autoUpdate:false,keepSynced:true,lastSeen:now}],targets:[],jobs:[],runs:[],updateJobs:[]}
-const selections={[laptop.id]:{targetId:laptop.id,itemIds:[id('1'),id('2')],version:'v'},[desktop.id]:{targetId:desktop.id,itemIds:[id('1')],version:'v'}}
-const receipts=[{eventId:'e2',revisionId:id('b'),won:true,base:id('a'),savedAt:Date.UTC(2026,10,9,10,12),orderAt:1,uncertainty:0,clockFallback:false},{eventId:'e1',revisionId:id('a'),won:false,base:'',savedAt:Date.UTC(2026,10,8,9,5),orderAt:0,uncertainty:0,clockFallback:true}]
+// What the server answers the old sync's library routes now.
+const gone={status:410,json:{error:'This was part of the old sync, which is gone: every machine follows your library. Make a skill Active or Archived on the Skills page, and see each machine on the Sync page.'}}
+const removed=path=>/^\/api\/v2\/(library\/selections(\/|$)|library-history\/|library\/[^/]+\/difference$)/.test(path)
 
-async function open(width,{theme='light',library=initial,libraryAnswer,viewer=false,patch,history=receipts}={}){
+async function open(width,{theme='light',library=initial,libraryAnswer,viewer=false,patch}={}){
  const routes={
   '/api/v2/library':libraryAnswer||(()=>({schemaVersion:1,items:library()})),
-  [`/api/v2/library/selections/${laptop.id}`]:selections[laptop.id],
-  [`/api/v2/library/selections/${desktop.id}`]:selections[desktop.id],
+  [`/api/v2/library/selections/${laptop.id}`]:gone,
+  [`/api/v2/library/selections/${desktop.id}`]:gone,
  }
  for(const entry of initial()){
   routes[`/api/v2/library/${entry.id}`]=request=>patch?patch(request,entry):{json:{...entry}}
-  routes[`/api/v2/library-history/${entry.id}`]=()=>history
+  routes[`/api/v2/library-history/${entry.id}`]=gone
+  routes[`/api/v2/library/${entry.id}/difference`]=gone
  }
- return openWorkspace(browser,{width,theme,touch:width<600,sync,routes,status:viewer?{user:{...owner,role:'viewer'}}:undefined})
+ const opened=await openWorkspace(browser,{width,theme,touch:width<600,sync,routes,status:viewer?{user:{...owner,role:'viewer'}}:undefined})
+ // Every request to a route of the old sync, which the page must never make.
+ opened.asked=[]
+ opened.page.on('request',request=>{if(removed(new URL(request.url()).pathname))opened.asked.push(request.url())})
+ return opened
 }
 const row=(page,name)=>page.locator('.item',{has:page.getByRole('heading',{name,exact:true})})
 const clean=async(page,errors,context,width)=>{
@@ -57,13 +64,9 @@ try {
   await expect(chips.getByRole('button',{name:/^All 5$/})).toHaveAttribute('aria-pressed','true')
   await expect(chips.getByRole('button',{name:/^Active 2$/})).toBeVisible()
   await expect(chips.getByRole('button',{name:/^Archived 3$/})).toBeVisible()
-  // Library details that migration preserved, and which machines keep each item (saved intent, not installation).
+  // Library details that migration preserved.
   const review=row(page,'code-review')
   await expect(review).toContainText('Written here · private · Liked · On list Daily · Tagged review')
-  await expect(review).toContainText('Selected on Dev laptop, Office desktop')
-  await expect(review.getByRole('link',{name:'Choose machines on the Machines page'})).toHaveAttribute('href','/machines')
-  await expect(row(page,'api-design')).toContainText('Selected on Dev laptop, not installed while archived')
-  await expect(row(page,'release-notes')).toContainText('Not selected on any machine')
   await expect(row(page,'pending-capture')).toContainText('Waiting for complete content')
   await expect(review).not.toContainText(/up to date|installed on/i)
   await expect(review.getByLabel('Status of code-review')).toHaveValue('active')
@@ -93,14 +96,14 @@ try {
   console.log('PASS search and status filter')
  }
 
- { // Changing a status sends the version it was read at, updates the row and keeps its machines.
+ { // Changing a status sends the version it was read at and updates the row.
   const bodies=[]
   const {page,context,errors}=await open(390,{patch:(request,entry)=>{bodies.push(request.postDataJSON());return {json:{...entry,status:'archived',version:4}}}})
   await page.goto(`${base}/library`)
   await row(page,'code-review').getByLabel('Status of code-review').selectOption('archived')
-  await expect(row(page,'code-review')).toContainText('Selected on Dev laptop, Office desktop, not installed while archived')
-  expect(bodies).toEqual([{status:'archived',expectedVersion:3}])
   await expect(row(page,'code-review').getByLabel('Status of code-review')).toHaveValue('archived')
+  await expect(page.getByRole('group',{name:'Filter by status'}).getByRole('button',{name:/^Archived 4$/})).toBeVisible()
+  expect(bodies).toEqual([{status:'archived',expectedVersion:3}])
   await clean(page,errors,context,390)
   console.log('PASS status change')
  }
@@ -115,34 +118,6 @@ try {
   await expect.poll(()=>reads).toBeGreaterThan(1)
   await clean(page,errors,context,390)
   console.log('PASS stale status change')
- }
-
- { // History is read on demand, says whether each save became current, and closes again.
-  const {page,context,errors}=await open(1280)
-  await page.goto(`${base}/library`)
-  const entry=row(page,'code-review')
-  const toggle=entry.getByRole('button',{name:'History'})
-  await expect(toggle).toHaveAttribute('aria-expanded','false')
-  await toggle.focus(); await page.keyboard.press('Enter')
-  await expect(toggle).toHaveAttribute('aria-expanded','true')
-  const region=entry.getByRole('region',{name:'History of code-review'})
-  await expect(region).toContainText('9 Nov 2026')
-  await expect(region).toContainText('became the current version')
-  await expect(region).toContainText('kept as another version (time estimated)')
-  await shot(page,'library-page-history-desktop')
-  await page.keyboard.press('Enter')
-  await expect(region).toHaveCount(0)
-  await clean(page,errors,context,1280)
-  console.log('PASS item history')
- }
-
- { // An item with no recorded saves says so plainly.
-  const {page,context,errors}=await open(390,{history:[]})
-  await page.goto(`${base}/library`)
-  await row(page,'api-design').getByRole('button',{name:'History'}).click()
-  await expect(row(page,'api-design')).toContainText('No saves are recorded for this item yet')
-  await clean(page,errors,context,390)
-  console.log('PASS empty history')
  }
 
  { // Empty library: plain next steps, not an empty list.
@@ -171,15 +146,22 @@ try {
   console.log('PASS read failure and retry')
  }
 
- { // A failure reading machine selections never hides the library; it is said once and can be retried.
-  const {page,context,errors}=await open(390)
-  await page.route('**/api/v2/library/selections/**',route=>route.fulfill({status:500,json:{error:'boom'}}))
-  await page.goto(`${base}/library`)
-  await expect(page.locator('.item')).toHaveCount(5)
-  await expect(page.getByText('Machine selections could not be read just now')).toBeVisible()
-  await expect(page.getByText('Not selected on any machine')).toHaveCount(0)
-  await context.close()
-  console.log('PASS machine selection failure')
+ { // The old sync's selections, history and differences are gone: the page never asks for them, so no route answers 410
+  // and nothing says a part of it could not be read. Each item offers its status, and nothing else from the old sync.
+  for(const width of [390,1280]){
+   const {page,context,errors,asked}=await open(width)
+   await page.goto(`${base}/library`)
+   await expect(page.locator('.item')).toHaveCount(5)
+   await page.waitForLoadState('networkidle')
+   expect(asked,'the Library page asked a removed route').toEqual([])
+   await expect(page.getByText(/could not be read/)).toHaveCount(0)
+   await expect(page.getByRole('alert')).toHaveCount(0)
+   await expect(page.getByRole('button',{name:'History'})).toHaveCount(0)
+   await expect(page.getByText(/Selected on|Not selected on any machine/)).toHaveCount(0)
+   await expect(page.locator('[data-difference]')).toHaveCount(0)
+   await clean(page,errors,context,width)
+  }
+  console.log('PASS no route of the old sync')
  }
 
  { // A read-only account has no library: the server gives private skill content only to a writer, so the page says so plainly

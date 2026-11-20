@@ -156,7 +156,7 @@ func TestInspectGitHubRemoteAndPriority(t *testing.T) {
 	home, repo := inspectRepo(t)
 	bin := filepath.Join(home, "bin")
 	os.Mkdir(bin, 0700)
-	script := "#!/bin/sh\nprintf '%s' '{\"number\":7,\"title\":\"Build\",\"url\":\"https://github.com/o/r/pull/7\",\"state\":\"OPEN\",\"mergeable\":\"CONFLICTING\",\"statusCheckRollup\":[{\"name\":\"pass\",\"conclusion\":\"SUCCESS\"},{\"name\":\"fail\",\"conclusion\":\"FAILURE\"}]}'\n"
+	script := "#!/bin/sh\nprintf '%s' '{\"number\":7,\"title\":\"Build\",\"url\":\"https://github.com/o/r/pull/7\",\"state\":\"OPEN\",\"mergeable\":\"CONFLICTING\",\"statusCheckRollup\":[{\"name\":\"pass\",\"conclusion\":\"SUCCESS\",\"startedAt\":\"2026-11-03T10:00:00Z\",\"completedAt\":\"2026-11-03T10:04:30Z\"},{\"name\":\"fail\",\"conclusion\":\"FAILURE\"}]}'\n"
 	os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0700)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	git := func(...string) ([]byte, error) { return []byte("https://github.com/o/r.git"), nil }
@@ -164,6 +164,10 @@ func TestInspectGitHubRemoteAndPriority(t *testing.T) {
 	assertInspect(t, r)
 	if r.Pull == nil || r.Pull.Checks[0].Name != "fail" || r.Pull.Mergeable != "CONFLICTING" {
 		t.Fatalf("github %+v", r)
+	}
+	// Failures sort first; the passing check keeps the times GitHub reported.
+	if r.Pull.Checks[1].StartedAt == 0 || r.Pull.Checks[1].CompletedAt == 0 {
+		t.Fatalf("check times missing %+v", r.Pull.Checks)
 	}
 }
 

@@ -49,10 +49,13 @@
   import { chatToolName } from '../terminal/api'
   import { sourceLabel } from '../clineSource'
   import { eventLabel } from '../events'
+  import { checkLabel, checkTone, safeInsightURL } from '../sessionInsights'
+  import { ensurePullInsight, sessionInsights } from '../sessions/insightStore'
   import GafferProse from '../GafferProse.svelte'
   import PlanMeters from '../PlanMeters.svelte'
   import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
+  import { ciRun, ciWord, gafferFixes } from './githubFacts'
   import type { FactoryItem } from './factoryList'
 
   let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, removeMode = 'archive', position, permission, onanswered, actions, helpers, onback, onprev, onnext }: {
@@ -99,6 +102,22 @@
   const auto = $derived(helpers.mergesByItself(record, piece))
   const tone = $derived(item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
 
+  // GitHub is read from the session in hand, whose folder and branch the whole pipeline shares. The store keeps one
+  // observation per session, so every surface asking about this pipeline shares it.
+  const github = $derived(piece.sessionId ? $sessionInsights[piece.sessionId]?.github : undefined)
+  const pull = $derived(github?.pull)
+  const pullURL = $derived(safeInsightURL(pull?.url))
+  const checks = $derived(pull?.checks ?? [])
+  const checksWord = $derived(ciWord(checks))
+  const ciClock = $derived(ciRun(checks, clock))
+  const fixes = $derived(gafferFixes(record.decisions, piece.key))
+  const readAt = $derived(github?.checkedAt ? helpers.when(github.checkedAt) : '')
+  $effect(() => {
+    const id = piece.sessionId
+    if (!id || record.archivedAt) return
+    void ensurePullInsight(id, alive)
+  })
+
   // The stage the person picked, for this pipeline only: another pipeline starts on its stage in hand.
   let chosen = $state<{ id: string; index: number } | null>(null)
   const selected = $derived(chosen?.id === item.id ? chosen.index : item.at)
@@ -135,6 +154,13 @@
     if (nodes.length && !lost && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)) add({ key: 'send', label: 'Send back…', run: () => actions.sending({ record, piece }) })
     if (piece.state === 'following' && nodes.length && piece.conversationId) add({ key: 'move', label: last ? 'Finish this stage' : 'Move to next stage', run: () => actions.moving({ record, piece }) })
     if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) add({ key: 'restart', label: 'Try again', primary: item.kind === 'failed', run: () => actions.retry(record, piece) })
+    // A finished outcome needs nothing from the line, so the one thing to do next is to put it away. The account's
+    // default comes first, and Delete asks first in its own dialog.
+    if (finished) {
+      const archive = { key: 'putaway-archive', label: 'Archive outcome', primary: true, run: () => actions.putAway(record, 'archive') }
+      const remove = { key: 'putaway-delete', label: 'Delete outcome…', run: () => actions.deleting(record) }
+      if (removeMode === 'delete') { add(remove); add(archive) } else { add(archive); add(remove) }
+    }
     return out
   })
   // A goal's limits are opened from Usage and budget, unless the bar already offers a new budget.
@@ -253,6 +279,29 @@
       {#if node.tierWhy}<p class="handover">Gaffer’s assessment: {node.tierWhy}</p>{/if}
     {/if}
   </section>
+
+  {#if pull}
+    <section class="github" aria-label="GitHub">
+      <p class="stage-head"><strong>GitHub</strong>{#if readAt}<span class="hint">Read {readAt}</span>{/if}</p>
+      <dl class="facts">
+        <div><dt>Pull request</dt><dd>{#if pullURL}<a href={pullURL} target="_blank" rel="noopener noreferrer">#{pull.number}</a>{:else}#{pull.number}{/if} · {pull.state.toLowerCase()}{#if pull.draft} · draft{/if}{#if pull.title} <span class="split">{pull.title}</span>{/if}</dd></div>
+        <div><dt>CI</dt><dd>{checksWord}</dd></div>
+        <div><dt>CI run time</dt><dd class:low={ciClock.tone === 'warn'}>{ciClock.text}</dd></div>
+        <div><dt>Gaffer fixes</dt><dd class:low={fixes.count > 0}>{fixes.count ? `${fixes.count} ${fixes.count === 1 ? 'fix' : 'fixes'}${fixes.stages.length ? ` · ${fixes.stages.map(stageLabel).join(', ')}` : ''}` : 'None'}</dd></div>
+      </dl>
+      {#if checks.length}
+        <details class="ci">
+          <summary>{checks.length} CI {checks.length === 1 ? 'stage' : 'stages'}</summary>
+          <ul aria-label="CI stages">
+            {#each checks as check, index (check.name + (check.url ?? '') + index)}
+              {@const link = safeInsightURL(check.url)}
+              <li><span class="ci-state" data-tone={checkTone(check.state)}>{checkLabel(check.state)}</span>{#if link}<a href={link} target="_blank" rel="noopener noreferrer">{check.name}</a>{:else}<span>{check.name}</span>{/if}</li>
+            {/each}
+          </ul>
+        </details>
+      {:else}<p class="hint">No CI checks were reported for this pull request.</p>{/if}
+    </section>
+  {/if}
 
   <div class="rows">
     <details class="row">
@@ -389,6 +438,19 @@
   .note{color:var(--ink)}
   h2:focus{outline:none}h2:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .stage{display:grid;gap:10px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);min-width:0}
+  .github{display:grid;gap:10px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);min-width:0}
+  .github a{color:var(--accent-text);font-weight:600}
+  .ci{border-top:1px solid var(--line);padding-top:8px}
+  .ci summary{display:flex;align-items:center;gap:8px;min-height:32px;cursor:pointer;font-weight:600}
+  .ci summary::-webkit-details-marker{display:none}.ci summary{list-style:none}
+  .ci summary::before{content:"›";display:inline-block;width:12px;color:var(--muted);transition:transform .15s}
+  .ci[open] summary::before{transform:rotate(90deg)}
+  .ci ul{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:4px;max-height:260px;overflow:auto}
+  .ci li{display:flex;align-items:baseline;gap:10px;min-width:0;padding:4px 0;border-top:1px solid var(--line-soft)}
+  .ci li:first-child{border-top:0}
+  .ci li a,.ci li>span:last-child{min-width:0;overflow-wrap:anywhere}
+  .ci-state{flex:none;min-width:6.5rem;font-size:0.875rem;font-weight:600;color:var(--muted)}
+  .ci-state[data-tone="good"]{color:var(--good)}.ci-state[data-tone="warn"]{color:var(--warn)}.ci-state[data-tone="bad"]{color:var(--bad)}
   .stage-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
   .handover{color:var(--muted);font-size:0.875rem}.handover.low{color:var(--warn);font-weight:600}
   .report{border-left:2px solid var(--line-strong);padding-left:12px;display:grid;gap:4px;justify-items:start}

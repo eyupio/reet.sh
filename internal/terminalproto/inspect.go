@@ -67,6 +67,10 @@ type InspectCheck struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
 	URL   string `json:"url,omitempty"`
+	// StartedAt and CompletedAt are Unix milliseconds, zero when the check did
+	// not report them. They let a page say how long CI ran without a second read.
+	StartedAt   int64 `json:"startedAt,omitempty"`
+	CompletedAt int64 `json:"completedAt,omitempty"`
 }
 type InspectPull struct {
 	Number    int            `json:"number"`
@@ -208,7 +212,7 @@ func (r InspectResult) valid() bool {
 		}
 		for _, c := range p.Checks {
 			validText := plainText(c.Name, 256) && plainText(c.State, 80) && plainText(c.URL, 2048)
-			if !validText {
+			if !validText || !validAttentionTime(c.StartedAt) || !validAttentionTime(c.CompletedAt) {
 				return false
 			}
 		}

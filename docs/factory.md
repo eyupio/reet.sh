@@ -70,6 +70,13 @@ one working. The detail has the outcome, the pipeline's title and status, **Open
 showing its headline: **Gaffer's report**, **Usage and budget**, **What Gaffer decided**, **History** and **Settings
 for this outcome**. One bar at the foot, **What do you want to do?**, holds everything you can do to the pipeline.
 
+Where the machine can read GitHub through its GitHub CLI sign-in, the detail also shows a **GitHub** block for the
+pipeline: the pull request's number, state and link, what its CI checks are doing, how long the run has taken, and how
+many of Gaffer's decisions put a stage right. **CI stages** opens the list of checks with each state and a link to it.
+The figures come from the session in hand, whose folder and branch the pipeline shares, and are silent when GitHub
+cannot be read. A finished outcome's bar offers **Archive outcome** and **Delete outcome…**; **Delete** still asks
+first, and the outcome's menu keeps both choices.
+
 On a tablet or phone **Details** opens the pipeline as a screen of its own. **‹ Factory** goes back to the list, and so
 does the browser's Back button. A pipeline opened from Waiting for you says where it is, such as "2 of 3 waiting for
 you", with buttons for the previous and the next. The chosen pipeline is kept in the page's address, so a reload or a

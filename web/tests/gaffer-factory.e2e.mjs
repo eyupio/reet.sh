@@ -53,6 +53,13 @@ const plans={state:'read',sentence:'',planLimits:true,checkedAt:now,accounts:[{t
 // The account's saved crew gives the light tier a backup; an added pipeline takes it for its light stages.
 const savedCrew={crew:{heavy:{},standard:{},light:{tool:'claude',backup:{tool:'codex',model:'gpt-small'}},updatedAt:now},saved:true,tiers:[],defaults:{}}
 const routesFor=box=>({'/api/v2/gaffer/crew':savedCrew,'/api/v2/machines/a1/accounts':plans,'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
+ // The pipeline waiting at its merge decision has a pull request whose CI the detail reads.
+ '/api/v2/terminal/sessions/s3/inspect':{checkedAt:now,repo:true,branch:'export-docs',pull:{number:852,title:'Keep desk terminal sessions out of the workspace lists',url:'https://github.com/eyupio/reet.sh/pull/852',state:'OPEN',draft:false,review:'',mergeable:'MERGEABLE',added:120,removed:8,base:'main',head:'export-docs',
+  checks:[
+   {name:'web',state:'SUCCESS',url:'https://github.com/eyupio/reet.sh/actions/runs/1/job/2',startedAt:now-9*60000,completedAt:now-5*60000},
+   {name:'go test',state:'FAILURE',url:'https://github.com/eyupio/reet.sh/actions/runs/1/job/3',startedAt:now-8*60000,completedAt:now-4*60000},
+   {name:'lint',state:'SUCCESS',url:'https://github.com/eyupio/reet.sh/actions/runs/1/job/4',startedAt:now-7*60000,completedAt:now-3*60000},
+  ]}},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/automation`]:request=>{const input=request.postDataJSON();box.who.push(input.on);outcomes[0].automation=input.on;return outcomes[0]},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
@@ -214,6 +221,18 @@ try {
       const docs=await choose('Waiting for you','Export docs','Ready to merge')
       await expect(docs.getByRole('region',{name:'What is waiting',exact:true})).toContainText('Nothing merges until you approve it.')
       await expect(docs.getByRole('region',{name:'What is waiting',exact:true})).not.toContainText('Gaffer is deciding')
+      // The detail carries GitHub's own facts: the pull request, what CI is doing, how long it ran and whether Gaffer
+      // had to put a stage right.
+      const github=docs.getByRole('region',{name:'GitHub',exact:true})
+      await expect(github).toContainText('#852 · open')
+      await expect(github).toContainText('1 failed · 2 passed')
+      await expect(github).toContainText('Ran 6m 0s')
+      await expect(github).toContainText('Gaffer fixesNone')
+      const ci=github.locator('details.ci')
+      await expect(ci.locator('summary')).toHaveText('3 CI stages')
+      await ci.locator('summary').click()
+      await expect(ci.getByRole('list',{name:'CI stages',exact:true}).getByRole('listitem')).toHaveCount(3)
+      await expect(ci).toContainText('go test')
       await (await row(docs,'Settings for this outcome')).getByRole('radio',{name:'You decide',exact:true}).check()
       await expect(page.getByRole('status').filter({hasText:'You take'})).toHaveText('You take this outcome’s decisions again.');expect(box.who).toEqual([true,false])
       // Those two switches are the only writes so far.
@@ -495,6 +514,10 @@ try {
         await expect(card.getByRole('heading',{name:'Importer logs',level:2,exact:true})).toBeVisible()
       }
       await open()
+      // A finished outcome puts the next step in the bar: archive it, or delete it after the confirmation.
+      const bar=page.getByRole('group',{name:'What do you want to do?',exact:true})
+      await expect(bar.getByRole('button',{name:'Archive outcome',exact:true})).toHaveClass(/primary/)
+      await expect(bar.getByRole('button',{name:'Delete outcome…',exact:true})).toBeVisible()
       // Gaffer's report is one of the detail's closed rows; opened, the long report is clamped until it is read in full.
       const report=card.locator('details.row').filter({has:page.locator('summary .label').getByText('Gaffer’s report',{exact:true})})
       await expect(report.locator('summary')).toContainText('written ')

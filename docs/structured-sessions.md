@@ -664,7 +664,11 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   approvals and compaction. **Edit**, **Remove** and **Retry** use revisions so another tab cannot overwrite a delivery in progress.
   **Send now** appears when the active agent explicitly supports mid-turn steering. It injects the selected message into that
   turn. Only an explicit `promptRequired` response permits submitting it as a new turn. **Stop and send** cancels first, then
-  waits for the actual turn to end. If cancellation ends the session, the message stays available for recovery.
+  waits for the actual turn to end. A stop whose acknowledgement is lost or temporarily refused is asked again on the next
+  pass; the message stays queued and goes by itself once the turn is over, rather than becoming a failure you must retry.
+  If cancellation ends the session, the message stays available for recovery. The connector also re-reads the native
+  agent's status while it believes a turn started in the Terminal is running, so a busy update that lands after the idle
+  (or an idle the event stream missed) cannot keep a finished chat looking busy and hold the queue.
   A lost acknowledgement or controller restart during delivery leaves the message **uncertain** and pauses ordinary queue
   processing. It is never resent automatically. A failed agent turn also pauses ordinary delivery until an explicit edit or retry. Check the conversation and acknowledge the possible duplicate before retrying.
   The queue API is `GET`/`POST`/`PATCH /api/v2/terminal/sessions/{id}/chat/queue`. Enqueues carry a stable client ID; completed

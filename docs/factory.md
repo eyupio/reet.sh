@@ -190,7 +190,8 @@ item on a tablet or phone. Nothing happens until you choose.
 - **Give it a new budget** appears when the stage used its reviews or its time.
 - **Run this stage again in a new session** appears when the stage's session was ended.
 
-The same decisions are in the pipeline's session, under its header.
+The same decisions are in the pipeline's session, under its header, with Gaffer's latest review to read in place and a
+line saying who decides and, when it is not Gaffer, how to hand it the decisions.
 
 ### Gaffer decides
 
@@ -203,6 +204,8 @@ switch at any time.
 - Gaffer also answers an agent's multiple-choice question, choosing among the options the agent offered, or leaves it
   to you with its reason.
 - It takes at most three decisions on a stage. After that the stage is yours and the detail says so.
+- A stop whose answer never came back, because the controller restarted while Gaffer was deciding, is asked again
+  after two minutes. That does not spend another of the stage's three.
 - It never decides a merge, never answers an approval, never answers a question that needs your own words and never
   stops an outcome.
 - Each decision is one request to Gaffer's model. The detail's **What Gaffer decided** row lists each one with what it

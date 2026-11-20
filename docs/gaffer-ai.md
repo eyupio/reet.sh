@@ -416,8 +416,10 @@ setting), never answers an approval to run a command or change a file (that
 stays with **Ask me** or YOLO), never answers a question while an approval is
 waiting beside it, and never stops an outcome. It takes at most three decisions on one stage; after that the
 stage is yours and the detail says so. A decision Gaffer could not make or carry
-out is left with you, with the reason. You can always choose first: the
-buttons stay.
+out is left with you, with the reason. A stop whose request never came back,
+because the controller stopped between asking and recording the choice, is
+asked again once two minutes have passed and does not count as another of the
+three. You can always choose first: the buttons stay.
 
 **What Gaffer decided**, a row of the pipeline's detail, lists every decision
 with its time, pipeline and stage, what had stopped the stage, what Gaffer did

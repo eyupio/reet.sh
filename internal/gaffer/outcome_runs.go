@@ -36,6 +36,10 @@ type OutcomeLaunch struct {
 	// "yes" for GitHub's latest commit for the base, "no" for the machine's
 	// copy, "" for the project's setting, then the account's.
 	PullLatest string
+	// Images are every uploaded path the person attached to the outcome, in
+	// order. Every agent the outcome starts is given all of them, not only the
+	// first. Older outcomes have none, which starts an agent as before.
+	Images []string
 }
 
 // SessionStarter starts an approved session as its owner through the same
@@ -126,7 +130,10 @@ type OutcomeInput struct {
 	// whether each starts from GitHub's latest commit for its base ("yes"),
 	// this machine's copy ("no"), or whichever the project, then the account,
 	// says (""). It changes nothing for a project that is not a repository.
-	PullLatest string           `json:"pullLatest"`
+	PullLatest string `json:"pullLatest"`
+	// Images are the uploaded machine paths the person attached to the
+	// outcome. They travel with every agent the outcome starts.
+	Images     []string         `json:"images,omitempty"`
 	Sessions   []OutcomeSession `json:"sessions"`
 	MaxReviews int              `json:"maxReviews"`
 	Hours      int              `json:"hours"`
@@ -348,14 +355,19 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if stage.Kind != "merge" {
 		end += " Do not merge."
 	}
-	if room := MaxOutcomePromptBytes - len(text) - len(end); len(brief) > room {
+	// The launch appends the outcome's images after this prompt. Reserve room
+	// for that line now so the boundary is not lost to it and the combined
+	// prompt stays within what the machine accepts.
+	imageRoom := len(outcomeImagesSuffix("x", o.Images))
+	if room := MaxOutcomePromptBytes - len(text) - len(end) - imageRoom; len(brief) > room {
 		if room < len("…") {
 			// Even the start is too long: it is cut, and the boundary kept.
-			return clipTo(text, MaxOutcomePromptBytes-len(end)) + end
+			return clipTo(text, MaxOutcomePromptBytes-len(end)-imageRoom) + end
 		}
 		brief = clipTo(brief, room)
 	}
-	return text + brief + end
+	base := text + brief + end
+	return base + outcomeImagesSuffix(base, o.Images)
 }
 
 // clipTo cuts text to at most limit bytes on a character boundary, marking
@@ -446,6 +458,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if len(in.Sessions) < 1 || len(in.Sessions) > store.MaxGafferOutcomeSessions {
 		return o, invalid("sessions", "An outcome starts between 1 and 5 sessions.")
 	}
+	if !terminalproto.ValidACPPrompt("outcome", in.Images) {
+		return o, invalid("images", "Attach up to "+strconv.Itoa(MaxOutcomeImages)+" uploaded images to an outcome.")
+	}
 	project, err := s.store.FolderProjectFor(uid, in.ProjectID)
 	if err != nil {
 		return o, invalid("projectId", "Choose a project on this account.")
@@ -485,6 +500,11 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
+	for _, piece := range sessions {
+		if len(piece.Stages) == 0 && len(OutcomePromptImages(piece.Prompt, in.Images)) > MaxOutcomePromptBytes {
+			return o, invalid("images", "The brief and its attached images must fit in "+strconv.Itoa(MaxOutcomePromptBytes)+" bytes together. Shorten the brief or attach fewer images.")
+		}
+	}
 	if !validBalanceBelow(in.BalanceBelow) {
 		return o, invalid("balance", "Choose between 5 and 90 percent for when a backup takes over.")
 	}
@@ -507,7 +527,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if in.PullLatest != "" && in.PullLatest != "yes" && in.PullLatest != "no" {
 		return o, invalid("pullLatest", "Choose GitHub's latest code, this machine's copy, or the project's default.")
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Images: append([]string(nil), in.Images...), Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -1263,7 +1283,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}
 		return err == nil
 	}
-	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, PullLatest: o.PullLatest, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
+	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, PullLatest: o.PullLatest, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt, Images: append([]string(nil), o.Images...)}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
 	// droppedEffort is whether the stage in hand starts without an effort its

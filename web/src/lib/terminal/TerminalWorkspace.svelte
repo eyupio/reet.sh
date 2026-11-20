@@ -17,7 +17,9 @@
   import CopyButton from '../CopyButton.svelte'
   import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type LaunchRequest, type TerminalMachine, type TerminalSession } from './api'
   import type { ProjectColour } from '../projectColour'
-  import { projectRunning, sessionTabTitle } from '../home'
+  import { needingIds, needsYou, projectRunning, sessionOwners, sessionTabTitle } from '../home'
+  import { offDesks, type DeskRef } from '../home/deskSessions'
+  import { listDesks } from '../desks/api'
   import MachineHealthStrip from './MachineHealthStrip.svelte'
   import TerminalPane from './TerminalPane.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
@@ -104,6 +106,9 @@
   function commitPanelWidth(width:number){setPanelWidth(width);saveLayout()}
   function setPanelResizing(active:boolean){resizing=active}
   let machines = $state<TerminalMachine[]>([]), sessions = $state<TerminalSession[]>([])
+  // The desks, read with the rest of the inventory: a session on a desk leaves the workspace lists, as it leaves Home and
+  // the Sessions page, and only one that needs the person stays. A failed read keeps the last list and says nothing.
+  let desks = $state<DeskRef[] | undefined>(), now = $state(Date.now())
   // The folder projects, read with the rest of the workspace inventory, for the panel's Projects list and the tab title.
   let projects = $state<FolderProject[] | undefined>()
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
@@ -194,9 +199,13 @@
   let refreshRequest: AbortController | undefined
   const machine = $derived(machines.find(item=>item.agentId===selectedAgent))
   const ownSessions = $derived(sessions.filter(item=>item.agentId===selectedAgent))
-  // The session lists leave out the stages the Factory has finished with: their pipeline is the item that says what became
-  // of them. The session in hand stays, and with nothing read of the Factory every session shows.
-  const listed = $derived(offFinishedFactory(sessions, factory))
+  // The sessions listed in the workspace: the needing set is read exactly as the Sessions page does, so a desk session
+  // only stays when it needs the person. With no desks read, every session is listed (as before desks). The stages the
+  // Factory has finished with are left out too: their pipeline is the item that says what became of them, and the stage
+  // in hand stays.
+  const cards = $derived(needsYou(sessions, now, sessionOwners(sessions, projects ?? []), machines))
+  const needing = $derived(needingIds(cards))
+  const listed = $derived(offFinishedFactory(offDesks(sessions, desks, needing), factory))
   const listedOwn = $derived(listed.filter(item=>item.agentId===selectedAgent))
   const listedActive = $derived(listed.filter(item=>['creating','running','end_requested'].includes(item.state)))
   // What the "nothing open" screen offers to jump back into: the chosen machine's running sessions, or every machine's
@@ -253,7 +262,7 @@
   // A session that left the listing leaves the tabs too, so it never counts towards the eight nor comes back on a close.
   // Only a listing that was read successfully and lists something prunes: an empty or failed read never drops open tabs.
   let listingLoaded=$state(false)
-  $effect(()=>{if(!listingLoaded||!sessions.length)return;const listed=new Set(sessions.map(item=>item.id));untrack(()=>{const kept=openTabs.filter(id=>listed.has(id));if(kept.length!==openTabs.length)openTabs=kept})})
+  $effect(()=>{if(!listingLoaded||!sessions.length)return;const known=new Set(sessions.map(item=>item.id));untrack(()=>{const kept=openTabs.filter(id=>known.has(id));if(kept.length!==openTabs.length)openTabs=kept})})
   const tabSessions=$derived(openTabs.map(id=>sessions.find(item=>item.id===id)).filter((item):item is TerminalSession=>!!item))
   // Closing a tab closes the view, never the session: the current one gives way to its neighbour, the last one to the list.
   function closeSessionTab(item:TerminalSession){
@@ -345,14 +354,16 @@
     // The Factory read is a helper: bounded on its own, so a slow one cannot hold up the sessions or fail the refresh.
     const factorySignal=AbortSignal.any([request.signal,AbortSignal.timeout(4000)])
     try {
-      const [nextMachines,nextSessions,nextHealth,nextProjects,nextOutcomes]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listGafferOutcomes(factorySignal).then(found=>({found})).catch(()=>({found:undefined}))])
+      const [nextMachines,nextSessions,nextHealth,nextProjects,nextDesks,nextOutcomes]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listDesks(request.signal).then(data=>({data})).catch(()=>({data:undefined})),listGafferOutcomes(factorySignal).then(found=>({found})).catch(()=>({found:undefined}))])
       if(disposed)return
       // A pre-mutation observation must not overwrite a confirmed local result.
       if(version!==inventoryVersion){refreshAgain=true;return}
       statusError='';accessDenied=false
       const selectionBeforeRefresh=selectedSession
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
-      machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error
+      machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error;now=Date.now()
+      // A desk read that fails keeps the last list and says nothing: without desks every session shows, as before desks.
+      if(nextDesks.data)desks=nextDesks.data
       // Which sessions belong to a Factory pipeline, so the stages the Factory has finished with leave the lists. A read
       // that fails keeps the last map and says nothing: with nothing read every session shows, as before the Factory.
       if(nextOutcomes.found)factory=factoryMembers(nextOutcomes.found)

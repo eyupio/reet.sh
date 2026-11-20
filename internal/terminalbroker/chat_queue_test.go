@@ -97,6 +97,47 @@ func TestQueueWaitsForActualTurnAfterStop(t *testing.T) {
 	}
 }
 
+// A stop whose acknowledgement is lost or refused must not turn the person's
+// message into a failure they have to retry. The stop is asked again, and the
+// message goes by itself once the turn is over.
+func TestTransientStopFailureKeepsTheMessageAndSendsWhenTheTurnEnds(t *testing.T) {
+	working := true
+	prompts, cancels := 0, 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: working, Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		case *terminalproto.ACPCancel:
+			cancels++
+			if cancels == 1 {
+				return terminalproto.Result{Code: terminalproto.Conflict}, true
+			}
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	id := ID()
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, id, "next", nil); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if err := b.st.ChangeTerminalQueueFor(uid, s.ID, id, q[0].Revision, "stop", "", false); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	q, _ = b.st.TerminalQueueFor(uid, s.ID)
+	if len(q) != 1 || q[0].State != "queued" || q[0].Intent != "stop" || prompts != 0 {
+		t.Fatalf("a transient stop failure lost the message: %d prompts %+v", prompts, q)
+	}
+	working = false
+	b.stepChatQueue(uid, s.ID)
+	if q, _ := b.st.TerminalQueueFor(uid, s.ID); prompts != 1 || len(q) != 0 {
+		t.Fatalf("the message did not go once the turn was over: %d prompts %+v", prompts, q)
+	}
+}
+
 func TestQueueSteeringOutcomesNeverResendUncertainty(t *testing.T) {
 	for _, outcome := range []string{"injected", "promptRequired", "rejected", "unknown"} {
 		t.Run(outcome, func(t *testing.T) {

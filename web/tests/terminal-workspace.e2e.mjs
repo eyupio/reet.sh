@@ -9,6 +9,7 @@ page.on('pageerror',error=>errors.push(error.message))
 await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let failHistory=false,historyReads=0,failSessions=false,denied=false,viewer=false,websockets=0
+let desks=[]
 const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null,tool:'claude'}]
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
 await page.addInitScript(()=>{
@@ -32,6 +33,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[],history:[]}
  else if(path==='/api/v2/terminal/machines')data={machines}
  else if(path==='/api/v2/terminal/status')data={available:true,configured:true,reason:''}
+ else if(path==='/api/v2/desks')data={desks}
  else if(path==='/api/v2/terminal/sessions'){
   if(request.method()!=='GET'){writes.push(request.postDataJSON());return route.fulfill({status:400,json:{error:'No implicit creation permitted'}})}
   if(failSessions||denied)return route.fulfill({status:denied?403:503,json:{error:'Unavailable'}})
@@ -437,6 +439,20 @@ try{
  await expect(page.getByLabel('Running sessions').getByRole('button')).not.toHaveCount(0)
  await expect(page.getByLabel('Running sessions').getByRole('button').first()).toContainText(/ · (Working|Quiet|Needs you|Starting)/)
  await expect(page.locator('.ended .create-form')).toHaveCount(0)
+ // A session on a desk belongs to the desk, not the workspace lists: "Running now" and the panel keep the ordinary session
+ // and drop the desk's, as the Sessions page does.
+ desks=[{id:'desk-build00000000001',name:'Build desk',colour:'blue',template:false,position:0,version:1,tabs:1,panes:1,sessions:[sessionA],hosts:[agentA]}]
+ await page.goto(`${base}/sessions?view=terminal`)
+ await expect(page.getByRole('heading',{name:'Pick up where you left off'})).toBeVisible()
+ await expect(page.getByLabel('Running sessions').getByRole('button',{name:/Build workspace/})).toHaveCount(0)
+ await expect(page.getByLabel('Running sessions').getByRole('button',{name:/Deployment checks/})).toHaveCount(1)
+ await openFull()
+ await expect(panel.getByRole('button',{name:/Build workspace on/})).toHaveCount(0)
+ await expect(panel.getByRole('button',{name:/Deployment checks on/})).toHaveCount(1)
+ // The panel's count and the header's badge count the same listed sessions, so both drop the desk's one.
+ await expect(panel.locator('header strong')).toHaveText(/^Your sessions\s*1$/)
+ await expect(sessionsButton.locator('.count')).toHaveText('1')
+ desks=[]
  await page.getByRole('button',{name:'✦ Start a new agent session',exact:true}).click()
  await expect(page.getByRole('dialog')).toBeVisible()
  await page.keyboard.press('Escape')

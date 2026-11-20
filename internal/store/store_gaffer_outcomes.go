@@ -113,8 +113,12 @@ type GafferOutcomeStage struct {
 	Decided       int    `json:"decided,omitempty"`
 	BudgetRenewed bool   `json:"budgetRenewed,omitempty"`
 	DecidedFor    string `json:"decidedFor,omitempty"`
-	StartedAt     int64  `json:"startedAt,omitempty"`
-	EndedAt       int64  `json:"endedAt,omitempty"`
+	// DecidingSince is when the stop named by DecidedFor was put to Gaffer, so
+	// a controller that stopped before it recorded the decision asks again
+	// instead of leaving the pipeline waiting for ever.
+	DecidingSince int64 `json:"decidingSince,omitempty"`
+	StartedAt     int64 `json:"startedAt,omitempty"`
+	EndedAt       int64 `json:"endedAt,omitempty"`
 	// What Gaffer's own model used following this stage, recorded when the
 	// stage was handed over. It is Gaffer's usage, not the working agent's.
 	Reviews       int  `json:"reviews,omitempty"`
@@ -219,8 +223,11 @@ type GafferOutcome struct {
 	// PullLatest is the person's answer for this outcome's fresh worktrees:
 	// "yes" for GitHub's latest commit for the base, "no" for the machine's
 	// copy, "" for the project's setting, then the account's.
-	PullLatest string                 `json:"pullLatest,omitempty"`
-	ProviderID string                 `json:"providerId"`
+	PullLatest string `json:"pullLatest,omitempty"`
+	ProviderID string `json:"providerId"`
+	// Images are the uploaded machine paths the person attached to the
+	// outcome. An outcome saved before images could be attached has none.
+	Images     []string               `json:"images,omitempty"`
 	MaxReviews int                    `json:"maxReviews"`
 	Hours      int                    `json:"hours"`
 	Sessions   []GafferOutcomeSession `json:"sessions"`

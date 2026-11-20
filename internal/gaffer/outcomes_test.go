@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -78,6 +79,65 @@ func TestPlanOutcomeReturnsAnEditablePlanFromTheTypedObjectiveOnly(t *testing.T)
 	after, err := st.GafferProviderFor(p.UserID, row.ID)
 	if err != nil || after.Revision != row.Revision || after.AllowSessions || after.AllowCode {
 		t.Fatalf("provider changed by planning: %+v %v", after, err)
+	}
+}
+
+func TestStartPlanRunsInTheBackgroundAndIsReadWithoutAskingTwice(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	args := `{"summary":"One job.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge."}]}`
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseNow := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseNow)
+	var mu sync.Mutex
+	asked := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		asked++
+		mu.Unlock()
+		<-release
+		fmt.Fprint(w, planCall("propose_sessions", args))
+	}))
+	t.Cleanup(server.Close)
+	row := planProvider(t, s, p, server.URL, true)
+	job, err := s.StartPlan(p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export.", Project: "billing", Sessions: 2})
+	if err != nil || job == "" {
+		t.Fatalf("start: %q %v", job, err)
+	}
+	if _, ready, err := s.PlanResult(p, row.ID, job); err != nil || ready {
+		t.Fatalf("plan was ready before the provider answered: %v %v", ready, err)
+	}
+	if _, _, err := s.PlanResult(Principal{UserID: p.UserID + 1}, row.ID, job); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("another account read the job: %v", err)
+	}
+	if _, _, err := s.PlanResult(p, strings.Repeat("f", 32), job); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("another provider read the job: %v", err)
+	}
+	releaseNow()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		plan, ready, err := s.PlanResult(p, row.ID, job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ready {
+			if plan.Summary != "One job." || len(plan.Sessions) != 1 || plan.Sessions[0].Title != "Export" {
+				t.Fatalf("plan: %+v", plan)
+			}
+			if again, readyAgain, err := s.PlanResult(p, row.ID, job); err != nil || !readyAgain || again.Summary != plan.Summary {
+				t.Fatalf("second read: %+v %v %v", again, readyAgain, err)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("plan did not finish")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if asked != 1 {
+		t.Fatalf("provider requests: %d", asked)
 	}
 }
 

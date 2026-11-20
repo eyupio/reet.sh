@@ -32,11 +32,24 @@ test('every refusal has a clear sentence', () => {
   assert.equal(a.attachmentMessage('read'), 'That image could not be read.')
 })
 
-test('a paste takes its first image and leaves a text-only paste alone', () => {
+test('a paste keeps every image, in order, and leaves a text-only paste alone', () => {
   const png = { type: 'image/png', size: 512, name: 'shot.png' }
-  assert.equal(a.attachmentFromPaste([{ type: 'text/plain', size: 8 }]), null, 'no image means the field keeps the paste')
+  const jpeg = { type: 'image/jpeg', size: 700, name: 'photo.jpg' }
+  const webp = { type: 'image/webp', size: 900, name: 'picture.webp' }
+  assert.equal(a.attachmentsFromPaste([{ type: 'text/plain', size: 8 }]), null, 'no image means the field keeps the paste')
+  assert.deepEqual(a.attachmentsFromPaste([{ type: 'text/plain', size: 8 }, png, jpeg, webp]), { files: [png, jpeg, webp], rejected: [] })
+  // One that cannot be attached is reported, and the rest still come through.
+  assert.deepEqual(a.attachmentsFromPaste([{ type: 'image/gif', size: 512 }, png, { type: 'image/png', size: LIMIT + 1 }, jpeg]), { files: [png, jpeg], rejected: ['type', 'size'] })
+})
+
+test('the single-image helper still takes the first usable image', () => {
+  const png = { type: 'image/png', size: 512, name: 'shot.png' }
   assert.deepEqual(a.attachmentFromPaste([{ type: 'text/plain', size: 8 }, png]), { ok: true, file: png })
-  assert.deepEqual(a.attachmentFromPaste([{ type: 'image/gif', size: 512 }, png]), { ok: false, reason: 'type' })
+  assert.deepEqual(a.attachmentFromPaste([{ type: 'image/gif', size: 512 }, png]), { ok: true, file: png })
   assert.deepEqual(a.attachmentFromPaste([{ type: 'image/png', size: LIMIT + 1 }]), { ok: false, reason: 'size' })
   assert.deepEqual(a.attachmentFromPaste([{ type: 'image/png', size: 0 }]), { ok: false, reason: 'empty' })
+})
+
+test('an outcome holds at most the eight images one prompt can carry', () => {
+  assert.equal(a.MAX_ATTACHMENTS, 8)
 })

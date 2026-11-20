@@ -34,6 +34,15 @@
   const choices = $derived((waiting?.need.choices ?? []).filter(choice => choice.id !== 'open' && choice.id !== 'answer' && (choice.id !== 'move' || waiting?.piece.state === 'following') && (choice.id !== 'tell' || waiting?.kind === 'goal')))
   const goal = $derived(waiting?.piece.conversationId ? goals.get(waiting.piece.conversationId) : undefined)
   const used = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0]?.decided ?? 0)
+  const taken = $derived(record?.decisions ?? [])
+  const kind = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0]?.kind ?? '')
+  // Why Gaffer is leaving this to the person, so the card answers "why is it not sending this itself?" and says what to
+  // do about it. A lost session or a merge is the person's whatever the outcome's decisions setting is.
+  const note = $derived(waiting?.kind !== 'goal' || !record ? '' : !record.automation
+    ? 'You decide this outcome’s decisions. Pick one below, or turn on Gaffer decides on the Factory card to have Gaffer take them.'
+    : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours. Pick one below.`
+    : used > 0 && taken.some(item => item.failed && item.key === waiting.piece.key && item.stage === kind) ? 'Gaffer left this one to you. Pick one below; its reason is on the Factory card.'
+    : 'Gaffer is deciding this now. You can still choose first.')
   const requestId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
   const fail = (e: unknown, fallback: string) => { bad = true; notice = e instanceof Error ? e.message : fallback }
   async function act(run: () => Promise<string>, fallback: string) {
@@ -81,8 +90,8 @@
 </script>
 
 {#if waiting && choices.length}<div class="session-decision">
-  <Decision title={waiting.piece.title} stage={waiting.stage} href={card} need={waiting.need} {choices} {busy} onchoose={choose}
-    note={!record?.automation || waiting.kind === 'merge' ? '' : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.'}/>
+  <Decision title={waiting.piece.title} stage={waiting.stage} href={card} need={waiting.need} {choices} {busy} onchoose={choose} {note}
+    review={goal?.goal.summary ?? ''}/>
 </div>{/if}
 {#if notice}<p class="session-decision-note" class:bad role={bad ? 'alert' : 'status'}>{notice}</p>{/if}
 {#if moving && waiting}<ConfirmDialog title={`Move “${waiting.piece.title}” on?`} body="This closes the stage in hand as it stands and starts the next stage in a session of its own. Gaffer’s review of this stage is not waited for." confirmLabel="Move on" onconfirm={() => void moveOn()} oncancel={() => moving = false}/>{/if}

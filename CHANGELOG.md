@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory stages the Factory has finished with leave the session lists**: Home, Sessions and the
+  session workspace show the pipeline's stage in hand, marked with its stage, and leave the
+  finished ones to the pipeline item on the Factory page. A Factory that cannot be read keeps
+  every session listed, as before.
 - **Skills follow one library**: Active skills go to every connected machine;
   Archived skills stay in reet and are removed from machines. Delete removes the
   library entry and its copies. Archive, Restore and Delete keep your place and

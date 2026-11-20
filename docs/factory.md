@@ -6,8 +6,9 @@ stage by stage. Factory is a tab beside Home on a controller with accounts sign-
 sessions; a read-only account does not have it. Before the first outcome you need a connected machine, a project and a
 default Gaffer provider, and the page lists whichever is missing under **Three things and you're in business**.
 
-Every stage of a pipeline is an ordinary agent session on the project's machine: it is listed in
-[Sessions](session-board.md) marked **Factory · stage n of m**, and you can open it and type in it. In a git project
+Every stage of a pipeline is an ordinary agent session on the project's machine. The stage in hand is listed in
+[Sessions](session-board.md) marked **Factory · stage n of m**, and you can open it and type in it; the stages the
+Factory has finished with are left to the pipeline on this page, so they do not clutter Home or Sessions. In a git project
 each pipeline works in its own [worktree](terminal-worktrees.md). Gaffer follows each stage as it follows any session
 it looks after. It reviews and hands over; it cannot merge, run commands or answer approvals. Opening the Factory page
 starts nothing and makes no model request.

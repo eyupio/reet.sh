@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { ApiError, getProfile, loadMachineState, listGafferGoals, listGafferOutcomes, loadNewSkills, UnauthorizedError, type NewSkill, type SyncState, type GafferGoalOverviewView } from '../api'
-  import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, offFinishedFactory, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -138,8 +138,9 @@
   // What waits for the person, by the one rule every page uses (whatWaits): Factory items, sessions and Gaffer's goals
   // together, oldest first. The bell and the title count all of it; the page shows what is in the chosen project or group.
   const waits = $derived(whatWaits(sessions ?? [], now, owners, health ?? [], factoryRecords, followups?.goals, { desks, panes: deskPanes }, newSkills))
-  // Home's session lists leave desk sessions out (a Factory pipeline's session is its Factory item, and stays as it is).
-  const listed = $derived(sessions && offDesks(sessions, desks, new Set(factory.keys())))
+  // Home's session lists leave desk sessions out, and the stages the Factory has finished with: their pipeline is the item
+  // that says what became of them. A pipeline's session in hand stays.
+  const listed = $derived(sessions && offFinishedFactory(offDesks(sessions, desks, new Set(factory.keys())), factory))
   // The Projects panel counts what Home lists: a session on a desk is left out, as it is from the lists (`listed`).
   const running = $derived(projectRunning(listed ?? []))
   const needs = $derived(waits.cards)
@@ -297,7 +298,9 @@
       if (writer) {
         if (accounts) {
           if (f.status === 'fulfilled' && f.value) followups = f.value
-          if (o.status === 'fulfilled' && o.value) { const floor = o.value.filter(record => !record.archivedAt); factory = factoryMembers(floor); factoryRecords = floor }
+          // Every outcome names its sessions, archived ones too, so a stage the Factory has finished with leaves the lists
+          // even after its pipeline is put away. Only the unarchived ones draw on Home.
+          if (o.status === 'fulfilled' && o.value) { const floor = o.value.filter(record => !record.archivedAt); factory = factoryMembers(o.value); factoryRecords = floor }
           factoryFailed = missed(f) || missed(o)
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }

@@ -2,7 +2,7 @@
   import { projectRepo, projectSource } from '../githubRepo'
   import { onMount, tick } from 'svelte'
   import { onAttentionChanged } from '../attentionSignal'
-  import { getProfile, UnauthorizedError } from '../api'
+  import { getProfile, listGafferOutcomes, UnauthorizedError } from '../api'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
@@ -15,7 +15,7 @@
   import { folderProjectList, listProjectGroups, machineHealth, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
-  import { FACTORY_SESSION_END_DEFAULT, factorySessionEndModeOf, type FactorySessionEndMode } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryMembers, factorySessionEndModeOf, offFinishedFactory, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
 
   // The Sessions page (/sessions): every session across machines from the account-wide listing, grouped as Home groups them
   // (the Group by choice is Home's), with search, filters and each session's actions menu; the projects come below with
@@ -61,6 +61,9 @@
   // The desks, read with the sessions: a session on a desk leaves this page, as it leaves Home's lists, and only one that
   // needs the person stays. A failed read keeps the last list (no problem line): without desks every session shows.
   let desks = $state<DeskRef[] | undefined>()
+  // Which sessions are part of a Factory pipeline, read with the sessions so a stage the Factory has finished with can
+  // leave the list: its pipeline is the item that says what became of it. A failed read keeps the last map.
+  let factory = $state<Map<string, FactoryMember>>(new Map())
   let projects = $state<FolderProject[] | undefined>()
   let projectGroups = $state<ProjectGroup[] | undefined>()
   let terminals = $state<TerminalMachine[] | undefined>()
@@ -120,7 +123,7 @@
   const needing = $derived(needingIds(cards))
   // A session on a (non-template) desk belongs to the desk, not this page: it is listed here only when it needs the person.
   // With no desks read (a failed read, or before the first one) every session is listed, as it was before desks.
-  const listed = $derived(offDesks(sessions ?? [], desks, needing))
+  const listed = $derived(offFinishedFactory(offDesks(sessions ?? [], desks, needing), factory))
 
   const shown = $derived(filterSessions(searchSessions(listed, projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
@@ -140,7 +143,7 @@
     const mine = ++generation
     loading = true; checking = true
     try {
-      const [s, p, t, h, g, d] = await Promise.allSettled([terminalSessions(bounded()), folderProjectList(bounded()), terminalMachines(bounded()), machineHealth(bounded()), listProjectGroups(bounded()), listDesks(bounded())])
+      const [s, p, t, h, g, d, o] = await Promise.allSettled([terminalSessions(bounded()), folderProjectList(bounded()), terminalMachines(bounded()), machineHealth(bounded()), listProjectGroups(bounded()), listDesks(bounded()), listGafferOutcomes(bounded())])
       if (life.signal.aborted || mine !== generation) return
       if ([s, p, t, h].some(r => r.status === 'rejected' && refused(r.reason))) return signOut()
       // An account that lost terminal access (403) is shown nothing it can no longer open, as the workspace does.
@@ -157,6 +160,9 @@
       if (h.status === 'fulfilled') health = h.value.machines ?? []
       // A desk read that fails keeps the last list and says nothing: without desks every session shows, as before desks.
       if (d.status === 'fulfilled') desks = d.value
+      // A Factory read that fails keeps the last map and, like the desks, never adds a problem line: with nothing read
+      // every session shows. An account without Gaffer is not a failure.
+      if (o.status === 'fulfilled') factory = factoryMembers(o.value)
       failed = bad
       now = Date.now()
       // A session already on a desk that starts needing the person enters the list now: read its desk for the chip, pane

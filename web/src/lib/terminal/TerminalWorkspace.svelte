@@ -1,6 +1,6 @@
 <script lang="ts">
   import { listGafferOutcomes } from '../api'
-  import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
+  import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, offFinishedFactory, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   let factory=$state<Map<string,FactoryMember>>(new Map())
  import { structuredAgent } from './api'
  import type { ChatState } from '../chat'
@@ -194,10 +194,14 @@
   let refreshRequest: AbortController | undefined
   const machine = $derived(machines.find(item=>item.agentId===selectedAgent))
   const ownSessions = $derived(sessions.filter(item=>item.agentId===selectedAgent))
-  const activeSessions = $derived(ownSessions.filter(item=>['creating','running','end_requested'].includes(item.state)))
+  // The session lists leave out the stages the Factory has finished with: their pipeline is the item that says what became
+  // of them. The session in hand stays, and with nothing read of the Factory every session shows.
+  const listed = $derived(offFinishedFactory(sessions, factory))
+  const listedOwn = $derived(listed.filter(item=>item.agentId===selectedAgent))
+  const listedActive = $derived(listed.filter(item=>['creating','running','end_requested'].includes(item.state)))
   // What the "nothing open" screen offers to jump back into: the chosen machine's running sessions, or every machine's
   // when none is chosen (the Sessions tab on a phone), with anything waiting for the person first, then the latest.
-  const resumeSessions = $derived((selectedAgent?activeSessions:sessions.filter(item=>['creating','running','end_requested'].includes(item.state)))
+  const resumeSessions = $derived((selectedAgent?listedOwn.filter(item=>['creating','running','end_requested'].includes(item.state)):listedActive)
     .map(item=>({item,status:sessionStatus(item)}))
     .sort((a,b)=>Number(b.status==='waiting')-Number(a.status==='waiting')||b.item.updatedAt-a.item.updatedAt))
   const accountActive = $derived(sessions.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
@@ -226,7 +230,7 @@
   const machineStatus = $derived(health.machines.find(item=>item.agentId===selectedAgent))
   const setup = $derived(readiness(machine))
   const serverNow = $derived(health.serverNow+elapsed)
-  const runningByProject = $derived(projectRunning(sessions))
+  const runningByProject = $derived(projectRunning(listed))
   const currentProjectId = $derived(session?.projectId ?? '')
   // The tab names the work: the session, then its project (or its machine when it has none), then reet.
   const tabTitle = $derived(sessionTabTitle(session, projects?.find(p => p.id === session?.projectId)?.name, machine?.host))
@@ -289,7 +293,7 @@
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
     const previous=rememberedSessions.get(id)
-    selectedSession=sessions.find(item=>item.agentId===id&&item.id===previous)?.id || sessions.find(item=>item.agentId===id&&item.state==='running')?.id || ''
+    selectedSession=listed.find(item=>item.agentId===id&&item.id===previous)?.id || listed.find(item=>item.agentId===id&&item.state==='running')?.id || ''
     title=creations[id]?.title || '';error='';machineSearchOpen=false;remember()
   }
   onMount(()=>{
@@ -316,7 +320,7 @@
       if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
       return
     }
-    const target=reusableSessionFor(sessions,agent)
+    const target=reusableSessionFor(listed,agent)
     if(target){
       chooseSession(target)
       if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
@@ -338,8 +342,10 @@
     signal?.addEventListener('abort',stop,{once:true})
     const timeout=setTimeout(stop,10000)
     const firstLoad=loading
+    // The Factory read is a helper: bounded on its own, so a slow one cannot hold up the sessions or fail the refresh.
+    const factorySignal=AbortSignal.any([request.signal,AbortSignal.timeout(4000)])
     try {
-      const [nextMachines,nextSessions,nextHealth,nextProjects]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null}))])
+      const [nextMachines,nextSessions,nextHealth,nextProjects,nextOutcomes]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listGafferOutcomes(factorySignal).then(found=>({found})).catch(()=>({found:undefined}))])
       if(disposed)return
       // A pre-mutation observation must not overwrite a confirmed local result.
       if(version!==inventoryVersion){refreshAgain=true;return}
@@ -347,14 +353,15 @@
       const selectionBeforeRefresh=selectedSession
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
       machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error
-      // Which sessions belong to a Factory pipeline. A helper only: without it the lists simply carry no marker.
-      void listGafferOutcomes().then(found=>{if(!disposed)factory=factoryMembers(found)}).catch(()=>{})
+      // Which sessions belong to a Factory pipeline, so the stages the Factory has finished with leave the lists. A read
+      // that fails keeps the last map and says nothing: with nothing read every session shows, as before the Factory.
+      if(nextOutcomes.found)factory=factoryMembers(nextOutcomes.found)
       if(nextProjects.projects)projects=nextProjects.projects
       dismissConfirmedEnds()
       if(removedAfterClose&&selectedSession===selectionBeforeRefresh){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       const openingAgent = firstLoad && !selectedSession ? openingTerminal : ''
-      if(firstLoad&&!selectedSession&&!openingAgent)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
+      if(firstLoad&&!selectedSession&&!openingAgent)selectedSession=listed.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
       remember()
       if(firstLoad)openTerminalFromCard()
       if(openingAgent)void openMachineTerminal(openingAgent)
@@ -784,14 +791,14 @@
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} onnew={newSession} />{/if}
-    <div class="workspace-actions"><span class="plan-slot"><FleetPlanMeters {machines} max={2}/></span><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={()=>newSession()} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><span class="plan-slot"><FleetPlanMeters {machines} max={2}/></span><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{listedActive.length}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={()=>newSession()} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {factory} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {factory} {machines} sessions={listed} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='drawer'}<div class="drawer-scrim" aria-hidden="true" onclick={()=>{closeDrawer();saveLayout()}}></div>{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->

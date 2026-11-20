@@ -32,6 +32,82 @@ machine or paid provider was used for acceptance; the live symptom came from the
 owner's own OpenCode 1.19.5 chat on this machine. Recorded in CHANGELOG.md and
 docs/structured-sessions.md. Opened as a PR (number recorded when created).
 
+## FACTORY-DECISION-1: a lost decision is asked again, and the session says who decides (20 November 2026)
+
+The owner sent a phone screenshot of a Factory stage's decision in its session: the recommendation and its instruction
+filled the screen, the buttons sat under the fixed-height workspace where nothing could scroll them into view, and the
+card only said "Gaffer needs your decision" on an outcome they believed Gaffer was deciding. They asked what had
+happened and what they had to do.
+
+**Why it was not sending itself.** Two defects, not a missing feature. A stop is claimed before Gaffer's model is asked
+so a slow request is not asked twice; if the controller stopped between that claim and recording the choice, the claim
+stayed and `autoDecisions` skipped the stop for ever while the session said "Gaffer is deciding". The stage now records
+`decidingSince`, and a claim with no recorded decision is asked again after `decisionClaimTTL` (two minutes) without
+spending another of the stage's three decisions. A decision that failed is still recorded, answers the claim and stays
+with the person. The second: the Factory card said "Gaffer is deciding this" even after a failed or left-to-the-person
+decision; both the card and the session now say it is yours and point at what Gaffer decided.
+
+**Reading the card.** The session card for a goal stop now always says who decides: "You decide this outcome's
+decisions. Pick one below, or turn on Gaffer decides on the Factory card…", the three-decision cap, that Gaffer left it
+to you (with its reason on the Factory card), or that Gaffer is deciding now. Gaffer's latest review opens in place
+under **Gaffer's latest review** instead of telling the person to read a review the session did not show. On a phone
+the decision block keeps a bounded height and scrolls, and the choices stick to its foot, so a long recommendation
+cannot bury its own buttons. A lost session or a merge carries no decisions note: those are the person's whatever the
+setting.
+
+**Data.** `GafferOutcomeStage.DecidingSince` (`decidingSince` in the outcome JSON; absent in older records, which are
+treated as stale claims). No migration; older records are read as before.
+
+**Tests.** `go test ./internal/gaffer` (including `TestAStopWhoseAnswerNeverCameIsAskedAgain` and
+`TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered`), `go test ./internal/store`, `go vet ./...`,
+`go test -race ./...`, `cd web && npm run check`, and against `vite preview`: `factory-decision.e2e.mjs` (including a
+long recommendation at 390 whose last choice must scroll into view), `gaffer-factory.e2e.mjs`,
+`gaffer-factory-session.e2e.mjs`, `factory-pieces.e2e.mjs` and `session-workspace.e2e.mjs`.
+
+**Docs.** [Factory](docs/factory.md), [Gaffer AI](docs/gaffer-ai.md), [UI verification](docs/ui-verification.md) and
+the changelog.
+
+**PR.** Opened against `main`; the checks and captures above are this PR's. Its merge is recorded by the next handoff
+update.
+## PLAN-JOB-1: a Gaffer plan survives a proxy that gives up waiting (20 November 2026)
+
+**Merged.** [#851](https://github.com/eyupio/reet.sh/pull/851) as `da10b002`. Every required check on the final head passed.
+
+The owner reported intermittent `502` errors when asking Gaffer for a Factory plan, and sometimes when starting an
+agent. The screenshot showed a bare `502` in the outcome dialog. That number is not reet's: every reet 502 writes a
+JSON body with a sentence, and `web/src/lib/api.ts` falls back to the raw status only when the body is not JSON. A
+bare `502` therefore comes from the gateway in front of reet. The owner confirmed **Cloudflare**, which ends an origin
+response after about 100 seconds.
+
+Planning asked the provider on the browser's own request and could hold it for up to 90 seconds. A slow reasoning
+model (the report used `deepseek-v4.1-flash:1017` on Ollama Cloud) pushed that close enough to the edge limit that
+Cloudflare sometimes cut the connection; the browser then had only the status number to show.
+
+**How it works.** Planning is now a background job. `POST /api/v2/gaffer/providers/{id}/plan` validates the ask
+synchronously (so bad input still answers 400/422 before any provider call), registers a job, starts the provider
+call detached from the request context, and answers `202 {"id","state":"running"}` at once. A new
+`GET /api/v2/gaffer/providers/{id}/plan/{job}` answers `{"state":"running"}` while the model is working and the
+finished plan afterwards; a provider or plan-shaping failure is mapped with the existing `gafferError` (so the
+sentence is unchanged). `StartPlan`/`PlanResult` live in `internal/gaffer/outcomes.go`: jobs are per account and
+provider, finished plans are kept for five minutes, and `s.begin` still applies the account's concurrency limit.
+The browser (`planGafferOutcome` in `web/src/lib/api.ts`) starts the job, then polls once a second with the existing
+abort signal; every request it makes is short, so no proxy can time it out.
+
+**Tests.** `internal/api/gaffer_plan_test.go` starts a plan, polls it to the same plan and checks the provider was
+asked once; `TestStartPlanRunsInTheBackgroundAndIsReadWithoutAskingTwice` in `internal/gaffer/outcomes_test.go`
+covers the running state, another account's or provider's job answering not-found, and a second read returning the
+same plan without another provider request. `web/tests/gaffer-outcome.e2e.mjs` mocks the 202 then the read.
+
+**Checked.** `go vet ./internal/gaffer ./internal/api`; `go test ... -run 'TestPlanOutcome|TestGafferOutcomePlan|TestStartPlan|TestPlanOutcomeRatesEachStage'`;
+`npx svelte-check` (0 errors, 0 warnings); `npm run build`; and the whole `web/tests/gaffer-outcome.e2e.mjs` passed
+against `vite preview` on desktop and phone. Not checked against a real Cloudflare-fronted controller.
+
+**Still open.** Starting an agent still holds its create request for up to 60 seconds (structured chat) or 180 seconds
+(worktree) in `internal/terminalbroker/broker.go`. 60 seconds is under Cloudflare's limit; the worktree path is not,
+so a slow worktree create can still be cut at the edge. The browser already gives up such a start after 60 seconds
+and offers to resend the same request id, so the agent can still be running. A real fix would give the create the
+same background-job treatment as the plan; it is not included here.
+
 ## SKILLS-DOCS-18: document the shared library (20 November 2026)
 
 Continuation of merged PR #845 (`820631e7`), whose final head was `7f9b297a`.

@@ -149,6 +149,98 @@ func TestGafferDecidesEachStopOnceAndOnlyAmongTheStagesChoices(t *testing.T) {
 	}
 }
 
+// A controller that stopped between claiming a stop and recording Gaffer's
+// decision must not leave the pipeline waiting for ever: a claim older than
+// the model's bound is put to Gaffer again, and asking again does not spend
+// another of the stage's three decisions.
+func TestAStopWhoseAnswerNeverCameIsAskedAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	var calls atomic.Int32
+	decideWith(r, &calls, "decide", `{"choice":"move","why":"The endpoint and its tests are in the handover."}`)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	stopStage(t, r, code)
+	o := mustOutcome(t, r, created.ID)
+	stop, ok := r.s.pipelineStop(o, o.Sessions[0])
+	if !ok {
+		t.Fatalf("the stopped stage has no decision to ask: %+v", o.Sessions[0])
+	}
+	// The claim a controller that died between the request and the decision leaves behind.
+	if _, err = r.s.outcomeStep(r.p.UserID, created.ID, func(o *store.GafferOutcome) bool {
+		stage := &o.Sessions[0].Stages[0]
+		stage.Decided, stage.DecidedFor = 1, stop.sign
+		stage.DecidingSince = time.Now().Add(-3 * decisionClaimTTL).UnixMilli()
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.SetOutcomeAutomation(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	got := decisions(t, r, created.ID, 1)[0]
+	if got.Choice != "move" || got.Failed || calls.Load() != 1 {
+		t.Fatalf("the lost stop was not asked again: calls %d, %+v", calls.Load(), got)
+	}
+	if used := mustOutcome(t, r, created.ID).Sessions[0].Stages[0].Decided; used != 1 {
+		t.Fatalf("asking a lost stop again spent another decision: %d", used)
+	}
+}
+
+// A fresh claim is left alone (Gaffer is still thinking), and a claim a failed
+// decision already answered is not asked again: both leave the stop with the
+// person only when it is truly theirs.
+func TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered(t *testing.T) {
+	r := outcomeFixture(t)
+	var calls atomic.Int32
+	decideWith(r, &calls, "decide", `{"choice":"move","why":"It is finished."}`)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	stopStage(t, r, code)
+	o := mustOutcome(t, r, created.ID)
+	stop, ok := r.s.pipelineStop(o, o.Sessions[0])
+	if !ok {
+		t.Fatalf("the stopped stage has no decision to ask: %+v", o.Sessions[0])
+	}
+	key := o.Sessions[0].Key
+	claim := func(since int64, failed bool) {
+		t.Helper()
+		if _, err := r.s.outcomeStep(r.p.UserID, created.ID, func(o *store.GafferOutcome) bool {
+			stage := &o.Sessions[0].Stages[0]
+			stage.Decided, stage.DecidedFor, stage.DecidingSince = 1, stop.sign, since
+			if failed {
+				o.Decide(store.GafferOutcomeDecision{At: since + 1, Key: key, Stage: stage.Kind, About: "question", Failed: true, Why: "Gaffer could not take this decision."})
+			}
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claim(time.Now().UnixMilli(), false)
+	if _, err = r.s.SetOutcomeAutomation(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(120 * time.Millisecond)
+	if calls.Load() != 0 || len(mustOutcome(t, r, created.ID).Decisions) != 0 {
+		t.Fatalf("a stop still being decided was asked again: calls %d", calls.Load())
+	}
+
+	// The claim is old now, but a failed decision already answers it.
+	claim(time.Now().Add(-3*decisionClaimTTL).UnixMilli(), true)
+	r.s.autoDecisions(context.Background())
+	time.Sleep(80 * time.Millisecond)
+	if calls.Load() != 0 {
+		t.Fatalf("a stop Gaffer already left to the person was asked again: %d", calls.Load())
+	}
+}
+
 // What a stage's stop offers Gaffer: never a merge, never an agent's own
 // question, and a new budget only once.
 func TestWhatGafferMayDecideForAStoppedStage(t *testing.T) {

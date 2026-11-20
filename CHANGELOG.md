@@ -11,6 +11,21 @@ this file existed releases were described on their GitHub release pages.
   running, so a late or missed busy update cannot hold the queue. **Stop and
   send** also keeps the message when the stop is not confirmed at once and asks
   again, instead of turning it into a failure you have to retry.
+- **Factory decisions**: a stage decision shown in its session now says who is taking it and why. When Gaffer is not
+  going to send the choice itself it says so: this outcome is **You decide** (and how to hand it over), the stage has
+  used Gaffer's three decisions, Gaffer left this one to you, or Gaffer is deciding now. **Gaffer's latest review**
+  opens in the card instead of pointing at a review the session did not show. On a phone the card keeps a bounded
+  height, scrolls and keeps its choices at the foot, so a long recommendation no longer hides the buttons. A stop whose
+  request was lost when the controller restarted is asked again after two minutes without using another of the three
+  decisions.
+- **Gaffer planning behind a proxy**: asking Gaffer for a Factory plan no longer
+  holds one request open while the model thinks. The controller starts the plan
+  in the background and the browser reads it in short polls, so a reverse proxy
+  or Cloudflare, which ends an origin response after about 100 seconds, no
+  longer cuts a slow plan and shows a bare `502`. The provider call also keeps
+  running if the page closes; a finished plan is readable for five minutes.
+  Bad input still answers immediately, and the same per-account concurrency
+  limit and provider error wording apply.
 - **Skills follow one library**: Active skills go to every connected machine;
   Archived skills stay in reet and are removed from machines. Delete removes the
   library entry and its copies. Archive, Restore and Delete keep your place and

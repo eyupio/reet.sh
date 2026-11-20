@@ -1,5 +1,29 @@
 # UI verification — 4 November 2026
 
+## A Factory decision in its session (20 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (FACTORY-DECISION-1); what a person sees is in
+[Factory](factory.md#gaffer-decides).
+
+The fixture in `web/tests/factory-decision.e2e.mjs`: a code stage whose review recommends telling the agent, at 1440
+light and 390 dark. Checked: the card names the stage and why it stopped, **Gaffer recommends** with its reason,
+**Gaffer's latest review** opening in place, the note that says **You decide this outcome's decisions** and how to
+hand them to Gaffer, and the choices. At 390 with a long recommendation the block scrolls and the last choice can be
+brought into view and pressed; the choices stay at its foot while the review scrolls.
+
+Seen and fixed while looking: the long card was taller than the fixed-height workspace and its buttons were clipped
+with nothing to scroll; the block now keeps a bounded height and scrolls itself. The session card also repeated the
+dead end "Read its latest review" without showing it, and said nothing about who was deciding.
+
+Commands run in this container: `npm --prefix web run check` (unit tests and svelte-check: zero errors and warnings),
+`npm --prefix web run build`, `go vet ./...`, `go test -race ./...`, and `factory-decision.e2e.mjs`,
+`gaffer-factory.e2e.mjs`, `gaffer-factory-session.e2e.mjs`, `factory-pieces.e2e.mjs` and `session-workspace.e2e.mjs`
+against `vite preview` with the container's Chromium. Fixtures only; no real controller, machine or paid AI provider
+was contacted.
+
+![A Factory decision at 390, dark](images/ui/factory-decision-390-dark.png)
+![A long Factory decision at 390, light](images/ui/factory-decision-long-390.png)
+
 ## Retire the old skill-sync web controls (20 November 2026, PR #850)
 
 The continuation removes Advanced sync, per-machine selections, preview/approve

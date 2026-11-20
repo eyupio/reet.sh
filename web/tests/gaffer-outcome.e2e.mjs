@@ -31,9 +31,11 @@ const cid=n=>String(n).repeat(32)
 const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0GQAAAAASUVORK5CYII=','base64')
 
 const oid='e'.repeat(32)
+const planId='b'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
 function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmpty=false}={}){
   const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false,crew,crewFails,crewEmpty,crewSaves:[]}
+  let planAnswer=proposed
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -70,8 +72,12 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
     [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
       expect(request.method()).toBe('POST');const input=request.postDataJSON();box.plans.push(input)
       if(input.reply)box.replies.push(input)
-      return box.planFails?{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}:input.reply?revised:proposed
+      if(box.planFails)return{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}
+      planAnswer=input.reply?revised:proposed
+      // A plan is asked for in the background so a proxy in front of reet never holds the request open.
+      return {status:202,json:{id:planId,state:'running'}}
     },
+    [`/api/v2/gaffer/providers/${pid}/plan/${planId}`]:()=>planAnswer,
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()!=='POST')return {outcomes:box.record?[box.record]:[]}
       const input=request.postDataJSON();box.approved.push(input)

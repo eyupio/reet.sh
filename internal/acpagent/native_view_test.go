@@ -198,6 +198,44 @@ func TestNativeReconnectReconcilesMissedIdleAndPreservesStateOnFailure(t *testin
 	}
 }
 
+// A busy event that lands after the turn's idle (or an idle the stream never
+// delivered) must not leave the chat looking busy forever. The status snapshot
+// the watcher polls is the backstop, and a queued message goes once it clears.
+func TestNativeStaleBusyIsReconciledWhileConnected(t *testing.T) {
+	old := nativeStatusPoll
+	nativeStatusPoll = 20 * time.Millisecond
+	defer func() { nativeStatusPoll = old }()
+	var mu sync.Mutex
+	var events []Event
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/session/status" {
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	v := &nativeView{address: server.URL, ctx: ctx, client: server.Client()}
+	v.ready.Store(true)
+	s := &Session{acpID: "ses_native_test", native: v, nativeBusy: true,
+		opts: Options{OnEvent: func(e Event) { mu.Lock(); events = append(events, e); mu.Unlock() }}}
+	go v.watchStatus(s)
+	deadline := time.Now().Add(2 * time.Second)
+	for s.Working() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.Working() {
+		t.Fatal("a stale busy status was never reconciled")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) == 0 || events[len(events)-1].Kind != "status" || events[len(events)-1].State != "idle" {
+		t.Fatalf("stale busy cleared without saying the turn ended: %#v", events)
+	}
+}
+
 func TestNativeObserverWithdrawsAvailabilityUntilGapIsReconciled(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())

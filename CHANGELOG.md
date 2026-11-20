@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A message still goes after a finished turn**: a queued message no longer
+  waits behind a chat that looks busy after the agent has finished. The
+  connector now re-reads the native agent's status while it believes a turn is
+  running, so a late or missed busy update cannot hold the queue. **Stop and
+  send** also keeps the message when the stop is not confirmed at once and asks
+  again, instead of turning it into a failure you have to retry.
 - **Factory decisions**: a stage decision shown in its session now says who is taking it and why. When Gaffer is not
   going to send the choice itself it says so: this outcome is **You decide** (and how to hand it over), the stage has
   used Gaffer's three decisions, Gaffer left this one to you, or Gaffer is deciding now. **Gaffer's latest review**

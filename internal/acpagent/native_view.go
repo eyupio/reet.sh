@@ -133,6 +133,39 @@ func (s *Session) startNativeView() {
 	v.ready.Store(true)
 	go func() { <-s.Done(); v.ready.Store(false); v.cancel(); v.client.CloseIdleConnections() }()
 	go v.observe(s, response)
+	go v.watchStatus(s)
+}
+
+// nativeStatusPoll bounds how long a status the event stream dropped can leave a
+// chat looking busy. The stream is the fast path; this snapshot is the backstop,
+// so a late or lost idle cannot wedge the message queue behind a turn that has
+// already ended.
+var nativeStatusPoll = 5 * time.Second
+
+// watchStatus re-reads the service's current status while this view believes a
+// native turn is running. A busy event that lands after the turn's idle (or an
+// idle the stream never delivered) would otherwise keep Working true, and a
+// queued message would wait behind a turn nobody is running.
+func (v *nativeView) watchStatus(s *Session) {
+	ticker := time.NewTicker(nativeStatusPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-v.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if !v.ready.Load() {
+			continue
+		}
+		s.turnMu.Lock()
+		busy := s.nativeBusy
+		s.turnMu.Unlock()
+		if !busy {
+			continue
+		}
+		_ = v.reconcileStatus(s)
+	}
 }
 
 func (s *Session) NativeTerminal() (NativeTerminalSpec, bool) {
@@ -257,21 +290,42 @@ func (v *nativeView) user(s *Session, id string) {
 	}
 }
 
-// Read current state after subscribing: an idle event may have been missed
-// during the gap. A failed snapshot must not invent an idle state.
-func (v *nativeView) reconcile(s *Session) error {
+// readNativeStatus is the service's current busy state. A snapshot that cannot
+// be read invents no state: a failed read never makes a running turn look idle.
+func (v *nativeView) readNativeStatus(s *Session) (bool, error) {
 	var statuses map[string]struct {
 		Type string `json:"type"`
 	}
 	if err := v.json("/session/status", &statuses); err != nil {
-		return err
+		return false, err
 	}
 	if statuses == nil {
-		return errors.New("missing native session status")
+		return false, errors.New("missing native session status")
 	}
 	status, present := statuses[s.SessionID()]
 	if present && status.Type != "idle" && status.Type != "busy" && status.Type != "retry" {
-		return errors.New("unknown native session status")
+		return false, errors.New("unknown native session status")
+	}
+	return present && status.Type != "idle", nil
+}
+
+// reconcileStatus is the status-only backstop the watcher uses: no message
+// sweep, so it is cheap enough to poll while the view stays connected.
+func (v *nativeView) reconcileStatus(s *Session) error {
+	busy, err := v.readNativeStatus(s)
+	if err != nil {
+		return err
+	}
+	s.nativeStatus(busy)
+	return nil
+}
+
+// Read current state after subscribing: an idle event may have been missed
+// during the gap. A failed snapshot must not invent an idle state.
+func (v *nativeView) reconcile(s *Session) error {
+	busy, err := v.readNativeStatus(s)
+	if err != nil {
+		return err
 	}
 	var messages []nativeMessage
 	if err := v.json("/session/"+url.PathEscape(s.SessionID())+"/message?limit=128", &messages); err != nil {
@@ -282,7 +336,9 @@ func (v *nativeView) reconcile(s *Session) error {
 			v.user(s, message.Info.ID)
 		}
 	}
-	s.nativeStatus(present && status.Type != "idle")
+	// Apply the snapshot after the sweep: a user message typed in the native
+	// TUI starts its turn, and this status is what actually ended it.
+	s.nativeStatus(busy)
 	return nil
 }
 

@@ -143,7 +143,7 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 	libraryCopy := false
 	switch in.Origin.Kind {
 	case "user", "fork", "edit":
-	case "import", "original", "capture", "use-version":
+	case "import", "original", "capture", "use-version", "restore":
 		libraryCopy = in.ItemType == LibrarySkill || in.ItemType == ""
 	default:
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid

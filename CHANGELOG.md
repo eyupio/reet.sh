@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Gaffer planning behind a proxy**: asking Gaffer for a Factory plan no longer
+  holds one request open while the model thinks. The controller starts the plan
+  in the background and the browser reads it in short polls, so a reverse proxy
+  or Cloudflare, which ends an origin response after about 100 seconds, no
+  longer cuts a slow plan and shows a bare `502`. The provider call also keeps
+  running if the page closes; a finished plan is readable for five minutes.
+  Bad input still answers immediately, and the same per-account concurrency
+  limit and provider error wording apply.
 - **Usage**: a new page, **More → Usage**, lists every agent in one place: how
   much of each signed-in plan is left, and the tokens its chats and Factory
   stages reported today, over the last 7 days or over the last 30 days (in your

@@ -298,8 +298,25 @@ export type GafferOutcomePlanInput = {
 }
 /** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
 export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal): Promise<GafferOutcomePlan> {
-  return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+  const path = `/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`
+  const started = await (await req(path, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+  const job = String(started?.id ?? '')
+  if (!job) throw new Error('Gaffer could not start planning this outcome. Try again.')
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const answer = await (await req(`${path}/${encodeURIComponent(job)}`, { signal, cache: 'no-store' })).json()
+    if (answer?.state !== 'running') return answer as GafferOutcomePlan
+    await pause(1000, signal)
+  }
+  throw new Error('Gaffer is taking too long to plan this outcome. Try again, or write the plan yourself.')
 }
+const pause = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) return reject(signal.reason)
+  const done = () => { signal?.removeEventListener('abort', stop); resolve() }
+  const stop = () => { clearTimeout(timer); reject(signal?.reason) }
+  const timer = setTimeout(done, ms)
+  signal?.addEventListener('abort', stop, { once: true })
+  if (signal?.aborted) stop()
+})
 export type GafferOutcomeStage = { kind: string; /** For one part of a split stage: the part's name and what it does. */ part?: string; brief?: string; tool: string; model?: string; effort?: string; provider?: string; /** The person's second choice for the stage. When the stage was moved to it, `first` is what it would otherwise have run on and `balanced` says why. */ backup?: GafferStageAgent; moreBackups?: GafferStageAgent[]; first?: GafferStageAgent; balanced?: string; /** How many decisions Gaffer has taken on this stage for the person. */ decided?: number; /** How demanding the stage was judged to be, which chose its agent from the crew; tierWhy is Gaffer's reason where the tier is its assessment. */ tier?: 'light' | 'standard' | 'heavy'; tierWhy?: string; appliedTool?: string; appliedModel?: string; appliedEffort?: string; appliedAt?: number; choiceCheck?: 'applied' | 'mismatch' | 'unchecked'; choiceNote?: string; /** The effort chosen for the stage when its agent did not offer it for the model on that machine: the stage started on the agent's default effort, and `effort` is empty. */ effortNotOffered?: string; agentInputTokens?: number; agentOutputTokens?: number; agentCachedTokens?: number; agentUsageReported?: boolean; contextUsed?: number; contextSize?: number; state: 'pending' | 'running' | 'done'; sessionId?: string; conversationId?: string; summary?: string; closedBy?: 'gaffer' | 'person' | 'chat'; agentState?: string; agentActiveAt?: number; startedAt?: number; endedAt?: number; reviews?: number; inputTokens?: number; outputTokens?: number; usageReported?: boolean }
 /** Gaffer's account of a whole outcome, with pipelines it suggests adding. A proposal is nothing until the person approves it. */
 export type GafferOutcomeReport = { text: string; at: number; model: string; inputTokens: number; outputTokens: number; usageReported: boolean; auto?: boolean; proposals?: { title: string; prompt: string; stages?: string[]; why?: string }[] }

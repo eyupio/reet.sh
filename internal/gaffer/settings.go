@@ -189,6 +189,7 @@ type Service struct {
 	closed          bool
 	serial          uint64
 	active          map[uint64]activeProbe
+	plans           map[string]*planJob
 	chatJobs        map[string]*chatJob
 	chatLimiter     *auth.Limiter
 	contextLimiter  *auth.Limiter
@@ -197,7 +198,7 @@ type Service struct {
 }
 
 func New(st *store.Store, s *sealed.Sealer) *Service {
-	return &Service{workerLimiter: auth.NewLimiter(12, time.Minute), store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), contextLimiter: auth.NewLimiter(60, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
+	return &Service{workerLimiter: auth.NewLimiter(12, time.Minute), store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, plans: map[string]*planJob{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), contextLimiter: auth.NewLimiter(60, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
 }
 func (s *Service) Available() bool { return s != nil && s.sealer != nil }
 

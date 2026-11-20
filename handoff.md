@@ -1,5 +1,42 @@
 # Reet central-control implementation handoff
 
+## PLAN-JOB-1: a Gaffer plan survives a proxy that gives up waiting (20 November 2026)
+
+The owner reported intermittent `502` errors when asking Gaffer for a Factory plan, and sometimes when starting an
+agent. The screenshot showed a bare `502` in the outcome dialog. That number is not reet's: every reet 502 writes a
+JSON body with a sentence, and `web/src/lib/api.ts` falls back to the raw status only when the body is not JSON. A
+bare `502` therefore comes from the gateway in front of reet. The owner confirmed **Cloudflare**, which ends an origin
+response after about 100 seconds.
+
+Planning asked the provider on the browser's own request and could hold it for up to 90 seconds. A slow reasoning
+model (the report used `deepseek-v4.1-flash:1017` on Ollama Cloud) pushed that close enough to the edge limit that
+Cloudflare sometimes cut the connection; the browser then had only the status number to show.
+
+**How it works.** Planning is now a background job. `POST /api/v2/gaffer/providers/{id}/plan` validates the ask
+synchronously (so bad input still answers 400/422 before any provider call), registers a job, starts the provider
+call detached from the request context, and answers `202 {"id","state":"running"}` at once. A new
+`GET /api/v2/gaffer/providers/{id}/plan/{job}` answers `{"state":"running"}` while the model is working and the
+finished plan afterwards; a provider or plan-shaping failure is mapped with the existing `gafferError` (so the
+sentence is unchanged). `StartPlan`/`PlanResult` live in `internal/gaffer/outcomes.go`: jobs are per account and
+provider, finished plans are kept for five minutes, and `s.begin` still applies the account's concurrency limit.
+The browser (`planGafferOutcome` in `web/src/lib/api.ts`) starts the job, then polls once a second with the existing
+abort signal; every request it makes is short, so no proxy can time it out.
+
+**Tests.** `internal/api/gaffer_plan_test.go` starts a plan, polls it to the same plan and checks the provider was
+asked once; `TestStartPlanRunsInTheBackgroundAndIsReadWithoutAskingTwice` in `internal/gaffer/outcomes_test.go`
+covers the running state, another account's or provider's job answering not-found, and a second read returning the
+same plan without another provider request. `web/tests/gaffer-outcome.e2e.mjs` mocks the 202 then the read.
+
+**Checked.** `go vet ./internal/gaffer ./internal/api`; `go test ... -run 'TestPlanOutcome|TestGafferOutcomePlan|TestStartPlan|TestPlanOutcomeRatesEachStage'`;
+`npx svelte-check` (0 errors, 0 warnings); `npm run build`; and the whole `web/tests/gaffer-outcome.e2e.mjs` passed
+against `vite preview` on desktop and phone. Not checked against a real Cloudflare-fronted controller.
+
+**Still open.** Starting an agent still holds its create request for up to 60 seconds (structured chat) or 180 seconds
+(worktree) in `internal/terminalbroker/broker.go`. 60 seconds is under Cloudflare's limit; the worktree path is not,
+so a slow worktree create can still be cut at the edge. The browser already gives up such a start after 60 seconds
+and offers to resend the same request id, so the agent can still be running. A real fix would give the create the
+same background-job treatment as the plan; it is not included here.
+
 ## LATEST-CODE-1: fresh worktrees can start from GitHub's latest (19 November 2026)
 
 The owner asked: "If we recognise that a machine folder doesn't have the latest code from GitHub, then we need a config

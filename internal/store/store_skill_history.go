@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -12,7 +14,8 @@ var ErrSkillRevisionCurrent = errors.New("that version is already the current on
 // SkillHistoryEntry is one saved version of a library skill. Kind is how it
 // was saved: user or fork (written in reet), edit, original (fetched from its
 // link), capture or import (kept from a machine), use-version or restore (put
-// back). Machine names the machine a capture came from.
+// back). Machine names the machine a kept version or Use this version came
+// from; Reference is the link of a fetched one.
 type SkillHistoryEntry struct {
 	Revision    string `json:"revision"`
 	Kind        string `json:"kind"`
@@ -70,10 +73,15 @@ func (s *Store) SkillHistoryFor(uid int64, item string) ([]SkillHistoryEntry, er
 		return nil, err
 	}
 	for _, r := range newestFirst(revs, li.RevisionID) {
-		e := SkillHistoryEntry{Revision: r.ID, Kind: r.Origin.Kind, Reference: r.Origin.Reference, DerivedFrom: r.Origin.DerivedFrom,
+		e := SkillHistoryEntry{Revision: r.ID, Kind: r.Origin.Kind, DerivedFrom: r.Origin.DerivedFrom,
 			Digest: r.ManifestDigest, Files: counts[r.ID], SavedAt: r.CreatedAt, Current: r.ID == li.RevisionID}
-		if parts := strings.SplitN(r.Origin.Reference, ":", 3); len(parts) == 3 && parts[0] == "machine" {
-			e.Machine = parts[1]
+		// Only a link is shown as a reference; a machine's record is read
+		// for its name instead.
+		if r.Origin.Kind == "original" {
+			e.Reference = r.Origin.Reference
+		}
+		if e.Machine, err = s.historyMachine(uid, r.Origin.Reference); err != nil {
+			return nil, err
 		}
 		out = append(out, e)
 	}
@@ -129,4 +137,34 @@ func newestFirst(revs []PrivateSkillRevision, head string) []PrivateSkillRevisio
 		}
 	}
 	return out
+}
+
+// historyMachine names the machine a version came from, as its origin's
+// reference records it. A capture (kind import) records the machine's
+// enrollment, and Use this version its enrollment and host: the machine is
+// named by its current name while reet knows it, else by the host the
+// version saved, else not at all. A machine:<host>:<folder> reference names
+// its host.
+func (s *Store) historyMachine(uid int64, reference string) (string, error) {
+	if parts := strings.SplitN(reference, ":", 3); len(parts) == 3 && parts[0] == "machine" {
+		return parts[1], nil
+	}
+	if !strings.HasPrefix(reference, "{") {
+		return "", nil
+	}
+	var ref struct{ Enrollment, Host string }
+	if json.Unmarshal([]byte(reference), &ref) != nil {
+		return "", nil
+	}
+	if ref.Enrollment != "" {
+		var host string
+		err := s.db.QueryRow(`SELECT host FROM sync_agents WHERE id=? AND user_id=?`, ref.Enrollment, uid).Scan(&host)
+		if err == nil && host != "" {
+			return host, nil
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	}
+	return ref.Host, nil
 }

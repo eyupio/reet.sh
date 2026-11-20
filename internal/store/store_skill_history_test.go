@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,17 +47,93 @@ func TestSkillHistoryListsVersionsNewestFirst(t *testing.T) {
 	}
 }
 
-// A capture says which machine it came from.
-func TestSkillHistoryNamesTheMachineOfACapture(t *testing.T) {
-	s := newStore(t)
-	uid, _ := s.DefaultOwner()
-	item := localItem(t, s, uid, "elitebook", "demo")
-	if _, err := s.SetSkillContentFor(uid, item.id, contentFiles("demo", "Kept."), PrivateSkillOrigin{Kind: "capture", Reference: "machine:elitebook:~/.agents/skills"}); err != nil {
+// A skill kept from a machine names that machine, as the capture saved it
+// (kind import, its enrollment in the reference): by the machine's current
+// name, and by none once reet no longer knows the machine.
+func TestSkillHistoryNamesTheMachineAKeptSkillCameFrom(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	item := localItem(t, s, uid, agent.Host, "demo")
+	if _, err := s.ClaimRemoteImportFor(uid, agent.ID, strings.Repeat("a", 48)); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.RequestSkillCaptureFor(uid, item.id, agent.ID, "~/.agents/skills/demo"); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := s.db.QueryRow(`SELECT id FROM machine_import_requests WHERE user_id=?`, uid).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	req, err := s.RemoteImportFor(uid, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done := finishMachineCopy(t, s, uid, agent, req, machineImportFixture(t).Files); done.State != "completed" {
+		t.Fatalf("capture: %+v", done)
+	}
+	machine := func() SkillHistoryEntry {
+		t.Helper()
+		got, err := s.SkillHistoryFor(uid, item.id)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("history: %+v %v", got, err)
+		}
+		return got[0]
+	}
+	if e := machine(); e.Kind != "import" || e.Machine != "laptop" {
+		t.Fatalf("a kept skill's version: %+v", e)
+	}
+	if _, err = s.db.Exec(`UPDATE sync_agents SET host='studio' WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e := machine(); e.Machine != "studio" {
+		t.Fatalf("after the machine was renamed: %+v", e)
+	}
+	if _, err = s.db.Exec(`DELETE FROM sync_agents WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e := machine(); e.Machine != "" {
+		t.Fatalf("a machine reet no longer knows: %+v", e)
+	}
+}
+
+// Use this version names the machine whose copy was taken, as it saved it
+// (kind use-version, its host in the reference).
+func TestSkillHistoryNamesTheMachineOfUseThisVersion(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if err := s.SetAgentSkillsProtocolFor(uid, agent.ID, CurrentSkillsProtocol); err != nil {
+		t.Fatal(err)
+	}
+	item := savedWrittenSkill(t, s, uid, "notes", false)
+	digest := ""
+	for _, a := range desiredAt(t, s, uid, time.Now().Add(time.Hour)).Active {
+		if a.Item == item.id {
+			digest = a.Digest
+		}
+	}
+	reportOf(t, s, uid, agent.ID, time.Now(), SkillReportEntry{Folder: "~/.agents/skills", Name: "notes", State: "edited", Digest: digest, Backup: "~/.agents/.reet-backups/2026-11-18/agents-notes"})
+	if _, err := s.ClaimRemoteImportFor(uid, agent.ID, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	asked, err := s.RequestSkillUseVersionFor(uid, item.id, agent.ID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := s.RemoteImportFor(uid, asked.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done := finishMachineCopy(t, s, uid, agent, req, contentFiles("notes", "Edited on the laptop.")); done.State != "completed" {
+		t.Fatalf("use version: %+v", done)
+	}
 	got, err := s.SkillHistoryFor(uid, item.id)
-	if err != nil || len(got) != 1 || got[0].Kind != "capture" || got[0].Machine != "elitebook" {
-		t.Fatalf("capture entry: %+v %v", got, err)
+	if err != nil || len(got) != 2 || got[0].Kind != "use-version" || got[0].Machine != "laptop" || !got[0].Current {
+		t.Fatalf("history after Use this version: %+v %v", got, err)
+	}
+	// The host it saved stands when reet no longer knows the machine.
+	if _, err = s.db.Exec(`DELETE FROM sync_agents WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = s.SkillHistoryFor(uid, item.id); err != nil || got[0].Machine != "laptop" {
+		t.Fatalf("after the machine was forgotten: %+v %v", got, err)
 	}
 }
 

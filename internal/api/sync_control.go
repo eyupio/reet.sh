@@ -201,6 +201,7 @@ func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.pollSkillsAgent(w, r, a)
 }
+
 // finishJobBodyLimit is the largest job result a machine may send.
 const finishJobBodyLimit = 16 << 20
 

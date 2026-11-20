@@ -1,7 +1,7 @@
 import type { ChatState } from './chat'
 
 export type InsightFile = { path: string; status?: string; added: number; removed: number; binary?: boolean; directory?: boolean }
-export type InsightCheck = { name: string; state: string; url?: string }
+export type InsightCheck = { name: string; state: string; url?: string; /** Unix ms, absent when GitHub reported no time for this check. */ startedAt?: number; completedAt?: number }
 export type InsightPull = { number: number; title: string; url: string; state: string; draft: boolean; review: string; mergeable: string; added: number; removed: number; checks?: InsightCheck[]; more?: boolean
   // Added by the extended read. Absent means the machine did not read it (never zero); times are ms.
   base?: string; head?: string; createdAt?: number; mergedAt?: number; closedAt?: number; lastPushAt?: number

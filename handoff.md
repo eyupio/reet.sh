@@ -30,7 +30,7 @@ proves a refused stop no longer becomes a failure. `go vet ./...`,
 `go test -race ./internal/acpagent ./internal/terminalbroker` pass. No real
 machine or paid provider was used for acceptance; the live symptom came from the
 owner's own OpenCode 1.19.5 chat on this machine. Recorded in CHANGELOG.md and
-docs/structured-sessions.md. Opened as [#856](https://github.com/eyupio/reet.sh/pull/856).
+docs/structured-sessions.md. Merged as [#856](https://github.com/eyupio/reet.sh/pull/856) (`ea7a0042`).
 
 ## FACTORY-DECISION-1: a lost decision is asked again, and the session says who decides (20 November 2026)
 

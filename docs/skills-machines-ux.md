@@ -1,180 +1,29 @@
-# Skills and Sync: shared library
+# Skills and machines
 
-The current beta workflow is one library for every connected machine. The Sync
-page opens with library and machine counts, **Sync all machines**, and a status
-for every enrollment, including offline machines without an inventory. Own drafts
-are included automatically and stay private. Adding a skill offers a direct sync
-action; saving written content links to fleet sync. New machine setup waits for
-library sync after its first scan before reporting Ready.
+The Skills page owns the choice; the Sync page reports how machines are following it.
 
-The installer now accepts `--server` and `--name`, enables local skill apply,
-reuses matching enrollments on retry, and starts an independent native sync
-service without tmux or terminal consent. Hosts without a service manager get a
-background agent with explicit restart guidance. Automatic sync owns supported
-home folders. Turn it off before using a custom home-folder plan; project folders
-are explicit. Sync all machines restores the common library.
+## Skills
 
-See [the detailed code and usability review](https://github.com/eyupio/reet.sh/blob/main/docs/research/skills-machines-sync-review-2026-11-05.md)
-for the defects, evidence, validation and remaining boundaries. The following
-sections describe the previous selection-based interface and its history.
+- **Active** and **Archived** are the two tabs. Active cards offer Archive and Delete; Archived cards offer Restore and Delete.
+- Actions keep the current tab, filters and scroll position. Undo reverses a mistaken action.
+- Search, sorting, tags, lists, likes, notes and bulk selection remain available. Lists organise skills rather than creating machine-specific plans.
+- An opened skill shows its machine progress, source, tags, lists and notes. Edit, Publish, Update from original, Use this version and History operate on reet's saved content.
+- **New on a machine** asks what to do with discoveries. Keep captures the content and makes it Active; Archive keeps it off machines. Home's Waiting for you links to the same review.
 
-## Previous selection-based workflow
+## Sync and Machines
 
-The signed-in Sync page now starts with two choices: **all shelf skills or individual skills**, then **one or more machines**. **Sync now** saves the selection and starts the existing agent preview/apply chain. The default preserves other installed skills. Lists, reference machines, exact-set removals and per-location controls remain under Advanced sync.
+**Sync** gives one fleet sentence, one row per machine and recent activity. A machine's Retry asks it to try failed skill work again; Pause sync leaves it alone. Offline work stays pending until the machine returns and reports a result. Local file consent remains controlled on the machine itself.
 
-## One press (5 November 2026)
+**Machines** remains the place for connections, inventory, agent software and terminals. Its inventory can include project skills that the shared library does not manage.
 
-Sync is one sentence and one button wherever it appears.
+## Other ways in
 
-- **The Sync page** leads with `fleetSyncStatus` (`web/src/lib/fleetSync.ts`, unit tested): *Everything is in sync.*, *N machines need syncing.*, *Syncing your machines…*, *N machines need a look.*, *Your machines will sync when they're back online.* or *Sync is paused on all your machines.* A machine that is switched off or paused is never counted as behind, and a machine between two of its folders is still syncing. The button is hidden for read-only accounts and when every machine is paused, and is quiet when nothing is behind. The old summary tiles and the success paragraph are gone: the sentence is the answer.
-- **Sync all machines works in place** from the Skills header, the toast after adding a skill and the save notice on Write a skill. It sends the same request as the Sync page, then opens the activity dock for the whole fleet or, when there is nothing to start, says where things stand in one line. A refusal is a toast with the reason. With no machine yet, or on a read-only account, they open Sync as before, and the per-skill **Sync to machines…** links still open Sync.
-- **Fleet software** is one sentence and one button (*OpenCode can be updated on 2 machines.* and **Update 2 machines**) that asks once, naming the machines in order, and then starts a batch of every machine that can apply now. Choosing machines, their order and one-off applies sit under **Machines** and ask the same question.
-- **No server change.** Pressing Sync already tried a machine again after a failed or cancelled attempt, and a store test now pins it. The machine's own polls still leave such a machine alone.
+Community Save and a list's Add all offer Active or Archived. The session picker uses reet's saved content for prompts, still shows local project skills, and offers Keep for new machine skills. Adding another person's published skill makes it Active in the library, including restoring an existing Archived entry.
 
-## One vocabulary and one Sync place (3 November 2026)
+Setups carry agent settings; skill folders are skipped on capture and restore. MCP uses Active/Archived status, archive/restore and deletion rather than shelf stages or sync targets.
 
-User-facing copy now follows one glossary: a **skill**, the **shelf**, a **machine**, an **install location** (one agent's skills folder), a **sync plan** (what a machine should have), and **Sync** as the verb. “Desired set”, “saved set”, “scope”, “environment”, “target” and “destination” are retired from the UI; the API keeps its field names. Sync is a subtab of Machines only, so the duplicate **Sync** entry in More is gone. The authoring page is **Write a skill**, and every save notice ends with **Next: Put it on a machine** linking to Sync with that skill selected. The Skills page's writing block is **Your drafts**; a published written skill appears only as its shelf card, whose quick actions link back to **Edit written skill**. Unpublishing or deleting hides that card while preserving its tags, notes and list membership for a later republish; the hosted content and shelf projection now share one lifecycle. See [the vocabulary spec](https://github.com/eyupio/reet.sh/blob/main/docs/superpowers/specs/2026-11-03-skills-sync-vocabulary.md) and [the one-card spec](https://github.com/eyupio/reet.sh/blob/main/docs/superpowers/specs/2026-11-03-written-skill-record.md).
+## Retired controls
 
-Each machine has one **Keep synced** switch. It is stored with its agent enrollment, survives restarts and is evaluated on authenticated agent polls, independently of the browser. A whole-shelf selection follows later shelf additions; an individual plan maintains those selected skills. Paused agents do no work, stale/incomplete inventories block work, pending jobs prevent duplicates, and a failed attempt stops automatic retries until it is deliberately retried or the plan changes. Source-access and validation failures preserve the last good selection and are shown on the machine card.
+Board stages (In use, To test and Parked), per-machine selection, Add now, exact sets and preview/approve plans are superseded. The old web panels, per-machine selectors and activity dock are removed. Older Advanced sync and comparison links lead to the current Sync page without carrying obsolete plan choices.
 
-Live activity appears above setup. Current agents report read, plan, apply and verification stages, including the skill being installed and its position in the plan. Older agents retain status-based indicators. Retrying a failed apply starts a fresh automatic preview/apply chain, never replays the old approved plan. Additions can proceed automatically; removals still need exact-plan approval and machine-side apply still requires local opt-in. Completing a delayed approval now settles its run instead of leaving it permanently in Review needed. Superseded failures move into Earlier activity while preserving their evidence.
-
-**Add now** can supplement a saved list or machine plan using an owned shelf skill, without modifying the shared source list. Adding outside a followed source turns that machine into an explicit plan so a later source refresh cannot silently undo the addition. Unlinked skills show a source-link action rather than an install button that cannot work.
-
-Each shelf card with machine badges also carries one line of **sync intent** under them, read from the sync plans rather than from scans: *Set to sync to dev-laptop*, *Pending on build-box · synced to dev-laptop*, or *Not set to sync* with a **Sync to machines…** link. Badges say what a machine last reported; the line says what you asked for, and never claims the files are there. The Machines filter row gains **Not on any machine**, **Missing somewhere**, **Not set to sync** and **Sync pending**, applied in the browser on top of the server filters (`web/src/lib/skillSync.ts`, unit tested; `skill-card.e2e.mjs` covers the line, the link and the four filters). The line is absent when the sync state cannot be read.
-
-**Your drafts** rows link to **Sync to machines…**, which opens the Sync page. The **Write a skill** save notice offers **Sync all machines** as a button that works in place (see *One press* below); without a machine to sync to it links to Sync instead. A draft is listed there as *Your private draft · synced from this reet.sh, not published* and installs privately; the session skill picker installs it the same way, without publishing (see [controller sync](controller-sync.md#your-own-drafts-sync-without-publishing)); publishing is no longer the only way to get a skill you wrote onto your own machine.
-
-Collapsed skill cards expose **Copy install** and **Copy prompt**. The Skills page also shows **Your drafts**, including private drafts, editing, public visibility and sharing. A published written skill appears on the shelf; its **Edit written skill** action returns to the authoring page. Publishing makes share-link and prompt copying available immediately. Large hosted libraries show a few entries first with search and Show all. Publishing and unpublishing remain explicit user actions; visibility changes read the latest content and preserve supporting files, tags, notes and list membership.
-
-Verification covers persistent automation, failed-job backoff, already-matching inventories, account isolation, supplemental selections, owned/typed progress and delayed approval settlement. Browser tests cover phone/desktop sync, machine toggles, real stage text, collapsed prompts, hosted sharing and activity recovery. Live installations still require a running controller and a locally opted-in enrolled binary.
-
----
-
-The following records the earlier implementation and its original limitations; the workflow above supersedes those UX boundaries.
-
-## Skills and machines UX pass
-
-This pass looked at the two surfaces people use together: the Skills shelf (`/skills`) and
-the machine workspace (`/machines`, `/sync`). The goal was a single obvious next action, live
-feedback while it runs, and no dead ends when a skill is missing from a machine.
-
-## What was getting in the way
-
-1. **Sync lived below the fold of a machine card.** A connected machine showed its inventory,
-   agent scopes, terminal and settings before the action people actually wanted. The sync
-   button sat in the same row as Commands and Settings, and its label changed between
-   “Choose skills to sync”, “Sync this machine” and “Sync saved skills”.
-2. **The card had no sync state.** Freshness came from an inventory badge, while installs,
-   approvals and active runs were inferred from a thin line in the metadata row.
-3. **Starting sync gave no close feedback.** Progress lived in the Sync page's activity
-   disclosure. A person who pressed Sync now on a machine card saw “Starting…” and then had
-   to leave the page to find out what happened.
-4. **“Missing” was a statement, not an action.** A skill badge could say `Missing` on a
-   machine, but installing it meant going to Sync, choosing the machine and scopes, saving a
-   desired set, previewing and approving. Every step was individually safe, but the path was
-   far longer than the user's intent (“put this skill there”).
-5. **The same intent had too many names.** “Choose skills to sync”, “Sync saved skills”,
-   “Sync now”, “Preview all on machine” and “Sync all now” described related operations from
-   different places with no shared vocabulary.
-
-## What changed
-
-### Machine profile band
-
-Each machine card now opens with a sync band under its identity:
-
-- one plain-language state: `N skills to install`, `Everything in sync`, `Syncing now`,
-  `Review needed`, `Rescan needed`, `Sync paused`, `Sync not connected`, or
-  `No skills set to sync`;
-- one primary action: **Sync now** when it can work, **View progress** while a run is active,
-  or **Set up sync** when the machine still needs a scan or a desired set;
-- a `⋯` menu for the deliberate alternatives: choose skills and scopes, preview only, rescan,
-  and open sync activity; a right-click anywhere on the card opens the same menu;
-- a thin progress bar while a run is walking through saved scopes.
-
-The former primary sync buttons were removed from the general action row, so the card has one
-sync decision instead of two competing ones. Terminal, Start an agent, Commands and Settings
-remain secondary actions.
-
-The state comes from `machineSyncOverview` (`web/src/lib/syncOverview.ts`), which is unit
-tested against active runs, queued jobs, approvals, stale scans, paused agents and
-unconnected machines.
-
-### Live sync activity
-
-`SyncActivity.svelte` is a non-modal dock mounted on Skills and on Write a skill while sync work is
-running, and as soon as **Sync all machines** is pressed there. The Sync page owns its own activity section, so the dock never covers the page that
-already lists the same jobs. The dock:
-
-- appears as a compact one-line bar when a job starts, rather than opening a panel over the page;
-- expands on demand to the run position (`1 / 3 scopes`), the current scope, a live progress bar
-  and the stage timeline (`Read machine → Plan changes → Apply changes`);
-- stays for 15 seconds after a run finishes so the outcome is visible from the page that started
-  it, and can be minimised or dismissed without losing the work;
-- polls every two seconds while visible, while both pages continue their normal refresh;
-- keeps motion behind `prefers-reduced-motion` and stacks above the phone bottom navigation.
-
-The Sync page's activity section is the detailed view. It groups by machine, keeps running work
-first, collapses identical failures into one card with their scopes and job count, and folds
-finished jobs into **Earlier activity**. A repeated failure is retried once per scope, so a
-repeated preview cannot queue the same work twice. Only the first job that needs a person opens
-by default; every other card is one press away.
-
-Failure cards say the exact fix once, name the machine, and replace “try again” with “retry”.
-When a machine is offline the commands and retry are hidden and the card says the fix runs on the
-machine, rather than leaving a command that cannot work yet.
-
-### Add now from a missing badge
-
-When a skill shows as missing on a machine, the badge now carries **Add now**. The skill's
-`⋯` menu and a right-click anywhere on the card offer the same action per missing machine,
-plus a link to review that machine's sync settings. The menu is keyboard reachable and closes
-on Escape or an outside press.
-
-`installSkillOnMachine` (`web/src/lib/syncActions.ts`) makes the intent work:
-
-1. read the live sync state;
-2. require an enrolled, unpaused agent and a recent complete scan;
-3. reuse every fresh saved sync set on the machine whose source contains the skill, preserving
-   each set's mode and revision;
-4. if the machine has no saved set, create one additive set on the preferred shared `agents`
-   scope, then start a sync run;
-5. otherwise explain, in plain language, whether the skill needs a linked source, the machine
-   needs a connector, the sync is paused, or the skill is outside the existing saved source.
-
-Nothing is applied directly from the browser. The existing controller contract still applies:
-the agent previews the exact plan, additive work may apply automatically, and removals require
-review. The dock makes that journey visible instead of hiding it in another page.
-
-## Deliberate boundaries
-
-- **No one-click “install everything”.** Add now installs one selected skill. The shelf is not
-  a licence to overwrite a machine's saved set.
-- **No new apply path.** The browser queues the same jobs and runs the Sync page uses. A
-  viewer still cannot install, and a paused or unconnected machine explains why before any
-  write.
-- **A failed or stale inventory never claims a skill is missing.** The existing `unknown`
-  state is unchanged and does not get an Add now button.
-- **Saved sets are reused, not redefined.** A skill that is not in an existing list- or
-  hosted-backed set is not silently added to it; the person is sent to Sync to choose.
-
-## Verification
-
-```sh
-cd web
-npm run test        # includes syncOverview.test.mjs
-npm run check       # tests + svelte-check
-npm run build
-```
-
-The pure helpers cover the state hierarchy, saved/fallback destinations, list-backed source
-normalisation, candidate eligibility, job stages and plan counts. Browser checks still need a
-running Go server and an enrolled agent for a real end-to-end apply.
-
-## Still worth doing next
-
-- A guided first-run “put this skill on this machine” dialog for people with several
-  install locations, so the default is explained rather than assumed.
-- The hosted content and shelf projection are now one lifecycle; a future schema
-  merge could make them one table, but no product behaviour waits on it.
+For the user workflow and recovery commands, see [sync skills between machines](sync-skills-between-machines.md).

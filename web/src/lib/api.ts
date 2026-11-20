@@ -589,8 +589,8 @@ export type SyncMachineState = 'ok' | 'installing' | 'removing' | 'updating' | '
 export type SyncMachine = { agentId: string; host: string; paused: boolean; online: boolean; protocol: number; state: SyncMachineState; failed: { name: string; detail: string }[]; waiting: string[]; lastSeen: number }
 export type SkillActivity = { at: number; host: string; name: string; action: string; detail: string }
 export type SyncSkills = { machines: SyncMachine[]; activity: SkillActivity[]; work: SkillWork; active: number }
-export async function loadSyncSkills(): Promise<SyncSkills> {
-  return (await req('/api/v2/sync/skills')).json()
+export async function loadSyncSkills(signal?: AbortSignal): Promise<SyncSkills> {
+  return (await req('/api/v2/sync/skills', { signal })).json()
 }
 /** Retry: ask a machine to try skills that failed there again on its next poll. Resolves to the names it was asked. */
 export async function retryMachineSkills(agentId: string, names: string[]): Promise<string[]> {
@@ -866,9 +866,6 @@ export async function getRollup(): Promise<Rollup> {
 export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
 export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { /** The canonical library item this installs, for library targets. */ itemId?: string; sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
-/** A selected library item that is not being installed: no saved copy yet (`content`), Archived (`status`), or its name is selected twice (`duplicate`). `id` is its shelf skill, where it has one. */
-export type SyncHeld = { itemId: string; id?: string; name: string; reason: 'content' | 'status' | 'duplicate' }
-export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; /** Library items selected for this folder that sync leaves out, and why. */ held?: SyncHeld[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = {
   kind: string; source: string; scope: string; state?: string
@@ -905,13 +902,16 @@ export type SetupProfileRevision = {
 }
 export type SetupProfileRecord = { schema_version: number; name: string; revisions: SetupProfileRevision[] }
 export type Machine = { aliases?: string[]; host: string; groups: SyncEnvironment[]; skillCount: number }
-export type SyncRun = { id: string; agentId: string; targets: string[]; cursor: number; status: string; createdAt: number; updatedAt: number }
 export type ReleaseChannel = { version?: string; commit?: string; checkedAt?: number; error?: string }
 export type ReleaseInfo = { dev?: ReleaseChannel; latest?: ReleaseChannel }
-export type SyncState = { agents?: SyncAgent[]; jobs?: SyncJob[]; updateJobs?: SyncJob[]; runs?: SyncRun[]; machines?: Machine[]; environments: SyncEnvironment[]; targets: SyncTarget[]; releases?: ReleaseInfo }
+export type SyncState = { skillReports?: SyncSkills | null; agents?: SyncAgent[]; jobs?: SyncJob[]; updateJobs?: SyncJob[]; machines?: Machine[]; environments: SyncEnvironment[]; releases?: ReleaseInfo }
 export async function getSyncState(signal?: AbortSignal): Promise<SyncState> { return (await req('/api/v2/sync', { signal })).json() }
-export async function saveSyncTarget(sourceId: string, targetId: string): Promise<SyncState> { return (await req('/api/v2/sync', { method: 'PUT', body: json({ sourceId, targetId }) })).json() }
-export async function deleteSyncTarget(targetId: string): Promise<SyncState> { return (await req(`/api/v2/sync?target=${encodeURIComponent(targetId)}`, { method: 'DELETE' })).json() }
+/** Inventory and reconcile health are separate reads. Missing health is never replaced with inventory as proof of sync. */
+export async function loadMachineState(signal?: AbortSignal): Promise<SyncState> {
+  const [state, skillReports] = await Promise.all([getSyncState(signal), loadSyncSkills(signal).catch(() => null)])
+  return { ...state, skillReports }
+}
+
 export async function mergeMachines(from: string, to: string): Promise<SyncState> { return (await req('/api/v2/machines/merge', { method: 'POST', body: json({ from, to }) })).json() }
 export async function forgetMachine(host: string): Promise<SyncState> { return (await req(`/api/v2/machines?host=${encodeURIComponent(host)}`, { method: 'DELETE' })).json() }
 export async function forgetEnvironment(id: string): Promise<SyncState> { return (await req(`/api/v2/environments?id=${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
@@ -1461,24 +1461,21 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
   await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
 
-export type SyncAgent = { keepSynced?: boolean; id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
-export type SyncPlan = { problems?: Record<string, string>; backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
+export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
-export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
-export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[]; /** Names with more than one copy, library only: one was kept, the rest were left out. */ duplicates?: SyncDuplicate[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
-export async function saveDesired(data: { followSource?: boolean; targetId: string; sourceId: string; listId: number; skillIds: string[]; mode: string; revision: string }): Promise<SyncState> { return (await req('/api/v2/sync/desired', { method: 'PUT', body: json(data) })).json() }
-export async function reconcileDesired(targetId: string): Promise<{ skills: SyncSkill[]; conflicts: string[]; revision: string }> { return (await req('/api/v2/sync/reconcile', { method: 'POST', body: json({ targetId }) })).json() }
-export async function adoptSyncSkills(targetId: string, skillIds: string[], listId = 0): Promise<void> { await req('/api/v2/sync/adopt', { method: 'POST', body: json({ targetId, skillIds, listId }) }) }
-export async function queueSyncJob(agentId: string, targetId: string, kind: string): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'POST', body: json({ agentId, targetId, kind }) })).json() }
+export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan?: unknown; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
+
+
+
+
+
 export async function controlSyncJob(id: string, action: string, hash = ''): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'PATCH', body: json({ id, action, hash }) })).json() }
 export async function controlSyncAgent(id: string, action: string): Promise<SyncState> { return (await req('/api/v2/sync/agents', { method: 'PATCH', body: json({ id, action }) })).json() }
-export async function startSyncRun(agentId: string, targetIds: string[] = []): Promise<SyncState> { return (await req('/api/v2/sync/run', { method: 'POST', body: json({ agentId, targetIds }) })).json() }
-export async function syncLibraryMachines(): Promise<SyncState> { return (await req('/api/v2/sync/library', { method: 'POST', body: json({}) })).json() }
-export async function syncLibraryMachine(agentId: string): Promise<SyncState> { return (await req('/api/v2/sync/library', { method: 'POST', body: json({ agentId }) })).json() }
-export type SyncDuplicate = { slug: string; keep: SyncSkill; remove: SyncSkill[] }
-export async function dedupeSyncLibrary(confirm = false): Promise<{ groups: SyncDuplicate[]; removed: string[] }> { return (await req('/api/v2/sync/library/dedupe', { method: 'POST', body: json({ confirm }) })).json() }
-export type SyncSourceFix = { targetId: string; id: string; name: string; slug: string; from: string; to: string; agent: string }
-export async function resolveSyncSourceConflicts(targetIds: string[], confirm = false): Promise<{ changes: SyncSourceFix[] }> { return (await req('/api/v2/sync/source-conflicts/resolve', { method: 'POST', body: json({ targetIds, confirm }) })).json() }
+
+
+
+
+
 export async function updateSyncAgent(id: string, version = 'latest'): Promise<SyncState> { return (await req('/api/v2/sync/agents/update', { method: 'POST', body: json({ id, version }) })).json() }
 
 export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSummary[] }> {
@@ -1521,81 +1518,6 @@ export async function getPrivateRevisions(id: string, signal?: AbortSignal): Pro
 
 export async function stopImport(id: string): Promise<ImportRequest> { return (await req(`/api/v2/skill-imports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }
 
-// Private skill content: pins, checks and ownership records. The types mirror the Go JSON exactly (see
-// docs/skill-content-targets.md, skill-content-preview.md and skill-content-receipts.md); optional fields are
-// omitempty on the server. The wrappers hold no logic. None of them reads a revision's file bytes: the
-// library's revision read is deliberately absent, and revision lists come from getPrivateRevisions (metadata).
-export type ContentIssue = { path: string; code: string }
-export type ContentFile = { path: string; bytes: number; digest: string; executable: boolean }
-export type ContentManifest = { schemaVersion: number; algorithm: string; modeSemantics: string; complete: boolean; files: ContentFile[]; totalBytes: number; digest?: string; issues?: ContentIssue[] }
-export type ContentPin = { id: string; environmentId: string; agentId: string; name: string; bundleId: string; revisionId: string; manifestDigest: string; mode: string; version: string; updatedAt: number; verification: string }
-export type ContentPinWrite = { environmentId: string; agentId: string; bundleId: string; revisionId: string; mode: 'additive' | 'managed'; expectedVersion: string }
-export type ContentCapture = { schemaVersion: number; adapter: string; rootId: string; rootOwnership: string; presence: string; complete: boolean; manifest?: ContentManifest; issues: ContentIssue[] }
-export type ContentTarget = { ownerId: number; agentId: string; environmentId: string; generation: string; rootId: string; skillName: string; adapter: string; schema: number }
-// The planner's snapshot carries its inventoryRevision as a JSON number, which a browser cannot hold exactly
-// for a 63-bit value. Nothing here compares it; ContentPreview.inventoryRevision is the string to use.
-export type ContentSnapshot = {
-  inventoryRevision: number
-  target: ContentTarget
-  desired: { ownerId: number; bundleId: string; revisionId: string; name: string; manifest: ContentManifest }
-  observation: { inventoryRevision: number; generation: string; presence: string; complete: boolean; receivedAt: number; manifest?: ContentManifest }
-  baseline?: { target: ContentTarget; bundleId: string; revisionId: string; manifest: ContentManifest }
-  rootOwnership: string
-  mode: string
-}
-export type ContentPlan = {
-  version: number
-  preconditions: ContentSnapshot
-  ready: boolean
-  actions: { path: string; kind: string; before?: ContentFile; after?: ContentFile }[]
-  conflicts: { path: string; code: string }[]
-  preserved: { path: string; reason: string }[]
-  expectedInstalled?: ContentManifest
-  expectedManaged?: ContentManifest
-  hash: string
-}
-export type AdoptionCandidate = { revisionId: string; matched: number; observedOnly: number; revisionOnly: number }
-export type AdoptionOffer = { candidates: AdoptionCandidate[] }
-export type AdoptionFile = { path: string; bytes: number; digest: string; executable: boolean; status: 'claimed' | 'stays_yours' | 'library_only' }
-export type AdoptionBreakdown = { revisionId: string; files: AdoptionFile[]; matched: number; observedOnly: number; revisionOnly: number }
-export type ContentPreview = {
-  id: string; requestKey: string; targetId: string; targetVersion: string; environmentId: string; agentId: string; agent: string; project: string; name: string
-  bundleId: string; revisionId: string; manifestDigest: string; mode: string
-  instanceId: string
-  // A 63-bit random value, so it travels as a string.
-  inventoryRevision: string
-  state: string; reasons: string[]; createdAt: number; updatedAt: number; expiresAt: number
-  capturedAt?: number; capture?: ContentCapture; captureHash?: string; receiptVersion?: string; plan?: ContentPlan; reviewHash?: string
-  authority: string; error?: string
-  // Item reads only, never listed.
-  adoption?: AdoptionOffer
-}
-export type ContentPreviewCapability = { agentId: string; ready: boolean; observedAt: number }
-export type ContentReceipt = {
-  id: string; environmentId: string; agentId: string; name: string; bundleId: string; revisionId: string; managedDigest: string; fileCount: number
-  // Item reads only.
-  managed?: ContentManifest
-  // Listed rows whose stored data no longer decodes: only the identity and version are good, and it can still be released.
-  damaged?: boolean
-  provenance: string; verification: string
-  evidence: { previewId: string; reviewHash: string; captureHash: string; observedDigest: string; pinId: string; pinVersion: string; capturedAt: number; adoptedAt: number; adoptedBy: number }
-  version: string; createdAt: number; updatedAt: number
-}
-export async function getContentPins(signal?: AbortSignal): Promise<{ targets: ContentPin[] }> { return (await req('/api/v2/skill-content-targets', { signal })).json() }
-export async function saveContentPin(input: ContentPinWrite): Promise<ContentPin> { return (await req('/api/v2/skill-content-targets', { method: 'POST', body: json(input) })).json() }
-export async function removeContentPin(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-targets/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
-export async function getContentPreviews(signal?: AbortSignal): Promise<{ previews: ContentPreview[]; capabilities: ContentPreviewCapability[] }> { return (await req('/api/v2/skill-content-previews', { signal })).json() }
-export async function getContentPreview(id: string, signal?: AbortSignal): Promise<ContentPreview> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}`, { signal })).json() }
-export async function requestContentPreview(input: { requestKey: string; targetId: string; expectedTargetVersion: string }): Promise<ContentPreview> { return (await req('/api/v2/skill-content-previews', { method: 'POST', body: json(input) })).json() }
-export async function stopContentPreview(id: string): Promise<ContentPreview> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: json({}) })).json() }
-export async function dismissContentPreview(id: string): Promise<{ ok: boolean }> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(id)}`, { method: 'DELETE' })).json() }
-export async function getContentReceipts(signal?: AbortSignal): Promise<{ receipts: ContentReceipt[] }> { return (await req('/api/v2/skill-content-receipts', { signal })).json() }
-export async function adoptContent(input: { requestKey: string; previewId: string; reviewHash: string; adoptAsRevisionId: string }): Promise<ContentReceipt> { return (await req('/api/v2/skill-content-receipts', { method: 'POST', body: json(input) })).json() }
-export async function releaseContentReceipt(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-receipts/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
-export async function getAdoptionBreakdown(previewId: string, revisionId: string, signal?: AbortSignal): Promise<AdoptionBreakdown> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(previewId)}/adoption/${encodeURIComponent(revisionId)}`, { signal })).json() }
-
-export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}
-
 export type LibraryItem = {
   id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string
   /** For safe status changes: the version this view was read at. */
@@ -1605,7 +1527,6 @@ export type LibraryItem = {
   aliases?: { kind: string; reference: string }[]
 }
 /** One saved version of an item: whether it became current or was kept beside the current one. */
-export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
 export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
 export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
 /** One saved version of a library skill. kind is how it was saved: user or fork (written in reet), edit, original
@@ -1619,8 +1540,3 @@ export async function getSkillHistory(item: string): Promise<SkillVersion[]> {
 export async function putBackSkillVersion(item: string, revision: string, head: string): Promise<{ revision: string; publicProblem?: string }> {
   return (await req(`/api/v2/library-history/${encodeURIComponent(item)}/restore`, { method: 'POST', body: json({ revision, head }) })).json()
 }
-export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
-  const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
-  return response.json()
-}
-export async function saveLibrarySelection(selection: LibrarySelection): Promise<LibrarySelection> { return (await req('/api/v2/library/selections', {method:'PUT', body:json(selection)})).json() }

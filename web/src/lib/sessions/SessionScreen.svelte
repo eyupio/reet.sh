@@ -5,7 +5,7 @@
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, type Snippet } from 'svelte'
-  import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
+  import { loadMachineState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
@@ -96,7 +96,7 @@
   let sync = $state<SyncState | null | undefined>(undefined)
   onMount(() => {
     const life = new AbortController()
-    void getSyncState(life.signal).then(state => { sync = state }).catch(() => { if (!life.signal.aborted) sync = null })
+    void loadMachineState(life.signal).then(state => { sync = state }).catch(() => { if (!life.signal.aborted) sync = null })
     return () => life.abort()
   })
 
@@ -165,7 +165,7 @@
   // The fleet strip's own figures for this machine: its reporting state and its skills line.
   const card = $derived.by<FleetCard | undefined>(() => {
     const entry: MachineHealth = reported ?? { agentId: session.agentId, host, state: '' }
-    return sync ? fleetCards([entry], sessions, sync, now)[0] : reported ? fleetCards([entry], sessions, { environments: [], targets: [] }, now)[0] : undefined
+    return sync ? fleetCards([entry], sessions, sync, now)[0] : reported ? fleetCards([entry], sessions, { environments: [] }, now)[0] : undefined
   })
   const status = $derived(reported ? card?.status : undefined)
   const skills = $derived(sync === undefined ? undefined : sync === null ? null : card?.skills ?? null)

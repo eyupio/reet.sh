@@ -1,4 +1,3 @@
-import type { Stage } from './shelf'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -23,16 +22,7 @@ export function elapsed(ts: number): string {
   return `${n} ${name}${n === 1 ? '' : 's'}`
 }
 
-export function sinceLabel(stage: Stage, ts: number): string {
-  if (stage === 'use') {
-    return `In use since ${new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
-  }
-  if (stage === 'try') {
-    const age = elapsed(ts)
-    return age === 'just now' ? 'To test just now' : `To test for ${age}`
-  }
-  return `Parked ${elapsed(ts)}`
-}
+
 
 /** One absolute timestamp for a title: the person's date order and time zone, without seconds. */
 export function formatWhen(ts: number, timeZone = '', dateFormat = 'locale'): string {
@@ -53,4 +43,14 @@ export function isStale(ts: number): boolean {
 
 export function isOldEnvironment(ts: number): boolean {
   return Date.now() - ts >= 90 * DAY
+}
+
+export function agoLabel(at: number, now = Date.now()): string {
+  if (!at) return 'never'
+  const ms = Math.max(0, now - at)
+  if (ms < 60_000) return 'just now'
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} hr ago`
+  const days = Math.floor(ms / 86_400_000)
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`
 }

@@ -21,7 +21,6 @@
     busy,
     onautoupdate,
     onpause,
-    onscan,
     onswitch,
     onrevoke,
     onforget,
@@ -35,7 +34,6 @@
     busy: boolean
     onautoupdate: (enabled: boolean) => void
     onpause: () => void
-    onscan: () => void
     onswitch: () => void
     onrevoke: () => void
     onforget: () => void
@@ -291,8 +289,8 @@
         <h3 id={`${id}-sync`}>Sync</h3>
         <div class="row">
           <div class="copy">
-            <strong id={`${id}-pause`}>Pause sync jobs</strong>
-            <small>While paused, no new sync jobs, scans or updates run on this machine. A job already running may finish.</small>
+            <strong id={`${id}-pause`}>Pause sync</strong>
+            <small>While paused, this machine is left alone. Resume to follow the library again.</small>
           </div>
           <button type="button" role="switch" class="switch" aria-checked={agent.paused} aria-labelledby={`${id}-pause`} disabled={busy} onclick={onpause}>
             <span class="knob" aria-hidden="true"></span>
@@ -301,9 +299,9 @@
         <div class="row">
           <div class="copy">
             <strong>Inventory</strong>
-            <small>Ask the agent to report its installed skills again. Nothing is installed or removed.</small>
+            <small>The connector reports installed skills automatically. A local scan refreshes inventory without changing files.</small>
           </div>
-          <button class="btn" type="button" disabled={busy || agent.paused} onclick={onscan}>Scan now</button>
+          <p class="hint">Inventory refreshes automatically. Use Commands on the machine card for an immediate local scan.</p>
         </div>
       </section>
     {/if}
@@ -421,7 +419,7 @@
       <div class="row">
         <div class="copy">
           <strong>Forget this machine</strong>
-          <small>Remove its inventory reports and saved sync references here. Enrollment stays, and a future scan can report it again.</small>
+          <small>Remove its inventory reports and machine reports here. Enrollment stays, and a future scan can report it again.</small>
         </div>
         <button class="btn danger" type="button" disabled={busy} onclick={onforget}>Forget machine…</button>
       </div>
@@ -429,7 +427,7 @@
         <div class="row">
           <div class="copy">
             <strong>Forget one agent report</strong>
-            <small>Remove one install location's inventory report and sync plan. Installed files and library entries stay; a future scan can report it again.</small>
+            <small>Remove one install location's inventory report. Installed files and library entries stay; a future scan can report it again.</small>
           </div>
         </div>
         <div class="scope-actions">

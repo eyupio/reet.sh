@@ -1,15 +1,14 @@
 ---
 title: Sync AI agent skills between machines · reet.sh
-description: Scan your machines, choose a source and destinations, then review and approve the exact skill-sync
-  plan before anything changes.
+description: Keep Active skills on every connected machine, archive them in place, and recover saved copies.
 topic: SKILLS & SYNC
 category: skills
 art: skills
 art_icon: branch
 art_label: IN GOOD ORDER
-card_title: Same skills. Every machine. A plan you can trust.
+card_title: Active skills. Every connected machine.
 hero_title: Same skills. Every machine.
-hero_accent: A plan you can trust.
+hero_accent: One library to follow.
 related:
 - controller-sync.md
 - machine-skill-import.md
@@ -18,106 +17,63 @@ layout: article
 
 # Sync skills between machines
 
-A skill that only exists on your laptop is not much use on the VPS. Reet keeps one shared library on your connected machines. Add a machine once; its first complete scan sets up sync. Add a skill or write a private draft; connected machines follow automatically. **Sync all machines** brings the whole fleet up to date immediately.
+Your library in reet is the source of truth. Every connected machine follows it automatically.
 
-The Sync page opens with one sentence and one button. The sentence says where the fleet stands (*Everything is in sync.*, *2 machines need syncing.*, *Syncing your machines…*) and the button, **Sync all machines**, does the rest. A machine that is switched off is not behind: it catches up when it reconnects, and the sentence says so. A paused machine is left alone and named. The same button is on the Skills page, in the toast after you add a skill and beside a saved written skill, and in each place it works where it is: the activity panel follows it live, and when nothing needs doing one line says where things stand. With no machine yet, or on a read-only account, those open the Sync page instead.
+| Choice | In reet | On connected machines |
+| --- | --- | --- |
+| Active | Content, notes, tags and history are kept | Installs the current saved version |
+| Archived | Kept for later | Backs up and removes the skill |
+| Delete | Removes the entry | Backs up and removes its copies |
 
-The library combines your shelf and your own written skills. Written skills use private immutable revisions, including when they are published, so saving an edit changes the revision machines receive. Machine-only skills are copied privately through their enrolled source machine. Files needing review remain visible in Sync. Offline machines catch up when they reconnect; paused machines remain paused.
+## Get started
 
-Automatic sync covers supported home folders: Shared agents / Codex, Claude, Cursor and OpenCode. Project folders remain explicit. Other local skills are kept, and replacements are backed up. Edit written skills in Reet; a captured machine-only skill is a saved snapshot, not a live filesystem mirror.
+1. [Connect a machine](controller-sync.md#connect-a-machine) and allow local skill writes.
+2. Add a skill by link or write one. New skills start Active. Community **Save** and a list's **Add all** offer Active or Archived before saving.
+3. Open **Sync** to see each machine's progress. No separate sync plan needs saving or approving.
 
-This guide covers the explicit preview-and-approve path in **Advanced sync**: scan what is there, choose a source and destinations, preview the exact plan, approve it, and check the result.
+An Active skill applies to every connected machine. Lists, tags and likes organise skills; they do not choose destinations.
 
-!!! note "Shared library is the default"
-    **Sync all machines** enables the shared library on every enrolled machine, including offline machines. The Add a machine command enables local apply as part of connection. Existing scan-only enrollments still need `reet agent allow-apply on` on that machine. For a custom home-folder plan, turn **Automatic sync** off for that machine first; project plans remain explicit. The rest of this guide describes Advanced sync.
+## Review skills found on a machine
 
-## What sync does and does not do
+A skill that reet did not install waits under **Skills → New on a machine**, also linked from Home's **Waiting for you**. It is left alone until you decide:
 
-- It installs, replaces or removes skills in the folders your tools read.
-- It shows a concrete plan before anything changes.
-- It keeps a backup of a replaced local copy under `.reet-sync-backups`. To get one back, run the command the Sync page shows for that job on that machine, `reet agent restore --target ID --backup PATH`, which puts that exact backup back where it was. `reet agent restore NAME` restores the newest backup of a skill from the home skills folders, and `reet agent restore --list` shows those backups and a job's backups beside a project's or Codex's skills folder, each with the command that restores it.
-- It matches skills by identity and source, not by file contents or upstream commit.
-- It does not publish private skills, upload arbitrary local files, or change a machine that has not opted in to remote apply.
+- **Keep** takes a private copy from that machine and makes it Active. Other machines receive it once the capture succeeds.
+- **Archive** keeps it in reet and takes it off machines.
 
-## 1. Enrol the machines
+An Archived skill that reappears is removed again. A Deleted skill that reappears is treated as new, so you decide again. An inventory scan alone never adds a skill to your library.
 
-Install the `reet` binary on each machine and enrol it from **Machines → Add a machine** in the controller. The dialog gives you the exact command:
+## Prune without losing your place
 
-```sh
-export REET_URL='https://reet.example.com'
-# Set REET_TOKEN to this machine's personal API token privately.
-reet agent enroll --env work-laptop --allow-apply
-reet agent run
-```
+Use **Archive**, **Restore** or **Delete** on a card or a selection of cards. The current tab, filters and scroll position stay in place. **Undo** reverses a mistaken action. A short grace period lets Undo cancel work before it reaches machines.
 
-Use `--allow-apply` only on machines where you want plans approved in the web UI to run. Without it, the controller can still scan and preview, but applying is refused locally.
+Deleting your own written skill asks for confirmation. If reet has no saved content for a skill, deletion requires confirmation that there is no copy to recover from reet. Machine backups remain a separate recovery route.
 
-For a machine with several project folders, add repeatable absolute paths:
+## Follow progress
 
-```sh
-reet agent enroll --env work-laptop --project /work/app --project /work/docs --allow-apply
-```
+**Sync** shows a sentence for the fleet, a row for each machine and recent activity. A change saved in reet can still be waiting for a machine; it is not reported as installed or removed until the machine answers.
 
-## 2. Scan what is there
+- An offline machine catches up when it reconnects.
+- A paused machine is left alone. Resume it when it should follow the library again.
+- **Retry** asks a failed machine to try again on its next poll, clearing its retry wait. It does not mean the repair has succeeded.
+- An older connector may need updating before it can accept skill work.
+- A machine that cannot write skills shows the local command needed to allow it.
 
-The connector reports an inventory once a minute. To refresh it on demand, use **Scan all** on the Machines page, or run the scanner on the machine:
+## Where files go
 
-```sh
-reet scan --server https://reet.example.com --token "$REET_TOKEN" --env work-laptop --prune
-```
+Reet manages `~/.agents/skills`, creating it when needed, and the existing `~/.claude/skills`, `~/.cursor/skills` and `~/.config/opencode/skills` folders. Cursor and OpenCode copies link to the shared agents copy; Claude keeps its own copy. Folders that resolve to the same managed location are handled once.
 
-`--prune` removes the environment link for skills that are no longer in a scanned folder; the skill and its notes stay. Add `--dry-run` to preview the scan.
+Project folders, `~/.codex/skills` and custom agent configuration roots are outside this reconcile loop. Reet does not install the agent application as part of skill sync.
 
-A complete, recent scan is required before a target can be saved for sync. Stale, incomplete and heartbeat-only reports cannot confirm what a machine has.
+## Edits, originals and recovery
 
-## 3. Choose a source and destinations
+Edit an opened skill in reet to save a new revision. All machines receive that revision. The original link remains a reference: **Update from original** shows the file changes and asks before replacing reet's copy. It can also fetch the first copy when reet has no content yet.
 
-Open **Machines → Sync** and follow the **Advanced sync** link (the page is `/sync/advanced`). Start from one of these sources:
+If someone edits a managed copy on a machine, reet backs up that edit and replaces it with its saved version. **Use this version** in the opened skill adopts the machine's saved edit into reet, after which machines follow it. **History → Put back** restores an earlier saved library version after confirmation.
 
-- **Reet.sh shelf & lists** — your personal shelf, or a list you can read.
-- **My reet.sh skills** — published skills by their public URL, and unpublished drafts served privately from this controller.
-- **A reported machine or agent scope** — use a machine you already trust as the reference.
+Machine backups are retained for 30 days. For local recovery, see [setup and recovery](controller-sync.md#recover-a-machine-copy).
 
-Select the skills you want, then choose one destination or **All machines**. Adjust individual scopes if a machine needs something different.
+## Upgrading from the old model
 
-Saving a desired set is separate from previewing and applying it. Nothing installs because you bookmarked a skill, added it to a list, or saved a selection.
+In use and To test become Active; Parked becomes Archived. Archive and Delete now affect machine files. Update the controller and connectors together; connectors below skills protocol 2 receive no skill work.
 
-## 4. Review the exact plan
-
-Choose **Preview on machine**. The agent reads the current files, validates the sources and returns a plan: what will be added, replaced, removed or left alone.
-
-Read the plan. It is the moment to catch a wrong folder, a source conflict or an extra you did not mean to remove.
-
-Then choose **Apply changes**. The agent checks the enrolment, target, desired revision, local plan hash and filesystem state again before writing. If anything changed, the plan fails and you need a fresh preview.
-
-## 5. Check the result
-
-**Sync activity**, on Advanced sync and as **Recent activity** on the Sync page, shows queued, running, awaiting approval, succeeded, failed and cancelled jobs. A successful apply rescans and records the desired revision.
-
-When a run has a failure or something waiting for review, the page opens with a **Needs you** strip. Read the exact command or reason on the card before retrying; a retry asks for a fresh preview rather than replaying an old approval.
-
-## Modes
-
-- **Add selected skills; keep extras** is the default. It installs missing selected skills and leaves other local skills alone.
-- **Exact set** also removes known-source extras after plan approval. Unknown local-only files and shared-folder conflicts stay blocked.
-- **Bidirectional; review local and web changes** keeps a common set for three-way comparison. Use **Review local & web changes** to combine drift, resolve conflicts and save a new reviewed selection.
-
-Start with the default mode. Move to exact or bidirectional only when you want the destination to match the selection precisely.
-
-## Troubleshooting
-
-- **A machine is skipped.** It is offline, paused, stale or incomplete, or a preview is already pending. The reason is shown in the UI.
-- **Apply fails without changing anything.** Remote apply is off on that machine. Run `reet agent allow-apply on` there, or re-enrol with `--allow-apply`.
-- **The plan changed before it ran.** The files, source revision or target changed between preview and apply. Reet asks the machine for a fresh plan automatically and continues, up to a bounded number of attempts; after that, preview again and review the new plan.
-- **A skill could not be installed.** The plan was right and one install failed. The card names the skill and says what the installer on the machine said, for example that the source has no skill of that name or that the network could not be reached. Skills installed before it stay in place. Fix the cause, then retry. A machine on an older reet reports only an exit status; update reet there to see the reason.
-- **A skill is unknown or unlinked.** Link it to its source, or publish a supported bundle, before selecting it for installation.
-- **Two known sources have the same name.** When you choose skills yourself, resolve the source conflict explicitly. reet does not guess which one you meant. If the plan disagrees with a copy another agent already holds on the same machine, sync follows the one installed source automatically and records what it changed; when a name is installed from more than one source there is no single safe source to follow, so it is left for you to unlink and the Sync page says why. The shared library behind **Sync all machines** is different: only one copy of a name fits in a skills folder, so it keeps the copy a saved plan already installs (otherwise the oldest on your shelf), leaves the other where it is, and names it on the Sync page.
-
-## Limits
-
-- A skill is installed by the `skills` CLI into a folder made from the skill's own name, which is not always the catalogue's name for it ("UI/UX Design Review" is catalogued as `uiux-design-review` and installed as `ui-ux-design-review`). reet treats that folder as the skill you selected when it came from the same source. If your shelf already holds a separate skill under the folder's name from an earlier scan, remove that one so the folder is read as the catalogued skill.
-- Sync matches identity and source, not bytes. Two skills with the same name from different sources are not the same skill.
-- A replacement backs up the installed local copy, but you should still keep your own backups.
-- Applying content changes to private machine skill files is not available yet; the current reviewed path covers installation and replacement through the supported sync flow.
-
-For the full set of controls, read [Skills and enrolled machines](controller-sync.md).
+Per-machine skill selections, exact sets, list-based plans, preview/approve jobs and the old sync engine are superseded. `reet sync` and `reet agent library-import` only print what replaced them and exit with code 2. Setups skip skill folders, including those in older snapshots; skills come from the library.

@@ -58,6 +58,7 @@ async function open(options={}) {
  const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[], lists:0,
   desks:options.desks ?? [], deskDocs:options.deskDocs ?? {}, desksFail:!!options.desksFail}
  const routes = {
+  '/api/v2/sync/skills': {active:1,activity:[],work:{},machines:[{agentId:'a1',host:'studio',state:'ok',lastSeen:Date.now()-3*MIN,failed:[],waiting:[]}]},
   '/api/v2/desks': () => box.desksFail ? {status:503,json:{error:'unavailable'}} : {desks:box.desks},
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
@@ -640,8 +641,8 @@ try {
   await expect(fact(page,'Worktree')).toHaveText('Own worktree')
   // Skills on this machine: the fleet card's line, and Manage opens that machine's skills.
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
-  await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · checked 3 min ago/)
-  await expect(panel(page).getByRole('link',{name:'Manage skills on studio'})).toHaveAttribute('href','/machines?view=compare&machine=studio')
+  await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · connector seen 3 min ago/)
+  await expect(panel(page).getByRole('link',{name:'Manage skills on studio'})).toHaveAttribute('href','/skills')
   // A session in the project's own checkout, on another machine, with no branch recorded.
   await sidebarRow(page, 'Speed up the runner pool').click()
   await expect(fact(page,'Machine')).toHaveText(/^server\s*●\s*online$/)

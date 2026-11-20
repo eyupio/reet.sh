@@ -1,5 +1,30 @@
 # Reet central-control implementation handoff
 
+## FACTORY-STAGES-LIST-1: finished Factory stages off Home and the session lists (20 November 2026)
+
+The owner asked: "Stop showing factory-finished stages on the home page and in sessions, as it's very confusing for
+the user. We only need to be showing the umbrella factory item and not them within."
+
+**What was built.** `offFinishedFactory` and `finishedFactorySessions` (`web/src/lib/gafferOutcome.ts`) take out of a
+session list every session whose `FactoryMember.working` is false: an earlier stage's session, or any stage of a
+pipeline the controller is no longer moving. The stage in hand stays, marked with its stage. Home's `listed` (Continue
+working, the planning board, the open count and project running counts) applies it after `offDesks`; its `factory`
+map is now built from every outcome, archived ones too, so a put-away outcome's stages leave with it while its items
+still draw only from the unarchived list. `SessionsPage.svelte` reads `listGafferOutcomes` in its 15-second batch and
+filters through the same helper; the workspace (`TerminalWorkspace.svelte`) reads the outcomes with its other inventory
+(bounded to four seconds on its own, so a slow Factory cannot hold up the sessions), filters the sidebar, the resume
+list, the panel count and the project running counts, and never selects a hidden session on first load. A failed or
+absent Factory read keeps the last map and, with nothing read, every session shows exactly as before.
+
+**Checked.** `gafferOutcome.test.mjs` gained the finished-stage case (`s1` earlier stage and `s3` finished pipeline
+leave, `s2` in hand and a plain session stay; an empty map keeps everything). Full `npm test`, `svelte-check` and the
+web build pass. `docs/session-board.md` and `docs/factory.md` now describe the stage in hand being listed and the
+finished stages being left to the pipeline; `CHANGELOG.md` records the change.
+
+**Not checked.** No browser suite was run against the changed lists; the existing `gaffer-goal.e2e.mjs` fixture keeps
+its stage in hand, so its marker still shows, but a case for a finished stage disappearing from Home, Sessions and the
+workspace sidebar is still to add. No real controller, archived outcome or desk-and-Factory session was exercised.
+
 ## FACTORY-GITHUB-1: GitHub facts beside a Factory pipeline (20 November 2026)
 
 The owner asked for more GitHub metadata on the Factory item detail: the pull request number and link, the stages of CI

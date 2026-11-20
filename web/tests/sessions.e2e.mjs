@@ -641,7 +641,7 @@ try {
   await expect(fact(page,'Worktree')).toHaveText('Own worktree')
   // Skills on this machine: the fleet card's line, and Manage opens that machine's skills.
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
-  await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · checked 3 min ago/)
+  await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · connector seen 3 min ago/)
   await expect(panel(page).getByRole('link',{name:'Manage skills on studio'})).toHaveAttribute('href','/skills')
   // A session in the project's own checkout, on another machine, with no branch recorded.
   await sidebarRow(page, 'Speed up the runner pool').click()

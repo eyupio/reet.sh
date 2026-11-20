@@ -64,7 +64,7 @@
   void clock
   if (!host || !snapshot || captured?.key !== key) return undefined
   // A fresh clock reading every time the state is asked, never a value held from earlier.
-  return joinSyncState(joinState({ name: host, machines, agents: snapshot.agents ?? [], baseline: captured.baseline, now: Date.now() }), canonical, snapshot, skills)
+  return joinSyncState(joinState({ name: host, machines, agents: snapshot.agents ?? [], baseline: captured.baseline, now: Date.now() }), skills)
  })
  const status = $derived.by(() => {
   if (signedOut) return { stage: 'unknown', label: SIGNED_OUT, detail: '', canUse: false }

@@ -124,7 +124,7 @@ function ago(ms: number): string {
 function skillsOf(agentId: string, sync: SyncState, now: number): FleetCard['skills'] {
   const report = sync.skillReports?.machines.find(m => m.agentId === agentId)
   if (!report) return { text: 'Not checked', tone: 'muted' }
-  if (report.state === 'ok') return { text: `skills in sync · checked ${ago(Math.max(0, now - report.lastSeen))}`, tone: 'good' }
+  if (report.state === 'ok') return { text: `skills in sync · connector seen ${ago(Math.max(0, now - report.lastSeen))}`, tone: 'good' }
   const labels = {installing:'Installing skills',removing:'Removing skills',updating:'Updating skills',paused:'Skill sync paused',offline:'Skill sync offline',blocked:"Can't write skills",failed:'Skill sync failed','needs-update':'Update connector for skills','needs-newer-controller':'Update controller for skills'}
   return { text: labels[report.state] ?? 'Not checked', tone: 'warn' }
 }

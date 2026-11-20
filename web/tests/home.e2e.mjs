@@ -255,12 +255,12 @@ try {
   const studio = card(page,'studio')
   await expect(studio).toBeVisible()
   await expect(studio).toHaveAttribute('href','/machines?machine=studio')
-  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, memory 0%, disk 1 B free, skills in sync · checked 5 min ago, 2 agents installed, installed skills not reported, MCP servers not reported, Linux$/)
+  await expect(studio).toHaveAccessibleName(/^studio, online, 2 sessions running, 1 worktree in use, CPU 38%, memory 0%, disk 1 B free, skills in sync · connector seen 5 min ago, 2 agents installed, installed skills not reported, MCP servers not reported, Linux$/)
   await expect(studio.locator('.figure')).toHaveText('2')
   await expect(studio).toContainText('sessions running')
   await expect(studio.locator('.os')).toHaveText('Linux')
   await expect(studio.locator('.cpu')).toHaveText(/CPU\s*38%/)
-  await expect(studio.locator('.skills')).toHaveText('skills in sync · checked 5 min ago')
+  await expect(studio.locator('.skills')).toHaveText('skills in sync · connector seen 5 min ago')
   await expect(studio.locator('.skills')).toHaveClass(/good/)
   // The pills report what the last scan says is installed: the machine's launchable agents, its distinct synced skills
   // and MCP, which no agent reports yet.

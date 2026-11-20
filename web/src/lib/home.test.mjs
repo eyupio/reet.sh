@@ -143,7 +143,7 @@ test('skills line uses reconcile reports and never falls back to inventory or re
  assert.deepEqual(line(emptySync()),{text:'Not checked',tone:'muted'})
  assert.deepEqual(line(syncWith([job('old','a1','t1','preview','awaiting-approval',0,NOW)])),{text:'Not checked',tone:'muted'})
  const state=report=>({...emptySync(),skillReports:{machines:[{agentId:'a1',state:report,lastSeen:NOW-HOUR}]}})
- assert.deepEqual(line(state('ok')),{text:'skills in sync · checked 1 h ago',tone:'good'})
+ assert.deepEqual(line(state('ok')),{text:'skills in sync · connector seen 1 h ago',tone:'good'})
  assert.deepEqual(line(state('failed')),{text:'Skill sync failed',tone:'warn'})
  assert.deepEqual(line(state('offline')),{text:'Skill sync offline',tone:'warn'})
 })

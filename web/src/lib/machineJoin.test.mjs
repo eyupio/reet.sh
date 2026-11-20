@@ -31,13 +31,12 @@ const view = (changes = {}) => joinState({ name: 'studio', machines: [readyMachi
 
 test('new machine setup waits for a reconcile report rather than an inventory or old plan', () => {
   const ready = view()
-  const state = { agents:[agent()], targets:[], jobs:[], environments:[] }
   const health = state => ({active:1,machines:[{agentId:'a1',host:'studio',state,waiting:[],failed:[]}]})
-  assert.equal(join.joinSyncState(ready,'studio',state).canUse,false)
-  assert.equal(join.joinSyncState(ready,'studio',state,health('installing')).stage,'syncing')
-  assert.equal(join.joinSyncState(ready,'studio',state,health('ok')).label,'Ready · library in sync')
-  for (const status of ['failed','paused','offline','blocked','needs-update','needs-newer-controller']) assert.equal(join.joinSyncState(ready,'studio',state,health(status)).stage,'sync_issue')
-  assert.equal(join.joinSyncState({...ready,stage:'first_scan'},'studio',state,health('ok')).stage,'first_scan')
+  assert.equal(join.joinSyncState(ready).canUse,false)
+  assert.equal(join.joinSyncState(ready,health('installing')).stage,'syncing')
+  assert.equal(join.joinSyncState(ready,health('ok')).label,'Ready · library in sync')
+  for (const status of ['failed','paused','offline','blocked','needs-update','needs-newer-controller']) assert.equal(join.joinSyncState(ready,health(status)).stage,'sync_issue')
+  assert.equal(join.joinSyncState({...ready,stage:'first_scan'},health('ok')).stage,'first_scan')
 })
 
 test('validateMachineName trims and refuses empty, too long and control characters, each with its own reason', () => {
@@ -358,4 +357,13 @@ test('alias handling never throws on odd machines', () => {
     assert.doesNotThrow(() => joinBaseline('old', [agent()], ms))
     assert.doesNotThrow(() => view({ name: 'old', machines: ms }))
   }
+})
+
+test('replacement connector waits for its own library report', () => {
+  const ready = view({ agents: [agent(), agent({ id: 'a2' })], baseline: { agentIds: ['a1'], scannedAt: 0 } })
+  const old = { agentId: 'a1', state: 'ok', waiting: [], failed: [] }
+  const replacement = { ...old, agentId: 'a2' }
+  assert.equal(join.joinSyncState(ready, { machines: [old] }).canUse, false)
+  assert.equal(join.joinSyncState(ready, { machines: [old, { ...replacement, state: 'installing' }] }).canUse, false)
+  assert.equal(join.joinSyncState(ready, { machines: [old, replacement] }).canUse, true)
 })

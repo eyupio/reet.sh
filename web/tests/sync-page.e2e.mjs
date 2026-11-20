@@ -100,7 +100,7 @@ try {
   await expect(row(page, 'ThinkPad')).toContainText('2 skills failed: seo-cluster and seo-profound')
   await expect(row(page, 'ThinkPad')).toContainText('seo-cluster: No write access to ~/.claude/skills')
   await expect(row(page, 'ThinkPad')).toContainText('seo-profound: Disk full')
-  await expect(row(page, 'Elitebook')).toContainText('In sync · 118 skills · checked 2 min ago')
+  await expect(row(page, 'Elitebook')).toContainText('In sync · 118 skills · connector seen 2 min ago')
   await expect(row(page, 'studio')).toContainText("Offline · last seen 3 h ago · catches up when it's back")
   await expect(row(page, 'studio')).toContainText('Waiting: seo-bing and seo-profound.')
   await expect(row(page, 'build-box')).toContainText('Paused by you · left alone')

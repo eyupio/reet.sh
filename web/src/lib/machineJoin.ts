@@ -36,15 +36,15 @@ export function joinCommands(site: string, name: string, channel: ReleaseChannel
 }
 
 export type JoinStage = 'waiting' | 'already_here' | 'connected' | 'first_scan' | 'syncing' | 'sync_issue' | 'ready' | 'unknown'
-export type JoinView = { stage: JoinStage; label: string; detail: string; canUse: boolean }
+export type JoinView = { stage: JoinStage; label: string; detail: string; canUse: boolean; connectorIds?: string[] }
 /** What was already reporting under the name: connector ids, and the newest complete supported scan (0 if none). */
 export type JoinBaseline = { agentIds: string[]; scannedAt: number } | null
 
 /** A first scan is only the start: new enrolments finish after library sync. */
-export function joinSyncState(view: JoinView, host: string, snapshot: import('./api').SyncState, skills: import('./api').SyncSkills | null = null): JoinView {
+export function joinSyncState(view: JoinView, skills: import('./api').SyncSkills | null = null): JoinView {
   if (view.stage !== 'ready') return view
-  const agent = snapshot.agents?.find(item => sameHost(item.host, host))
-  const report = skills?.machines.find(item => item.agentId === agent?.id)
+  const reports = skills?.machines.filter(item => view.connectorIds?.includes(item.agentId)) ?? []
+  const report = reports.find(item => item.state === 'ok') ?? reports[0]
   if (!report) return { stage: 'syncing', label: 'Waiting for skill sync report', detail: 'The connection and inventory arrived. Reet is waiting for this machine to confirm its library state.', canUse: false }
   if (report.state === 'ok') return { stage: 'ready', label: 'Ready · library in sync', detail: 'Active skills follow your library automatically.', canUse: true }
   if (['installing', 'removing', 'updating'].includes(report.state)) return { stage: 'syncing', label: 'Syncing your skill library', detail: 'This machine is applying the library. You can close this dialog; sync continues.', canUse: false }
@@ -128,7 +128,7 @@ function normal(host: string, typed: string, connectors: SyncAgent[], machines: 
   const j = judge(host, connectors, machines, now, after)
   if (j.paused) return { stage: 'connected', label: 'Connected', detail: PAUSED, canUse: false }
   if (!j.scanned) return { stage: 'first_scan', label: 'Waiting for its first scan', detail: 'A connector has reported in. ' + NO_SCAN, canUse: false }
-  return { stage: 'ready', label: 'Ready', detail: 'A connector has reported in and a complete scan of an agent folder has arrived. That does not show the machine works as you expect.', canUse: true }
+  return { stage: 'ready', label: 'Ready', detail: 'A connector has reported in and a complete scan of an agent folder has arrived. That does not show the machine works as you expect.', canUse: true, connectorIds: connectors.filter(agent => !agent.paused).map(agent => agent.id) }
 }
 
 export const joinDelay = (failures: number): number => retryDelay(failures, 3000, 20000)

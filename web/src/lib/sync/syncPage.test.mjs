@@ -42,8 +42,8 @@ test('the lede counts the Active skills and names a paused machine', () => {
 
 test('each machine has a line for its state', () => {
   const cases = [
-    [m('ok'), 'In sync · 118 skills · checked 2 min ago', 'ok'],
-    [m('ok', { lastSeen: now - 5_000 }), 'In sync · 118 skills · checked just now', 'ok'],
+    [m('ok'), 'In sync · 118 skills · connector seen 2 min ago', 'ok'],
+    [m('ok', { lastSeen: now - 5_000 }), 'In sync · 118 skills · connector seen just now', 'ok'],
     [m('installing', { waiting: ['a', 'b'] }), 'Installing 2 skills…', 'work'],
     [m('removing', { waiting: ['a'] }), 'Taking 1 skill off…', 'work'],
     [m('updating', { waiting: ['a', 'b', 'c'] }), 'Updating 3 skills…', 'work'],

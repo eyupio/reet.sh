@@ -431,43 +431,80 @@
       </div>
       </div>
       {#if actionsOpen}
-      <WorkspaceDialog title="Session actions" onclose={closeActions}>
-      <p class="actions-context">{session.title} · {host}</p>
+      <WorkspaceDialog title="Session actions" subtitle={`${session.title} · ${host}`} onclose={closeActions}>
       <div class="session-tools" role="group" aria-label="Session controls" data-keeps-focus>
-      {#if canSwitchApproval}
-        <div class="approvals" role="group" aria-label="Approvals">
-          <button type="button" aria-pressed={approvalMode === 'ask'} disabled={busy || modeBusy} onclick={askMode}>Ask me</button>
-          <button type="button" aria-pressed={approvalMode === 'yolo'} disabled={busy || modeBusy}
-            title={yoloCanStart(switchGates) ? yoloSwitchTitle(session.tool ?? '') : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
-        </div>
-      {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
-      <p class="legacy-label">Restart in another interface</p>
-      <p class="legacy-note">This legacy action stops one agent process and starts another. Use Chat / Terminal in the header to change a supported view without restarting.</p>
-      {#if canSwitch || modeSwitching}
-        <label class="tui-picker">
-          <span class="vh">Session interface</span>
-          <select use:gafferTooltip aria-label="Session interface" value={chatView ? 'chat' : 'terminal'} aria-disabled={modeSwitching || undefined}
-            title={modeSwitching ? whyNot : 'Choose Gaffer or the agent TUI'}
-            onchange={event => { const pick = event.currentTarget.value, current = chatView ? 'chat' : 'terminal'; event.currentTarget.value = current; if (pick !== current && canSwitch) openSwitch(event.currentTarget) }}>
-            <option value="chat">Gaffer</option>
-            <option value="terminal">{terminalLabel}</option>
-          </select>
-        </label>
-      {:else}
-        <span class="tui-pill" use:gafferTooltip={chatView} title={whyNot} aria-label={`${chatView ? 'Gaffer' : terminalLabel}. ${whyNot}`}>{chatView ? 'Gaffer' : terminalLabel}</span>
-      {/if}
-      <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
-      <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
-        <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
-      </button>
-      <button type="button" class="tool-action" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
-      {#if session.worktreeBranch}<button type="button" class="tool-action secondary-action" onclick={() => void copyBranch()}>Copy branch</button>{/if}
-      {#if live}<button type="button" class="tool-action danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>{/if}
-      {#if terminalArchivable(session.state)}<button type="button" class="tool-action" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
-      {#if target}<button type="button" class="tool-action secondary-action" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
-        {#if live && onterminal}<button type="button" class="tool-action" aria-label="Terminal here" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span><span class="here-label">Terminal here</span></button>{/if}
-        {#if live && onside}<button type="button" class="tool-action secondary-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
-        {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
+        {#if canSwitchApproval}
+          <section class="panel-section">
+            <div class="section-heading">
+              <h3>Approvals</h3>
+              <p>{approvalMode === 'yolo' ? 'YOLO answers every tool call without asking you first.' : 'Ask me reviews each tool call before the agent can run it.'}</p>
+            </div>
+            <div class="approvals" role="group" aria-label="Approvals">
+              <button type="button" aria-pressed={approvalMode === 'ask'} disabled={busy || modeBusy} onclick={askMode}>Ask me</button>
+              <button type="button" aria-pressed={approvalMode === 'yolo'} disabled={busy || modeBusy}
+                title={yoloCanStart(switchGates) ? yoloSwitchTitle(session.tool ?? '') : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
+            </div>
+          </section>
+        {:else if session.yolo}
+          <section class="panel-section">
+            <div class="section-heading"><h3>Approvals</h3><p>This session answers tool calls without asking.</p></div>
+            <span class="badge yolo">YOLO</span>
+          </section>
+        {/if}
+
+        <section class="panel-section">
+          <div class="section-heading">
+            <h3>Interface</h3>
+            <p>Switching restarts the agent process. When the header offers Chat or Terminal, that changes the view without a restart.</p>
+          </div>
+          <div class="control-row">
+            {#if canSwitch || modeSwitching}
+              <label class="tui-picker">
+                <span class="vh">Session interface</span>
+                <select use:gafferTooltip aria-label="Session interface" value={chatView ? 'chat' : 'terminal'} aria-disabled={modeSwitching || undefined}
+                  title={modeSwitching ? whyNot : 'Choose Gaffer or the agent TUI'}
+                  onchange={event => { const pick = event.currentTarget.value, current = chatView ? 'chat' : 'terminal'; event.currentTarget.value = current; if (pick !== current && canSwitch) openSwitch(event.currentTarget) }}>
+                  <option value="chat">Gaffer</option>
+                  <option value="terminal">{terminalLabel}</option>
+                </select>
+              </label>
+            {:else}
+              <span class="tui-pill" use:gafferTooltip={chatView} title={whyNot} aria-label={`${chatView ? 'Gaffer' : terminalLabel}. ${whyNot}`}>{chatView ? 'Gaffer' : terminalLabel}</span>
+            {/if}
+            <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
+            <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
+              <TerminalIcon name="theatre" />{theatre ? 'Exit theatre view' : 'Theatre view'}
+            </button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-heading">
+            <h3>Manage session</h3>
+            <p>Rename this session, copy its branch, or work in another terminal beside it.</p>
+          </div>
+          <div class="action-grid">
+            <button type="button" class="tool-action action-tile" disabled={busy || serverOff} onclick={() => act('rename')}><TerminalIcon name="compose" />Rename…</button>
+            {#if session.worktreeBranch}<button type="button" class="tool-action action-tile secondary-action" onclick={() => void copyBranch()}><TerminalIcon name="copy" />Copy branch</button>{/if}
+            {#if live && onterminal}<button type="button" class="tool-action action-tile" aria-label="Terminal here" disabled={busy || serverOff} onclick={openTerminal}><TerminalIcon name="screen" /><span class="here-label">Terminal here</span></button>{/if}
+            {#if live && onside}<button type="button" class="tool-action action-tile secondary-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
+            {#if target}<button type="button" class="tool-action action-tile secondary-action" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}><TerminalIcon name="delete" />Check and remove worktree…</button>{/if}
+            {#if oncontinue}<button type="button" class="tool-action action-tile" disabled={busy} onclick={continueSession}><TerminalIcon name="history" />{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
+          </div>
+        </section>
+
+        {#if live || terminalArchivable(session.state)}
+          <section class="panel-section danger-zone">
+            <div class="section-heading">
+              <h3>End session</h3>
+              <p>This stops the shell and its running jobs. The worktree and its branch stay on the machine.</p>
+            </div>
+            <div class="control-row">
+              {#if terminalArchivable(session.state)}<button type="button" class="tool-action" disabled={busy} onclick={() => act('archive')}><TerminalIcon name="history" />Remove from history…</button>{/if}
+              {#if live}<button type="button" class="tool-action danger-solid" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>{/if}
+            </div>
+          </section>
+        {/if}
       </div>
       </WorkspaceDialog>
       {/if}
@@ -540,17 +577,24 @@
   .head { min-width: 0; padding: 0 20px 8px; box-sizing: border-box; }
   .identity-row { display: flex; align-items: center; gap: 12px; min-height: 88px; min-width: 0; }
   .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-  .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
-  .legacy-label { flex-basis: 100%; margin: 0; font-size: 14px; font-weight: 600; }
-  .legacy-note { flex-basis: 100%; margin: -4px 0 4px; font-size: 14px; line-height: 1.6; color: var(--muted); }
-  .actions-context { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+  /* The session actions sheet: grouped sections, one visual language for every control, and destructive work kept apart. */
+  .session-tools { display: grid; gap: 18px; min-width: 0; }
+  .panel-section { display: grid; gap: 10px; padding-top: 18px; border-top: 1px solid var(--line-soft); min-width: 0; }
+  .panel-section:first-child { padding-top: 0; border-top: 0; }
+  .section-heading { display: grid; gap: 2px; min-width: 0; }
+  .section-heading h3 { margin: 0; font: 600 14px/1.3 var(--sans); color: var(--ink); }
+  .section-heading p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+  .control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+  .action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+  .action-tile { justify-content: flex-start; width: 100%; text-align: left; }
   .actions-button { display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; border: 1px solid transparent; border-radius: 7px; background: none; color: var(--muted); font: 600 20px/1 var(--sans); cursor: pointer; }
   @media (pointer: coarse) { .header-actions :global(button) { min-width: 44px; min-height: 44px; } }
   .actions-button:hover { background: var(--line-soft); color: var(--ink); }
   .actions-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-  .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
-  .tool-action:hover:not(:disabled), .theatre-button:hover, .focus-button:hover { background: var(--tint); color: var(--ink); }
-  .tool-action:disabled { opacity: .5; cursor: default; }
+  .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: none; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+  .tool-action :global(svg), .theatre-button :global(svg) { flex: none; }
+  .tool-action:hover:not(:disabled), .theatre-button:hover:not(:disabled), .focus-button:hover { background: var(--tint); color: var(--ink); }
+  .tool-action:disabled, .theatre-button:disabled { opacity: .5; cursor: default; }
   .focus-button { display: none; }
   /* A phone or tablet terminal has no corner for the floating Ask Gaffer circle (it would sit on the agent's prompt), so the header carries it. */
   .gaffer-entry { display: none; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none; padding: 0; border: 1px solid transparent; border-radius: 50%; background: none; cursor: pointer; }
@@ -558,8 +602,10 @@
   .gaffer-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (max-width: 767px), (pointer: coarse) { .gaffer-entry { display: inline-flex; } }
   .compact-label { display: none; }
-  .tool-action.danger { color: var(--bad); }
-  .tool-action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+  .danger-zone { padding: 14px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--bad) 5%, transparent); }
+  .danger-zone .section-heading h3 { color: var(--bad); }
+  .danger-solid { background: var(--bad); border-color: var(--bad); color: var(--bg); font-weight: 600; }
+  .danger-solid:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 88%, var(--ink)); border-color: color-mix(in srgb, var(--bad) 88%, var(--ink)); color: var(--bg); }
   .theatre-button[aria-pressed=true] { border-color: var(--accent-text); background: var(--line-soft); color: var(--ink); }
   .tool-action:focus-visible, .theatre-button:focus-visible, .focus-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .heading { flex-grow: 1; min-width: 0; }
@@ -576,23 +622,29 @@
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
-  .approvals { flex: none; display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .approvals button { padding: 7px 12px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
-  .approvals button[aria-pressed=true] { color: var(--ink); font-weight: 600; }
-  .approvals button[aria-pressed=true]:first-child { background: var(--line-soft); }
-  .approvals button[aria-pressed=true]:last-child { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+  .approvals { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); }
+  .approvals button { min-height: 38px; padding: 0 12px; border: 0; border-radius: 7px; background: none; color: var(--muted); font: 500 14px var(--sans); cursor: pointer; }
+  .approvals button[aria-pressed=true] { background: var(--card-raised); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 16%, transparent); }
+  .approvals button[aria-pressed=true]:last-child { background: color-mix(in srgb, var(--warn) 20%, var(--card-raised)); color: var(--warn); box-shadow: none; }
   .approvals button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .approvals button:disabled { opacity: .5; cursor: default; }
   .tui-picker { flex: none; display: inline-flex; align-items: center; min-width: 0; }
-  .tui-picker select { min-height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+  .tui-picker select { min-height: 40px; padding: 0 32px 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
   .tui-picker select:disabled, .tui-picker select[aria-disabled=true] { opacity: .55; cursor: progress; }
   .tui-picker select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-  .tui-pill { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--line-soft); color: var(--muted); font: 500 14px var(--sans); }
+  .tui-pill { flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--line-soft); color: var(--muted); font: 500 14px var(--sans); }
   .live p { margin: 0 28px 8px; font-size: 14px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @media (pointer: coarse) { .tool-action, .theatre-button { min-width: 44px; min-height: 44px; } .tui-picker select, .approvals button { min-height: 44px; } }
+  /* A narrow sheet stacks the action tiles and lets each control fill the width, so nothing is squeezed into a column
+     too small for its name. */
+  @media (max-width: 520px) {
+    .action-grid { grid-template-columns: minmax(0, 1fr); }
+    .control-row { align-items: stretch; }
+    .control-row .tui-picker, .control-row .tui-picker select, .control-row .tui-pill, .control-row .theatre-button { flex: 1 1 100%; width: 100%; }
+  }
   @container session-screen (max-width: 1099px) {
     .head { padding: 0 12px 8px; }
     .heading { flex: 1 1 0; }
@@ -619,7 +671,7 @@
     .header-actions button span { display: block; font: 500 14px/12px var(--sans); }
     .header-actions button .wide-label { display: none; }
     .header-actions :global(svg) { width: 19px; height: 19px; }
-    .session-tools { gap: 6px; }
+    .session-tools { gap: 16px; }
     .tui-picker select { min-height: 44px; font-size: 14px; }
     .approvals button { padding: 6px 10px; font-size: 14px; min-height: 44px; }
     .tool-action { min-height: 44px; padding: 0 10px; }
@@ -699,11 +751,6 @@
     .header-actions { width: auto; margin-left: auto; }
     .heading { max-width: 100px; min-width: 0; }
     .where-phone { display: none; }
-    /* A landscape phone has no room for several wrapped rows: the primary controls stay in one row, secondary ones wait
-       for a roomier screen, and the row scrolls if the names are long. */
-    .session-tools { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
-    .secondary-action { display: inline-flex; }
-    .here-label { display: none; }
   }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */

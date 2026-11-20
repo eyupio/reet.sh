@@ -1,5 +1,29 @@
 # Reet central-control implementation handoff
 
+## SESSION-ACTIONS-REDESIGN-1: the Session actions sheet reads as grouped settings (20 November 2026)
+
+The owner shared a screenshot of the **Session actions** dialog and asked for a significant UI and UX improvement. The
+old sheet was a wrapping toolbar: the approval toggle, a long "legacy action" paragraph, the interface select, the
+theatre button and every management button floated in one flow, so controls of different kinds and weights competed for
+attention and the dialog grew taller than the viewport.
+
+**How it works.** The sheet is now four labelled sections — **Approvals**, **Interface**, **Manage session** and a
+separated **End session** danger zone. Each section has a short description, every control shares one height, radius and
+focus ring, and management actions sit in a two-up grid of icon + label tiles that stacks to one column on narrow
+screens. The session title and machine moved into the dialog header as a subtitle, the legacy paragraph became one
+sentence about when a restart is needed, and the destructive action is a filled red button inside a tinted block. All
+existing names, roles, disabled reasons, approvals gates and confirmations are preserved.
+
+`WorkspaceDialog` also gained the optional `subtitle` prop and now uses a grid frame with `overflow: hidden`; only its
+content region scrolls. Chromium's modal `<dialog>` UA style sets `overflow: auto`, so the previous auto-scrolling frame
+and content could draw two scrollbars side by side.
+
+**Checked.** `npm run check` (all node tests, 0 Svelte diagnostics, 0 warnings), `npm run build`, and against a local
+`vite preview`: the full `sessions.e2e.mjs`, `phone-dialogs.e2e.mjs` (25 dialogs across six phone viewports) and
+`terminal-organisation.e2e.mjs` all pass. Light and dark screenshots at 1360, 768 and 390 were reviewed.
+
+**PR.** Opened against `main`; its checks are this PR's. The merge outcome is recorded by the next handoff update.
+
 ## FACTORY-GITHUB-1: GitHub facts beside a Factory pipeline (20 November 2026)
 
 The owner asked for more GitHub metadata on the Factory item detail: the pull request number and link, the stages of CI

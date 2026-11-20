@@ -32,7 +32,8 @@ package timeout under load, `internal/clientconfig` failed its pipe prompt test,
 
 **Docs.** [Factory](docs/factory.md), the README's Factory bullet and the changelog.
 
-**PR.** Opened against `main`; the checks above are this PR's. Its merge is recorded by the next handoff update.
+**PR.** [#859](https://github.com/eyupio/reet.sh/pull/859) opened against `main`; the checks above are this PR's. Its
+merge is recorded by the next handoff update.
 
 ## FACTORY-OUTCOME-IMAGES-2: every attached image travels into a started agent (20 November 2026)
 

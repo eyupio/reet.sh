@@ -1,8 +1,9 @@
 import type { Machine, SyncSkills } from '../api'
+import { sameHost } from '../contentReview'
 
 /** Inventory is not sync evidence. Only the reconcile report can say a machine is in sync. */
 export function machineSkillStatus(machine: Pick<Machine, 'host'>, skills: SyncSkills | null) {
-  const report = skills?.machines.find(m => m.host.toLowerCase() === machine.host.toLowerCase())
+  const report = skills?.machines.find(m => sameHost(m.host, machine.host))
   if (!report) return { tone: 'attention', label: 'Skill sync not confirmed', detail: 'Open Sync to check the connection and skill reports.' }
   const detail = `${skills!.active} Active ${skills!.active === 1 ? 'skill follows' : 'skills follow'} your library.`
   switch (report.state) {

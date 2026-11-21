@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, rejectLabel, resetChat, summarizeAnswers, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, rejectLabel, summarizeAnswers, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { signalAttentionChanged } from '../attentionSignal'
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
@@ -39,7 +39,10 @@ import { machinePlans, PLAN_REFRESH } from '../planLimits'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
- import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
+ import { baseName, chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES } from './upload'
+ import { createChatStream } from './chatStream'
+ import { admitImages, createEchoes, createExpiry, createPictureHold, createQueueDrain, echoOf, imagesRefusal, MAX_CHAT_BYTES, messageProblem, previewsFor, QUEUE_NOTES, removePicture, revokePictures, shownAttachments, uploadPictures, type Picture } from './chatAttachments'
+ import { loadModels, pollPlans } from './chatLoaders'
 
  let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
@@ -217,11 +220,9 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    flash(e instanceof Error ? e.message : 'Couldn’t update the agent default just now. Try again.', true)
   } finally { favouriteBusy = false }
  }
- const MAX_CHAT_BYTES = 2000
  let dropping = $state(false)
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
- type Picture = { id: number; file: File; preview: string }
- let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
+ let images = $state<Picture[]>([]), imageSeq = 0, attachNote = $state('')
  // Dictation adds each finished phrase to the draft and sends nothing; it stops when the message is sent, and is off
  // whenever the message field is (a send in flight clears the draft when it lands, and would take new words with it).
  let dictate = $state<{ stop(): void }>(), dictating = $state(false), dictationInterim = $state(''), dictationProblemText = $state('')
@@ -328,48 +329,36 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  // What the person sent: the machine's path for each upload maps to a picture held in this browser, so a message shows the
  // image, not its path. A message from before a reload falls back to a saved thumbnail, then to a filename chip.
  let sentPreviews = $state<Record<string, { url: string; name: string }>>({})
- const sentUrls: string[] = []
- // With embedded images the echo carries no path; the text sent and its uploads wait here for the echo to arrive.
- let echoes: { text: string; refs: string[] }[] = []
+ const held = createPictureHold()
+ const echoes = createEchoes()
  let bound = $state<Record<string, string[]>>({})
- const boundKeys = new Set<string>()
- const IMAGE_ONLY_ECHO = 'Image attached.'
  let lightbox = $state<{ items: { url: string; name: string }[]; index: number } | null>(null)
  function previewFor(ref: string): { url: string; name: string } | null { return sentPreviews[ref] ?? loadThumb(ref) }
  function attachmentsOf(item: { key: string; text: string }): { text: string; refs: string[] } {
-  const refs = bound[item.key] ?? loadBinding(session.id, item.key)
-  // The broker shows an image-only message as this placeholder; the thumbnails say it better.
-  return refs ? { text: item.text.trim() === IMAGE_ONLY_ECHO ? '' : item.text, refs } : splitImageRefs(item.text)
+  return shownAttachments(item, bound[item.key] ?? loadBinding(session.id, item.key))
  }
  function openPreview(items: { url: string; name: string }[], index: number) { if (items.length) lightbox = { items, index } }
  $effect(() => {
   for (const item of chat.items) {
-   if (item.kind !== 'user' || boundKeys.has(item.key)) continue
-   boundKeys.add(item.key)
-   const at = echoes.findIndex(echo => echo.text === item.text.trim())
-   if (at < 0) continue
-   const [echo] = echoes.splice(at, 1)
-   bound = { ...bound, [item.key]: echo.refs }
-   saveBinding(session.id, item.key, echo.refs)
+   if (item.kind !== 'user') continue
+   const refs = echoes.claim(item.key, item.text)
+   if (!refs) continue
+   bound = { ...bound, [item.key]: refs }
+   saveBinding(session.id, item.key, refs)
   }
  })
  // Messages typed while OpenCode works are kept here and sent one at a time when the turn finishes. Nothing is stored.
  let queued = $state<QueuedPrompt<Picture[]>[]>([]), queueSeq = 0
  let queueHalted = $state(false), queueNote = $state(''), dispatching = $state(false)
  // Set after one queued message is sent, until the agent is seen working again: one turn takes one message.
- let awaitingWork = $state(false), awaitingTimer: ReturnType<typeof setTimeout> | undefined
+ let awaitingWork = $state(false)
+ const awaiting = createExpiry(4000, () => { awaitingWork = false })
  let log: HTMLElement | undefined = $state()
- let source: EventSource | undefined
- let alive = true, nearBottom = true
- // Events are batched before they reach the reducer: a fast stream, or a continued chat replaying its whole history,
- // arrives as many events in a burst, and applying and drawing each one separately is what used to stall the tab.
- let pendingEvents: ChatEvent[] = []
- let flushTimer: ReturnType<typeof setTimeout> | undefined
+ let nearBottom = true
  // Whether this chat's word on being busy can be trusted: the controller writes a stream's reset and its replay together, so
  // the chat has replayed once what arrived with the reset has been applied (settle, one batch later). Until then, and again
  // while a dropped stream waits for its next reset, the chat says nothing either way.
- let replayed = $state(false), settleTimer: ReturnType<typeof setTimeout> | undefined
- function stopSettle() { if (settleTimer !== undefined) { clearTimeout(settleTimer); settleTimer = undefined } }
+ let replayed = $state(false)
  // Every tool row is folded by default, including a failure; the person's toggle wins for that key.
  let expanded = $state<Record<string, boolean>>({})
 // A link in the agent's narrative waits here until the person confirms it, so a message can never navigate the tab by itself.
@@ -398,11 +387,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   const agentId = session.agentId
   plans = null
   if (!planLimits || !agentId) return
-  let live = true
-  const read = () => void machinePlans(agentId).then(answer => { if (live) { plans = answer; planClock = Date.now() } })
-  read()
-  const timer = setInterval(read, PLAN_REFRESH)
-  return () => { live = false; clearInterval(timer) }
+  return pollPlans(() => machinePlans(agentId), PLAN_REFRESH, answer => { plans = answer; planClock = Date.now() })
  })
  let usageLife: AbortController | undefined, usageStatus: ChatState['status'] | undefined
  async function readUsage(id: string, signal: AbortSignal) {
@@ -439,41 +424,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
  const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)
 
- function closeStream() { source?.close(); source = undefined }
- function stopFlush() {
-  if (flushTimer !== undefined) { clearTimeout(flushTimer); flushTimer = undefined }
- }
- function flushEvents() {
-  stopFlush()
-  if (!pendingEvents.length) return
-  const events = pendingEvents
-  pendingEvents = []
-  let next = chat
-  for (const event of events) next = applyChatEvent(next, event)
-  if (next === chat) return
-  chat = next
-  void scrollToEnd()
- }
- function queueEvent(event: ChatEvent) {
-  pendingEvents.push(event)
-  // A backlog is applied in one pass rather than one render per event.
-  if (pendingEvents.length >= 1000) flushEvents()
-  else if (flushTimer === undefined) flushTimer = setTimeout(flushEvents, 16)
- }
- function readReset(event: MessageEvent) {
-  let truncated = false
-  try { truncated = !!JSON.parse(event.data)?.truncated } catch { /* fixed empty reset */ }
-  pendingEvents = []; stopFlush()
-  chat = { ...resetChat(truncated), connection: 'open' }
-  replayed = false; stopSettle()
-  settleTimer = setTimeout(() => { settleTimer = undefined; flushEvents(); replayed = true }, 16)
-  void scrollToEnd()
- }
- function readEvent(event: MessageEvent) {
-  let parsed: ChatEvent
-  try { parsed = JSON.parse(event.data) as ChatEvent } catch { return }
-  queueEvent(parsed)
- }
  function onScroll() {
   if (!log) return
   nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80
@@ -493,17 +443,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   return () => watcher.disconnect()
  })
  function noteImages(files: File[]) {
-  let total = images.reduce((sum, item) => sum + item.file.size, 0)
-  let refused = ''
-  for (const file of files) {
-   const check = validateImage(file)
-   if (!check.ok) { refused = check.reason === 'type' ? 'Use PNG, JPEG, GIF or WebP images.' : check.reason === 'size' ? 'Each image must be 5 MB or smaller.' : 'That image is empty.'; continue }
-   if (images.length >= imageLimit) { refused = `Attach at most ${imageLimit} images.`; break }
-   if (total + file.size > MAX_IMAGE_TOTAL_BYTES) { refused = 'Those images are more than 50 MB together.'; break }
-   images = [...images, { id: ++imageSeq, file, preview: URL.createObjectURL(file) }]
-   total += file.size
-  }
-  attachNote = refused
+  const admitted = admitImages(images, files, imageLimit, imageSeq)
+  imageSeq = admitted.lastId
+  if (admitted.images !== images) images = admitted.images
+  attachNote = admitted.refused
  }
  async function picked(event: Event) {
   const input = event.currentTarget as HTMLInputElement
@@ -522,11 +465,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   if (!files.length) return
   event.preventDefault(); noteImages(files)
  }
- function removeImage(id: number) { const item = images.find(image => image.id === id); if (item) URL.revokeObjectURL(item.preview); images = images.filter(image => image.id !== id); attachNote = '' }
- function messageProblem(text: string): string {
-  if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) return 'That message is too long. Keep it under 2,000 bytes.'
-  return ''
- }
+ function removeImage(id: number) { images = removePicture(images, id); attachNote = '' }
  /** Send a message and its pictures now, or queue it while the agent is busy. */
  async function send() {
   dictate?.stop()
@@ -539,46 +478,37 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   const ok = await deliver(text, sendingImages)
   if (!ok) return
   const sent = new Set(sendingImages.map(image => image.id))
-  for (const image of sendingImages) sentUrls.push(image.preview)
+  held.keep(sendingImages)
   draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
  }
  /** Put what is in the composer at the end of the queue, pictures and all. */
  function queueCurrent(text: string) {
-  if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
+  if (images.length && !canAttach) { feedback = imagesRefusal(uploadsOff); return }
   const item: QueuedPrompt<Picture[]> = { id: `queued-${++queueSeq}`, text, payload: images.slice() }
   const answer = enqueuePrompt(queued, item)
-  if (answer.full) { feedback = 'The queue is full. Send or remove one of the messages first.'; return }
+  if (answer.full) { feedback = QUEUE_NOTES.full; return }
   queued = answer.queue
   draft = ''; images = []; attachNote = ''; feedback = ''; queueHalted = false
-  queueNote = 'Queued. It sends when OpenCode finishes this turn.'
+  queueNote = QUEUE_NOTES.queued
   void tick().then(() => composerInput?.focus())
  }
  /** One attempt at sending a message; true when the controller accepted it. */
  async function deliver(text: string, pictures: Picture[]): Promise<boolean> {
-  if (pictures.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return false }
+  if (pictures.length && !canAttach) { feedback = imagesRefusal(uploadsOff); return false }
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return false }
   uploading = pictures.length > 0; sending = true; feedback = ''
   try {
-   const uploads: { path: string; reference: string }[] = []
-   if (pictures.length) {
-    attachNote = ''
-    for (let i = 0; i < pictures.length; i++) {
-     if (pictures.length > 1) attachNote = `Uploading image ${i + 1} of ${pictures.length}…`
-     uploads.push(await launchUpload(session.agentId, pictures[i].file, AbortSignal.timeout(30000)))
-    }
-   }
-   const keep: Record<string, { url: string; name: string }> = {}
+   const uploads = pictures.length ? await uploadPictures(pictures, file => launchUpload(session.agentId, file, AbortSignal.timeout(30000)), note => { attachNote = note }) : []
    uploads.forEach((upload, i) => {
     const image = pictures[i]
-    for (const ref of [upload.path, upload.reference]) if (ref) keep[ref] = { url: image.preview, name: image.file.name }
     void makeThumb(image.file).then(data => saveThumb(upload.path || upload.reference, image.file.name, data))
    })
-   sentPreviews = { ...sentPreviews, ...keep }
+   sentPreviews = { ...sentPreviews, ...previewsFor(uploads, pictures) }
    const body = chatPromptParts(text, uploads, acpImages)
    if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return false }
-   const echo = body.images.length ? { text: body.text.trim() || IMAGE_ONLY_ECHO, refs: uploads.map(upload => upload.path || upload.reference) } : null
-   if (echo) echoes.push(echo)
+   const echo = echoOf(body, uploads)
+   if (echo) echoes.add(echo)
    try {
     if (liveControls) {
      const signature = JSON.stringify([text, pictures.map(picture => picture.id)])
@@ -587,7 +517,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
      queueAttempt = null; queuePulse++
     } else await chatPrompt(session.id, body.text, body.images)
    }
-   catch (e) { if (echo) echoes = echoes.filter(item => item !== echo); throw e }
+   catch (e) { if (echo) echoes.remove(echo); throw e }
    nearBottom = true
    return true
   }
@@ -595,25 +525,23 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   finally { uploading = false; sending = false; attachNote = '' }
  }
  /** Send the first queued message once the agent is free; each turn takes one, so a steer lands between turns. */
- async function dispatchQueued() {
-  if (dispatching || !queued.length) return
-  const item = queued[0]
-  dispatching = true
-  try {
-   const ok = await deliver(item.text, item.payload)
-   if (!ok) { queueHalted = true; queueNote = 'The queued message was not sent. Retry, edit or remove it.'; return }
+ const dispatchQueued = createQueueDrain({
+  queue: () => queued,
+  busy: () => dispatching,
+  setBusy: busy => { dispatching = busy },
+  deliver,
+  halted: note => { queueHalted = true; queueNote = note },
+  sent: (rest, note, pictures) => {
    // deliver() put these previews in sentPreviews, and the history and lightbox read them through previewFor();
    // keep them alive until the pane closes, as the immediate-send path does.
-   for (const picture of item.payload) sentUrls.push(picture.preview)
-   queued = dropQueuedPrompt(queued, item.id)
-   queueNote = queued.length ? 'Sent one queued message. The next waits for this turn.' : 'Queued message sent.'
+   held.keep(pictures)
+   queued = rest
+   queueNote = note
    awaitingWork = true
-   clearTimeout(awaitingTimer)
-   awaitingTimer = setTimeout(() => { awaitingWork = false }, 4000)
-   nearBottom = true
-   await scrollToEnd()
-  } finally { dispatching = false }
- }
+   awaiting.arm()
+  },
+  follow: () => { nearBottom = true; return scrollToEnd() },
+ })
  function editQueued(id: string) {
   const item = queued.find(entry => entry.id === id)
   if (!item) return
@@ -626,13 +554,13 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  function removeQueued(id: string) {
   const item = queued.find(entry => entry.id === id)
   if (!item) return
-  for (const picture of item.payload) URL.revokeObjectURL(picture.preview)
+  revokePictures(item.payload)
   queued = dropQueuedPrompt(queued, id)
   if (!queued.length) { queueHalted = false; queueNote = '' }
  }
  function retryQueued(id: string) {
   queued = promoteQueuedPrompt(queued, id)
-  queueHalted = false; queueNote = 'Trying that message again…'
+  queueHalted = false; queueNote = QUEUE_NOTES.retry
   void tick().then(() => { if (!working && !sending && !uploading) void dispatchQueued() })
  }
  // A free agent with a queued message sends it. Waiting for an approval or an answer counts as busy: the person's reply
@@ -640,7 +568,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  // Seeing the turn start releases the next message; the timer is only a fallback if a status never arrives.
  $effect(() => {
   if (!working) return
-  untrack(() => { awaitingWork = false; clearTimeout(awaitingTimer) })
+  untrack(() => { awaitingWork = false; awaiting.clear() })
  })
  $effect(() => {
   const ready = !liveControls && queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
@@ -740,12 +668,13 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   const supported = modelAvailable, agentId = modelAgentId, agentTool = tool
   modelMachine = null; favourites = []; modelNote = ''
   if (!supported) return
-  const life = new AbortController()
-  void machineModels(agentId, agentTool, life.signal).then(result => {
-   if (!life.signal.aborted) modelMachine = result
-  }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
-  void listModelFavourites(life.signal).then(answer => { if (!life.signal.aborted) favourites = answer.favourites }).catch(() => {})
-  return () => life.abort()
+  return loadModels({
+   machineModels: signal => machineModels(agentId, agentTool, signal),
+   favourites: signal => listModelFavourites(signal),
+   onMachine: machine => { modelMachine = machine },
+   onFavourites: list => { favourites = list },
+   onNote: note => { modelNote = note },
+  })
  })
 
  // The saved default source is read once when the session offers a source.
@@ -758,15 +687,11 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
 
  onMount(() => {
   touchModels = matchMedia('(pointer: coarse)').matches
-  const stream = new EventSource(chatURL(session.id))
-  source = stream
-  stream.addEventListener('reset', readReset)
-  stream.addEventListener('chat', readEvent)
-  stream.onopen = () => { chat = { ...chat, connection: 'open' } }
-  stream.onerror = () => { if (alive) { chat = { ...chat, connection: 'reconnecting' }; stopSettle(); replayed = false } }
-  return () => { alive = false; skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); closeStream() }
+  const stream = createChatStream({ url: chatURL(session.id), chat: () => chat, setChat: next => { chat = next }, setReplayed: value => { replayed = value }, changed: () => { void scrollToEnd() } })
+  stream.start()
+  return () => { skillsLife?.abort(); stream.stop() }
  })
- onDestroy(() => { clearTimeout(awaitingTimer); for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url); for (const item of queued) for (const image of item.payload) URL.revokeObjectURL(image.preview) })
+ onDestroy(() => { awaiting.clear(); held.releaseAll(images, queued) })
 </script>
 
 

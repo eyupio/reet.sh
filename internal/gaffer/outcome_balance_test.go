@@ -302,7 +302,16 @@ func TestFactoryWorkerUsageLimit(t *testing.T) {
 			standard := store.GafferCrewTier{Tool: "opencode", Model: "opencode/primary"}
 			if replace {
 				caps := effortCaps(true)
-				caps.Tools = append(caps.Tools, "codex")
+				caps.AgentsV2 = true
+				caps.Tools = []string{"codex", "opencode"}
+				profile, err := r.st.ProfileFor(r.p.UserID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				profile.ChatAgents = map[string]bool{"codex": true}
+				if err = r.st.SaveProfileFor(r.p.UserID, profile); err != nil {
+					t.Fatal(err)
+				}
 				*caps.ACPAgents = append(*caps.ACPAgents, terminalproto.ACPAgent{Tool: "codex", Adapter: "codex-acp", State: "available", MinimumVersion: "1.13.1"})
 				r.reconnect(t, caps)
 			} else {

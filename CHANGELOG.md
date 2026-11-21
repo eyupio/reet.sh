@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Add pipelines stays on agents the machine has**: when the machine's report leaves out an agent, even the
+  outcome's own, the **Add pipelines** dialog no longer offers it or picks it by default, and a pipeline that names
+  an agent the machine does not offer cannot be added until another is chosen. The wording around stage efforts now
+  matches what the controller does: an effort the machine does not report is dropped and the stage starts on the
+  agent's default effort.
 - **MCP connections no longer approve merges unless you allow it**: `reet_approve_pipeline_merge` is refused for a
   bearer-token or OAuth connection until **May approve Factory merges** is switched on for it under
   **Account → MCP access**. The switch is off for every connection, existing ones included. A Factory stage's agent

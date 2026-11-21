@@ -24,19 +24,27 @@
   // effort for the thinking, building and shipping stages. It starts as the outcome's own agent and model.
   type Who = { tool: string; model: string; effort: string }
   let main = $state<Record<string, Who>>({}), crews = $state<Record<string, Crew>>({})
+  const known = $derived(!!machine?.capabilities)
   const tools = $derived.by(() => {
     const found = machine ? CHAT_TOOLS.filter(id => structuredAgent(machine!.capabilities, id)) : []
-    const saved = !machine?.capabilities ? CREW_TIERS.flatMap(({ tier }) => {
+    // When the machine's report is known, only the agents it offers are listed: silence about the outcome's own agent
+    // leaves it out rather than bringing it back. When the report is not known, every saved crew agent is offered too.
+    const kept = known ? (found.includes(record.tool) ? [record.tool] : []) : [record.tool]
+    const saved = known ? [] : CREW_TIERS.flatMap(({ tier }) => {
       const member = savedCrew?.[tier]
       return [member, member?.backup, ...(member?.moreBackups ?? [])].flatMap(choice => choice?.tool ? [choice.tool] : [])
-    }) : []
-    return [...new Set([record.tool, ...found, ...saved])]
+    })
+    return [...new Set([...kept, ...found, ...saved])]
   })
   const stageLabel = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
   const kinds = (item: Proposal) => item.stages?.length ? item.stages : DEFAULT_STAGES
   // An added pipeline starts as the outcome runs: its agent and model, and the effort its own stages on that agent were given.
   const inherited = () => record.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === record.tool && stage.effort)?.effort ?? ''
-  const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
+  // The outcome's own agent and model, unless this machine does not offer it: then the first it does offer, on its default
+  // model and effort.
+  const own = (): Who => tools.length && !tools.includes(record.tool)
+    ? { tool: tools[0], model: '', effort: '' }
+    : { tool: record.tool, model: record.model ?? '', effort: inherited() }
   const choice = (title: string) => main[title] ?? own()
   const savedRole = (title: string, tier: keyof Crew): Crew[keyof Crew] => {
     const member = savedCrew?.[tier], fallback = choice(title)
@@ -68,11 +76,17 @@
   // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
   // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
   // starts a stage on the agent's default effort by itself when its effort is not offered.
-  const known = $derived(!!machine?.capabilities)
   const efforts = (id: string) => known ? reportedEfforts(id, machine?.capabilities) : ['', ...START_EFFORTS]
   // The levels a select shows: a chosen level is kept in view while nothing is known about it.
   const shown = (id: string, chosen: string | undefined) => !known && chosen && !efforts(id).includes(chosen) ? [...efforts(id), chosen] : efforts(id)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
+  // The plan each added pipeline would send, and every agent in it this machine reports it does not offer. Approving is
+  // refused while one is missing: its stage could only fail at its start.
+  const plans = $derived(proposals.map(item => ({
+    title: item.title, prompt: item.prompt,
+    stages: withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null),
+  })))
+  const unoffered = $derived(known ? [...new Set(plans.flatMap(({ stages }) => stages.flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
   const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
   const refused = $derived(!record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
@@ -89,17 +103,20 @@
   const split = (title: string) => CREW_TIERS.some(item => { const who = crewOf(title)[item.tier], top = choice(title); return who.tool !== top.tool || who.model.trim() !== top.model.trim() || (who.effort ?? '') !== top.effort })
 
   // Once this machine's agents are known, a level one of them does not report goes back to the agent's default, so what
-  // is shown is what will be sent. An unattended stage the agent refuses fails the whole launch.
+  // is shown is what will be sent: the controller would start the stage on that default and record why.
   $effect(() => {
     if (!capabilitiesRead || !known) return
     for (const item of proposals) {
       const top = main[item.title]
-      if (top?.effort && !efforts(top.tool).includes(top.effort)) main[item.title] = { ...top, effort: '' }
+      if (top && !tools.includes(top.tool)) setMain(item.title, own())
+      else if (top?.effort && !efforts(top.tool).includes(top.effort)) main[item.title] = { ...top, effort: '' }
       for (const part of CREW_TIERS) {
         const role = crews[item.title]?.[part.tier]
-        if (role?.effort && !efforts(role.tool).includes(role.effort)) setRole(item.title, part.tier, { effort: '' })
+        if (role && !tools.includes(role.tool)) setRole(item.title, part.tier, own())
+        else if (role?.effort && !efforts(role.tool).includes(role.effort)) setRole(item.title, part.tier, { effort: '' })
       }
     }
+    for (const [key, one] of Object.entries(picked)) if (one.effort && !efforts(one.tool).includes(one.effort)) picked[key] = { ...one, effort: '' }
   })
   $effect(() => {
     for (const id of new Set(proposals.flatMap(item => usedTools(item.title)))) {
@@ -114,12 +131,7 @@
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     return () => life.abort()
   })
-  function approve() {
-    onconfirm(proposals.map(item => {
-      const stages = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null)
-      return { title: item.title, prompt: item.prompt, stages }
-    }))
-  }
+  function approve() { onconfirm(plans) }
 </script>
 
 <WorkspaceDialog title={proposals.length === 1 ? `Add “${proposals[0].title}”?` : `Add ${proposals.length} pipelines?`} onclose={oncancel}>
@@ -175,8 +187,10 @@
     {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. Choose another agent here, or give Gaffer a new outcome with folder trust ticked.</p>
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
     {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
+    {#if known && !tools.length}<p class="warning" role="alert">This machine reports no agent that can run a Gaffer chat. Update reet on the machine, or choose another project for a new outcome.</p>
+    {:else if unoffered.length}<p class="warning" role="alert">{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
-    <div class="actions"><button class="btn primary" type="button" disabled={busy || crewLoading || !capabilitiesRead || refused || !!blocked} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
+    <div class="actions"><button class="btn primary" type="button" disabled={busy || crewLoading || !capabilitiesRead || refused || !!blocked || unoffered.length > 0} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </div>
 </WorkspaceDialog>
 

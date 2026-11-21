@@ -9,7 +9,7 @@
   import CollectionPanel from './CollectionPanel.svelte'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { copyPrompt, installCommand } from './install'
+  import { copyPrompt, hostedPrompt, installCommand } from './install'
   import { t } from './copy'
   import AddStatusDialog from './AddStatusDialog.svelte'
   import { savedNotice, type AddStatus } from './addStatus'
@@ -160,8 +160,8 @@
                 <button type="button" class="btn" disabled={!!saving} onclick={() => { notice = ''; choosing = skill }}>{saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
               {/if}
             {:else}<a class="btn" href="/skills">Open your library to save</a>{/if}
-            {#if inLibrary(skill)}<CopyButton text={copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} />
-            {:else if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
+            {#if inLibrary(skill) || hostedPrompt(skill)}<CopyButton text={hostedPrompt(skill) ?? copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} />{/if}
+            {#if !inLibrary(skill) && installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
           </div>
         </div>
       {/each}

@@ -122,7 +122,7 @@ test('deleteConfirm says which of several skills come off the machines, and neve
   assert.equal(deleteConfirm([row({ hasCopy: false, status: 'archived', health: h('copy-failed', { hosts: ['Elitebook'] }) })]).body, 'reet has no copy of this skill. Deleting removes it from your machines; each machine keeps a backup for 30 days.')
 })
 
-test('copyPrompt never carries a link', () => {
+test('copyPrompt for a skill that is not published never carries a link', () => {
   const p = copyPrompt({ name: 'seo-audit', description: 'Full SEO audit.' })
   assert.equal(p, 'Use the seo-audit skill: Full SEO audit.')
   const q = copyPrompt({ name: 'x', description: 'See https://github.com/o/r for more' })
@@ -130,6 +130,15 @@ test('copyPrompt never carries a link', () => {
   assert.ok(!/https?:|github\.com/.test(q))
   assert.equal(q, 'Use the x skill.')
   assert.equal(copyPrompt({ name: 'x', description: 'Does things. See https://github.com/o/r for more. Fast.' }), 'Use the x skill: Does things. Fast.')
+})
+
+test('copyPrompt for a published skill fetches it from its reet.sh page', () => {
+  const p = copyPrompt({ name: 'ponytail-audit', description: 'Quality audit of a whole repo.', published: true, publicUrl: 'https://reet.sh/paul/ponytail-audit' })
+  assert.equal(p, 'Run `npx skills@1.7.4 use "https://reet.sh/paul/ponytail-audit" --skill "ponytail-audit"` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.')
+  // Unpublished, or with no page yet, or with an address that could end the quoted command: used by name.
+  assert.equal(copyPrompt({ name: 'x', description: 'Does things.', published: false, publicUrl: 'https://reet.sh/paul/x' }), 'Use the x skill: Does things.')
+  assert.equal(copyPrompt({ name: 'x', description: 'Does things.', published: true }), 'Use the x skill: Does things.')
+  assert.equal(copyPrompt({ name: 'x', published: true, publicUrl: 'https://reet.sh/paul/x"`id`' }), 'Use the x skill.')
 })
 
 test('installCommandFor', () => {

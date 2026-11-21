@@ -44,6 +44,9 @@ func newCloneFixture(t *testing.T) *cloneFixture {
 	work := newRepo(t, home, "work")
 	remote := filepath.Join(home, "github.git")
 	testGit(t, home, "clone", "-q", "--bare", work, remote)
+	// A push makes the remote run its own maintenance, detached, whatever the pushing command was told: its lock
+	// can then go while a test is reading the fixture. The stand-in for GitHub does no maintenance.
+	testGit(t, remote, "config", "receive.autogc", "false")
 	return &cloneFixture{home: home, remote: remote, name: "r"}
 }
 

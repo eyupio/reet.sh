@@ -203,7 +203,8 @@ func spaRoute(path string) bool {
 	switch path {
 	case "/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join",
 		"/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting",
-		"/community", "/shared", "/spaces", "/profiles", "/setups", "/notifications", "/support",
+		"/community", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/",
+		"/notifications", "/support", "/factory", "/desks", "/desks/",
 		"/admin", "/account":
 		return true
 	}
@@ -213,6 +214,11 @@ func spaRoute(path string) bool {
 		if strings.HasPrefix(path, prefix) {
 			return true
 		}
+	}
+	// A desk is addressed by exactly one id; a deeper path is not a page.
+	if id, ok := strings.CutPrefix(path, "/desks/"); ok {
+		id = strings.TrimSuffix(id, "/")
+		return id != "" && !strings.Contains(id, "/")
 	}
 	return false
 }

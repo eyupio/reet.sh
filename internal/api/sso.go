@@ -106,6 +106,14 @@ func landing(path string) string {
 		return "/terminals" + tail
 	case "sessions":
 		return "/sessions" + tail
+	case "desks":
+		return "/desks" + tail
+	case "factory":
+		return "/factory" + tail
+	case "prompts":
+		return "/prompts" + tail
+	case "usage":
+		return "/usage" + tail
 	case "projects":
 		return "/projects" + tail
 	case "sync":

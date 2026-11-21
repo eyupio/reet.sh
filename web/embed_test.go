@@ -135,7 +135,7 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 func TestUnknownRouteIsAReal404(t *testing.T) {
 	requireBuilt(t)
 	h := Handler("https://reet.sh")
-	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml"} {
+	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml", "/desks/a/b"} {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status = %d, want 404", path, rec.Code)
@@ -155,7 +155,7 @@ func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 		}
 		return PublicPage{}, false
 	}))
-	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
+	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/", "/factory", "/desks", "/desks/", "/desks/0123456789abcdef0123456789abcdef"}
 	for _, path := range private {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {
@@ -181,12 +181,14 @@ func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 func TestLegacyRoutesRedirectPermanently(t *testing.T) {
 	h := Handler("https://reet.sh")
 	cases := map[string]string{
-		"/control":       "/",
-		"/terminals":     "/sessions",
-		"/terminals?x=1": "/sessions?x=1",
-		"/sessions/":     "/sessions",
-		"/projects":      "/",
-		"/projects/abc":  "/?project=abc",
+		"/control":                       "/",
+		"/terminals":                     "/sessions",
+		"/terminals?x=1":                 "/sessions?x=1",
+		"/terminals?agent=a1&session=s1": "/sessions?agent=a1&session=s1",
+		"/sessions/":                     "/sessions",
+		"/sessions/?agent=a1&session=s1": "/sessions?agent=a1&session=s1",
+		"/projects":                      "/",
+		"/projects/abc":                  "/?project=abc",
 	}
 	for from, want := range cases {
 		rec := get(t, h, from)

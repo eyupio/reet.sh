@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Desk links open again**: a shared desk address (`/desks/<id>`) and the newer
+  app pages (`/desks`, `/factory`, `/prompts`, `/usage`) now load the app instead
+  of returning a 404. Signing in from one of them also returns you there.
 - **Gaffer keeps watching a stopped session**: a goal that went to **Needs you**
   no longer stays there after the working session has moved on. Gaffer keeps
   polling the session's retained progress and live status; when the agent

@@ -233,12 +233,14 @@ func TestPushLeavesAloneWhatItShould(t *testing.T) {
 func TestPushNeedsAnAccount(t *testing.T) {
 	srv, _, _, _, _ := privateFixture(t, AuthNone, "")
 	r := httptest.NewRequest("GET", "/api/v2/push", nil)
+	r.Host = "127.0.0.1"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"available":false`) {
 		t.Fatalf("status without accounts: %d %s", w.Code, w.Body.String())
 	}
 	r = httptest.NewRequest("POST", "/api/v2/push/subscriptions", strings.NewReader(`{"endpoint":"`+testEndpoint+`"}`))
+	r.Host = "127.0.0.1"
 	r.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, r)

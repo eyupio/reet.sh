@@ -62,7 +62,7 @@ func TestPrivateSkillAPIAccountContractAndIsolation(t *testing.T) {
 		{"publish flag", "POST", root, strings.TrimSuffix(body, "}") + `,"published":true}`, cookie, "https://reet.example", "", 400},
 		{"missing base", "POST", root, strings.Replace(body, `"expectedBase":"",`, "", 1), cookie, "https://reet.example", "", 400},
 		{"extra JSON", "POST", root, body + `{}`, cookie, "https://reet.example", "", 400},
-		{"URL credential", "GET", root + "?t=" + token, "", "", "", "", 400},
+		{"URL credential", "GET", root + "?t=" + token, "", "", "", "", 401},
 		{"oversize", "POST", root, strings.Repeat(" ", 16<<20) + body, cookie, "https://reet.example", "", 400},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

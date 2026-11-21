@@ -296,12 +296,20 @@ reads need a writer account; the rest also need a management connection.
 - `reet_send_pipeline_back` has the stage in hand, or an earlier one, done again with your reason.
 - `reet_retry_pipeline` tries a pipeline that did not start, or stopped, again.
 - `reet_set_pipeline_merge` makes a pipeline wait for your approval before merging. It cannot do the opposite.
-- `reet_approve_pipeline_merge` records your approval for a pipeline that is Ready to merge.
+- `reet_approve_pipeline_merge` records your approval for a pipeline that is Ready to merge. The connection needs your permission to approve merges; see below.
 - `reet_report_outcome` asks Gaffer's model for one report.
 - `reet_stop_outcome` stops an outcome. Sessions already running keep running.
 
 An outcome that runs on YOLO can only be read, made to wait before merging, asked for a report and stopped over MCP.
 No tool answers an approval, turns on YOLO, gives Gaffer an outcome's decisions or merges anything itself.
+
+Approving a merge needs one more permission. A stage's agent can use the same connection as your own client on its
+machine, and reet cannot tell the two apart, so a connection that may approve merges lets an agent approve its own
+work. Each management connection has a **May approve Factory merges** switch under **Account → MCP access**. It is off
+until you turn it on, for existing connections too; turn it on only for a client you trust. Without it
+`reet_approve_pipeline_merge` is refused and nothing is approved: approve on the Factory page instead. Making a
+connection read-only turns the switch off. Gaffer's own tools and Browser WebMCP act as you in your signed-in browser,
+so the switch does not apply to them.
 
 ## Limits
 

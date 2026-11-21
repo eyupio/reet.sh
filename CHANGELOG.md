@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **MCP connections no longer approve merges unless you allow it**: `reet_approve_pipeline_merge` is refused for a
+  bearer-token or OAuth connection until **May approve Factory merges** is switched on for it under
+  **Account → MCP access**. The switch is off for every connection, existing ones included. A Factory stage's agent
+  can use the same connection as your own client on its machine, so turn it on only for a client you trust. Approving
+  on the Factory page, through Gaffer's own tools and through Browser WebMCP is unchanged.
 - **Gaffer keeps watching a stopped session**: a goal that went to **Needs you**
   no longer stays there after the working session has moved on. Gaffer keeps
   polling the session's retained progress and live status; when the agent

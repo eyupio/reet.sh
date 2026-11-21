@@ -9,8 +9,9 @@ Gaffer's **Skills for this task** panel suggests a small set of relevant skills
 in an agent chat. Suggestions use the session title and your draft; matching
 runs locally on the controller without a model call. **Review skill** shows the
 instructions. **Add to message** inserts editable text for you to read and send.
-The terminal's existing **Skills** picker offers the same panel; it inserts
-without Enter and retains the terminal's paste safeguards.
+Native terminals show a compact suggestions panel. On a phone held sideways,
+open **Suggested skills** in the toolbar to keep the terminal spacious. Adding
+guidance inserts without Enter and retains the terminal's paste safeguards.
 
 **Pause** stops suggestions for this work in this browser. **Resume** brings
 them back. A failure leaves your draft alone and offers retry.

@@ -12,7 +12,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import { copyText } from './clipboard'
-  import { copyPrompt, installCommand } from './install'
+  import { copyPrompt, hostedPrompt, installCommand } from './install'
   import { fmt } from './shelf'
   import AddStatusDialog from './AddStatusDialog.svelte'
   import { addAllTitle, addedNotice, type AddStatus } from './addStatus'
@@ -509,9 +509,10 @@
             {/if}
 
             <div class="entry-actions">
-              {#if inLibrary(skill)}
-                <CopyButton text={copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact />
-              {:else if installCommand(skill)}
+              {#if inLibrary(skill) || hostedPrompt(skill)}
+                <CopyButton text={hostedPrompt(skill) ?? copyPrompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact />
+              {/if}
+              {#if !inLibrary(skill) && installCommand(skill)}
                 <div class="command"><code>{installCommand(skill)}</code><CopyButton text={installCommand(skill)!} compact /></div>
               {/if}
               {#if detail.canEdit}

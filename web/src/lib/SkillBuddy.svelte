@@ -47,7 +47,7 @@
   }
 </script>
 
-<section class="buddy" aria-labelledby={`${uid}-title`} data-skill-buddy>
+<section class="buddy" class:compact aria-labelledby={`${uid}-title`} data-skill-buddy>
   <header>
     <div class="heading"><h3 id={`${uid}-title`}>{context.outcomeId && answer?.stage ? `Skills for ${answer.stage}` : 'Skills for this task'}</h3><p>{paused ? 'Suggestions paused for this work' : compact && shown[0] ? `Suggested: ${shown[0].name}` : 'Suggested from the task and stage'}</p></div>
     {#if compact}<button class="text-button" aria-expanded={expanded} onclick={() => expanded = !expanded}>{expanded ? 'Hide' : 'See skills'}</button>{/if}
@@ -84,6 +84,7 @@
 
 <style>
   /* UX polish informed by Unslop, Damir Sokolovsky (@heydamir), CC BY 4.0: https://github.com/heydamir/unslop */
+  .buddy.compact header{padding:4px 12px}
   .buddy{border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden;color:var(--ink);font:14px/1.5 var(--sans)}
   header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card)}.heading{flex:1;min-width:0}h3,h4,p{margin:0}h3{font-size:14px;font-weight:500}.heading p,.hint,footer{color:var(--muted);font-size:14px}.text-button{min-height:44px;min-width:44px;border:0;background:transparent;color:var(--accent);font:inherit;padding:8px;cursor:pointer}.text-button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.matches{padding:0 16px}article{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}article:first-child{border:0}.skill-info{flex:1;min-width:0}.origin{font-size:14px;color:var(--muted)}h4{font-size:14px;margin:2px 0}.skill-info p{color:var(--muted);font-size:14px}.small{min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;white-space:nowrap;padding:8px 12px}.chosen h4{color:var(--accent)}.hint,.problem,.success{padding:12px 16px}.problem{color:var(--bad)}.success{color:var(--accent)}footer{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap}footer a{min-height:44px;display:inline-flex;align-items:center;color:var(--accent)}.more{margin:0 8px 5px}.preview{margin:0 12px 12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}.preview-head{display:flex;justify-content:space-between;align-items:center}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font:14px/1.6 var(--sans)}button:disabled{opacity:.5;cursor:default}@media(max-width:420px){header{padding:12px}.matches{padding:0 12px}article{gap:6px}.small{padding:6px}.origin{font-size:14px}}
 </style>

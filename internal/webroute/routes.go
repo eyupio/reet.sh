@@ -11,7 +11,7 @@ var exact = []string{
 	"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join",
 	"/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/sync/advanced/", "/hosting",
 	"/community", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/",
-	"/notifications", "/support", "/factory", "/desks", "/desks/",
+	"/notifications", "/support", "/factory", "/desks", "/desks/", "/skill-insights", "/skill-insights/",
 	"/admin", "/account",
 }
 

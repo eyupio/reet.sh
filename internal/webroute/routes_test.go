@@ -7,7 +7,7 @@ func TestAppPagesArePages(t *testing.T) {
 		"/", "/factory", "/prompts", "/prompts/", "/usage", "/usage/", "/desks", "/desks/",
 		"/desks/0123456789abcdef0123456789abcdef", "/desks/0123456789abcdef0123456789abcdef/",
 		"/sync/advanced", "/sync/advanced/", "/account/mcp/authorize", "/lists/1", "/l/example", "/support/12",
-		"/admin/overview", "/join/token",
+		"/skill-insights", "/skill-insights/", "/admin/overview", "/join/token",
 	} {
 		if !Page(path) {
 			t.Errorf("%s should be served as an app page", path)

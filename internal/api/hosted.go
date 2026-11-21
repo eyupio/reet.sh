@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/webroute"
 )
 
 func (s *server) registerHostedRoutes(mux *http.ServeMux) {
@@ -28,16 +29,16 @@ func (s *server) registerHostedRoutes(mux *http.ServeMux) {
 }
 
 // WithHostedPages routes public skill URLs alongside the SPA without capturing
-// existing application routes or exposing the management API without auth.
+// existing application routes or exposing the management API without auth. An
+// address the SPA draws is asked for first, so a page such as /desks/<id> cannot
+// be mistaken for a hosted skill before the interface sees it.
 func WithHostedPages(api, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		// /sync/advanced is one of the interface's own pages. It has the shape of a public skill address (a name, then
-		// a skill), and "sync" is not a reserved name, so it is named here: a reload of the page must reach the interface.
-		if len(parts) == 2 && parts[0] == "sync" && parts[1] == "advanced" {
+		if webroute.Page(r.URL.Path) {
 			fallback.ServeHTTP(w, r)
 			return
 		}
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		if len(parts) >= 2 {
 			validUser := store.ValidHostedName(parts[0]) && !store.ReservedUsername(parts[0])
 			validName := store.ValidHostedName(parts[1])

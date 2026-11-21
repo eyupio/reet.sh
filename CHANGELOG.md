@@ -16,6 +16,12 @@ this file existed releases were described on their GitHub release pages.
   Community and list entries for skills hosted on reet.sh (in your library or not), and shown on the skill's public
   page under **Use it without installing**. A skill that is not published is still used by name with its description,
   and the session skill pickers are unchanged.
+- **Desk links open again**: a shared desk address (`/desks/<id>`) and the newer
+  app pages (`/desks`, `/factory`, `/prompts`, `/usage`) now load the app instead
+  of returning a 404. Signing in from one of them also returns you there.
+- **Lists links go to Lists**: the bare `/lists` address and the stale link in a
+  skill's Lists section now reach `/shared`, the Lists page, instead of a 404.
+  `/factory/` likewise settles on `/factory`.
 - **Gaffer keeps watching a stopped session**: a goal that went to **Needs you**
   no longer stays there after the working session has moved on. Gaffer keeps
   polling the session's retained progress and live status; when the agent

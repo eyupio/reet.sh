@@ -127,12 +127,13 @@
   const agentLine = (n: NonNullable<typeof node>) => `${chatToolName(n.tool)}${n.model ? ` · ${n.model}` : ''}${n.source ? ` · ${sourceLabel(n.source)}` : ''}${n.effort ? ` · ${n.effort} effort` : ''}${n.effortNotOffered && !n.effort ? ` · agent's default effort (${n.effortNotOffered} is not offered)` : ''}`
 
   // Gaffer's latest review sits with what waits when it is why the pipeline waits, and with the stage otherwise.
-  const reviewWaits = $derived(item.section === 'waiting' && !lost && status.label === 'Needs you' && !!goal)
+  const usageLimited = $derived(!lost && !!goal?.workerUsageLimited)
+  const reviewWaits = $derived(item.section === 'waiting' && !usageLimited && !lost && status.label === 'Needs you' && !!goal)
   const used = $derived(inHand?.decided ?? 0)
   // A decision Gaffer could not take, or chose to leave, keeps this stop with the person; saying it is deciding would be
   // a promise nothing is going to keep.
   const leftToYou = $derived(used > 0 && taken.some(d => d.failed && d.key === piece.key && d.stage === inHand?.kind))
-  const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' ? '' : leftToYou ? 'Gaffer left this one to you. See what it decided, below.' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.')
+  const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' || usageLimited ? '' : leftToYou ? 'Gaffer left this one to you. See what it decided, below.' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.')
 
   // One bar: the choices of what waits, then the buttons a pipeline has today, each only once. A choice and a button
   // that do the same thing share a key. Opening the session is a link (`href`).
@@ -151,9 +152,9 @@
     }
     const add = (entry: Entry) => { if (!does.has(entry.key)) { does.add(entry.key); out.push(entry) } }
     if (piece.state === 'ready_to_merge') add({ key: 'merge', label: 'Approve merge', run: () => actions.merging({ record, piece }) })
-    if (piece.sessionId && piece.conversationId && alive && !goal?.goal.waitingOnWorker && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)) add({ key: 'tell', label: 'Tell the agent…', run: () => actions.telling({ record, piece }) })
-    if (nodes.length && !lost && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)) add({ key: 'send', label: 'Send back…', run: () => actions.sending({ record, piece }) })
-    if (piece.state === 'following' && nodes.length && piece.conversationId) add({ key: 'move', label: last ? 'Finish this stage' : 'Move to next stage', run: () => actions.moving({ record, piece }) })
+    if (!usageLimited && piece.sessionId && piece.conversationId && alive && !goal?.goal.waitingOnWorker && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)) add({ key: 'tell', label: 'Tell the agent…', run: () => actions.telling({ record, piece }) })
+    if (!usageLimited && nodes.length && !lost && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)) add({ key: 'send', label: 'Send back…', run: () => actions.sending({ record, piece }) })
+    if (!usageLimited && piece.state === 'following' && nodes.length && piece.conversationId) add({ key: 'move', label: last ? 'Finish this stage' : 'Move to next stage', run: () => actions.moving({ record, piece }) })
     if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) add({ key: 'restart', label: 'Try again', primary: item.kind === 'failed', run: () => actions.retry(record, piece) })
     // A finished outcome needs nothing from the line, so the one thing to do next is to put it away. The account's
     // default comes first, and Delete asks first in its own dialog.
@@ -243,11 +244,11 @@
   {#if item.section !== 'waiting' && item.why}<p class="note">{item.why}</p>{/if}
 
   {#if item.section === 'waiting'}<section class="waits" aria-label="What is waiting">
-    <p class="waits-head">Waiting for you</p>
+    <p class="waits-head">{usageLimited ? 'Worker usage limit reached' : 'Waiting for you'}</p>
     <p>{item.need?.why ?? item.why}</p>
     {#if reviewWaits && goal?.goal.summary}{@render review(goal.goal.summary, piece.conversationId ?? '')}{/if}
     {#if item.need?.recommend?.by === 'gaffer'}<p class="advice"><strong>Gaffer recommends: {item.need.recommend.label.replace(/…$/, '')}.</strong> {item.need.recommend.why}</p>{/if}
-    {#if goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}
+    {#if !usageLimited && goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}
     {#if gafferNote}<p class="hint">{gafferNote}</p>{/if}
     {#if lost}<p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>{/if}
   </section>{/if}

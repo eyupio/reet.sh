@@ -25,12 +25,12 @@ export type ListRecord = {
   sessions: {
     key: string; title: string; state: string; sessionState?: string; sessionId?: string; conversationId?: string
     stage?: number; updatedAt: number; note?: string
-    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; agentState?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
+    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; nextUsageBackup?: string; appliedModel?: string; agentState?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
   }[]
 }
 /** The parts of a goal overview the list reads. A `GafferGoalOverview` is one. */
 export type ListGoal = {
-  attention: boolean; reason?: string
+  attention: boolean; reason?: string; workerUsageLimited?: boolean
   goal: { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean; advice?: { choice: string; why: string; text?: string }; updatedAt: number }
 }
 
@@ -63,7 +63,7 @@ export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, L
         : piece.note ?? ''
       items.push({
         id: `${record.id}.${piece.key}`, sessionId: piece.sessionId ?? '', outcomeId: record.id, key: piece.key, title: piece.title, objective: record.objective, projectId: record.projectId,
-        index: index + 1, of: record.sessions.length, section: SECTIONS[kind], kind, chip: CHIPS[kind],
+        index: index + 1, of: record.sessions.length, section: SECTIONS[kind], kind, chip: decision?.kind === 'usage_limit' ? 'Usage limit' : CHIPS[kind],
         why,
         ...(decision ? { need: decision.need } : {}),
         since: goal?.goal.updatedAt || piece.updatedAt,

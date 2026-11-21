@@ -62,3 +62,12 @@ func TestSendingPipelineBackPreservesReviewedSkillGuidance(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectedSkillsRemainInUsageFailoverPrompt(t *testing.T) {
+	sk := reviewSkill()
+	item := store.GafferOutcomeSession{Prompt: strings.Repeat("Project context. ", 1000), Stages: []store.GafferOutcomeStage{{Kind: "review", UsageFailover: true, SkillGuidance: []skillbuddy.Skill{sk}}, {Kind: "test"}}}
+	prompt := stagePrompt(store.GafferOutcome{}, item, 0)
+	if !strings.Contains(prompt, sk.Instructions) || !strings.Contains(prompt, "previous worker reached its usage limit") || !strings.HasSuffix(prompt, "Do not merge.") || len(prompt) > MaxOutcomePromptBytes {
+		t.Fatalf("failover lost guidance or stage boundary: %s", prompt)
+	}
+}

@@ -332,6 +332,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if stage.SentBack != "" {
 		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
 	}
+	if stage.UsageFailover {
+		text += "\n\nThe previous worker reached its usage limit. Inspect the existing changes and commits in this folder and branch, keep useful work, and finish this stage."
+	}
 	for _, sk := range stage.SkillGuidance {
 		text += "\n\n" + skillbuddy.Prompt(sk)
 	}
@@ -695,6 +698,15 @@ func outcomeRunsOn(sessions []store.GafferOutcomeSession, tools ...string) bool 
 // will no longer attempt reads as not started.
 func outcomeView(o store.GafferOutcome) store.GafferOutcome {
 	settleStoppedOutcome(&o)
+	for i := range o.Sessions {
+		piece := &o.Sessions[i]
+		if piece.State == "following" && piece.WorkDir != "" && piece.Stage < len(piece.Stages) {
+			stage := &piece.Stages[piece.Stage]
+			if backup := nextUsageBackup(*stage); backup != nil {
+				stage.NextUsageBackup = agentWords(*backup)
+			}
+		}
+	}
 	return o
 }
 

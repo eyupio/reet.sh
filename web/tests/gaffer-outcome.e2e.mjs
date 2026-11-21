@@ -227,7 +227,7 @@ try {
       await expect(split).toContainText('Split into 2 parts, done in this order, each by its own agent.')
       const part1=split.getByRole('group',{name:'Part 1 of Code in pipeline 2',exact:true}),part2=split.getByRole('group',{name:'Part 2 of Code in pipeline 2',exact:true})
       await expect(part1.getByRole('textbox',{name:'Part 1 name',exact:true})).toHaveValue('Button');await expect(part1.getByRole('combobox',{name:'Part 1 tier',exact:true})).toHaveValue('light')
-      await expect(part1).toContainText('Claude Code · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
+      await expect(part1).toContainText('Claude Code · Agent’s default model · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
       await expect(part2.getByRole('combobox',{name:'Part 2 tier',exact:true})).toHaveValue('standard')
       await part2.getByRole('textbox',{name:'Part 2 brief',exact:true}).fill('Draw the empty state, with the illustration.')
       await expect(split.getByRole('button',{name:'Do Code in pipeline 2 as one stage',exact:true})).toBeVisible()
@@ -438,6 +438,10 @@ try {
       await expect(outcome.getByRole('combobox',{name:'Heavy effort',exact:true})).toHaveValue('high')
       // A saved tier whose agent this machine cannot run is left on the outcome's own agent.
       await expect(outcome.getByRole('combobox',{name:'Light agent',exact:true})).toHaveValue('claude')
+      // The outcome fallback changes only the unset tier, even when a saved tier uses the same agent.
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('haiku')
+      await expect(outcome.getByRole('combobox',{name:'Heavy model',exact:true})).toHaveValue('opus')
+      await expect(outcome.getByRole('combobox',{name:'Standard model',exact:true})).toHaveValue('haiku')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       await expect(outcome.getByRole('alert')).toHaveText('This model did not return a plan. Choose a model that supports tools, or write the plan yourself.')
       await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()

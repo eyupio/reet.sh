@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/webroute"
 )
 
 // extraTypes are the types the served files need that Go's built-in table lacks. Without them a type comes from the host's
@@ -185,6 +187,12 @@ func legacyRedirect(r *http.Request) (string, bool) {
 		return "/sessions" + query, true
 	case path == "/sessions/":
 		return "/sessions" + query, true
+	// Lists live at /shared; /lists/<id> is one list, but the bare address is the page.
+	case path == "/lists" || path == "/lists/":
+		return "/shared" + query, true
+	// The Factory is drawn at /factory; a shared address may carry the older trailing slash.
+	case path == "/factory/":
+		return "/factory" + query, true
 	case path == "/projects" || path == "/projects/":
 		return "/" + query, true
 	case strings.HasPrefix(path, "/projects/"):
@@ -197,31 +205,12 @@ func legacyRedirect(r *http.Request) (string, bool) {
 	return "", false
 }
 
-// spaRoute is the set of addresses the SPA knows how to draw. Anything else is a real 404: returning index.html with 200
-// for an unknown path is a soft 404, and it makes missing text and XML files look like successful HTML responses.
-func spaRoute(path string) bool {
-	switch path {
-	case "/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join",
-		"/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting",
-		"/community", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/",
-		"/notifications", "/support", "/factory", "/desks", "/desks/",
-		"/admin", "/account":
-		return true
-	}
-	for _, prefix := range []string{
-		"/admin/", "/account/", "/join/", "/lists/", "/l/", "/support/",
-	} {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
-	}
-	// A desk is addressed by exactly one id; a deeper path is not a page.
-	if id, ok := strings.CutPrefix(path, "/desks/"); ok {
-		id = strings.TrimSuffix(id, "/")
-		return id != "" && !strings.Contains(id, "/")
-	}
-	return false
-}
+// spaRoute is the set of addresses the SPA knows how to draw. The list lives in
+// internal/webroute so the public-skill router cannot capture a page first.
+// Anything else is a real 404: returning index.html with 200 for an unknown path
+// is a soft 404, and it makes missing text and XML files look like successful
+// HTML responses.
+func spaRoute(path string) bool { return webroute.Page(path) }
 
 // publicIndexRoute is the subset of SPA routes meant for search engines. Every other SPA route is an app screen behind
 // sign-in, or an empty state, and is served with noindex.
@@ -486,6 +475,10 @@ Disallow: /shared
 Disallow: /spaces
 Disallow: /profiles
 Disallow: /setups
+Disallow: /factory
+Disallow: /desks
+Disallow: /prompts
+Disallow: /usage
 `
 
 const robotsTxt = `# Reet standalone installation

@@ -72,6 +72,23 @@ type Manifest struct {
 	// is a pointer so a copy that says nothing (taken by an older reet) reads
 	// as unknown, which is not the same as "not fenced".
 	Fenced *bool `json:"fenced,omitempty"`
+	// Format says what the seal covers. From formatHeaderBound on it covers
+	// this header as written, so a header edited at a destination no longer
+	// opens. A copy without it was sealed over its id alone.
+	Format int `json:"format,omitempty"`
+}
+
+// formatHeaderBound is the first format whose seal covers the whole header.
+const formatHeaderBound = 2
+
+// sealedOver is what the seal authenticates besides the payload. Dropping
+// Format from an edited header does not help: the seal was made over the
+// header and will not open over the id.
+func sealedOver(m Manifest, head []byte) []byte {
+	if m.Format >= formatHeaderBound {
+		return append([]byte("reet backup header\n"), head...)
+	}
+	return []byte(m.ID)
 }
 
 // SealOptions chooses how a copy is stored. A password replaces the
@@ -132,6 +149,7 @@ func (s *Sealer) SealArchive(m Manifest, payload []byte, opts SealOptions) ([]by
 	m.Cipher = "AES-256-GCM/Argon2id"
 	m.Protection = ProtectionKey
 	m.Compression = ""
+	m.Format = formatHeaderBound
 
 	stored := payload
 	if opts.Compress {
@@ -168,11 +186,11 @@ func (s *Sealer) SealArchive(m Manifest, payload []byte, opts SealOptions) ([]by
 	if err != nil {
 		return nil, err
 	}
-	sealed := aead.Seal(nil, nonce, stored, []byte(m.ID))
 	head, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
+	sealed := aead.Seal(nil, nonce, stored, sealedOver(m, head))
 	var out []byte
 	out = append(out, archiveMagic...)
 	out = binary.BigEndian.AppendUint32(out, uint32(len(head)))
@@ -186,14 +204,14 @@ func (s *Sealer) SealArchive(m Manifest, payload []byte, opts SealOptions) ([]by
 // Open reads a copy sealed under the instance key, checks its digest and
 // decompresses it when it was stored compressed.
 func (s *Sealer) Open(data []byte) (Manifest, []byte, error) {
-	m, body, err := parseArchive(data)
+	m, head, body, err := parseArchive(data)
 	if err != nil {
 		return m, nil, err
 	}
 	if m.Protection == ProtectionPassword {
 		return m, nil, errors.New("this copy is protected with a password; enter it to open it")
 	}
-	return s.openBody(m, body, s.passphrase, "this backup cannot be opened with this key, or it is damaged")
+	return s.openBody(m, head, body, s.passphrase, "this backup cannot be opened with this key, or it is damaged")
 }
 
 // OpenArchive opens a downloaded copy with the password or the instance
@@ -224,20 +242,20 @@ func OpenArchive(data []byte, password, key string) (Manifest, []byte, error) {
 // the instance key opens as Open would, with the password ignored, so a
 // caller that has both never has to choose.
 func (s *Sealer) OpenWithPassword(data []byte, password string) (Manifest, []byte, error) {
-	m, body, err := parseArchive(data)
+	m, head, body, err := parseArchive(data)
 	if err != nil {
 		return m, nil, err
 	}
 	if m.Protection != ProtectionPassword {
-		return s.openBody(m, body, s.passphrase, "this backup cannot be opened with this key, or it is damaged")
+		return s.openBody(m, head, body, s.passphrase, "this backup cannot be opened with this key, or it is damaged")
 	}
 	if password == "" {
 		return m, nil, errors.New("this copy is protected with a password; enter it to open it")
 	}
-	return s.openBody(m, body, []byte(password), "the password does not open this copy, or it is damaged")
+	return s.openBody(m, head, body, []byte(password), "the password does not open this copy, or it is damaged")
 }
 
-func (s *Sealer) openBody(m Manifest, body, key []byte, wrong string) (Manifest, []byte, error) {
+func (s *Sealer) openBody(m Manifest, head, body, key []byte, wrong string) (Manifest, []byte, error) {
 	if len(body) < saltLen+nonceLen {
 		return m, nil, errors.New("this backup is truncated")
 	}
@@ -249,7 +267,7 @@ func (s *Sealer) openBody(m Manifest, body, key []byte, wrong string) (Manifest,
 	if err != nil {
 		return m, nil, err
 	}
-	plain, err := aead.Open(nil, body[saltLen:saltLen+nonceLen], body[saltLen+nonceLen:], []byte(m.ID))
+	plain, err := aead.Open(nil, body[saltLen:saltLen+nonceLen], body[saltLen+nonceLen:], sealedOver(m, head))
 	if err != nil {
 		return m, nil, errors.New(wrong)
 	}
@@ -274,23 +292,24 @@ func (s *Sealer) openBody(m Manifest, body, key []byte, wrong string) (Manifest,
 	return m, plain, nil
 }
 
-// parseArchive reads the header and returns the body after it.
-func parseArchive(data []byte) (Manifest, []byte, error) {
+// parseArchive reads the header and returns it as written, with the body
+// after it.
+func parseArchive(data []byte) (Manifest, []byte, []byte, error) {
 	var m Manifest
 	if len(data) < len(archiveMagic)+4 || string(data[:len(archiveMagic)]) != archiveMagic {
-		return m, nil, errors.New("this is not a reet backup")
+		return m, nil, nil, errors.New("this is not a reet backup")
 	}
 	at := len(archiveMagic)
 	n := int(binary.BigEndian.Uint32(data[at : at+4]))
 	at += 4
 	valid := n >= 0 && n <= MaxHeaderBytes && len(data) >= at+n
 	if !valid {
-		return m, nil, errors.New("this backup's header is damaged")
+		return m, nil, nil, errors.New("this backup's header is damaged")
 	}
 	if err := json.Unmarshal(data[at:at+n], &m); err != nil {
-		return m, nil, errors.New("this backup's header is damaged")
+		return m, nil, nil, errors.New("this backup's header is damaged")
 	}
-	return m, data[at+n:], nil
+	return m, data[at : at+n], data[at+n:], nil
 }
 
 func verifyPayload(m Manifest, payload []byte) error {
@@ -304,7 +323,7 @@ func verifyPayload(m Manifest, payload []byte) error {
 // ManifestOf reads only the header, for a listing that must not open every
 // copy with the key.
 func ManifestOf(data []byte) (Manifest, error) {
-	m, _, err := parseArchive(data)
+	m, _, _, err := parseArchive(data)
 	return m, err
 }
 

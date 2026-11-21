@@ -16,6 +16,8 @@ type ProgressStep struct {
 const (
 	progressKeep = 5 * time.Minute
 	progressMax  = 256
+	// progressSteps bounds one create's stages; a launch reports four.
+	progressSteps = 8
 )
 
 type progressKey struct {
@@ -45,6 +47,9 @@ func (l *launchProgress) note(uid int64, agent, request string, stage terminalpr
 	}
 	k := progressKey{uid, agent, request}
 	if _, seen := l.steps[k]; !seen && len(l.steps) >= progressMax {
+		return
+	}
+	if len(l.steps[k]) >= progressSteps {
 		return
 	}
 	l.steps[k] = append(l.steps[k], ProgressStep{stage, at})

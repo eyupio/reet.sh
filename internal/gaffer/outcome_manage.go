@@ -76,6 +76,12 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 						row.Stages[row.Stage].SessionID, row.Stages[row.Stage].ConversationID = "", ""
 					}
 				}
+				if staged && row.SessionID != "" && row.SessionID != row.Stages[row.Stage].SessionID {
+					// Stopped before the stage in hand started: the session named is
+					// the one of the stage before, and this stage gets its own. That
+					// session is ended once this stage is followed.
+					row.SessionID, row.ConversationID = "", ""
+				}
 				if row.SessionID == "" {
 					// Nothing is running for this step, so it is asked for afresh.
 					if staged {

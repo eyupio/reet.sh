@@ -241,7 +241,8 @@ type pushNote struct {
 // pushPending is what a woken service worker shows: a requested test, the
 // sessions waiting for this person, and the ones that ended a moment ago and
 // have not been looked at. It reads the sessions as they are now, so a
-// wake-up delivered late shows what is still true.
+// wake-up delivered late shows what is still true. A worker that names a
+// device which is not this person's is shown nothing.
 func (s *server) pushPending(w http.ResponseWriter, r *http.Request) {
 	notes := []pushNote{}
 	uid, ok := s.pushPerson(r)
@@ -251,11 +252,23 @@ func (s *server) pushPending(w http.ResponseWriter, r *http.Request) {
 	}
 	waiting, ended := true, true
 	if endpoint := r.Header.Get("X-Reet-Push-Endpoint"); endpoint != "" {
-		devices, _ := s.st.PushSubscriptionsFor(uid)
+		devices, err := s.st.PushSubscriptionsFor(uid)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		mine := false
 		for _, d := range devices {
 			if d.Endpoint == endpoint {
-				waiting, ended = d.Waiting, d.Ended
+				mine, waiting, ended = true, d.Waiting, d.Ended
 			}
+		}
+		// The browser was woken for somebody who signed out of it, and asks as
+		// the person signed in now, who never turned this device on. They are
+		// shown nothing, and the worker is told to end the subscription.
+		if !mine {
+			writeJSON(w, http.StatusOK, map[string]any{"notifications": notes, "unsubscribe": true})
+			return
 		}
 	}
 	now := time.Now()

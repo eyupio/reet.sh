@@ -146,8 +146,3 @@ func (s *Store) hostedPrivateSource(uid int64, sk HostedSkill) (string, error) {
 	}
 	return "private:" + result.Bundle.ID + ":" + result.Revision.ID + ":" + result.Revision.ManifestDigest, nil
 }
-
-func (s *Store) forgetHostedSyncSource(uid int64, slug string) error {
-	_, err := s.db.Exec(`DELETE FROM hosted_sync_sources WHERE user_id=? AND slug=?`, uid, slug)
-	return err
-}

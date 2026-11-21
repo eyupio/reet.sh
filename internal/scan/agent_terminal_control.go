@@ -33,7 +33,9 @@ func terminalControl(ctx context.Context, config string, c agentConfig) agenthea
 	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }}
 	// Chat sessions are owned by this process, not by one control connection:
 	// a reconnect adopts them instead of ending every running agent.
-	return terminalagent.FactoryWithChats(opts, terminalagent.NewChatSupervisor(ctx, opts))
+	chats := terminalagent.NewChatSupervisor(ctx, opts)
+	onAgentRestart(chats.Close)
+	return terminalagent.FactoryWithChats(opts, chats)
 }
 
 // launchTools reports the agent CLIs this connector can start: those on PATH

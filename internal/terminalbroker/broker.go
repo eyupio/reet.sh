@@ -123,6 +123,68 @@ type Peer struct {
 	traffic     func(int64, int64, time.Time)
 	// barriers are settleObservations waits, by marker request id.
 	barriers map[string]chan struct{}
+	// creates holds each create sent on this connection whose answer has not
+	// been handled, by request id, so a reconcile does not call a session lost
+	// while the machine is still starting it.
+	creates map[string]*pendingCreate
+}
+
+// pendingCreate is one create the machine has not answered yet. done closes
+// once its answer was applied.
+type pendingCreate struct {
+	session string
+	sent    time.Time
+	done    chan struct{}
+}
+
+func (p *Peer) beginCreate(request, session string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.creates == nil {
+		p.creates = map[string]*pendingCreate{}
+	}
+	p.creates[request] = &pendingCreate{session: session, sent: time.Now(), done: make(chan struct{})}
+}
+
+// settleCreate forgets a create whose answer was handled, or that was never
+// sent, and wakes a replay waiting for it.
+func (p *Peer) settleCreate(request string) {
+	p.mu.Lock()
+	if c := p.creates[request]; c != nil {
+		delete(p.creates, request)
+		close(c.done)
+	}
+	p.mu.Unlock()
+}
+
+// settleCreateOf is settleCreate by session, for an answer the observer applied.
+func (p *Peer) settleCreateOf(session string) {
+	p.mu.Lock()
+	for request, c := range p.creates {
+		if c.session == session {
+			delete(p.creates, request)
+			close(c.done)
+		}
+	}
+	p.mu.Unlock()
+}
+
+// pendingCreateOf returns the unanswered create of a session, while it is
+// younger than the longest time a machine takes to answer one.
+func (p *Peer) pendingCreateOf(session string) *pendingCreate {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for request, c := range p.creates {
+		if time.Since(c.sent) > WorktreeCallTimeout {
+			delete(p.creates, request)
+			close(c.done)
+			continue
+		}
+		if c.session == session {
+			return c
+		}
+	}
+	return nil
 }
 
 func (p *Peer) SetTrafficObserver(fn func(int64, int64, time.Time)) {
@@ -394,6 +456,7 @@ func (p *Peer) observe() {
 			}
 			// A worktree create's reply that came after its call gave up.
 			_ = p.b.recordWorktree(p.key.uid, p.key.agent, m.SessionID, s)
+			p.settleCreateOf(m.SessionID)
 		}
 	}
 }
@@ -502,7 +565,13 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	// A launch stage is not the call's answer, though it carries the call's
 	// request id: it is noted and never reaches the waiting call.
 	if note, ok := m.Body.(*terminalproto.LaunchProgress); ok {
-		p.b.progress.note(p.key.uid, p.key.agent, m.RequestID, note.Stage, time.Now())
+		// Only a request this connection is still waiting on has stages.
+		p.mu.Lock()
+		pending := p.calls[m.RequestID] != nil || p.creates[m.RequestID] != nil
+		p.mu.Unlock()
+		if pending {
+			p.b.progress.note(p.key.uid, p.key.agent, m.RequestID, note.Stage, time.Now())
+		}
 		return nil
 	}
 	p.mu.Lock()
@@ -549,6 +618,11 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	// not permission to recreate it; the next reconciliation resolves it.
 	// A late worktree answer is likewise dropped: status is read again before
 	// any remove, and a remove's outcome is read again by asking for status.
+	if _, ok := m.Body.(*terminalproto.Result); ok {
+		// A create refused after its call gave up is no longer starting; the
+		// next reconciliation settles its row.
+		p.settleCreate(m.RequestID)
+	}
 	switch m.Body.(type) {
 	case *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 		return nil
@@ -674,8 +748,25 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 	}
 	defer p.syncMu.Unlock()
 	p.mu.Lock()
+	wasReady := p.ready
 	p.ready = false
 	p.mu.Unlock()
+	synced := false
+	defer func() {
+		if synced {
+			return
+		}
+		// A failed reconcile changed nothing: a connection that was usable
+		// stays usable. One that never synchronized is closed, so the machine
+		// connects again and starts afresh.
+		if !wasReady {
+			p.Close()
+			return
+		}
+		p.mu.Lock()
+		p.ready = true
+		p.mu.Unlock()
+	}()
 	reply, err := p.call(ctx, terminalproto.Message{Body: terminalproto.Reconcile{}})
 	if err != nil {
 		return err
@@ -699,6 +790,11 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 			continue
 		}
 		observed, exists := byID[s.ID]
+		if !exists && s.State == terminalproto.Creating && p.pendingCreateOf(s.ID) != nil {
+			// The machine is still starting it (a worktree fetch can take a
+			// while) and has not registered it yet; its answer settles the row.
+			continue
+		}
 		state := terminalproto.Lost
 		var code *int
 		if exists {
@@ -721,6 +817,10 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 		signal := hasActivity || hasOutcome
 		if exists && signal {
 			_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, s.ID, p.Generation, observed.ActivityAt, observed.BellAt)
+		}
+		if exists {
+			// The machine has registered it; no create is outstanding.
+			p.settleCreateOf(s.ID)
 		}
 		if exists {
 			// A switch whose answer was lost still settles here: the row
@@ -761,6 +861,7 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 			p.b.retryEnd(p.key.uid, p.key.agent, op.SessionID, op.RequestID, p.Generation)
 		}
 	}
+	synced = true
 	p.mu.Lock()
 	p.ready = true
 	p.mu.Unlock()
@@ -1009,10 +1110,27 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 	}
 	if !created {
 		if s.State == terminalproto.Creating {
-			if err := p.Synchronize(ctx); err != nil {
+			pending := p.pendingCreateOf(s.ID)
+			if err := p.Synchronize(ctx); err != nil && pending == nil {
 				return s, false, err
 			}
 			s, err = b.st.TerminalSessionFor(uid, s.ID)
+			if err == nil && s.State == terminalproto.Creating && pending != nil {
+				// The first request is still running on the machine, which has
+				// not registered the session yet. Wait for its answer.
+				wait := time.NewTimer(time.Until(pending.sent.Add(WorktreeCallTimeout)))
+				defer wait.Stop()
+				select {
+				case <-pending.done:
+				case <-wait.C:
+					return s, false, errReplyLost{}
+				case <-p.done:
+					return s, false, errReplyLost{}
+				case <-ctx.Done():
+					return s, false, errReplyLost{}
+				}
+				s, err = b.st.TerminalSessionFor(uid, s.ID)
+			}
 			settled := s.State != terminalproto.Creating && s.State != terminalproto.Lost
 			if err == nil && settled {
 				b.auditYoloLaunch(uid, agent, in, s)
@@ -1062,10 +1180,16 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 	// The project id is the controller's own record, never the machine's.
 	wire := in
 	wire.ProjectID = ""
+	p.beginCreate(request, s.ID)
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: request, SessionID: s.ID, Body: wire}, limit)
 	if err != nil {
+		var lost errReplyLost
+		if !errors.As(err, &lost) {
+			p.settleCreate(request) // never sent, or answered for another session
+		}
 		return s, false, err
 	}
+	defer p.settleCreate(request)
 	var refusal error
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
 		code := state.ExitCode
@@ -1215,6 +1339,13 @@ func (b *Broker) observe(p *Peer, uid int64, agent, session string, generation i
 		// in flight already carries what its mark said.
 		b.dropForgetDesk(endKey{uid: uid, agent: agent, session: session})
 	}
+	if err == nil && state.Closed() {
+		// A close can archive the session (ended with remove from history and
+		// no worktree to release); its transcript goes with it.
+		if archived, aerr := b.st.TerminalArchivedFor(uid, session); aerr == nil && archived {
+			b.closeChat(uid, session)
+		}
+	}
 	if err == nil && state.Closed() && p.isReady() {
 		b.mu.Lock()
 		fn := b.sessionClosed
@@ -1362,6 +1493,9 @@ func (b *Broker) retryEnd(uid int64, agent, session, request string, generation 
 	}()
 }
 
+// maxAccountTickets bounds one account's unused attach tickets.
+const maxAccountTickets = 16
+
 // Ticket values are random, short lived, single use, and bound to the exact
 // browser login (source is its hash), account, logical session and operation.
 func (b *Broker) Ticket(uid int64, source, session string, opts Options) (string, error) {
@@ -1400,7 +1534,20 @@ func (b *Broker) Ticket(uid int64, source, session string, opts Options) (string
 			delete(b.tickets, id)
 		}
 	}
-	if b.closed || len(b.tickets) >= 1024 {
+	// A newer ticket for the same login and session replaces the unused one,
+	// and one account holds only its share of the outstanding tickets.
+	held := 0
+	for id, t := range b.tickets {
+		if t.uid != uid {
+			continue
+		}
+		if t.source == source && t.session == session {
+			delete(b.tickets, id)
+			continue
+		}
+		held++
+	}
+	if b.closed || len(b.tickets) >= 1024 || held >= maxAccountTickets {
 		return "", ErrOffline
 	}
 	id := ID()

@@ -23,6 +23,7 @@
     saveProfile, signOutAccount, takeThemeChoice, UnauthorizedError,
     type Environment, type Skill, type User,
   } from './lib/api'
+  import { disablePushOnSignOut } from './lib/push'
   import AccountMenu from './lib/AccountMenu.svelte'
   import WebMCP from './lib/WebMCP.svelte'
   import BootSkeleton from './lib/BootSkeleton.svelte'
@@ -263,6 +264,8 @@
 
   function fail(e: unknown) {
     if (e instanceof UnauthorizedError) {
+      // The session is gone, so only the browser's side can be turned off here.
+      void disablePushOnSignOut()
       clearToken()
       token = ''
       if (authMode === 'accounts') currentUser = null
@@ -503,6 +506,8 @@
 
   async function signOut() {
     unreadNotifications = 0
+    // This device's notifications go first, while the session can still delete its record.
+    await disablePushOnSignOut()
     if (authMode === 'accounts') {
       try {
         await signOutAccount()

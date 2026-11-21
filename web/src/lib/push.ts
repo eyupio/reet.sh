@@ -48,6 +48,18 @@ export async function disablePush(): Promise<void> {
   await subscription.unsubscribe()
 }
 
+/** Sign-out: turns this device off while the session can still delete its record. Never throws, and gives up after a few
+ *  seconds so sign-out is not held up. */
+export async function disablePushOnSignOut(): Promise<void> {
+  if (!('serviceWorker' in navigator)) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    disablePush().catch(() => { /* sign-out goes ahead */ }),
+    new Promise<void>((done) => { timer = setTimeout(done, 3000) }),
+  ])
+  clearTimeout(timer)
+}
+
 /** The controller's devices, with this browser's own record picked out if it is on. A browser whose subscription the
  *  controller does not know (it was removed from another device's list) reads as off, and is not registered again. */
 export async function readPush(): Promise<{ status: PushStatus; device: PushDevice | null }> {

@@ -146,6 +146,12 @@ localhost is accepted; an `http://` endpoint elsewhere is refused unless
 `REET_BACKUP_ALLOW_LOCAL=1`, because the access key id travels in the clear
 even though the copies themselves are sealed.
 
+A destination a member adds under **Account → Backups** must be on the public
+internet: one on this machine or on a private, link-local, carrier-NAT or
+unique-local address is refused when it is saved and again each time it is
+dialled, and a redirect from it is not followed. Instance destinations are not
+held to this, and `REET_BACKUP_ALLOW_LOCAL=1` lifts it for members too.
+
 The **Test** button writes a small object under the prefix, reads it back byte
 for byte, and deletes it again. It never leaves the test object behind. The
 form has its own **Test** beside **Save**, against exactly what is typed
@@ -259,7 +265,11 @@ ones age out by retention.
 - a shelf copy is parsed and checked for a skills array.
 
 Every copy also carries the SHA-256 of its payload inside its unsealed header,
-so a damaged file fails before a restore begins.
+so a damaged file fails before a restore begins. The header is readable without
+the key but, in a copy taken by this version or later (`"format": 2`), it is
+sealed with the payload: a copy whose header was edited where it is stored does
+not open. Older copies, sealed over their id alone, still open; a build older
+than this one cannot open a `format` 2 copy.
 
 ## From the terminal interface
 
@@ -284,8 +294,9 @@ it uses the one stored for that owner when the database is still there.
 Without `--yes` the command opens the copy, runs every check below, prints what
 the copy holds and what would be done to it, and changes nothing. With `--yes`
 it prints the same inventory, then moves the live `reet.db` aside to
-`reet.db.before-restore-<timestamp>`, removes stale `-wal`/`-shm` files and
-writes the restored database in place. Start reet again afterwards. Nothing is
+`reet.db.before-restore-<timestamp>`, moves its `-wal`/`-shm` files aside with
+it under the same name (after an unclean stop they hold commits the database
+file does not) and writes the restored database in place. Start reet again afterwards. Nothing is
 deleted, so the database you replaced can be put back by hand. The copy is
 opened into a temporary file beside the database, read and adapted there, and
 the file is removed afterwards; the password is read from a file or standard

@@ -1,13 +1,18 @@
 package api
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -788,5 +793,104 @@ func TestOriginalFirstFetchRefusedWhenContentLandedMeanwhile(t *testing.T) {
 	}
 	if li, err := e.st.LibraryItemFor(e.uid, item); err != nil || li.RevisionID != landed.Revision.ID {
 		t.Fatalf("the content that landed must stay the head: %+v %v", li, err)
+	}
+}
+
+// Skills of one repository are fetched from one download of it, not one each.
+func TestSkillCopiesDownloadARepositoryOnce(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	slugs := []string{"alpha", "beta", "gamma", "delta"}
+	for _, slug := range slugs {
+		body := "---\nname: " + slug + "\ndescription: A skill\n---\nv1\n"
+		if err := tw.WriteHeader(&tar.Header{Name: "r-abc/skills/" + slug + "/SKILL.md", Mode: 0o644, Typeflag: tar.TypeReg, Size: int64(len(body))}); err != nil {
+			t.Fatal(err)
+		}
+		tw.Write([]byte(body))
+	}
+	tw.Close()
+	gz.Close()
+	var downloads atomic.Int64
+	var up atomic.Bool
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !up.Load() {
+			http.Error(w, "down", 500)
+			return
+		}
+		downloads.Add(1)
+		w.Write(buf.Bytes())
+	}))
+	defer gh.Close()
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, deadFetcher(t), "", WithSkillFetcher(skillfetch.Fetcher{Client: gh.Client(), GitHub: gh.URL}))
+	srv := httptest.NewServer(h)
+	t.Cleanup(func() { srv.Close(); h.Close(); st.Close() })
+	uid, _ := st.DefaultOwner()
+	// Each skill is added while the repository cannot be read, so all of them
+	// wait for one retry.
+	for _, slug := range slugs {
+		if code, body := do(t, srv, "POST", "/api/skills", `{"input":"o/r/`+slug+`"}`); code >= 300 {
+			t.Fatalf("add %d %s", code, body)
+		}
+		h.s.skillCopies.Wait()
+	}
+	health, err := st.SkillHealthFor(uid, time.Now())
+	if err != nil || len(health) != len(slugs) {
+		t.Fatalf("health: %+v %v", health, err)
+	}
+	var items []string
+	for id, sh := range health {
+		if sh.State != "fetch-failed" {
+			t.Fatalf("before the repository was up: %+v", sh)
+		}
+		items = append(items, `"`+id+`"`)
+	}
+	up.Store(true)
+	if code, body := do(t, srv, "POST", "/api/v2/skills/retry", `{"items":[`+strings.Join(items, ",")+`]}`); code != 200 {
+		t.Fatalf("retry %d %s", code, body)
+	}
+	h.s.skillCopies.Wait()
+	if d, err := st.DesiredSkillsFor(uid, time.Now()); err != nil || len(d.Active) != len(slugs) {
+		t.Fatalf("desired after the retry: %+v %v", d, err)
+	}
+	if n := downloads.Load(); n != 1 {
+		t.Fatalf("downloads = %d, want 1 for %d skills of one repository", n, len(slugs))
+	}
+}
+
+// Background downloads share a few slots across the whole server: with all of
+// them taken, a new one waits for a slot and does not start beside the others.
+func TestSkillCopiesWaitForADownloadSlot(t *testing.T) {
+	e := newCopyEnv(t)
+	for range skillCopyFetches {
+		skillCopySlots <- struct{}{}
+	}
+	release := func() {
+		for range skillCopyFetches {
+			<-skillCopySlots
+		}
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			release()
+		}
+	})
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := e.fetch.callCount(); n != 0 {
+		t.Fatalf("fetched %d times with every slot taken", n)
+	}
+	released = true
+	release()
+	e.settle()
+	if n := e.fetch.callCount(); n != 1 {
+		t.Fatalf("fetched %d times once a slot was free, want 1", n)
 	}
 }

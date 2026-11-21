@@ -431,3 +431,46 @@ func TestAnOutcomeCannotBeReadOrSteeredByAnotherAccountOrAViewer(t *testing.T) {
 		t.Fatalf("the outcome changed: %+v %v", after, err)
 	}
 }
+
+// A pipeline stopped at Ready to merge still names the session of the stage
+// before the merge. Tried again once it may merge by itself, the merge stage
+// starts in a session of its own, on its own prompt, agent and model.
+func TestRetryingAPipelineStoppedAtReadyToMergeStartsTheMergeStageInItsOwnSession(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	uid := r.p.UserID
+	created, err := r.s.CreateOutcome(uid, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for stage := 0; stage < 3; stage++ {
+		piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == stage })
+		r.s.stageHandedOver(uid, piece.ConversationID, "Done.", "gaffer")
+	}
+	ready := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	if ready.SessionID == "" || ready.SessionID == ready.Stages[3].SessionID {
+		t.Fatalf("ready to merge: %+v", ready)
+	}
+	r.settle(t, created.ID)
+	if _, err := r.s.SetPipelineAutoMerge(uid, created.ID, ready.Key, true, false); err != nil {
+		t.Fatal(err)
+	}
+	o := mustOutcome(t, r, created.ID)
+	if _, err := r.s.StopFollowingOutcome(uid, created.ID, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	stopped := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "unfollowed" })
+	before := len(r.starter.asked())
+	if _, err := r.s.RetryPipeline(uid, created.ID, stopped.Key, mustOutcome(t, r, created.ID).Revision); err != nil {
+		t.Fatal(err)
+	}
+	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 3 })
+	asked := r.starter.asked()
+	if len(asked) != before+1 || merge.SessionID == ready.SessionID || merge.SessionID != merge.Stages[3].SessionID {
+		t.Fatalf("the merge stage reused the earlier stage's session: launches %d, was %d, piece %+v", len(asked), before, merge)
+	}
+	last := asked[len(asked)-1]
+	if last.Dir != ready.WorkDir || last.Model != merge.Stages[3].Model || !strings.Contains(last.Prompt, "the merge stage") {
+		t.Fatalf("merge launch: %+v", last)
+	}
+}

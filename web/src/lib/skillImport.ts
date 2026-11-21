@@ -171,10 +171,6 @@ export function addPrefix(name: string, prefix: string): string {
   return head ? `${prefix}${head}` : name
 }
 
-export function addReetPrefix(name: string): string {
-  return addPrefix(name, 'reet-')
-}
-
 /** Accepts the historic boolean flag as well as a profile-defined prefix. */
 export function prefixValue(prefix: boolean | string): string {
   return prefix === true ? 'reet-' : prefix === false ? '' : prefix

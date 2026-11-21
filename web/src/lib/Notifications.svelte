@@ -33,34 +33,41 @@
   })
   const countLabel = $derived(loading ? 'Reading notifications…' : loadError ? 'Notifications unavailable' : unreadOnly ? (rows.length === unread ? `${unread} unread` : `${rows.length} of ${unread} unread`) : `${rows.length} ${rows.length === 1 ? 'notification' : 'notifications'}${unread ? ` · ${unread} unread` : ''}`)
 
+  let feedSeq = 0
+
   async function load() {
+    const seq = ++feedSeq
     loading = true
     loadError = ''
     try {
       const [list, p] = await Promise.all([listNotifications(unreadOnly), getNotificationPreferences()])
+      prefs = p.preferences
+      if (seq !== feedSeq) return
       rows = list.notifications
       unread = list.unread
-      prefs = p.preferences
       error = ''
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e)
+      if (seq === feedSeq) loadError = e instanceof Error ? e.message : String(e)
     } finally {
-      loading = false
+      if (seq === feedSeq) loading = false
     }
   }
 
+  // Only the latest request may fill the list: a slow "Unread" answer must not land under "All".
   async function loadFeed(only: boolean) {
+    const seq = ++feedSeq
     loading = true
     loadError = ''
     try {
       const list = await listNotifications(only)
+      if (seq !== feedSeq) return
       rows = list.notifications
       unread = list.unread
       error = ''
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e)
+      if (seq === feedSeq) loadError = e instanceof Error ? e.message : String(e)
     } finally {
-      loading = false
+      if (seq === feedSeq) loading = false
     }
   }
 

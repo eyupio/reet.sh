@@ -37,20 +37,13 @@ export function formatWhen(ts: number, timeZone = '', dateFormat = 'locale'): st
   }
 }
 
-export function isStale(ts: number): boolean {
-  return Date.now() - ts >= 30 * DAY
-}
-
-export function isOldEnvironment(ts: number): boolean {
-  return Date.now() - ts >= 90 * DAY
-}
-
-export function agoLabel(at: number, now = Date.now()): string {
+/** How long ago, in words: 5 min ago, 2 hr ago, 3 days ago. `short` is the home page's form: 2 h ago, 3 d ago. */
+export function agoLabel(at: number, now = Date.now(), short = false): string {
   if (!at) return 'never'
   const ms = Math.max(0, now - at)
-  if (ms < 60_000) return 'just now'
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} hr ago`
-  const days = Math.floor(ms / 86_400_000)
-  return `${days} ${days === 1 ? 'day' : 'days'} ago`
+  if (ms < MINUTE) return 'just now'
+  if (ms < HOUR) return `${Math.floor(ms / MINUTE)} min ago`
+  if (ms < DAY) return `${Math.floor(ms / HOUR)} ${short ? 'h' : 'hr'} ago`
+  const days = Math.floor(ms / DAY)
+  return short ? `${days} d ago` : `${days} ${days === 1 ? 'day' : 'days'} ago`
 }

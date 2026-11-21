@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -70,51 +71,126 @@ type Fetcher struct {
 	streamCap  int64 // uncompressed bytes; maxStreamBytes when zero
 }
 
-// Fetch returns the files of the skill r names. The whole fetch is bounded by
-// fetchTimeout, or by the caller's deadline when that is sooner.
-func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
+// Outcome is one skill of a FetchMany: its Result, or why it has none.
+type Outcome struct {
+	Result
+	Err error
+}
+
+func fetchable(r ref.Ref) error {
 	if r.SourceType != "github" && r.SourceType != "well-known" {
-		return Result{}, fmt.Errorf("skill source type %q is not one reet can fetch from", r.SourceType)
+		return fmt.Errorf("skill source type %q is not one reet can fetch from", r.SourceType)
 	}
 	if r.Slug == "" {
-		return Result{}, errors.New("the skill has no name to look for")
+		return errors.New("the skill has no name to look for")
 	}
+	return nil
+}
+
+// start bounds a fetch by fetchTimeout, or by the caller's deadline when that
+// is sooner, and gives it a client. done ends it.
+func (f *Fetcher) start(ctx context.Context) (_ context.Context, done func()) {
 	timeout := f.timeout
 	if timeout <= 0 {
 		timeout = fetchTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	if f.Client == nil {
-		// One client for the whole fetch, so its requests share connections.
-		if f.newClient != nil {
-			f.Client = f.newClient()
-		} else {
-			f.Client = defaultClient(f.proxy, f.lookup)
-		}
-		defer f.Client.CloseIdleConnections()
+	if f.Client != nil {
+		return ctx, cancel
 	}
-	var files []skillbundle.ContentFile
-	var origin string
-	var err error
-	if r.SourceType == "well-known" {
-		files, origin, err = f.wellKnown(ctx, r)
+	// One client for the whole fetch, so its requests share connections.
+	if f.newClient != nil {
+		f.Client = f.newClient()
 	} else {
-		files, origin, err = f.github(ctx, r)
+		f.Client = defaultClient(f.proxy, f.lookup)
 	}
+	client := f.Client
+	return ctx, func() { client.CloseIdleConnections(); cancel() }
+}
+
+// checked turns the files found for one skill into its outcome.
+func checked(ctx context.Context, files []skillbundle.ContentFile, origin string, err error) Outcome {
 	if err != nil {
 		// The deadline is the truth when it has passed: a read it cut short can
 		// surface as an EOF or a damaged archive.
 		if cerr := ctx.Err(); cerr != nil && !errors.Is(err, cerr) {
 			err = fmt.Errorf("fetch skill source: %w", cerr)
 		}
-		return Result{}, err
+		return Outcome{Err: err}
 	}
 	m, selected, err := skillimport.Select(files, nil)
 	if err != nil {
+		return Outcome{Err: err}
+	}
+	return Outcome{Result: Result{Files: selected, Manifest: m, Origin: origin}}
+}
+
+// Fetch returns the files of the skill r names. The whole fetch is bounded by
+// fetchTimeout, or by the caller's deadline when that is sooner.
+func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) (Result, error) {
+	if err := fetchable(r); err != nil {
 		return Result{}, err
 	}
-	return Result{Files: selected, Manifest: m, Origin: origin}, nil
+	ctx, done := f.start(ctx)
+	defer done()
+	var out Outcome
+	if r.SourceType == "well-known" {
+		files, origin, err := f.wellKnown(ctx, r)
+		out = checked(ctx, files, origin, err)
+	} else {
+		out = f.githubSkills(ctx, r.Source, []string{r.Slug})[0]
+	}
+	return out.Result, out.Err
+}
+
+// FetchMany is Fetch for several skills, with one outcome per ref in the same
+// order. Skills of one GitHub repository share one download of it, bounded as
+// one Fetch is.
+func (f Fetcher) FetchMany(ctx context.Context, refs []ref.Ref) []Outcome {
+	out := make([]Outcome, len(refs))
+	repos := map[string][]int{}
+	var order []string
+	for i, r := range refs {
+		if r.SourceType != "github" || fetchable(r) != nil {
+			out[i].Result, out[i].Err = f.Fetch(ctx, r)
+			continue
+		}
+		if repos[r.Source] == nil {
+			order = append(order, r.Source)
+		}
+		repos[r.Source] = append(repos[r.Source], i)
+	}
+	for _, source := range order {
+		slugs := make([]string, len(repos[source]))
+		for n, i := range repos[source] {
+			slugs[n] = refs[i].Slug
+		}
+		got := func() []Outcome {
+			f := f
+			ctx, done := f.start(ctx)
+			defer done()
+			return f.githubSkills(ctx, source, slugs)
+		}()
+		for n, i := range repos[source] {
+			out[i] = got[n]
+		}
+	}
+	return out
+}
+
+// githubSkills downloads the repository source once and returns the skill of
+// each slug in it.
+func (f Fetcher) githubSkills(ctx context.Context, source string, slugs []string) []Outcome {
+	out := make([]Outcome, len(slugs))
+	found, origins, errs, err := f.github(ctx, source, slugs)
+	for i := range slugs {
+		if err != nil {
+			out[i] = checked(ctx, nil, "", err)
+			continue
+		}
+		out[i] = checked(ctx, found[i], origins[i], errs[i])
+	}
+	return out
 }
 
 func githubHost(h string) bool {
@@ -190,10 +266,14 @@ func (c *capReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFile, string, error) {
-	owner, repo, ok := strings.Cut(r.Source, "/")
+// github reads the archive of the repository source once and picks the folder
+// of each slug: its files and origin, or its own error. The last error is the
+// archive's, and is every slug's.
+func (f Fetcher) github(ctx context.Context, source string, slugs []string) ([][]skillbundle.ContentFile, []string, []error, error) {
+	fail := func(err error) ([][]skillbundle.ContentFile, []string, []error, error) { return nil, nil, nil, err }
+	owner, repo, ok := strings.Cut(source, "/")
 	if !ok || owner == "" || repo == "" || strings.ContainsAny(repo, "/?#") || strings.ContainsAny(owner, "?#") {
-		return nil, "", ErrNotFound
+		return fail(ErrNotFound)
 	}
 	base := strings.TrimSuffix(f.GitHub, "/")
 	if base == "" {
@@ -201,7 +281,7 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 	}
 	resp, err := f.get(ctx, base+"/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/tar.gz/HEAD", true)
 	if err != nil {
-		return nil, "", err
+		return fail(err)
 	}
 	defer resp.Body.Close()
 	archiveCap, streamCap := f.archiveCap, f.streamCap
@@ -213,7 +293,12 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 	}
 	gz, err := gzip.NewReader(&capReader{r: resp.Body, left: archiveCap})
 	if err != nil {
-		return nil, "", fmt.Errorf("skill archive: %w", err)
+		return fail(fmt.Errorf("skill archive: %w", err))
+	}
+	// first holds the folder each slug prefers above all others.
+	first, tooLarge := map[string]bool{}, map[string]bool{}
+	for _, slug := range slugs {
+		first["skills/"+slug] = true
 	}
 	tallies := map[string]*tally{}
 	all := map[string]held{}
@@ -226,22 +311,22 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			break
 		}
 		if err != nil {
-			return nil, "", fmt.Errorf("skill archive: %w", err)
+			return fail(fmt.Errorf("skill archive: %w", err))
 		}
 		if entries > maxArchiveEntries {
-			return nil, "", ErrArchiveTooLarge
+			return fail(ErrArchiveTooLarge)
 		}
 		if strings.HasPrefix(h.Name, "/") {
-			return nil, "", errors.New("skill archive has an absolute path")
+			return fail(errors.New("skill archive has an absolute path"))
 		}
 		for _, seg := range strings.Split(h.Name, "/") {
 			if seg == ".." {
-				return nil, "", errors.New("skill archive has a path outside its folder")
+				return fail(errors.New("skill archive has a path outside its folder"))
 			}
 		}
 		// Whatever the type, the size is what the reader will skip or read.
 		if h.Size < 0 || h.Size > streamCap-streamed {
-			return nil, "", ErrArchiveTooLarge
+			return fail(ErrArchiveTooLarge)
 		}
 		streamed += h.Size
 		if h.Typeflag != tar.TypeReg {
@@ -267,10 +352,14 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 			t.files++
 			t.bytes += h.Size
 			over := t.files > skillbundle.MaxFiles || t.bytes > skillbundle.MaxBytes
-			// A SKILL.md folder named for the skill that is over the limits is
-			// that skill; stop here instead of reading the rest of the archive.
-			if over && d != "" && skillDirs[d] && matchesSlug(d, r.Slug) {
-				return nil, "", ErrTooLarge
+			// skills/<slug> with a SKILL.md is the skill whatever else the
+			// archive holds. When every skill asked for is such a folder over
+			// the limits, stop here instead of reading the rest of the archive.
+			if over && skillDirs[d] && first[d] {
+				tooLarge[d] = true
+				if len(tooLarge) == len(first) {
+					return fail(ErrTooLarge)
+				}
 			}
 			if d == "" {
 				break
@@ -281,41 +370,47 @@ func (f Fetcher) github(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFi
 		}
 		retained += h.Size
 		if retained > maxRetainedBytes {
-			return nil, "", ErrArchiveTooLarge
+			return fail(ErrArchiveTooLarge)
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, h.Size))
 		if err != nil {
-			return nil, "", fmt.Errorf("skill archive: %w", err)
+			return fail(fmt.Errorf("skill archive: %w", err))
 		}
 		all[rel] = held{data, h.Mode&0o111 != 0}
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, "", fmt.Errorf("fetch skill source: %w", err)
+		return fail(fmt.Errorf("fetch skill source: %w", err))
 	}
-	best, ok := pickFolder(skillDirs, all, r.Slug)
-	if !ok {
-		return nil, "", ErrNotFound
-	}
-	if t := tallies[best]; t.files > skillbundle.MaxFiles || t.bytes > skillbundle.MaxBytes {
-		return nil, "", ErrTooLarge
-	}
-	var files []skillbundle.ContentFile
-	prefix := best
-	if prefix != "" {
-		prefix += "/"
-	}
-	for rel, h := range all {
-		if sub, ok := strings.CutPrefix(rel, prefix); ok {
-			files = append(files, skillbundle.ContentFile{Path: sub, Data: h.data, Executable: h.exec})
+	found, origins, errs := make([][]skillbundle.ContentFile, len(slugs)), make([]string, len(slugs)), make([]error, len(slugs))
+	for i, slug := range slugs {
+		best, ok := pickFolder(skillDirs, all, slug)
+		if !ok {
+			errs[i] = ErrNotFound
+			continue
+		}
+		if t := tallies[best]; t.files > skillbundle.MaxFiles || t.bytes > skillbundle.MaxBytes {
+			errs[i] = ErrTooLarge
+			continue
+		}
+		var files []skillbundle.ContentFile
+		prefix := best
+		if prefix != "" {
+			prefix += "/"
+		}
+		for rel, h := range all {
+			if sub, ok := strings.CutPrefix(rel, prefix); ok {
+				files = append(files, skillbundle.ContentFile{Path: sub, Data: h.data, Executable: h.exec})
+			}
+		}
+		sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+		found[i] = files
+		origins[i] = "https://github.com/" + owner + "/" + repo + "/tree/HEAD"
+		if best != "" {
+			origins[i] += "/" + best
 		}
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	origin := "https://github.com/" + owner + "/" + repo + "/tree/HEAD"
-	if best != "" {
-		origin += "/" + best
-	}
-	return files, origin, nil
+	return found, origins, errs, nil
 }
 
 func (f Fetcher) wellKnown(ctx context.Context, r ref.Ref) ([]skillbundle.ContentFile, string, error) {
@@ -345,7 +440,7 @@ func (f Fetcher) wellKnown(ctx context.Context, r ref.Ref) ([]skillbundle.Conten
 			return nil, "", errors.New("skill index lists an unsafe skill name")
 		}
 		names := s.Files
-		if !contains(names, "SKILL.md") {
+		if !slices.Contains(names, "SKILL.md") {
 			names = append([]string{"SKILL.md"}, names...)
 		}
 		if len(names) > skillbundle.MaxFiles {
@@ -376,15 +471,6 @@ func (f Fetcher) wellKnown(ctx context.Context, r ref.Ref) ([]skillbundle.Conten
 		return files, r.URL, nil
 	}
 	return nil, "", ErrNotFound
-}
-
-func contains(l []string, s string) bool {
-	for _, v := range l {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // safeSegment reports whether name can be one path segment of a request.

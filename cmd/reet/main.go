@@ -303,9 +303,7 @@ func serve() error {
 	} else if rep.Created > 0 || rep.Failed > 0 {
 		log.Printf("projects migration: %d accounts, %d folder projects made, %d accounts to try again", rep.Users, rep.Created, rep.Failed)
 	}
-	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
-	_ = st.PruneSessions(time.Now().UnixMilli())
-	_ = st.PruneInvites(time.Now().UnixMilli())
+	pruneExpired(st)
 	_, _ = st.PruneMail()
 	mode := api.AuthMode(os.Getenv("REET_AUTH"))
 	if terminalControl.AuthMode() != "" {
@@ -392,6 +390,7 @@ func serve() error {
 	mux.Handle("/", api.WithHostedPages(h, web.Handler(publicURL, web.WithSignedIn(h.SignedIn), web.WithPublicPage(publicPageFor(st)), web.WithSitemapURLs(publicURLsFor(st)))))
 	srv := &http.Server{Addr: env("REET_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go reportServer(ctx, st)
+	go pruneEvery(ctx, st, time.Hour)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -403,6 +402,29 @@ func serve() error {
 		return err
 	}
 	return nil
+}
+
+// pruneExpired drops events older than a year and the sessions and invites
+// that have run out.
+func pruneExpired(st *store.Store) {
+	_ = st.PruneEvents(time.Now().AddDate(-1, 0, 0).UnixMilli())
+	_ = st.PruneSessions(time.Now().UnixMilli())
+	_ = st.PruneInvites(time.Now().UnixMilli())
+}
+
+// pruneEvery repeats the start-up prune while the controller runs, so one
+// that is never restarted does not keep them for good.
+func pruneEvery(ctx context.Context, st *store.Store, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pruneExpired(st)
+		}
+	}
 }
 
 // servePprof exposes Go's profiles on an opt-in local address. It is off by

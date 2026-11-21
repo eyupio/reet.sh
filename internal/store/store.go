@@ -207,6 +207,10 @@ type Store struct {
 	healthErr     error
 	healthCountAt time.Time
 	healthCount   int
+
+	// stamps remembers when a session, token or machine last had its
+	// last-seen time written, so a busy one writes it only now and then.
+	stamps stampTimes
 }
 
 const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`
@@ -1677,9 +1681,52 @@ func (s *Store) CreateSession(id string, userID, expiresAt int64, ua string) err
 	return err
 }
 
+// stampEvery is how often a session or token has its last-seen time written.
+// agentStampEvery is shorter: a machine counts as online by that time.
+const (
+	stampEvery      = time.Minute
+	agentStampEvery = 20 * time.Second
+	stampKeep       = 4096
+)
+
+type stampTimes struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+// due reports whether key was last stamped more than every ago, and records
+// this stamp when it was. Entries older than a minute are dropped once the
+// map grows; if that is not enough the map starts again, which only costs a
+// few early writes.
+func (t *stampTimes) due(key string, every time.Duration) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	nowAt := time.Now()
+	if last, ok := t.at[key]; ok && nowAt.Sub(last) < every {
+		return false
+	}
+	if t.at == nil {
+		t.at = map[string]time.Time{}
+	}
+	if len(t.at) >= stampKeep {
+		for k, last := range t.at {
+			if nowAt.Sub(last) >= stampEvery {
+				delete(t.at, k)
+			}
+		}
+		if len(t.at) >= stampKeep {
+			t.at = map[string]time.Time{}
+		}
+	}
+	t.at[key] = nowAt
+	return true
+}
+
+// SessionUser resolves a live session. The lookup runs on the read handle on
+// every request; last_seen is written at most once a minute per session.
 func (s *Store) SessionUser(id string, at int64) (User, bool, error) {
 	var u User
-	err := s.db.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.password_hash,u.created_at,u.disabled_at
+	err := s.read.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.password_hash,u.created_at,u.disabled_at
 		FROM sessions s JOIN users u ON u.id=s.user_id
 		WHERE s.id=? AND s.expires_at>? AND u.disabled_at=0`, id, at).
 		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.CreatedAt, &u.DisabledAt)
@@ -1689,7 +1736,9 @@ func (s *Store) SessionUser(id string, at int64) (User, bool, error) {
 	if err != nil {
 		return User{}, false, err
 	}
-	_, _ = s.db.Exec(`UPDATE sessions SET last_seen=? WHERE id=?`, at, id)
+	if s.stamps.due("session:"+id, stampEvery) {
+		_, _ = s.db.Exec(`UPDATE sessions SET last_seen=? WHERE id=?`, at, id)
+	}
 	return u, true, nil
 }
 

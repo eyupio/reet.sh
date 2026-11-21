@@ -8,6 +8,9 @@ self.addEventListener('activate', event => event.waitUntil(self.clients.claim())
 
 const FALLBACK = { tag: 'reet-sessions', title: 'reet.sh', body: 'Something changed in your sessions.', url: '/sessions' }
 
+// pending is what to show, or null when the controller says this browser's subscription is not the signed-in
+// person's: somebody else turned it on here and signed out. The subscription is then ended, so their sessions stop
+// waking this browser.
 async function pending() {
   try {
     const subscription = await self.registration.pushManager.getSubscription()
@@ -17,15 +20,21 @@ async function pending() {
     })
     if (!response.ok) return []
     const body = await response.json()
+    if (body.unsubscribe === true) {
+      if (subscription) await subscription.unsubscribe().catch(() => {})
+      return null
+    }
     return Array.isArray(body.notifications) ? body.notifications : []
   } catch {
     return []
   }
 }
 
-// Every push shows something: browsers withdraw a subscription that wakes a worker and shows nothing.
+// Every push shows something: browsers withdraw a subscription that wakes a worker and shows nothing. The one push
+// that shows nothing is the last one of a subscription that was just ended.
 async function show() {
   const notes = await pending()
+  if (notes === null) return
   const list = notes.length ? notes : [FALLBACK]
   await Promise.all(list.map(note => self.registration.showNotification(String(note.title || FALLBACK.title), {
     body: String(note.body || ''), tag: String(note.tag || FALLBACK.tag), renotify: true,

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -12,6 +13,54 @@ import (
 
 var ErrPreviewUnavailable = errors.New("This image preview is unavailable or has expired.")
 var previewReads = make(chan struct{}, 4)
+
+// previewShare is how many of the preview slots one account may hold, so a
+// slow machine of one account cannot keep every slot from the others.
+const previewShare = 2
+
+var previewAccounts = struct {
+	sync.Mutex
+	slots map[int64]*previewSlots
+}{slots: map[int64]*previewSlots{}}
+
+type previewSlots struct {
+	held chan struct{}
+	refs int
+}
+
+// acquirePreview takes one of the account's slots, then a shared one. The
+// returned release must be called once.
+func acquirePreview(ctx context.Context, uid int64) (func(), error) {
+	previewAccounts.Lock()
+	a := previewAccounts.slots[uid]
+	if a == nil {
+		a = &previewSlots{held: make(chan struct{}, previewShare)}
+		previewAccounts.slots[uid] = a
+	}
+	a.refs++
+	previewAccounts.Unlock()
+	forget := func() {
+		previewAccounts.Lock()
+		if a.refs--; a.refs == 0 {
+			delete(previewAccounts.slots, uid)
+		}
+		previewAccounts.Unlock()
+	}
+	select {
+	case a.held <- struct{}{}:
+	case <-ctx.Done():
+		forget()
+		return nil, ctx.Err()
+	}
+	select {
+	case previewReads <- struct{}{}:
+	case <-ctx.Done():
+		<-a.held
+		forget()
+		return nil, ctx.Err()
+	}
+	return func() { <-previewReads; <-a.held; forget() }, nil
+}
 
 // ChatPreview reads a connector-captured snapshot belonging to this account and
 // session. Every part and the final content hash are checked before serving bytes.
@@ -23,12 +72,11 @@ func (b *Broker) ChatPreview(ctx context.Context, uid int64, session, id string)
 	if err != nil || !s.Structured {
 		return nil, "", ErrPreviewUnavailable
 	}
-	select {
-	case previewReads <- struct{}{}:
-		defer func() { <-previewReads }()
-	case <-ctx.Done():
-		return nil, "", ctx.Err()
+	release, err := acquirePreview(ctx, uid)
+	if err != nil {
+		return nil, "", err
 	}
+	defer release()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	p, err := b.peer(uid, s.AgentID, true)

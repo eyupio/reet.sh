@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,7 +36,16 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 		return "", "", err
 	}
 	report(store.UpdateStageDownload, "Downloading "+resolved)
-	stage, err := os.MkdirTemp("", "reet-agent-update-*")
+	target, err := os.Executable()
+	if err != nil {
+		return "", "", err
+	}
+	target, err = filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", "", err
+	}
+	// Staged beside the binary it replaces: /tmp may be mounted noexec.
+	stage, err := lifecycle.StageDir(target)
 	if err != nil {
 		return "", "", err
 	}
@@ -59,14 +69,6 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 	message := fmt.Sprintf("Updated from %s to %s. Restarting the agent.", describeBuild(current, buildCommit), describeBuild(version, commit))
 	if strings.TrimSpace(current) == "" || strings.EqualFold(current, "dev") {
 		message = fmt.Sprintf("Updated to %s. Restarting the agent.", describeBuild(version, commit))
-	}
-	target, err := os.Executable()
-	if err != nil {
-		return "", "", err
-	}
-	target, err = filepath.EvalSymlinks(target)
-	if err != nil {
-		return "", "", err
 	}
 	if lifecycle.SameBinary(candidate, target) {
 		return fmt.Sprintf("Already running %s.", describeBuild(version, commit)), "", nil
@@ -174,6 +176,29 @@ func rollbackPendingUpdate(config string, pending pendingUpdate, reason string) 
 	return restartAgent(pending.Target)
 }
 
+// beforeRestart ends what this process owns and the next one cannot adopt:
+// the structured chat processes, which would be left running with nothing
+// reading them. The new process resumes those chats from its registry.
+var beforeRestart struct {
+	mu    sync.Mutex
+	close func()
+}
+
+func onAgentRestart(close func()) {
+	beforeRestart.mu.Lock()
+	beforeRestart.close = close
+	beforeRestart.mu.Unlock()
+}
+
+// agentExec replaces the process image; tests replace it.
+var agentExec = syscall.Exec
+
 func restartAgent(path string) error {
-	return syscall.Exec(path, os.Args, os.Environ())
+	beforeRestart.mu.Lock()
+	closeChats := beforeRestart.close
+	beforeRestart.mu.Unlock()
+	if closeChats != nil {
+		closeChats()
+	}
+	return agentExec(path, os.Args, os.Environ())
 }

@@ -119,7 +119,9 @@ what to fix, rather than starting up looking like single sign-on is off.
    before, or who linked their account, is found by it.
 2. A person reet.sh has not met is matched by email only if linking by email is on **and** the
    provider says the address is verified (`email_verified`). The owner and admin accounts are never
-   linked by email: a matching address must not hand over the keys.
+   linked by email: a matching address must not hand over the keys. `email_verified` speaks for the
+   standard `email` claim: with another `emailClaim`, the address counts as verified only when it is
+   the same as the token's `email`.
 3. Otherwise, with new-person accounts on, an account is created, again only for a verified
    address. It has no password. Without it the person is told no account is available.
 4. A person who is signed in can link their own identity (`GET /api/v2/auth/oidc/start?intent=link`;

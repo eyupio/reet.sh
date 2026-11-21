@@ -65,6 +65,7 @@ type server struct {
 	contactEmail   string
 	push           pushState
 	limiter        *auth.Limiter
+	addrLimiter    *auth.Limiter // failed password sign-ins per address seen; generous, as a proxy is one address
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
 	publicURL      string
@@ -138,8 +139,8 @@ type server struct {
 	folderWrites   *auth.Limiter
 	// Clones of GitHub repositories that become projects (folder_projects_github.go).
 	clones repoClones
-	// Bounded lock stripes serialize start/recovery of one backlog request.
-	backlogStarts [64]sync.Mutex
+	// One lock per draft serializes start/recovery of one backlog request.
+	backlogStarts keyedLocks
 	// Session cleanup after a confirmed close (session_isolation.go).
 	sessionCleanupMu sync.Mutex
 	sessionCleanup   map[string]bool
@@ -360,7 +361,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
-		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
+		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), addrLimiter: auth.NewLimiter(60, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
@@ -653,15 +654,34 @@ func bootstrapPath(path string) bool {
 	return path == "/api/import"
 }
 
+// requestToken reads the token from a header. Only /quick, which a
+// bookmarklet opens as a plain link, may carry it as ?t= instead: a token in
+// any other address would end up in logs, history and Referer headers.
 func requestToken(r *http.Request) string {
 	got := r.Header.Get("X-Reet-Token")
 	if b, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 		got = b
 	}
-	if got == "" {
+	if got == "" && r.URL.Path == "/quick" {
 		got = r.URL.Query().Get("t")
 	}
 	return got
+}
+
+// knownHost reports whether a Host header names this instance: an IP
+// address, localhost, or the host of REET_PUBLIC_URL. Any other name may be
+// a stranger's domain pointed at this machine (DNS rebinding).
+func (s *server) knownHost(host string) bool {
+	name := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		name = h
+	}
+	name = strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(name, "["), "]"), "."))
+	if name == "localhost" || net.ParseIP(name) != nil {
+		return true
+	}
+	u, err := url.Parse(s.publicOrigin())
+	return err == nil && u.Hostname() != "" && strings.EqualFold(u.Hostname(), name)
 }
 
 func (s *server) hasBootstrap(r *http.Request) bool {
@@ -780,6 +800,13 @@ func (s *server) auth(next http.Handler) http.Handler {
 				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
 			}
+		}
+		// With no sign-in at all, the Host header is the only thing that tells
+		// this instance from a website whose name was pointed at it.
+		tokenless := s.authMode == AuthNone || (s.authMode == AuthToken && s.token == "")
+		if tokenless && guardedPath(r.URL.Path) && !s.knownHost(r.Host) {
+			writeErr(w, http.StatusForbidden, "this address is not recognised; set REET_PUBLIC_URL to the address you open reet at")
+			return
 		}
 		switch s.authMode {
 		case AuthNone:
@@ -2373,13 +2400,11 @@ func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "password is too long")
 		return
 	}
-	keys := []string{"signup", clientIP(r), email}
-	if !s.limiter.Allow(keys...) {
+	if !s.limiter.Take("signup:all", "signup-ip:"+clientIP(r), "email:"+email) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
 	}
-	s.limiter.Hit(keys...)
 	hash, err := auth.HashPassword(in.Password)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not create the account")
@@ -2421,13 +2446,21 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(in.Email))
-	keys := []string{clientIP(r), email}
-	if !s.limiter.Allow(keys...) {
+	// No address is longer, and the address is a limiter key below.
+	if len(email) > 254 {
+		writeErr(w, http.StatusBadRequest, "enter a valid email address")
+		return
+	}
+	// The address the server sees is charged for failed attempts only: the
+	// attempt is recorded now and taken back when the password is right, so
+	// people behind one proxy do not use up each other's allowance.
+	ipKey := "ip:" + clientIP(r)
+	allowed := s.addrLimiter.Take(ipKey) && s.limiter.Take("email:"+email)
+	if !allowed {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
 	}
-	s.limiter.Hit(keys...)
 	user, ok, err := s.st.UserByEmail(email)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -2449,6 +2482,7 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
+	s.addrLimiter.Forgive(ipKey)
 	if _, err := s.newSession(w, r, user); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not start a session")
 		return
@@ -2752,7 +2786,11 @@ func (s *server) adminUserTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.TransferOwner(actor.ID, target.ID); err != nil {
-		writeErr(w, 400, err.Error())
+		code := 400
+		if errors.Is(err, store.ErrNotOwner) {
+			code = 403
+		}
+		writeErr(w, code, err.Error())
 		return
 	}
 	s.event(actor.ID, "ui", "user-transfer", "", map[string]any{"name": target.Name, "email": target.Email})
@@ -2877,7 +2915,9 @@ func (s *server) join(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	_ = s.st.DeleteInvite(auth.HashToken(in.Token))
+	// Every invite for the address goes, not only the one used: an older one
+	// may carry another role.
+	_ = s.st.DeleteInvitesFor(invite.Email)
 	if _, err := s.newSession(w, r, user); err != nil {
 		writeErr(w, 500, "could not start a session")
 		return

@@ -383,3 +383,41 @@ func TestAToolCallMayCarryAFullOutcome(t *testing.T) {
 		t.Fatal("an oversized call was accepted")
 	}
 }
+
+// Session text read in an earlier turn is replayed to the model in the next
+// one, so it still only proposes: a change asked for in the later turn waits
+// for the person, even on Allow.
+func TestAChangeInALaterTurnAfterSessionTextWasReadStillAsks(t *testing.T) {
+	reading := HostTool{Name: "reet_get_factory_outcome", Title: "Read one outcome", Description: "Read it.", Parameters: json.RawMessage(`{"type":"object","properties":{"outcome_id":{"type":"string"}}}`), ReadOnly: true, Mode: "allow", SessionText: true}
+	s, st, p, v, host, provider, _ := hostFixture(t, []HostTool{readTool, reading, writeTool},
+		`reet_get_factory_outcome {"outcome_id":"abc"}`, "Read it.", `reet_stop_outcome {"outcome_id":"abc"}`, "I’ve asked to stop abc.")
+	// The provider may read session text, so an earlier result is repeated to it.
+	row, err := st.GafferProviderFor(p.UserID, v.Conversation.ProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := inputFrom(row)
+	in.AllowStatus, in.AllowSessions, in.AllowCode = true, true, true
+	if _, err = s.Save(p, in); err != nil {
+		t.Fatal(err)
+	}
+	if first := ask(t, s, p, v, "a", "Read abc."); first.State != "completed" || len(first.Tools) != 1 || !first.Tools[0].SessionText {
+		t.Fatalf("first turn: %+v", first)
+	}
+	provider.mu.Lock()
+	before := len(provider.bodies)
+	provider.mu.Unlock()
+	second := ask(t, s, p, v, "b", "Carry on.")
+	provider.mu.Lock()
+	replayed := strings.Contains(strings.Join(provider.bodies[before:], " "), "RESULT_OF_reet_get_factory_outcome")
+	provider.mu.Unlock()
+	if !replayed {
+		t.Fatal("the earlier result was not replayed, so this test shows nothing")
+	}
+	if got := host.made(); len(got) != 1 {
+		t.Fatalf("a change ran on replayed session text: %v", got)
+	}
+	if len(second.Tools) != 1 || second.Tools[0].Name != "reet_stop_outcome" || second.Tools[0].State != "pending" || second.Tools[0].Mode != "ask" {
+		t.Fatalf("the change should wait for the person: %+v", second.Tools)
+	}
+}

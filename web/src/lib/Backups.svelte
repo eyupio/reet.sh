@@ -380,7 +380,7 @@
       const failed = remotes.filter((r) => r.error)
       saved = `Removed ${total} ${total === 1 ? 'copy' : 'copies'}.${failed.length ? ` ${failed.map((r) => `${r.name}: ${r.error}`).join('; ')}` : ''}`
       await load()
-      if (openCopies) copies = (await listBackupRemoteCopies(admin, openCopies)).items
+      if (openCopies) await loadCopies(openCopies, true)
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -394,7 +394,7 @@
     busy = `remote-copy:${item.id}`
     try {
       await deleteBackupRemoteCopy(admin, name, item.id)
-      copies = (await listBackupRemoteCopies(admin, name)).items
+      await loadCopies(name, true)
       await load()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -410,15 +410,27 @@
       return
     }
     openCopies = name
-    copiesLoading = true
-    copiesError = ''
+    await loadCopies(name)
+  }
+
+  // Only the latest request may fill the list: one destination's copies must not show under another.
+  let copiesSeq = 0
+  async function loadCopies(name: string, quiet = false) {
+    const seq = ++copiesSeq
+    if (!quiet) {
+      copiesLoading = true
+      copiesError = ''
+    }
     try {
-      copies = (await listBackupRemoteCopies(admin, name)).items
+      const items = (await listBackupRemoteCopies(admin, name)).items
+      if (seq === copiesSeq && openCopies === name) copies = items
     } catch (e) {
+      if (quiet) throw e
+      if (seq !== copiesSeq) return
       copies = []
       copiesError = e instanceof Error ? e.message : String(e)
     } finally {
-      copiesLoading = false
+      if (seq === copiesSeq) copiesLoading = false
     }
   }
 

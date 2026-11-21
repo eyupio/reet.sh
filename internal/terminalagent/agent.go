@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -23,7 +22,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/eyupio/reet.sh/internal/agentaccounts"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
-	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/privateconn"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -219,1052 +217,133 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 // connection-scoped behaviour for callers that do not own one.
 func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervisor) agenthealth.TerminalFactory {
 	return func(ctx context.Context, client *http.Client, headers http.Header, generation int64, send agenthealth.Sender) (func(context.Context, terminalproto.Message) error, func()) {
-		ctx, cancel := context.WithCancel(ctx)
-		var wg sync.WaitGroup
-		featureHeader := headers.Get(terminalproto.FeatureHeader)
-		features := terminalproto.ParseFeatures(featureHeader)
-		// The chats attach first: the terminal state observer below hides a
-		// session while a mode swap moves it between the two.
-		chats := attachChats(supervisor, ctx, opts, generation, send, chatFeatures{
-			history:   features.Has(terminalproto.ACPHistoryFeature),
-			details:   features.Has(terminalproto.ACPToolDetailsFeature),
-			questions: features.Has(terminalproto.ACPQuestionFeature),
-			previews:  features.Has(terminalproto.ACPPreviewsFeature),
-			catalogue: features.Has(terminalproto.ACPModelCatalogueFeature),
-			provider:  features.Has(terminalproto.ACPProviderFeature),
-			usage:     features.Has(terminalproto.ACPUsageFeature),
-		})
-		m, managerErr := terminalhost.NewManager(ctx, opts)
-		switcher := &agentSwitch{chats: chats, shells: swapShells(m)}
-		// swaps tracks the mode swaps in flight. A swap outlives a lost
-		// connection, so the manager does too: its loop runs on its own
-		// context, which cleanup ends only after waiting for the swaps.
-		swaps := newSwapGroup()
-		managerCtx, stopManager := context.WithCancel(context.WithoutCancel(ctx))
-		if managerErr == nil {
-			wg.Add(1)
-			go func() { defer wg.Done(); _ = m.Run(managerCtx) }()
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				observed := map[string]terminalproto.SessionChanged{}
-				sentDirs := map[string]string{}
-				initial := true
-				for {
-					changed := m.Changed()
-					// A session a swap is moving is left out: its terminal
-					// ending is a hand-off, not the end of the row. The hidden
-					// set also keeps a swapping id from being pruned, so it is
-					// reported again only when it really returns.
-					sessions, hidden, err := listShells(ctx, m, chats.sup)
-					if err != nil {
-						return
-					}
-					seen := make(map[string]struct{}, len(sessions))
-					for _, s := range sessions {
-						seen[s.ID] = struct{}{}
-						state, modified := observeShell(observed, sentDirs, s, featureHeader)
-						if !initial && modified {
-							if send(ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: s.ID, Generation: generation, Body: state}) != nil {
-								return
-							}
-						}
-					}
-					// Forget sessions that left the listing, so a reused id is
-					// reported as new rather than compared with a stale state.
-					for id := range observed {
-						if _, still := seen[id]; still {
-							continue
-						}
-						if _, moving := hidden[id]; moving {
-							continue
-						}
-						delete(observed, id)
-						delete(sentDirs, id)
-					}
-					initial = false
-					select {
-					case <-ctx.Done():
-						return
-					case <-changed:
-					}
-				}
-			}()
+		c := newAgentConn(ctx, opts, supervisor, client, headers, generation, send)
+		return c.dispatch, c.close
+	}
+}
+
+// dispatch serves one control message. It is called by one control reader;
+// only stream workers use their own immutable attachment. Cleanup happens after
+// that reader has stopped.
+func (c *agentConn) dispatch(callCtx context.Context, msg terminalproto.Message) error {
+	if msg.Generation != c.generation {
+		return terminalproto.ErrInvalid
+	}
+	r := &agentReq{agentConn: c, callCtx: callCtx, msg: msg, reply: msg}
+	r.reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+	if answered, err := r.checkFeatures(); answered {
+		return err
+	}
+	// Each of these is served only on a generation that negotiated its
+	// feature (checkFeatures above). Without it the message is a protocol
+	// error and nothing is sent back: a peer that did not negotiate a kind may
+	// drop the connection on its answer. None needs the manager (tmux), but
+	// the worktree and upload ones check it themselves.
+	switch op := msg.Body.(type) {
+	case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
+		return r.handleWorktree()
+	case *terminalproto.Inspect:
+		return r.handleInspect(op)
+	case *terminalproto.Browse:
+		return r.handleBrowse(op)
+	case *terminalproto.Branches:
+		return r.handleBranches(op)
+	case *terminalproto.BranchPrunePlan:
+		return r.handleBranchPrunePlan(op)
+	case *terminalproto.BranchPrune:
+		return r.handleBranchPrune(op)
+	case *terminalproto.BranchSync:
+		return r.handleBranchSync(op)
+	case *terminalproto.BaseCheck:
+		return r.handleBaseCheck(op)
+	case *terminalproto.RepoClone:
+		return r.handleRepoClone(op)
+	case *terminalproto.RepoCloneStatus:
+		return r.handleRepoCloneStatus(op)
+	case *terminalproto.RepoCloneRemove:
+		return r.handleRepoCloneRemove(op)
+	case *terminalproto.RepoList:
+		return r.handleRepoList()
+	case *terminalproto.Accounts:
+		return r.handleAccounts(op)
+	case *terminalproto.Models:
+		return r.handleModels(op)
+	case *terminalproto.SoftwareApply:
+		return r.handleSoftwareApply(op)
+	case *terminalproto.Upload:
+		return r.handleUpload(op)
+	}
+	// A create or end of a session a swap is moving is busy: it would
+	// start or stop a process the swap does not know about. Held for
+	// as long as it runs, so a swap cannot start under it either.
+	switch msg.Body.(type) {
+	case *terminalproto.Create, *terminalproto.End, *terminalproto.ChatReattach:
+		if !c.chats.sup.hold(msg.SessionID) {
+			return r.respond(terminalhost.ErrOperationConflict)
 		}
-		attachments := map[string]*terminalhost.Attachment{}
-		// worktreeSlot allows one worktree status or remove at a time on this
-		// machine. It runs on its own goroutine so the dispatcher, and the
-		// controller's other requests, never wait for git.
-		worktreeSlot := make(chan struct{}, 1)
-		// browseSlot, branchesSlot and modelsSlot allow one browse, branch
-		// listing and model listing at a time on this connection, each run
-		// like a worktree request.
-		inspectSlot := make(chan struct{}, 1)
-		inspectGitHubSlot := make(chan struct{}, 1)
-		browseSlot := make(chan struct{}, 1)
-		branchesSlot := make(chan struct{}, 1)
-		pruneSlot := make(chan struct{}, 1)
-		// cloneStatusSlot allows one clone status at a time on this
-		// connection. It only reads, so it has a slot of its own: neither a
-		// clone nor a sync holds it up.
-		cloneStatusSlot := make(chan struct{}, 1)
-		// repoListSlot allows one repository listing at a time on this
-		// connection. It only reads GitHub, so a clone does not hold it up.
-		repoListSlot := make(chan struct{}, 1)
-		modelsSlot := make(chan struct{}, 1)
-		// modelsMu guards the per-tool last listing used for the floor.
-		var modelsMu sync.Mutex
-		modelsLast := map[string]modelListCacheEntry{}
-		// uploads bounds the image transfers in flight on this connection.
-		uploads := &uploadCounter{max: maxUploadsInFlight}
-		// aside runs work for reply off the dispatcher. A second request while
-		// slot is held, or while maxAsideRunning of running are alive, is
-		// answered busy at once. The answer is work's result, or late when
-		// work has not returned after the given time; the slot is freed then
-		// even if work is stuck, and a result that comes later is dropped. A
-		// request whose connection has ended answers nothing.
-		//
-		// With hold, for work that cannot be stopped (a delete), the slot is
-		// freed only when work itself returns, never at the deadline: nothing
-		// that shares the slot starts beside work that is still running.
-		asideHolding := func(callCtx context.Context, reply terminalproto.Message, slot chan struct{}, running *atomic.Int32, after time.Duration, hold bool, busy, late terminalproto.Body, work func(context.Context) terminalproto.Body) error {
-			select {
-			case slot <- struct{}{}:
-			default:
-				reply.Body = busy
-				return send(callCtx, reply)
+		r.held = true
+		defer func() {
+			if r.held {
+				c.chats.sup.unhold(msg.SessionID)
 			}
-			if running.Add(1) > maxAsideRunning {
-				running.Add(-1)
-				<-slot
-				reply.Body = busy
-				return send(callCtx, reply)
-			}
-			done := make(chan terminalproto.Body, 1)
-			// Not in wg: cleanup must not wait for work stuck in a syscall.
-			go func() {
-				defer running.Add(-1)
-				body := work(callCtx)
-				if hold {
-					<-slot
-				}
-				done <- body
-			}()
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// Prefer a result that was ready before the timer: a select with
-				// both ready picks at random, which would report a completed
-				// request as timed out.
-				var body terminalproto.Body
-				select {
-				case body = <-done:
-				default:
-					timer := time.NewTimer(after)
-					defer timer.Stop()
-					select {
-					case body = <-done:
-					case <-timer.C:
-						select {
-						case body = <-done:
-						default:
-							body = late
-						}
-					case <-callCtx.Done():
-					}
-				}
-				// Free the slot before answering, so a request the controller
-				// sends once it has this answer is not busy.
-				if !hold {
-					<-slot
-				}
-				if callCtx.Err() != nil {
-					return
-				}
-				reply.Body = body
-				_ = send(callCtx, reply)
-			}()
-			return nil
+		}()
+	}
+	switch op := msg.Body.(type) {
+	case *terminalproto.Create:
+		if op.Structured {
+			return r.handleChatCreate(op)
 		}
-		aside := func(callCtx context.Context, reply terminalproto.Message, slot chan struct{}, running *atomic.Int32, after time.Duration, busy, late terminalproto.Body, work func(context.Context) terminalproto.Body) error {
-			return asideHolding(callCtx, reply, slot, running, after, false, busy, late, work)
+	case *terminalproto.SessionMode:
+		return r.handleSessionMode(op)
+	case *terminalproto.ChatReattach:
+		return r.handleChatReattach(op)
+	case *terminalproto.End:
+		if _, ok := c.chats.snapshot(msg.SessionID); ok {
+			return r.handleChatEnd()
 		}
-		// Dispatch is called by one control reader; only stream workers use their
-		// own immutable attachment. Cleanup happens after that reader has stopped.
-		handler := func(callCtx context.Context, msg terminalproto.Message) error {
-			if msg.Generation != generation {
-				return terminalproto.ErrInvalid
-			}
-			reply := msg
-			reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
-			respond := func(err error) error {
-				if err != nil {
-					reply.Body = result(err)
-				}
-				return send(callCtx, reply)
-			}
-			// Launch fields are served only on a generation that negotiated
-			// launch-v1; a plain shell is never substituted for them.
-			launchCreate, launchOK := msg.Body.(*terminalproto.Create)
-			launchNeeded := launchOK && launchCreate.Tool != ""
-			if launchNeeded && !features.Has(terminalproto.LaunchFeature) {
-				return respond(terminalhost.ErrLaunchUnavailable)
-			}
-			// A resume is accepted only on a generation that negotiated
-			// resume-v1; an older controller never sends it.
-			resumeCreate, resumeOK := msg.Body.(*terminalproto.Create)
-			resumeNeeded := resumeOK && resumeCreate.Resume
-			if resumeNeeded && !features.Has(terminalproto.ResumeFeature) {
-				reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-				return send(callCtx, reply)
-			}
-			// Likewise a worktree is made only on a generation that negotiated
-			// worktree-v1; without it the agent is never started in the folder.
-			worktreeCreate, worktreeOK := msg.Body.(*terminalproto.Create)
-			worktreeNeeded := worktreeOK && worktreeCreate.Worktree != ""
-			if worktreeNeeded && !features.Has(terminalproto.WorktreeFeature) {
-				return respond(terminalhost.ErrLaunchUnavailable)
-			}
-			if create, ok := msg.Body.(*terminalproto.Create); ok {
-				if create.Structured && create.Worktree != "" && !features.Has(terminalproto.ACPWorktreeFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				if create.Tool == "antigravity" && !features.Has(terminalproto.AntigravityFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				if create.Tool == "copilot" && !features.Has(terminalproto.CopilotFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				if create.Tool == "antigravity" && create.Structured && !features.Has(terminalproto.AntigravityACPFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				needsStartOptions := create.Structured && create.Effort != ""
-				if needsStartOptions && !features.Has(terminalproto.ACPStartOptionsFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				if create.Provider != "" && !features.Has(terminalproto.ACPProviderFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				needsAgents := create.Base != "" || (!create.Structured && create.Effort != "") ||
-					create.Yolo || (create.Tool != "" && !terminalproto.ValidTool(create.Tool))
-				if needsAgents && !features.Has(terminalproto.AgentsFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-			}
-			if err := bodyFeatureError(msg.Body, features); err != nil {
-				return err
-			}
-			create, ok := msg.Body.(*terminalproto.Create)
-			if ok {
-				needsShellDir := create.Tool == "" && create.Dir != ""
-				if needsShellDir && !features.Has(terminalproto.ShellDirFeature) {
-					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
-					return send(callCtx, reply)
-				}
-			}
-			acpCreate, acpOK := msg.Body.(*terminalproto.Create)
-			needsACP := acpOK && acpCreate.Structured
-			if needsACP && !features.Has(terminalproto.ACPFeature) {
-				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
-				return send(callCtx, reply)
-			}
-			// Worktree status and remove are served only on a generation that
-			// negotiated worktree-v1, and are always answered with a
-			// worktree_state or worktree_result.
-			switch msg.Body.(type) {
-			case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
-				reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Denied}
-				if !features.Has(terminalproto.WorktreeFeature) {
-					return send(callCtx, reply)
-				}
-				if managerErr != nil {
-					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Unavailable}
-					return send(callCtx, reply)
-				}
-				select {
-				case worktreeSlot <- struct{}{}:
-				default:
-					reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Conflict}
-					return send(callCtx, reply)
-				}
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					body := answerWorktree(callCtx, m, msg.Body)
-					// Free the slot before answering, so a request the
-					// controller sends once it has this answer is not busy.
-					<-worktreeSlot
-					// A request whose connection has ended answers nothing: the
-					// controller has already given up on it and reads status again.
-					if callCtx.Err() != nil {
-						return
-					}
-					reply.Body = body
-					_ = send(callCtx, reply)
-				}()
-				return nil
-			}
-			// Browse and branches are served only on a generation that
-			// negotiated browse-v1 or branches-v1. Without it the message is a
-			// protocol error and nothing is sent back: a peer that did not
-			// negotiate a kind may drop the connection on its answer. Neither
-			// needs the manager (tmux).
-			switch op := msg.Body.(type) {
-			case *terminalproto.Inspect:
-				browseView := op.View == "files" || op.View == "file"
-				denied := !allowed(opts.Consent)
-				browseDenied := browseView && !allowed(opts.BrowseConsent)
-				if denied || browseDenied {
-					reply.Body = terminalproto.InspectResult{Reason: "denied"}
-					return send(callCtx, reply)
-				}
-				req, inspect := *op, inspectWorkspace
-				// A slow GitHub lookup must not hold local status or file reads.
-				slot := inspectSlot
-				if req.View == "github" {
-					slot = inspectGitHubSlot
-				}
-				return aside(callCtx, reply, slot, &inspectsRunning, 14*time.Second,
-					terminalproto.InspectResult{Reason: "busy"}, terminalproto.InspectResult{Reason: "timed_out"},
-					func(ctx context.Context) terminalproto.Body { return inspect(ctx, opts.Home, req) })
-			case *terminalproto.Browse:
-				if !allowed(opts.Consent) || !allowed(opts.BrowseConsent) {
-					reply.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
-					return send(callCtx, reply)
-				}
-				req, home, fn := *op, opts.Home, browse
-				return aside(callCtx, reply, browseSlot, &browsesRunning, browseAnswerAfter,
-					terminalproto.BrowseResult{Reason: terminalproto.BrowseConflict}, terminalproto.BrowseResult{Reason: terminalproto.BrowseUnreadable},
-					func(ctx context.Context) terminalproto.Body {
-						return fn(ctx, home, req, terminalhost.OSFS, time.Now)
-					})
-			case *terminalproto.Branches:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				return aside(callCtx, reply, branchesSlot, &branchesRunning, branchesAnswerAfter,
-					terminalproto.BranchesResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchesResult{Reason: terminalproto.BranchesGitFailed},
-					func(ctx context.Context) terminalproto.Body {
-						return terminalhost.ListBranches(ctx, home, req, git)
-					})
-			case *terminalproto.BranchPrunePlan:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				return aside(callCtx, reply, pruneSlot, &prunesRunning, branchPruneAnswerAfter,
-					terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesGitFailed},
-					func(ctx context.Context) terminalproto.Body {
-						return terminalhost.PlanBranchPrune(ctx, home, req, git)
-					})
-			case *terminalproto.BranchPrune:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				return aside(callCtx, reply, pruneSlot, &prunesRunning, branchPruneAnswerAfter,
-					terminalproto.BranchPruneResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchPruneResult{Reason: terminalproto.BranchesGitFailed},
-					func(ctx context.Context) terminalproto.Body {
-						return terminalhost.PruneBranches(ctx, home, req, git)
-					})
-			case *terminalproto.BranchSync:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				return aside(callCtx, reply, pruneSlot, &prunesRunning, branchSyncAnswerAfter,
-					terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchSyncResult{Reason: terminalproto.BranchesGitFailed},
-					func(ctx context.Context) terminalproto.Body {
-						return terminalhost.SyncBranch(ctx, home, req, git)
-					})
-			case *terminalproto.BaseCheck:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				return aside(callCtx, reply, pruneSlot, &prunesRunning, baseCheckAnswerAfter,
-					terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}, terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed},
-					func(ctx context.Context) terminalproto.Body {
-						return terminalhost.CheckBase(ctx, home, req, git)
-					})
-			case *terminalproto.RepoClone:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecCloneGit
-				}
-				return aside(callCtx, reply, cloneSlot, &clonesRunning, repoCloneAnswerAfter,
-					terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						return cloneRepo(ctx, home, req, git, terminalhost.ExecGH)
-					})
-			case *terminalproto.RepoCloneStatus:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				answerAfter := repoCloneStatusAnswerAfter
-				if req.Fetch {
-					answerAfter = repoCloneFetchAnswerAfter
-				}
-				return aside(callCtx, reply, cloneStatusSlot, &cloneStatusesRunning, answerAfter,
-					terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						return cloneStatus(ctx, home, req, git)
-					})
-			case *terminalproto.RepoCloneRemove:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneDenied}
-					return send(callCtx, reply)
-				}
-				req, home, git := *op, opts.Home, opts.Git
-				if git == nil {
-					git = terminalhost.ExecGit
-				}
-				// The clone slot, held until the delete has ended: a clone and
-				// a remove never run together.
-				return asideHolding(callCtx, reply, cloneSlot, &clonesRunning, repoCloneRemoveAnswerAfter, true,
-					terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						return removeClone(ctx, home, req, git)
-					})
-			case *terminalproto.RepoList:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.RepoListResult{Reason: terminalproto.RepoListDenied}
-					return send(callCtx, reply)
-				}
-				return aside(callCtx, reply, repoListSlot, &repoListsRunning, repoListAnswerAfter,
-					terminalproto.RepoListResult{Reason: terminalproto.RepoListBusy}, terminalproto.RepoListResult{Reason: terminalproto.RepoListTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						return listRepos(ctx, terminalhost.ExecGH, terminalhost.ExecGHList)
-					})
-			case *terminalproto.Accounts:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.AccountsResult{Reason: terminalproto.AccountsOff}
-					return send(callCtx, reply)
-				}
-				req, reader := *op, accountReader(opts.Home)
-				return aside(callCtx, reply, accountsSlot, &accountsRunning, accountsAnswerAfter,
-					terminalproto.AccountsResult{Reason: terminalproto.AccountsConflict}, terminalproto.AccountsResult{Reason: terminalproto.AccountsTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						return terminalproto.AccountsResult{Accounts: reader.Read(ctx, req.Limits, req.Refresh)}
-					})
-			case *terminalproto.Models:
-				if !terminalproto.ValidToolV2(op.Tool) {
-					return terminalproto.ErrInvalid
-				}
-				if !allowed(opts.Consent) || !allowed(opts.ModelsConsent) {
-					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsOff}
-					return send(callCtx, reply)
-				}
-				if !terminalhost.ListsModels(op.Tool) {
-					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsUnsupported}
-					return send(callCtx, reply)
-				}
-				if managerErr != nil || m == nil {
-					// The host manager could not start (for example tmux is
-					// missing), so no listing can run; that is a failure, not
-					// the local switch being off.
-					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsExited}
-					return send(callCtx, reply)
-				}
-				modelsMu.Lock()
-				cached, seen := modelsLast[op.Tool]
-				modelsMu.Unlock()
-				// The floor answers the previous result instead of running the
-				// listing again, whether that result was a list or a failure. A
-				// refresh is a person asking now, so it always runs.
-				if !op.Refresh && seen && time.Since(cached.at) < modelListFloor {
-					reply.Body = cached.result
-					return send(callCtx, reply)
-				}
-				tool, fn := op.Tool, listModels
-				return aside(callCtx, reply, modelsSlot, &modelsRunning, modelsAnswerAfter,
-					terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsConflict},
-					terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						r := fn(m, ctx, tool)
-						modelsMu.Lock()
-						modelsLast[tool] = modelListCacheEntry{result: r, at: time.Now()}
-						modelsMu.Unlock()
-						return r
-					})
-			case *terminalproto.SoftwareApply:
-				if op.Tool != "opencode" || !terminalproto.ValidToolV2(op.Tool) {
-					return terminalproto.ErrInvalid
-				}
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.SoftwareApplyResult{Tool: op.Tool, Action: op.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyOff}
-					return send(callCtx, reply)
-				}
-				req := *op
-				return aside(callCtx, reply, softwareSlot, &softwareRunning, softwareAnswerAfter,
-					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
-					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut},
-					func(ctx context.Context) terminalproto.Body {
-						// The apply outlives the control connection it arrived on:
-						// a lost connection must not leave a half-applied update,
-						// and a later reconcile observes the version it left.
-						workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), softwareApplyWorkTimeout)
-						defer cancel()
-						release, err := lockSoftwareWrite(workCtx)
-						if err != nil {
-							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut}
-						}
-						defer release()
-						// The controller checked before sending, but a session could
-						// have started since. Nothing else can now: every OpenCode
-						// launch waits on this gate.
-						live := chats.sup.liveTool(agentsoftware.OpenCodeTool)
-						if m != nil {
-							if sessions, err := m.List(workCtx); err == nil {
-								for _, session := range sessions {
-									if session.Tool == agentsoftware.OpenCodeTool && session.State.ReservesQuota() {
-										live++
-									}
-								}
-							}
-						}
-						if live > 0 {
-							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplySessions}
-						}
-						return applySoftware(workCtx, opts.Home, req, exec.LookPath, terminalhost.SoftwareSource{
-							// The controller may need minutes to fill a cold cache
-							// before it sends headers; the shared client gives up
-							// after 10 seconds.
-							Client: privateconn.WithHeaderTimeout(client, mirrorHeaderTimeout),
-							Header: mirrorHeaders(headers),
-							Path:   "/private/v1/software/artifact/" + agentsoftware.OpenCodeLinuxX64.ArchiveSHA256,
-						})
-					})
-			case *terminalproto.Upload:
-				// The local switches are checked before the manager: a machine
-				// that turned uploads or terminal access off answers at once,
-				// without opening a stream.
-				if !allowed(opts.Consent) || !allowed(opts.UploadConsent) {
-					reply.Body = terminalproto.Result{Code: terminalproto.UploadsOff}
-					return send(callCtx, reply)
-				}
-				if managerErr != nil {
-					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
-					return send(callCtx, reply)
-				}
-				if !uploads.acquire() {
-					reply.Body = terminalproto.Result{Code: terminalproto.UploadBusy}
-					return send(callCtx, reply)
-				}
-				// The running check and the stream dial touch tmux and the
-				// network; keep them off the dispatcher so another request is
-				// not held behind them.
-				wg.Add(1)
-				go func(in terminalproto.Upload) {
-					defer wg.Done()
-					defer uploads.release()
-					if !in.Launch {
-						sessions, err := m.List(callCtx)
-						if err != nil {
-							reply.Body = result(err)
-							_ = send(callCtx, reply)
-							return
-						}
-						running := false
-						for _, s := range sessions {
-							if s.ID == msg.SessionID && s.State == terminalproto.Running {
-								running = true
-								break
-							}
-						}
-						if !running {
-							reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
-							_ = send(callCtx, reply)
-							return
-						}
-					}
-					c, err := dialUploadStream(callCtx, client, headers, msg, in.StreamToken, terminalproto.UploadOperation)
-					if err != nil {
-						reply.Body = result(terminalhost.ErrNotRunning)
-						_ = send(callCtx, reply)
-						return
-					}
-					defer c.CloseNow()
-					reply.Body = terminalproto.Result{Code: terminalproto.OK}
-					if err := send(callCtx, reply); err != nil {
-						return
-					}
-					serveUpload(callCtx, c, m, msg.SessionID, in)
-				}(*op)
-				return nil
-			}
-			// A create or end of a session a swap is moving is busy: it would
-			// start or stop a process the swap does not know about. Held for
-			// as long as it runs, so a swap cannot start under it either.
-			held := false
-			switch msg.Body.(type) {
-			case *terminalproto.Create, *terminalproto.End, *terminalproto.ChatReattach:
-				if !chats.sup.hold(msg.SessionID) {
-					return respond(terminalhost.ErrOperationConflict)
-				}
-				held = true
-				defer func() {
-					if held {
-						chats.sup.unhold(msg.SessionID)
-					}
-				}()
-			}
-			switch op := msg.Body.(type) {
-			case *terminalproto.Create:
-				if op.Structured {
-					// Starting ACP probes a version and opens a session; keep the
-					// control reader answering health probes while it runs. A
-					// slow start must never look like a lost machine.
-					if !chats.sup.addWork() {
-						return respond(terminalhost.ErrManagerClosed)
-					}
-					held = false
-					go func(in terminalproto.Create) {
-						defer chats.sup.wg.Done()
-						defer chats.sup.unhold(msg.SessionID)
-						changed, err := chats.open(msg.RequestID, msg.SessionID, in, features.Has(terminalproto.BaseFreshFeature))
-						if callCtx.Err() != nil {
-							return
-						}
-						if err != nil {
-							reply.Body = chatResult(err)
-						} else {
-							reply.Body = changed.ForFeatures(featureHeader)
-						}
-						_ = send(callCtx, reply)
-					}(*op)
-					return nil
-				}
-			case *terminalproto.SessionMode:
-				// A swap stops one process and starts another; answer from its
-				// own goroutine like a structured create. It runs to the end
-				// (or its rollback) even if this connection is lost meanwhile.
-				if !chats.sup.addWork() {
-					return respond(terminalhost.ErrManagerClosed)
-				}
-				swaps.Add(1)
-				go func(in terminalproto.SessionMode) {
-					defer chats.sup.wg.Done()
-					defer swaps.Done()
-					swapCtx, cancel := context.WithTimeout(context.WithoutCancel(callCtx), sessionModeTimeout)
-					defer cancel()
-					changed, err := switcher.swap(swapCtx, msg.RequestID, msg.SessionID, in)
-					if callCtx.Err() != nil {
-						return
-					}
-					if err != nil {
-						reply.Body = chatResult(err)
-					} else {
-						reply.Body = changed.ForFeatures(featureHeader)
-					}
-					_ = send(callCtx, reply)
-				}(*op)
-				return nil
-			case *terminalproto.ChatReattach:
-				// A reattach starts OpenCode with session/load; answer from its
-				// own goroutine like a structured create. The start is bounded
-				// by openChat's 60 s timeout on the supervisor's context, so a
-				// connection lost meanwhile does not kill a chat the controller
-				// can adopt by sending the reattach again.
-				if !chats.sup.addWork() {
-					return respond(terminalhost.ErrManagerClosed)
-				}
-				held = false
-				go func(in terminalproto.ChatReattach) {
-					defer chats.sup.wg.Done()
-					defer chats.sup.unhold(msg.SessionID)
-					changed, err := chats.reattach(msg.RequestID, msg.SessionID, in)
-					if callCtx.Err() != nil {
-						return
-					}
-					if err != nil {
-						reply.Body = chatResult(err)
-						if errors.Is(err, errReattachStarting) {
-							reply.Body = resultFor(err, featureHeader)
-						}
-					} else {
-						reply.Body = changed.ForFeatures(featureHeader)
-					}
-					_ = send(callCtx, reply)
-				}(*op)
-				return nil
-			case *terminalproto.End:
-				if _, ok := chats.snapshot(msg.SessionID); ok {
-					// Closing a chat waits for its process group; answer from
-					// its own goroutine so the connection stays responsive.
-					if !chats.sup.addWork() {
-						return respond(terminalhost.ErrManagerClosed)
-					}
-					held = false
-					go func() {
-						defer chats.sup.wg.Done()
-						defer chats.sup.unhold(msg.SessionID)
-						changed, err := chats.end(msg.SessionID)
-						if callCtx.Err() != nil {
-							return
-						}
-						if err != nil {
-							reply.Body = result(err)
-						} else {
-							reply.Body = changed
-						}
-						_ = send(callCtx, reply)
-					}()
-					return nil
-				}
-			case *terminalproto.NativeView:
-				_, available := chats.nativeTerminal(msg.SessionID)
-				available = available && m != nil
-				// The controller words the refusal; the machine only reports
-				// whether it has a native view to offer.
-				reply.Body = terminalproto.NativeViewResult{Available: available}
-				return send(callCtx, reply)
-			case *terminalproto.ACPPrompt:
-				if err := chats.prompt(msg.SessionID, op.Text, op.Images); err != nil {
-					return respond(err)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return send(callCtx, reply)
-			case *terminalproto.ACPPreview:
-				if !allowed(opts.Consent) {
-					reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
-					return send(callCtx, reply)
-				}
-				answer, err := chats.sup.previews.read(msg.SessionID, *op)
-				if err != nil {
-					reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
-				} else {
-					reply.Body = answer
-				}
-				return send(callCtx, reply)
-			case *terminalproto.ACPControl:
-				if controlsRunning.Add(1) > maxAsideRunning {
-					controlsRunning.Add(-1)
-					return respond(terminalhost.ErrOperationConflict)
-				}
-				if !chats.sup.addWork() {
-					controlsRunning.Add(-1)
-					return respond(terminalhost.ErrManagerClosed)
-				}
-				operation := *op
-				go func() {
-					defer controlsRunning.Add(-1)
-					defer chats.sup.wg.Done()
-					controlCtx, cancel := context.WithTimeout(callCtx, 8*time.Second)
-					defer cancel()
-					answer, err := chats.control(controlCtx, msg.SessionID, operation)
-					if err != nil {
-						reply.Body = result(err)
-					} else {
-						reply.Body = answer
-					}
-					_ = send(callCtx, reply)
-				}()
-				return nil
-			case *terminalproto.ACPModel:
-				if err := chats.setModel(callCtx, msg.SessionID, op.Model); err != nil {
-					return respond(err)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return send(callCtx, reply)
-			case *terminalproto.ACPCancel:
-				if err := chats.cancel(msg.SessionID); err != nil {
-					return respond(err)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return send(callCtx, reply)
-			case *terminalproto.ACPPermission:
-				if err := chats.permission(msg.SessionID, op.PermissionID, op.Allow); err != nil {
-					return respond(err)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return send(callCtx, reply)
-			case *terminalproto.ACPQuestionAnswer:
-				answer, err := chats.question(msg.SessionID, op)
-				if err != nil {
-					return respond(err)
-				}
-				reply.Body = answer
-				return send(callCtx, reply)
-			case *terminalproto.ACPAgentMode:
-				if err := chats.setAgentMode(callCtx, msg.SessionID, op.Mode); err != nil {
-					return respond(err)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return send(callCtx, reply)
-			case *terminalproto.ACPMode:
-				if err := chats.mode(msg.SessionID, op.Yolo); err != nil {
-					return respond(err)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return send(callCtx, reply)
-			case *terminalproto.Reconcile:
-				if op.Complete || len(op.Sessions) != 0 {
-					return terminalproto.ErrInvalid
-				}
-				if m != nil {
-					if err := m.Reconcile(callCtx); err != nil {
-						return respond(err)
-					}
-				}
-				snapshot, err := switcher.reconcile(callCtx, featureHeader)
-				if err != nil {
-					return respond(err)
-				}
-				reply.Body = snapshot
-				return respond(nil)
-			}
-			if managerErr != nil {
-				return send(callCtx, reply)
-			}
-			switch op := msg.Body.(type) {
-			case *terminalproto.Create:
-				// Starting tmux can wait; answer from its own goroutine so the
-				// dispatcher keeps serving other requests meanwhile.
-				wg.Add(1)
-				held = false
-				go func(in terminalproto.Create) {
-					defer wg.Done()
-					defer chats.sup.unhold(msg.SessionID)
-					createCtx := callCtx
-					if features.Has(terminalproto.BaseFreshFeature) {
-						// A worktree this create makes starts from the base as
-						// GitHub has it; without the feature it starts where a
-						// create always did and nothing is fetched.
-						createCtx = terminalhost.WithBaseFresh(createCtx)
-					}
-					if features.Has(terminalproto.ProgressFeature) {
-						// Each stage is told to the controller as it begins, before this create's one answer.
-						// Built on createCtx, never on callCtx: a context built afresh from the call would
-						// drop what this one already carries, such as the negotiated base-fresh above.
-						createCtx = terminalhost.WithProgress(createCtx, func(stage terminalproto.LaunchStage) {
-							// A stage note is matched to its create by request id alone. It must not
-							// carry the create's session id: a launch_progress with one is not a valid
-							// message, so it would be refused when encoded and never sent.
-							note := terminalproto.Message{Version: msg.Version, RequestID: msg.RequestID, Generation: msg.Generation,
-								Body: terminalproto.LaunchProgress{Stage: stage}}
-							noteCtx, cancel := context.WithTimeout(callCtx, time.Second)
-							defer cancel()
-							_ = send(noteCtx, note)
-						})
-					}
-					if in.Tool == agentsoftware.OpenCodeTool {
-						release, err := lockSoftwareRead(createCtx)
-						if err != nil {
-							reply.Body = result(err)
-							_ = send(callCtx, reply)
-							return
-						}
-						defer release()
-					}
-					s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, in)
-					if callCtx.Err() != nil {
-						return
-					}
-					if err != nil {
-						reply.Body = result(err)
-					} else {
-						// Only a worktree create's session has a worktree to report.
-						reply.Body = terminalproto.SessionChanged{
-							State:        s.State,
-							ExitCode:     s.ExitCode,
-							ActivityAt:   s.ActivityAt,
-							BellAt:       s.BellAt,
-							ExitStatus:   s.ExitCode,
-							WorktreePath: s.WorktreePath,
-							WorktreeRepo: s.WorktreeRepo,
-							Base:         s.Base,
-						}.ForFeatures(featureHeader)
-					}
-					_ = send(callCtx, reply)
-				}(*op)
-				return nil
-			case *terminalproto.End:
-				s, err := m.End(callCtx, msg.RequestID, msg.SessionID)
-				if err != nil {
-					return respond(err)
-				}
-				if op.ForgetDesk {
-					// The pane is gone for good: its history file goes too. A
-					// failed removal never fails the end.
-					_ = m.ForgetDeskSession(callCtx, msg.SessionID)
-				}
-				reply.Body = terminalproto.SessionChanged{
-					State:      s.State,
-					ExitCode:   s.ExitCode,
-					ActivityAt: s.ActivityAt,
-					BellAt:     s.BellAt,
-					ExitStatus: s.ExitCode,
-				}.ForFeatures(featureHeader)
-				return respond(nil)
-			case *terminalproto.Attach:
-				if !terminalproto.ValidID(op.StreamToken) {
-					return terminalproto.ErrInvalid
-				}
-				opts := terminalhost.AttachOptions{ID: msg.AttachmentID, Generation: msg.AttachmentGeneration, Cols: op.Cols, Rows: op.Rows, Takeover: op.Takeover, Lease: time.Duration(op.LeaseSeconds) * time.Second}
-				var a *terminalhost.Attachment
-				var err error
-				var stopNative context.CancelFunc = func() {}
-				if op.NativeView {
-					native, ok := chats.nativeTerminal(msg.SessionID)
-					if !ok {
-						return respond(terminalhost.ErrSessionMissing)
-					}
-					var nativeCtx context.Context
-					nativeCtx, stopNative = context.WithCancel(ctx)
-					go func() {
-						select {
-						case <-native.Done:
-							stopNative()
-						case <-nativeCtx.Done():
-						}
-					}()
-					a, err = m.AttachNative(nativeCtx, msg.SessionID, opts, terminalhost.NativeCommand{Binary: native.Binary, Dir: native.Dir, Args: native.Args, Env: native.Env})
-				} else {
-					if _, chat := chats.snapshot(msg.SessionID); chat {
-						return respond(terminalhost.ErrSessionMissing)
-					}
-					a, err = m.Attach(ctx, msg.SessionID, opts)
-				}
-				if err != nil {
-					stopNative()
-					return respond(err)
-				}
-				attachments[msg.SessionID] = a
-				c, err := stream(callCtx, client, headers, msg, op.StreamToken, "attach")
-				if err != nil {
-					a.Close()
-					stopNative()
-					return respond(terminalhost.ErrNotRunning)
-				}
-				wg.Add(1)
-				go func() { defer wg.Done(); defer stopNative(); defer a.Close(); defer c.CloseNow(); bridge(ctx, c, a) }()
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return respond(nil)
-			case *terminalproto.RenewAttachment:
-				err := m.RenewAttachment(msg.SessionID, msg.AttachmentID, msg.AttachmentGeneration, time.Duration(op.LeaseSeconds)*time.Second)
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return respond(err)
-			case *terminalproto.Resize:
-				a := attachments[msg.SessionID]
-				valid := a != nil && a.ID == msg.AttachmentID && a.Generation == msg.AttachmentGeneration
-				if !valid {
-					return respond(terminalhost.ErrAttachmentStale)
-				}
-				err := a.Resize(op.Cols, op.Rows)
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return respond(err)
-			case *terminalproto.Detach:
-				a := attachments[msg.SessionID]
-				valid := a != nil && a.ID == msg.AttachmentID && a.Generation == msg.AttachmentGeneration
-				if valid {
-					a.Close()
-					delete(attachments, msg.SessionID)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return respond(nil)
-			case *terminalproto.History, *terminalproto.CommandHistory:
-				var token string
-				switch request := op.(type) {
-				case *terminalproto.History:
-					token = request.StreamToken
-				case *terminalproto.CommandHistory:
-					token = request.StreamToken
-				}
-				if !terminalproto.ValidID(token) {
-					return terminalproto.ErrInvalid
-				}
-				// Reading the terminal and dialing the stream can wait on tmux
-				// or the network; do both off the dispatcher. The answer is sent
-				// before the bytes so the controller is already reading.
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					var data []byte
-					var err error
-					switch request := op.(type) {
-					case *terminalproto.History:
-						data, err = m.History(callCtx, msg.SessionID, request.Lines)
-					case *terminalproto.CommandHistory:
-						data, err = m.CommandHistoryFor(callCtx, msg.SessionID, features.Has(terminalproto.DeskShellFeature))
-					}
-					if err != nil {
-						reply.Body = result(err)
-						_ = send(callCtx, reply)
-						return
-					}
-					c, err := stream(callCtx, client, headers, msg, token, "history")
-					if err != nil {
-						reply.Body = result(terminalhost.ErrNotRunning)
-						_ = send(callCtx, reply)
-						return
-					}
-					defer c.CloseNow()
-					reply.Body = terminalproto.Result{Code: terminalproto.OK}
-					if err := send(callCtx, reply); err != nil {
-						return
-					}
-					for len(data) > 0 {
-						n := min(len(data), terminalproto.MaxBinaryBytes)
-						if write(callCtx, c, data[:n]) != nil {
-							return
-						}
-						data = data[n:]
-					}
-					_ = c.Close(websocket.StatusNormalClosure, "")
-				}()
-				return nil
-			default:
-				return terminalproto.ErrInvalid
-			}
-		}
-		return handler, func() {
-			cancel()
-			chats.close()
-			swaps.Wait(swapDrainTimeout)
-			stopManager()
-			if m != nil {
-				m.Close()
-			}
-			wg.Wait()
-		}
+	case *terminalproto.NativeView:
+		return r.handleNativeView()
+	case *terminalproto.ACPPrompt:
+		return r.handleACPPrompt(op)
+	case *terminalproto.ACPPreview:
+		return r.handleACPPreview(op)
+	case *terminalproto.ACPControl:
+		return r.handleACPControl(op)
+	case *terminalproto.ACPModel:
+		return r.handleACPModel(op)
+	case *terminalproto.ACPCancel:
+		return r.handleACPCancel()
+	case *terminalproto.ACPPermission:
+		return r.handleACPPermission(op)
+	case *terminalproto.ACPQuestionAnswer:
+		return r.handleACPQuestionAnswer(op)
+	case *terminalproto.ACPAgentMode:
+		return r.handleACPAgentMode(op)
+	case *terminalproto.ACPMode:
+		return r.handleACPMode(op)
+	case *terminalproto.Reconcile:
+		return r.handleReconcile(op)
+	}
+	if c.managerErr != nil {
+		return c.send(callCtx, r.reply)
+	}
+	switch op := msg.Body.(type) {
+	case *terminalproto.Create:
+		return r.handleShellCreate(op)
+	case *terminalproto.End:
+		return r.handleShellEnd(op)
+	case *terminalproto.Attach:
+		return r.handleAttach(op)
+	case *terminalproto.RenewAttachment:
+		return r.handleRenewAttachment(op)
+	case *terminalproto.Resize:
+		return r.handleResize(op)
+	case *terminalproto.Detach:
+		return r.handleDetach()
+	case *terminalproto.History, *terminalproto.CommandHistory:
+		return r.handleHistory(op)
+	default:
+		return terminalproto.ErrInvalid
 	}
 }
 

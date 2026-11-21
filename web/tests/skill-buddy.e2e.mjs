@@ -17,7 +17,7 @@ const outcome={id:'e'.repeat(32),revision:1,objective:'Polish the project settin
 
 try{
  for(const [width,theme]of[[1440,'light'],[390,'dark']]){
-  const choices=[];let system={skills:[unslop,review],defaults:[unslop,review],version:1}
+  const choices=[];let system={skills:[unslop,review,...Array.from({length:23},(_,i)=>({...review,id:`builtin:guide-${i}`,name:`Stage guidance ${i+1}`}))],defaults:[unslop,review],version:1}
   const w=await openWorkspace(browser,{width,height:1000,theme,touch:width<500,terminalStatus:active,terminalMachines:[machine],routes:{
    '/api/v2/skill-buddy/insights':{records,limit:500,retentionDays:90,sessionUsage:{s1:{reported:true,inputTokens:1000,outputTokens:200,cachedTokens:500}}},
    '/api/admin/status':status,
@@ -42,9 +42,11 @@ try{
   await expect(w.page.getByRole('heading',{name:'System skills',exact:true})).toBeVisible()
   await w.page.getByRole('button',{name:/Unslop.*Polish/}).click()
   await expect(w.page.getByLabel('Instructions',{exact:true})).toHaveValue(unslop.instructions)
+  if(width<500)await expect(w.page.getByRole('heading',{name:'Edit system skill',exact:true})).toBeInViewport()
   await w.page.getByLabel('Name',{exact:true}).fill('Unslop for our interfaces')
   await w.page.getByRole('button',{name:'Save skill',exact:true}).click()
   await expect(w.page.getByText(/System skill saved\./)).toBeVisible()
+  if(width<500)await expect(w.page.getByText(/System skill saved\./)).toBeInViewport()
   expect(choices.at(-1).skill.id).toBe('builtin:unslop')
   expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   await w.page.screenshot({path:`${shots}/admin-${width}-${theme}.png`,fullPage:true})

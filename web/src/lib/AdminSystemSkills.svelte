@@ -1,18 +1,19 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { terminalRequest } from './terminal/api'
   import type { BuddySkill } from './skillBuddy'
   type SystemSkill = BuddySkill & { stage: string; stages?: string[]; keywords?: string; attribution?: string; disabled?: boolean }
   type Answer = { skills: SystemSkill[]; defaults: SystemSkill[]; version: number }
   let answer = $state<Answer | null>(null), chosen = $state<SystemSkill | null>(null), error = $state(''), note = $state(''), busy = $state(false), query = $state('')
+  let editor = $state<HTMLElement>(), confirmation = $state<HTMLParagraphElement>()
   const stages = ['plan','design','code','review','test','pr','babysit','merge']
   const shown = $derived((answer?.skills ?? []).filter(s => `${s.name} ${s.description} ${s.keywords}`.toLowerCase().includes(query.toLowerCase())))
   async function load() { busy = true; error = ''; try { answer = await (await terminalRequest('/api/v2/admin/system-skills')).json() } catch(e) { error = e instanceof Error ? e.message : 'System skills could not be read.' } finally { busy = false } }
-  function edit(skill?: SystemSkill) { chosen = skill ? { ...skill } : { id: 'builtin:', name:'',description:'',source:'builtin',revision:'',reason:'',stage:'code',instructions:'',keywords:'',attribution:'',disabled:false }; error = ''; note = '' }
+  async function edit(skill?: SystemSkill) { chosen = skill ? { ...skill } : { id: 'builtin:', name:'',description:'',source:'builtin',revision:'',reason:'',stage:'code',instructions:'',keywords:'',attribution:'',disabled:false }; error = ''; note = ''; await tick(); if (matchMedia('(max-width: 800px)').matches) { editor?.scrollIntoView({block:'start'}); editor?.querySelector<HTMLElement>('h2')?.focus({preventScroll:true}) } }
   async function save(reset = false) {
     if (!chosen || !answer) return
     busy = true; error = ''; note = ''
-    try { answer = await (await terminalRequest('/api/v2/admin/system-skills', { method:'PUT', body:JSON.stringify({skill:chosen,version:answer.version,reset}) })).json(); chosen = null; note = reset ? 'Repository default restored. Existing work keeps the revision it selected.' : 'System skill saved. New choices use this revision; existing work keeps its selected guidance.' }
+    try { answer = await (await terminalRequest('/api/v2/admin/system-skills', { method:'PUT', body:JSON.stringify({skill:chosen,version:answer.version,reset}) })).json(); chosen = null; note = reset ? 'Repository default restored. Existing work keeps the revision it selected.' : 'System skill saved. New choices use this revision; existing work keeps its selected guidance.'; await tick(); if (matchMedia('(max-width: 800px)').matches) confirmation?.scrollIntoView({block:'center'}) }
     catch(e) { error = e instanceof Error ? e.message : 'The skill could not be saved.' }
     finally { busy = false }
   }
@@ -21,13 +22,13 @@
 
 <p class="intro">Maintain the small, portable skills Gaffer can recommend to everyone on this instance. Repository defaults are built in; your edits stay here across upgrades. Personal and community libraries remain separate.</p>
 {#if error}<p class="notice bad" role="alert">{error} <button class="btn quiet" onclick={() => void load()}>Reload catalogue</button></p>{/if}
-{#if note}<p class="notice" role="status">{note}</p>{/if}
+{#if note}<p class="notice" role="status" bind:this={confirmation}>{note}</p>{/if}
 <div class="tools"><label>Find a system skill<input type="search" bind:value={query} placeholder="Search system skills"/></label><button class="btn" disabled={busy} onclick={() => edit()}>New system skill</button></div>
 <div class="layout">
   <div class="catalogue">{#each shown as skill (skill.id)}<button class="entry" class:selected={chosen?.id===skill.id} onclick={() => edit(skill)}><span class="status" class:off={skill.disabled}></span><div><strong>{skill.name}</strong><p>{skill.description}</p><small>{skill.stage} · {skill.disabled ? 'Disabled' : 'Available'} · revision {skill.revision}</small></div><span aria-hidden="true">›</span></button>{:else}<p>{busy ? 'Reading system skills…' : 'No system skills match this search.'}</p>{/each}</div>
-  <section class="editor" aria-label="System skill editor">
+  <section class="editor" aria-label="System skill editor" bind:this={editor}>
     {#if chosen}<form onsubmit={event => { event.preventDefault(); void save() }}>
-      <h2>{answer?.skills.some(s => s.id===chosen?.id) ? 'Edit system skill' : 'New system skill'}</h2>
+      <h2 tabindex="-1">{answer?.skills.some(s => s.id===chosen?.id) ? 'Edit system skill' : 'New system skill'}</h2>
       <p class="muted">These instructions are available to all users. Do not include private project information or credentials.</p>
       <label>Stable ID<input bind:value={chosen.id} required pattern={'builtin:[a-z][a-z0-9-]{0,59}'} readonly={answer?.skills.some(s => s.id===chosen?.id)} placeholder="builtin:api-review"/></label>
       <label>Name<input bind:value={chosen.name} required maxlength="80"/></label>

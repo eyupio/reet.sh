@@ -23,7 +23,7 @@ Agent list offers only Codex, Codex is the default, and the added pipeline is se
 backup. `npm run check` passes (117 test files, 0 Svelte diagnostics, 0 warnings), `npm run build` passes, and the whole
 `gaffer-factory.e2e.mjs` passes against `vite preview`. No Go code changed.
 
-**PR.** This change's own pull request, opened against `main`; its checks are this change's.
+**PR.** [#873](https://github.com/eyupio/reet.sh/pull/873) opened against `main`; its checks are this change's.
 
 ## SESSION-ACTIONS-REDESIGN-1: the Session actions sheet reads as grouped settings (20 November 2026)
 

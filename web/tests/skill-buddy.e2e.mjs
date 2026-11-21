@@ -19,7 +19,7 @@ try{
  for(const [width,theme]of[[1440,'light'],[390,'dark']]){
   const choices=[];let system={skills:[unslop,review],defaults:[unslop,review],version:1}
   const w=await openWorkspace(browser,{width,height:1000,theme,touch:width<500,terminalStatus:active,terminalMachines:[machine],routes:{
-   '/api/v2/skill-buddy/insights':{records,limit:500,retentionDays:90},
+   '/api/v2/skill-buddy/insights':{records,limit:500,retentionDays:90,sessionUsage:{s1:{reported:true,inputTokens:1000,outputTokens:200,cachedTokens:500}}},
    '/api/admin/status':status,
    '/api/v2/admin/system-skills':r=>{if(r.method()==='PUT'){const body=r.postDataJSON();choices.push(body);system={...system,version:system.version+1,skills:system.skills.map(s=>s.id===body.skill.id?body.skill:s)}}return system},
    '/api/v2/gaffer/outcomes':{outcomes:[outcome]},
@@ -31,6 +31,8 @@ try{
   await expect(w.page.getByRole('heading',{name:'Skill insights',exact:true})).toBeVisible()
   await expect(w.page.getByRole('heading',{name:'Skills you reach for'})).toBeVisible()
   await expect(w.page.locator('.receipt')).toHaveCount(12)
+  await expect(w.page.locator('.usage-number')).toHaveText('1,200 reported input/output tokens across 1 linked session')
+  await expect(w.page.locator('.evidence')).toContainText('500 cached tokens reported separately.')
   await w.page.getByRole('button',{name:'Factory stages',exact:true}).click()
   await expect(w.page.locator('.receipt')).toHaveCount(6)
   expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)

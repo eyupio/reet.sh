@@ -410,6 +410,12 @@ func (s *Service) reviewStoppedGoal(ctx context.Context, g store.GafferGoal) {
 		}
 		return
 	}
+	if status, err := s.store.GafferWorkerStatusFor(g.OwnerID, g.SessionID); err != nil || status.UsageLimited() {
+		// The failure itself can be newer than the last review. Wait for a
+		// new turn before treating any of that history as recovery.
+		lookAgain()
+		return
+	}
 	seq, err := s.store.GafferWorkerProgress(g.OwnerID, g.SessionID)
 	if err != nil {
 		lookAgain()
@@ -475,6 +481,12 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		observe("needs_user", "The working session has ended or is unavailable. Review its outcome before choosing further work.", time.Minute)
 		return
 	}
+	workerStatus, statusErr := s.store.GafferWorkerStatusFor(g.OwnerID, g.SessionID)
+	if statusErr == nil && workerStatus.UsageLimited() {
+		observe("needs_user", workerUsageLimitNote, heldGoalRecheck)
+		s.wakeOutcomes()
+		return
+	}
 	if g.PendingID != "" {
 		m, err := s.WorkerMessageReceipt(g.OwnerID, "gaffer", g.ConversationID, g.SessionID, g.PendingID)
 		if err != nil {
@@ -519,8 +531,7 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 	// A stop or failure the person has already resumed from is not asked about
 	// again: resuming is them saying carry on, and Gaffer's review can then
 	// tell the working model to. Without this a resume led straight back here.
-	halted, haltedAt, err := s.store.GafferWorkerHaltedAt(g.OwnerID, g.SessionID)
-	if err != nil || halted && g.ResumedAt <= haltedAt {
+	if statusErr != nil || workerStatus.Halted() && g.ResumedAt <= workerStatus.At {
 		observe("needs_user", "The working model stopped or failed. Check its conversation, then resume the goal: Gaffer reviews where it stopped and can set it going again.", time.Minute)
 		return
 	}

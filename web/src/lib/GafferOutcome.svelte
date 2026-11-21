@@ -131,7 +131,6 @@
   }
   const crewTools = $derived(CREW_TIERS.map(item => crew[item.tier].tool))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
-  const approveBlocker = $derived(planBlocker(sessions, room) || partsBlocker(sessions) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   const sourceOffered = $derived(sourceOptions({ saved: savedSource }).map(item => item.id))
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
   const chosenSource = $derived(startSource.source)
@@ -142,35 +141,40 @@
   const done = $derived(!!record && record.state !== 'starting')
 
   // A model or effort chosen for one agent means nothing to another: when the machine changes the agent, they go with it.
-  $effect(() => { if (tools.length && !tools.includes(tool)) { tool = tools[0]; model = ''; effort = '' } if (!tools.length) tool = '' })
+  $effect(() => { if (tools.length && !tools.includes(tool)) { tool = tools[0]; model = ''; effort = '' } })
   $effect(() => { if (wanted > cap) wanted = cap })
   // The crew the person saved for their account is where the dialog starts, for the tiers this machine can run. It is
   // applied once, when the machine's agents are known; after that the crew here is theirs to change for this outcome.
-  let savedCrew = $state<GafferCrew | null>(null), crewApplied = false, crewSaving = $state(false), crewNote = $state('')
+  let savedCrew = $state<GafferCrew | null>(null), crewMachine = '', crewSaving = $state(false), crewNote = $state('')
   // Whether Gaffer settings has a saved crew, and what it holds, is read once when the dialog opens: the summary below
   // shows the saved agent and model for each tier before the person submits, without a second copy of the data.
   let crewRead = $state<'reading' | 'saved' | 'empty' | 'failed'>('reading')
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : planBlocker(sessions, room) || partsBlocker(sessions) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   const savedSettings = $derived(savedCrewRows(savedCrew))
+  const unavailableCrew = $derived(savedSettings.filter(item => tools.length > 0 && !tools.includes(item.tool)))
+  let chosenRoles = $state<Partial<Record<keyof Crew, boolean>>>({})
+  const followsOutcome = (role: keyof Crew) => !chosenRoles[role]
   // The saved default for who decides is where this dialog starts; the person still chooses for this outcome.
   onMount(() => { void getGafferCrew(life.signal).then(answer => { if (life.signal.aborted) return; if (answer.saved) { savedCrew = answer.crew; crewRead = 'saved'; if (answer.crew.gafferDecides) automation = true } else crewRead = 'empty' }).catch(() => { if (!life.signal.aborted) crewRead = 'failed' }) })
   $effect(() => {
-    if (crewApplied || !savedCrew || !tools.length || !tool) return
-    crewApplied = true
-    const saved = savedCrew
+    const host = machine?.agentId, available = tools, saved = savedCrew
+    if (!host || !available.includes(tool) || crewRead === 'reading' || crewMachine === host) return
+    crewMachine = host
     untrack(() => {
-      let used = 0
-      for (const item of CREW_TIERS) {
-        const member = saved[item.tier]
-        if (!member?.tool || !tools.includes(member.tool)) continue
-        crew[item.tier] = { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
-        if (member.provider) crewSourceExplicit[item.tier] = true
-        // A saved backup this machine cannot run is left out, like a saved first choice.
-        const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
-        if (spares.length) { backups[item.tier] = spares[0]; more[item.tier] = spares.slice(1, MAX_BACKUPS) }
-        used++
+      for (const { tier } of CREW_TIERS) {
+        const member = saved?.[tier]
+        const useSaved = !!member?.tool && available.includes(member.tool)
+        chosenRoles[tier] = useSaved
+        crew[tier] = useSaved
+          ? { tool: member.tool!, model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
+          : { tool, model, effort, source: chosenSource }
+        crewSourceExplicit[tier] = useSaved && !!member.provider
+        const spares = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && available.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
+        backups[tier] = spares[0] ?? { tool: '', model: '', effort: '' }
+        more[tier] = spares.slice(1, MAX_BACKUPS)
       }
-      if (saved.balanceBelow) balanceBelow = balancePercent(saved.balanceBelow)
-      if (used) crewNote = 'Started from your saved crew.'
+      if (saved?.balanceBelow) balanceBelow = balancePercent(saved.balanceBelow)
+      crewNote = CREW_TIERS.some(({ tier }) => chosenRoles[tier]) ? 'Started from your saved crew.' : ''
     })
   })
   // A tier's backups as the saved crew holds them: the first, then any further ones, each with its Cline source.
@@ -184,14 +188,16 @@
     try {
       const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}), ...spareFields(tier) })
       // What was just saved is what is on screen: there is nothing to apply again.
-      crewApplied = true
       savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy'), balanceBelow: balancePercent(balanceBelow), gafferDecides: !!savedCrew?.gafferDecides })).crew
       crewNote = 'Saved. New outcomes start from this crew.'
     } catch (e) { crewNote = e instanceof Error ? e.message : 'The crew could not be saved.' }
     finally { crewSaving = false }
   }
-  // A crew role follows the main agent until the person gives it one of its own that this machine can run.
-  $effect(() => { for (const item of CREW_TIERS) if (!tools.includes(crew[item.tier].tool) && crew[item.tier].tool !== tool) crew[item.tier] = { ...crew[item.tier], tool, model: '', effort: '' } })
+  // Keep saved and explicitly edited tiers separate from the outcome's fallback.
+  $effect(() => {
+    const fallback = { tool, model, effort, source: chosenSource }
+    for (const { tier } of CREW_TIERS) if (followsOutcome(tier)) crew[tier] = { ...fallback }
+  })
   // A new agent starts on the saved source; a source picked for the old agent is not carried to the new one.
   let lastTool = ''
   $effect(() => {
@@ -276,12 +282,13 @@
   function pickSource(next: string) {
     source = next; explicitSource = true
     for (const item of CREW_TIERS) {
-      if (crew[item.tier].tool !== tool) continue
+      if (!followsOutcome(item.tier) || crew[item.tier].tool !== tool) continue
       crew[item.tier] = { ...crew[item.tier], source: next }
       crewSourceExplicit[item.tier] = true
     }
   }
   function pickCrewSource(role: keyof Crew, next: string) {
+    chosenRoles[role] = true
     crew[role] = { ...crew[role], source: next }
     crewSourceExplicit[role] = true
   }
@@ -425,12 +432,12 @@
               {#if !ghHost}<option value="" disabled>{cloners.length ? 'Choose a machine…' : 'None can clone'}</option>{/if}
               {#each cloners as item (item.agentId)}<option value={item.agentId}>{item.host}</option>{/each}
             </select></label>{/if}
-            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; source = ''; explicitSource = false; crewSourceExplicit = { heavy: false, standard: false, light: false }; for (const item of CREW_TIERS) crew[item.tier] = { tool, model: '', effort: '', source: '' } }}>
+            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; source = ''; explicitSource = false }}>
               {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
-            <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool} onchange={next => { for (const item of CREW_TIERS) if (crew[item.tier].tool === tool) crew[item.tier].model = next }}/></label>
-            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2} onchange={() => { for (const item of CREW_TIERS) if (crew[item.tier].tool === tool) crew[item.tier].effort = effort }}>
+            <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool}/></label>
+            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2}>
               {#each efforts(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : efforts(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
             </select></label>
             <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
@@ -455,6 +462,7 @@
                   </div>{/each}
                 </dl>
                 <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. The crew below starts from these; a saved agent this machine cannot run falls back to the outcome’s own agent. You can change them for this outcome below.</p>
+                {#if unavailableCrew.length}<p class="hint" role="status">{unavailableCrew.map(item => `${item.label} uses the outcome’s agent because ${chatToolName(item.tool)} is unavailable on this machine.`).join(' ')}</p>{/if}
               {:else if crewRead === 'failed'}
                 <p class="hint">Your Gaffer settings could not be read. Each stage will use the agent and model you choose below. <a href="/account/gaffer">Open Gaffer settings</a>.</p>
               {:else}
@@ -468,9 +476,9 @@
               {#each CREW_TIERS as item (item.tier)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
                 <span class="crew-slot">First choice</span>
-                <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
-                <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
-                <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || !tools.length} onchange={() => { chosenRoles[item.tier] = true; const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning} onchange={() => chosenRoles[item.tier] = true}/>
+                <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} onchange={() => chosenRoles[item.tier] = true} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
                 {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={crew[item.tier].source || savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
                 <div class="crew-backup" role="group" aria-label={`${item.label} backup`}>
                   <span class="crew-slot">Backup</span>
@@ -540,13 +548,13 @@
           </div>
           {#if item.stages?.length}<div class="stage-tiers" role="group" aria-label={`Pipeline ${index + 1} stage tiers`}>
             {#each item.stages as kind (kind)}{@const split = stageParts(item, kind)}{#if split.length > 1}
-            <StageParts {kind} where={`pipeline ${index + 1}`} parts={split} {busy} who={tier => { const one = crew[tier]; return `${one.tool ? chatToolName(one.tool) : 'No agent'}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }}
+            <StageParts {kind} where={`pipeline ${index + 1}`} parts={split} {busy} who={tier => { const one = crew[tier]; return `${one.tool ? chatToolName(one.tool) : 'No agent'}${one.model.trim() ? ` · ${one.model.trim()}` : ' · Agent’s default model'}${one.effort ? ` · ${one.effort} effort` : ''}` }}
               onchange={(at, next) => item.parts = withPart(item, kind, at, next)} onadd={() => item.parts = withNewPart(item, kind)} onjoin={() => item.parts = withoutParts(item, kind)}/>
             {:else}{@const rated = stageTier(kind, item)}{@const member = crew[rated.tier]}
             <div class="stage-tier" class:changed={rated.changed} data-stage={kind}>
               <span class="stage-name">{stageLabel(kind)}</span>
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
-              <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ''}{member.effort ? ` · ${member.effort} effort` : ''}{#if backups[rated.tier].tool}<span class="stage-spare">Backup: {chatToolName(backups[rated.tier].tool)}{backups[rated.tier].model.trim() ? ` · ${backups[rated.tier].model.trim()}` : ''}{backups[rated.tier].effort ? ` · ${backups[rated.tier].effort} effort` : ''}</span>{/if}</span>
+              <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ' · Agent’s default model'}{member.effort ? ` · ${member.effort} effort` : ''}{#if backups[rated.tier].tool}<span class="stage-spare">Backup: {chatToolName(backups[rated.tier].tool)}{backups[rated.tier].model.trim() ? ` · ${backups[rated.tier].model.trim()}` : ''}{backups[rated.tier].effort ? ` · ${backups[rated.tier].effort} effort` : ''}</span>{/if}</span>
               {#if stageTakesParts(kind)}<button class="link stage-splitter" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} in pipeline ${index + 1} into parts`} onclick={() => item.parts = withNewPart(item, kind)}>Split into parts</button>{/if}
               {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
             </div>{/if}{/each}

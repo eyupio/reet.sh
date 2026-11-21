@@ -48,7 +48,7 @@ test('a missing caret falls back to the end of the prompt, and out-of-range valu
 
 const installSource = readFileSync(new URL('./install.ts', import.meta.url), 'utf8')
 const installCompiled = ts.transpileModule(installSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { useSkillPrompt, installCommand, installPrompt, copyPrompt, SKILLS_CLI } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
+const { useSkillPrompt, installCommand, installPrompt, copyPrompt, hostedPrompt, SKILLS_CLI } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
 
 const skill = over => ({ id: 'local/unslop', name: 'unslop', slug: 'unslop', source: 'local', sourceType: 'local', url: '', ...over })
 
@@ -71,6 +71,15 @@ test('a library skill is used from reet\'s copy by name, never from its original
     assert.doesNotMatch(text, /npx|https?:|github\.com/)
   }
   assert.equal(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github', description: 'Tidy prose.' })), copyPrompt({ name: 'unslop', description: 'Tidy prose.' }))
+})
+
+test('a skill on a reet.sh public page is used from that page, without installing it', () => {
+  assert.equal(hostedPrompt(skill({ name: 'reet-demo', slug: 'reet-demo', sourceType: 'hosted', url: 'https://reet.test/alice/reet-demo' })), `Run \`npx ${SKILLS_CLI} use "https://reet.test/alice/reet-demo" --skill "reet-demo"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`)
+  assert.equal(hostedPrompt(skill({ source: 'demo/toolkit', sourceType: 'github' })), null)
+  assert.equal(hostedPrompt(skill({ sourceType: 'hosted', url: '' })), null)
+  // The public page shows the same prompt: hostedUsePrompt in internal/api/hosted.go.
+  const go = readFileSync(new URL('../../../internal/api/hosted.go', import.meta.url), 'utf8')
+  for (const part of ['and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.']) assert.ok(go.includes(part) && installSource.includes(part))
 })
 
 test('a skill with neither a source nor a name cannot be used', () => {

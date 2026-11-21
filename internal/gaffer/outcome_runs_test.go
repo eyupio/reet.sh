@@ -134,7 +134,10 @@ func (f *outcomeStarterFake) EndOutcomeSession(_ context.Context, uid int64, ses
 	if _, err := f.st.RequestTerminalEndFor(uid, f.agent, session, session[:32]); err != nil {
 		return err
 	}
-	if err := f.st.ObserveTerminalStateFor(uid, f.agent, session, 1, terminalproto.Ended, nil); err != nil {
+	f.mu.Lock()
+	generation := f.gen
+	f.mu.Unlock()
+	if err := f.st.ObserveTerminalStateFor(uid, f.agent, session, generation, terminalproto.Ended, nil); err != nil {
 		return err
 	}
 	f.mu.Lock()

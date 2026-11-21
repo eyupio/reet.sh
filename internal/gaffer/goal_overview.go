@@ -9,15 +9,18 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+const workerUsageLimitNote = "The working model reached its usage or credit limit. To continue in this session, switch models or restore the provider’s allowance, then send a message. Gaffer will pick up when the agent runs again."
+
 // Overview contains retained evidence, never a newly generated report or live
 // worker/GitHub observation. Delivery acknowledges handoff, not task completion.
 type GoalOverview struct {
-	Goal      store.GafferGoal     `json:"goal"`
-	Session   *GoalSession         `json:"session,omitempty"`
-	Available bool                 `json:"available"`
-	Attention bool                 `json:"attention"`
-	Reason    string               `json:"reason,omitempty"`
-	Delivery  *store.WorkerMessage `json:"delivery,omitempty"`
+	Goal               store.GafferGoal     `json:"goal"`
+	Session            *GoalSession         `json:"session,omitempty"`
+	Available          bool                 `json:"available"`
+	Attention          bool                 `json:"attention"`
+	Reason             string               `json:"reason,omitempty"`
+	WorkerUsageLimited bool                 `json:"workerUsageLimited,omitempty"`
+	Delivery           *store.WorkerMessage `json:"delivery,omitempty"`
 }
 
 type GoalSession struct {
@@ -86,6 +89,11 @@ func (s *Service) Goals(uid int64) (GoalOverviewView, error) {
 				} else {
 					row.Attention = true
 					row.Reason = "The last instruction's receipt is unavailable. Check the working conversation before continuing."
+				}
+			}
+			if g.State == "needs_user" && !g.WaitingOnWorker && session.State == terminalproto.Running {
+				if status, err := s.store.GafferWorkerStatusFor(uid, g.SessionID); err == nil && status.UsageLimited() {
+					row.WorkerUsageLimited, row.Reason = true, workerUsageLimitNote
 				}
 			}
 		}

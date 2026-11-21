@@ -107,7 +107,7 @@ async function openOutcome(w,direct=false){
   await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
   return {floor:w.page.locator('[data-floor]'),outcome:w.page.getByRole('dialog',{name:'New Factory outcome',exact:true})}
 }
-const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
+const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew'&&new URL(r.url()).pathname!=='/api/v2/skill-buddy/recommendations')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
 try {
   for(const [width,theme] of [[1440,'light'],[390,'dark']]){
@@ -227,7 +227,7 @@ try {
       await expect(split).toContainText('Split into 2 parts, done in this order, each by its own agent.')
       const part1=split.getByRole('group',{name:'Part 1 of Code in pipeline 2',exact:true}),part2=split.getByRole('group',{name:'Part 2 of Code in pipeline 2',exact:true})
       await expect(part1.getByRole('textbox',{name:'Part 1 name',exact:true})).toHaveValue('Button');await expect(part1.getByRole('combobox',{name:'Part 1 tier',exact:true})).toHaveValue('light')
-      await expect(part1).toContainText('Claude Code · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
+      await expect(part1).toContainText('Claude Code · Agent’s default model · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
       await expect(part2.getByRole('combobox',{name:'Part 2 tier',exact:true})).toHaveValue('standard')
       await part2.getByRole('textbox',{name:'Part 2 brief',exact:true}).fill('Draw the empty state, with the illustration.')
       await expect(split.getByRole('button',{name:'Do Code in pipeline 2 as one stage',exact:true})).toBeVisible()
@@ -330,7 +330,7 @@ try {
       await page.getByRole('region',{name:'Waiting for you',exact:true}).getByRole('button',wide?{name:'Failed: Export button, renamed',exact:true}:{name:'Details and other actions for Export button, renamed',exact:true}).click()
       const notStarted=page.getByRole('region',{name:'Export button, renamed',exact:true})
       await expect(notStarted.getByRole('region',{name:'What is waiting',exact:true})).toContainText('Not started: That agent isn’t installed on that machine.')
-      await expect(notStarted.getByRole('link')).toHaveCount(0)
+      await expect(notStarted.getByRole('link',{name:'Open session',exact:true})).toHaveCount(0)
       if(!wide)await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
       await page.getByRole('button',{name:/^Other sessions/}).click()
       // A session that was started but is not followed is still offered below, to be looked after.
@@ -438,6 +438,10 @@ try {
       await expect(outcome.getByRole('combobox',{name:'Heavy effort',exact:true})).toHaveValue('high')
       // A saved tier whose agent this machine cannot run is left on the outcome's own agent.
       await expect(outcome.getByRole('combobox',{name:'Light agent',exact:true})).toHaveValue('claude')
+      // The outcome fallback changes only the unset tier, even when a saved tier uses the same agent.
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('haiku')
+      await expect(outcome.getByRole('combobox',{name:'Heavy model',exact:true})).toHaveValue('opus')
+      await expect(outcome.getByRole('combobox',{name:'Standard model',exact:true})).toHaveValue('haiku')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       await expect(outcome.getByRole('alert')).toHaveText('This model did not return a plan. Choose a model that supports tools, or write the plan yourself.')
       await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()

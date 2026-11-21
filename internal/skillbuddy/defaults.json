@@ -1,0 +1,258 @@
+[
+  {
+    "id": "builtin:plan",
+    "name": "Plan the change",
+    "description": "Trace requirements, callers and dependencies before choosing an approach.",
+    "stage": "plan",
+    "instructions": "Read the relevant source and project instructions. Identify the required behaviour, affected callers, risks and a small validation plan. Prefer existing components. Leave a concrete plan and open questions; do not implement later stages.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:design",
+    "name": "Design for people",
+    "description": "Design accessible interfaces, clear states and responsive user flows.",
+    "stage": "design",
+    "instructions": "Inspect existing components and design conventions. Describe the user flow, loading, empty, error and success states, keyboard access, mobile layout and light/dark behaviour. Reuse the project's patterns. Stay within this stage's brief.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:unslop",
+    "name": "Unslop",
+    "description": "Polish UX and UI: improve an existing interface while preserving its product character, accessibility and working flows.",
+    "stage": "design",
+    "stages": [
+      "design",
+      "code",
+      "review"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Use the compact reet adaptation of Unslop.\nInspect the rendered UI and relevant code. Audit concrete issues before changing it. Preserve the product, working flows and real brand. State the product, character, visual world, one meaningful focal point and one signature detail. Match the amount of change to the evidence.\nWork in order: spacing; colour; icons; copy; typography; layout; component details; visuals; motion. Use a consistent 4px rhythm, neutral chrome, one purposeful accent, the existing icon family, plain specific copy, readable type and tabular figures. Remove decorative sparkles, gradients, glows, filler and unsupported claims. Make hover, focus, loading, empty and failure states clear. Use motion only to explain change; respect reduced motion.\nCheck the actual UI at desktop and phone widths in light and dark themes. Verify keyboard access and changed flows. Report remaining gaps.",
+    "keywords": "unslop ux ui polish design frontend interface usability",
+    "attribution": "Adapted from Unslop by Damir Sokolovsky (@heydamir) \u00b7 https://github.com/heydamir/unslop \u00b7 CC BY 4.0: https://creativecommons.org/licenses/by/4.0/"
+  },
+  {
+    "id": "builtin:code",
+    "name": "Focused implementation",
+    "description": "Fix the root cause, reuse existing code and avoid unnecessary abstractions.",
+    "stage": "code",
+    "instructions": "Trace the affected code and its callers before editing. Make the smallest complete change that meets the brief. Reuse project components and installed dependencies. Preserve validation, error handling, security and accessibility. Verify changed behaviour with focused checks and report what remains unchecked.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:review",
+    "name": "Review the real behaviour",
+    "description": "Review bugs, security, edge cases and missing regression coverage.",
+    "stage": "review",
+    "instructions": "Read the diff alongside affected callers and surrounding code. Trace concrete failure paths, data boundaries and error handling. Check regression coverage and accessibility where relevant. Report actionable findings with file locations and evidence, ordered by impact. Distinguish confirmed defects from questions.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:test",
+    "name": "Test what could break",
+    "description": "Validate behaviour, failure paths and meaningful regression coverage.",
+    "stage": "test",
+    "instructions": "Use the existing test tools. Exercise changed behaviour and important failure paths. Prefer tests that fail for the original bug over tests that mirror implementation. Run appropriate checks and report exact results and omissions. Do not equate coverage percentage with correctness.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:pr",
+    "name": "A reviewable pull request",
+    "description": "Explain the concrete change, validation and material limitations.",
+    "stage": "pr",
+    "instructions": "Inspect the final change before preparing the pull request. Explain the problem, resulting behaviour, validation and material limitations for a reviewer without conversation history. Follow the repository template. Preserve the agreed scope and merge policy.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:babysit",
+    "name": "Follow checks and feedback",
+    "description": "Resolve genuine CI failures, conflicts and review findings within scope.",
+    "stage": "babysit",
+    "instructions": "Inspect current CI, review threads and merge conflicts. Fix root causes within the agreed scope and validate the fixes. Distinguish transient infrastructure failures from code defects. Report blockers with evidence. Follow the existing approval and merge instructions.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:merge",
+    "name": "Check readiness to merge",
+    "description": "Verify the current head, checks, review threads and merge authority.",
+    "stage": "merge",
+    "instructions": "Check the current pull request head, required checks, unresolved review findings and conflicts. Follow the person's merge authorisation and repository rules. A previously green head is not evidence for a newer head. If blocked, report the exact unmet condition.",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:debugging",
+    "name": "Find the root cause",
+    "description": "Debug failures and regressions with reproducible evidence.",
+    "stage": "code",
+    "instructions": "Reproduce the failure and inspect logs, recent changes and the failing data path. State a testable explanation before editing. Change one relevant cause, verify the reproduction now passes, and check adjacent behaviour. Report evidence and uncertainty.",
+    "keywords": "debug debugging failure regression broken error",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:security",
+    "name": "Review trust boundaries",
+    "description": "Review authentication, authorisation, secrets and untrusted inputs.",
+    "stage": "review",
+    "instructions": "Map the changed trust boundaries and caller permissions. Trace untrusted input to sensitive operations. Check account isolation, validation, secret handling, file and network access, and failure behaviour. Report concrete exploit paths with locations and focused regression checks.",
+    "keywords": "security auth authentication authorisation secrets injection",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:accessibility",
+    "name": "Make every state accessible",
+    "description": "Review keyboard access, focus, labels and screen-reader feedback.",
+    "stage": "design",
+    "instructions": "Walk through the main flow using the keyboard. Check semantic controls, accessible names, focus movement, error messages, colour contrast, touch targets and reduced motion. Exercise loading, empty, failure and success states. Use existing accessible components.",
+    "keywords": "accessibility accessible keyboard screen reader contrast",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:documentation",
+    "name": "Docs people can follow",
+    "description": "Write accurate getting-started guides and deeper technical documentation.",
+    "stage": "pr",
+    "instructions": "Check the implemented behaviour before documenting it. Give beginners a shortest working path with prerequisites and expected results. Link advanced configuration and troubleshooting separately. Verify commands and links. Use plain language and document material limits.",
+    "keywords": "documentation docs readme mkdocs guide onboarding",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:performance",
+    "name": "Measure before optimising",
+    "description": "Find latency, memory and throughput bottlenecks using measurements.",
+    "stage": "code",
+    "instructions": "Establish a reproducible baseline with a representative workload. Profile the slow path and isolate the bottleneck before changing it. Prefer a small fix and compare before/after with the same inputs. Check correctness and resource usage. State measurement limits.",
+    "keywords": "performance latency memory throughput profiling slow",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:go",
+    "name": "Go that fits the project",
+    "description": "Review Go errors, cancellation, concurrency and project conventions.",
+    "stage": "code",
+    "instructions": "Follow the repository Go conventions. Keep errors explicit, propagate cancellation, close owned resources and bound concurrent work. Check goroutine lifetime, shared state and shutdown behaviour. Use existing packages and focused tests; run race checks when concurrency changes.",
+    "keywords": "golang goroutine concurrency race go",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:api",
+    "name": "APIs callers can trust",
+    "description": "Design stable API contracts, permissions and failure responses.",
+    "stage": "design",
+    "instructions": "Trace callers and define the request, response and error contract. Check authentication, account isolation, pagination, bounds, retries and idempotency where needed. Follow existing routes and status conventions. Preserve compatibility or document the migration.",
+    "keywords": "api endpoint contract rest idempotency",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:reliability",
+    "name": "Failures people can recover from",
+    "description": "Design observable operations, safe retries and recoverable failures.",
+    "stage": "code",
+    "instructions": "Trace the operation through disconnects, retries, timeouts and restarts. Preserve ownership checks and idempotency. Give users clear pending, success, failure and uncertain states. Log actionable metadata without secrets and verify recovery paths.",
+    "keywords": "reliability observability retry retries timeout recovery disconnect",
+    "source": "builtin",
+    "revision": "1"
+  },
+  {
+    "id": "builtin:upstream-ponytail",
+    "name": "Ponytail",
+    "description": "Focused implementation, code reuse and fewer unnecessary abstractions.",
+    "stage": "code",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/DietrichGebert/ponytail/blob/main/skills/ponytail/SKILL.md",
+    "keywords": "implementation coding refactor simplicity",
+    "attribution": "DietrichGebert/ponytail \u00b7 Instruction-only skill works portably; automatic modes and hooks need the native plugin."
+  },
+  {
+    "id": "builtin:upstream-debugging",
+    "name": "Systematic debugging",
+    "description": "Investigate reproducible failures and find the root cause before fixing.",
+    "stage": "code",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/obra/superpowers/blob/main/skills/systematic-debugging/SKILL.md",
+    "keywords": "debugging bug failure regression",
+    "attribution": "obra/superpowers \u00b7 References other skills and supporting files. Review its workflow before adoption."
+  },
+  {
+    "id": "builtin:upstream-verification",
+    "name": "Verification before completion",
+    "description": "Back completion claims with fresh command results and explicit evidence.",
+    "stage": "test",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/obra/superpowers/blob/main/skills/verification-before-completion/SKILL.md",
+    "keywords": "verification tests evidence completion",
+    "attribution": "obra/superpowers \u00b7 Best as a finishing check; project and Factory boundaries take priority."
+  },
+  {
+    "id": "builtin:upstream-frontend",
+    "name": "Frontend design",
+    "description": "Create distinctive, intentional visual direction for new and refreshed interfaces.",
+    "stage": "design",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md",
+    "keywords": "frontend design visual typography aesthetic",
+    "attribution": "anthropics/skills \u00b7 Adapt visual direction to existing product conventions and accessibility requirements."
+  },
+  {
+    "id": "builtin:upstream-web-testing",
+    "name": "Web application testing",
+    "description": "Exercise local applications through Playwright and inspect rendered behaviour.",
+    "stage": "test",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/anthropics/skills/blob/main/skills/webapp-testing/SKILL.md",
+    "keywords": "browser playwright testing ui",
+    "attribution": "anthropics/skills \u00b7 Requires Python, Playwright, a browser and bundled helper scripts."
+  },
+  {
+    "id": "builtin:upstream-web-guidelines",
+    "name": "Web design guidelines",
+    "description": "Review interface quality, accessibility and user experience against a checklist.",
+    "stage": "review",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/vercel-labs/agent-skills/blob/main/skills/web-design-guidelines/SKILL.md",
+    "keywords": "accessibility interface usability review",
+    "attribution": "vercel-labs/agent-skills \u00b7 Fetches an external guidelines document; review and pin the referenced content for reproducible use."
+  },
+  {
+    "id": "builtin:upstream-security-diff",
+    "name": "Differential security review",
+    "description": "Trace security impact, affected callers and regressions in a code change.",
+    "stage": "review",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/trailofbits/skills/blob/main/plugins/differential-review/skills/differential-review/SKILL.md",
+    "keywords": "security auth differential vulnerability",
+    "attribution": "trailofbits/skills \u00b7 Uses multiple supporting documents and optional specialist agents; adopt the whole reviewed bundle."
+  },
+  {
+    "id": "builtin:upstream-ci",
+    "name": "GitHub CI investigation",
+    "description": "Inspect failing GitHub Actions checks and identify actionable failure context.",
+    "stage": "babysit",
+    "source": "curated",
+    "revision": "reviewed-2026-11-21",
+    "url": "https://github.com/openai/skills/blob/main/skills/.curated/gh-fix-ci/SKILL.md",
+    "keywords": "ci github actions failing checks",
+    "attribution": "openai/skills \u00b7 Requires authenticated gh and a bundled Python helper; its approval workflow must respect existing user authorisation."
+  }
+]

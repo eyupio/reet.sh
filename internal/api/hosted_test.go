@@ -68,7 +68,7 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	sk.Published = true
 	expect(alice.ID, "PUT", "/api/v2/hosting/skills/reet-demo", sk, 200)
 	page := expect(0, "GET", "/alice/reet-demo", nil, 200)
-	if strings.Contains(page, "<script>alert") || !strings.Contains(page, "npx skills@1.7.4 add "+srv.URL+"/alice/reet-demo") {
+	if strings.Contains(page, "<script>alert") || !strings.Contains(page, "npx skills@1.7.4 add "+srv.URL+"/alice/reet-demo") || !strings.Contains(page, "Run `npx skills@1.7.4 use &#34;"+srv.URL+"/alice/reet-demo&#34; --skill &#34;reet-demo&#34;` and follow the generated skill instructions now.") {
 		t.Fatalf("unsafe page or wrong install command: %s", page)
 	}
 	for _, want := range []string{

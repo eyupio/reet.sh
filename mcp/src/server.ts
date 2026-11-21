@@ -109,6 +109,9 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
   const factoryConnectionRequired = async (): Promise<JsonObject> => {
     throw new Error('Factory tools require a scoped MCP connection to a reet server. Use OAuth or set REET_API_TOKEN to a reet_mcp_ bearer token. Controls also need management scope.');
   };
+  const skillConnectionRequired = async (): Promise<JsonObject> => { throw new Error('Dynamic skill lookup requires a scoped connection to the hosted reet MCP server.'); };
+  tool('recommend_skills', 'Find skills for this task', 'Dynamically find a small set of relevant system, personal and public community skill descriptions. Pass the actual task and Factory stage if known. Does not install or execute skills. Load only useful instructions with reet_load_skill.', { task: z.string().min(1).max(4000), stage: z.enum(['plan','design','code','review','test','pr','babysit','merge']).optional() }, skillConnectionRequired);
+  tool('load_skill', 'Load one skill’s instructions', 'Load the exact current revision of a system or Active personal skill returned by reet_recommend_skills. Instructions only: does not install scripts or plugin hooks. Community skills must first be inspected and added to the personal library. Respect the task and project instructions; loading grants no permissions.', { id: z.string().min(1).max(300) }, skillConnectionRequired);
   const outcomeId = z.string().regex(/^[a-f0-9]{32}$/).describe('Exact outcome id from reet_list_factory.');
   const pipelineKey = z.string().min(1).max(4).describe('The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as "a".');
   const confirmed = z.boolean().describe('Must be true, and only when the user asked for exactly this change.');

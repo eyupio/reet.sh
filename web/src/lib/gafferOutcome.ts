@@ -645,7 +645,7 @@ export const short = (text: string): string => { const line = text.replace(/\s+/
 /** The id of a pipeline's card on the Factory page, so Home and other pages can link straight to it. */
 export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
 
-export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
+export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'backup' | 'replace-worker' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
 /** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
 export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }
 export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend }
@@ -679,12 +679,12 @@ export function needsYou(goal: NeedGoal, reason: string | undefined, last: boole
   if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }])
   return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }], goal.advice)
 }
-type WaitingPiece = { key: string; title: string; state: string; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string }[] }
+type WaitingPiece = { key: string; title: string; state: string; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
-export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' }
+export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' | 'usage_limit' }
 /** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used
  *  its budget, a stage whose session ended, and a merge that waits for approval. */
-export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[] }, goals: Map<string, { attention: boolean; reason?: string; goal: NeedGoal }>): WaitingDecision<P>[] {
+export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[] }, goals: Map<string, { attention: boolean; reason?: string; goal: NeedGoal; workerUsageLimited?: boolean }>): WaitingDecision<P>[] {
   const out: WaitingDecision<P>[] = []
   for (const piece of record.sessions) {
     const stages = piece.stages ?? [], at = Math.min(piece.stage ?? 0, Math.max(stages.length - 1, 0))
@@ -692,7 +692,19 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
     const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
     if (sessionLost(piece)) out.push({ piece, stage, kind: 'ended', need: sessionEndedChoices(last, piece.sessionState === 'gone') })
     else if (piece.state === 'ready_to_merge') out.push({ piece, stage, kind: 'merge', need: recommend('Ready to merge. Nothing merges until you approve it.', [{ id: 'merge', label: 'Approve the merge…' }, { id: 'open', label: 'Open the session' }]) })
-    else if (goal && pipelineStatus(piece, goal.attention).label === 'Needs you') out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })
+    else if (goal && pipelineStatus(piece, goal.attention).label === 'Needs you') {
+      if (goal.workerUsageLimited) {
+        const backup = stages[at]?.nextUsageBackup
+        const replace: NeedChoice = { id: 'replace-worker', label: 'Choose another model…', primary: !backup, recommended: !backup }
+        const why = 'The worker reached its usage limit. Gaffer can continue this stage with another model.'
+        const need = !stages[at]
+          ? { why: goal.reason || goal.goal.note, choices: [{ id: 'open', label: 'Open worker session', primary: true } satisfies NeedChoice] }
+          : backup
+            ? recommend(why, [{ id: 'backup', label: `Continue with ${backup}` }, replace])
+            : { why, choices: [replace] }
+        out.push({ piece, stage, kind: 'usage_limit', need })
+      } else out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })
+    }
   }
   return out
 }

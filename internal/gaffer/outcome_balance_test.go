@@ -290,3 +290,102 @@ func TestAStageThatStoppedWithItsPlanLowIsRunAgainOnItsBackup(t *testing.T) {
 		t.Fatalf("launches: %d", len(asked))
 	}
 }
+
+// A live session can report exhaustion even when its provider has no plan
+// figures. Keep the pipeline at Code and restart in its existing worktree.
+func TestFactoryWorkerUsageLimit(t *testing.T) {
+	for _, mode := range []string{"manual backup", "automatic backup", "manual replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			automation := mode == "automatic backup"
+			replace := mode == "manual replacement"
+			r := outcomeFixture(t)
+			standard := store.GafferCrewTier{Tool: "opencode", Model: "opencode/primary"}
+			if replace {
+				caps := effortCaps(true)
+				caps.AgentsV2 = true
+				caps.Tools = []string{"codex", "opencode"}
+				profile, err := r.st.ProfileFor(r.p.UserID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				profile.ChatAgents = map[string]bool{"codex": true}
+				if err = r.st.SaveProfileFor(r.p.UserID, profile); err != nil {
+					t.Fatal(err)
+				}
+				*caps.ACPAgents = append(*caps.ACPAgents, terminalproto.ACPAgent{Tool: "codex", Adapter: "codex-acp", State: "available", MinimumVersion: "1.13.1"})
+				r.reconnect(t, caps)
+			} else {
+				standard.Backup = &store.GafferStageAgent{Tool: "opencode", Model: "paid/backup"}
+				standard.More = []store.GafferStageAgent{{Tool: "codex", Model: "gpt-backup"}}
+			}
+			if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{Standard: standard}); err != nil {
+				t.Fatal(err)
+			}
+			in := pipelineInput(r, false)
+			in.Automation = automation
+			in.Sessions[0].Stages[0] = OutcomeStageInput{Kind: "code"}
+			r.s.StartGoalSupervisor()
+			created, err := r.s.CreateOutcome(r.p.UserID, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+			r.settle(t, created.ID)
+			if got := r.starter.asked()[0].Model; got != "opencode/primary" {
+				t.Fatalf("Code did not launch with the saved Standard model: %q", got)
+			}
+			goal, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = r.st.AppendTerminalChatEventFor(r.p.UserID, first.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"status","state":"error","detail":"Free usage limit reached. Free models work in OpenCode."}`)); err != nil {
+				t.Fatal(err)
+			}
+			r.s.reviewGoal(t.Context(), goal)
+			if !automation {
+				if views, err := r.s.Goals(r.p.UserID); err != nil || len(views.Goals) != 1 || !views.Goals[0].WorkerUsageLimited {
+					t.Fatalf("usage failure not visible: %+v, %v", views, err)
+				}
+				r.s.rebalanceStopped(t.Context())
+				o, err := r.s.Outcome(r.p.UserID, created.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := o.Sessions[0].Stages[0].NextUsageBackup; strings.Contains(got, "paid/backup") == replace || o.Sessions[0].SessionID != first.SessionID {
+					t.Fatalf("unexpected offer while the stopped worker waits: %+v", o.Sessions[0])
+				}
+				var worker *WorkerReplacement
+				if replace {
+					same := WorkerReplacement{Tool: "opencode", Model: "opencode/primary"}
+					if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, &same); err == nil {
+						t.Fatal("the exhausted model was accepted as its own replacement")
+					}
+					worker = &WorkerReplacement{Tool: "codex", Model: "paid/backup"}
+				}
+				if _, err = r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, worker); err != nil {
+					t.Fatal(err)
+				}
+			}
+			again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+				return p.State == "following" && p.SessionID != first.SessionID
+			})
+			launch := r.starter.asked()[1]
+			wantTool := "opencode"
+			if replace {
+				wantTool = "codex"
+			}
+			if again.Stage != first.Stage || launch.Tool != wantTool || launch.Model != "paid/backup" || launch.Dir != first.WorkDir || launch.ProjectID != "" || !strings.Contains(launch.Prompt, "previous worker reached its usage limit") {
+				t.Fatalf("backup did not continue the same stage: %+v", launch)
+			}
+			if old, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID); err != nil || old.State != "stopped" {
+				t.Fatalf("old goal was not retired: %+v, %v", old, err)
+			}
+			if old, err := r.st.TerminalSessionFor(r.p.UserID, first.SessionID); err != nil || old.State != terminalproto.Ended {
+				t.Fatalf("expected the replaced session to end and remain in history: %+v, %v", old, err)
+			}
+			if len(r.starter.asked()) != 2 {
+				t.Fatal("the backup was launched more than once")
+			}
+		})
+	}
+}

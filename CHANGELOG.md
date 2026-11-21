@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Use a published skill without installing it**: **Copy prompt** for a published skill is now the
+  `npx skills use "<its reet.sh page>" --skill "<name>"` prompt, which fetches the skill for one session, so you, or
+  anyone if it is public, can use it on a machine that does not have it. It is on the Skills page, in Write a skill, on
+  Community and list entries for skills hosted on reet.sh (in your library or not), and shown on the skill's public
+  page under **Use it without installing**. A skill that is not published is still used by name with its description,
+  and the session skill pickers are unchanged.
 - **Desk links open again**: a shared desk address (`/desks/<id>`) and the newer
   app pages (`/desks`, `/factory`, `/prompts`, `/usage`) now load the app instead
   of returning a 404. Signing in from one of them also returns you there.

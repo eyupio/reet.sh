@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/skillbuddy"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -21,6 +22,7 @@ import (
 
 // OutcomeLaunch is one approved session for the launch path to start.
 type OutcomeLaunch struct {
+	SkillScope                                                                       string
 	AgentID, RequestID, Title, Tool, Model, Effort, Provider, Dir, ProjectID, Prompt string
 	// LinkProjectID ties a later stage's session to the outcome's project in
 	// the session list. It is not a project launch: no worktree is made for it.
@@ -329,6 +331,12 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	}
 	if stage.SentBack != "" {
 		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
+	}
+	if stage.UsageFailover {
+		text += "\n\nThe previous worker reached its usage limit. Inspect the existing changes and commits in this folder and branch, keep useful work, and finish this stage."
+	}
+	for _, sk := range stage.SkillGuidance {
+		text += "\n\n" + skillbuddy.Prompt(sk)
 	}
 	lead := "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n"
 	// What follows the brief is the stage's boundary, which the agent must
@@ -690,6 +698,15 @@ func outcomeRunsOn(sessions []store.GafferOutcomeSession, tools ...string) bool 
 // will no longer attempt reads as not started.
 func outcomeView(o store.GafferOutcome) store.GafferOutcome {
 	settleStoppedOutcome(&o)
+	for i := range o.Sessions {
+		piece := &o.Sessions[i]
+		if piece.State == "following" && piece.WorkDir != "" && piece.Stage < len(piece.Stages) {
+			stage := &piece.Stages[piece.Stage]
+			if backup := nextUsageBackup(*stage); backup != nil {
+				stage.NextUsageBackup = agentWords(*backup)
+			}
+		}
+	}
 	return o
 }
 
@@ -1291,6 +1308,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	droppedEffort := false
 	if staged {
 		stage := item.Stages[item.Stage]
+		launch.SkillScope = "factory:" + o.ID + ":" + item.Key + ":" + strconv.Itoa(item.Stage)
 		launch.RequestID, launch.Tool, launch.Model, launch.Provider, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stage.Provider, stagePrompt(o, item, item.Stage)
 		launch.Effort = stage.Effort
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")

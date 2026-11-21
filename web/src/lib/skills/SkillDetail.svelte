@@ -322,7 +322,7 @@
               <button type="button" class="btn" onclick={stopList}>Cancel</button>
             </form>
           {:else}
-            <p class="none">{lists.length ? `${row.name} is on all your lists.` : 'No lists yet.'} <a class="link" href="/lists">{lists.length ? 'Your lists' : 'Make a list'}</a> <button type="button" class="link" onclick={stopList}>Close</button></p>
+            <p class="none">{lists.length ? `${row.name} is on all your lists.` : 'No lists yet.'} <a class="link" href="/shared">{lists.length ? 'Your lists' : 'Make a list'}</a> <button type="button" class="link" onclick={stopList}>Close</button></p>
           {/if}
         {/if}
       </section>

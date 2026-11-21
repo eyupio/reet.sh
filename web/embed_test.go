@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -98,7 +99,7 @@ func TestRobotsTxtIsNotTheSPA(t *testing.T) {
 			t.Errorf("robots.txt gives %s no private-path rules", bot)
 		}
 	}
-	for _, path := range []string{"/admin", "/account", "/lists/", "/sessions", "/machines", "/skills", "/signin", "/setup"} {
+	for _, path := range []string{"/admin", "/account", "/lists/", "/sessions", "/machines", "/skills", "/signin", "/setup", "/factory", "/desks", "/prompts", "/usage"} {
 		if !strings.Contains(body, "Disallow: "+path+"\n") {
 			t.Errorf("robots.txt does not disallow %s", path)
 		}
@@ -135,7 +136,7 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 func TestUnknownRouteIsAReal404(t *testing.T) {
 	requireBuilt(t)
 	h := Handler("https://reet.sh")
-	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml"} {
+	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml", "/desks/a/b"} {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status = %d, want 404", path, rec.Code)
@@ -155,7 +156,7 @@ func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 		}
 		return PublicPage{}, false
 	}))
-	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
+	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/", "/factory", "/desks", "/desks/", "/desks/0123456789abcdef0123456789abcdef"}
 	for _, path := range private {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {
@@ -181,12 +182,20 @@ func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 func TestLegacyRoutesRedirectPermanently(t *testing.T) {
 	h := Handler("https://reet.sh")
 	cases := map[string]string{
-		"/control":       "/",
-		"/terminals":     "/sessions",
-		"/terminals?x=1": "/sessions?x=1",
-		"/sessions/":     "/sessions",
-		"/projects":      "/",
-		"/projects/abc":  "/?project=abc",
+		"/control":                        "/",
+		"/terminals":                      "/sessions",
+		"/terminals?x=1":                  "/sessions?x=1",
+		"/terminals?agent=a1&session=s1":  "/sessions?agent=a1&session=s1",
+		"/terminals/?agent=a1&session=s1": "/sessions?agent=a1&session=s1",
+		"/sessions/":                      "/sessions",
+		"/sessions/?agent=a1&session=s1":  "/sessions?agent=a1&session=s1",
+		"/lists":                          "/shared",
+		"/lists/":                         "/shared",
+		"/lists?tab=liked":                "/shared?tab=liked",
+		"/factory/":                       "/factory",
+		"/factory/?pipeline=one":          "/factory?pipeline=one",
+		"/projects":                       "/",
+		"/projects/abc":                   "/?project=abc",
 	}
 	for from, want := range cases {
 		rec := get(t, h, from)
@@ -197,6 +206,88 @@ func TestLegacyRoutesRedirectPermanently(t *testing.T) {
 		if got := rec.Header().Get("Location"); got != want {
 			t.Errorf("%s: Location = %q, want %q", from, got, want)
 		}
+	}
+}
+
+// TestEveryAppPageIsServed keeps the server's page allowlist in step with the
+// router the SPA actually draws. The two drifted apart and the Factory, Prompts,
+// Usage and Desks pages returned 404 on a reload; a page added to App.svelte
+// must now be added to spaRoute in the same change or this test fails.
+func TestEveryAppPageIsServed(t *testing.T) {
+	requireBuilt(t)
+	src, err := os.ReadFile("src/App.svelte")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := Handler("https://reet.example")
+	pages := map[string]bool{}
+	for _, m := range regexp.MustCompile(`location\.pathname === '([^']+)'`).FindAllStringSubmatch(string(src), -1) {
+		pages[m[1]] = true
+	}
+	for _, m := range regexp.MustCompile(`\[[^\]]*\]\.includes\(location\.pathname\)`).FindAllStringSubmatch(string(src), -1) {
+		for _, q := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(m[0], -1) {
+			pages[q[1]] = true
+		}
+	}
+	for _, m := range regexp.MustCompile(`location\.pathname\.startsWith\('([^']+)'\)`).FindAllStringSubmatch(string(src), -1) {
+		pages[m[1]+"/example"] = true
+	}
+	// Routes matched by a pattern rather than a literal: one shape of each.
+	for _, path := range []string{
+		"/admin/overview", "/account/mcp/authorize", "/lists/1", "/l/example",
+		"/desks", "/desks/0123456789abcdef0123456789abcdef", "/desks/0123456789abcdef0123456789abcdef/",
+		"/support/12", "/sync/advanced",
+	} {
+		pages[path] = true
+	}
+	if len(pages) < 20 {
+		t.Fatalf("read only %d page addresses from App.svelte; the route extractor no longer matches it", len(pages))
+	}
+	for path := range pages {
+		want := http.StatusOK
+		if path == "/sessions/" {
+			want = http.StatusMovedPermanently
+		}
+		if rec := get(t, h, path); rec.Code != want {
+			t.Errorf("%s: App.svelte draws this page but the server answered %d, want %d", path, rec.Code, want)
+		}
+	}
+}
+
+// TestStaticAppLinksAreServed checks every literal href in the app against the
+// server. A template that still linked /lists (the Lists page moved to /shared)
+// was a live 404; this catches the next dead link before it ships.
+func TestStaticAppLinksAreServed(t *testing.T) {
+	requireBuilt(t)
+	h := Handler("https://reet.example")
+	href := regexp.MustCompile(`href="(/[^"]*)"`)
+	err := filepath.WalkDir("src", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".svelte") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range href.FindAllStringSubmatch(string(body), -1) {
+			target := m[1]
+			if i := strings.IndexAny(target, "?#"); i >= 0 {
+				target = target[:i]
+			}
+			if target == "" {
+				continue
+			}
+			if rec := get(t, h, target); rec.Code == http.StatusNotFound {
+				t.Errorf("%s links to %s, which answers 404", path, m[1])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

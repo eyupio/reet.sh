@@ -144,8 +144,9 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 	}
 	hostRounds := 0
 	// readSessionText is set once a tool has put a working agent's words (a
-	// handover note, a report) in front of the model in this turn.
-	readSessionText := false
+	// handover note, a report) in front of the model in this turn, or the
+	// history repeats such a result from an earlier turn.
+	readSessionText := job.replayedSessionText
 	allUsage := true
 	for round := 0; round < 2; round++ {
 		if err := s.turnAccess(job.uid, c, row); err != nil {

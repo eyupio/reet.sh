@@ -242,7 +242,9 @@ func (a *App) install(args []string) error {
 			return e
 		}
 
-		stage, e := os.MkdirTemp("", "reet-install-*")
+		// The install folder may not exist yet; the running binary's folder
+		// can at least run a binary.
+		stage, e := StageDir(target, source)
 		if e != nil {
 			return e
 		}
@@ -459,7 +461,7 @@ func (a *App) upgrade(args []string) error {
 			fmt.Fprintln(a.Out, "Channel change preview:", warning)
 		}
 	}
-	stage, err := os.MkdirTemp("", "reet-upgrade-*")
+	stage, err := StageDir(d.Binary)
 	if err != nil {
 		return err
 	}

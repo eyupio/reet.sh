@@ -1273,12 +1273,10 @@ func (s *Store) RestoreSnapshotFor(userID int64, snapshot Snapshot) error {
 					trend = string(b)
 				}
 			}
+			// The skills row is shared by every account, so a restore adds a
+			// missing one and never rewrites one that is there.
 			if _, err := tx.Exec(`INSERT INTO skills(`+cols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,0,0,0,?,?)
-				ON CONFLICT(id) DO UPDATE SET name=CASE WHEN excluded.name='' THEN skills.name ELSE excluded.name END,
-					description=CASE WHEN excluded.description='' THEN skills.description ELSE excluded.description END,
-					installs=CASE WHEN excluded.installs>0 THEN excluded.installs ELSE skills.installs END,
-					installs_week=CASE WHEN excluded.installs_week>0 THEN excluded.installs_week ELSE skills.installs_week END,
-					trend=CASE WHEN excluded.trend='' THEN skills.trend ELSE excluded.trend END`,
+				ON CONFLICT(id) DO NOTHING`,
 				k.ID, k.Source, k.Slug, k.SourceType, k.URL, k.Name, k.Description, k.Notes, k.Installs, k.InstallsWeek, trend,
 				k.CreatedAt, k.UpdatedAt); err != nil {
 				return err
@@ -1429,15 +1427,19 @@ func (s *Store) RevokeAPIToken(userID, id int64) error {
 	return nil
 }
 
+// RevokeUserTokens revokes the account's API tokens and MCP connections. A
+// revoked connection takes its OAuth access and refresh tokens with it.
 func (s *Store) RevokeUserTokens(userID int64) error {
-	return s.withTx(func(tx *sql.Tx) error {
-		for _, table := range []string{"api_tokens", "mcp_connections"} {
-			if _, err := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=0`, now(), userID); err != nil {
-				return err
-			}
+	return s.withTx(func(tx *sql.Tx) error { return revokeUserTokensTx(tx, userID) })
+}
+
+func revokeUserTokensTx(tx *sql.Tx, userID int64) error {
+	for _, table := range []string{"api_tokens", "mcp_connections"} {
+		if _, err := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=0`, now(), userID); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (s *Store) HasActiveAPITokens(userID int64) (bool, error) {
@@ -1446,9 +1448,11 @@ func (s *Store) HasActiveAPITokens(userID int64) (bool, error) {
 	return n > 0, err
 }
 
+// APITokenUser resolves a live API token on the read handle; last_used_at is
+// written at most once a minute per token.
 func (s *Store) APITokenUser(hash string, at int64) (User, bool, error) {
 	var u User
-	err := s.db.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.password_hash,u.created_at,u.disabled_at
+	err := s.read.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.password_hash,u.created_at,u.disabled_at
 		FROM api_tokens t JOIN users u ON u.id=t.user_id
 		WHERE t.hash=? AND t.revoked_at=0 AND u.disabled_at=0`, hash).
 		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.CreatedAt, &u.DisabledAt)
@@ -1458,7 +1462,9 @@ func (s *Store) APITokenUser(hash string, at int64) (User, bool, error) {
 	if err != nil {
 		return User{}, false, err
 	}
-	_, _ = s.db.Exec(`UPDATE api_tokens SET last_used_at=? WHERE hash=?`, at, hash)
+	if s.stamps.due("token:"+hash, stampEvery) {
+		_, _ = s.db.Exec(`UPDATE api_tokens SET last_used_at=? WHERE hash=?`, at, hash)
+	}
 	return u, true, nil
 }
 
@@ -1469,9 +1475,23 @@ type Invite struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 
+// CreateInvite replaces any earlier invite for the address, so only the
+// newest link, with the newest role, works.
 func (s *Store) CreateInvite(hash, email, role string, createdBy, expiresAt int64) error {
-	_, err := s.db.Exec(`INSERT INTO invites(token_hash,email,role,created_by,created_at,expires_at)
-		VALUES(?,?,?,?,?,?)`, hash, normalizeEmail(email), role, createdBy, now(), expiresAt)
+	email = normalizeEmail(email)
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM invites WHERE email=?`, email); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO invites(token_hash,email,role,created_by,created_at,expires_at)
+			VALUES(?,?,?,?,?,?)`, hash, email, role, createdBy, now(), expiresAt)
+		return err
+	})
+}
+
+// DeleteInvitesFor removes every invite addressed to email.
+func (s *Store) DeleteInvitesFor(email string) error {
+	_, err := s.db.Exec(`DELETE FROM invites WHERE email=?`, normalizeEmail(email))
 	return err
 }
 
@@ -1554,6 +1574,9 @@ func (s *Store) SetUserPassword(id int64, hash string) error {
 	return s.DeleteUserSessions(id)
 }
 
+// ErrNotOwner means the account asking to hand over ownership no longer has it.
+var ErrNotOwner = errors.New("only the owner can transfer ownership")
+
 func (s *Store) TransferOwner(currentOwnerID, targetID int64) error {
 	if currentOwnerID == targetID {
 		return errors.New("already the owner")
@@ -1561,6 +1584,14 @@ func (s *Store) TransferOwner(currentOwnerID, targetID int64) error {
 	return s.withTx(func(tx *sql.Tx) error {
 		var role, hash string
 		var disabled int64
+		// Checked here, not only by the caller: another transfer may have
+		// finished since the request was authorized.
+		if err := tx.QueryRow(`SELECT role FROM users WHERE id=?`, currentOwnerID).Scan(&role); err != nil {
+			return err
+		}
+		if role != "owner" {
+			return ErrNotOwner
+		}
 		if err := tx.QueryRow(`SELECT role,password_hash,disabled_at FROM users WHERE id=?`, targetID).Scan(&role, &hash, &disabled); err != nil {
 			return err
 		}
@@ -1583,12 +1614,16 @@ func (s *Store) TransferOwner(currentOwnerID, targetID int64) error {
 
 func (s *Store) DeleteUser(id int64) error {
 	return s.withTx(func(tx *sql.Tx) error {
-		var role string
-		if err := tx.QueryRow(`SELECT role FROM users WHERE id=?`, id).Scan(&role); err != nil {
+		var role, email string
+		if err := tx.QueryRow(`SELECT role,email FROM users WHERE id=?`, id).Scan(&role, &email); err != nil {
 			return err
 		}
 		if role == "owner" {
 			return errors.New("transfer ownership before deleting the owner")
+		}
+		// An invite still out for the address would let the person back in.
+		if _, err := tx.Exec(`DELETE FROM invites WHERE email=?`, email); err != nil {
+			return err
 		}
 		for _, stmt := range []string{
 			`DELETE FROM shelf WHERE user_id=?`,

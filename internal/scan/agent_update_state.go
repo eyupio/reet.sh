@@ -96,7 +96,9 @@ func describeBuild(version, commit string) string {
 // updateHealthWindow is how long a new build may wait for a controller that is
 // unreachable before the previous binary is put back. A controller answering
 // with a refusal is the new build's fault and rolls back at once; a controller
-// that cannot be reached may simply be restarting, so it gets five minutes.
+// that cannot be reached may simply be restarting, so it gets five minutes. So
+// does one that is fenced (423) or refuses the credentials (401, 403), which
+// the previous build would not get past either.
 const updateHealthWindow = 5 * time.Minute
 
 // AgentUpdateProtocol is the answer a build gives when asked whether it can
@@ -125,8 +127,13 @@ func shouldRollback(err error, started int64, at time.Time) bool {
 	var refusal controllerError
 	if errors.As(err, &refusal) {
 		refused := refusal.Status >= 400 && refusal.Status < 500
+		// A fenced controller answers 423 to every agent and a revoked token
+		// gives 401 or 403; the previous build would be told the same.
 		transient := refusal.Status == http.StatusRequestTimeout ||
-			refusal.Status == http.StatusTooManyRequests
+			refusal.Status == http.StatusTooManyRequests ||
+			refusal.Status == http.StatusLocked ||
+			refusal.Status == http.StatusUnauthorized ||
+			refusal.Status == http.StatusForbidden
 		if refused && !transient {
 			return true
 		}

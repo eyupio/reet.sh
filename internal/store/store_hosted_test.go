@@ -219,3 +219,77 @@ func TestPublishedHostedSkillsListsOnlyPublicEnabledAuthors(t *testing.T) {
 		t.Fatalf("published refs = %+v", refs)
 	}
 }
+
+// Hiding and deleting a written skill reach its catalogue row under every
+// address the server was reached by, and nobody else's row.
+func TestHostedHideAndDeleteCoverEveryAddress(t *testing.T) {
+	s := newStore(t)
+	alice, _ := s.CreateUser("a@example.com", "A", "member", "hash")
+	malice, _ := s.CreateUser("m@example.com", "M", "member", "hash")
+	if err := s.ClaimPublishingUsername(alice.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimPublishingUsername(malice.ID, "malice"); err != nil {
+		t.Fatal(err)
+	}
+	sk := HostedSkill{Slug: "demo", Content: "---\nname: demo\ndescription: Description\n---\n\nInstructions\n", Published: true}
+	for _, uid := range []int64{alice.ID, malice.ID} {
+		if _, err := s.SaveHostedSkill(uid, sk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	test := true
+	add := func(uid int64, url, host string) ref.Ref {
+		t.Helper()
+		rf, err := ref.ParseAt(url, host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpsertFor(uid, rf, Patch{Bookmarked: &test}); err != nil {
+			t.Fatal(err)
+		}
+		return rf
+	}
+	public := add(alice.ID, "https://reet.example.com/alice/demo", "reet.example.com")
+	local := add(alice.ID, "http://localhost:8080/alice/demo", "localhost:8080")
+	add(alice.ID, "https://reet.example.com/alice/demo-two", "reet.example.com")
+	add(malice.ID, "https://reet.example.com/malice/demo", "reet.example.com")
+	hidden := func() map[string]bool {
+		t.Helper()
+		rows, err := s.db.Query(`SELECT id FROM skills WHERE hidden=1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		out := map[string]bool{}
+		for rows.Next() {
+			var id string
+			rows.Scan(&id)
+			out[id] = true
+		}
+		return out
+	}
+	refs, err := s.HostedSkillRefs(alice.ID, "demo")
+	if err != nil || len(refs) != 2 {
+		t.Fatalf("refs: %+v %v", refs, err)
+	}
+	if err := s.HideHostedSkill(alice.ID, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := hidden(); len(got) != 2 || !got[public.ID] || !got[local.ID] {
+		t.Fatalf("hidden after hide: %v", got)
+	}
+	if err := s.SetHostedSkillVisible(public.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetHostedSkillVisible(local.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	// The id is of an address the skill was never published from.
+	if err := s.DeleteHostedSkill(alice.ID, "demo", "hosted/127.0.0.1/alice/demo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := hidden(); len(got) != 2 || !got[public.ID] || !got[local.ID] {
+		t.Fatalf("hidden after delete: %v", got)
+	}
+}

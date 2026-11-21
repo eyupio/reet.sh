@@ -1,21 +1,10 @@
 package terminalproto
 
-import "strings"
-
 // ACPUsageFeature lets a machine report what a chat's agent says it used: the
 // tokens of a finished turn and how full its context window is. A machine
 // sends it only to a controller that advertises the feature, because an older
 // controller refuses an event kind it does not know.
 const ACPUsageFeature = "acp-usage-v1"
-
-func SupportsACPUsage(features string) bool {
-	for _, f := range strings.Split(features, ",") {
-		if strings.TrimSpace(f) == ACPUsageFeature {
-			return true
-		}
-	}
-	return false
-}
 
 // ACPUsage is the agent's own report, passed on as numbers only. The token
 // counts are for one finished turn and are added up by the controller; the

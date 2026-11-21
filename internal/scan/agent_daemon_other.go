@@ -28,6 +28,7 @@ func serveAgentControl(string, *agentRuntime, context.CancelFunc) (func(), error
 	return func() {}, nil
 }
 func notifyAgentReady() error { return nil }
+func trimOwnAgentLog(string, string) {}
 func installAgentServices(terminalhost.ServicePlan, io.Writer) error {
 	return errors.New("native service installation requires Linux or macOS")
 }

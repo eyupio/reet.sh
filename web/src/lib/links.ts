@@ -11,4 +11,3 @@ export const DOCS_URL = `https://reet.sh/documentation/`
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
 /** Which agents reet can read a plan for, and how. */
 export const AGENT_ACCOUNTS_DOC_URL = `${REPO_URL}/blob/main/docs/agent-accounts.md`
-export const ROADMAP_URL = `${REPO_URL}/blob/main/docs/roadmap.md`

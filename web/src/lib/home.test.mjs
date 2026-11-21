@@ -6,7 +6,8 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compileTs = text => ts.transpileModule(text, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const attention = `data:text/javascript;base64,${Buffer.from(compileTs(readFileSync(new URL('./attention.ts', import.meta.url), 'utf8'))).toString('base64')}`
-const compiled = compileTs(source).replace("from './attention'", `from '${attention}'`)
+const time = `data:text/javascript;base64,${Buffer.from(compileTs(readFileSync(new URL('./time.ts', import.meta.url), 'utf8'))).toString('base64')}`
+const compiled = compileTs(source).replace("from './attention'", `from '${attention}'`).replace("from './time'", `from '${time}'`)
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
 

@@ -43,13 +43,59 @@ func (s *Store) migrateMCPOAuth() error {
 	return err
 }
 
+// ErrMCPClientLimit means no more OAuth clients can be registered for now.
+var ErrMCPClientLimit = errors.New("too many registered MCP clients")
+
+// Registration needs no sign-in, so clients nobody finished connecting are
+// dropped after mcpClientUnusedAge, and the table never grows past
+// mcpClientLimit. At the limit, unused clients older than mcpClientFullAge go
+// too, so a burst of junk registrations does not shut the door for a month.
+const (
+	mcpClientLimit     = 2000
+	mcpClientUnusedAge = 30 * 24 * time.Hour
+	mcpClientFullAge   = time.Hour
+)
+
+// pruneMCPClients drops clients older than age that hold no authorization
+// code and no refresh token, which is every client without a connection.
+func pruneMCPClients(tx *sql.Tx, age time.Duration) error {
+	_, err := tx.Exec(`DELETE FROM mcp_oauth_clients WHERE created_at<?
+		AND id NOT IN (SELECT client_id FROM mcp_oauth_codes)
+		AND id NOT IN (SELECT client_id FROM mcp_oauth_refresh)`, now()-age.Milliseconds())
+	return err
+}
+
 func (s *Store) SaveMCPClient(c MCPClient) error {
 	b, err := json.Marshal(c.RedirectURIs)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO mcp_oauth_clients(id,name,redirect_uris,created_at) VALUES(?,?,?,?)`, c.ID, c.Name, string(b), now())
-	return err
+	return s.withTx(func(tx *sql.Tx) error {
+		if err := pruneMCPClients(tx, mcpClientUnusedAge); err != nil {
+			return err
+		}
+		count := func() (n int, err error) {
+			err = tx.QueryRow(`SELECT COUNT(*) FROM mcp_oauth_clients`).Scan(&n)
+			return
+		}
+		n, err := count()
+		if err != nil {
+			return err
+		}
+		if n >= mcpClientLimit {
+			if err := pruneMCPClients(tx, mcpClientFullAge); err != nil {
+				return err
+			}
+			if n, err = count(); err != nil {
+				return err
+			}
+			if n >= mcpClientLimit {
+				return ErrMCPClientLimit
+			}
+		}
+		_, err = tx.Exec(`INSERT INTO mcp_oauth_clients(id,name,redirect_uris,created_at) VALUES(?,?,?,?)`, c.ID, c.Name, string(b), now())
+		return err
+	})
 }
 
 func (s *Store) MCPClient(id string) (MCPClient, error) {

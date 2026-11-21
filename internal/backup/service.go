@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/objectstore"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -196,6 +197,7 @@ func (s *Service) loadRemotes(ownerID int64) ([]runtimeRemote, error) {
 		rm := runtimeRemote{BackupRemote: r, Source: "database", S3: S3{
 			Endpoint: r.Endpoint, Region: r.Region, Bucket: r.Bucket, Prefix: r.Prefix,
 			AccessKey: r.AccessKey, PathStyle: pathStylePtr(r.PathStyle),
+			PublicOnly: s.publicOnly(ownerID),
 		}}
 		if r.SecretSealed != "" {
 			if s.cfg.Sealer == nil {
@@ -211,6 +213,13 @@ func (s *Service) loadRemotes(ownerID int64) ([]runtimeRemote, error) {
 		out = append(out, rm)
 	}
 	return out, nil
+}
+
+// publicOnly says whether an owner's destinations are held to the public
+// internet. The instance's own may be on this machine or its network; a
+// member's may not, unless the operator allows local destinations.
+func (s *Service) publicOnly(ownerID int64) bool {
+	return ownerID != 0 && !s.cfg.AllowLocal
 }
 
 func pathStyleValue(p *bool) int {
@@ -803,6 +812,13 @@ func (s *Service) enabledRemotes(ownerID int64) ([]runtimeRemote, error) {
 	return out, nil
 }
 
+// uploadTimeout is how long one destination gets to take one copy: five
+// minutes, and eight seconds a MiB on top, which a 1 Mbit/s line manages. It
+// is a variable so a test can shorten it.
+var uploadTimeout = func(size int) time.Duration {
+	return 5*time.Minute + time.Duration(size>>20)*8*time.Second
+}
+
 // ship copies one archive to every enabled destination. It returns the
 // per-destination outcome as JSON and an error only when nothing arrived and
 // something was meant to.
@@ -846,7 +862,11 @@ func (s *Service) ship(ctx context.Context, ownerID int64, id string, data []byt
 			continue
 		}
 		key := ObjectKey(r.S3.Prefix, om.Target, om.CopyID, om.Compression)
-		putErr := cl.PutObjectRetry(ctx, key, object)
+		// One destination that stops answering must not hold every later
+		// backup behind it.
+		putCtx, cancel := context.WithTimeout(ctx, uploadTimeout(len(object)))
+		putErr := cl.PutObjectRetry(putCtx, key, object)
+		cancel()
 		at := time.Now().UnixMilli()
 		msg := ""
 		if putErr != nil {
@@ -1468,6 +1488,14 @@ func (s *Service) mergeRemote(in RemoteInput, r store.BackupRemote, creating, ch
 	if !valid {
 		return r, fmt.Errorf("the endpoint %q is not the service's URL; write one like https://s3.eu-west-2.amazonaws.com or http://minio:9000", r.Endpoint)
 	}
+	if s.publicOnly(r.OwnerID) {
+		// A name is checked again, by its address, each time it is dialled.
+		ip := net.ParseIP(u.Hostname())
+		inward := strings.EqualFold(u.Hostname(), "localhost") || (ip != nil && !objectstore.PublicAddress(ip))
+		if inward {
+			return r, objectstore.ErrAddress
+		}
+	}
 	insecure := u.Scheme != "https" && !s.cfg.AllowLocal
 	if insecure && !onThisMachine(u.Hostname()) {
 		return r, errors.New("use https:// for a destination on another machine; an http:// endpoint sends the access key id in the clear")
@@ -1524,6 +1552,7 @@ func (s *Service) TestRemoteDraft(ctx context.Context, ownerID int64, in RemoteI
 	return Test(ctx, S3{
 		Endpoint: merged.Endpoint, Region: merged.Region, Bucket: merged.Bucket, Prefix: merged.Prefix,
 		AccessKey: merged.AccessKey, SecretKey: secret, PathStyle: pathStylePtr(merged.PathStyle),
+		PublicOnly: s.publicOnly(ownerID),
 	})
 }
 
@@ -1602,14 +1631,10 @@ func (s *Service) UpdateRemote(ownerID int64, name string, in RemoteInput) (Remo
 		r.Name = before.Name
 	}
 	if in.Name != nil && strings.ToLower(strings.TrimSpace(*in.Name)) != before.Name {
-		// Renaming is a new name for the same row, and the unique index must
-		// not see both at once.
-		if err := s.st.DeleteBackupRemote(ownerID, before.Name); err != nil {
-			return RemoteView{}, err
-		}
+		// Renaming is a new row under the new name, swapped for the old one
+		// in one transaction.
 		r.Name = strings.ToLower(strings.TrimSpace(*in.Name))
-		if _, err := s.st.CreateBackupRemote(r); err != nil {
-			_, _ = s.st.CreateBackupRemote(before)
+		if _, err := s.st.RenameBackupRemote(before.Name, r); err != nil {
 			return RemoteView{}, err
 		}
 	} else if err := s.st.UpdateBackupRemote(r); err != nil {
@@ -1753,6 +1778,9 @@ func (s *Service) RunNow(ctx context.Context, ownerID int64, trigger string) (It
 	return s.RunUser(ctx, ownerID, trigger)
 }
 
+// fileWrite is a variable so a test can make a write fail part way.
+var fileWrite = (*os.File).Write
+
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -1764,7 +1792,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	name := f.Name()
 	defer os.Remove(name)
-	if _, err := f.Write(data); err == nil {
+	if _, err = fileWrite(f, data); err == nil {
 		err = f.Chmod(mode)
 	}
 	if err == nil {

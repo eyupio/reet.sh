@@ -3,6 +3,7 @@ package skillfetch
 import (
 	"path"
 	"strings"
+	"unicode"
 )
 
 type held struct {
@@ -15,10 +16,28 @@ func normalize(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(s)), "-"))
 }
 
+// squash keeps only the letters and digits of s, in lower case. A catalogue
+// slug drops punctuation that a written name keeps: "UI/UX Design Review" is
+// uiux-design-review.
+func squash(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, s)
+}
+
+// sameSquashed reports whether a and b have the same letters and digits, and
+// have some.
+func sameSquashed(a, b string) bool {
+	a = squash(a)
+	return a != "" && a == squash(b)
+}
+
 // SameName reports whether two skill names are the same name loosely, as a
-// fetch matches a folder to a skill: case, spaces, hyphens and underscores
-// aside.
-func SameName(a, b string) bool { return normalize(a) == normalize(b) }
+// fetch matches a folder to a skill: case, spaces and punctuation aside.
+func SameName(a, b string) bool { return normalize(a) == normalize(b) || sameSquashed(a, b) }
 
 func frontMatterName(data []byte) string {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
@@ -36,33 +55,32 @@ func frontMatterName(data []byte) string {
 	return ""
 }
 
-// matchesSlug reports whether the folder dir is plausibly the skill slug, by
-// the rules that need only its name; the early stop for an oversized skill uses it.
-func matchesSlug(dir, slug string) bool {
-	return dir == "skills/"+slug || normalize(path.Base(dir)) == normalize(slug)
-}
-
 // pickFolder chooses which of the folders holding a SKILL.md is the skill slug.
 // A folder matches by, in order of preference: skills/<slug>; its name being
-// exactly the slug; the name in its SKILL.md front matter; its name loosely.
+// exactly the slug; the name in its SKILL.md front matter; its name loosely;
+// the front-matter name with its punctuation dropped.
 // Among folders of the same preference the shallowest wins, then the first by
 // name. all holds the retained files by path, for the front matter.
 func pickFolder(skillDirs map[string]bool, all map[string]held, slug string) (string, bool) {
 	norm := normalize(slug)
-	best, bestRank := "", 4
+	const none = 5
+	best, bestRank := "", none
 	for dir := range skillDirs {
-		rank := 4
+		rank := none
+		name := frontMatterName(all[join(dir, "SKILL.md")].data)
 		switch {
 		case dir == "skills/"+slug:
 			rank = 0
 		case dir != "" && path.Base(dir) == slug:
 			rank = 1
-		case normalize(frontMatterName(all[join(dir, "SKILL.md")].data)) == norm:
+		case normalize(name) == norm:
 			rank = 2
 		case dir != "" && normalize(path.Base(dir)) == norm:
 			rank = 3
+		case sameSquashed(name, slug):
+			rank = 4
 		}
-		if rank == 4 {
+		if rank == none {
 			continue
 		}
 		shallower := strings.Count(dir, "/") < strings.Count(best, "/")
@@ -70,7 +88,7 @@ func pickFolder(skillDirs map[string]bool, all map[string]held, slug string) (st
 			best, bestRank = dir, rank
 		}
 	}
-	return best, bestRank != 4
+	return best, bestRank != none
 }
 
 func parent(d string) string {

@@ -41,6 +41,8 @@ func testService(t *testing.T, remote *fakeS3) (*Service, *store.Store, store.Us
 	cfg := Config{
 		Dir: t.TempDir(), Key: testKey, KeySource: "test", Sealer: sealer, Usable: true,
 		UserKeep: 5, Keep: 5, Version: "test",
+		// The fake destinations are on this machine, members' included.
+		AllowLocal: true,
 	}
 	if remote != nil {
 		cfg.S3 = S3{Endpoint: remote.server.URL, Bucket: "bucket", Prefix: "pre/", AccessKey: "key", SecretKey: "secret"}

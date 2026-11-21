@@ -63,14 +63,26 @@ func (f *moveFollower) say(out io.Writer, line string) {
 	fmt.Fprintln(out, line)
 }
 
+// errorRepeat is how often the same cycle error is printed again. An agent
+// whose controller is unreachable fails every five seconds, which fills the
+// log with one sentence.
+const errorRepeat = 5 * time.Minute
+
 // movedEcho keeps a waiting agent's log readable. An agent whose controller has
 // moved is refused every five seconds until the new one answers, which can be
 // an hour of the same sentence; it is worth saying once, and again only when
-// it changes or after the agent has got through in between.
-type movedEcho struct{ last string }
+// it changes or after the agent has got through in between. Any other error is
+// said when it changes, and repeated once every errorRepeat while it lasts.
+type movedEcho struct {
+	last string
+	// failed and failedAt are the last other error said and when.
+	failed   string
+	failedAt time.Time
+	// now is the clock; tests replace it.
+	now func() time.Time
+}
 
-// worthSaying reports whether a cycle's error should be printed. Anything that
-// is not a moved controller's refusal always is.
+// worthSaying reports whether a cycle's error should be printed.
 func (e *movedEcho) worthSaying(err error) bool {
 	if err == nil {
 		e.last = ""
@@ -79,6 +91,15 @@ func (e *movedEcho) worthSaying(err error) bool {
 	to, moved := movedTo(err)
 	if !moved {
 		e.last = ""
+		at := time.Now()
+		if e.now != nil {
+			at = e.now()
+		}
+		key := errorKey(err)
+		if key == e.failed && at.Sub(e.failedAt) < errorRepeat {
+			return false
+		}
+		e.failed, e.failedAt = key, at
 		return true
 	}
 	// The address is part of what is said: an owner who lifts the fence and
@@ -89,6 +110,17 @@ func (e *movedEcho) worthSaying(err error) bool {
 	}
 	e.last = now
 	return true
+}
+
+// errorKey is an error's text without its digits, so a failure that differs
+// only by the local port of each attempt counts as the same one.
+func errorKey(err error) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return -1
+		}
+		return r
+	}, err.Error())
 }
 
 // movedTo is the address a refusal names, when the refusal is a fenced

@@ -43,6 +43,12 @@ func (p *Provider) claimsFrom(v *verified) (Claims, error) {
 			c.EmailVerified = strings.EqualFold(s, "true")
 		}
 	}
+	// email_verified speaks for the standard email claim only. An address
+	// read from another claim counts as verified only when it is that same
+	// address; a claim a person may fill in themselves proves nothing.
+	if b.EmailClaimName() != "email" && c.Email != strings.TrimSpace(v.str("email")) {
+		c.EmailVerified = false
+	}
 	for _, name := range []string{b.NameClaimName(), "name", "preferred_username"} {
 		if n := strings.TrimSpace(v.str(name)); n != "" {
 			c.Name = n

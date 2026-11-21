@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -119,12 +120,10 @@ func mcpRedirectMatches(registered, requested string) bool {
 
 func (s *server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	key := "oauth-register:" + ip
-	if !s.oauthLimiter.Allow(key) {
+	if !s.oauthLimiter.Take("oauth-register:" + ip) {
 		oauthError(w, 429, "temporarily_unavailable", "try registration again later")
 		return
 	}
-	s.oauthLimiter.Hit(key)
 	var in struct {
 		Name          string   `json:"client_name"`
 		Redirects     []string `json:"redirect_uris"`
@@ -173,7 +172,12 @@ func (s *server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := store.MCPClient{ID: "reet_client_" + id, Name: in.Name, RedirectURIs: in.Redirects}
-	if err := s.st.SaveMCPClient(c); err != nil {
+	err = s.st.SaveMCPClient(c)
+	if errors.Is(err, store.ErrMCPClientLimit) {
+		oauthError(w, 503, "temporarily_unavailable", "too many clients are registered on this server; try again in an hour")
+		return
+	}
+	if err != nil {
 		oauthError(w, 500, "server_error", "registration failed")
 		return
 	}

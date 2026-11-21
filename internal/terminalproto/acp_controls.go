@@ -48,15 +48,6 @@ const (
 	MaxACPControlsBytes = 56 << 10
 )
 
-func SupportsACPModelCatalogue(features string) bool {
-	for _, f := range strings.Split(features, ",") {
-		if strings.TrimSpace(f) == ACPModelCatalogueFeature {
-			return true
-		}
-	}
-	return false
-}
-
 func SupportsACPProvider(features string) bool {
 	for _, f := range strings.Split(features, ",") {
 		if strings.TrimSpace(f) == ACPProviderFeature {

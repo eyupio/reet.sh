@@ -100,9 +100,22 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	if refusal != "" {
 		return "", "", errors.New(refusal)
 	}
-	row, _, err := f.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, f.gen, terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30})
+	create := terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30}
+	// The first launch of a project gets a worktree where a machine makes one:
+	// under the home folder, by project, repository and run. Later stages are sent there.
+	work := in.Dir
+	if in.ProjectID != "" {
+		create.ProjectID, create.Project, create.Worktree = in.ProjectID, "billing", in.RequestID[:32]
+		work = "/home/dev/.reet/worktrees/" + create.Project + "/billing/" + create.Worktree
+	}
+	row, _, err := f.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, f.gen, create)
 	if err != nil {
 		return "", "", err
+	}
+	if create.Worktree != "" {
+		if err = f.st.RecordTerminalWorktreeFor(uid, in.AgentID, row.ID, work, "billing"); err != nil {
+			return "", "", err
+		}
 	}
 	if row.State != terminalproto.Running {
 		if err = f.st.ObserveTerminalStateFor(uid, in.AgentID, row.ID, f.gen, terminalproto.Running, nil); err != nil {
@@ -120,11 +133,6 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	if slow {
 		<-ctx.Done()
 		return "", "", ctx.Err()
-	}
-	// The first launch of a project gets a worktree; later stages are sent there.
-	work := in.Dir
-	if in.ProjectID != "" {
-		work = in.Dir + "/.reet/worktrees/" + in.RequestID[:8]
 	}
 	return row.ID, work, nil
 }
@@ -1027,7 +1035,10 @@ func TestALaterStageSessionIsListedUnderItsProject(t *testing.T) {
 	if asked := r.starter.asked(); asked[1].LinkProjectID != r.project.ID || asked[1].ProjectID != "" {
 		t.Fatalf("later stage launch: %+v", asked[1])
 	}
-	// The link holds only for a session working in the project's folder or one of its worktrees.
+	// The link holds only for a session working in the project's folder or in a worktree one of its sessions was given.
+	if !strings.HasPrefix(review.WorkDir, "/home/dev/.reet/worktrees/billing/billing/") {
+		t.Fatalf("work dir: %q", review.WorkDir)
+	}
 	if err := r.st.LinkTerminalSessionProjectFor(r.p.UserID, review.SessionID, r.project.ID); err != nil {
 		t.Fatal(err)
 	}

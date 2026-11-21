@@ -11,19 +11,19 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-isatty"
+	"golang.org/x/term"
 )
 
 const Tagline = "Get your toolkit reet."
 
 func Terminal(out io.Writer) bool {
 	f, ok := out.(*os.File)
-	return ok && isatty.IsTerminal(f.Fd())
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 func Interactive(in io.Reader, out io.Writer) bool {
 	f, ok := in.(*os.File)
-	return ok && isatty.IsTerminal(f.Fd()) && Terminal(out) && os.Getenv("TERM") != "dumb" && os.Getenv("CI") == ""
+	return ok && term.IsTerminal(int(f.Fd())) && Terminal(out) && os.Getenv("TERM") != "dumb" && os.Getenv("CI") == ""
 }
 
 func Colour() bool {

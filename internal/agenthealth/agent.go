@@ -734,10 +734,6 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 	return m, true
 }
 
-func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
-	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, "", controlReadTimeout, nil)
-}
-
 // readControlWithTerminal answers probes on the reader itself and hands every
 // other message to one dispatcher goroutine, in arrival order, over a bounded
 // queue. A slow terminal request (a worktree's git, for example) therefore

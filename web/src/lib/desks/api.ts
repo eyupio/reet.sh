@@ -58,10 +58,6 @@ export async function deleteDesk(id: string, input: { expect: number; endSession
   return (await deskRequest(`${base}/${encodeURIComponent(id)}`, json('DELETE', input))).json()
 }
 
-export async function reorderDesks(ids: string[]): Promise<void> {
-  await deskRequest(`${base}/reorder`, json('POST', { ids }))
-}
-
 /** Starts a fresh shell in a pane that has none (a press, never on open). */
 export async function reopenPane(id: string, pane: string, input: { expect: number; home?: boolean }): Promise<{ desk: Desk; session: TerminalSession }> {
   return (await deskRequest(`${base}/${encodeURIComponent(id)}/panes/${encodeURIComponent(pane)}/reopen`, json('POST', input))).json()

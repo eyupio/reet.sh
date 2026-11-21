@@ -323,6 +323,34 @@ func TestClaimsAreMappedWithTheirFallbacks(t *testing.T) {
 	}
 }
 
+// email_verified vouches for the standard email claim. An address from a
+// custom claim is verified only when it is that same address.
+func TestACustomEmailClaimIsVerifiedOnlyWhenItMatchesTheStandardEmail(t *testing.T) {
+	f := newFakeIDP(t)
+	p, now := f.provider(func(c *Config) { c.EmailClaim = "contact" })
+	for name, tc := range map[string]struct {
+		mutate   func(map[string]any)
+		email    string
+		verified bool
+	}{
+		"another address":      {func(c map[string]any) { c["contact"] = "victim@example.com" }, "victim@example.com", false},
+		"no standard email":    {func(c map[string]any) { c["contact"] = "victim@example.com"; delete(c, "email") }, "victim@example.com", false},
+		"the same address":     {func(c map[string]any) { c["contact"] = "ada@example.com" }, "ada@example.com", true},
+		"same, not verified":   {func(c map[string]any) { c["contact"] = "ada@example.com"; c["email_verified"] = false }, "ada@example.com", false},
+		"different in case":    {func(c map[string]any) { c["contact"] = "Ada@example.com" }, "Ada@example.com", false},
+		"custom claim missing": {func(c map[string]any) {}, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims := f.idClaims(*now, "nonce-1")
+			tc.mutate(claims)
+			c, err := exchange(t, f, p, claims, "RS256", f.kid)
+			if err != nil || c.Email != tc.email || c.EmailVerified != tc.verified {
+				t.Fatalf("claims = %+v, %v", c, err)
+			}
+		})
+	}
+}
+
 func TestGroupsMapToTheHighestRoleAndTheOwnerIsNeverGiven(t *testing.T) {
 	f := newFakeIDP(t)
 	p, _ := f.provider(func(c *Config) {

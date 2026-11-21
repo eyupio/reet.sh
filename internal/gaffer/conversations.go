@@ -71,6 +71,9 @@ type chatJob struct {
 	context        *ContextSnapshot
 	workerRevision int64
 	grantRevision  int64
+	// replayedSessionText marks a turn whose history repeats an earlier tool
+	// result that carried a working agent's words.
+	replayedSessionText bool
 }
 
 func newChatID() (string, error) {
@@ -623,6 +626,9 @@ func (s *Service) answer(ctx context.Context, job *chatJob, c store.GafferConver
 			break
 		}
 		bytes += n
+		for _, tool := range old.Tools {
+			job.replayedSessionText = job.replayedSessionText || sessionText && tool.SessionText && tool.State == "ran"
+		}
 		messages = append([]elicore.Message{{Role: elicore.RoleUser, Content: old.Prompt}, {Role: elicore.RoleAssistant, Content: said}}, messages...)
 	}
 	system := gafferSystem

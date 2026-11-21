@@ -51,6 +51,13 @@ func (r *outcomeRig) endSession(t *testing.T, session string, removeHistory bool
 	if err := r.st.ObserveTerminalStateFor(uid, r.starter.agent, session, 1, terminalproto.Ended, nil); err != nil {
 		t.Fatal(err)
 	}
+	// A removed session that worked in a worktree leaves history once the
+	// worktree is gone, which the controller sees to: done here directly.
+	if row, err := r.st.TerminalSessionFor(uid, session); err == nil && removeHistory && row.WorktreePath != "" {
+		if err := r.st.ArchiveTerminalFor(uid, session); err != nil {
+			t.Fatal(err)
+		}
+	}
 	archived, err := r.st.TerminalArchivedFor(uid, session)
 	if err != nil || archived != removeHistory {
 		t.Fatalf("archived=%v want %v: %v", archived, removeHistory, err)

@@ -357,6 +357,118 @@ func TestFetchEarlyStopIgnoresUnrelatedSlugFolders(t *testing.T) {
 			t.Fatalf("%s: %+v %v", name, res, err)
 		}
 	}
+	// A big folder of the same name with its own SKILL.md is still not the
+	// folder that is picked, so it must not end the fetch.
+	examples := []entry{{name: "r-abc/examples/pdf/SKILL.md", body: "x"}}
+	for i := 0; i < 300; i++ {
+		examples = append(examples, entry{name: "r-abc/examples/pdf/f" + strings.Repeat("y", i/26) + string(rune('a'+i%26)) + ".js", body: "x"})
+	}
+	for name, entries := range map[string][]entry{"examples first": append(append([]entry{}, examples...), skill...), "skill first": append(append([]entry{}, skill...), examples...)} {
+		f := githubServer(t, buildTar(t, entries))
+		res, err := f.Fetch(context.Background(), ghRef("pdf"))
+		if err != nil || len(res.Files) != 1 || res.Origin != "https://github.com/o/r/tree/HEAD/skills/pdf" {
+			t.Fatalf("%s: %+v %v", name, res, err)
+		}
+	}
+}
+
+// A name with punctuation is written differently in three places: the front
+// matter says "UI/UX Design Review", the catalogue slug is uiux-design-review
+// and the folder is something else again.
+func TestFetchMatchesFrontMatterNameWithPunctuation(t *testing.T) {
+	f := githubServer(t, buildTar(t, []entry{
+		{name: "r-abc/ui-design-review/SKILL.md", body: "---\nname: UI/UX Design Review\n---\nx"},
+		{name: "r-abc/other/SKILL.md", body: "---\nname: other\n---\nx"},
+	}))
+	res, err := f.Fetch(context.Background(), ghRef("uiux-design-review"))
+	if err != nil || res.Origin != "https://github.com/o/r/tree/HEAD/ui-design-review" {
+		t.Fatalf("res = %+v err = %v", res, err)
+	}
+	// Every exact match still wins over a name that matches only without its
+	// punctuation.
+	for _, exact := range []string{"skills/uiux-design-review", "z/uiux-design-review", "z/exact", "z/UIUX_Design_Review"} {
+		name := "other"
+		if exact == "z/exact" {
+			name = "Uiux Design Review"
+		}
+		f = githubServer(t, buildTar(t, []entry{
+			{name: "r-abc/a/SKILL.md", body: "---\nname: UI/UX Design Review\n---\nx"},
+			{name: "r-abc/" + exact + "/SKILL.md", body: "---\nname: " + name + "\n---\nx"},
+		}))
+		res, err = f.Fetch(context.Background(), ghRef("uiux-design-review"))
+		if err != nil || res.Origin != "https://github.com/o/r/tree/HEAD/"+exact {
+			t.Errorf("%s: origin = %s err = %v", exact, res.Origin, err)
+		}
+	}
+	// A skill with no front-matter name never matches a slug of punctuation only.
+	f = githubServer(t, buildTar(t, []entry{{name: "r-abc/a/SKILL.md", body: "x"}}))
+	if _, err = f.Fetch(context.Background(), ghRef("+")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("punctuation slug: err = %v", err)
+	}
+}
+
+func TestSameName(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"SVG Logo Designer", "svg-logo-designer", true},
+		{"my_skill", "My Skill", true},
+		{"UI/UX Design Review", "uiux-design-review", true},
+		{"UI/UX Design Review", "ui-ux-design-review", true},
+		{"pdf", "pdf2", false},
+		{"UI Design Review", "uiux-design-review", false},
+		{"+", "/", false},
+		{"", "", true},
+	} {
+		if got := SameName(tc.a, tc.b); got != tc.want {
+			t.Errorf("SameName(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// One download serves every skill asked of one repository, each with its own
+// result.
+func TestFetchManyDownloadsARepositoryOnce(t *testing.T) {
+	var big []entry
+	for i := 0; i < 300; i++ {
+		big = append(big, entry{name: "r-abc/skills/big/f" + strings.Repeat("y", i/26) + string(rune('a'+i%26)) + ".js", body: "x"})
+	}
+	archive := buildTar(t, append([]entry{
+		{name: "r-abc/skills/big/SKILL.md", body: "x"},
+		{name: "r-abc/skills/pdf/SKILL.md", body: "---\nname: pdf\n---\n"},
+		{name: "r-abc/skills/pdf/a.txt", body: "a"},
+		{name: "r-abc/skills/docx/SKILL.md", body: "---\nname: docx\n---\n"},
+	}, big...))
+	var downloads atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloads.Add(1)
+		w.Write(archive)
+	}))
+	defer srv.Close()
+	f := Fetcher{Client: srv.Client(), GitHub: srv.URL}
+	out := f.FetchMany(context.Background(), []ref.Ref{ghRef("big"), ghRef("pdf"), ghRef("gone"), ghRef("docx")})
+	if len(out) != 4 {
+		t.Fatalf("outcomes = %d", len(out))
+	}
+	if !errors.Is(out[0].Err, ErrTooLarge) || !errors.Is(out[2].Err, ErrNotFound) {
+		t.Fatalf("big: %v, gone: %v", out[0].Err, out[2].Err)
+	}
+	if out[1].Err != nil || strings.Join(paths(out[1].Files), ",") != "SKILL.md,a.txt" || out[1].Origin != "https://github.com/o/r/tree/HEAD/skills/pdf" {
+		t.Fatalf("pdf: %+v", out[1])
+	}
+	if out[3].Err != nil || len(out[3].Files) != 1 || out[3].Manifest.Digest == "" {
+		t.Fatalf("docx: %+v", out[3])
+	}
+	if n := downloads.Load(); n != 1 {
+		t.Fatalf("downloads = %d, want 1", n)
+	}
+	// Skills of another source are fetched on their own.
+	other := ref.Ref{ID: "o/other/pdf", Source: "o/other", Slug: "pdf", SourceType: "github"}
+	out = f.FetchMany(context.Background(), []ref.Ref{ghRef("pdf"), other, ghRef("docx")})
+	if out[0].Err != nil || out[1].Err != nil || out[2].Err != nil || downloads.Load() != 3 {
+		t.Fatalf("mixed sources: %v %v %v downloads = %d", out[0].Err, out[1].Err, out[2].Err, downloads.Load())
+	}
 }
 
 func TestDefaultClientRefusesLoopback(t *testing.T) {

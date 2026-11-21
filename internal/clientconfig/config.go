@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mattn/go-isatty"
+	"golang.org/x/term"
 )
 
 const maxBytes = 16 << 10
@@ -30,7 +30,7 @@ func Interactive(in io.Reader) bool {
 		return false
 	}
 	f, ok := in.(*os.File)
-	return ok && isatty.IsTerminal(f.Fd())
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 func Validate(key, value string) error {
 	if len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {

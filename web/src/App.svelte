@@ -263,6 +263,8 @@
 
   function fail(e: unknown) {
     if (e instanceof UnauthorizedError) {
+      // The session is gone, so only the browser's side can be turned off here.
+      void disablePushOnSignOut()
       clearToken()
       token = ''
       if (authMode === 'accounts') currentUser = null
@@ -503,6 +505,8 @@
 
   async function signOut() {
     unreadNotifications = 0
+    // This device's notifications go first, while the session can still delete its record.
+    await disablePushOnSignOut()
     if (authMode === 'accounts') {
       try {
         await signOutAccount()

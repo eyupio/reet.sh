@@ -88,7 +88,6 @@ export type Tab = 'all' | 'liked' | 'bookmarked' | 'used'
 export type Sort = 'recent' | 'name' | 'installs'
 export type Flags = { liked?: boolean; bookmarked?: boolean; used?: boolean; notes?: string; status?: 'active' | 'archived' }
 export type AddResult = Skill & { created: boolean }
-export type RefreshResult = Skill & { changed: boolean; refreshed: boolean }
 
 export type User = { id: number; email: string; name: string; role: string }
 export type AuthStatus = {
@@ -410,7 +409,6 @@ export type GafferGoalOverviewView={goals:GafferGoalOverview[];readAt:number}
 export async function listGafferGoals(signal?:AbortSignal,quiet=false):Promise<GafferGoalOverviewView>{return(await req('/api/v2/gaffer/goals',{signal,cache:'no-store'},quiet)).json()}
 const goalPath=(id:string)=>`/api/v2/gaffer/conversations/${encodeURIComponent(id)}/goal`
 export async function getGafferGoal(id:string,signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{signal,cache:'no-store'})).json()}
-export async function saveGafferGoal(id:string,input:GoalPins&{revision:number;text:string;maxReviews:number;hours:number},signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{method:'PUT',body:JSON.stringify(input),signal})).json()}
 export async function controlGafferGoal(id:string,revision:number,action:string,pins:GoalPins,confirmed:boolean,signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id)+'/control',{method:'POST',body:JSON.stringify({revision,action,pins,confirmed}),signal})).json()}
 export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[]; context?:ContextState;messages?:WorkerMessage[];goal?:GafferGoal }
 export async function getContextSettings(path:string,signal?:AbortSignal):Promise<ContextSettingsResponse>{
@@ -497,9 +495,6 @@ export async function patchSkill(id: string, flags: Flags): Promise<Skill> {
 export async function removeSkill(id: string, ignore = false, noCopyConfirmed = false): Promise<void> {
   await req(`/api/skill?id=${encodeURIComponent(id)}${ignore ? '&ignore=1' : ''}${noCopyConfirmed ? '&noCopyConfirmed=1' : ''}`, { method: 'DELETE' })
 }
-export async function patchSkills(ids: string[], flags: Flags): Promise<{ updated: number }> {
-  return (await req('/api/skills', { method: 'PATCH', body: json({ ids, ...flags }) })).json()
-}
 export async function tagSkills(ids: string[], add: string[], remove: number[]): Promise<{ tagged: number }> {
   return (await req('/api/skills/tags', { method: 'POST', body: json({ ids, add, remove }) })).json()
 }
@@ -520,9 +515,6 @@ export async function removeConfirmingNoCopy(remove: (noCopyConfirmed: boolean) 
   }
   await remove(true)
   return true
-}
-export async function refreshSkill(id: string): Promise<RefreshResult> {
-  return (await req('/api/skill/refresh', { method: 'POST', body: json({ id }) })).json()
 }
 
 // The Skills page: one API keyed by library item. Likes, notes, tags and lists keep their endpoints, keyed by each
@@ -641,9 +633,6 @@ export async function getSkillContent(id: string): Promise<SkillContent> {
  *  could not follow. */
 export async function saveSkillContent(id: string, revision: string, files: SkillContentFile[]): Promise<{ revision: string; publicProblem?: string }> {
   return (await req(`/api/v2/skills/${encodeURIComponent(id)}/content`, { method: 'PUT', body: json({ revision, files }) })).json()
-}
-export async function resolveSkill(id: string, input: string): Promise<Skill> {
-  return (await req('/api/skill/resolve', { method: 'POST', body: json({ id, input }) })).json()
 }
 /** imported counts every skill named; created the ones that were not in the library before. */
 export async function importText(text: string): Promise<{ imported: number; created?: number; errors: string[] }> {
@@ -767,9 +756,6 @@ export async function listEvents(limit = 20, skill?: string, options: { before?:
   if (options.action) p.set('action', options.action)
   if (options.source) p.set('source', options.source)
   return (await req(`/api/events?${p}`)).json()
-}
-export async function recordInstallCopy(id: string): Promise<void> {
-  await req('/api/skill/install-copy', { method: 'POST', body: json({ id }) })
 }
 export type AdminStatus = {
   version: string

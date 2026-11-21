@@ -208,7 +208,7 @@ func (s *Store) AuthenticateSyncAgent(uid int64, id, secret, version string) (Sy
 // AuthenticateSyncAgentBuild updates the reported build alongside last-seen.
 // An empty commit keeps the last known commit, so an older agent cannot erase it.
 func (s *Store) AuthenticateSyncAgentBuild(uid int64, id, secret, version, commit string) (SyncAgent, error) {
-	a, err := scanAgent(s.db.QueryRow(`SELECT `+agentCols+` FROM sync_agents WHERE user_id=? AND id=? AND secret_hash=?`, uid, id, secretHash(secret)))
+	a, err := scanAgent(s.read.QueryRow(`SELECT `+agentCols+` FROM sync_agents WHERE user_id=? AND id=? AND secret_hash=?`, uid, id, secretHash(secret)))
 	if err != nil {
 		return a, errors.New("machine enrollment is missing or revoked")
 	}
@@ -217,10 +217,16 @@ func (s *Store) AuthenticateSyncAgentBuild(uid int64, id, secret, version, commi
 	if version == "" {
 		version = a.Version
 	}
+	changed := version != a.Version
 	if commit != "" {
+		changed = changed || commit != a.Commit
 		a.Commit = commit
 	}
-	_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=?,source_commit=? WHERE id=?`, now(), version, a.Commit, id)
+	// A changed build is written at once; an unchanged one only stamps
+	// last-seen now and then.
+	if s.stamps.due("agent:"+id, agentStampEvery) || changed {
+		_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=?,source_commit=? WHERE id=?`, now(), version, a.Commit, id)
+	}
 	a.Version, a.LastSeen = version, now()
 	return a, err
 }
@@ -240,14 +246,16 @@ func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, Sync
 	if !validCredentials || !validVersion {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
-	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
+	err := s.read.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
 	if err != nil {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
 	if version == "" {
 		version = a.Version
 	}
-	_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=? AND user_id=?`, now(), version, id, uid)
+	if s.stamps.due("agent:"+id, agentStampEvery) || version != a.Version {
+		_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=? AND user_id=?`, now(), version, id, uid)
+	}
 	return uid, a, err
 }
 

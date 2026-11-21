@@ -414,7 +414,9 @@ func RestoreInstance(ctx context.Context, svc *Service, dataDir, id, password st
 }
 
 // swapIn puts the database at src in place of the live one, keeping the old
-// one beside it, and returns where it went.
+// one beside it, and returns where it went. The old one's write-ahead log
+// goes with it: after an unclean stop it holds commits the database file does
+// not.
 func swapIn(dataDir, src string) (string, error) {
 	live := filepath.Join(dataDir, "reet.db")
 	var previous string
@@ -425,6 +427,10 @@ func swapIn(dataDir, src string) (string, error) {
 		}
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
+		if previous != "" && os.Rename(live+suffix, previous+suffix) == nil {
+			continue
+		}
+		// Left beside the restored database it would be read as its own.
 		_ = os.Remove(live + suffix)
 	}
 	if err := os.Rename(src, live); err != nil {

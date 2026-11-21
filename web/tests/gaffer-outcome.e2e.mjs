@@ -107,7 +107,7 @@ async function openOutcome(w,direct=false){
   await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
   return {floor:w.page.locator('[data-floor]'),outcome:w.page.getByRole('dialog',{name:'New Factory outcome',exact:true})}
 }
-const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
+const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew'&&new URL(r.url()).pathname!=='/api/v2/skill-buddy/recommendations')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
 try {
   for(const [width,theme] of [[1440,'light'],[390,'dark']]){
@@ -330,7 +330,7 @@ try {
       await page.getByRole('region',{name:'Waiting for you',exact:true}).getByRole('button',wide?{name:'Failed: Export button, renamed',exact:true}:{name:'Details and other actions for Export button, renamed',exact:true}).click()
       const notStarted=page.getByRole('region',{name:'Export button, renamed',exact:true})
       await expect(notStarted.getByRole('region',{name:'What is waiting',exact:true})).toContainText('Not started: That agent isn’t installed on that machine.')
-      await expect(notStarted.getByRole('link')).toHaveCount(0)
+      await expect(notStarted.getByRole('link',{name:'Open session',exact:true})).toHaveCount(0)
       if(!wide)await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
       await page.getByRole('button',{name:/^Other sessions/}).click()
       // A session that was started but is not followed is still offered below, to be looked after.

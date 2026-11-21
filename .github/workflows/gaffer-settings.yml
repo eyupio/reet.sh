@@ -46,6 +46,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
+          node web/tests/skill-buddy.e2e.mjs
           node web/tests/gaffer-settings.e2e.mjs
           node web/tests/gaffer-chat.e2e.mjs
           node web/tests/gaffer-tools.e2e.mjs

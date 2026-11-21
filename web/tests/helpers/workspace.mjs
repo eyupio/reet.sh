@@ -73,6 +73,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(/^\/api\/v2\/terminal\/sessions\/[^/]+\/chat\/usage$/.test(path))return json({reported:false,inputTokens:0,outputTokens:0,cachedTokens:0,contextUsed:0,contextSize:0,updatedAt:0})
   if(path==='/api/v2/session-backlog')return json({drafts:[]})
   // The Usage page's read: nothing counted yet, and no agents listed. A test that wants figures answers the route itself.
+  if(path==='/api/v2/skill-buddy/recommendations')return json({skills:[],stage:'',editable:true,scope:'fixture'})
   if(path==='/api/v2/usage'){const q=new URL(route.request().url()).searchParams;return json({from:Number(q.get('from')),to:Number(q.get('to')),since:0,agents:[],gaffer:[],sessions:[],more:false})}
   if(path==='/api/v2/gaffer/goals'&&route.request().method()==='GET')return json({goals:[],readAt:Date.now()})
   if(path==='/api/v2/gaffer/outcomes'&&route.request().method()==='GET')return json({outcomes:[]})

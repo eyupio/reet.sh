@@ -71,7 +71,7 @@ const routesFor=box=>({'/api/v2/gaffer/crew':savedCrew,'/api/v2/machines/a1/acco
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions`]:request=>{const input=request.postDataJSON();box.added.push(input);const o=outcomes[0];o.revision++;o.report.proposals=[];for(const item of input.sessions)o.sessions.push({key:'z',title:item.title,prompt:item.prompt,state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:item.stages.map(x=>st(x.kind,'claude','','pending'))});o.state='starting';return o},
  [`/api/v2/gaffer/outcomes/${'d'.repeat(32)}/sessions/b/retry`]:request=>{box.retries.push(request.postDataJSON());const piece=outcomes[1].sessions[1];Object.assign(piece,{state:'waiting',note:'Waiting its turn.'});outcomes[1].revision++;return outcomes[1]}})
 
-const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
+const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&new URL(r.url()).pathname!=='/api/v2/skill-buddy/recommendations'&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 try {
   for(const [width,theme] of [[1440,'light'],[390,'light'],[1440,'dark']]){
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}

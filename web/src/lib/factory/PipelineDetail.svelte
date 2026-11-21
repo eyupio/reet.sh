@@ -52,6 +52,7 @@
   import { checkLabel, checkTone, safeInsightURL } from '../sessionInsights'
   import { ensurePullInsight, sessionInsights } from '../sessions/insightStore'
   import GafferProse from '../GafferProse.svelte'
+  import SkillBuddy from '../SkillBuddy.svelte'
   import PlanMeters from '../PlanMeters.svelte'
   import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
@@ -237,6 +238,8 @@
   </header>
 
   <StagePipeline {nodes} at={item.at} size="labelled" waiting={item.section === 'waiting'} {selected} onselect={index => (chosen = { id: item.id, index })} label={`Choose a stage of ${piece.title}`}/>
+
+  {#if node && selected >= 0}<SkillBuddy context={{outcomeId: record.id, pipeline: piece.key, stage: selected}} disabled={archived} sessionHref={piece.stages?.[selected]?.sessionId ? helpers.sessionHref(record, piece.stages[selected].sessionId!) : ''}/>{/if}
 
   {#if item.section !== 'waiting' && item.why}<p class="note">{item.why}</p>{/if}
 

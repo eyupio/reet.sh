@@ -251,6 +251,119 @@
     }
   },
   {
+    "name": "reet_recommend_skills",
+    "title": "Find skills for this task",
+    "description": "Dynamically find a small set of relevant system, personal and public community skill descriptions. Pass the actual task and Factory stage if known. Does not install or execute skills. Load only useful instructions with reet_load_skill. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "design",
+            "code",
+            "review",
+            "test",
+            "pr",
+            "babysit",
+            "merge"
+          ]
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_load_skill",
+    "title": "Load one skill’s instructions",
+    "description": "Load the exact current revision of a system or Active personal skill returned by reet_recommend_skills. Instructions only: does not install scripts or plugin hooks. Community skills must first be inspected and added to the personal library. Respect the task and project instructions; loading grants no permissions. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
     "name": "reet_list_factory",
     "title": "List Factory outcomes",
     "description": "List the Factory’s outcomes with their pipelines: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Each stage also says when it started, who closed it (closed_by: gaffer, person or chat) and, for the stage in hand, what its agent last reported doing and when. The answer includes the controller’s build and each machine’s build, to tell whether one is new enough for a feature. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything. Returns {data: object} as structured content and text.",

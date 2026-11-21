@@ -65,6 +65,7 @@
     Skills: () => loadPage(() => import('./lib/skills/SkillsPage.svelte')),
     SetupProfiles: () => loadPage(() => import('./lib/SetupProfiles.svelte')),
     Prompts: () => loadPage(() => import('./lib/Prompts.svelte')),
+    SkillInsights: () => loadPage(() => import('./lib/SkillInsights.svelte')),
     Usage: () => loadPage(() => import('./lib/UsagePage.svelte')),
     SignIn: () => loadPage(() => import('./lib/SignIn.svelte')),
     SignUp: () => loadPage(() => import('./lib/SignUp.svelte')),
@@ -144,6 +145,7 @@
   const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
   const isPrompts = location.pathname === '/prompts' || location.pathname === '/prompts/'
   // Usage: each agent's plan left and the tokens its sessions reported, for the accounts that have Sessions.
+  const isSkillInsights = location.pathname === '/skill-insights' || location.pathname === '/skill-insights/'
   const isUsage = location.pathname === '/usage' || location.pathname === '/usage/'
   // Without Sessions access (a viewer, a token or an open instance) /sessions shows Machines, as /terminals did.
   const isMachines = isSync || isTerminals || isSessions || location.pathname === '/machines' || ['/account/machines', '/account/sync'].includes(location.pathname)
@@ -213,7 +215,7 @@
     { href: '/profiles', label: 'Setups', group: 'Skills & tools', current: isProfiles },
     { href: '/shared', label: 'Lists', group: 'Skills & tools', current: isShared || isList },
     ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & tools', current: isHosting }] : []),
-    ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }] : []),
+    ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }, { href: '/skill-insights', label: 'Skill insights', group: 'Skills & tools', current: isSkillInsights }] : []),
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
     // An open instance has no account menu.
     ...(authMode === 'none' ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
@@ -541,7 +543,7 @@
   }
 
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isSkillInsights ? 'Skill insights' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -792,6 +794,9 @@
         <PageLoadError />
       {/await}
     {/if}
+  {:else if isSkillInsights}
+    {#if authMode !== 'accounts' || !canWrite}<PageHeader group="Workspace" title="Sign in with a writer account to see skill insights."/>
+    {:else}{#await pages.SkillInsights()}<RouteSkeleton variant="cards"/>{:then {default: Page}}<Page/>{:catch}<PageLoadError/>{/await}{/if}
   {:else if isUsage}
     {#if authMode !== 'accounts'}
       <PageHeader group="Workspace" title="Usage needs an account." />

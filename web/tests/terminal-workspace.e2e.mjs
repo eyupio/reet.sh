@@ -34,6 +34,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/terminal/machines')data={machines}
  else if(path==='/api/v2/terminal/status')data={available:true,configured:true,reason:''}
  else if(path==='/api/v2/desks')data={desks}
+ else if(path==='/api/v2/skill-buddy/recommendations')data={skills:[{id:'builtin:unslop',name:'Unslop',description:'Polish the interface.',source:'builtin',revision:'1',reason:'Matches UI work.'}],stage:'code',editable:true,scope:'session:'+sessionA}
  else if(path==='/api/v2/terminal/sessions'){
   if(request.method()!=='GET'){writes.push(request.postDataJSON());return route.fulfill({status:400,json:{error:'No implicit creation permitted'}})}
   if(failSessions||denied)return route.fulfill({status:denied?403:503,json:{error:'Unavailable'}})
@@ -286,6 +287,15 @@ try{
  expect(tickets.length-ticketsBefore).toBe(1);expect(websockets-socketsBefore).toBe(1)
  expect(tickets.at(-1)).toBe(sessionA)
  expect(writes).toHaveLength(0)
+ await bounds(1360,900)
+ // Suggestions use a dialog; opening and closing it keeps the native terminal's rows and socket.
+ const socketsBeforeSkills=websockets, inputsBeforeSkills=inputs.length
+ await page.getByRole('button',{name:'Suggested skills',exact:true}).click()
+ const suggestions=page.getByRole('dialog',{name:'Suggested skills',exact:true})
+ await expect(suggestions.getByRole('heading',{name:'Unslop',exact:true})).toBeVisible()
+ await suggestions.getByRole('button',{name:'Close Suggested skills',exact:true}).click()
+ await expect(suggestions).toHaveCount(0)
+ expect(websockets).toBe(socketsBeforeSkills);expect(inputs.length).toBe(inputsBeforeSkills)
  await bounds(1360,900)
  const connections=websockets
  await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()

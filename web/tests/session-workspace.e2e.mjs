@@ -558,7 +558,7 @@ try {
    if(fix){
     await expect(fixButton).toHaveAccessibleName(fix);await expect(fixButton).toHaveText(fix.replace(/ the \w+$/,''))
     // The shortcut only calls its callback for now: nothing is sent, read or opened.
-    const seen=[];page.on('request',r=>{if(r.url().includes('/api/'))seen.push(r.method()+' '+new URL(r.url()).pathname)})
+    const seen=[];page.on('request',r=>{if(r.url().includes('/api/')&&new URL(r.url()).pathname!=='/api/v2/skill-buddy/recommendations')seen.push(r.method()+' '+new URL(r.url()).pathname)})
     await fixButton.focus();await page.keyboard.press('Enter');await page.waitForTimeout(250)
     expect(seen,`${name}: asking the agent to fix sends nothing`).toEqual([])
    } else await expect(fixButton).toHaveCount(0)
@@ -643,7 +643,8 @@ try {
   }
   // Nothing but reads: no write method, and no route that sends a chat message.
   const onlyReads = (requests,name) => {
-   expect(requests.filter(r=>!/^(GET|HEAD) /.test(r)),`${name}: nothing is written`).toEqual([])
+   // Recommendation lookups persist suggestion receipts; they do not send agent input.
+   expect(requests.filter(r=>!/^(GET|HEAD) /.test(r)&&r!=='POST /api/v2/skill-buddy/recommendations'),`${name}: nothing is written`).toEqual([])
    expect(requests.filter(r=>/chat|message|prompt/i.test(r)&&!/^GET /.test(r)),`${name}: no message is sent`).toEqual([])
   }
   {

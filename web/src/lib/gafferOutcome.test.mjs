@@ -561,12 +561,12 @@ test('a worker usage limit offers the configured backup and ignores older review
   const goals = new Map([['c', { goal, attention: true, workerUsageLimited: true, reason: 'The working model reached its usage or credit limit.' }]])
   const [waiting] = o.waitingDecisions({ sessions: [piece] }, goals)
   assert.equal(waiting.kind, 'usage_limit')
-  assert.match(waiting.need.why, /usage or credit limit/)
+  assert.match(waiting.need.why, /usage limit/)
   assert.equal(waiting.need.recommend.by, 'default')
   assert.deepEqual(waiting.need.choices.map(({ id, label }) => [id, label]), [
-    ['backup', 'Switch to OpenCode (paid/backup)'],
-    ['open', 'Open worker session'],
+    ['backup', 'Continue with OpenCode (paid/backup)'],
+    ['replace-worker', 'Choose another model…'],
   ])
   delete piece.stages[0].nextUsageBackup
-  assert.deepEqual(o.waitingDecisions({ sessions: [piece] }, goals)[0].need.choices.map(choice => choice.id), ['open'])
+  assert.deepEqual(o.waitingDecisions({ sessions: [piece] }, goals)[0].need.choices.map(choice => choice.id), ['replace-worker'])
 })

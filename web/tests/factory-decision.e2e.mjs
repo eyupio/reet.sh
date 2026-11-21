@@ -23,6 +23,7 @@ function fixture(){
   '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
   '/api/v2/gaffer/conversations':()=>view,
   '/api/v2/gaffer/outcomes':()=>({outcomes:[outcome]}),
+  [`/api/v2/gaffer/outcomes/${oid}`]:()=>outcome,
   '/api/v2/gaffer/goals':()=>({goals:[{goal,session:{id:sid,agentId:'a1',title:session.title,state:session.state},available:true,attention:goal.state!=='active',workerUsageLimited:session.chatStatus==='error',reason:session.chatStatus==='error'?'The working model reached its usage or credit limit.':goal.state!=='active'?'Gaffer brought a question back to you.':''}],readAt:now}),
   [`/api/v2/gaffer/conversations/${cid}/goal`]:()=>goalView(),
   [`/api/v2/gaffer/conversations/${cid}/goal/control`]:request=>{const input=request.postDataJSON();box.controls.push(input);goal.state='active';goal.revision++;delete goal.advice;return goalView()},
@@ -103,16 +104,32 @@ try{
   const page=qw.page
   await page.goto(`${base}/factory`)
   await expect(page.getByText('Worker usage limit reached',{exact:true})).toBeVisible()
-  await expect(page.getByRole('button',{name:/Switch to OpenCode/})).toBeVisible()
+  await expect(page.getByRole('button',{name:/Continue with OpenCode/})).toBeVisible()
   await expect(page.getByText('Gaffer recommends:',{exact:false})).toHaveCount(0)
   await page.goto(`${base}/sessions?agent=a1&session=${sid}`)
   const decision=page.getByRole('region',{name:'Decision for Export API',exact:true})
-  await expect(decision).toContainText('The working model reached its usage or credit limit.')
+  await expect(decision).toContainText('The worker reached its usage limit.')
   await expect(decision.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
-  await decision.getByRole('button',{name:/Switch to OpenCode/}).click()
-  await expect.poll(()=>quota.box.backup).toEqual([{revision:5,backupSession:sid}])
+  await decision.getByRole('button',{name:/Continue with OpenCode/}).click()
+  await expect.poll(()=>quota.box.backup).toEqual([{revision:5,stoppedSession:sid}])
   await expect(decision).toHaveCount(0)
  } finally {await qw.context.close()}
+ // Without a saved backup, the Factory card can start a different model directly.
+ const alternate=fixture(),aw=await openWorkspace(browser,{width:1280,height:900,routes:alternate.routes})
+ alternate.session.chatStatus='error'
+ try {
+  const page=aw.page
+  await page.goto(`${base}/factory`)
+  await page.getByRole('button',{name:/Choose another model/}).click()
+  const dialog=page.getByRole('dialog',{name:'Continue with another model',exact:true})
+  await expect(dialog).toContainText('Gaffer will resume the code stage in the same folder and branch.')
+  await expect(dialog.getByRole('button',{name:'Continue stage',exact:true})).toBeDisabled()
+  await dialog.getByRole('combobox',{name:'Replacement model',exact:true}).selectOption({label:'Other…'})
+  await dialog.getByRole('textbox',{name:'Replacement model name',exact:true}).fill('paid/new-model')
+  await dialog.getByRole('button',{name:'Continue stage',exact:true}).click()
+  await expect.poll(()=>alternate.box.backup).toEqual([{revision:5,stoppedSession:sid,worker:{tool:'opencode',model:'paid/new-model'}}])
+  expect(new URL(page.url()).pathname).toBe('/factory')
+ } finally {await aw.context.close()}
  // A started outcome can be put on YOLO from the pipeline's detail, in Settings for this outcome, after a confirmation,
  // and taken off again. The pipeline waits on the person, so it is the one open beside the list.
  const y=fixture(),yw=await openWorkspace(browser,{width:1280,height:900,routes:y.routes})

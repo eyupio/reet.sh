@@ -3,15 +3,18 @@
   // stage in hand. The choices are the ones on the Factory card, recommended first; the ones that need the Factory's own
   // dialogs (a merge, a new budget, stopping the outcome) go to the pipeline's card there.
   import { onMount } from 'svelte'
-  import { controlGafferGoal, getGafferGoal, listGafferGoals, listGafferOutcomes, moveGafferPipelineOn, retryGafferPipeline, tellGafferPipelineAgent, type GafferGoalOverview, type GafferOutcome, type GafferOutcomeSession } from '../api'
+  import { controlGafferGoal, getGafferGoal, listGafferGoals, listGafferOutcomes, moveGafferPipelineOn, recoverGafferPipeline, retryGafferPipeline, tellGafferPipelineAgent, type GafferGoalOverview, type GafferOutcome, type GafferOutcomeSession } from '../api'
   import { MAX_STAGE_DECISIONS, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import Decision from './Decision.svelte'
   import PipelineNote from './PipelineNote.svelte'
+  import RecoverWorker from './RecoverWorker.svelte'
+  import { signalAttentionChanged } from '../attentionSignal'
 
   let { member, sessionId }: { member: FactoryMember; sessionId: string } = $props()
   let record = $state<GafferOutcome | null>(null), goals = $state(new Map<string, GafferGoalOverview>())
   let busy = $state(false), notice = $state(''), bad = $state(false), dialogError = $state('')
+  let replacing = $state(false)
   let moving = $state(false), telling = $state(false), tellStart = $state(''), tellRequest = ''
   let disposed = false
   async function load() {
@@ -24,7 +27,7 @@
   }
   onMount(() => {
     void load()
-    const timer = setInterval(() => { if (!document.hidden && !busy && !moving && !telling) void load() }, 8000)
+    const timer = setInterval(() => { if (!document.hidden && !busy && !moving && !telling && !replacing) void load() }, 8000)
     return () => { disposed = true; clearInterval(timer) }
   })
   // Only the session doing the stage in hand carries the pipeline's decision.
@@ -63,7 +66,8 @@
       await controlGafferGoal(piece.conversationId ?? '', view.goal.revision, 'resume', view.pins, true)
       return 'Gaffer is reviewing this stage again.'
     }, 'The review was not tried again.')
-    else if (choice.id === 'backup') void act(async () => { await retryGafferPipeline(current, piece.key, undefined, sessionId); return 'Starting the same stage on its backup.' }, 'The stage could not switch to its backup.')
+    else if (choice.id === 'replace-worker') replacing = true
+    else if (choice.id === 'backup') void act(async () => { await recoverGafferPipeline(current, piece.key, sessionId); signalAttentionChanged(); return 'Gaffer is continuing this stage on its backup.' }, 'The stage could not switch to its backup.')
     else if (choice.id === 'restart') void act(async () => { await retryGafferPipeline(current, piece.key); return 'Running this stage again in a new session.' }, 'That pipeline was not tried again.')
     else if (choice.id === 'move') moving = true
     else if (choice.id === 'tell') { tellStart = choice.recommended && goal?.goal.advice?.choice === 'tell' ? goal.goal.advice.text ?? '' : ''; tellRequest = requestId(); dialogError = ''; telling = true }
@@ -94,6 +98,10 @@
   <Decision title={waiting.piece.title} stage={waiting.stage} href={card} need={waiting.need} {choices} {busy} onchoose={choose} {note}
     review={waiting.kind === 'usage_limit' ? '' : goal?.goal.summary ?? ''}/>
 </div>{/if}
+{#if replacing && record && waiting}
+  <RecoverWorker {record} piece={waiting.piece} oncancel={() => replacing = false}
+    onstarted={async () => { replacing = false; bad = false; notice = 'Gaffer is continuing this stage with the model you chose.'; signalAttentionChanged(); await load() }}/>
+{/if}
 {#if notice}<p class="session-decision-note" class:bad role={bad ? 'alert' : 'status'}>{notice}</p>{/if}
 {#if moving && waiting}<ConfirmDialog title={`Move “${waiting.piece.title}” on?`} body="This closes the stage in hand as it stands and starts the next stage in a session of its own. Gaffer’s review of this stage is not waited for." confirmLabel="Move on" onconfirm={() => void moveOn()} oncancel={() => moving = false}/>{/if}
 {#if telling && waiting}<PipelineNote title={`Tell the agent of “${waiting.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = false} onconfirm={text => void tell(text)}/>{/if}

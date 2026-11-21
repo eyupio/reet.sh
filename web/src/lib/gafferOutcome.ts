@@ -645,7 +645,7 @@ export const short = (text: string): string => { const line = text.replace(/\s+/
 /** The id of a pipeline's card on the Factory page, so Home and other pages can link straight to it. */
 export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
 
-export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'backup' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
+export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'backup' | 'replace-worker' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
 /** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
 export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }
 export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend }
@@ -695,11 +695,13 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
     else if (goal && pipelineStatus(piece, goal.attention).label === 'Needs you') {
       if (goal.workerUsageLimited) {
         const backup = stages[at]?.nextUsageBackup
-        const open: NeedChoice = { id: 'open', label: 'Open worker session', primary: !backup }
-        const why = goal.reason || goal.goal.note
-        const need = backup
-          ? recommend(why, [{ id: 'backup', label: `Switch to ${backup}` }, open])
-          : { why, choices: [open] }
+        const replace: NeedChoice = { id: 'replace-worker', label: 'Choose another model…', primary: !backup, recommended: !backup }
+        const why = 'The worker reached its usage limit. Gaffer can continue this stage with another model.'
+        const need = !stages[at]
+          ? { why: goal.reason || goal.goal.note, choices: [{ id: 'open', label: 'Open worker session', primary: true } satisfies NeedChoice] }
+          : backup
+            ? recommend(why, [{ id: 'backup', label: `Continue with ${backup}` }, replace])
+            : { why, choices: [replace] }
         out.push({ piece, stage, kind: 'usage_limit', need })
       } else out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })
     }

@@ -294,16 +294,22 @@ func TestAStageThatStoppedWithItsPlanLowIsRunAgainOnItsBackup(t *testing.T) {
 // A live session can report exhaustion even when its provider has no plan
 // figures. Keep the pipeline at Code and restart in its existing worktree.
 func TestFactoryWorkerUsageLimit(t *testing.T) {
-	for _, automation := range []bool{false, true} {
-		name := "manual"
-		if automation {
-			name = "automatic"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, mode := range []string{"manual backup", "automatic backup", "manual replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			automation := mode == "automatic backup"
+			replace := mode == "manual replacement"
 			r := outcomeFixture(t)
-			if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{
-				Standard: store.GafferCrewTier{Tool: "opencode", Model: "opencode/primary", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "paid/backup"}, More: []store.GafferStageAgent{{Tool: "codex", Model: "gpt-backup"}}},
-			}); err != nil {
+			standard := store.GafferCrewTier{Tool: "opencode", Model: "opencode/primary"}
+			if replace {
+				caps := effortCaps(true)
+				caps.Tools = append(caps.Tools, "codex")
+				*caps.ACPAgents = append(*caps.ACPAgents, terminalproto.ACPAgent{Tool: "codex", Adapter: "codex-acp", State: "available", MinimumVersion: "1.13.1"})
+				r.reconnect(t, caps)
+			} else {
+				standard.Backup = &store.GafferStageAgent{Tool: "opencode", Model: "paid/backup"}
+				standard.More = []store.GafferStageAgent{{Tool: "codex", Model: "gpt-backup"}}
+			}
+			if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{Standard: standard}); err != nil {
 				t.Fatal(err)
 			}
 			in := pipelineInput(r, false)
@@ -336,10 +342,18 @@ func TestFactoryWorkerUsageLimit(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got := o.Sessions[0].Stages[0].NextUsageBackup; !strings.Contains(got, "paid/backup") || o.Sessions[0].SessionID != first.SessionID {
-					t.Fatalf("the stopped worker should offer its backup: %+v", o.Sessions[0])
+				if got := o.Sessions[0].Stages[0].NextUsageBackup; strings.Contains(got, "paid/backup") == replace || o.Sessions[0].SessionID != first.SessionID {
+					t.Fatalf("unexpected offer while the stopped worker waits: %+v", o.Sessions[0])
 				}
-				if _, err = r.s.SwitchPipelineToBackup(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision); err != nil {
+				var worker *WorkerReplacement
+				if replace {
+					same := WorkerReplacement{Tool: "opencode", Model: "opencode/primary"}
+					if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, &same); err == nil {
+						t.Fatal("the exhausted model was accepted as its own replacement")
+					}
+					worker = &WorkerReplacement{Tool: "codex", Model: "paid/backup"}
+				}
+				if _, err = r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, worker); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -347,7 +361,11 @@ func TestFactoryWorkerUsageLimit(t *testing.T) {
 				return p.State == "following" && p.SessionID != first.SessionID
 			})
 			launch := r.starter.asked()[1]
-			if again.Stage != first.Stage || launch.Model != "paid/backup" || launch.Dir != first.WorkDir || launch.ProjectID != "" || !strings.Contains(launch.Prompt, "previous worker reached its usage limit") {
+			wantTool := "opencode"
+			if replace {
+				wantTool = "codex"
+			}
+			if again.Stage != first.Stage || launch.Tool != wantTool || launch.Model != "paid/backup" || launch.Dir != first.WorkDir || launch.ProjectID != "" || !strings.Contains(launch.Prompt, "previous worker reached its usage limit") {
 				t.Fatalf("backup did not continue the same stage: %+v", launch)
 			}
 			if old, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID); err != nil || old.State != "stopped" {

@@ -163,7 +163,7 @@ Each tier can have a **Backup**: a second agent, model and effort.
 - Threshold-based balancing uses the machine's [plan figures](agent-accounts.md) from the past six hours.
 - When the working model reports that its usage or credits are exhausted, Factory offers the next configured backup
   and continues the same stage in its existing folder and branch. With **Gaffer decides**, Factory makes that switch
-  once automatically. You can choose another configured backup if the replacement also runs out.
+  once automatically. **Choose another model** on the card lets you select a different worker for this stage when you want to use a different model or have no backup.
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer
 settings holds the same, and every later outcome starts from it, including one started over MCP.

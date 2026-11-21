@@ -25,13 +25,14 @@
   // what changed is said through `onchanged`, and what happened through `onnotice`. A choice that was carried out also
   // tells the app's attention read (the bell, the title), while `busy` is still set, so a page that listens and shares
   // `busy` can leave that signal to its own `onchanged`.
-  import { approveGafferMerge, controlGafferGoal, getGafferGoal, moveGafferPipelineOn, retryGafferPipeline, stopFollowingGafferOutcome, tellGafferPipelineAgent, type GafferGoalOverview } from '../api'
+  import { approveGafferMerge, controlGafferGoal, getGafferGoal, moveGafferPipelineOn, recoverGafferPipeline, retryGafferPipeline, stopFollowingGafferOutcome, tellGafferPipelineAgent, type GafferGoalOverview } from '../api'
   import { stageLabel } from '../gafferOutcome'
   import { signalAttentionChanged } from '../attentionSignal'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferGoal from '../GafferGoal.svelte'
   import PipelineNote from './PipelineNote.svelte'
+  import RecoverWorker from './RecoverWorker.svelte'
 
   let { userId = 0, timeZone = '', dateFormat = 'locale', goals, busy = $bindable(false), latest = record => record, onchanged, onnotice }: {
     userId?: number
@@ -53,6 +54,7 @@
 
   type Pair = { record: Outcome; piece: GafferOutcomeSession }
   let moving = $state<Pair | null>(null), telling = $state<Pair | null>(null), merging = $state<Pair | null>(null)
+  let replacing = $state<Pair | null>(null)
   let managing = $state<GafferGoalOverview | null>(null), releasing = $state<Outcome | null>(null)
   // What Gaffer would say to the agent, as the words the Tell dialog starts from.
   let tellStart = $state('')
@@ -74,6 +76,7 @@
     else if (choice.id === 'merge') merging = { record, piece }
     else if (choice.id === 'move') moving = { record, piece }
     else if (choice.id === 'budget') { if (goal) managing = goal }
+    else if (choice.id === 'replace-worker') replacing = { record, piece }
     else if (choice.id === 'restart' || choice.id === 'backup') void retry(record, piece, choice.id === 'backup')
     else if (choice.id === 'stop') releasing = record
   }
@@ -102,7 +105,12 @@
   async function retry(record: Outcome, piece: GafferOutcomeSession, backup = false) {
     if (busy) return
     busy = true; onnotice('')
-    try { await retryGafferPipeline(latest(record), piece.key, undefined, backup ? piece.sessionId : undefined); signalAttentionChanged(); onnotice(backup ? 'Starting the same stage on its backup.' : `Trying “${piece.title}” again.`) }
+    try {
+      if (backup && piece.sessionId) await recoverGafferPipeline(latest(record), piece.key, piece.sessionId)
+      else await retryGafferPipeline(latest(record), piece.key)
+      signalAttentionChanged()
+      onnotice(backup ? 'Gaffer is continuing this stage on its backup.' : `Trying “${piece.title}” again.`)
+    }
     catch (e) { fail(e, 'That pipeline was not tried again.') }
     busy = false
     await onchanged()
@@ -152,6 +160,10 @@
   }
 </script>
 
+{#if replacing}
+  <RecoverWorker record={latest(replacing.record)} piece={replacing.piece} oncancel={() => replacing = null}
+    onstarted={async () => { replacing = null; signalAttentionChanged(); onnotice('Gaffer is continuing this stage with the model you chose.'); await onchanged() }}/>
+{/if}
 {#if releasing}<ConfirmDialog title={`Stop following “${short(releasing.objective)}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
 {#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}

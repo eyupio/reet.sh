@@ -713,8 +713,8 @@ func (s *Store) UpdateGafferOutcomeFor(uid int64, id string, revision int64, cha
 	})
 }
 
-// SwitchGafferOutcomeBackupFor retires the stopped goal and queues its replacement in one transaction.
-func (s *Store) SwitchGafferOutcomeBackupFor(uid int64, id string, revision int64, session, conversation, note string, change func(*GafferOutcome) bool) (GafferOutcome, error) {
+// ReplaceGafferOutcomeWorkerFor retires the stopped goal and queues its replacement in one transaction.
+func (s *Store) ReplaceGafferOutcomeWorkerFor(uid int64, id string, revision int64, session, conversation, note string, change func(*GafferOutcome) bool) (GafferOutcome, error) {
 	return s.updateGafferOutcomeFor(uid, id, revision, func(tx *sql.Tx, o *GafferOutcome) (bool, error) {
 		if !change(o) {
 			return false, ErrGafferOutcomeBusy

@@ -27,3 +27,38 @@ func reviewSkill() skillbuddy.Skill {
 	}
 	panic("missing review skill")
 }
+
+func TestSendingPipelineBackPreservesReviewedSkillGuidance(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	uid := r.p.UserID
+	o := r.followedOutcome(t, "1", "", "unfollowed")
+	first := reviewSkill()
+	future := first
+	future.ID, future.Name, future.Revision, future.Instructions = "builtin:test", "Pinned test guidance", "reviewed-revision", "Verify the tenant boundary."
+	var err error
+	o, err = r.st.UpdateGafferOutcomeFor(uid, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+		o.State = "stopped"
+		o.Sessions[0].Stages = []store.GafferOutcomeStage{
+			{Kind: "review", Tool: "opencode", State: "running", RequestID: strings.Repeat("6", 32), SkillGuidance: []skillbuddy.Skill{first}},
+			{Kind: "test", Tool: "opencode", State: "pending", RequestID: strings.Repeat("7", 32), SkillGuidance: []skillbuddy.Skill{future}},
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := r.s.SendPipelineBack(uid, o.ID, "a", "review", "Recheck the tenant boundary.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []skillbuddy.Skill{first, future} {
+		stage := back.Sessions[0].Stages[i]
+		if len(stage.SkillGuidance) != 1 || stage.SkillGuidance[0].ID != want.ID || stage.SkillGuidance[0].Revision != want.Revision || stage.SkillGuidance[0].Instructions != want.Instructions {
+			t.Fatalf("reviewed guidance lost during send-back: %+v", stage)
+		}
+		if !strings.Contains(stagePrompt(back, back.Sessions[0], i), want.Instructions) {
+			t.Fatal("restarted prompt omitted pinned guidance")
+		}
+	}
+}

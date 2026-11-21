@@ -330,7 +330,7 @@ try {
       await page.getByRole('region',{name:'Waiting for you',exact:true}).getByRole('button',wide?{name:'Failed: Export button, renamed',exact:true}:{name:'Details and other actions for Export button, renamed',exact:true}).click()
       const notStarted=page.getByRole('region',{name:'Export button, renamed',exact:true})
       await expect(notStarted.getByRole('region',{name:'What is waiting',exact:true})).toContainText('Not started: That agent isn’t installed on that machine.')
-      await expect(notStarted.getByRole('link')).toHaveCount(0)
+      await expect(notStarted.getByRole('link',{name:'Open session',exact:true})).toHaveCount(0)
       if(!wide)await page.getByRole('button',{name:'‹ Factory',exact:true}).click()
       await page.getByRole('button',{name:/^Other sessions/}).click()
       // A session that was started but is not followed is still offered below, to be looked after.

@@ -105,8 +105,9 @@ func (s *Store) SkillBuddyRecordsFor(uid int64, scope string) ([]SkillBuddyRecor
 }
 
 // SkillBuddyPreparedFor links selected stage guidance to the session whose opening
-// prompt contained it. Prepared does not mean the agent followed the instructions.
+// prompt contained it. A restarted stage points to its replacement session.
+// Prepared does not mean the agent followed the instructions.
 func (s *Store) SkillBuddyPreparedFor(uid int64, scope, session string) error {
-	_, err := s.db.Exec(`UPDATE skill_buddy_choices SET session_id=?,state='prepared',at=? WHERE user_id=? AND scope=? AND state='selected'`, session, now(), uid, scope)
+	_, err := s.db.Exec(`UPDATE skill_buddy_choices SET session_id=?,state='prepared',at=? WHERE user_id=? AND scope=? AND state IN ('selected','prepared')`, session, now(), uid, scope)
 	return err
 }

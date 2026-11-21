@@ -166,8 +166,8 @@ try {
   passed.push('open')
  }
 
- // Copy prompt names the skill and its description and never its original link; a private skill has no Copy install
- // command, a published one does.
+ // Copy prompt names a private skill and its description and never its original link; a published skill's prompt
+ // fetches it from its public page. A private skill has no Copy install command, a published one does.
  if (run('copy')) {
   const {context, page, errors} = await open()
   const detail = await openRow(page, 'seo-cluster')
@@ -180,6 +180,8 @@ try {
   const published = await openRow(page, 'hosted-tips')
   await published.getByRole('button', {name:'Copy install command for hosted-tips'}).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('https://reet.example/sam/hosted-tips')
+  await published.getByRole('button', {name:'Copy prompt for hosted-tips'}).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^Run `npx skills@[\d.]+ use "https:\/\/reet\.example\/sam\/hosted-tips" --skill "hosted-tips"` and follow the generated skill instructions now\./)
   expect(errors).toEqual([])
   await context.close()
   passed.push('copy')

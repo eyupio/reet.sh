@@ -37,8 +37,8 @@
   let filePicker = $state<HTMLInputElement>()
   let folderPicker = $state<HTMLInputElement>()
   const command = $derived(`npx ${SKILLS_CLI} add ${location.origin}/${username}/${originalSlug}`)
-  // The same prompt the Skills page offers: the skill is on every machine, so it is used by name, never fetched by link.
-  const prompt = $derived(copyPrompt({ name: originalSlug, description: editor?.description ?? '' }))
+  // The same prompt the Skills page offers for a published skill: it fetches the skill from its public reet.sh page.
+  const prompt = $derived(copyPrompt({ name: originalSlug, description: editor?.description ?? '', published: true, publicUrl: `${location.origin}/${username}/${originalSlug}` }))
   const dirty = $derived(editor ? fingerprint(editor) !== baseline : false)
   const chosenImports = $derived(importBundles.filter(skill => skill.selected && !skill.problem))
   const publishedCount = $derived(skills.filter(skill => skill.published).length)

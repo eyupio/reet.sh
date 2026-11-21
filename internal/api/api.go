@@ -669,16 +669,26 @@ func requestToken(r *http.Request) string {
 }
 
 // knownHost reports whether a Host header names this instance: an IP
-// address, localhost, or the host of REET_PUBLIC_URL. Any other name may be
-// a stranger's domain pointed at this machine (DNS rebinding).
+// address, a name only a local network can give (one word such as
+// "homeserver", or one ending .local, .lan, .internal, .home.arpa or
+// .localhost), or the host of REET_PUBLIC_URL. Any other name may be a
+// stranger's domain pointed at this machine (DNS rebinding).
 func (s *server) knownHost(host string) bool {
 	name := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		name = h
 	}
 	name = strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(name, "["), "]"), "."))
-	if name == "localhost" || net.ParseIP(name) != nil {
+	if name == "" {
+		return false
+	}
+	if net.ParseIP(name) != nil || !strings.Contains(name, ".") {
 		return true
+	}
+	for _, suffix := range []string{".local", ".lan", ".internal", ".home.arpa", ".localhost"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
 	}
 	u, err := url.Parse(s.publicOrigin())
 	return err == nil && u.Hostname() != "" && strings.EqualFold(u.Hostname(), name)
@@ -1687,7 +1697,7 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 			}
 			// Ownership and the saved private target authorize this identity;
 			// the public-input parser deliberately rejects unpublished drafts.
-			candidate, err := ref.ParseAt(requestOrigin(request)+"/"+username+"/"+name, request.Host)
+			candidate, err := s.hostedRef(request, username, name)
 			if err == nil && candidate.ID == wanted.ID {
 				written, err := s.st.HostedSkillsFor(userID)
 				if err != nil {

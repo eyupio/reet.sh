@@ -177,7 +177,8 @@ anything the provider said:
   keep real people out.
 - Starting a sign-in is limited to 60 a minute for each address the server sees. reet.sh does not read
   forwarding headers, so behind a reverse proxy everyone shares the proxy's address; the allowance is
-  generous for that reason.
+  generous for that reason. Password sign-in has the same allowance for each address, counting wrong
+  passwords only, and five attempts a minute for each email address.
 - After sign-in the browser goes to the `next` path it began from, if that is a path on this site, so
   a sign-in that interrupts the connect-an-agent consent page resumes there.
 - The provider's discovery document and key set are fetched with a timeout, a size cap and no

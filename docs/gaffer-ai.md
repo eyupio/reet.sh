@@ -827,8 +827,9 @@ What to know before switching things on:
 - **After reading an outcome in full, changes ask too.** Reading one outcome,
   or any Factory control's answer, brings handover notes and Gaffer's report
   into the turn, and those are built from what working agents wrote. For the
-  rest of that turn a tool that changes something is treated as Ask me, in
-  any chat. Listing the Factory carries states only and does not do this.
+  rest of that turn, and in later turns while that answer is still repeated
+  to the model, a tool that changes something is treated as Ask me, in any
+  chat. Listing the Factory carries states only and does not do this.
 - **An approval is of what was read.** *Approve a pipeline's merge* names the
   pipeline as it stood when Gaffer read it. If the pipeline has changed by
   the time you approve the request (sent back and done again, say), nothing

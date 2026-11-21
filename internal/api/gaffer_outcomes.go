@@ -651,7 +651,7 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 	if in.LinkProjectID != "" {
 		// Best effort: the session runs either way, it is only listed under its project when this holds.
 		if err := s.st.LinkTerminalSessionProjectFor(uid, session.ID, in.LinkProjectID); err != nil {
-			log.Printf("gaffer: session %s was not listed under project %s: %v", session.ID, in.LinkProjectID, err)
+			log.Printf("gaffer: session %q was not listed under project %q: %v", session.ID, in.LinkProjectID, err)
 		}
 	}
 	// A create can be recorded and still not have started anything: the

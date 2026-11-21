@@ -50,3 +50,41 @@ func TestLimiter(t *testing.T) {
 		t.Fatal("unrelated key blocked")
 	}
 }
+
+func TestLimiterTakeChecksAndRecordsTogether(t *testing.T) {
+	l := NewLimiter(2, time.Minute)
+	if !l.Take("a", "b") || !l.Take("a") {
+		t.Fatal("attempts under the limit were refused")
+	}
+	// "a" is full, so nothing is recorded for "b" either.
+	if l.Take("a", "b") || l.Take("b", "a") {
+		t.Fatal("an attempt over the limit was taken")
+	}
+	if !l.Take("b") || l.Take("b") {
+		t.Fatal("a refused attempt was still recorded for the other key")
+	}
+	l.Forgive("a")
+	if !l.Take("a") || l.Take("a") {
+		t.Fatal("a forgiven attempt was not given back exactly once")
+	}
+	l.Forgive("never-seen")
+	if l.Len() != 2 {
+		t.Fatalf("keys = %d", l.Len())
+	}
+
+	// Many attempts at once still take no more than the limit.
+	l = NewLimiter(5, time.Minute)
+	taken := make(chan bool, 100)
+	for i := 0; i < 100; i++ {
+		go func() { taken <- l.Take("k") }()
+	}
+	n := 0
+	for i := 0; i < 100; i++ {
+		if <-taken {
+			n++
+		}
+	}
+	if n != 5 {
+		t.Fatalf("%d attempts were taken at once, want 5", n)
+	}
+}

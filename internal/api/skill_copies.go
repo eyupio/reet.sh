@@ -250,7 +250,7 @@ func (s *server) fetchSkillCopies(uid int64, needs []store.SkillCopyNeed) {
 		}
 		r, ok, err := s.st.SkillSourceFor(uid, n.Item)
 		if err != nil {
-			log.Printf("skill copies: source of %s: %v", n.Name, err)
+			log.Printf("skill copies: source of %q: %v", n.Name, err)
 			continue
 		}
 		if !ok {

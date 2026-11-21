@@ -205,7 +205,7 @@
     try {
       await changePassword(passwordForm.current, passwordForm.password)
       passwordForm = { current: '', password: '', confirm: '' }
-      notice = 'Password changed. Every other session was signed out.'
+      notice = 'Password changed. Every other session was signed out, and every API token and MCP connection was revoked.'
       error = ''
       await loadSessions()
     } catch (e) {

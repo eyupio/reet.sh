@@ -104,6 +104,14 @@
       editing = null
     }, 'Connection updated.')
   }
+  // A change that was not saved is not left looking made.
+  function allowMerges(connection: MCPConnection, box: HTMLInputElement) {
+    const on = box.checked
+    void act(async () => {
+      try { await updateMCPConnection(connection.id, { approveMerges: on }) }
+      catch (e) { box.checked = !on; throw e }
+    }, on ? 'This connection may now approve Factory merges.' : 'This connection may no longer approve Factory merges.')
+  }
   function rotate(connection: MCPConnection) {
     confirmation = {
       title: `Replace the token for ${connection.name}?`,
@@ -176,6 +184,10 @@
               <p class="connection-meta">{connection.scope === 'write' && access.canWrite ? 'Read & manage' : 'Read only'} · Last used: {when(connection.lastUsedAt)}<br />Expires {when(connection.expiresAt)}</p>
               <div class="actions"><button type="button" class="btn quiet" disabled={busy} onclick={() => edit(connection)}>Manage</button><button type="button" class="btn quiet" disabled={busy} onclick={() => void act(async () => { await updateMCPConnection(connection.id, { enabled: !connection.enabled }) }, connection.enabled ? 'Connection paused.' : 'Connection resumed.')}>{connection.enabled ? 'Pause' : 'Resume'}</button>{#if connection.kind === 'bearer'}<button type="button" class="btn quiet" disabled={busy} onclick={() => rotate(connection)}>Replace token</button>{/if}<button type="button" class="btn quiet danger" disabled={busy} onclick={() => revoke(connection)}>Revoke</button></div>
               {#if access.canWrite}<button class="btn quiet context-access" type="button" disabled={busy} onclick={()=>contextClient={path:`/api/v2/mcp/connections/${connection.id}/context`,name:connection.name}}>Context access</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>workerClient={path:`/api/v2/mcp/connections/${connection.id}/worker`,name:connection.name}}>Worker access</button>{/if}
+              {#if access.canWrite && connection.scope === 'write'}
+                <label class="check merges"><input type="checkbox" checked={connection.approveMerges} disabled={busy} aria-describedby={`merges-hint-${connection.id}`} onchange={(e) => allowMerges(connection, e.currentTarget)} />May approve Factory merges</label>
+                <p class="hint merges-hint" id={`merges-hint-${connection.id}`}>Turn this on only for a client you trust: an agent using this connection could then approve its own work.</p>
+              {/if}
               {#if editing === connection.id}
                 <form class="edit-form" onsubmit={(e) => saveEdit(e, connection)}>
                   <label>Name<input bind:value={editName} required maxlength="100" autocomplete="off" /></label>
@@ -268,13 +280,15 @@
   .browser-options { display:flex; gap:24px; align-items:center; flex-wrap:wrap; margin-top:20px; }
   .check { display:flex; gap:9px; align-items:center; color:var(--ink); }
   .check input { width:17px; height:17px; accent-color:var(--accent); }
+  .merges { margin-top:14px; }
+  .merges-hint { margin-top:4px; }
   summary { font-weight:600; cursor:pointer; }
   .fresh { border-color:var(--accent); background:var(--tint); }
   .notice { border:1px solid var(--line); padding:12px; border-radius:8px; }
   .bad { border-color:var(--bad); }
   .good { border-color:var(--good); }
   @media(max-width:640px) { .fields,.edit-form { grid-template-columns:1fr; } .endpoint { align-items:flex-start; } .heading > button { width:100%; } .browser-options > label { width:100%; } }
-  @media (pointer:coarse) { .scope, .connection-search input { min-height:44px; } }
+  @media (pointer:coarse) { .scope, .connection-search input, .merges { min-height:44px; } }
 </style>
 
 {#if workerClient}<WorkspaceDialog title={`Worker access for ${workerClient.name}`} onclose={()=>workerClient=null}><WorkerMessaging path={workerClient.path} {timeZone} {dateFormat}/></WorkspaceDialog>{/if}

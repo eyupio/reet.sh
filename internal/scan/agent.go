@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -411,6 +412,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		log.Printf("managed software recovery: %v", err)
 	}
 	if !*once {
+		trimOwnAgentLog(*config, c.ID)
 		closeControl, err := serveAgentControl(*config, state, cancelAgent)
 		if err != nil {
 			return err
@@ -524,6 +526,30 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 }
 
+// scanEcho remembers what the periodic scan last printed for each folder.
+type scanEcho struct {
+	mu   sync.Mutex
+	last map[string]string
+}
+
+// periodicScans belongs to the one agent loop a process runs.
+var periodicScans = &scanEcho{}
+
+// changed reports whether text differs from what was last printed for scope,
+// and remembers it.
+func (e *scanEcho) changed(scope, text string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if previous, ok := e.last[scope]; ok && previous == text {
+		return false
+	}
+	if e.last == nil {
+		e.last = map[string]string{}
+	}
+	e.last[scope] = text
+	return true
+}
+
 // controllerError is a refusal or failure the controller answered with. The
 // status separates a permanent refusal from a server that is restarting.
 type controllerError struct {
@@ -630,12 +656,18 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if reply.Agent.SkillsProtocol == store.CurrentSkillsProtocol {
 		skillErr = reconcileAgentSkills(ctx, c, config, reply.Desired, cached, reply.Retry, version, time.Now(), out)
 	}
-	scanAll := func() error {
+	// The long-running agent scans every minute; its log gets a folder's
+	// findings only when they differ from what was last printed for it.
+	scanAll := func(periodic bool) error {
 		dirs := append([]string{c.Home}, c.Projects...)
 		var failures []error
 		for _, dir := range dirs {
-			if err := runVersionAt(dir, []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, out, version); err != nil {
+			var found bytes.Buffer
+			if err := runVersionAt(dir, []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, &found, version); err != nil {
 				failures = append(failures, err)
+			}
+			if !periodic || periodicScans.changed(dir, found.String()) {
+				_, _ = out.Write(found.Bytes())
 			}
 		}
 		if err := errors.Join(failures...); err != nil {
@@ -646,7 +678,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if reply.Job == nil {
 		if time.Since(*lastScan) >= time.Minute {
 			*lastScan = time.Now()
-			return errors.Join(skillErr, scanAll())
+			return errors.Join(skillErr, scanAll(allowRestart))
 		}
 		return skillErr
 	}
@@ -662,7 +694,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	restartPath := ""
 	switch j.Kind {
 	case "scan":
-		operationErr = scanAll()
+		operationErr = scanAll(false)
 	case "update":
 		if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")

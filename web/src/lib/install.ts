@@ -1,31 +1,11 @@
 import type { Skill } from './api'
 
-export type InstallKind = 'command' | 'prompt'
-
 /**
  * The skills CLI package and version in every command reet copies out. It is the version sync runs on a machine
  * (SkillsCLI in internal/ref/cli.go; a test keeps the two equal), so a pasted command behaves like the one reet
  * ran and tested. How the CLI matches a skill's name has changed between versions.
  */
 export const SKILLS_CLI = 'skills@1.7.4'
-
-const KEY = 'reet-install-kind'
-
-export function readInstallKind(): InstallKind {
-  try {
-    return localStorage.getItem(KEY) === 'prompt' ? 'prompt' : 'command'
-  } catch {
-    return 'command'
-  }
-}
-
-export function writeInstallKind(kind: InstallKind) {
-  try {
-    localStorage.setItem(KEY, kind)
-  } catch {
-    /* storage unavailable: the choice lasts until reload */
-  }
-}
 
 export function sourceURL(skill: Skill): string | null {
   if (skill.sourceType === 'hosted') return skill.url

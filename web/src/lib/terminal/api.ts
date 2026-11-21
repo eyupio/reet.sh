@@ -228,7 +228,6 @@ export async function launchProgress(agentId: string, requestId: string, signal?
   return (await (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/launch-progress/${encodeURIComponent(requestId)}`, { signal })).json()).stages ?? []
 }
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
-export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
 /** `forgetDesk` is End the shell on a desk pane: the pane is gone for good, so a desk-shell-v1 machine also removes that pane's own command history. Take off this desk does not send it. */
 export async function endTerminal(id: string, requestId: string, removeHistory=false, factoryOutcome='', forgetDesk=false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify(forgetDesk?{requestId,removeHistory,factoryOutcome,forgetDesk}:{requestId,removeHistory,factoryOutcome}) }) }
@@ -270,13 +269,6 @@ export function readiness(machine?: TerminalMachine): string {
   if (caps.readiness === 'supervisor_unavailable') return 'Install or start the independent terminal service on this machine.'
   if (!machine.ready) return 'The machine is reconnecting. Existing shells will be kept.'
   return ''
-}
-
-/** True when the machine has done its own part: a current agent, local consent given, and tmux and the terminal service in place.
- *  Says nothing about the server's terminal access or whether the machine is connected right now, which `ready` also needs. */
-export function machineSetUp(machine: TerminalMachine): boolean {
-  const caps = machine.capabilities
-  return !!caps && !!caps.terminalControl && !!caps.terminalEnabled && caps.readiness !== 'tmux_unavailable' && caps.readiness !== 'supervisor_unavailable'
 }
 
 /** A machine card's sentence: an enrolled machine the terminal list does not know yet has not connected for terminals. */

@@ -432,7 +432,8 @@ func (s *Store) CreatePasswordReset(tokenHash string, userID, expiresAt int64) e
 	})
 }
 
-// ResetPasswordWithToken spends a reset link and sets the password in one
+// ResetPasswordWithToken spends a reset link, sets the password, ends every
+// session and revokes every API token and MCP connection in one
 // transaction. It returns the account, so the caller can send a security
 // notice; a used, unknown, disabled or expired link returns ok false.
 func (s *Store) ResetPasswordWithToken(tokenHash, passwordHash string, at int64) (User, bool, error) {
@@ -456,6 +457,10 @@ func (s *Store) ResetPasswordWithToken(tokenHash, passwordHash string, at int64)
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id=?`, u.ID); err != nil {
+			return err
+		}
+		// Whoever knew the old password may have made a token with it.
+		if err := revokeUserTokensTx(tx, u.ID); err != nil {
 			return err
 		}
 		ok = true

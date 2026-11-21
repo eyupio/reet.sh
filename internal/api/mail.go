@@ -341,13 +341,16 @@ func (s *server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "enter your email address")
 		return
 	}
-	keys := []string{"forgot:" + email, "forgot-ip:" + clientIP(r)}
-	if !s.limiter.Allow(keys...) {
+	// No address is longer, and the address is a limiter key below.
+	if len(email) > 254 {
+		writeErr(w, http.StatusBadRequest, "enter a valid email address")
+		return
+	}
+	if !s.limiter.Take("forgot:"+email, "forgot-ip:"+clientIP(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
 	}
-	s.limiter.Hit(keys...)
 	// The answer is the same whether or not the account exists.
 	answer := map[string]string{"message": "If that address has an account here, a reset link is on its way. It works once, for 30 minutes."}
 	if s.mail == nil || !s.mail.Delivers() {
@@ -378,13 +381,11 @@ func (s *server) resetPassword(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	keys := []string{"reset-ip:" + clientIP(r)}
-	if !s.limiter.Allow(keys...) {
+	if !s.limiter.Take("reset-ip:" + clientIP(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
 	}
-	s.limiter.Hit(keys...)
 	token := strings.TrimSpace(in.Token)
 	if token == "" {
 		writeErr(w, http.StatusBadRequest, "that reset link is not complete")
@@ -414,7 +415,7 @@ func (s *server) resetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	s.event(u.ID, "ui", "password-reset", "", map[string]any{"name": u.Name, "email": u.Email})
 	s.emitPasswordChanged(u, time.Now())
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Your password changed. Every other session was signed out."})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Your password changed. Every session was signed out, and every API token and MCP connection was revoked."})
 }
 
 // ---------------------------------------------------------------------------

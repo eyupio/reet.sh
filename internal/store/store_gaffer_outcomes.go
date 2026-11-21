@@ -780,11 +780,13 @@ func (s *Store) updateGafferOutcomeFor(uid int64, id string, revision int64, cha
 // LinkTerminalSessionProjectFor records that a session belongs to a folder
 // project. It is for a later pipeline stage, which starts inside the worktree
 // its first stage was given: the session's folder must be the project's own
-// folder or one of its reet worktrees, on the project's machine.
+// folder, or the worktree of a session already listed under that project, on
+// the project's machine. A session already listed there is left as it is.
 func (s *Store) LinkTerminalSessionProjectFor(uid int64, sessionID, projectID string) error {
-	res, err := s.db.Exec(`UPDATE terminal_sessions SET project_id=? WHERE id=? AND user_id=? AND project_id IS NULL
+	res, err := s.db.Exec(`UPDATE terminal_sessions SET project_id=? WHERE id=? AND user_id=? AND (project_id IS NULL OR project_id=?)
  AND EXISTS(SELECT 1 FROM folder_projects p WHERE p.id=? AND p.user_id=? AND p.host=terminal_sessions.agent_id
-  AND (terminal_sessions.dir=p.dir OR substr(terminal_sessions.dir,1,length(p.dir)+17)=p.dir||'/.reet/worktrees/'))`, projectID, sessionID, uid, projectID, uid)
+  AND (terminal_sessions.dir=p.dir OR EXISTS(SELECT 1 FROM terminal_sessions f WHERE f.user_id=p.user_id AND f.agent_id=p.host
+   AND f.project_id=p.id AND f.worktree_path<>'' AND f.worktree_path=terminal_sessions.dir)))`, projectID, sessionID, uid, projectID, projectID, uid)
 	if err != nil {
 		return err
 	}

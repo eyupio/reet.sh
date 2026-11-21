@@ -13,8 +13,9 @@ device under **Notifications → On this device**. It needs an instance with acc
    begin with, and each device has its own choice.
 4. **Send a test** shows one on every device you have turned on.
 
-A tap on a notification opens that session, in a reet window that is already open or a new one. **Turn off** stops
-this device; **Your other devices** lists the rest, each with **Remove**. One person can have 12 devices on.
+A tap on a notification opens that session, in a reet window that is already open or a new one. Signing out turns
+notifications off on that browser, so the next person to sign in there is not told about your sessions; turn them on
+again after you sign back in. **Turn off** stops this device; **Your other devices** lists the rest, each with **Remove**. One person can have 12 devices on.
 
 **iPhone and iPad.** Safari only offers web push to a site on the Home Screen (iOS and iPadOS 16.4 or later). Tap
 Share, then **Add to Home Screen**, open reet from there, and turn notifications on. In a browser tab the card says

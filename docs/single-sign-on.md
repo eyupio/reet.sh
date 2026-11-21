@@ -119,7 +119,9 @@ what to fix, rather than starting up looking like single sign-on is off.
    before, or who linked their account, is found by it.
 2. A person reet.sh has not met is matched by email only if linking by email is on **and** the
    provider says the address is verified (`email_verified`). The owner and admin accounts are never
-   linked by email: a matching address must not hand over the keys.
+   linked by email: a matching address must not hand over the keys. `email_verified` speaks for the
+   standard `email` claim: with another `emailClaim`, the address counts as verified only when it is
+   the same as the token's `email`.
 3. Otherwise, with new-person accounts on, an account is created, again only for a verified
    address. It has no password. Without it the person is told no account is available.
 4. A person who is signed in can link their own identity (`GET /api/v2/auth/oidc/start?intent=link`;
@@ -175,7 +177,8 @@ anything the provider said:
   keep real people out.
 - Starting a sign-in is limited to 60 a minute for each address the server sees. reet.sh does not read
   forwarding headers, so behind a reverse proxy everyone shares the proxy's address; the allowance is
-  generous for that reason.
+  generous for that reason. Password sign-in has the same allowance for each address, counting wrong
+  passwords only, and five attempts a minute for each email address.
 - After sign-in the browser goes to the `next` path it began from, if that is a path on this site, so
   a sign-in that interrupts the connect-an-agent consent page resumes there.
 - The provider's discovery document and key set are fetched with a timeout, a size cap and no

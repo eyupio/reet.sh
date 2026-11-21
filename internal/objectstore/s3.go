@@ -47,6 +47,10 @@ type Config struct {
 	AccessKey string
 	SecretKey string
 	PathStyle *bool
+	// PublicOnly is set for a destination somebody other than the operator
+	// described: it is reached only at a public address, and a redirect from
+	// it is not followed.
+	PublicOnly bool
 }
 
 type Client struct {
@@ -94,7 +98,7 @@ func New(c Config) (*Client, error) {
 	return &Client{
 		endpoint: u, bucket: strings.TrimSpace(c.Bucket), region: region,
 		accessKey: strings.TrimSpace(c.AccessKey), secretKey: strings.TrimSpace(c.SecretKey),
-		pathStyle: style, http: &http.Client{Transport: s3Transport}, now: time.Now,
+		pathStyle: style, http: httpClient(c.PublicOnly), now: time.Now,
 	}, nil
 }
 
@@ -176,26 +180,6 @@ func (c *Client) List(ctx context.Context, prefix string) ([]Object, error) {
 		}
 		token = parsed.NextContinuationToken
 	}
-}
-
-// putRetry sends a copy up to three times when the store may pass: a 5xx,
-// 429 or 408, or a connection that failed or timed out. A refusal that will
-// not pass is attempted once.
-func (c *Client) PutRetry(ctx context.Context, key string, body []byte) error {
-	var err error
-	for attempt := range 3 {
-		err = c.Put(ctx, key, body)
-		if err == nil || !retryableS3(err) {
-			return err
-		}
-		wait := time.Duration(attempt+1) * 500 * time.Millisecond
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(wait):
-		}
-	}
-	return err
 }
 
 // PutObjectRetry sends one whole object, retrying the failures that may pass.

@@ -38,6 +38,7 @@ Every account, including viewers, has its own **MCP access** section:
 | Replace token | Invalidates a manual bearer's old secret immediately and shows one replacement. OAuth clients reconnect through their own sign-in flow. |
 | Context access | Preview and grant retained account counts or selected-session context, separately from shelf permissions. Requires an account with write access. |
 | Worker access | Separately allow a management connection to queue instructions for one selected structured session and inspect delivery receipts. |
+| May approve Factory merges | Lets a management connection approve a Factory pipeline's merge. Off until you turn it on. An agent using the connection could then approve its own work, so turn it on only for a client you trust. |
 | Revoke | Permanently blocks that connection and its OAuth refresh family. |
 | Revoke all connections | Blocks all OAuth and bearer connections; browser access has its own switch. |
 
@@ -193,7 +194,7 @@ Six more are the person's own controls and need management scope:
 | `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true`. |
 | `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
 | `reet_set_pipeline_merge` | Makes a pipeline wait for your approval before merging. It cannot switch one to merge by itself; that is set on the Factory page. |
-| `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true` and `seen_updated_at`, the pipeline's `updated_at` from the read the approval is made on: a pipeline that has changed since is not approved. |
+| `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true` and `seen_updated_at`, the pipeline's `updated_at` from the read the approval is made on: a pipeline that has changed since is not approved. The connection also needs **May approve Factory merges** switched on under Account → MCP access; without it the call is refused. |
 | `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. An outcome that had already finished answers `applied: false`. |
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
 | `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |

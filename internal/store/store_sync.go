@@ -2,7 +2,7 @@ package store
 
 import (
 	"database/sql"
-	"errors"
+	"encoding/json"
 
 	"github.com/eyupio/reet.sh/internal/contentobs"
 	"github.com/eyupio/reet.sh/internal/ref"
@@ -67,30 +67,116 @@ func (s *Store) RegisterMachineFor(userID int64, info MachineInfo) error {
 	return s.RecordInventoryFor(userID, EnvironmentIDFor(userID, info.Host, agent, ""), false, info)
 }
 
+// SyncEnvironmentsFor lists a person's environments with their last scan,
+// skills and observed content. It asks a fixed number of questions however
+// many environments there are.
 func (s *Store) SyncEnvironmentsFor(userID int64) ([]SyncEnvironment, error) {
 	envs, err := s.ListEnvironmentsFor(userID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]SyncEnvironment, 0, len(envs))
-	for _, env := range envs {
-		item := SyncEnvironment{Environment: env}
-		err := s.db.QueryRow(`SELECT scanned_at,complete,os,arch,version FROM environment_scans WHERE env_id=?`, env.ID).Scan(&item.ScannedAt, &item.Complete, &item.OS, &item.Arch, &item.Version)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
-		_ = s.db.QueryRow(`SELECT error FROM scan_errors WHERE env_id=?`, env.ID).Scan(&item.Error)
-		item.Skills, err = s.EnvironmentSkillsFor(userID, env.ID)
-		if err != nil {
-			return nil, err
-		}
-		item.Content, err = s.ContentObservationFor(userID, env.ID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, item)
+	at := make(map[string]int, len(envs))
+	for i, env := range envs {
+		at[env.ID] = i
+		out = append(out, SyncEnvironment{Environment: env, Skills: []SyncSkill{},
+			Content: &contentobs.Inventory{State: "not_reported", Skills: []contentobs.Skill{}}})
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	// An environment removed or added between the questions is skipped: the
+	// list above decides what is returned.
+	if err := s.syncScans(userID, out, at); err != nil {
+		return nil, err
+	}
+	if err := s.syncSkills(userID, out, at); err != nil {
+		return nil, err
+	}
+	if err := s.syncContent(userID, out, at); err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Store) syncScans(userID int64, out []SyncEnvironment, at map[string]int) error {
+	rows, err := s.read.Query(`SELECT e.id,COALESCE(sc.scanned_at,0),COALESCE(sc.complete,0),COALESCE(sc.os,''),COALESCE(sc.arch,''),COALESCE(sc.version,''),COALESCE(se.error,'')
+ FROM environments e LEFT JOIN environment_scans sc ON sc.env_id=e.id LEFT JOIN scan_errors se ON se.env_id=e.id WHERE e.user_id=?`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var item SyncEnvironment
+		if err := rows.Scan(&id, &item.ScannedAt, &item.Complete, &item.OS, &item.Arch, &item.Version, &item.Error); err != nil {
+			return err
+		}
+		if i, ok := at[id]; ok {
+			e := &out[i]
+			e.ScannedAt, e.Complete, e.OS, e.Arch, e.Version, e.Error = item.ScannedAt, item.Complete, item.OS, item.Arch, item.Version, item.Error
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Store) syncSkills(userID int64, out []SyncEnvironment, at map[string]int) error {
+	rows, err := s.read.Query(`SELECT se.env_id,s.id,s.name,s.slug,s.source,s.source_type,s.url FROM skills s JOIN skill_envs se ON se.skill_id=s.id JOIN environments e ON e.id=se.env_id WHERE e.user_id=? ORDER BY s.id`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var item SyncSkill
+		if err := rows.Scan(&id, &item.ID, &item.Name, &item.Slug, &item.Source, &item.SourceType, &item.URL); err != nil {
+			return err
+		}
+		if i, ok := at[id]; ok {
+			out[i].Skills = append(out[i].Skills, item)
+		}
+	}
+	return rows.Err()
+}
+
+// syncContent is ContentObservationFor for every environment at once, and
+// must read a row as that does.
+func (s *Store) syncContent(userID int64, out []SyncEnvironment, at map[string]int) error {
+	rows, err := s.read.Query(`SELECT e.id,o.inventory_revision,sc.inventory_revision,o.complete,sc.complete,a.paused,o.observed_at,o.received_at,o.skills FROM content_observation_scopes o JOIN sync_agents a ON a.id=o.agent_id AND a.user_id=o.user_id JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE AND e.agent=o.agent AND e.project=o.project JOIN environment_scans sc ON sc.env_id=e.id WHERE e.user_id=?`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	t := now()
+	for rows.Next() {
+		var id, raw string
+		var revision, current int64
+		var complete, inventoryComplete, paused bool
+		inv := &contentobs.Inventory{State: "not_reported", Skills: []contentobs.Skill{}}
+		if err := rows.Scan(&id, &revision, &current, &complete, &inventoryComplete, &paused, &inv.ObservedAt, &inv.ReceivedAt, &raw); err != nil {
+			return err
+		}
+		i, ok := at[id]
+		if !ok || revision != current {
+			continue
+		}
+		if err := json.Unmarshal([]byte(raw), &inv.Skills); err != nil {
+			return err
+		}
+		inv.SchemaVersion = contentobs.Version
+		inv.State = "observed"
+		if !complete || !inventoryComplete {
+			inv.State = "incomplete"
+		}
+		if t-inv.ReceivedAt > contentobs.FreshMillis {
+			inv.State = "stale"
+		}
+		if paused {
+			inv.State = "paused"
+		}
+		out[i].Content = inv
+	}
+	return rows.Err()
 }
 
 type environmentQuerier interface {

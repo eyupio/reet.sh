@@ -12,6 +12,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
@@ -357,4 +358,130 @@ func TestHostedSaveAndRenameRefuseATakenLibraryName(t *testing.T) {
 	expect("PUT", "/api/v2/hosting/skills/taken-name", content("taken-name"), 409)
 	expect("PUT", "/api/v2/hosting/skills/mine", content("mine"), 200)
 	expect("POST", "/api/v2/hosting/skills/mine/rename", `{"name":"taken-name"}`, 409)
+}
+
+// hostedHostEnv is a server with one author, alice, whose requests can name
+// the address they came in by.
+func hostedHostEnv(t *testing.T) (call func(host, method, path string, in any) int, visible func() []string, st *store.Store, uid int64, h *Server) {
+	t.Helper()
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h = New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts))
+	t.Cleanup(func() { h.Close(); st.Close() })
+	alice, _ := st.CreateUser("author@example.com", "Author", "member", "hash")
+	st.CreateAPIToken(alice.ID, "test", auth.HashToken("hosted-host"))
+	if err := st.ClaimPublishingUsername(alice.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	call = func(host, method, path string, in any) int {
+		t.Helper()
+		var body []byte
+		if in != nil {
+			body, _ = json.Marshal(in)
+		}
+		req := httptest.NewRequest(method, "http://"+host+path, strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Reet-Token", "hosted-host")
+		if host == "reet.example.com" {
+			req.Header.Set("X-Forwarded-Proto", "https")
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Logf("%s %s at %s: %d %s", method, path, host, rec.Code, rec.Body.String())
+		}
+		return rec.Code
+	}
+	visible = func() []string {
+		t.Helper()
+		shelf, _, err := st.ListFor(alice.ID, store.Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := []string{}
+		for _, sk := range shelf {
+			ids = append(ids, sk.ID)
+		}
+		return ids
+	}
+	return call, visible, st, alice.ID, h
+}
+
+// A skill published at the public address is unpublished, saved again and
+// deleted while browsing by another one. Its catalogue row is the same row
+// throughout.
+func TestHostedSkillIsOneRowFromEveryAddress(t *testing.T) {
+	call, visible, _, _, _ := hostedHostEnv(t)
+	sk := store.HostedSkill{Content: "---\nname: reet-x\ndescription: A hosted skill.\n---\n\nInstructions\n", Published: true}
+	const id = "hosted/reet.example.com/alice/reet-x"
+	if code := call("reet.example.com", "PUT", "/api/v2/hosting/skills/reet-x", sk); code != 200 {
+		t.Fatalf("publish: %d", code)
+	}
+	if got := visible(); len(got) != 1 || got[0] != id {
+		t.Fatalf("published: %v", got)
+	}
+	sk.Published = false
+	if code := call("localhost:8080", "PUT", "/api/v2/hosting/skills/reet-x", sk); code != 200 {
+		t.Fatalf("unpublish: %d", code)
+	}
+	if got := visible(); len(got) != 0 {
+		t.Fatalf("unpublished from another address, still in the catalogue: %v", got)
+	}
+	sk.Published = true
+	if code := call("localhost:8080", "PUT", "/api/v2/hosting/skills/reet-x", sk); code != 200 {
+		t.Fatalf("publish again: %d", code)
+	}
+	if got := visible(); len(got) != 1 || got[0] != id {
+		t.Fatalf("saved again from another address: %v", got)
+	}
+	if code := call("127.0.0.1:8080", "POST", "/api/v2/hosting/skills/reet-x/rename", map[string]string{"name": "reet-y"}); code != 200 {
+		t.Fatalf("rename: %d", code)
+	}
+	if got := visible(); len(got) != 1 || got[0] != "hosted/reet.example.com/alice/reet-y" {
+		t.Fatalf("renamed from another address: %v", got)
+	}
+	if code := call("127.0.0.1:8080", "DELETE", "/api/v2/hosting/skills/reet-y", nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	if got := visible(); len(got) != 0 {
+		t.Fatalf("deleted from another address, still in the catalogue: %v", got)
+	}
+}
+
+// With a public address configured the row is named by it however the author
+// browses, and a row made under an older address moves to it with its notes.
+func TestHostedSkillRowUsesThePublicAddress(t *testing.T) {
+	call, visible, st, uid, h := hostedHostEnv(t)
+	sk := store.HostedSkill{Content: "---\nname: reet-x\ndescription: A hosted skill.\n---\n\nInstructions\n", Published: true}
+	if code := call("localhost:8080", "PUT", "/api/v2/hosting/skills/reet-x", sk); code != 200 {
+		t.Fatalf("publish: %d", code)
+	}
+	const old = "hosted/localhost:8080/alice/reet-x"
+	if got := visible(); len(got) != 1 || got[0] != old {
+		t.Fatalf("published before the public address was set: %v", got)
+	}
+	note := "Keep this note"
+	if _, err := st.PatchFor(uid, old, store.Patch{Notes: &note}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ConfigureTerminalOrigin("https://reet.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if code := call("localhost:8080", "PUT", "/api/v2/hosting/skills/reet-x", sk); code != 200 {
+		t.Fatalf("save again: %d", code)
+	}
+	shelf, _, err := st.ListFor(uid, store.Filter{})
+	if err != nil || len(shelf) != 1 || shelf[0].ID != "hosted/reet.example.com/alice/reet-x" || shelf[0].Notes != note {
+		t.Fatalf("after the public address was set: %+v %v", shelf, err)
+	}
+	// A new skill is named by the public address from the start.
+	sk.Content = strings.Replace(sk.Content, "name: reet-x", "name: reet-new", 1)
+	if code := call("localhost:8080", "PUT", "/api/v2/hosting/skills/reet-new", sk); code != 200 {
+		t.Fatalf("publish a new skill: %d", code)
+	}
+	if got := visible(); len(got) != 2 || strings.Contains(strings.Join(got, " "), "localhost") {
+		t.Fatalf("published with a public address: %v", got)
+	}
 }

@@ -285,11 +285,12 @@ func (s *server) mcpUpdate(w http.ResponseWriter, r *http.Request) {
 		Scope         *string `json:"scope"`
 		Enabled       *bool   `json:"enabled"`
 		ExpiresInDays *int    `json:"expiresInDays"`
+		ApproveMerges *bool   `json:"approveMerges"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	oldScope := c.Scope
+	oldScope, oldApprove := c.Scope, c.ApproveMerges
 	if in.Name != nil {
 		c.Name = *in.Name
 	}
@@ -298,6 +299,14 @@ func (s *server) mcpUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Enabled != nil {
 		c.Enabled = *in.Enabled
+	}
+	if in.ApproveMerges != nil {
+		c.ApproveMerges = *in.ApproveMerges
+	}
+	// Approving a merge is a management control, so a read-only connection
+	// does not keep the permission to.
+	if c.Scope != "write" {
+		c.ApproveMerges = false
 	}
 	readOnlyOAuth := c.Kind == "oauth" && oldScope == "read"
 	widening := in.Scope != nil && *in.Scope == "write"
@@ -328,7 +337,13 @@ func (s *server) mcpUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "use a name of 1–100 characters and read or write permission")
 		return
 	}
-	s.eventRequest(r, "mcp-update", "", map[string]any{"name": c.Name, "scope": c.Scope, "enabled": c.Enabled})
+	if c.ApproveMerges != oldApprove {
+		if err := s.st.SetMCPConnectionApproveMerges(s.uid(r), c.ID, c.ApproveMerges); err != nil {
+			writeErr(w, 500, "could not save the connection")
+			return
+		}
+	}
+	s.eventRequest(r, "mcp-update", "", map[string]any{"name": c.Name, "scope": c.Scope, "enabled": c.Enabled, "approveMerges": c.ApproveMerges})
 	s.mcpStatus(w, r)
 }
 

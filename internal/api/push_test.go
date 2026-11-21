@@ -233,12 +233,14 @@ func TestPushLeavesAloneWhatItShould(t *testing.T) {
 func TestPushNeedsAnAccount(t *testing.T) {
 	srv, _, _, _, _ := privateFixture(t, AuthNone, "")
 	r := httptest.NewRequest("GET", "/api/v2/push", nil)
+	r.Host = "127.0.0.1"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"available":false`) {
 		t.Fatalf("status without accounts: %d %s", w.Code, w.Body.String())
 	}
 	r = httptest.NewRequest("POST", "/api/v2/push/subscriptions", strings.NewReader(`{"endpoint":"`+testEndpoint+`"}`))
+	r.Host = "127.0.0.1"
 	r.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
@@ -311,5 +313,55 @@ func TestPushTellsAChatTurnThatFinishedWhileTheSessionRunsOn(t *testing.T) {
 	f.srv.s.pushSweep(time.Now().Add(pushSettle))
 	if notes := f.pending(t); len(f.woken) != 2 || len(notes) != 1 || notes[0].Body != "Its turn stopped with a problem." {
 		t.Fatalf("a failed turn: woken %d, pending %+v", len(f.woken), notes)
+	}
+}
+
+// A browser keeps its push subscription when its person signs out. Woken for
+// them while somebody else is signed in, it must show that person nothing.
+func TestPushPendingShowsNothingForAnotherPersonsDevice(t *testing.T) {
+	f := newPushFixture(t)
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`"}`); code != 200 {
+		t.Fatalf("subscribe: %d %s", code, body)
+	}
+	f.session(t, "Refactor the store layer", time.Minute)
+	if notes := f.pending(t, "X-Reet-Push-Endpoint", testEndpoint); len(notes) != 1 {
+		t.Fatalf("the device's own person is shown %+v", notes)
+	}
+	if _, body := f.do(t, "GET", "/api/v2/push/pending", "", "X-Reet-Push-Endpoint", testEndpoint); strings.Contains(body, "unsubscribe") {
+		t.Fatalf("the device's own person is told to unsubscribe: %s", body)
+	}
+	other, err := f.st.CreateUser("other@example.com", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := f.cookie
+	f.cookie = terminalLogin(t, f.st, other.ID)
+	// Something of the other person's own is there to show: a test they asked for.
+	f.srv.s.push.mu.Lock()
+	f.srv.s.push.tests = map[int64]time.Time{other.ID: time.Now()}
+	f.srv.s.push.mu.Unlock()
+	if notes := f.pending(t); len(notes) != 1 || notes[0].Tag != "reet-test" {
+		t.Fatalf("asked without a device: %+v", notes)
+	}
+	code, body := f.do(t, "GET", "/api/v2/push/pending", "", "X-Reet-Push-Endpoint", testEndpoint)
+	var out struct {
+		Notifications []pushNote `json:"notifications"`
+		Unsubscribe   bool       `json:"unsubscribe"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &out) != nil || len(out.Notifications) != 0 || !out.Unsubscribe {
+		t.Fatalf("woken by another person's device: %d %s", code, body)
+	}
+	// Turned on by the person signed in, the device is theirs.
+	const second = "https://fcm.googleapis.com/fcm/send/second"
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+second+`"}`); code != 200 {
+		t.Fatalf("subscribe: %d %s", code, body)
+	}
+	if notes := f.pending(t, "X-Reet-Push-Endpoint", second); len(notes) != 1 || notes[0].Tag != "reet-test" {
+		t.Fatalf("their own device: %+v", notes)
+	}
+	// The first device is still its own person's.
+	f.cookie = owner
+	if devices, _ := f.st.PushSubscriptionsFor(f.uid); len(devices) != 1 {
+		t.Fatalf("the first person's device: %+v", devices)
 	}
 }

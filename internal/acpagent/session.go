@@ -4,6 +4,7 @@ package acpagent
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -836,7 +837,7 @@ func toolDetails(rawInput, rawOutput json.RawMessage) toolDetailsValue {
 			if detail.command == "" {
 				detail.command = input.CommandLine
 			}
-			detail.path = firstNonEmpty(input.FilePath, input.Filepath, input.Path)
+			detail.path = cmp.Or(input.FilePath, input.Filepath, input.Path)
 		}
 	}
 	if len(rawOutput) > 0 {
@@ -860,15 +861,6 @@ func toolDetails(rawInput, rawOutput json.RawMessage) toolDetailsValue {
 		}
 	}
 	return detail
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func contentText(raw json.RawMessage) string {

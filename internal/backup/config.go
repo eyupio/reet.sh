@@ -61,6 +61,8 @@ type S3 struct {
 	// it is stored. It is never written to a copy or a log.
 	Passphrase string
 	PathStyle  *bool
+	// PublicOnly holds a member's destination to the public internet.
+	PublicOnly bool
 }
 
 func (s S3) Configured() bool { return strings.TrimSpace(s.Endpoint) != "" }

@@ -159,7 +159,10 @@ func (s *Store) UsageFor(uid, from, to int64, limit int) (UsageReport, error) {
 		}
 		out.Tools = append(out.Tools, t)
 	}
-	if err := rows.Close(); err != nil {
+	// Next stops on an error as it does at the end; Err tells them apart.
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		return out, err
 	}
 
@@ -195,7 +198,9 @@ func (s *Store) UsageFor(uid, from, to int64, limit int) (UsageReport, error) {
 		}
 		out.Sessions = append(out.Sessions, r)
 	}
-	if err := rows.Close(); err != nil {
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		return out, err
 	}
 	if len(out.Sessions) > limit {

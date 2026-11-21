@@ -16,6 +16,8 @@ type MCPConnection struct {
 	ExpiresAt  int64  `json:"expiresAt"`
 	LastUsedAt int64  `json:"lastUsedAt"`
 	Kind       string `json:"kind"`
+	// ApproveMerges lets the connection approve a Factory pipeline's merge. It is off until its owner allows it.
+	ApproveMerges bool `json:"approveMerges"`
 }
 
 func (s *Store) migrateMCP() error {
@@ -25,7 +27,7 @@ func (s *Store) migrateMCP() error {
 		 id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		 name TEXT NOT NULL, hash TEXT NOT NULL UNIQUE, scope TEXT NOT NULL CHECK(scope IN ('read','write')), kind TEXT NOT NULL DEFAULT 'bearer',
 		 enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-		 last_used_at INTEGER NOT NULL DEFAULT 0, revoked_at INTEGER NOT NULL DEFAULT 0)`,
+		 last_used_at INTEGER NOT NULL DEFAULT 0, revoked_at INTEGER NOT NULL DEFAULT 0, approve_merges INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE INDEX IF NOT EXISTS idx_mcp_connections_user ON mcp_connections(user_id)`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -33,7 +35,7 @@ func (s *Store) migrateMCP() error {
 		}
 	}
 	// Add columns for installations that first enabled the bearer-token bridge.
-	for _, c := range []struct{ table, ddl string }{{"mcp_access", "browser_enabled INTEGER NOT NULL DEFAULT 0"}, {"mcp_access", "browser_scope TEXT NOT NULL DEFAULT 'read'"}, {"mcp_connections", "kind TEXT NOT NULL DEFAULT 'bearer'"}} {
+	for _, c := range []struct{ table, ddl string }{{"mcp_access", "browser_enabled INTEGER NOT NULL DEFAULT 0"}, {"mcp_access", "browser_scope TEXT NOT NULL DEFAULT 'read'"}, {"mcp_connections", "kind TEXT NOT NULL DEFAULT 'bearer'"}, {"mcp_connections", "approve_merges INTEGER NOT NULL DEFAULT 0"}} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
 			return err
@@ -89,7 +91,7 @@ func (s *Store) CreateMCPConnection(userID int64, name, scope, hash string, expi
 }
 
 func (s *Store) MCPConnections(userID int64) ([]MCPConnection, error) {
-	rows, err := s.db.Query(`SELECT id,name,scope,enabled,created_at,expires_at,last_used_at,kind FROM mcp_connections WHERE user_id=? AND revoked_at=0 ORDER BY created_at DESC,id DESC`, userID)
+	rows, err := s.db.Query(`SELECT id,name,scope,enabled,created_at,expires_at,last_used_at,kind,approve_merges FROM mcp_connections WHERE user_id=? AND revoked_at=0 ORDER BY created_at DESC,id DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +99,7 @@ func (s *Store) MCPConnections(userID int64) ([]MCPConnection, error) {
 	out := []MCPConnection{}
 	for rows.Next() {
 		var c MCPConnection
-		if err := rows.Scan(&c.ID, &c.Name, &c.Scope, &c.Enabled, &c.CreatedAt, &c.ExpiresAt, &c.LastUsedAt, &c.Kind); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Scope, &c.Enabled, &c.CreatedAt, &c.ExpiresAt, &c.LastUsedAt, &c.Kind, &c.ApproveMerges); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -113,6 +115,12 @@ func (s *Store) UpdateMCPConnection(userID, id int64, name, scope string, enable
 		return errors.New("invalid connection name or scope")
 	}
 	res, err := s.db.Exec(`UPDATE mcp_connections SET name=?,scope=?,enabled=?,expires_at=? WHERE id=? AND user_id=? AND revoked_at=0`, strings.TrimSpace(name), scope, enabled, expiresAt, id, userID)
+	return mcpChanged(res, err)
+}
+
+// SetMCPConnectionApproveMerges says whether one of the account's own connections may approve Factory merges.
+func (s *Store) SetMCPConnectionApproveMerges(userID, id int64, allowed bool) error {
+	res, err := s.db.Exec(`UPDATE mcp_connections SET approve_merges=? WHERE id=? AND user_id=? AND revoked_at=0`, allowed, id, userID)
 	return mcpChanged(res, err)
 }
 
@@ -152,11 +160,11 @@ func (s *Store) MCPUserFor(hash string, at int64, resource string) (User, MCPCon
 	var c MCPConnection
 	err := s.db.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.disabled_at,c.id,c.name,
 	 CASE WHEN c.kind='oauth' AND (SELECT scope FROM mcp_oauth_access WHERE hash=? AND connection_id=c.id)='read' THEN 'read' ELSE c.scope END,
-	 c.enabled,c.created_at,c.expires_at,c.last_used_at,c.kind
+	 c.enabled,c.created_at,c.expires_at,c.last_used_at,c.kind,c.approve_merges
 	 FROM mcp_connections c JOIN users u ON u.id=c.user_id JOIN mcp_access a ON a.user_id=u.id
 	 WHERE ((c.kind='bearer' AND c.hash=?) OR EXISTS (SELECT 1 FROM mcp_oauth_access t WHERE t.connection_id=c.id AND t.hash=? AND t.expires_at>? AND (?='' OR t.resource=?)))
 	 AND c.revoked_at=0 AND c.enabled=1 AND c.expires_at>? AND a.enabled=1 AND u.disabled_at=0`, hash, hash, hash, at, resource, resource, at).
-		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.DisabledAt, &c.ID, &c.Name, &c.Scope, &c.Enabled, &c.CreatedAt, &c.ExpiresAt, &c.LastUsedAt, &c.Kind)
+		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.DisabledAt, &c.ID, &c.Name, &c.Scope, &c.Enabled, &c.CreatedAt, &c.ExpiresAt, &c.LastUsedAt, &c.Kind, &c.ApproveMerges)
 	if errors.Is(err, sql.ErrNoRows) {
 		return u, c, false, nil
 	}

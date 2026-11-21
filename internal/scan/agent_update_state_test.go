@@ -87,13 +87,12 @@ func TestAnAgentReportsTheStageItIsOn(t *testing.T) {
 
 func TestAnUpdateRollsBackWhenRefusedOrAfterTheGraceWindow(t *testing.T) {
 	started := time.Now().Add(-time.Minute).UnixMilli()
-	if !shouldRollback(controllerError{Status: 403, Message: "machine enrollment is missing or revoked"}, started, time.Now()) {
-		t.Fatal("a refusal must roll back at once")
+	for _, status := range []int{400, 404, 409, 426} {
+		if !shouldRollback(controllerError{Status: status}, started, time.Now()) {
+			t.Fatalf("HTTP %d must roll back at once", status)
+		}
 	}
-	if !shouldRollback(controllerError{Status: 401}, started, time.Now()) {
-		t.Fatal("an authentication refusal must roll back at once")
-	}
-	for _, status := range []int{408, 429, 500, 502, 503} {
+	for _, status := range []int{401, 403, 408, 423, 429, 500, 502, 503} {
 		if shouldRollback(controllerError{Status: status}, started, time.Now()) {
 			t.Fatalf("HTTP %d rolled back inside the grace window", status)
 		}

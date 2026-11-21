@@ -157,3 +157,35 @@ func (l *Limiter) Hit(keys ...string) {
 		l.hits[key] = append(l.hits[key], now)
 	}
 }
+
+// Take records one attempt for every key if every key is still under the
+// limit, and reports whether it did. The check and the record happen under
+// one lock, so attempts made at the same moment cannot all slip through.
+func (l *Limiter) Take(keys ...string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	l.pruneLocked(now)
+	for _, key := range keys {
+		if len(l.hits[key]) >= l.max {
+			return false
+		}
+	}
+	for _, key := range keys {
+		l.hits[key] = append(l.hits[key], now)
+	}
+	return true
+}
+
+// Forgive takes back the newest attempt recorded for key, for an attempt
+// that turned out not to count.
+func (l *Limiter) Forgive(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	times := l.hits[key]
+	if len(times) <= 1 {
+		delete(l.hits, key)
+		return
+	}
+	l.hits[key] = times[:len(times)-1]
+}

@@ -490,9 +490,3 @@ export function support(key: CopyKey): string {
   const entry: CopyEntry = copy[key]
   return entry.support ?? ''
 }
-
-/** True when `t(key)` may return a Yorkshire variant. */
-export function hasDialect(key: CopyKey): boolean {
-  const entry: CopyEntry = copy[key]
-  return IMMERSIVE_SURFACES.has(entry.surface) && entry.reet !== undefined
-}

@@ -234,7 +234,9 @@ read only when the window's activity says it may have changed, at most every two
 
 Linux services use journal retention. Rotate macOS service logs and the detached
 fallback's private agent log with the host's log management; restart the agent
-after rotating a fallback log so its file descriptor reopens. Never rotate by
+after rotating a fallback log so its file descriptor reopens. Without rotation
+the agent log is still bounded: when the agent starts and finds its `agent.log`
+over 10 MiB it keeps the last 1 MiB. Never rotate by
 collecting terminal streams. For production use prefer native supervision.
 
 ## Disable, revoke, update and rollback

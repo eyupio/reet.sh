@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -146,7 +147,7 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 		}
 		if had := byName[key]; had != nil {
 			if !had.Native && entry.Native {
-				had.Agent, had.Native, had.Invocation = entry.Agent, true, skillInvocation(tool, had.Name, firstNonEmpty(had.Description, description))
+				had.Agent, had.Native, had.Invocation = entry.Agent, true, skillInvocation(tool, had.Name, cmp.Or(had.Description, description))
 			}
 			return
 		}
@@ -241,15 +242,6 @@ func buildSessionSkills(tool, host, dir, agentID string, skills []store.Skill, n
 		out.Skills = append(out.Skills, group...)
 	}
 	return out
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // terminalSessionSkills lists the skills a running session can use: those

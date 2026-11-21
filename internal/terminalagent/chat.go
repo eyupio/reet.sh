@@ -160,6 +160,16 @@ func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *C
 	return &ChatSupervisor{s: s}
 }
 
+// Close ends every chat process and waits for each process group to go. The
+// chats stay in the registry, so the next agent process resumes them. An agent
+// about to replace its own process image calls it first: the chats' pipes would
+// not survive the exec, and their processes would be left running.
+func (c *ChatSupervisor) Close() {
+	if c != nil && c.s != nil {
+		c.s.Close()
+	}
+}
+
 func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
 	ctx, cancel := context.WithCancel(ctx)
 	s := &chatSupervisor{

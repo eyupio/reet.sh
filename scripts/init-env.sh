@@ -6,6 +6,8 @@
 #   sh scripts/init-env.sh --rotate   generate a new REET_TOKEN (old bookmarklets stop working)
 #   sh scripts/init-env.sh --set SKILLS_SH_TOKEN=xyz   set any KEY=value in .env
 set -eu
+# .env holds REET_TOKEN: keep it, and the temporary copies, readable by the owner only.
+umask 077
 cd "$(dirname "$0")/.."
 
 rotate=0
@@ -21,6 +23,7 @@ $1" ;;
 done
 
 [ -f .env ] || { cp .env.example .env; echo "created .env from .env.example"; }
+chmod 600 .env
 
 get() { sed -n "s/^$1=//p" .env | head -n 1; }
 
@@ -28,11 +31,13 @@ get() { sed -n "s/^$1=//p" .env | head -n 1; }
 set_var() {
   tmp=$(mktemp)
   if grep -q "^$1=" .env; then
-    awk -v k="$1" -v v="$2" 'BEGIN{FS=OFS="="} $1==k && !done {print k "=" v; done=1; next} {print}' .env > "$tmp"
+    # The value goes through the environment: awk -v would expand backslash escapes in it.
+    REET_SET_VALUE=$2 awk -v k="$1" 'BEGIN{FS=OFS="="} $1==k && !done {print k "=" ENVIRON["REET_SET_VALUE"]; done=1; next} {print}' .env > "$tmp"
   else
     cat .env > "$tmp"; printf '%s=%s\n' "$1" "$2" >> "$tmp"
   fi
   cat "$tmp" > .env; rm -f "$tmp"
+  chmod 600 .env
 }
 
 new_token() {

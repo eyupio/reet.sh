@@ -346,13 +346,11 @@ func (s *server) profilePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "this account has no password; ask an admin to reset it")
 		return
 	}
-	keys := []string{clientIP(r), "profile:" + strconv.FormatInt(user.ID, 10)}
-	if !s.limiter.Allow(keys...) {
+	if !s.limiter.Take("profile:" + strconv.FormatInt(user.ID, 10)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
 	}
-	s.limiter.Hit(keys...)
 	if !auth.VerifyPassword(user.PasswordHash, in.Current) {
 		writeErr(w, http.StatusUnprocessableEntity, "that is not your current password")
 		return
@@ -386,6 +384,8 @@ func (s *server) profilePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.st.DeleteOtherSessions(user.ID, auth.HashToken(token))
+	// API tokens and MCP connections stay: machines sync with a token, and a
+	// routine change must not cut them off. A reset by email link revokes them.
 	s.event(user.ID, "ui", "password-change", "", map[string]any{"name": user.Name})
 	s.emitPasswordChanged(user, time.Now())
 	writeJSON(w, 200, map[string]any{"ok": true})

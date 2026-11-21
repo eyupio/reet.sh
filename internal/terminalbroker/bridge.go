@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -142,9 +143,10 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 	if err := write(vctx, c, websocket.MessageText, []byte(`{"type":"ready"}`)); err != nil {
 		return err
 	}
-	// Exactly 8 * 32 KiB pending output. Overflow closes the attachment; no
-	// dropped bytes are disguised as a complete live terminal.
-	output := make(chan []byte, terminalproto.MaxQueuedOutputBytes/terminalproto.MaxBinaryBytes)
+	// At most MaxQueuedOutputBytes of pending output, however small its
+	// frames. Overflow closes the attachment; no dropped bytes are disguised
+	// as a complete live terminal.
+	output := newOutputQueue()
 	errs := make(chan error, 4)
 	var wg sync.WaitGroup
 	start := func(fn func() error) {
@@ -168,9 +170,7 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 				return terminalproto.ErrInvalid
 			}
 			p.recordTraffic(0, len(data))
-			select {
-			case output <- data:
-			default:
+			if !output.push(data) {
 				return ErrOffline
 			}
 		}
@@ -178,7 +178,8 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 	start(func() error {
 		for {
 			select {
-			case data := <-output:
+			case data := <-output.frames:
+				output.took(data)
 				if err := write(vctx, c, websocket.MessageBinary, data); err != nil {
 					return err
 				}
@@ -263,6 +264,38 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 	wg.Wait()
 	return err
 }
+
+// maxQueuedOutputFrames bounds the queue's length, so a flood of tiny frames
+// cannot grow it without limit either.
+const maxQueuedOutputFrames = 1024
+
+// outputQueue is one attachment's output waiting for its browser: one reader
+// pushes, one writer takes.
+type outputQueue struct {
+	frames chan []byte
+	bytes  atomic.Int64
+}
+
+func newOutputQueue() *outputQueue {
+	return &outputQueue{frames: make(chan []byte, maxQueuedOutputFrames)}
+}
+
+// push queues a frame; false means the browser fell too far behind.
+func (q *outputQueue) push(data []byte) bool {
+	if q.bytes.Add(int64(len(data))) > terminalproto.MaxQueuedOutputBytes {
+		return false
+	}
+	select {
+	case q.frames <- data:
+		return true
+	default:
+		return false
+	}
+}
+
+// took accounts for a frame the writer received from frames.
+func (q *outputQueue) took(data []byte) { q.bytes.Add(-int64(len(data))) }
+
 func message(h terminalproto.StreamHello, body terminalproto.Body) terminalproto.Message {
 	return terminalproto.Message{Version: terminalproto.Version, Generation: h.Generation, RequestID: h.RequestID, SessionID: h.SessionID, AttachmentID: h.AttachmentID, AttachmentGeneration: h.AttachmentGeneration, Body: body}
 }

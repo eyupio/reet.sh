@@ -49,21 +49,26 @@
     }
   }
 
+  // Only the latest request may fill the detail pane: a slow earlier ticket must not replace a later one.
+  let detailSeq = 0
   async function loadDetail(id: number) {
+    const seq = ++detailSeq
     detailLoading = true
     try {
       const r = await adminGetTicket(id)
+      if (seq !== detailSeq) return
       selected = r.ticket
       messages = r.messages
       error = ''
     } catch (e) {
-      fail(e)
+      if (seq === detailSeq) fail(e)
     } finally {
-      detailLoading = false
+      if (seq === detailSeq) detailLoading = false
     }
   }
 
   function select(t: Ticket) {
+    if (t.id !== selected?.id) body = ''
     history.replaceState(null, '', `/admin/support?ticket=${t.id}`)
     void loadDetail(t.id)
   }
@@ -100,7 +105,7 @@
     error = ''
     try {
       const r = await adminSetTicketStatus(selected.id, next)
-      selected = r.ticket
+      if (selected?.id === r.ticket.id) selected = r.ticket
       notice = `Ticket is ${labels[next].toLowerCase()}.`
       await loadQueue()
     } catch (e) {
@@ -116,7 +121,7 @@
     error = ''
     try {
       const r = await adminAssignTicket(selected.id, next)
-      selected = r.ticket
+      if (selected?.id === r.ticket.id) selected = r.ticket
       notice = next ? `Assigned to ${r.ticket.assignee}.` : 'Ticket unassigned.'
       await loadQueue()
     } catch (e) {

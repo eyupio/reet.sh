@@ -113,6 +113,18 @@ type SkillFetcher interface {
 	Fetch(ctx context.Context, r ref.Ref) (skillfetch.Result, error)
 }
 
+// skillManyFetcher is a SkillFetcher that can get several skills of one
+// repository from one download of it; skillfetch.Fetcher is one.
+type skillManyFetcher interface {
+	FetchMany(ctx context.Context, refs []ref.Ref) []skillfetch.Outcome
+}
+
+// skillCopyFetches is how many background downloads run at a time across all
+// accounts: each can hold a whole repository archive in memory.
+const skillCopyFetches = 3
+
+var skillCopySlots = make(chan struct{}, skillCopyFetches)
+
 // WithSkillFetcher replaces how public skills are fetched. Only tests need it.
 func WithSkillFetcher(f SkillFetcher) Option { return func(s *server) { s.skillFetcher = f } }
 
@@ -205,11 +217,7 @@ func (s *server) runSkillCopies(uid int64) {
 		log.Printf("skill copies: %v", err)
 		return
 	}
-	for _, n := range needs {
-		if n.Kind == "fetch" && s.ctx.Err() == nil {
-			s.fetchSkillCopy(uid, n)
-		}
-	}
+	s.fetchSkillCopies(uid, needs)
 	for _, n := range needs {
 		if n.Kind != "capture" || s.ctx.Err() != nil {
 			continue
@@ -226,18 +234,75 @@ func (s *server) runSkillCopies(uid int64) {
 	}
 }
 
-func (s *server) fetchSkillCopy(uid int64, n store.SkillCopyNeed) {
-	r, ok, err := s.st.SkillSourceFor(uid, n.Item)
-	if err != nil {
-		log.Printf("skill copies: source of %s: %v", n.Name, err)
-		return
+// fetchSkillCopies downloads the skills of needs that are to be fetched.
+// Skills of one GitHub repository share one download of it, and only
+// skillCopyFetches downloads run at a time on this server.
+func (s *server) fetchSkillCopies(uid int64, needs []store.SkillCopyNeed) {
+	type group struct {
+		needs []store.SkillCopyNeed
+		refs  []ref.Ref
 	}
-	if !ok {
-		return
+	var groups []*group
+	repos := map[string]*group{}
+	for _, n := range needs {
+		if n.Kind != "fetch" {
+			continue
+		}
+		r, ok, err := s.st.SkillSourceFor(uid, n.Item)
+		if err != nil {
+			log.Printf("skill copies: source of %q: %v", n.Name, err)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		g := repos[r.Source]
+		if g == nil || r.SourceType != "github" {
+			g = &group{}
+			groups = append(groups, g)
+			if r.SourceType == "github" {
+				repos[r.Source] = g
+			}
+		}
+		g.needs, g.refs = append(g.needs, n), append(g.refs, r)
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, skillFetchTimeout)
-	defer cancel()
-	res, err := s.skillFetcher.Fetch(ctx, r)
+	for _, g := range groups {
+		select {
+		case skillCopySlots <- struct{}{}:
+		case <-s.ctx.Done():
+			return
+		}
+		func() {
+			defer func() { <-skillCopySlots }()
+			if s.ctx.Err() != nil {
+				return
+			}
+			for i, out := range s.fetchSkills(g.refs) {
+				s.saveSkillCopy(uid, g.needs[i], out.Result, out.Err)
+			}
+		}()
+	}
+}
+
+// fetchSkills fetches refs, which are one skill or several of one repository.
+func (s *server) fetchSkills(refs []ref.Ref) []skillfetch.Outcome {
+	if many, ok := s.skillFetcher.(skillManyFetcher); ok && len(refs) > 1 {
+		ctx, cancel := context.WithTimeout(s.ctx, skillFetchTimeout)
+		defer cancel()
+		return many.FetchMany(ctx, refs)
+	}
+	out := make([]skillfetch.Outcome, len(refs))
+	for i, r := range refs {
+		ctx, cancel := context.WithTimeout(s.ctx, skillFetchTimeout)
+		out[i].Result, out[i].Err = s.skillFetcher.Fetch(ctx, r)
+		cancel()
+	}
+	return out
+}
+
+// saveSkillCopy keeps what a fetch of the skill n returned, or notes why it
+// has no files.
+func (s *server) saveSkillCopy(uid int64, n store.SkillCopyNeed, res skillfetch.Result, err error) {
 	problem := ""
 	if err == nil {
 		// The fetch picked the folder by a loose match of the name, so the

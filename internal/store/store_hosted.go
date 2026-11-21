@@ -311,8 +311,48 @@ func (s *Store) DeleteHostedSkill(userID int64, slug, skillID string) error {
 				return err
 			}
 		}
-		return nil
+		// The row may have been made under another address of this server.
+		_, err = tx.Exec(`UPDATE skills SET hidden=1 WHERE `+ownHostedRow, slug, userID)
+		return err
 	})
+}
+
+// ownHostedRow matches the catalogue rows of one person's written skill under
+// every address this server was reached by: a hosted row's source is
+// <host>/<username>. Its arguments are the slug and the user id.
+const ownHostedRow = `source_type='hosted' AND slug=? AND substr(source,instr(source,'/')+1)=(SELECT username FROM publishers WHERE user_id=?)`
+
+// HideHostedSkill hides the shelf projection of a person's written skill,
+// whichever address of this server it was published from.
+func (s *Store) HideHostedSkill(userID int64, slug string) error {
+	_, err := s.db.Exec(`UPDATE skills SET hidden=1 WHERE `+ownHostedRow, slug, userID)
+	return err
+}
+
+// HostedSkillRefs lists the catalogue rows of a person's written skill, one
+// per address it was published from: the visible ones first, then the newest.
+func (s *Store) HostedSkillRefs(userID int64, slug string) ([]ref.Ref, error) {
+	rows, err := s.db.Query(`SELECT id,source,slug,source_type,url FROM skills WHERE `+ownHostedRow+` ORDER BY hidden,updated_at DESC,id`, slug, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var refs []ref.Ref
+	for rows.Next() {
+		var r ref.Ref
+		if err := rows.Scan(&r.ID, &r.Source, &r.Slug, &r.SourceType, &r.URL); err != nil {
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	return refs, rows.Err()
+}
+
+// MoveHostedSkillRef gives the catalogue row oldRef the address newRef, with
+// its tags, notes and list membership. It must not be used when newRef has a
+// row already.
+func (s *Store) MoveHostedSkillRef(oldRef, newRef ref.Ref) error {
+	return s.withTx(func(tx *sql.Tx) error { return moveHostedReferencesTx(tx, oldRef, newRef) })
 }
 
 // SetHostedSkillVisible shows or hides the shelf projection of a written skill.

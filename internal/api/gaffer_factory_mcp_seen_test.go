@@ -3,37 +3,19 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/eyupio/reet.sh/internal/meta"
-	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
 // factoryMCPFixture is a controller with remote sessions on and one owner,
-// whose Factory tools are called as a connection with management scope.
+// whose Factory tools are called as a connection with management scope that
+// the owner has allowed to approve merges.
 func factoryMCPFixture(t *testing.T) (*server, store.User, mcpAccess) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	seal, _ := sealed.NewSealer(strings.Repeat("gaffer-test-", 8), "test")
-	h := New(st, meta.Fetcher{}, "bootstrap", WithAuthMode(AuthAccounts), WithPublicURL("http://localhost:8080"), WithRemoteTerminals(true), WithGafferProviders(seal))
-	srv := httptest.NewServer(h)
-	t.Cleanup(func() { srv.Close(); h.Close(); st.Close() })
-	owner := &http.Client{Jar: mustJar(t)}
-	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.test","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
-		t.Fatalf("setup %d", code)
-	}
-	user, ok, err := st.UserByEmail("owner@example.test")
-	if err != nil || !ok {
-		t.Fatalf("owner: %v %v", ok, err)
-	}
-	return h.s, user, mcpAccess{User: user, Connection: store.MCPConnection{ID: 2, Name: "manager", Scope: "write"}}
+	s, _, _, user := factoryMCPServer(t)
+	return s, user, mcpAccess{User: user, Connection: store.MCPConnection{ID: 2, Name: "manager", Scope: "write", ApproveMerges: true}}
 }
 
 // factoryRecord saves an outcome with one pipeline in the given state.

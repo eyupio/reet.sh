@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -235,11 +236,10 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 422, map[string]string{"error": fmt.Sprintf("The prompt including image paths must fit in %d bytes.", terminalproto.MaxPromptBytes)})
 		return
 	}
-	key := fnv.New32a()
-	_, _ = key.Write([]byte(r.PathValue("id")))
-	lock := &s.backlogStarts[key.Sum32()%uint32(len(s.backlogStarts))]
-	lock.Lock()
-	defer lock.Unlock()
+	// Only starts of this account's same draft wait for each other: the lock is
+	// held across the machine's answer, which can take minutes.
+	unlock := s.backlogStarts.lock(strconv.FormatInt(s.uid(r), 10) + "/" + r.PathValue("id"))
+	defer unlock()
 	// An idea is only a placeholder; it must gain a prompt (and lose the flag) before it can start.
 	cur, curErr := s.st.SessionDraftFor(s.uid(r), r.PathValue("id"))
 	if curErr == nil && cur.Idea {
@@ -297,4 +297,40 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 		_ = s.st.ReleaseSessionDraftFor(s.uid(r), d.ID, d.Version)
 	}
 	_ = s.st.CompleteSessionDraftFor(s.uid(r), d.ID)
+}
+
+// keyedLocks is one lock per key, kept only while somebody holds or waits for
+// it. The zero value is ready to use.
+type keyedLocks struct {
+	mu    sync.Mutex
+	locks map[string]*keyedLock
+}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lock waits for the key's lock and returns its unlock, to be called once.
+func (k *keyedLocks) lock(key string) func() {
+	k.mu.Lock()
+	if k.locks == nil {
+		k.locks = map[string]*keyedLock{}
+	}
+	l := k.locks[key]
+	if l == nil {
+		l = &keyedLock{}
+		k.locks[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(k.locks, key)
+		}
+		k.mu.Unlock()
+	}
 }

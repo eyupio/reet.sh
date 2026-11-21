@@ -5,6 +5,7 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -158,10 +159,58 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, saved)
 }
 
+// hostedRef names the catalogue row of a written skill. The row is named by
+// the server's public address when one is configured, and by the address of
+// the request otherwise, so that it does not depend on how the author happens
+// to be browsing.
+func (s *server) hostedRef(r *http.Request, username, slug string) (ref.Ref, error) {
+	if origin := strings.TrimRight(s.publicOrigin(), "/"); origin != "" {
+		if u, err := url.Parse(origin); err == nil && u.Host != "" {
+			if rf, err := ref.ParseAt(origin+"/"+username+"/"+slug, u.Host); err == nil && rf.SourceType == "hosted" {
+				return rf, nil
+			}
+		}
+	}
+	return ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
+}
+
+// ownHostedRef is hostedRef for a skill of the signed-in person, brought
+// together with the rows the skill has under other addresses of this server:
+// one made before the public address was set, or from another way in. With a
+// public address the row moves to it; without one the row that exists is used.
+// Any further rows are hidden, so the skill is in the catalogue once.
+func (s *server) ownHostedRef(r *http.Request, username, slug string) (ref.Ref, error) {
+	rf, err := s.hostedRef(r, username, slug)
+	if err != nil {
+		return rf, err
+	}
+	rows, err := s.st.HostedSkillRefs(s.uid(r), slug)
+	if err != nil || len(rows) == 0 {
+		return rf, err
+	}
+	exists := false
+	for _, row := range rows {
+		exists = exists || row.ID == rf.ID
+	}
+	if !exists {
+		if s.publicOrigin() == "" {
+			rf = rows[0]
+		} else if err := s.st.MoveHostedSkillRef(rows[0], rf); err != nil {
+			return rf, err
+		}
+	}
+	if len(rows) > 1 {
+		if err := s.st.HideHostedSkill(s.uid(r), slug); err != nil {
+			return rf, err
+		}
+	}
+	return rf, nil
+}
+
 // addHostedSkillToShelf keeps a published reet skill in the shared catalogue
 // and puts it on the author's shelf in To test so they can try what they ship.
 func (s *server) addHostedSkillToShelf(r *http.Request, username string, skill store.HostedSkill) {
-	rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+skill.Slug, r.Host)
+	rf, err := s.ownHostedRef(r, username, skill.Slug)
 	if err != nil {
 		return
 	}
@@ -179,8 +228,14 @@ func (s *server) addHostedSkillToShelf(r *http.Request, username string, skill s
 	_ = s.st.SetMeta(rf.ID, skill.Slug, skill.Description, 0, 0, nil)
 }
 
+// setHostedSkillVisible shows or hides the shelf projection of the signed-in
+// person's written skill. Hiding covers the rows of every address.
 func (s *server) setHostedSkillVisible(r *http.Request, username, slug string, visible bool) {
-	rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
+	if !visible {
+		_ = s.st.HideHostedSkill(s.uid(r), slug)
+		return
+	}
+	rf, err := s.ownHostedRef(r, username, slug)
 	if err != nil {
 		return
 	}
@@ -221,9 +276,11 @@ func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "claim a publishing username first")
 		return
 	}
-	oldRef, oldErr := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
-	newRef, newErr := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+name, r.Host)
-	if oldErr != nil || newErr != nil {
+	oldRef, oldErr := s.ownHostedRef(r, username, slug)
+	// The new name stays at the address the row has.
+	host, _, _ := strings.Cut(oldRef.Source, "/")
+	newRef, newErr := ref.ParseAt(strings.TrimSuffix(oldRef.URL, slug)+name, host)
+	if oldErr != nil || newErr != nil || newRef.SourceType != "hosted" {
 		writeErr(w, 400, "that skill name cannot be used")
 		return
 	}
@@ -254,7 +311,7 @@ func (s *server) hostedDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	skillID := ""
 	if username, err := s.st.PublishingUsername(s.uid(r)); err == nil && username != "" {
-		if rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host); err == nil {
+		if rf, err := s.hostedRef(r, username, slug); err == nil {
 			skillID = rf.ID
 		}
 	}

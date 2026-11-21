@@ -8,7 +8,7 @@ const dataUrl = code => `data:text/javascript;base64,${Buffer.from(code).toStrin
 const point = (code, from, url) => code.replace(new RegExp(`(['"])${from.replace(/[./]/g, c => `\\${c}`)}\\1`), JSON.stringify(url))
 // The one rule imports the session model, the list model and the merged list: each is pointed at a compiled copy.
 const attentionUrl = dataUrl(compile('../attention.ts'))
-const homeUrl = dataUrl(point(compile('../home.ts'), './attention', attentionUrl))
+const homeUrl = dataUrl(point(point(compile('../home.ts'), './attention', attentionUrl), './time', dataUrl(compile('../time.ts'))))
 const outcomeUrl = dataUrl(compile('../gafferOutcome.ts'))
 const listUrl = dataUrl(point(compile('../factory/factoryList.ts'), '../gafferOutcome', outcomeUrl))
 const waitingUrl = dataUrl(point(compile('./homeWaiting.ts'), '../factory/factoryList', listUrl))

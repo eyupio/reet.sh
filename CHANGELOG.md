@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **MCP connections no longer approve merges unless you allow it**: `reet_approve_pipeline_merge` is refused for a
+  bearer-token or OAuth connection until **May approve Factory merges** is switched on for it under
+  **Account → MCP access**. The switch is off for every connection, existing ones included. A Factory stage's agent
+  can use the same connection as your own client on its machine, so turn it on only for a client you trust. Approving
+  on the Factory page, through Gaffer's own tools and through Browser WebMCP is unchanged.
 - **Use a published skill without installing it**: **Copy prompt** for a published skill is now the
   `npx skills use "<its reet.sh page>" --skill "<name>"` prompt, which fetches the skill for one session, so you, or
   anyone if it is public, can use it on a machine that does not have it. It is on the Skills page, in Write a skill, on

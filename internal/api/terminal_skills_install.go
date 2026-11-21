@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -63,7 +62,7 @@ func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnprocessableEntity, missing)
 			return
 		}
-		rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
+		rf, err := s.hostedRef(r, username, slug)
 		if err != nil {
 			writeJSON(w, http.StatusUnprocessableEntity, missing)
 			return

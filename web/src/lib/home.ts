@@ -1,6 +1,7 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
 import type { GafferGoalOverview, SyncState } from './api'
 import { ATTENTION_WINDOW_MS, attentionRuleOf, isBlocked } from './attention'
+import { agoLabel } from './time'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
 // No DOM, no fetch. Every figure is labelled with what it measures and comes from a record that exists today:
@@ -114,17 +115,10 @@ function cpuOf(m: MachineHealth): FleetCard['cpu'] {
   return { label: 'CPU', percent: value, text: `${Math.round(value)}%` }
 }
 
-function ago(ms: number): string {
-  if (ms < MINUTE) return 'just now'
-  if (ms < HOUR) return `${Math.floor(ms / MINUTE)} min ago`
-  if (ms < DAY) return `${Math.floor(ms / HOUR)} h ago`
-  return `${Math.floor(ms / DAY)} d ago`
-}
-
 function skillsOf(agentId: string, sync: SyncState, now: number): FleetCard['skills'] {
   const report = sync.skillReports?.machines.find(m => m.agentId === agentId)
   if (!report) return { text: 'Not checked', tone: 'muted' }
-  if (report.state === 'ok') return { text: `skills in sync · connector seen ${ago(Math.max(0, now - report.lastSeen))}`, tone: 'good' }
+  if (report.state === 'ok') return { text: `skills in sync · connector seen ${agoLabel(report.lastSeen, now, true)}`, tone: 'good' }
   const labels = {installing:'Installing skills',removing:'Removing skills',updating:'Updating skills',paused:'Skill sync paused',offline:'Skill sync offline',blocked:"Can't write skills",failed:'Skill sync failed','needs-update':'Update connector for skills','needs-newer-controller':'Update controller for skills'}
   return { text: labels[report.state] ?? 'Not checked', tone: 'warn' }
 }

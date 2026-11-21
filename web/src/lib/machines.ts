@@ -26,7 +26,6 @@ export function machineMatchesSearch(machine: Machine, query: string): boolean {
   const haystack = `${machine.host} ${(machine.aliases ?? []).join(' ')} ${skills}`.toLowerCase()
   return term.split(/\s+/).every(word => haystack.includes(word))
 }
-export function inventoryGroups(machine?: Machine, group = ''): SyncEnvironment[] { return agentGroups(machine).filter(g => !group || g.id === group) }
 export function inventory(groups: SyncEnvironment[]): SyncSkill[] {
   return [...new Map(groups.flatMap(g => g.skills ?? []).map(s => [s.id, s])).values()].sort((a, b) => a.name.localeCompare(b.name))
 }

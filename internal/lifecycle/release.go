@@ -322,6 +322,22 @@ func FetchReleaseBinary(ctx context.Context, client *http.Client, api, root, tag
 	return fetchBinary(ctx, client, api, root, tag, dir)
 }
 
+// StageDir makes a private folder for a downloaded build that is about to be
+// run. It goes beside the binary it will replace, because the system temporary
+// folder may be mounted noexec; that folder is used only when none of beside
+// can be written. The caller removes the returned folder.
+func StageDir(beside ...string) (string, error) {
+	for _, path := range beside {
+		if path == "" {
+			continue
+		}
+		if dir, err := os.MkdirTemp(filepath.Dir(path), ".reet-stage-*"); err == nil {
+			return dir, nil
+		}
+	}
+	return os.MkdirTemp("", "reet-stage-*")
+}
+
 // ReplaceBinary atomically copies source over target.
 func ReplaceBinary(source, target string) error { return replaceBinary(source, target) }
 

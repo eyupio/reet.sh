@@ -204,6 +204,9 @@ func launchAgentDaemon(config string, cmd *exec.Cmd) (int, error) {
 	if err = terminalhost.CheckEnrollmentConfig(logPath); err != nil && !os.IsNotExist(err) {
 		return 0, err
 	}
+	if err == nil {
+		_ = trimAgentLog(logPath, agentLogLimit, agentLogKeep)
+	}
 	fd, err := unix.Open(logPath, unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0600)
 	if err != nil {
 		return 0, err

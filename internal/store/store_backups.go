@@ -549,6 +549,38 @@ func (s *Store) CreateBackupRemote(r BackupRemote) (BackupRemote, error) {
 	return r, nil
 }
 
+// RenameBackupRemote replaces the destination called oldName with r, which
+// carries the new name, as a new row. Both happen in one transaction, so a
+// refused name or a crash part way leaves the old row as it was.
+func (s *Store) RenameBackupRemote(oldName string, r BackupRemote) (BackupRemote, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return r, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`DELETE FROM backup_remotes WHERE owner_id=? AND name=?`, r.OwnerID, strings.ToLower(strings.TrimSpace(oldName)))
+	if err != nil {
+		return r, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return r, ErrNotFound
+	}
+	t := now()
+	res, err = tx.Exec(`INSERT INTO backup_remotes(owner_id,name,endpoint,region,bucket,prefix,access_key,secret_sealed,
+		path_style,keep,disabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.OwnerID, r.Name, r.Endpoint, r.Region, r.Bucket, r.Prefix, r.AccessKey, r.SecretSealed,
+		r.PathStyle, r.Keep, b2i(&r.Disabled), t, t)
+	if err != nil {
+		return r, err
+	}
+	if err := tx.Commit(); err != nil {
+		return r, err
+	}
+	r.ID, _ = res.LastInsertId()
+	r.CreatedAt, r.UpdatedAt = t, t
+	return r, nil
+}
+
 func (s *Store) UpdateBackupRemote(r BackupRemote) error {
 	res, err := s.db.Exec(`UPDATE backup_remotes SET endpoint=?,region=?,bucket=?,prefix=?,access_key=?,secret_sealed=?,
 		path_style=?,keep=?,disabled=?,updated_at=? WHERE owner_id=? AND name=?`,

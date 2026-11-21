@@ -47,10 +47,8 @@ try{
   expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   await w.page.screenshot({path:`${shots}/admin-${width}-${theme}.png`,fullPage:true})
 
-  await w.page.goto(base+'/factory')
-  // On a phone, choose the pipeline before its stage detail opens.
-  const line=w.page.getByRole('button',{name:/Settings interface/}).first()
-  await expect(line).toBeVisible();await line.click()
+  // The shared pipeline link opens its detail on desktop and phone.
+  await w.page.goto(`${base}/factory?pipeline=${outcome.id}.a`)
   const design=w.page.locator('.detail .stages button').nth(1)
   await expect(design).toBeVisible();await design.click()
   const buddy=w.page.locator('[data-skill-buddy]')

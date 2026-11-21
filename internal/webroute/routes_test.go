@@ -6,7 +6,7 @@ func TestAppPagesArePages(t *testing.T) {
 	for _, path := range []string{
 		"/", "/factory", "/prompts", "/prompts/", "/usage", "/usage/", "/desks", "/desks/",
 		"/desks/0123456789abcdef0123456789abcdef", "/desks/0123456789abcdef0123456789abcdef/",
-		"/sync/advanced", "/account/mcp/authorize", "/lists/1", "/l/example", "/support/12",
+		"/sync/advanced", "/sync/advanced/", "/account/mcp/authorize", "/lists/1", "/l/example", "/support/12",
 		"/admin/overview", "/join/token",
 	} {
 		if !Page(path) {

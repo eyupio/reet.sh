@@ -46,15 +46,19 @@ func TestDisabledDefaultsAndUntrustedInstructionsDoNotDriveMatching(t *testing.T
 	}
 }
 
-func TestUnslopIsIntegratedAndOfferedForUXWork(t *testing.T){
-	for _,stage:=range []string{"design","code","review"}{
-		found:=false
-		for _,sk:=range Recommend("Unslop this UX and UI design",stage,Builtins()){
-			if sk.ID=="builtin:unslop"{
-				found=true
-				if sk.Source!="builtin"||sk.Instructions==""||len(Prompt(sk))>1500||!strings.Contains(sk.Instructions,"CC BY 4.0"){t.Fatalf("not usable inline: %+v",sk)}
+func TestUnslopIsIntegratedAndOfferedForUXWork(t *testing.T) {
+	for _, stage := range []string{"design", "code", "review"} {
+		found := false
+		for _, sk := range Recommend("Unslop this UX and UI design", stage, Builtins()) {
+			if sk.ID == "builtin:unslop" {
+				found = true
+				if sk.Source != "builtin" || sk.Instructions == "" || len(Prompt(sk)) > 1500 || !strings.Contains(Prompt(sk), "CC BY 4.0") {
+					t.Fatalf("not usable inline: %+v", sk)
+				}
 			}
 		}
-		if !found{t.Fatalf("Unslop not offered during %s",stage)}
+		if !found {
+			t.Fatalf("Unslop not offered during %s", stage)
+		}
 	}
 }

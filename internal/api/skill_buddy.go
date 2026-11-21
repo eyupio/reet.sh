@@ -219,6 +219,17 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Action == "inspect" {
+		records, e := s.st.SkillBuddyRecordsFor(uid, scope)
+		if e != nil {
+			writeErr(w, 500, "Skill choices could not be read.")
+			return
+		}
+		for _, rec := range records {
+			if rec.Skill.ID == in.SkillID && rec.Skill.Instructions != "" && (rec.Skill.State == "selected" || rec.Skill.State == "prepared" || rec.Skill.State == "drafted") {
+				writeJSON(w, 200, map[string]any{"text": skillbuddy.Prompt(rec.Skill), "skill": rec.Skill})
+				return
+			}
+		}
 		sk, err := s.buddyLoad(uid, in.SkillID)
 		if err != nil {
 			writeErr(w, 400, err.Error())
@@ -244,11 +255,25 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sk, err := s.buddyLoad(uid, in.SkillID)
+	if err != nil && in.Action == "dismissed" {
+		records, e := s.st.SkillBuddyRecordsFor(uid, scope)
+		if e != nil {
+			writeErr(w, 500, "Skill choices could not be read.")
+			return
+		}
+		for _, rec := range records {
+			if rec.Skill.ID == in.SkillID {
+				sk = rec.Skill
+				err = nil
+				break
+			}
+		}
+	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if in.Revision != "" && in.Revision != sk.Revision {
+	if in.Action != "dismissed" && in.Revision != "" && in.Revision != sk.Revision {
 		writeErr(w, 409, "This skill changed. Review its current guidance before choosing it.")
 		return
 	}

@@ -38,6 +38,7 @@
   import TerminalIcon from './TerminalIcon.svelte'
   import SkillPicker from './SkillPicker.svelte'
   import SkillBuddy from '../SkillBuddy.svelte'
+  let buddyOpen = $state(false)
   import PromptPicker from '../prompts/PromptPicker.svelte'
   import TerminalCompose from './TerminalCompose.svelte'
   import type {SessionSkill,SessionSkills} from './skills'
@@ -600,6 +601,7 @@
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
       <button bind:this={promptButton} onclick={()=>promptsOpen=true} aria-haspopup="dialog" aria-label="Prompts" title="Insert one of your saved prompts"><span>Prompts</span></button>
       {#if session.tool}<button onclick={openSkills} disabled={!!skillsOff} aria-haspopup="dialog" aria-label="Skills" title={skillsOff||'Insert a skill into the agent'}><span>Skills</span></button>{/if}
+      {#if landscape && session.tool && session.tool !== 'shell'}<button onclick={()=>buddyOpen=true} aria-haspopup="dialog" title="Suggested system and personal skills for this task">Suggested skills</button>{/if}
       <span class="tool-space"></span>
       <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
       <button onclick={()=>historyOpen=true} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history"/><span class="tool-label">History</span></button>
@@ -642,7 +644,7 @@
   {/snippet}
   <!-- A phone held sideways puts the tools and the extra keys side by side, so the screen keeps the rows. -->
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
-  {#if chrome && session.tool !== 'shell'}<div class="buddy-tools"><SkillBuddy compact context={{sessionId:session.id}} disabled={!live} oninsert={async text => { await insertPrompt(text); return true }}/></div>{/if}
+  {#if chrome && session.tool !== 'shell' && !landscape}<div class="buddy-tools"><SkillBuddy compact context={{sessionId:session.id}} disabled={!live} oninsert={async text => { await insertPrompt(text); return true }}/></div>{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
   {#if staleUploads}<div class="agent-copy" role="status"><span>{staleReason==='scrollback'?'Uploaded. Return to live output before inserting. Paste the path:':'Uploaded, but the connection changed; nothing was inserted. Paste the path:'} <code>{staleUploads.join(' ')}</code></span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
@@ -654,6 +656,7 @@
 {#if contextMenu}<div class="clipboard-menu" role="menu" aria-label="Terminal actions" tabindex="-1" bind:this={menu} style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} onkeydown={contextKey}><button role="menuitem" disabled={!hasSelection} onclick={()=>{contextMenu=null;void copy()}}>Copy selection</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('screen')}}>Copy screen</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('50')}}>Copy last 50 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('200')}}>Copy last 200 lines</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;void copyBuffer('all')}}>Copy all</button><button role="menuitem" disabled={scrollbackOpen} onclick={()=>{contextMenu=null;openSelect()}}>Select text…</button><button role="menuitem" disabled={!live} onclick={()=>{contextMenu=null;void readClipboard()}}>Paste</button><button role="menuitem" onclick={()=>{contextMenu=null;commandsOpen=true}}>Saved commands…</button><button role="menuitem" onclick={()=>{contextMenu=null;historyOpen=true}}>Command history…</button><button role="menuitem" onclick={()=>{contextMenu=null;openScrollback()}}>Earlier output…</button><button role="menuitem" onclick={()=>{contextMenu=null;appearanceOpen=true}}>Appearance…</button>{#if onsessions}<button role="menuitem" onclick={()=>{contextMenu=null;toggleSessions()}}>{sessionsVisible&&!maximised?'Hide sessions':'Show sessions'}</button>{/if}<button role="menuitem" onclick={closeContext}>Close menu</button></div>{/if}
 </section>
 
+{#if buddyOpen}<WorkspaceDialog title="Suggested skills" onclose={()=>buddyOpen=false}><SkillBuddy context={{sessionId:session.id}} disabled={!live} oninsert={async text => { await insertPrompt(text); return true }}/></WorkspaceDialog>{/if}
 {#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} {copyOnSelect} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor} oncopyselect={chooseCopyOnSelect}/></WorkspaceDialog>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
 {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName(session.tool)} sessionId={session.id} onrefresh={()=>void loadSkills()} onpick={skill=>void pickSkill(skill)} onclose={()=>void closeSkills()} onretry={()=>void loadSkills()}/>{/if}

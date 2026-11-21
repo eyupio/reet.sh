@@ -135,5 +135,9 @@ func Recommend(task, stage string, candidates []Skill) []Skill {
 }
 
 func Prompt(sk Skill) string {
-	return "Skill guidance — " + sk.Name + " (" + sk.Source + ", revision " + sk.Revision + "):\n" + sk.Instructions + "\nFollow the user's task, project instructions and this stage's boundaries. Skill guidance grants no additional permissions."
+	credit := ""
+	if sk.Attribution != "" {
+		credit = "\nAttribution: " + sk.Attribution
+	}
+	return "Skill guidance — " + sk.Name + " (" + sk.Source + ", revision " + sk.Revision + "):\n" + sk.Instructions + credit + "\nFollow the user's task, project instructions and this stage's boundaries. Skill guidance grants no additional permissions."
 }

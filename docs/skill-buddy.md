@@ -29,7 +29,7 @@ session link and add guidance there. A completed stage remains readable.
 
 ## Integrated Unslop
 
-**Unslop** is a built-in, selectable UX/UI skill for design, code and review work. The compact reet adaptation fits beside a task in a chat message or Factory stage prompt and needs no external plugin. It preserves credit to Damir Sokolovsky (@heydamir), CC BY 4.0, and its upstream link. Administrators can maintain or disable it like other system skills. It is an adaptation, not the complete upstream toolkit and reference bundle.
+**Unslop** is a built-in, selectable UX/UI skill for design, code and review work. The compact reet adaptation fits beside a task in a chat message or Factory stage prompt and needs no external plugin. It preserves credit to Damir Sokolovsky (@heydamir), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and its upstream link. Administrators can maintain or disable it like other system skills. It is an adaptation, not the complete upstream toolkit and reference bundle.
 
 ## Built-ins, your library and community
 

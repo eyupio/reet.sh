@@ -35,9 +35,19 @@ func (s *Store) migrateSkillBuddy() error {
 	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	scope TEXT NOT NULL,skill_id TEXT NOT NULL,name TEXT NOT NULL,source TEXT NOT NULL,
 	revision TEXT NOT NULL,reason TEXT NOT NULL,stage TEXT NOT NULL,session_id TEXT NOT NULL DEFAULT '',
-	instructions TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'suggested',at INTEGER NOT NULL,
+	instructions TEXT NOT NULL DEFAULT '',attribution TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'suggested',at INTEGER NOT NULL,
 	PRIMARY KEY(user_id,scope,skill_id));
 	CREATE INDEX IF NOT EXISTS skill_buddy_recent ON skill_buddy_choices(user_id,at)`)
+	if err != nil {
+		return err
+	}
+	has, err := hasColumn(s.db, "skill_buddy_choices", "attribution")
+	if err != nil {
+		return err
+	}
+	if !has {
+		_, err = s.db.Exec(`ALTER TABLE skill_buddy_choices ADD COLUMN attribution TEXT NOT NULL DEFAULT ''`)
+	}
 	return err
 }
 
@@ -55,13 +65,14 @@ func (s *Store) RecordSkillBuddyFor(uid int64, scope, session, stage string, sk 
 	if sk.State == "suggested" || sk.State == "dismissed" {
 		sk.Instructions = ""
 	}
-	_, err := s.db.Exec(`INSERT INTO skill_buddy_choices(user_id,scope,skill_id,name,source,revision,reason,stage,session_id,instructions,state,at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO skill_buddy_choices(user_id,scope,skill_id,name,source,revision,reason,stage,session_id,instructions,attribution,state,at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 	ON CONFLICT(user_id,scope,skill_id) DO UPDATE SET
 	name=CASE WHEN excluded.state='suggested' THEN name ELSE excluded.name END,
 	revision=CASE WHEN excluded.state='suggested' THEN revision ELSE excluded.revision END,
 	instructions=CASE WHEN excluded.state='suggested' THEN instructions ELSE excluded.instructions END,
+	attribution=CASE WHEN excluded.state='suggested' THEN attribution ELSE excluded.attribution END,
 	state=CASE WHEN excluded.state='suggested' THEN state ELSE excluded.state END,
-	at=CASE WHEN excluded.state='suggested' THEN at ELSE excluded.at END`, uid, scope, sk.ID, sk.Name, sk.Source, sk.Revision, sk.Reason, stage, session, sk.Instructions, sk.State, now())
+	at=CASE WHEN excluded.state='suggested' THEN at ELSE excluded.at END`, uid, scope, sk.ID, sk.Name, sk.Source, sk.Revision, sk.Reason, stage, session, sk.Instructions, sk.Attribution, sk.State, now())
 	if err != nil {
 		return err
 	}
@@ -70,7 +81,7 @@ func (s *Store) RecordSkillBuddyFor(uid int64, scope, session, stage string, sk 
 }
 
 func (s *Store) SkillBuddyRecordsFor(uid int64, scope string) ([]SkillBuddyRecord, error) {
-	query := `SELECT scope,session_id,stage,skill_id,name,source,revision,reason,instructions,state,at FROM skill_buddy_choices WHERE user_id=?`
+	query := `SELECT scope,session_id,stage,skill_id,name,source,revision,reason,instructions,attribution,state,at FROM skill_buddy_choices WHERE user_id=?`
 	args := []any{uid}
 	if scope != "" {
 		query += ` AND scope=?`
@@ -85,7 +96,7 @@ func (s *Store) SkillBuddyRecordsFor(uid int64, scope string) ([]SkillBuddyRecor
 	out := []SkillBuddyRecord{}
 	for rows.Next() {
 		var r SkillBuddyRecord
-		if err = rows.Scan(&r.Scope, &r.SessionID, &r.Stage, &r.Skill.ID, &r.Skill.Name, &r.Skill.Source, &r.Skill.Revision, &r.Skill.Reason, &r.Skill.Instructions, &r.Skill.State, &r.At); err != nil {
+		if err = rows.Scan(&r.Scope, &r.SessionID, &r.Stage, &r.Skill.ID, &r.Skill.Name, &r.Skill.Source, &r.Skill.Revision, &r.Skill.Reason, &r.Skill.Instructions, &r.Skill.Attribution, &r.Skill.State, &r.At); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

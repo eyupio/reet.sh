@@ -88,6 +88,10 @@ func (s *server) buddyAdminSave(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if !curated && len(skillbuddy.Prompt(sk)) > 1500 {
+			writeErr(w, 400, "Shorten the instructions or attribution so the guidance fits in a session message.")
+			return
+		}
 		sk.Source = "builtin"
 		sk.State = ""
 		if curated {

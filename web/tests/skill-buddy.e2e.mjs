@@ -50,7 +50,7 @@ try{
   await w.page.goto(base+'/factory')
   // On a phone, choose the pipeline before its stage detail opens.
   const line=w.page.getByRole('button',{name:/Settings interface/}).first()
-  if(await line.isVisible())await line.click()
+  await expect(line).toBeVisible();await line.click()
   const design=w.page.locator('.detail .stages button').nth(1)
   await expect(design).toBeVisible();await design.click()
   const buddy=w.page.locator('[data-skill-buddy]')

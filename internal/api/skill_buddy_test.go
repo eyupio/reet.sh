@@ -149,6 +149,20 @@ func TestSkillBuddyFutureStagePinsReviewedGuidanceAndRefusesRunningStage(t *test
 	if o.Sessions[0].Stages[1].SkillGuidance[0].Instructions != selected[0].Instructions {
 		t.Fatal("selected guidance changed")
 	}
+	changed.Disabled = true
+	config, _ = json.Marshal(buddySystemConfig{Version: 2, Overrides: []skillbuddy.Skill{changed}})
+	if err = f.st.SetSetting(buddySystemKey, string(config)); err != nil {
+		t.Fatal(err)
+	}
+	body["action"] = "dismissed"
+	code, _, raw = f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/choose", body)
+	if code != 200 {
+		t.Fatalf("disabled selection could not be removed: %d %s", code, raw)
+	}
+	o, _ = f.st.GafferOutcomeFor(f.uid, o.ID)
+	if len(o.Sessions[0].Stages[1].SkillGuidance) != 0 {
+		t.Fatal("removed guidance retained")
+	}
 	body["stage"] = 0
 	body["skillId"] = "builtin:code"
 	body["revision"] = "1"

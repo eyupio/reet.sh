@@ -107,7 +107,7 @@ async function openOutcome(w,direct=false){
   await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
   return {floor:w.page.locator('[data-floor]'),outcome:w.page.getByRole('dialog',{name:'New Factory outcome',exact:true})}
 }
-const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
+const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET'&&new URL(r.url()).pathname!=='/api/v2/gaffer/crew'&&new URL(r.url()).pathname!=='/api/v2/skill-buddy/recommendations')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
 try {
   for(const [width,theme] of [[1440,'light'],[390,'dark']]){

@@ -56,6 +56,7 @@ jobs:
           node web/tests/gaffer-followed.e2e.mjs
           node web/tests/gaffer-floor.e2e.mjs
           node web/tests/gaffer-outcome.e2e.mjs
+          node web/tests/skill-buddy.e2e.mjs
           node web/tests/gaffer-factory.e2e.mjs
           node web/tests/gaffer-factory-session.e2e.mjs
           node web/tests/factory-decision.e2e.mjs

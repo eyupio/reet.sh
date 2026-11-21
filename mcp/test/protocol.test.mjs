@@ -9,7 +9,7 @@ after(async () => { await client?.close(); await api?.close(); });
 
 test('stdio discovery declares schemas, strict inputs and correct mutation hints', async () => {
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 47);
+  assert.equal(tools.length, 49);
   for (const tool of tools) {
     assert.ok(tool.title && tool.description && tool.outputSchema);
     assert.equal(tool.inputSchema.additionalProperties, false);
@@ -214,8 +214,8 @@ test('hosted HTTP and stdio forwarding preserve user scope across SDK languages'
   const bridge = await connect(accounts.url, 'reet_mcp_fixture_read');
   try {
     await remote.connect(new StreamableHTTPClientTransport(new URL(`${accounts.url}/mcp`), { requestInit: { headers: { Authorization: 'Bearer reet_mcp_fixture_write' } } }));
-    assert.equal((await remote.listTools()).tools.length, 47);
-    assert.equal((await bridge.listTools()).tools.length, 15);
+    assert.equal((await remote.listTools()).tools.length, 49);
+    assert.equal((await bridge.listTools()).tools.length, 17);
     assert.deepEqual(await call(remote, 'list_context_access', {}), { scopes: [] });
     assert.deepEqual(await call(bridge, 'list_context_access', {}), { scopes: [] });
     await assert.rejects(call(remote, 'get_context', {}), /not allowed|forbidden|access/i);

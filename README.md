@@ -248,6 +248,10 @@ The commands reet copies out name the `skills` CLI version reet itself runs and 
 
 Uncheck **Publish publicly** and save to unpublish, or delete the skill to remove its files. Both stop future downloads immediately; existing installations remain on users' machines. Disabled author accounts stop serving public skills. Publishing usernames cannot change or be reused after account deletion, so old links cannot be claimed by another account. Skill hosting follows the instance's normal write permissions; viewers cannot publish. Bundles live in `reet.db` and are covered by whole-instance database backups. Shelf JSON exports and personal shelf backups contain skill references, not authored bundles.
 
+## Skills that fit the work
+
+Gaffer suggests relevant skills in agent sessions and for each Factory stage. Review guidance before adding it to a message, or pin up to two small skills to a future stage. Built-ins work without installing a plugin; personal Active skills and public community sources join the same lookup. **More → Skill insights** shows choices and prepared stage prompts without inventing savings. Administrators maintain the built-in catalogue under **Instance administration → System skills**, with versioned defaults in the repository. Connected agents can progressively discover and load guidance with `reet_recommend_skills` and `reet_load_skill` over the hosted MCP server. See [skill suggestions and insights](docs/skill-buddy.md).
+
 ## Adding skills
 
 Your library holds the copy every machine follows. Add a link or write a skill to make it Active, or use Community Save to choose Active or Archived. Open a skill to edit, publish, review changes from its original, or recover a saved version. See [one source for each skill](docs/skills-single-source.md).

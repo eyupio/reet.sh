@@ -80,6 +80,11 @@ func TestFolderRemoteTriesDoNotStarveTheBatch(t *testing.T) {
 	uid := projectUser(t, s, "a")
 	off := mustFP(t, s, uid, FolderProject{Host: "offline", Dir: "/home/a/code/old", IsRepo: true})
 	on := mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/code/new", IsRepo: true})
+	// These projects can be created in one millisecond; the random ID is then the tie-breaker.
+	// Give the fixture an explicit chronological order rather than depending on wall-clock speed.
+	if _, err := s.db.Exec(`UPDATE folder_projects SET created_at=CASE WHEN id=? THEN 100 ELSE 200 END WHERE id IN (?,?)`, off.ID, off.ID, on.ID); err != nil {
+		t.Fatal(err)
+	}
 	if list, _ := s.FolderProjectsToAskRemote(1000, 1000, 1); len(list) != 1 || list[0].Project.ID != off.ID {
 		t.Fatalf("first: %+v", list)
 	}

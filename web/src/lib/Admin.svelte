@@ -11,6 +11,7 @@
     saveAdminSettings, saveAdminSso, setBranchPruneSetting, setSoftwareMirror, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type BranchPruneSetting, type Event as AuditEvent, type Rollup, type RollupSkill, type SoftwareMirrorStatus, type UserMeta, type YoloSetting,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
+  import AdminSystemSkills from './AdminSystemSkills.svelte'
   import AdminNotifications from './AdminNotifications.svelte'
   import AdminTickets from './AdminTickets.svelte'
   import Backups from './Backups.svelte'
@@ -29,7 +30,7 @@
 
   // svelte-ignore state_referenced_locally (Account mode is fixed for this page.)
   const sections = [
-    { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
+    { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' }, { key: 'system-skills', label: 'System skills' },
     ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
     ...(supportDesk ? [{ key: 'support', label: 'Support' }] : []), { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, ...(role === 'owner' ? [{ key: 'move', label: 'Move' }] : []), { key: 'settings', label: 'Instance settings' }, { key: 'activity', label: 'Activity' },
   ]
@@ -38,6 +39,7 @@
   const section = requested === 'move' || sections.some(s => s.key === requested) ? requested : 'overview'
   const sectionTitle = section === 'move' ? 'Move' : sections.find(s => s.key === section)!.label
   const descriptions: Record<string, string> = {
+    'system-skills': 'Maintain the guidance Gaffer recommends across sessions and Factory stages.',
     overview: 'Keep the place running reet. Check health, jobs and storage.',
     environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',
     users: 'Invite people and manage their access.',
@@ -540,7 +542,8 @@
     <p class="notice bad" role="alert">{error || 'Could not load the admin status.'}</p>
   {:else}
     {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-    {#if section === 'overview'}
+    {#if section === 'system-skills'}<AdminSystemSkills/>
+    {:else if section === 'overview'}
     <h2 class="vh">Instance overview</h2>
     <div class="cards" id="admin-overview">
       <article>

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+
+	"github.com/eyupio/reet.sh/internal/skillbuddy"
 )
 
 // An outcome is an objective the person handed Gaffer with a plan they
@@ -35,11 +37,12 @@ var (
 // A stage is one step of a pipeline, done by the agent and model the person
 // approved for it. Stage states: "pending", "running", "done".
 type GafferOutcomeStage struct {
-	Kind     string `json:"kind"`
-	Tool     string `json:"tool"`
-	Model    string `json:"model,omitempty"`
-	Effort   string `json:"effort,omitempty"`
-	Provider string `json:"provider,omitempty"`
+	SkillGuidance []skillbuddy.Skill `json:"skillGuidance,omitempty"`
+	Kind          string             `json:"kind"`
+	Tool          string             `json:"tool"`
+	Model         string             `json:"model,omitempty"`
+	Effort        string             `json:"effort,omitempty"`
+	Provider      string             `json:"provider,omitempty"`
 	// Tier is how demanding the stage was judged to be (light, standard or
 	// heavy), which is what chose its agent and model from the person's crew.
 	// TierWhy is Gaffer's reason where the tier is its own assessment.

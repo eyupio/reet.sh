@@ -630,6 +630,11 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 	}
 	if started {
 		s.auditTerminalLaunch(uid, in.AgentID, create, session)
+		if in.SkillScope != "" {
+			if err := s.st.SkillBuddyPreparedFor(uid, in.SkillScope, session.ID); err != nil {
+				s.event(uid, "skills", "skill-receipt-failed", "", map[string]any{"scope": in.SkillScope})
+			}
+		}
 	}
 	if in.LinkProjectID != "" {
 		// Best effort: the session runs either way, it is only listed under its project when this holds.

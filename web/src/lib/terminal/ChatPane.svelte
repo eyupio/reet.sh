@@ -24,6 +24,7 @@ import Dictate from './Dictate.svelte'
 import { appendDictation } from './compose'
 import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
 import SkillPicker from './SkillPicker.svelte'
+import SkillBuddy from '../SkillBuddy.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
 import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
@@ -1032,6 +1033,11 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
+  <div class="skill-buddy-slot"><SkillBuddy context={{sessionId: session.id, task: draft}} disabled={ended || sending || uploading} oninsert={text => {
+    const next = insertSkillPrompt(draft, text)
+    if (new TextEncoder().encode(next.text).length > MAX_CHAT_BYTES) return false
+    draft = next.text; void tick().then(() => composerInput?.focus()); return true
+  }}/></div>
   <div class="composer" data-floating-clearance onpaste={pasted} class:dropping={dropping}>
    {#if promptMenu}
     <InlinePromptMenu bind:this={promptMenuEl} prompts={promptLibrary?.prompts ?? []} skills={promptLibrary?.skills ?? {}} query={promptMenu.query} context={promptContext} loading={promptLoading} error={promptError} oninsert={pickPrompt} onclose={() => closePromptMenu(false)} />
@@ -1309,6 +1315,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .queue-actions .remove:hover { color: var(--bad); }
  .queue-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   /* Composer: a raised card holding one clearly bounded input well, then a toolbar. The well is the only place that looks typeable. */
+ .skill-buddy-slot { margin: 0 14px 10px; max-height: 35vh; overflow: auto; flex-shrink: 0; }
  .composer { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 14px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-raised, var(--card)); transition: border-color .15s, box-shadow .15s; }
  .composer.dropping { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
  .field { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 12px; border: 1.5px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunk); transition: border-color .15s, box-shadow .15s, background .15s; }
@@ -1382,7 +1389,8 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .tool-head { grid-template-columns: 8px 16px auto minmax(0, 1fr) auto 14px; gap: 7px; padding: 6px 8px; }
   .meta { display: none; }
   .hint { display: none; }
-  .composer { margin: 0 8px 8px; padding: 8px; }
+  .skill-buddy-slot { margin: 0 14px 10px; max-height: 35vh; overflow: auto; flex-shrink: 0; }
+ .composer { margin: 0 8px 8px; padding: 8px; }
   .model-controls label { display: none; }
   .effort-controls label { font-size: 14px; }
   .star-word { display: none; }

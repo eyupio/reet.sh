@@ -558,6 +558,7 @@ func (s *server) routes() http.Handler {
 	s.registerModelRoutes(mux)
 	s.registerAccountRoutes(mux)
 	s.registerUsageRoutes(mux)
+	s.registerSkillBuddy(mux)
 	s.registerSoftwareRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)

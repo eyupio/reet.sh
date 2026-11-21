@@ -37,6 +37,7 @@
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
   import SkillPicker from './SkillPicker.svelte'
+  import SkillBuddy from '../SkillBuddy.svelte'
   import PromptPicker from '../prompts/PromptPicker.svelte'
   import TerminalCompose from './TerminalCompose.svelte'
   import type {SessionSkill,SessionSkills} from './skills'
@@ -641,6 +642,7 @@
   {/snippet}
   <!-- A phone held sideways puts the tools and the extra keys side by side, so the screen keeps the rows. -->
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
+  {#if chrome && session.tool !== 'shell'}<div class="buddy-tools"><SkillBuddy compact context={{sessionId:session.id}} disabled={!live} oninsert={async text => { await insertPrompt(text); return true }}/></div>{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
   {#if staleUploads}<div class="agent-copy" role="status"><span>{staleReason==='scrollback'?'Uploaded. Return to live output before inserting. Paste the path:':'Uploaded, but the connection changed; nothing was inserted. Paste the path:'} <code>{staleUploads.join(' ')}</code></span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
@@ -662,6 +664,7 @@
 {#if selectOpen}<TerminalSelectText text={selectModel} onclose={closeSelect}/>{/if}
 
 <style>
+  .buddy-tools{flex-shrink:0;max-height:35vh;overflow:auto;margin:4px 8px}
   .pane {display:flex;flex-direction:column;position:relative;min-height:0;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--card)}
   .pane>header,.pane>.tools,.pane>.key-tray,.pane>footer,.pane>.connection-message {flex-shrink:0}
   header {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--bg);border-bottom:1px solid var(--line)}

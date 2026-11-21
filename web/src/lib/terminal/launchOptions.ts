@@ -22,8 +22,9 @@ export function launchEfforts(tool: string, caps: Capabilities | undefined, chat
  return ['', ...START_EFFORTS]
 }
 
-/** The efforts a pipeline stage may be given: only the levels this machine reports for the agent. A stage starts with
- * nobody watching, and a level the agent does not offer fails the launch, so nothing is offered on a guess. */
+/** The efforts a pipeline stage may be given: only the levels this machine reports for the agent. A level it does not
+ * report is not offered; one sent anyway is dropped by the controller, which starts the stage on the agent's default
+ * effort and records why. */
 export function reportedEfforts(tool: string, caps: Capabilities | undefined): string[] {
   const selector = caps?.acpStartOptions ? structuredAgent(caps, tool)?.options?.find(option => option.category === 'thought_level') : undefined
   return selector ? ['', ...new Set(selector.values.filter(value => value && value !== 'default'))] : ['']

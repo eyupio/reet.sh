@@ -1,5 +1,30 @@
 # Reet central-control implementation handoff
 
+## FACTORY-CAPABILITIES-1: Add pipelines stays within the machine's agents (21 November 2026)
+
+A review of the Gaffer Factory's capability handling found three things. **Add pipelines** put the outcome's own agent
+back into the agent list even when the machine's report left it out, so a pipeline could be added for an agent that was
+uninstalled, gated off or unavailable on that machine, and every stage then failed at its start. Two comments still said
+an effort the machine does not report fails the launch, which the controller stopped doing when it began dropping the
+effort and starting the stage on the agent's default. And a hand-picked backup effort could stay selected after the
+machine's report stopped listing it.
+
+**What changed.** `web/src/lib/factory/AddPipelines.svelte` now lists only the agents the machine's known report offers;
+the outcome's own agent is included only when reported, and a new pipeline defaults to an offered agent with a default
+model and effort when it is not. The plan each added pipeline would send is derived once and reused for approval, and
+the Add button is refused while it names an agent the machine does not offer, with a warning naming that agent; a machine
+reporting no chat agent says so instead. The same effect that clears unoffered main and crew efforts now clears a
+hand-picked backup effort. The comments in `web/src/lib/terminal/launchOptions.ts` and `web/src/lib/GafferOutcome.svelte`
+now describe the controller's real behaviour: an unoffered effort is dropped, the stage starts on the agent's default,
+and the record says why.
+
+**Tests.** `web/tests/gaffer-factory.e2e.mjs` gains a case with a machine reporting only Codex for a Claude outcome: the
+Agent list offers only Codex, Codex is the default, and the added pipeline is sent on Codex with the saved crew's Codex
+backup. `npm run check` passes (117 test files, 0 Svelte diagnostics, 0 warnings), `npm run build` passes, and the whole
+`gaffer-factory.e2e.mjs` passes against `vite preview`. No Go code changed.
+
+**PR.** This change's own pull request, opened against `main`; its checks are this change's.
+
 ## SESSION-ACTIONS-REDESIGN-1: the Session actions sheet reads as grouped settings (20 November 2026)
 
 The owner shared a screenshot of the **Session actions** dialog and asked for a significant UI and UX improvement. The

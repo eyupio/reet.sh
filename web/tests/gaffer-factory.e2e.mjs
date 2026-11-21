@@ -486,6 +486,35 @@ try {
       expect(box.added).toEqual([{revision:9,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',stages:[{kind:'code',tool:'claude',model:'',effort:'high',tier:'standard'},{kind:'pr',tool:'claude',model:'',effort:'high',tier:'light',backup:{tool:'claude',model:'model-backup',effort:'high'}}]}]}])
     } finally { await w.context.close() }
   }
+  // When the machine's report is known and leaves out the outcome's own agent, Add pipelines does not bring it back: the
+  // agent list and the default are the agents the machine offers, and the pipeline is added on one of them.
+  {
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
+    const oe='e'.repeat(32),lone={...structuredClone(outcomes[0]),revision:9,report:{text:'Nothing covers the changelog.',at:now,model:'gaffer-model',inputTokens:1,outputTokens:1,usageReported:true,proposals:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',why:'No pipeline covers it.',stages:['code','pr']}]}}
+    lone.sessions.length=3
+    const codexOnly=[{agentId:'a1',host:'workshop',ready:true,capabilities:{...machines[0].capabilities,acpAgents:[{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
+    const routes={...routesFor(box),'/api/v2/gaffer/outcomes':{outcomes:[lone]},'/api/v2/terminal/machines':{machines:codexOnly},
+      [`/api/v2/gaffer/outcomes/${oe}/sessions`]:request=>{box.added.push(request.postDataJSON());lone.revision++;lone.report.proposals=[];return lone}}
+    const w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes})
+    watch(w,box)
+    try {
+      const page=w.page
+      await page.goto(base+'/factory')
+      const detail=page.getByRole('region',{name:'Export button',exact:true})
+      await expect(detail.getByRole('heading',{name:'Export button',level:2,exact:true})).toBeVisible()
+      const report=detail.locator('details.row').filter({has:page.locator('summary .label').getByText('Gaffer’s report',{exact:true})})
+      if(await report.getAttribute('open')===null)await report.locator('summary').click()
+      await report.getByRole('button',{name:'Add 1 pipeline',exact:true}).click()
+      const add=page.getByRole('dialog',{name:'Add “Changelog entry”?',exact:true})
+      const agent=add.getByRole('combobox',{name:'Agent for Changelog entry',exact:true})
+      // The machine does not report Claude Code, so it is not offered and Codex, which it does report, is the default.
+      await expect(agent.locator('option')).toHaveText(['Codex'])
+      await expect(agent).toHaveValue('codex')
+      await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
+      expect(box.added).toEqual([{revision:9,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',stages:[{kind:'code',tool:'codex',model:'',tier:'standard'},{kind:'pr',tool:'codex',model:'',tier:'light',backup:{tool:'codex',model:'gpt-small'}}]}]}])
+    } finally { await w.context.close() }
+  }
   // A finished outcome's pipelines sit in Finished or stopped, and the outcome can be archived (kept, hidden, restorable) or deleted (after a confirmation); the account's default only picks which comes first.
   for(const [width,mode] of [[1280,'archive'],[390,'delete']]){
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}

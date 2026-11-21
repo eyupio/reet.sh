@@ -231,7 +231,7 @@
     }
   })
   // Every session here is a chat, so the efforts are the agent's own thinking levels as this machine reports them.
-  // A level this machine does not report is never carried: an unattended stage the agent refuses fails the whole launch.
+  // A level this machine does not report is never carried: the controller starts the stage on the agent's default effort.
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   // A chosen level the agent no longer reports (another project's machine, or a crew role's own agent) goes back to the
   // agent's default, so what is shown is what the outcome will start with.

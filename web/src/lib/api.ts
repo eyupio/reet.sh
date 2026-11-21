@@ -102,7 +102,7 @@ export type AuthStatus = {
   user: User | null
 }
 export type APIToken = { id: number; name: string; createdAt: number; lastUsedAt?: number }
-export type MCPConnection = { id: number; name: string; scope: 'read' | 'write'; enabled: boolean; kind: 'bearer' | 'oauth'; createdAt: number; expiresAt: number; lastUsedAt: number }
+export type MCPConnection = { id: number; name: string; scope: 'read' | 'write'; enabled: boolean; kind: 'bearer' | 'oauth'; createdAt: number; expiresAt: number; lastUsedAt: number; approveMerges: boolean }
 export type MCPAccess = { enabled: boolean; browserEnabled: boolean; browserScope: 'read' | 'write'; canWrite: boolean; endpoint: string; connections: MCPConnection[] }
 export type MCPTool = { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations: { readOnlyHint: boolean; destructiveHint?: boolean } }
 export type MCPConsent = { clientName: string; callbackHost: string; scope: 'read' | 'write'; enabled: boolean; canWrite: boolean; account: string }
@@ -673,7 +673,7 @@ export async function saveMCPAccess(settings: Partial<Pick<MCPAccess, 'enabled' 
 export async function createMCPConnection(name: string, scope: string, expiresInDays: number): Promise<{ connection: MCPConnection; token: string }> {
   return (await req('/api/v2/mcp/connections', { method: 'POST', body: json({ name, scope, expiresInDays }) })).json()
 }
-export async function updateMCPConnection(id: number, data: { name?: string; scope?: string; enabled?: boolean; expiresInDays?: number }): Promise<MCPAccess> {
+export async function updateMCPConnection(id: number, data: { name?: string; scope?: string; enabled?: boolean; expiresInDays?: number; approveMerges?: boolean }): Promise<MCPAccess> {
   return (await req(`/api/v2/mcp/connections/${id}`, { method: 'PATCH', body: json(data) })).json()
 }
 export async function rotateMCPConnection(id: number): Promise<{ connection: MCPConnection; token: string }> {

@@ -572,20 +572,50 @@ func (s *Store) GafferWorkerHalted(uid int64, session string) (bool, error) {
 // stop or a failure, and when that was. A goal the person resumed after that
 // moment is theirs to carry on: the halt is what they resumed from.
 func (s *Store) GafferWorkerHaltedAt(uid int64, session string) (bool, int64, error) {
-	var state string
-	var at int64
-	err := s.db.QueryRow(`SELECT COALESCE(json_extract(event,'$.state'),''),at FROM terminal_chat_events WHERE user_id=? AND session_id=? AND json_extract(event,'$.kind')='status' ORDER BY seq DESC LIMIT 1`, uid, session).Scan(&state, &at)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, 0, nil
-	}
-	if err != nil {
-		return false, 0, err
-	}
-	switch state {
+	status, err := gafferWorkerStatus(s.db, uid, session)
+	return status.Halted(), status.At, err
+}
+
+type GafferWorkerStatus struct {
+	State  string
+	At     int64
+	detail string
+}
+
+func (status GafferWorkerStatus) Halted() bool {
+	switch status.State {
 	case "cancelled", "stopped", "error", "failed", "ended":
-		return true, at, nil
+		return true
 	}
-	return false, at, nil
+	return false
+}
+
+// UsageLimited identifies a depleted allowance. Transient request rate limits
+// and arbitrary agent output do not authorize a backup launch.
+func (status GafferWorkerStatus) UsageLimited() bool {
+	if status.State != "error" && status.State != "failed" {
+		return false
+	}
+	detail := strings.ToLower(status.detail)
+	for _, marker := range []string{"usage limit reached", "usage limit has been reached", "exceeded your current quota", "quota exhausted", "insufficient_quota", "insufficient credits", "credit limit reached"} {
+		if strings.Contains(detail, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) GafferWorkerStatusFor(uid int64, session string) (GafferWorkerStatus, error) {
+	return gafferWorkerStatus(s.db, uid, session)
+}
+
+func gafferWorkerStatus(q contextQuerier, uid int64, session string) (GafferWorkerStatus, error) {
+	var status GafferWorkerStatus
+	err := q.QueryRow(`SELECT COALESCE(json_extract(event,'$.state'),''), at, COALESCE(json_extract(event,'$.detail'),'') FROM terminal_chat_events WHERE user_id=? AND session_id=? AND json_extract(event,'$.kind')='status' ORDER BY seq DESC LIMIT 1`, uid, session).Scan(&status.State, &status.At, &status.detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	return status, err
 }
 
 func (s *Store) RecoverGafferGoals() error {

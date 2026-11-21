@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -125,6 +126,9 @@ func balanceChoice(accounts []terminalproto.AgentAccount, first, backup store.Ga
 // puts back a stage that was balanced on an earlier start. changed is whether
 // that differs from the stage as given.
 func (s *Service) balanceStage(o store.GafferOutcome, stage store.GafferOutcomeStage) (store.GafferOutcomeStage, bool) {
+	if stage.UsageFailover {
+		return stage, false
+	}
 	spares := store.Spares(stage.Backup, stage.More)
 	if len(spares) == 0 {
 		return stage, false
@@ -166,6 +170,135 @@ func (s *Service) balanceStage(o store.GafferOutcome, stage store.GafferOutcomeS
 	return out, changed
 }
 
+// differentWorker checks the billing source as well as the model and agent.
+func differentWorker(stage store.GafferOutcomeStage, choice store.GafferStageAgent) bool {
+	applied := stage.AppliedModel
+	if applied == "" || stage.AppliedTool != stage.Tool {
+		applied = stage.Model
+	}
+	return choice.Tool != stage.Tool || choice.Provider != stage.Provider || choice.Model != stage.Model && choice.Model != applied
+}
+
+// nextUsageBackup returns the next configured choice after the current backup.
+// If the person picked a model outside the list, the list starts at the top.
+func nextUsageBackup(stage store.GafferOutcomeStage) *store.GafferStageAgent {
+	spares := store.Spares(stage.Backup, stage.More)
+	start := 0
+	for i, spare := range spares {
+		if spare.Tool == stage.Tool && spare.Model == stage.Model && spare.Provider == stage.Provider {
+			start = i + 1
+			break
+		}
+	}
+	for _, spare := range spares[start:] {
+		if differentWorker(stage, spare) {
+			return &spare
+		}
+	}
+	return nil
+}
+
+func (s *Service) RecoverPipelineWorker(uid int64, id, key, session string, revision int64, worker *WorkerReplacement) (store.GafferOutcome, error) {
+	return s.recoverPipelineWorker(uid, id, key, session, revision, worker, false)
+}
+
+// WorkerReplacement is a one-off choice for the stopped stage.
+type WorkerReplacement struct {
+	Tool  string `json:"tool"`
+	Model string `json:"model"`
+}
+
+func (s *Service) recoverPipelineWorker(uid int64, id, key, session string, revision int64, worker *WorkerReplacement, automatic bool) (store.GafferOutcome, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	if err := s.outcomesReady(); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	o, err := s.store.GafferOutcomeFor(uid, id)
+	if err != nil {
+		return o, err
+	}
+	if o.Revision != revision {
+		return o, store.ErrGafferOutcomeBusy
+	}
+	if o.ArchivedAt != 0 {
+		return o, errOutcomeArchived
+	}
+	for i, piece := range o.Sessions {
+		if piece.Key != key || piece.State != "following" || piece.SessionID != session || session == "" || piece.Stage >= len(piece.Stages) || piece.WorkDir == "" {
+			continue
+		}
+		stage := piece.Stages[piece.Stage]
+		replacement := nextUsageBackup(stage)
+		if worker != nil {
+			model := strings.TrimSpace(worker.Model)
+			if !terminalproto.ReviewedChatTool(worker.Tool) || model == "" || !terminalproto.ValidModel(model) {
+				return o, invalid("worker", "Choose an agent and an explicit replacement model.")
+			}
+			choice := store.GafferStageAgent{Tool: worker.Tool, Model: model}
+			if worker.Tool == stage.Tool {
+				choice.Provider = stage.Provider
+			} else {
+				machine, err := s.store.RemoteCapabilitiesFor(uid, o.AgentID)
+				if _, available := machine.Capabilities.ChatAgent(worker.Tool); err != nil || !available {
+					return o, invalid("worker", "That agent is unavailable on the stage’s machine.")
+				}
+			}
+			if !differentWorker(stage, choice) {
+				return o, invalid("worker", "Choose a different model or agent to continue this stage.")
+			}
+			if worker.Tool == "antigravity" && !o.Trust {
+				return o, invalid("trust", "Google Antigravity requires folder trust for this outcome.")
+			}
+			if o.Yolo && !terminalproto.ToolTakesYolo(worker.Tool) {
+				return o, invalid("yolo", "Choose an agent that supports this outcome’s approval mode.")
+			}
+			replacement = &choice
+		}
+		if replacement == nil || automatic && (!o.Automation || stage.UsageFailover) {
+			break
+		}
+		request, err := newChatID()
+		if err != nil {
+			return o, err
+		}
+		why := fmt.Sprintf("The working model reached its usage limit. This stage is continuing on %s in the same folder and branch.", agentWords(*replacement))
+		updated, err := s.store.ReplaceGafferOutcomeWorkerFor(uid, id, revision, session, piece.ConversationID, why, func(current *store.GafferOutcome) bool {
+			settleStoppedOutcome(current)
+			row := &current.Sessions[i]
+			row.Retire(row.ConversationID)
+			row.ConversationID, row.SessionID, row.UnsureRequest = "", "", ""
+			row.State, row.Note, row.UpdatedAt = "starting", why, time.Now().UnixMilli()
+			if row.Stage == 0 {
+				row.RequestID = request
+			}
+			next := &row.Stages[row.Stage]
+			if next.First == nil {
+				next.First = &store.GafferStageAgent{Tool: stage.Tool, Model: stage.Model, Effort: stage.Effort, Provider: stage.Provider}
+			}
+			next.Tool, next.Model, next.Effort, next.Provider = replacement.Tool, replacement.Model, replacement.Effort, replacement.Provider
+			next.SessionID, next.ConversationID, next.RequestID, next.State = "", "", request, "pending"
+			next.AppliedTool, next.AppliedModel, next.AppliedEffort, next.AppliedAt = "", "", "", 0
+			next.ChoiceCheck, next.ChoiceNote, next.EffortNotOffered = "", "", ""
+			next.UsageFailover, next.Balanced = true, why
+			current.State, current.Note = "starting", ""
+			return true
+		})
+		if err != nil {
+			return outcomeView(updated), err
+		}
+		s.endFinishedSession(context.Background(), updated, key, session, "The pipeline switched workers after the model reached its usage limit.")
+		s.audit(uid, "gaffer-stage-rebalanced", map[string]any{"outcome": id, "pipeline": key, "stage": stage.Kind, "from": stage.Tool, "to": replacement.Tool, "reason": why, "automatic": automatic})
+		s.wakeOutcomes()
+		return outcomeView(updated), nil
+	}
+	if worker != nil {
+		return o, invalid("worker", "This stage has moved on. Refresh before choosing another model.")
+	}
+	return o, invalid("backup", "There is no further configured backup for this stopped stage.")
+}
+
 // rebalanceStopped runs a stage again on its backup when its agent has
 // stopped and its plan is now below the person's threshold. A working agent
 // is never interrupted: only a session that has ended, or whose agent has
@@ -184,17 +317,26 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 				continue
 			}
 			stage := piece.Stages[piece.Stage]
-			if stage.Rebalanced || stage.Backup == nil {
+			if stage.Backup == nil {
 				continue
 			}
 			running := s.sessionRunning(o.OwnerID, piece.SessionID)
 			if running {
 				// Still there: only an agent that has itself stopped or failed counts.
 				g, err := s.store.GafferGoalFor(o.OwnerID, piece.ConversationID)
-				halted, _ := s.store.GafferWorkerHalted(o.OwnerID, piece.SessionID)
-				if err != nil || g.State != "needs_user" || g.ActiveTurnID != "" || g.WaitingOnWorker || !halted {
+				status, statusErr := s.store.GafferWorkerStatusFor(o.OwnerID, piece.SessionID)
+				if err != nil || statusErr != nil || g.State != "needs_user" || g.ActiveTurnID != "" || g.WaitingOnWorker || !status.Halted() {
 					continue
 				}
+				if status.UsageLimited() {
+					if o.Automation && !stage.UsageFailover {
+						_, _ = s.recoverPipelineWorker(o.OwnerID, o.ID, piece.Key, piece.SessionID, o.Revision, nil, true)
+					}
+					continue
+				}
+			}
+			if stage.Rebalanced {
+				continue
 			}
 			next, changed := s.balanceStage(o, stage)
 			if !changed || next.Balanced == "" {

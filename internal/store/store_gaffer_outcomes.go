@@ -105,8 +105,11 @@ type GafferOutcomeStage struct {
 	// More are further backups, tried in order after Backup. Rebalanced marks
 	// a stage that was run again on a backup because its agent stopped with
 	// its plan low: that is done once for a stage, never in a loop.
-	More       []GafferStageAgent `json:"moreBackups,omitempty"`
-	Rebalanced bool               `json:"rebalanced,omitempty"`
+	More          []GafferStageAgent `json:"moreBackups,omitempty"`
+	Rebalanced    bool               `json:"rebalanced,omitempty"`
+	UsageFailover bool               `json:"usageFailover,omitempty"`
+	// NextUsageBackup is computed for the view from the configured choices.
+	NextUsageBackup string `json:"nextUsageBackup,omitempty"`
 	// Decided counts the decisions Gaffer took on this stage for the person,
 	// BudgetRenewed is whether one of them gave the stage a new budget, and
 	// DecidedFor names the stop last put to Gaffer, so one stop is one request.
@@ -705,6 +708,37 @@ func (s *Store) AutoReportGafferOutcomes() ([]GafferOutcome, error) {
 // and the controller's progress both go through here, so neither overwrites
 // the other.
 func (s *Store) UpdateGafferOutcomeFor(uid int64, id string, revision int64, change func(*GafferOutcome) bool) (GafferOutcome, error) {
+	return s.updateGafferOutcomeFor(uid, id, revision, func(_ *sql.Tx, o *GafferOutcome) (bool, error) {
+		return change(o), nil
+	})
+}
+
+// ReplaceGafferOutcomeWorkerFor retires the stopped goal and queues its replacement in one transaction.
+func (s *Store) ReplaceGafferOutcomeWorkerFor(uid int64, id string, revision int64, session, conversation, note string, change func(*GafferOutcome) bool) (GafferOutcome, error) {
+	return s.updateGafferOutcomeFor(uid, id, revision, func(tx *sql.Tx, o *GafferOutcome) (bool, error) {
+		if !change(o) {
+			return false, ErrGafferOutcomeBusy
+		}
+		g, err := goalRow(tx, uid, conversation)
+		if err != nil {
+			return false, err
+		}
+		status, err := gafferWorkerStatus(tx, uid, session)
+		if err != nil {
+			return false, err
+		}
+		if g.SessionID != session || g.State != "needs_user" || g.WaitingOnWorker || g.ActiveTurnID != "" || !status.UsageLimited() {
+			return false, ErrGafferOutcomeBusy
+		}
+		if err = removeGoalQueue(tx, g); err != nil {
+			return false, err
+		}
+		g.State, g.Note, g.NextAt, g.Advice = "stopped", note, 0, nil
+		return true, saveGoal(tx, g)
+	})
+}
+
+func (s *Store) updateGafferOutcomeFor(uid int64, id string, revision int64, change func(*sql.Tx, *GafferOutcome) (bool, error)) (GafferOutcome, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return GafferOutcome{}, err
@@ -725,8 +759,8 @@ func (s *Store) UpdateGafferOutcomeFor(uid int64, id string, revision int64, cha
 	if o.Revision != revision {
 		return o, ErrGafferOutcomeBusy
 	}
-	if !change(&o) {
-		return o, nil
+	if changed, err := change(tx, &o); err != nil || !changed {
+		return o, err
 	}
 	o.Revision++
 	o.UpdatedAt = now()

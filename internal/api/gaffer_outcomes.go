@@ -419,7 +419,9 @@ func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) 
 
 func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Revision int64 `json:"revision"`
+		Revision       int64                     `json:"revision"`
+		StoppedSession string                    `json:"stoppedSession,omitempty"`
+		Worker         *gaffer.WorkerReplacement `json:"worker,omitempty"`
 	}
 	if !decodeStrictJSON(w, r, 1024, &in, "That retry is invalid.") {
 		return
@@ -432,7 +434,16 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return
 	}
-	o, err := s.gafferProviders.RetryPipeline(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
+	var o store.GafferOutcome
+	var err error
+	if in.StoppedSession != "" {
+		o, err = s.gafferProviders.RecoverPipelineWorker(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.StoppedSession, in.Revision, in.Worker)
+	} else if in.Worker != nil {
+		writeErr(w, 400, "Name the stopped session before choosing a replacement model.")
+		return
+	} else {
+		o, err = s.gafferProviders.RetryPipeline(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
+	}
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return

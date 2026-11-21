@@ -11,7 +11,7 @@ const sid='factory-session-alpha',cid='c'.repeat(32),pid='a'.repeat(32),oid='e'.
 function fixture(){
  const provider={id:pid,revision:1,name:'Workshop Gaffer',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowStatus:false,allowSessions:true,allowCode:true,hasKey:true,createdAt:now,updatedAt:now}
  const session={id:sid,agentId:'a1',title:'Export API · code',tool:'opencode',model:'working-model',structured:true,state:'running',createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
- const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={controls:[],moved:[],told:[],yolo:[]}
+ const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={controls:[],moved:[],told:[],yolo:[],backup:[]}
  const goal={...pins,id:'1'.repeat(32),conversationId:cid,sessionId:sid,revision:3,text:'Outcome: x',state:'needs_user',note:'Gaffer needs your decision. Read its latest review.',maxReviews:12,usedReviews:3,expiresAt:now+20*3600000,createdAt:now-3600000,updatedAt:now,nextAt:now,lastSeq:42,summary:'The endpoint and its tests are committed.',inputTokens:0,outputTokens:0,usageReported:true,
   advice:{choice:'move',why:'The endpoint and its tests are committed; the review stage will catch the rest.'}}
  const stage=(kind,state)=>({kind,tool:'opencode',model:'',state,requestId:'r',...(state==='running'?{sessionId:sid,conversationId:cid}:{})})
@@ -23,11 +23,13 @@ function fixture(){
   '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
   '/api/v2/gaffer/conversations':()=>view,
   '/api/v2/gaffer/outcomes':()=>({outcomes:[outcome]}),
-  '/api/v2/gaffer/goals':()=>({goals:[{goal,session:{id:sid,agentId:'a1',title:session.title,state:session.state},available:true,attention:goal.state!=='active',reason:goal.state!=='active'?'Gaffer brought a question back to you.':''}],readAt:now}),
+  [`/api/v2/gaffer/outcomes/${oid}`]:()=>outcome,
+  '/api/v2/gaffer/goals':()=>({goals:[{goal,session:{id:sid,agentId:'a1',title:session.title,state:session.state},available:true,attention:goal.state!=='active',workerUsageLimited:session.chatStatus==='error',reason:session.chatStatus==='error'?'The working model reached its usage or credit limit.':goal.state!=='active'?'Gaffer brought a question back to you.':''}],readAt:now}),
   [`/api/v2/gaffer/conversations/${cid}/goal`]:()=>goalView(),
   [`/api/v2/gaffer/conversations/${cid}/goal/control`]:request=>{const input=request.postDataJSON();box.controls.push(input);goal.state='active';goal.revision++;delete goal.advice;return goalView()},
   [`/api/v2/gaffer/outcomes/${oid}/sessions/a/advance`]:request=>{box.moved.push(request.postDataJSON());const piece=outcome.sessions[0];piece.stages[0].state='done';piece.stage=1;piece.stages[1].state='running';piece.sessionId='next-session';outcome.revision++;return outcome},
   [`/api/v2/gaffer/outcomes/${oid}/yolo`]:request=>{const body=request.postDataJSON();box.yolo.push(body);outcome.yolo=body.on;outcome.revision++;return {outcome,notSwitched:body.on?['Export API']:[]}},
+  [`/api/v2/gaffer/outcomes/${oid}/sessions/a/retry`]:request=>{box.backup.push(request.postDataJSON());outcome.sessions[0].sessionId='backup-session';outcome.revision++;return outcome},
   [`/api/v2/gaffer/outcomes/${oid}/sessions/a/tell`]:request=>{box.told.push(request.postDataJSON().text);return {message:{id:'m1',state:'queued'}}},
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/sessions':{sessions:[session]},
@@ -41,7 +43,7 @@ function fixture(){
   [`/api/v2/terminal/sessions/${sid}/chat/controls`]:{controls:{working:false,waiting:false,model:'working-model',options:[]}},
   [`/api/v2/terminal/sessions/${sid}/chat/queue`]:{queue:[]},
  }
- return{routes,box,goal,outcome}
+ return{routes,box,goal,outcome,session}
 }
 try{
  for(const [width,theme] of [[1440,'light'],[390,'dark']]){
@@ -93,6 +95,41 @@ try{
   await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing this stage again.')
   await expect(decision).toHaveCount(0)
  }finally{await w.context.close()}
+ // The working model fails after the review. Its usage limit replaces stale advice on both surfaces.
+ const quota=fixture(),qw=await openWorkspace(browser,{width:1280,height:900,routes:quota.routes})
+ quota.session.chatStatus='error'
+ quota.outcome.sessions[0].stages[0].nextUsageBackup='OpenCode (paid/backup)'
+ await qw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+ try {
+  const page=qw.page
+  await page.goto(`${base}/factory`)
+  await expect(page.getByText('Worker usage limit reached',{exact:true})).toBeVisible()
+  await expect(page.getByRole('button',{name:/Continue with OpenCode/})).toBeVisible()
+  await expect(page.getByText('Gaffer recommends:',{exact:false})).toHaveCount(0)
+  await page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+  const decision=page.getByRole('region',{name:'Decision for Export API',exact:true})
+  await expect(decision).toContainText('The worker reached its usage limit.')
+  await expect(decision.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
+  await decision.getByRole('button',{name:/Continue with OpenCode/}).click()
+  await expect.poll(()=>quota.box.backup).toEqual([{revision:5,stoppedSession:sid}])
+  await expect(decision).toHaveCount(0)
+ } finally {await qw.context.close()}
+ // Without a saved backup, the Factory card can start a different model directly.
+ const alternate=fixture(),aw=await openWorkspace(browser,{width:1280,height:900,routes:alternate.routes})
+ alternate.session.chatStatus='error'
+ try {
+  const page=aw.page
+  await page.goto(`${base}/factory`)
+  await page.getByRole('button',{name:/Choose another model/}).click()
+  const dialog=page.getByRole('dialog',{name:'Continue with another model',exact:true})
+  await expect(dialog).toContainText('Gaffer will resume the code stage in the same folder and branch.')
+  await expect(dialog.getByRole('button',{name:'Continue stage',exact:true})).toBeDisabled()
+  await dialog.getByRole('combobox',{name:'Replacement model',exact:true}).selectOption({label:'Other…'})
+  await dialog.getByRole('textbox',{name:'Replacement model name',exact:true}).fill('paid/new-model')
+  await dialog.getByRole('button',{name:'Continue stage',exact:true}).click()
+  await expect.poll(()=>alternate.box.backup).toEqual([{revision:5,stoppedSession:sid,worker:{tool:'opencode',model:'paid/new-model'}}])
+  expect(new URL(page.url()).pathname).toBe('/factory')
+ } finally {await aw.context.close()}
  // A started outcome can be put on YOLO from the pipeline's detail, in Settings for this outcome, after a confirmation,
  // and taken off again. The pipeline waits on the person, so it is the one open beside the list.
  const y=fixture(),yw=await openWorkspace(browser,{width:1280,height:900,routes:y.routes})

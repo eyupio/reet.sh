@@ -284,6 +284,14 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 	if access.User.Role == "viewer" || mcpFactoryWrites[name] && !access.canWrite() {
 		return nil, errFactoryForbidden
 	}
+	// A stage agent uses the same connection as the person's own client on
+	// its machine, so a connection approves a merge only when the person has
+	// allowed it to. Gaffer's own tools and the signed-in browser are the
+	// person's and are not connections.
+	inApp := access.Connection.ID == 0 && (access.Connection.Kind == "gaffer" || access.Connection.Kind == "browser")
+	if name == "reet_approve_pipeline_merge" && !inApp && !access.Connection.ApproveMerges {
+		return nil, errors.New("This connection may not approve merges. Approve it in reet, or allow merge approval for this connection under Account → MCP access. Nothing was approved.")
+	}
 	// The browser's routes are stopped by the fence before they run; these
 	// tools arrive as a POST to /mcp, which the fence lets through to be
 	// checked per tool, so the check is made here.

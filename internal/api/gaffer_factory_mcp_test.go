@@ -35,7 +35,7 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 	}
 	s := h.s
 	read := mcpAccess{User: user, Connection: store.MCPConnection{ID: 1, Name: "reader", Scope: "read"}}
-	write := mcpAccess{User: user, Connection: store.MCPConnection{ID: 2, Name: "manager", Scope: "write"}}
+	write := mcpAccess{User: user, Connection: store.MCPConnection{ID: 2, Name: "manager", Scope: "write", ApproveMerges: true}}
 	viewer := mcpAccess{User: store.User{ID: user.ID, Role: "viewer"}, Connection: store.MCPConnection{ID: 3, Name: "viewer", Scope: "write"}}
 	ctx := context.Background()
 	for _, access := range []mcpAccess{read, write} {

@@ -81,6 +81,11 @@ func (s *Service) pipelineStop(o store.GafferOutcome, piece store.GafferOutcomeS
 	if err != nil || g.ActiveTurnID != "" {
 		return pipelineStop{}, false
 	}
+	if g.State == "needs_user" && !g.WaitingOnWorker {
+		if status, err := s.store.GafferWorkerStatusFor(o.OwnerID, piece.SessionID); err == nil && status.UsageLimited() {
+			return pipelineStop{}, false
+		}
+	}
 	if g.WaitingOnWorker {
 		// The agent waits for the person. Only a multiple-choice question,
 		// with nothing else waiting beside it, is Gaffer's to answer: never

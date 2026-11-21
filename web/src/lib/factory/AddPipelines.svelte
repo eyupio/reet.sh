@@ -2,7 +2,7 @@
   // Approving pipelines Gaffer proposed. Each one can be given its own agent, model and effort; left alone it uses the
   // outcome's. Nothing is added or started until the person approves, and an added pipeline never merges by itself.
   import { onMount } from 'svelte'
-  import { getGafferCrew, listModelFavourites, type GafferOutcome } from '../api'
+  import { getGafferCrew, listModelFavourites, type GafferCrew, type GafferOutcome } from '../api'
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
@@ -12,12 +12,13 @@
   import { START_EFFORTS, reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
-  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string; tier?: string; backup?: { tool: string; model?: string; effort?: string } }[] }
+  export type AddedPipeline = { title: string; prompt: string; stages: ReturnType<typeof stagePlan> }
   let { record, proposals, busy = false, error = '', oncancel, onconfirm }: {
     record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
   } = $props()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
+  let savedCrew = $state<GafferCrew | null>(null), crewLoading = $state(true)
   let machine = $state<TerminalMachine | null>(null), favourites = $state<ModelFavourite[]>([]), offered = $state<Record<string, MachineModels | null>>({}), capabilitiesRead = $state(false)
   // What each added pipeline runs on: one agent for every stage (`main`), or a crew with its own agent, model and
   // effort for the thinking, building and shipping stages. It starts as the outcome's own agent and model.
@@ -25,7 +26,11 @@
   let main = $state<Record<string, Who>>({}), crews = $state<Record<string, Crew>>({})
   const tools = $derived.by(() => {
     const found = machine ? CHAT_TOOLS.filter(id => structuredAgent(machine!.capabilities, id)) : []
-    return found.includes(record.tool) ? found : [record.tool, ...found]
+    const saved = !machine?.capabilities ? CREW_TIERS.flatMap(({ tier }) => {
+      const member = savedCrew?.[tier]
+      return [member, member?.backup, ...(member?.moreBackups ?? [])].flatMap(choice => choice?.tool ? [choice.tool] : [])
+    }) : []
+    return [...new Set([record.tool, ...found, ...saved])]
   })
   const stageLabel = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
   const kinds = (item: Proposal) => item.stages?.length ? item.stages : DEFAULT_STAGES
@@ -33,7 +38,13 @@
   const inherited = () => record.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === record.tool && stage.effort)?.effort ?? ''
   const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
   const choice = (title: string) => main[title] ?? own()
-  const crewOf = (title: string): Crew => crews[title] ?? { heavy: choice(title), standard: choice(title), light: choice(title) }
+  const savedRole = (title: string, tier: keyof Crew): Crew[keyof Crew] => {
+    const member = savedCrew?.[tier], fallback = choice(title)
+    return member?.tool && tools.includes(member.tool)
+      ? { tool: member.tool, model: member.model ?? '', effort: member.effort, source: member.provider }
+      : { ...fallback, source: fallback.tool === record.tool ? record.provider : undefined }
+  }
+  const crewOf = (title: string): Crew => crews[title] ?? { heavy: savedRole(title, 'heavy'), standard: savedRole(title, 'standard'), light: savedRole(title, 'light') }
   // Each tier's backup comes from the person's saved crew, for the agents this machine can run: an added pipeline is
   // balanced across plans like the outcome's own. It is changed where the crew is, in Gaffer settings.
   let spares = $state<Partial<Record<keyof Crew, CrewSpare[]>>>({})
@@ -66,11 +77,17 @@
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
   const refused = $derived(!record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
   // Setting the pipeline's own agent, model or effort gives it to every role; a role then keeps what it is given.
-  function setMain(title: string, next: Who) { main[title] = next; crews[title] = { heavy: { ...next }, standard: { ...next }, light: { ...next } } }
-  function setRole(title: string, role: keyof Crew, next: Partial<Who>) { crews[title] = { ...crewOf(title), [role]: { ...crewOf(title)[role], ...next } } }
+  function setMain(title: string, next: Who) {
+    main[title] = next
+    const member = { ...next, source: next.tool === record.tool ? record.provider : undefined }
+    crews[title] = { heavy: { ...member }, standard: { ...member }, light: { ...member } }
+  }
+  function setRole(title: string, role: keyof Crew, next: Partial<Who>) {
+    const current = crewOf(title), member = current[role]
+    crews[title] = { ...current, [role]: { ...member, ...next, source: next.tool && next.tool !== member.tool ? (next.tool === record.tool ? record.provider : undefined) : member.source } }
+  }
   const split = (title: string) => CREW_TIERS.some(item => { const who = crewOf(title)[item.tier], top = choice(title); return who.tool !== top.tool || who.model.trim() !== top.model.trim() || (who.effort ?? '') !== top.effort })
 
-  $effect(() => { for (const item of proposals) if (!main[item.title]) setMain(item.title, own()) })
   // Once this machine's agents are known, a level one of them does not report goes back to the agent's default, so what
   // is shown is what will be sent. An unattended stage the agent refuses fails the whole launch.
   $effect(() => {
@@ -92,19 +109,15 @@
     }
   })
   onMount(() => {
-    void getGafferCrew(life.signal).then(answer => { if (!answer.saved) return; for (const item of CREW_TIERS) { const member = answer.crew[item.tier]; const list = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : []); if (list.length) spares[item.tier] = list } }).catch(() => {})
+    void getGafferCrew(life.signal).then(answer => { if (!answer.saved) return; savedCrew = answer.crew; for (const item of CREW_TIERS) { const member = answer.crew[item.tier]; const list = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : []); if (list.length) spares[item.tier] = list } }).catch(() => {}).finally(() => { crewLoading = false })
     void terminalMachines(life.signal).then(found => { machine = found.find(item => item.agentId === record.agentId) ?? null }).catch(() => { /* the outcome's own agent is still offered */ }).finally(() => { capabilitiesRead = true })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     return () => life.abort()
   })
   function approve() {
     onconfirm(proposals.map(item => {
-      const plan = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null)
-      // Left as the outcome's own agent and model, the stages name no one and the controller fills them in.
-      const untouched = plan.every(stage => stage.tool === record.tool && stage.model === (record.model ?? '') && !stage.effort)
-      // A Cline stage keeps the outcome's billing source: a stage that names its agent is otherwise started on Cline's own.
-      const sourced = plan.map(stage => stage.tool === 'cline' && record.tool === 'cline' && record.provider ? { ...stage, provider: record.provider } : stage)
-      return { title: item.title, prompt: item.prompt, stages: untouched ? plan.map(stage => ({ kind: stage.kind })) : sourced }
+      const stages = withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null)
+      return { title: item.title, prompt: item.prompt, stages }
     }))
   }
 </script>
@@ -158,12 +171,12 @@
         </details>
       </li>{/each}
     </ul>
-    <p class="hint">Each pipeline starts on this outcome’s agent and model. Change any of them for the job: a stronger model for a hard one, a cheaper one for a chore.</p>
+    <p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>
     {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. Choose another agent here, or give Gaffer a new outcome with folder trust ticked.</p>
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
     {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
-    <div class="actions"><button class="btn primary" type="button" disabled={busy || refused || !!blocked} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
+    <div class="actions"><button class="btn primary" type="button" disabled={busy || crewLoading || !capabilitiesRead || refused || !!blocked} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </div>
 </WorkspaceDialog>
 

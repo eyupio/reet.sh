@@ -22,9 +22,9 @@
   {#if advice}<p class="advice"><strong>Gaffer recommends: {advice.label.replace(/…$/, '')}.</strong> {advice.why}{#if advice.text}<span class="text">It would say: “{advice.text}”</span>{/if}</p>{/if}
   {#if review}<details class="review"><summary>Gaffer’s latest review</summary><p>{review}</p></details>{/if}
   {#if note}<p class="note">{note}</p>{/if}
-  <div class="choices" role="group" aria-label={`Choices for ${title}`} data-floating-clearance>
+  {#if choices.length}<div class="choices" role="group" aria-label={`Choices for ${title}`} data-floating-clearance>
     {#each choices as choice (choice.id)}<button class="btn" class:primary={choice.recommended} type="button" disabled={busy} onclick={() => onchoose(choice)}>{choice.label}{#if choice.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}
-  </div>
+  </div>{/if}
 </section>
 
 <style>

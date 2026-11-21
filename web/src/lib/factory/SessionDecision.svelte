@@ -63,6 +63,7 @@
       await controlGafferGoal(piece.conversationId ?? '', view.goal.revision, 'resume', view.pins, true)
       return 'Gaffer is reviewing this stage again.'
     }, 'The review was not tried again.')
+    else if (choice.id === 'backup') void act(async () => { await retryGafferPipeline(current, piece.key, undefined, sessionId); return 'Starting the same stage on its backup.' }, 'The stage could not switch to its backup.')
     else if (choice.id === 'restart') void act(async () => { await retryGafferPipeline(current, piece.key); return 'Running this stage again in a new session.' }, 'That pipeline was not tried again.')
     else if (choice.id === 'move') moving = true
     else if (choice.id === 'tell') { tellStart = choice.recommended && goal?.goal.advice?.choice === 'tell' ? goal.goal.advice.text ?? '' : ''; tellRequest = requestId(); dialogError = ''; telling = true }
@@ -89,9 +90,9 @@
   }
 </script>
 
-{#if waiting && choices.length}<div class="session-decision">
+{#if waiting && (choices.length || waiting.kind === 'usage_limit')}<div class="session-decision">
   <Decision title={waiting.piece.title} stage={waiting.stage} href={card} need={waiting.need} {choices} {busy} onchoose={choose} {note}
-    review={goal?.goal.summary ?? ''}/>
+    review={waiting.kind === 'usage_limit' ? '' : goal?.goal.summary ?? ''}/>
 </div>{/if}
 {#if notice}<p class="session-decision-note" class:bad role={bad ? 'alert' : 'status'}>{notice}</p>{/if}
 {#if moving && waiting}<ConfirmDialog title={`Move “${waiting.piece.title}” on?`} body="This closes the stage in hand as it stands and starts the next stage in a session of its own. Gaffer’s review of this stage is not waited for." confirmLabel="Move on" onconfirm={() => void moveOn()} oncancel={() => moving = false}/>{/if}

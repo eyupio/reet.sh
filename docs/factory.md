@@ -143,7 +143,8 @@ The crew says which agent does a stage. It has three tiers, named for how demand
 - **Light**: routine work. By default the pull request, babysitting and merge.
 
 Under **Choose who does what** in the outcome dialog, give each tier an agent and, if you like, a model and an effort.
-Left alone, one agent does every stage. When Gaffer plans an outcome it says how demanding each stage of this work is;
+Stages start with the agent and model saved for their tier. An unset tier uses the outcome's agent and model. When
+Gaffer plans an outcome it says how demanding each stage of this work is;
 a stage it moved off its usual tier is marked **Gaffer's assessment** with its reason and a button that puts it back.
 A tier you change is marked **Your choice**. Gaffer names no agent and no model: its rating picks a tier, and the
 tier's agent is yours.
@@ -159,8 +160,10 @@ Each tier can have a **Backup**: a second agent, model and effort.
 - A working agent is never interrupted. If a stage's agent stops, or its session ends, with its plan below your
   figure, the stage is run again on its backup in a new session in the same folder and branch, once for a stage.
 - The stage's facts in the detail say **Balanced** with the reason. A finished stage keeps it, and so does History.
-- Balancing needs the machine to be able to read the agent's [plan](agent-accounts.md), and figures no more than six hours old.
-  Without them every stage stays on its first choice.
+- Threshold-based balancing uses the machine's [plan figures](agent-accounts.md) from the past six hours.
+- When the working model reports that its usage or credits are exhausted, Factory offers the next configured backup
+  and continues the same stage in its existing folder and branch. With **Gaffer decides**, Factory makes that switch
+  once automatically. You can choose another configured backup if the replacement also runs out.
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer
 settings holds the same, and every later outcome starts from it, including one started over MCP.

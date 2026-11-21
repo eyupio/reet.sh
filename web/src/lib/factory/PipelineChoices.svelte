@@ -74,7 +74,7 @@
     else if (choice.id === 'merge') merging = { record, piece }
     else if (choice.id === 'move') moving = { record, piece }
     else if (choice.id === 'budget') { if (goal) managing = goal }
-    else if (choice.id === 'restart') void retry(record, piece)
+    else if (choice.id === 'restart' || choice.id === 'backup') void retry(record, piece, choice.id === 'backup')
     else if (choice.id === 'stop') releasing = record
   }
   /** Asks to stop following an outcome, as its menu's Stop following does. */
@@ -99,10 +99,10 @@
     busy = false
     await onchanged()
   }
-  async function retry(record: Outcome, piece: GafferOutcomeSession) {
+  async function retry(record: Outcome, piece: GafferOutcomeSession, backup = false) {
     if (busy) return
     busy = true; onnotice('')
-    try { await retryGafferPipeline(latest(record), piece.key); signalAttentionChanged(); onnotice(`Trying “${piece.title}” again.`) }
+    try { await retryGafferPipeline(latest(record), piece.key, undefined, backup ? piece.sessionId : undefined); signalAttentionChanged(); onnotice(backup ? 'Starting the same stage on its backup.' : `Trying “${piece.title}” again.`) }
     catch (e) { fail(e, 'That pipeline was not tried again.') }
     busy = false
     await onchanged()

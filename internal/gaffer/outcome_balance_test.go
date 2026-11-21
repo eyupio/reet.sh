@@ -290,3 +290,72 @@ func TestAStageThatStoppedWithItsPlanLowIsRunAgainOnItsBackup(t *testing.T) {
 		t.Fatalf("launches: %d", len(asked))
 	}
 }
+
+// A live session can report exhaustion even when its provider has no plan
+// figures. Keep the pipeline at Code and restart in its existing worktree.
+func TestFactoryWorkerUsageLimit(t *testing.T) {
+	for _, automation := range []bool{false, true} {
+		name := "manual"
+		if automation {
+			name = "automatic"
+		}
+		t.Run(name, func(t *testing.T) {
+			r := outcomeFixture(t)
+			if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{
+				Standard: store.GafferCrewTier{Tool: "opencode", Model: "opencode/primary", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "paid/backup"}, More: []store.GafferStageAgent{{Tool: "codex", Model: "gpt-backup"}}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			in := pipelineInput(r, false)
+			in.Automation = automation
+			in.Sessions[0].Stages[0] = OutcomeStageInput{Kind: "code"}
+			r.s.StartGoalSupervisor()
+			created, err := r.s.CreateOutcome(r.p.UserID, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+			r.settle(t, created.ID)
+			if got := r.starter.asked()[0].Model; got != "opencode/primary" {
+				t.Fatalf("Code did not launch with the saved Standard model: %q", got)
+			}
+			goal, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = r.st.AppendTerminalChatEventFor(r.p.UserID, first.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"status","state":"error","detail":"Free usage limit reached. Free models work in OpenCode."}`)); err != nil {
+				t.Fatal(err)
+			}
+			r.s.reviewGoal(t.Context(), goal)
+			if !automation {
+				if views, err := r.s.Goals(r.p.UserID); err != nil || len(views.Goals) != 1 || !views.Goals[0].WorkerUsageLimited {
+					t.Fatalf("usage failure not visible: %+v, %v", views, err)
+				}
+				r.s.rebalanceStopped(t.Context())
+				o, err := r.s.Outcome(r.p.UserID, created.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := o.Sessions[0].Stages[0].NextUsageBackup; !strings.Contains(got, "paid/backup") || o.Sessions[0].SessionID != first.SessionID {
+					t.Fatalf("the stopped worker should offer its backup: %+v", o.Sessions[0])
+				}
+				if _, err = r.s.SwitchPipelineToBackup(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+				return p.State == "following" && p.SessionID != first.SessionID
+			})
+			launch := r.starter.asked()[1]
+			if again.Stage != first.Stage || launch.Model != "paid/backup" || launch.Dir != first.WorkDir || launch.ProjectID != "" || !strings.Contains(launch.Prompt, "previous worker reached its usage limit") {
+				t.Fatalf("backup did not continue the same stage: %+v", launch)
+			}
+			if old, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID); err != nil || old.State != "stopped" {
+				t.Fatalf("old goal was not retired: %+v, %v", old, err)
+			}
+			if len(r.starter.asked()) != 2 {
+				t.Fatal("the backup was launched more than once")
+			}
+		})
+	}
+}

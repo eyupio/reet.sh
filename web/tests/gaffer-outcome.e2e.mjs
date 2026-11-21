@@ -438,6 +438,10 @@ try {
       await expect(outcome.getByRole('combobox',{name:'Heavy effort',exact:true})).toHaveValue('high')
       // A saved tier whose agent this machine cannot run is left on the outcome's own agent.
       await expect(outcome.getByRole('combobox',{name:'Light agent',exact:true})).toHaveValue('claude')
+      // The outcome fallback changes only the unset tier, even when a saved tier uses the same agent.
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('haiku')
+      await expect(outcome.getByRole('combobox',{name:'Heavy model',exact:true})).toHaveValue('opus')
+      await expect(outcome.getByRole('combobox',{name:'Standard model',exact:true})).toHaveValue('haiku')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       await expect(outcome.getByRole('alert')).toHaveText('This model did not return a plan. Choose a model that supports tools, or write the plan yourself.')
       await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()

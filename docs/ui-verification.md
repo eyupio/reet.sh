@@ -3688,7 +3688,7 @@ Account → Password now has one **Password** panel with a count of the three fi
 **Change password** in its head. The three fields keep their minimum length and
 autocomplete hints. Different new passwords show **The new passwords do not match.**
 before any request; a successful change sends the same body as before, reports
-**Password changed. Every other session was signed out, and every API token and MCP connection was revoked.** and reloads the session
+**Password changed. Every other session was signed out. API tokens and MCP connections were kept.** and reloads the session
 list. The panel note still says every other browser is signed out while this one
 stays.
 

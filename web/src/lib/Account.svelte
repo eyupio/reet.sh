@@ -205,7 +205,7 @@
     try {
       await changePassword(passwordForm.current, passwordForm.password)
       passwordForm = { current: '', password: '', confirm: '' }
-      notice = 'Password changed. Every other session was signed out, and every API token and MCP connection was revoked.'
+      notice = 'Password changed. Every other session was signed out. API tokens and MCP connections were kept.'
       error = ''
       await loadSessions()
     } catch (e) {
@@ -486,7 +486,7 @@
         <button type="submit" form="password-form" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
       {/snippet}
       {#snippet toolbar()}
-        <p class="note">Changing it signs out every other browser and revokes every API token and MCP connection; this one stays signed in.</p>
+        <p class="note">Changing it signs out every other browser; this one stays signed in. API tokens and MCP connections are kept: revoke any you do not recognise under API tokens and MCP access.</p>
       {/snippet}
       <form id="password-form" class="password-form" onsubmit={change}>
         <div class="grid2">

@@ -46,7 +46,7 @@
 
 <svelte:head><title>Choose a new password · reet.sh</title></svelte:head>
 
-<AuthCard title="Choose a new password" lede="A reset link works once. Choosing a new password signs out every session and revokes every API token and MCP connection.">
+<AuthCard title="Choose a new password" lede="A reset link works once. Choosing a new password signs out every session and revokes every API token and MCP connection, so machines need a new token to keep syncing.">
   {#if done}
     <p class="done" role="status">{done}</p>
     <p class="help"><a href="/signin">Sign in with the new password</a></p>

@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -385,11 +384,8 @@ func (s *server) profilePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.st.DeleteOtherSessions(user.ID, auth.HashToken(token))
-	// Tokens and MCP connections go too: whoever knew the old password may
-	// have made one.
-	if err := s.st.RevokeUserTokens(user.ID); err != nil {
-		log.Printf("password change: revoking tokens: %v", err)
-	}
+	// API tokens and MCP connections stay: machines sync with a token, and a
+	// routine change must not cut them off. A reset by email link revokes them.
 	s.event(user.ID, "ui", "password-change", "", map[string]any{"name": user.Name})
 	s.emitPasswordChanged(user, time.Now())
 	writeJSON(w, 200, map[string]any{"ok": true})

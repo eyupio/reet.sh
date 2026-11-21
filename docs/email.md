@@ -101,7 +101,7 @@ every sign-in link to disk in the clear.
 | Message | To | Sent when |
 | --- | --- | --- |
 | Password reset | the address asked for, if it has an enabled account | `/forgot` on the sign-in page, or an administrator's Reset password. The answer is the same whether or not the account exists. The link works once, for 30 minutes (24 hours when an administrator starts it); a newer link replaces an older one. |
-| Password changed | the account | A reset link is used, or the password is changed on Account → Password. Every session is signed out (a change on Account → Password keeps the browser that made it), and every API token and MCP connection is revoked. |
+| Password changed | the account | A reset link is used, or the password is changed on Account → Password. Every session is signed out (a change on Account → Password keeps the browser that made it). A reset link also revokes every API token and MCP connection; a change on Account → Password keeps them, so machines keep syncing. |
 | Invitation | the invited address | An administrator creates an invitation on Admin → Users. It still shows the link to copy. The link works once, for seven days. |
 | Welcome | the new account | A self-serve sign-up, or an invitation is accepted. |
 | Team notice | the team's choice | A member joins, leaves or changes role; or a list is shared with the team. Each of those kinds can be turned off. |

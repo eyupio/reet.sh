@@ -114,7 +114,9 @@ func TestSignInEmailCannotSpendTheSignupAllowance(t *testing.T) {
 	}
 }
 
-func TestPasswordChangeRevokesTokensAndMCPConnections(t *testing.T) {
+// A change on Account → Password signs other browsers out but keeps tokens and
+// MCP connections, so machines keep syncing; a reset by email link revokes them.
+func TestPasswordChangeKeepsTokensAndMCPConnections(t *testing.T) {
 	_, st, srv, owner := auditServer(t, "", WithAuthMode(AuthAccounts))
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar}
@@ -134,11 +136,11 @@ func TestPasswordChangeRevokesTokensAndMCPConnections(t *testing.T) {
 	if code, out := doClient(t, c, srv, "POST", "/api/v2/profile/password", body, "Origin", srv.URL); code != 200 {
 		t.Fatalf("change: %d %s", code, out)
 	}
-	if code, _ := do(t, srv, "GET", "/api/v2/auth/me", "", "Authorization", "Bearer reet_token"); code != 401 {
-		t.Fatalf("an API token outlived the password change: %d", code)
+	if code, _ := do(t, srv, "GET", "/api/v2/auth/me", "", "Authorization", "Bearer reet_token"); code != 200 {
+		t.Fatalf("the password change revoked an API token: %d", code)
 	}
-	if conns, err := st.MCPConnections(owner.ID); err != nil || len(conns) != 0 {
-		t.Fatalf("MCP connections left: %+v %v", conns, err)
+	if conns, err := st.MCPConnections(owner.ID); err != nil || len(conns) != 1 {
+		t.Fatalf("MCP connections after the change: %+v %v", conns, err)
 	}
 	// The browser that made the change stays signed in.
 	if code, _ := doClient(t, c, srv, "GET", "/api/v2/auth/me", ""); code != 200 {

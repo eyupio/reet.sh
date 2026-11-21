@@ -108,7 +108,7 @@ var messages = map[string]func(Data) Content{
 			Heading:   "Your password changed",
 			Intro: []string{
 				hello(d),
-				"The password for your reet.sh account was changed on " + at(d.When) + ". Every other session was signed out, and every API token and MCP connection was revoked.",
+				"The password for your reet.sh account was changed on " + at(d.When) + ". Every other session was signed out. A reset by email link also revokes API tokens and MCP connections.",
 			},
 			Button: &Link{Label: "Open reet.sh", URL: d.Link},
 			After:  []string{"If this was not you, ask your instance administrator to reset it now and check the account's activity."},

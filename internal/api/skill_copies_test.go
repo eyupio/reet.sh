@@ -861,3 +861,36 @@ func TestSkillCopiesDownloadARepositoryOnce(t *testing.T) {
 		t.Fatalf("downloads = %d, want 1 for %d skills of one repository", n, len(slugs))
 	}
 }
+
+// Background downloads share a few slots across the whole server: with all of
+// them taken, a new one waits for a slot and does not start beside the others.
+func TestSkillCopiesWaitForADownloadSlot(t *testing.T) {
+	e := newCopyEnv(t)
+	for range skillCopyFetches {
+		skillCopySlots <- struct{}{}
+	}
+	release := func() {
+		for range skillCopyFetches {
+			<-skillCopySlots
+		}
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			release()
+		}
+	})
+	if code, body := do(t, e.srv, "POST", "/api/skills", `{"input":"`+findSkills+`"}`); code != 200 {
+		t.Fatalf("%d %s", code, body)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := e.fetch.callCount(); n != 0 {
+		t.Fatalf("fetched %d times with every slot taken", n)
+	}
+	released = true
+	release()
+	e.settle()
+	if n := e.fetch.callCount(); n != 1 {
+		t.Fatalf("fetched %d times once a slot was free, want 1", n)
+	}
+}

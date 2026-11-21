@@ -23,6 +23,7 @@
     saveProfile, signOutAccount, takeThemeChoice, UnauthorizedError,
     type Environment, type Skill, type User,
   } from './lib/api'
+  import { disablePushOnSignOut } from './lib/push'
   import AccountMenu from './lib/AccountMenu.svelte'
   import WebMCP from './lib/WebMCP.svelte'
   import BootSkeleton from './lib/BootSkeleton.svelte'

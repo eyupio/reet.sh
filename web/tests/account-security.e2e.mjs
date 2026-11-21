@@ -44,7 +44,7 @@ try {
 
     await newInputs.nth(1).fill('newpass123')
     await panel(page).getByRole('button', { name: 'Change password' }).click()
-    await expect(page.getByText('Password changed. Every other session was signed out.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Password changed. Every other session was signed out, and every API token and MCP connection was revoked.', { exact: true })).toBeVisible()
     expect(changes).toEqual([{ current: 'oldpass123', password: 'newpass123' }])
     expect(errors).toEqual([])
     await context.close()

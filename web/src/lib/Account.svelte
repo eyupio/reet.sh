@@ -486,7 +486,7 @@
         <button type="submit" form="password-form" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
       {/snippet}
       {#snippet toolbar()}
-        <p class="note">Changing it signs out every other browser; this one stays signed in.</p>
+        <p class="note">Changing it signs out every other browser and revokes every API token and MCP connection; this one stays signed in.</p>
       {/snippet}
       <form id="password-form" class="password-form" onsubmit={change}>
         <div class="grid2">

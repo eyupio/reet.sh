@@ -380,6 +380,9 @@ func TestFactoryWorkerUsageLimit(t *testing.T) {
 			if old, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID); err != nil || old.State != "stopped" {
 				t.Fatalf("old goal was not retired: %+v, %v", old, err)
 			}
+			if old, err := r.st.TerminalSessionFor(r.p.UserID, first.SessionID); err != nil || old.State != terminalproto.Ended {
+				t.Fatalf("expected the replaced session to end and remain in history: %+v, %v", old, err)
+			}
 			if len(r.starter.asked()) != 2 {
 				t.Fatal("the backup was launched more than once")
 			}

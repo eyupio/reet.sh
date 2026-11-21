@@ -227,7 +227,7 @@ try {
       await expect(split).toContainText('Split into 2 parts, done in this order, each by its own agent.')
       const part1=split.getByRole('group',{name:'Part 1 of Code in pipeline 2',exact:true}),part2=split.getByRole('group',{name:'Part 2 of Code in pipeline 2',exact:true})
       await expect(part1.getByRole('textbox',{name:'Part 1 name',exact:true})).toHaveValue('Button');await expect(part1.getByRole('combobox',{name:'Part 1 tier',exact:true})).toHaveValue('light')
-      await expect(part1).toContainText('Claude Code · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
+      await expect(part1).toContainText('Claude Code · Agent’s default model · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
       await expect(part2.getByRole('combobox',{name:'Part 2 tier',exact:true})).toHaveValue('standard')
       await part2.getByRole('textbox',{name:'Part 2 brief',exact:true}).fill('Draw the empty state, with the illustration.')
       await expect(split.getByRole('button',{name:'Do Code in pipeline 2 as one stage',exact:true})).toBeVisible()

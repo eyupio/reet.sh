@@ -2,8 +2,9 @@ package api
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
-	"mime"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,18 +18,17 @@ const gzipMinBytes = 1024
 
 var gzipWriters = sync.Pool{New: func() any { return gzip.NewWriter(nil) }}
 
-// compressJSON gzips JSON responses for clients that accept it. Anything that
-// is not JSON (event streams, downloads, uploads) passes straight through, and
-// upgraded connections never see the wrapper.
+// compressJSON marks the response of a request that accepts gzip, so
+// writeJSON can compress a large body. Nothing else is touched: the mark
+// writes nothing itself, so streams, downloads and upgraded connections go
+// out exactly as their handlers write them.
 func compressJSON(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead || r.Header.Get("Upgrade") != "" || !acceptsGzip(r.Header.Get("Accept-Encoding")) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		gw := &gzipJSONWriter{ResponseWriter: w}
-		defer gw.finish()
-		next.ServeHTTP(gw, r)
+		next.ServeHTTP(gzipAccepted{w}, r)
 	})
 }
 
@@ -56,115 +56,63 @@ func acceptsGzip(header string) bool {
 	return star
 }
 
-// gzipJSONWriter holds a JSON body until it reaches gzipMinBytes, then
-// compresses it; a smaller one is sent as it is when the handler returns.
-type gzipJSONWriter struct {
-	http.ResponseWriter
-	code      int
-	wroteHead bool
-	holding   bool
-	buf       []byte
-	gz        *gzip.Writer
-}
+// gzipAccepted marks a response whose request accepts gzip. It overrides
+// nothing that writes; flushing and hijacking reach the writer underneath.
+type gzipAccepted struct{ http.ResponseWriter }
 
-func (w *gzipJSONWriter) WriteHeader(code int) {
-	if w.wroteHead {
-		return
-	}
-	if code < 200 {
-		w.ResponseWriter.WriteHeader(code)
-		return
-	}
-	w.wroteHead, w.code = true, code
-	h := w.Header()
-	mt, _, _ := mime.ParseMediaType(h.Get("Content-Type"))
-	isJSON := mt == "application/json" || strings.HasSuffix(mt, "+json")
-	// A range (206) describes bytes of the uncompressed body, so it is left alone too.
-	skip := code == http.StatusNoContent || code == http.StatusNotModified || code == http.StatusPartialContent
-	if isJSON && h.Get("Content-Encoding") == "" && !skip {
-		w.holding = true
-		return
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
+func (w gzipAccepted) Flush() { _ = w.FlushError() }
 
-func (w *gzipJSONWriter) Write(b []byte) (int, error) {
-	if !w.wroteHead {
-		w.WriteHeader(http.StatusOK)
-	}
-	switch {
-	case w.gz != nil:
-		return w.gz.Write(b)
-	case !w.holding:
-		return w.ResponseWriter.Write(b)
-	}
-	w.buf = append(w.buf, b...)
-	if len(w.buf) >= gzipMinBytes {
-		if err := w.startGzip(); err != nil {
-			return 0, err
-		}
-	}
-	return len(b), nil
-}
-
-func (w *gzipJSONWriter) startGzip() error {
-	h := w.Header()
-	h.Set("Content-Encoding", "gzip")
-	h.Add("Vary", "Accept-Encoding")
-	h.Del("Content-Length")
-	w.ResponseWriter.WriteHeader(w.code)
-	w.gz = gzipWriters.Get().(*gzip.Writer)
-	w.gz.Reset(w.ResponseWriter)
-	w.holding = false
-	_, err := w.gz.Write(w.buf)
-	w.buf = nil
-	return err
-}
-
-// sendHeld sends a small held body as it is.
-func (w *gzipJSONWriter) sendHeld() {
-	w.holding = false
-	w.ResponseWriter.WriteHeader(w.code)
-	if len(w.buf) > 0 {
-		_, _ = w.ResponseWriter.Write(w.buf)
-	}
-	w.buf = nil
-}
-
-func (w *gzipJSONWriter) finish() {
-	switch {
-	case w.gz != nil:
-		_ = w.gz.Close()
-		w.gz.Reset(nil)
-		gzipWriters.Put(w.gz)
-		w.gz = nil
-	case w.holding:
-		w.sendHeld()
-	}
-}
-
-// Flush sends what is held: a caller that flushes wants the bytes out now.
-func (w *gzipJSONWriter) Flush() {
-	_ = w.FlushError()
-}
-
-func (w *gzipJSONWriter) FlushError() error {
-	if !w.wroteHead {
-		w.WriteHeader(http.StatusOK)
-	}
-	switch {
-	case w.gz != nil:
-		if err := w.gz.Flush(); err != nil {
-			return err
-		}
-	case w.holding:
-		w.sendHeld()
-	}
+func (w gzipAccepted) FlushError() error {
 	return http.NewResponseController(w.ResponseWriter).Flush()
 }
 
-func (w *gzipJSONWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (w gzipAccepted) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return http.NewResponseController(w.ResponseWriter).Hijack()
 }
 
-func (w *gzipJSONWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w gzipAccepted) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// takesGzip reports whether w carries the mark, under any wrappers that
+// unwrap to it.
+func takesGzip(w http.ResponseWriter) bool {
+	for {
+		switch v := w.(type) {
+		case gzipAccepted:
+			return true
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = v.Unwrap()
+		default:
+			return false
+		}
+	}
+}
+
+// gzipJSON compresses a JSON body for a response marked as taking gzip,
+// setting the headers that go with it. It answers the body to send: the
+// same bytes when it is small, the status carries no body of its own, or
+// the handler set an encoding already.
+func gzipJSON(w http.ResponseWriter, code int, data []byte) []byte {
+	h := w.Header()
+	// The body differs by Accept-Encoding whether or not this one was compressed.
+	h.Add("Vary", "Accept-Encoding")
+	// A range (206) describes bytes of the uncompressed body, so it is left alone too.
+	skip := code == http.StatusNoContent || code == http.StatusNotModified || code == http.StatusPartialContent
+	if len(data) < gzipMinBytes || skip || h.Get("Content-Encoding") != "" || !takesGzip(w) {
+		return data
+	}
+	var buf bytes.Buffer
+	gz := gzipWriters.Get().(*gzip.Writer)
+	defer gzipWriters.Put(gz)
+	gz.Reset(&buf)
+	_, err := gz.Write(data)
+	if err == nil {
+		err = gz.Close()
+	}
+	gz.Reset(io.Discard)
+	if err != nil {
+		return data
+	}
+	h.Set("Content-Encoding", "gzip")
+	h.Del("Content-Length")
+	return buf.Bytes()
+}

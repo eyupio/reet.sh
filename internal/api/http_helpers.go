@@ -7,10 +7,13 @@ import (
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
 	// Marshal first: encoding/json escapes <, > and & in strings, and a
 	// failure never leaves half an object on the wire.
 	data, err := json.Marshal(v)
+	if err == nil {
+		data = gzipJSON(w, code, data)
+	}
+	w.WriteHeader(code)
 	if err == nil {
 		_, _ = w.Write(data)
 	}

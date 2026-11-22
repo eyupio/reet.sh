@@ -69,6 +69,7 @@ func TestCompressJSONLeavesAlone(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNoContent)
 		})},
+		{"not modified", "gzip", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusNotModified, large) })},
 		{"already encoded", "gzip", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Encoding", "identity")
 			writeJSON(w, 200, large)
@@ -80,10 +81,19 @@ func TestCompressJSONLeavesAlone(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			rec := gzipTestGet(t, c.h, c.accept)
-			if got := rec.Header().Get("Content-Encoding"); got == "gzip" || rec.Header().Get("Vary") != "" {
-				t.Fatalf("compressed: Content-Encoding %q, Vary %q", got, rec.Header().Get("Vary"))
+			if got := rec.Header().Get("Content-Encoding"); got == "gzip" {
+				t.Fatalf("compressed: Content-Encoding %q", got)
 			}
-			if c.name != "no content" && !json.Valid(rec.Body.Bytes()) && c.name != "not JSON" {
+			// Every JSON body written through writeJSON says it differs by
+			// Accept-Encoding, compressed or not; nothing else is touched.
+			vary := "Accept-Encoding"
+			if c.name == "no content" || c.name == "not JSON" {
+				vary = ""
+			}
+			if got := rec.Header().Get("Vary"); got != vary {
+				t.Fatalf("Vary %q, want %q", got, vary)
+			}
+			if c.name != "no content" && c.name != "not modified" && !json.Valid(rec.Body.Bytes()) && c.name != "not JSON" {
 				t.Fatalf("body not sent as it is: %q", rec.Body.String())
 			}
 		})
@@ -94,6 +104,18 @@ func TestCompressJSONLeavesAlone(t *testing.T) {
 	compressJSON(jsonLarge).ServeHTTP(rec, r)
 	if rec.Header().Get("Content-Encoding") != "" {
 		t.Fatal("HEAD compressed")
+	}
+}
+
+// A handler that wraps the response in a writer of its own, as the request
+// log does, still has its JSON compressed.
+func TestCompressJSONSeesThroughWrappers(t *testing.T) {
+	large := map[string]string{"text": strings.Repeat("x", 4000)}
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(&statusWriter{ResponseWriter: w}, 200, large)
+	})
+	if got := gzipTestGet(t, h, "gzip").Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding %q through a wrapper", got)
 	}
 }
 

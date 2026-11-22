@@ -1,5 +1,23 @@
 # Reet central-control implementation handoff
 
+## PHONE-SKILL-BUDDY-1: skill suggestions fold to one row on a phone (22 November 2026)
+
+The owner shared a phone screenshot of an active chat where the **Skills for this task** panel filled much of the screen
+above the composer, pushing the conversation and message box away.
+
+**What changed.** `web/src/lib/terminal/ChatPane.svelte` now watches `PHONE_SCREEN` from `sizing.ts` and passes the
+existing `compact` prop to `SkillBuddy`, which until now was unused by the chat. On a phone the panel starts as its
+header row — title, the first suggestion's name, **See skills** and **Pause** — and opens on demand. The desktop chat
+panel, the native terminal's **Suggested skills** dialog and a Factory stage's per-stage suggestions are unchanged.
+
+**Tests.** `web/tests/chat.e2e.mjs` gains a phone case: the panel shows **See skills**, its body is absent, and opening
+it shows the suggestions. `npm run check` and `npm run build` pass, and the whole `chat.e2e.mjs` passes against
+`vite preview` at phone and desktop widths.
+
+**Docs.** `docs/skill-buddy.md` says the panel folds on a phone; `CHANGELOG.md` records it.
+
+**PR.** Opened against `main`; its checks are this change's. (Record the number here before merging.)
+
 ## FACTORY-CAPABILITIES-1: Add pipelines stays within the machine's agents (21 November 2026)
 
 A review of the Gaffer Factory's capability handling found three things. **Add pipelines** put the outcome's own agent

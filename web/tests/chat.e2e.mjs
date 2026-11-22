@@ -547,6 +547,12 @@ try {
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
   expect(sends).toBe(sendsBeforePhone)
+  // Skill suggestions fold to their header on a phone; See skills opens them without pushing the composer away.
+  const buddy = page.locator('[data-skill-buddy]')
+  await expect(buddy.getByRole('button', { name: 'See skills', exact: true })).toBeVisible()
+  await expect(buddy.getByText('Only selected instructions enter your message.')).toHaveCount(0)
+  await buddy.getByRole('button', { name: 'See skills', exact: true }).click()
+  await expect(buddy.getByText('Only selected instructions enter your message.')).toBeVisible()
   await page.setViewportSize({ width: 1360, height: 900 })
 
   // Tablet widths and both colour schemes: the picker stays inside the viewport with no sideways scroll, and its text stays

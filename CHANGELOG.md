@@ -8,6 +8,14 @@ this file existed releases were described on their GitHub release pages.
 - **Older machines are not asked to restart other agents**: reet only offers the terminal restart for Claude Code, Codex, Cline
   and Antigravity on a machine whose connector is new enough to open their terminal on a saved conversation
   (`session-mode-agents-v1`). Update reet on the machine to enable it; OpenCode is unchanged.
+- **Codex YOLO now turns its sandbox off**: a Codex terminal started on YOLO runs with `--ask-for-approval never --sandbox
+  danger-full-access`, so its commands can change any file and use the network on the machine. Before, it kept Codex's
+  sandbox and refused whatever needed to leave it. The YOLO confirmation says so. The account setting, the machine's own
+  `reet terminal yolo` switch and the confirmation still gate it. A Gaffer chat on YOLO is unchanged: it still only answers
+  the approvals Codex asks for.
+- **An empty turn is no longer silent for Antigravity, Claude Code and Codex**: a turn that says and does nothing shows a
+  notice that the agent ended it without a reply, and points at restarting it in its terminal (OpenCode and Cline keep their
+  provider advice).
 - **Restart any agent in its own terminal**: Session actions (and the **Terminal** tab, when the agent has no shared native terminal) can restart a Gaffer chat in the agent's terminal UI, and back, for
   Claude Code, Codex, Cline and Antigravity as well as OpenCode, on the same saved conversation. Cline's terminal resume
   (`--id`) has not been checked against a chat created over ACP; if it cannot open the conversation the chat is restored.

@@ -10,6 +10,12 @@ export function yoloChatSentence(machine: string, tool: string): string {
   return `The agent will not wait for you. reet says yes, this once, to every permission request it makes on ${machine}, including running commands and changing files.`
 }
 
+/** The terminal sentence in the YOLO confirmation: the agent's own skip-the-prompts option. Codex's also removes its sandbox. */
+export function yoloTerminalSentence(machine: string, name: string, tool: string): string {
+  const base = `The agent will not ask before running commands and changing files on ${machine}. reet passes ${name}'s own skip-the-prompts option and records the launch.`
+  return tool === 'codex' ? `${base} For Codex that includes turning its sandbox off, so commands can reach any file and the network on ${machine}.` : base
+}
+
 /** The tooltip of the YOLO button in a live chat's session controls. */
 export function yoloSwitchTitle(tool: string): string {
   return tool === 'codex' ? 'Answer approvals when Codex asks before leaving its sandbox (not in “Let Codex decide”)' : 'Answer every approval for this session'

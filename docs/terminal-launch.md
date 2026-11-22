@@ -326,7 +326,7 @@ confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to 
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
 ignores the choice. YOLO maps to a reviewed option only for Claude Code
-(`--dangerously-skip-permissions`), Codex (`--ask-for-approval never`), OpenCode (`--auto`), Cline
+(`--dangerously-skip-permissions`), Codex (`--ask-for-approval never --sandbox danger-full-access`), OpenCode (`--auto`), Cline
 (`--yolo --tui`), Antigravity (`--dangerously-skip-permissions`) and GitHub Copilot (`--allow-all`); every other preset refuses it with
 `launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
 it with `yolo_refused`, and the account setting must allow it first. A Claude Code chat in Gaffer takes YOLO through the

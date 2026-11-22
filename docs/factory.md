@@ -40,22 +40,29 @@ browser.
 ### Before you approve
 
 When the plan opens, reet reads the machine again and asks it which agents are signed in and how much of each plan is
-left. A machine that cannot answer is a state on the stage, not an error. **Launch readiness on** the machine, above
-**Approve and start**, counts the stages that are ready, how many have something to look at and the first thing to fix.
-Each stage, and each part of a split stage, is then one line: a mark, the agent, model and effort it will run on, and
-where the choice came from. **✓** is ready, and says nothing more; **!** (**Look at**), **✕** (**Cannot start**) and **…**
+left. A machine that cannot answer is a state on the stage, not an error. **Launch readiness on** the machine, at the
+head of the pipelines, counts the stages that are ready and how many have something to look at or cannot start. Under
+the count each cause is said once, with who it affects: **Every stage** for a machine that is not connected, otherwise
+the crews it is on and the stages they do, such as **Heavy and Standard crews, used by Code, Review and Test**. Its word
+is **Cannot start**, **Look at** or **Note**. A tier whose agent is not on the machine says only that: its model, effort,
+sign-in and backups do not matter until that is fixed. A cause on a tier has **Choose who does what**, which opens the
+crew editor and puts you on the first affected tier's agent.
+
+Each stage, and each part of a split stage, is one line: a mark, the agent, model and effort it will run on, and where
+the choice came from. **✓** is ready, and says nothing more; **!** (**Look at**), **✕** (**Cannot start**) and **…**
 (**Reading**) carry their word. The source is your **Saved crew** for that tier, **Your choice** made in this dialog, or
 **Outcome's agent**, which is the outcome's own agent because no crew is saved for the tier or because the saved agent is
-not on this machine (a line under the stage says which). A model or effort you left to the agent reads as a choice:
-**Agent's default model and effort**. Under the line are only the things to look at, and the backups:
+not on this machine. A model or effort you left to the agent reads as a choice: **Agent's default model and effort**.
+Under the line are the backups, folded until you open them:
 
-- **Backups: …**, folded under the stage in the order tried, open only when one needs a look, with what each will do. It **can take over** when balancing can move a stage
+- **Backups: …**, in the order tried, with what each will do. It **can take over** when balancing can move a stage
   onto it. Otherwise it **takes over only after a usage limit**, or **balancing will not use it**, and the line says
   why. Balancing moves a stage to a backup only when the first choice's plan figures are less than six hours old and
   low, the backup is signed in, and, if it has figures, has more of its plan left. A backup on the same agent shares
   that agent's plan, so it is not balanced onto. A backup whose own figures are old or absent takes over without a
-  comparison. After a usage limit the next backup is tried whatever its sign-in, so one whose agent is not on the
-  machine or is not signed in is still tried and is likely to be refused there.
+  comparison, and is not something to look at. After a usage limit the next backup is tried whatever its sign-in, so one
+  whose agent is not on the machine or is not signed in is still tried and is likely to be refused there; that is
+  something to look at, and the folded line counts it.
 
 Sign-ins are read from the machine's last answer even when the latest read could not be made; only that read is then
 said to be old. A machine that does not report an agent's sign-in (Cline, for one) is noted and never counted as a
@@ -64,12 +71,13 @@ problem. Things still being read, such as a model list, are shown as being read,
 A model that the machine's list does not have, a list read more than a day ago, a model list or effort levels the machine
 could not give, a missing sign-in and sign-ins the machine could not read are each worded differently, with when the
 list was read. A saved effort that the machine does not offer is shown as the saved crew's, with the note that the stage
-starts on the agent's default effort. Where the model or effort was not checked against the machine, the stage says so:
+starts on the agent's default effort. Where the model or effort was not checked against the machine, a note says so:
 an agent that does not offer the model stops the stage when it starts; otherwise the [Applied line](#the-page) on the
 running stage says what it is running on.
 
 Warnings never stop you. **Approve and start** waits only when a stage's agent is not on the machine now, or the machine
-is not connected, and the reason is beside the button. Choose another agent for the stage, or reconnect the machine. While a stage cannot start the machine list is read every ten seconds, so Approve clears when the machine comes back.
+is not connected, and the reason is beside the button, with the crews to change under **Choose who does what**. When
+the reason clears, the same place says **Nothing is holding the plan now.** While a stage cannot start the machine list is read every ten seconds, so Approve clears when the machine comes back.
 
 ## The page
 
@@ -242,13 +250,13 @@ item on a tablet or phone. Nothing happens until you choose.
 
 ### A worker reached its usage limit
 
-The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage; the two buttons say what each choice does. Either one continues the same stage in a new session in
+The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage, and which agent is the backup; the two buttons say what each choice does. Either one continues the same stage in a new session in
 the same folder and branch, and the pipeline keeps its history. If another model had already taken over on the stage
 after a usage limit, it says so and which agent the stage started on. It says whether no backup is saved for the
 stage or none is left. The detail adds how much of that agent's plan is left and when it
 resets, when the machine reports it.
 
-The item on Home and in the Factory list has both as buttons, **Continue with** the backup filled and **Choose another
+The item on Home and in the Factory list has both as buttons, **Continue with the backup** filled and **Choose another
 model…** beside it, so you can act without opening the detail. With no backup left only **Choose another model**
 remains, as the filled button.
 

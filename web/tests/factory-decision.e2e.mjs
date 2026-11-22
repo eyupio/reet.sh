@@ -99,18 +99,28 @@ try{
  const quota=fixture(),qw=await openWorkspace(browser,{width:1280,height:900,routes:quota.routes})
  quota.session.chatStatus='error'
  quota.outcome.sessions[0].stages[0].nextUsageBackup='OpenCode (paid/backup)'
+ // The exhausted agent's plan, as the page already reads it for the detail's Plan left.
+ const spent=()=>({state:'read',sentence:'',planLimits:true,checkedAt:now,accounts:[{tool:'opencode',state:'signed_in',method:'subscription',account:'me@example.test',plan:'go',limitsState:'read',limitsAt:now,limits:[{kind:'week',usedPercent:100,resetsAt:now+2*3600000}]}]})
+ quota.routes['/api/v2/machines/a1/accounts']=spent
+ quota.routes['/api/v2/terminal/machines']={machines:[{agentId:'a1',host:'Workshop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'test',terminalEnabled:true,terminalControl:true,readiness:'ready',acp:true,acpLiveControls:true,inspect:true,agentAccounts:true}}]}
  await qw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
  try {
   const page=qw.page
   await page.goto(`${base}/factory`)
   await expect(page.getByText('Worker usage limit reached',{exact:true})).toBeVisible()
-  await expect(page.getByRole('button',{name:/Continue with OpenCode/})).toBeVisible()
+  await expect(page.getByRole('button',{name:/^Continue with the backup/})).toBeVisible()
   await expect(page.getByText('Gaffer recommends:',{exact:false})).toHaveCount(0)
+  // What happened, what each choice does and how much of the plan is left, from the stage's own record and the plan read the page already has.
+  const waits=page.getByRole('region',{name:'What is waiting',exact:true})
+  await expect(waits).toContainText('OpenCode reached its usage limit on the code stage. The backup is OpenCode (paid/backup). Either choice carries on in the same folder and branch.')
+  await page.screenshot({path:`${shots}/factory-usage-limit-1280.png`})
+  await expect(waits).toContainText(/OpenCode plan: Week 0% left, resets in (2 h|1 h \d+ min)\./)
+  await expect(page.getByRole('button',{name:'Choose another model…',exact:true})).toBeVisible()
   await page.goto(`${base}/sessions?agent=a1&session=${sid}`)
   const decision=page.getByRole('region',{name:'Decision for Export API',exact:true})
-  await expect(decision).toContainText('The worker reached its usage limit.')
+  await expect(decision).toContainText('OpenCode reached its usage limit on the code stage. The backup is OpenCode (paid/backup). Either choice carries on in the same folder and branch.')
   await expect(decision.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
-  await decision.getByRole('button',{name:/Continue with OpenCode/}).click()
+  await decision.getByRole('button',{name:/^Continue with the backup/}).click()
   await expect.poll(()=>quota.box.backup).toEqual([{revision:5,stoppedSession:sid}])
   await expect(decision).toHaveCount(0)
  } finally {await qw.context.close()}
@@ -130,6 +140,35 @@ try{
   await expect.poll(()=>alternate.box.backup).toEqual([{revision:5,stoppedSession:sid,worker:{tool:'opencode',model:'paid/new-model'}}])
   expect(new URL(page.url()).pathname).toBe('/factory')
  } finally {await aw.context.close()}
+ // A backup already took over once and has run out too: the Factory says it is the second stop and where the stage started.
+ const again=fixture(),gw=await openWorkspace(browser,{width:1280,height:900,routes:again.routes})
+ again.session.chatStatus='error'
+ Object.assign(again.outcome.sessions[0].stages[0],{tool:'opencode',model:'paid/backup',usageFailover:true,first:{tool:'claude',model:'opus'}})
+ try {
+  const page=gw.page
+  await page.goto(`${base}/factory`)
+  await expect(page.getByRole('region',{name:'What is waiting',exact:true})).toContainText('OpenCode (paid/backup) reached its usage limit on the code stage. Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage; choose another model to carry on in the same folder and branch.')
+  await expect(page.getByRole('button',{name:/^Choose another model/})).toBeVisible()
+  await expect(page.getByRole('button',{name:/^Continue with/})).toHaveCount(0)
+ } finally {await gw.context.close()}
+ // On a phone the Factory list item itself carries both actions, with no sideways scroll.
+ const small=fixture(),sw=await openWorkspace(browser,{width:390,height:844,touch:true,routes:small.routes})
+ small.session.chatStatus='error'
+ small.outcome.sessions[0].stages[0].nextUsageBackup='OpenCode (paid/backup)'
+ await sw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+ try {
+  const page=sw.page
+  await page.goto(`${base}/factory`)
+  const item=page.locator('article.item',{hasText:'Export API'})
+  await expect(item).toContainText('OpenCode reached its usage limit on the code stage. The backup is OpenCode (paid/backup).')
+  await expect(item.getByRole('button',{name:/^Continue with the backup/})).toBeVisible()
+  await item.getByRole('button',{name:'Choose another model…',exact:true}).click()
+  await expect(page.getByRole('dialog',{name:'Continue with another model',exact:true})).toBeVisible()
+  await page.getByRole('dialog',{name:'Continue with another model',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click()
+  await item.getByRole('button',{name:/^Continue with the backup/}).click()
+  await expect.poll(()=>small.box.backup).toEqual([{revision:5,stoppedSession:sid}])
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ } finally {await sw.context.close()}
  // A started outcome can be put on YOLO from the pipeline's detail, in Settings for this outcome, after a confirmation,
  // and taken off again. The pipeline waits on the person, so it is the one open beside the list.
  const y=fixture(),yw=await openWorkspace(browser,{width:1280,height:900,routes:y.routes})

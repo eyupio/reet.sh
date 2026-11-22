@@ -721,7 +721,22 @@ export function deliveryWhy(piece: { criteria?: readonly unknown[]; deliveries?:
   const count = piece.criteria?.length ?? 0, back = (piece.deliveries ?? []).filter(d => d.decision === 'send_back').length
   return ['Delivery review', changedAfterAccept(piece.note) ? 'changed after you accepted it' : '', `${count} ${count === 1 ? 'criterion' : 'criteria'}`, back ? `sent back ${back === 1 ? 'once' : back === 2 ? 'twice' : `${back} times`} before` : ''].filter(Boolean).join(' · ')
 }
-type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
+type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; tool?: string; model?: string; first?: { tool: string; model?: string }; usageFailover?: boolean; backup?: { tool: string }; moreBackups?: { tool: string }[]; nextUsageBackup?: string }[] }
+const TOOL_WORDS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cline: 'Cline', antigravity: 'Google Antigravity (AGY)', copilot: 'GitHub Copilot' }
+/** An agent and its model as the controller words a backup: "OpenCode (paid/backup)". */
+const agentWords = (agent: { tool?: string; model?: string } | undefined): string => agent?.tool ? `${TOOL_WORDS[agent.tool] ?? agent.tool}${agent.model ? ` (${agent.model})` : ''}` : ''
+/** What happened when a stage's worker reached its usage limit, from the stage's own record, and what each choice does. */
+export function usageLimitWhy(stage: NonNullable<WaitingPiece['stages']>[number]): string {
+  const ran = agentWords(stage), first = agentWords(stage.first), where = `on the ${stageLabel(stage.kind).toLowerCase()} stage`
+  const none = `${stage.backup?.tool || stage.moreBackups?.length ? 'No backup is left for this stage' : 'No backup is saved for this stage'}; choose another model to carry on in the same folder and branch.`
+  // The buttons say what each choice does; this says what happened. usageFailover is also set when the person chose the
+  // other model, and there can be a third stop: say only what is always true.
+  return [
+    ran ? `${ran} reached its usage limit ${where}.` : `The worker reached its usage limit ${where}.`,
+    stage.usageFailover && `Another model already took over on this stage after a usage limit${first ? `; it started on ${first}` : ''}.`,
+    stage.nextUsageBackup ? `The backup is ${stage.nextUsageBackup}. Either choice carries on in the same folder and branch.` : none,
+  ].filter(Boolean).join(' ')
+}
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
 export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' | 'delivery' | 'usage_limit' }
 /** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used
@@ -739,11 +754,11 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
       if (goal.workerUsageLimited) {
         const backup = stages[at]?.nextUsageBackup
         const replace: NeedChoice = { id: 'replace-worker', label: 'Choose another model…', primary: !backup, recommended: !backup }
-        const why = 'The worker reached its usage limit. Gaffer can continue this stage with another model.'
+        const why = stages[at] ? usageLimitWhy(stages[at]) : ''
         const need = !stages[at]
           ? { why: goal.reason || goal.goal.note, choices: [{ id: 'open', label: 'Open worker session', primary: true } satisfies NeedChoice] }
           : backup
-            ? recommend(why, [{ id: 'backup', label: `Continue with ${backup}` }, replace])
+            ? recommend(why, [{ id: 'backup', label: 'Continue with the backup' }, replace])
             : { why, choices: [replace] }
         out.push({ piece, stage, kind: 'usage_limit', need })
       } else out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })

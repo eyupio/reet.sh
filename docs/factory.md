@@ -30,10 +30,56 @@ To start one, choose **New Factory outcome**:
    Under **Acceptance criteria** you can write what must be true for a pipeline to count as delivered, up to ten
    one-line criteria of up to 240 bytes each. A pipeline with criteria stops for a [delivery review](#delivery-review)
    before it merges or finishes; one without them runs as before.
+   Each stage also says what it will run on, and **Launch readiness** above **Approve and start** sums that up. See
+   [Before you approve](#before-you-approve).
 4. Set the limits, **Approvals**, **Decisions** and the merge, described below, then choose **Approve and start**.
 
 Nothing starts until you approve. After that the controller does the starting and the moving on, so you can close the
 browser.
+
+### Before you approve
+
+When the plan opens, reet reads the machine again and asks it which agents are signed in and how much of each plan is
+left. A machine that cannot answer is a state on the stage, not an error. **Launch readiness on** the machine, at the
+head of the pipelines, counts the stages that are ready and how many have something to look at or cannot start. Under
+the count each cause is said once, with who it affects: **Every stage** for a machine that is not connected, otherwise
+the crews it is on and the stages they do, such as **Heavy and Standard crews, used by Code, Review and Test**. Its word
+is **Cannot start**, **Look at** or **Note**. A tier whose agent is not on the machine says only that: its model, effort,
+sign-in and backups do not matter until that is fixed. A cause on a tier has **Choose who does what**, which opens the
+crew editor and puts you on the first affected tier's agent.
+
+Each stage, and each part of a split stage, is one line: a mark, the agent, model and effort it will run on, and where
+the choice came from. **✓** is ready, and says nothing more; **!** (**Look at**), **✕** (**Cannot start**) and **…**
+(**Reading**) carry their word. The source is your **Saved crew** for that tier, **Your choice** made in this dialog, or
+**Outcome's agent**, which is the outcome's own agent because no crew is saved for the tier or because the saved agent is
+not on this machine. A model or effort you left to the agent reads as a choice: **Agent's default model and effort**.
+Under the line are the backups, folded until you open them:
+
+- **Backups: …**, in the order tried, with what each will do. It **can take over** when balancing can move a stage
+  onto it. Otherwise it **takes over only after a usage limit**, or **balancing will not use it**, and the line says
+  why. Balancing moves a stage to a backup only when the first choice's plan figures are less than six hours old and
+  low, the backup is signed in, and, if it has figures, has more of its plan left. A backup on the same agent shares
+  that agent's plan, so it is not balanced onto. A backup whose own figures are old or absent takes over without a
+  comparison, and is not something to look at. After a usage limit the next backup is tried whatever its sign-in, so one
+  whose agent is not on the machine or is not signed in is still tried and is likely to be refused there; that is
+  something to look at, and the folded line counts it. Backups that fail for the same reason are said together, and a
+  backup on the first choice's own agent is not said again when that agent's missing sign-in already is.
+
+Sign-ins are read from the machine's last answer even when the latest read could not be made; only that read is then
+said to be old. A machine that does not report an agent's sign-in (Cline, for one) is noted and never counted as a
+problem. Things still being read, such as a model list, are shown as being read, not as a problem.
+
+A model that the machine's list does not have, a list read more than a day ago, a model list or effort levels the machine
+could not give, a missing sign-in and sign-ins the machine could not read are each worded differently, with when the
+list was read. A saved effort that the machine does not offer is shown as the saved crew's, with the note that the stage
+starts on the agent's default effort. Where the model or effort was not checked against the machine, a note says so:
+an agent that does not offer the model stops the stage when it starts; otherwise the [Applied line](#the-page) on the
+running stage says what it is running on.
+
+Warnings never stop you. **Approve and start** waits only when a stage's agent is not on the machine now, or the machine
+is not connected, and the reason is beside the button, with the crews to change under **Choose who does what**. When
+the reason clears, the same place says **Nothing is holding the plan now.** While a stage cannot start the machine list
+is read every ten seconds, so Approve clears when the machine comes back.
 
 ## The page
 
@@ -167,6 +213,7 @@ Each tier can have a **Backup**: a second agent, model and effort.
 - When the working model reports that its usage or credits are exhausted, Factory offers the next configured backup
   and continues the same stage in its existing folder and branch. With **Gaffer decides**, Factory makes that switch
   once automatically. **Choose another model** on the card lets you select a different worker for this stage when you want to use a different model or have no backup.
+  See [A worker reached its usage limit](#a-worker-reached-its-usage-limit).
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer
 settings holds the same, and every later outcome starts from it, including one started over MCP.
@@ -202,6 +249,18 @@ item on a tablet or phone. Nothing happens until you choose.
 - **Try the review again** appears when Gaffer's own review failed.
 - **Give it a new budget** appears when the stage used its reviews or its time.
 - **Run this stage again in a new session** appears when the stage's session was ended.
+
+### A worker reached its usage limit
+
+The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage, and which
+agent the backup is. Either button continues the same stage in a new session in the same folder and branch, and the
+pipeline keeps its history. If another model had already taken over on the stage after a usage limit, it says so and
+which agent the stage started on. It says whether no backup is saved for the stage or none is left. The detail adds
+how much of that agent's plan is left and when it resets, when the machine reports it.
+
+The item on Home and in the Factory list has both as buttons, **Continue with the backup** filled and **Choose another
+model…** beside it, so you can act without opening the detail. With no backup left only **Choose another model**
+remains, as the filled button.
 
 The same decisions are in the pipeline's session, under its header, with Gaffer's latest review to read in place and a
 line saying who decides and, when it is not Gaffer, how to hand it the decisions.

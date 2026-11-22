@@ -472,7 +472,68 @@ try{
    expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
- // The four captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page).
+  // A worker that ran out of its plan: the entry explains it from the stage's own record, and both recovery actions are
+ // offered in place (the backup, and another model in the same dialog the Factory uses), on a desktop row and a phone card.
+ for(const width of [1440,390]){
+  const limited=({backup=true,second=false}={})=>f=>{
+   f.retries=[]
+   Object.assign(f.row,{workerUsageLimited:true,reason:'The working model reached its usage or credit limit.'})
+   const stage=f.outcome.sessions[0].stages[0]
+   Object.assign(stage,{tool:'opencode',model:'paid/main',...(backup?{nextUsageBackup:'OpenCode (paid/backup)'}:{}),...(second?{usageFailover:true,first:{tool:'claude',model:'opus'}}:{})})
+   f.routes[`/api/v2/gaffer/outcomes/${oid}`]=()=>f.outcome
+   f.routes[`/api/v2/gaffer/outcomes/${oid}/sessions/a/retry`]=request=>{f.retries.push(request.postDataJSON());return f.outcome}
+  }
+  // First stop with a backup configured: what happened, what each button does, both buttons, and the backup posts the retry.
+  {
+   const w=await open(width,'light',limited()),page=w.page
+   try{
+    const item=entries(page).filter({hasText:'Export API'})
+    await expect(item.locator('.chip')).toHaveText('Usage limit')
+    await expect(item).toContainText('OpenCode (paid/main) reached its usage limit on the code stage. The backup is OpenCode (paid/backup). Either choice carries on in the same folder and branch.')
+   await expect(item).not.toContainText('Continue with OpenCode (paid/backup) resumes')
+    const backup=item.getByRole('button',{name:'Continue with the backup',exact:true}),other=item.getByRole('button',{name:'Choose another model…',exact:true})
+    await expect(backup).toBeVisible();await expect(other).toBeVisible()
+    await expect(backup).toHaveClass(/primary/);await expect(other).not.toHaveClass(/primary/)
+    const edge=await right(item);for(const button of [backup,other,item.getByRole('link',{name:'Details and other actions for Export API'})])expect(await right(button)).toBeLessThanOrEqual(edge+1)
+   expect(await noSideways(page)).toBe(true)
+   // The filled button has a line of its own; the other model and Details share the line under it.
+   const [b,o,d]=await Promise.all([backup,other,item.getByRole('link',{name:'Details and other actions for Export API'})].map(l=>l.boundingBox()))
+   expect(o.y).toBeGreaterThan(b.y+b.height-1);expect(Math.abs(o.y-d.y)).toBeLessThan(2);expect(d.x).toBeGreaterThan(o.x+o.width-1)
+   await page.screenshot({path:`${shots}/home-usage-limit-${width}.png`})
+    // Another model opens the Factory's own dialog on Home, and the person stays on Home.
+    await other.click()
+    const dialog=page.getByRole('dialog',{name:'Continue with another model',exact:true})
+    await expect(dialog).toContainText('Gaffer will resume the code stage in the same folder and branch.')
+    await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
+    await expect(dialog).toHaveCount(0)
+    expect(new URL(page.url()).pathname).toBe('/')
+    expect(w.f.retries).toEqual([])
+    // The backup is taken in place: one retry for the stopped session, no navigation.
+    await backup.click()
+    await expect.poll(()=>w.f.retries).toEqual([{revision:5,stoppedSession:sid}])
+    expect(new URL(page.url()).pathname).toBe('/')
+   }finally{await w.context.close()}
+  }
+  // A backup already took over once and has run out: the second stop says so and names where the stage started. Only another model is left, and it is the filled button.
+  {
+   const w=await open(width,'light',limited({backup:false,second:true})),page=w.page
+   try{
+    const item=entries(page).filter({hasText:'Export API'})
+    await expect(item).toContainText('OpenCode (paid/main) reached its usage limit on the code stage. Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage; choose another model to carry on in the same folder and branch.')
+    await expect(item.getByRole('button',{name:'Choose another model',exact:true})).toHaveClass(/primary/)
+    await expect(item.getByRole('button',{name:/^Continue with/})).toHaveCount(0)
+    await item.getByRole('button',{name:'Choose another model',exact:true}).click()
+    const dialog=page.getByRole('dialog',{name:'Continue with another model',exact:true})
+    await dialog.getByRole('combobox',{name:'Replacement model',exact:true}).selectOption({label:'Other…'})
+    await dialog.getByRole('textbox',{name:'Replacement model name',exact:true}).fill('paid/new-model')
+    await dialog.getByRole('button',{name:'Continue stage',exact:true}).click()
+    await expect.poll(()=>w.f.retries).toEqual([{revision:5,stoppedSession:sid,worker:{tool:'opencode',model:'paid/new-model'}}])
+    expect(new URL(page.url()).pathname).toBe('/')
+   }finally{await w.context.close()}
+  }
+ }
+ console.log('ok - a worker usage limit is explained on Home, with the backup and another model in place')
+// The four captures kept in docs/images/ui, at twice the pixel density and as the person sees the screen (not full page).
  // Saved only when REET_UI_SCREENSHOTS names a folder.
  if(process.env.REET_UI_SCREENSHOTS){
   const shoot=async(width,theme,name,prepare,tall)=>{

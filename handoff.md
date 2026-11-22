@@ -1,5 +1,64 @@
 # Reet central-control implementation handoff
 
+## FACTORY-LAUNCH-READINESS-3: launch readiness before approval, and a usage limit explained (22 November 2026)
+
+Stage 3 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). It is in the web UI only: no Go, no
+API and no stored field changed. Everything it says is worked out from what the pages already read.
+
+**Before approval.** `web/src/lib/factory/launchReadiness.ts` is a pure resolver. From the machine, the agents, efforts
+and model lists it reports, its sign-ins and plan figures, the saved crew and the choices on screen, it says for each
+crew tier the agent, model and effort a stage will run on and where the agent came from (saved crew, the person's
+choice, the outcome's agent, or the outcome's agent because the saved one is not on the machine). Each fact is one of
+five states that are worded differently: ready, default (left to the agent, a choice), missing, stale and unavailable.
+Backups are listed in the order tried with what each will do. A tier is **ready**, has something to **look at**, or is
+**blocked**; only an agent that is not on the machine now, or a machine that is not connected, blocks.
+
+The plan step of **New Factory outcome** (`GafferOutcome.svelte`, `factory/LaunchReadiness.svelte`,
+`factory/StageParts.svelte`) draws it. Each stage, and each part of a split stage, is one line with its backups folded
+under it. **Launch readiness on** the machine sits at the head of the pipelines: it counts the stages and says each
+cause once, with the crews and stages it affects, and **Choose who does what** opens the crew editor on the first
+affected tier's agent. The crew editor used to be on the first step only; it is now on the plan step too, so a blocked
+plan can be fixed where it is read. An agent that has left the machine stays named in its box as missing. The reason
+Approve is held is beside the button in one status line, which also says when it clears. The machine's sign-ins are
+read once per machine when the plan opens (a busy or failed read is tried once more after 3 s), and the machine list is
+read again when the plan opens and every 10 s while a stage is blocked.
+
+**A usage limit.** `usageLimitWhy` in `web/src/lib/gafferOutcome.ts` says which agent and model ran out on which stage,
+which agent the backup is, and that either choice carries on in the same folder and branch; after a model has already
+taken over it says where the stage started, and whether no backup is saved or none is left. Home's **Waiting for you**
+and the Factory list (`factory/WaitingItem.svelte`) show **Continue with the backup** and **Choose another model…** as
+buttons; the Factory detail adds the plan left and when it resets.
+
+**What it must match on the server, which is unchanged.** `balanceChoice` moves a stage to a backup only when the first
+choice's figures are under six hours old and low, the backup is signed in and has more left. `nextUsageBackup` and
+`recoverPipelineWorker` take the next backup after a usage limit without checking that its agent is on the machine or
+signed in, so the plan says such a backup is still tried and is likely to be refused. The rows are built from
+`withReportedEfforts(stagePlan(...))`, the same dedupe and effort strip as the payload, so a row never lists a backup
+or an effort that is not sent.
+
+**Reviews.** An independent review of the first build found sentences that said things the server does not do (a
+same-agent backup that "can take over", a saved effort shown as the person's choice, pending reads counted as problems);
+all were fixed. Four design passes followed: an audit (16/20), a distill, a polish and a critique (24/40). The critique's
+two main findings, one cause repeated under every stage and a fix that could not be reached from the plan, are what the
+panel and the button answer.
+
+**Known gaps.**
+- After a usage limit the server tries the next backup even when its agent is not on the machine or not signed in.
+  The plan warns about it; making the server skip it is Go work.
+- Home does not say when the plan resets; only the Factory detail reads plan figures. On a desktop Home row
+  **Choose another model…** wraps onto two lines.
+- "More left" compares each agent's tightest window, where the server also matches a window that names a model
+  (a `shortcut:` comment marks it).
+- The YOLO and folder-trust checks in the dialog still look only at first choices, as before.
+- The figures are those read when the plan step opened, not at the moment of approval.
+- Release B's checks were not made: all three agents on a real connector, a real exhausted plan and a lost connection,
+  and a retry recording the chosen backup. Everything here ran against the suites' fixtures.
+
+**Tests.** `launchReadiness.test.mjs` covers the five states, each source, the backups' rules, the summary and its
+causes; `gafferOutcome.test.mjs` the usage-limit sentences. In the browser, `gaffer-outcome.e2e.mjs` covers the panel,
+the button to the crew, the one-line stages and what holds Approve, at desktop and phone widths, light and dark;
+`home-waiting.e2e.mjs` and `factory-decision.e2e.mjs` the usage-limit card and both ways on.
+
 ## CHAT-LONG-BASELINE-1: the long-chat baseline is measured (22 November 2026)
 
 The delivery review plan's stage 0 asked for a long-chat baseline for stage 4 to compare against; it had not been

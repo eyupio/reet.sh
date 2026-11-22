@@ -5,6 +5,24 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Launch readiness before you approve a Factory plan**: each stage of the plan, and each part of a split stage, is
+  now one line saying the agent, model and effort it will run on and where its agent came from (your saved crew, your
+  choice here, or the outcome's agent because no crew is saved or the saved agent is not on the machine). Its backups
+  are folded under it, in order, with what each will do (balancing can move a stage onto it, or it takes over only
+  after a usage limit). **Launch readiness on** the machine, at the head of the pipelines, counts the stages that are
+  ready and says each cause once, with the crews and stages it affects; **Choose who does what** takes you to the
+  agent to change. A model the machine does not list, an old list, no sign-in found, sign-ins the machine could not
+  read and an effort the agent does not offer are each worded differently from a model or effort you left to the
+  agent, which is shown as your choice. Old plan figures on a backup that can still take over are not something to
+  look at. Where something was not checked, a note says what happens when the stage starts, and the stage's
+  **Applied** line says what it is running on. The machine is read again when the plan opens. Only an agent that is
+  not on the machine now, or a machine that is not connected, holds **Approve and start**, with the reason beside it;
+  everything else is a warning.
+- **A usage limit is explained, with both ways on, on Home and in the Factory**: a pipeline whose worker reached its
+  plan's limit now says which agent ran out and which agent the backup is. **Continue with the backup** and **Choose
+  another model…** both carry on in the same folder and branch. After another model has already taken over on the
+  stage it says where the stage started, and whether a backup is saved or none is left. Home's **Waiting for you**
+  and the Factory list show both as buttons, on a phone too, and the detail adds the plan left and when it resets.
 - **Older machines are not asked to restart other agents**: reet only offers the terminal restart for Claude Code, Codex, Cline
   and Antigravity on a machine whose connector is new enough to open their terminal on a saved conversation
   (`session-mode-agents-v1`). Update reet on the machine to enable it; OpenCode is unchanged.

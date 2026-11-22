@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -60,7 +61,11 @@ func (s *Service) releaseGoneSessions() {
 			continue
 		}
 		for _, piece := range o.Sessions {
-			if piece.State != "following" || piece.SessionID == "" || !s.sessionGone(o.OwnerID, piece.SessionID) {
+			if piece.State != "following" || piece.SessionID == "" {
+				continue
+			}
+			if !s.sessionGone(o.OwnerID, piece.SessionID) {
+				s.endRetired(o, piece)
 				continue
 			}
 			key, session, conversation := piece.Key, piece.SessionID, piece.ConversationID
@@ -81,6 +86,25 @@ func (s *Service) releaseGoneSessions() {
 			}
 			s.stopPipelineGoal(o.OwnerID, conversation, sessionGoneNote)
 			s.auditPipeline(after, key)
+		}
+	}
+}
+
+// endRetired ends the sessions a followed pipeline has left behind that still
+// run: an exhausted agent replaced by its backup, or a stage sent back, whose
+// machine could not be reached when it was left. A machine that fails to end
+// one is asked again only after endRetryAfter.
+func (s *Service) endRetired(o store.GafferOutcome, piece store.GafferOutcomeSession) {
+	for _, conversation := range piece.Retired {
+		c, err := s.store.GafferConversationFor(o.OwnerID, conversation)
+		if err != nil || c.SessionID == "" || c.SessionID == piece.SessionID || !s.endDue(c.SessionID) || !s.sessionRunning(o.OwnerID, c.SessionID) {
+			continue
+		}
+		s.endFinishedSession(context.Background(), o, piece.Key, c.SessionID, "Its pipeline had left it behind, and it was still running.")
+		if s.sessionRunning(o.OwnerID, c.SessionID) {
+			s.endFailed(c.SessionID)
+		} else {
+			s.endTried.Delete(c.SessionID)
 		}
 	}
 }

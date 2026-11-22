@@ -783,3 +783,59 @@ func TestAStoppedStageEndedJustBeforeARestartIsRunOnItsBackup(t *testing.T) {
 		t.Fatalf("after the restart: %+v sessions=%d", again.Stages[0], r.starter.sessions())
 	}
 }
+
+// Fallback after a usage limit, machine unreachable to end the exhausted
+// session at the switch: once the machine answers again, that session is
+// ended beside the backup the pipeline now follows.
+func TestTheExhaustedSessionIsEndedWhenItsMachineCouldNotBeReachedAtTheSwitch(t *testing.T) {
+	r := outcomeFixture(t)
+	o, first := usageLimited(t, r)
+	r.s.SetSessionStarter(&endFails{outcomeStarterFake: r.starter})
+	if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	if !r.s.sessionRunning(r.p.UserID, first.SessionID) {
+		t.Fatal("the exhausted session was ended while its machine could not be reached")
+	}
+	// The machine is back, and any wait before asking it again is over.
+	r.s.SetSessionStarter(r.starter)
+	r.s.endTried.Delete(first.SessionID)
+	r.startsNothingMore(t, 2)
+	if old, err := r.st.TerminalSessionFor(r.p.UserID, first.SessionID); err != nil || old.State == terminalproto.Running {
+		t.Fatalf("the exhausted session is still running beside its backup: %v %v", old.State, err)
+	}
+}
+
+// A session another pipeline works in is never ended for being left behind.
+func TestALeftBehindSessionAnotherPipelineUsesIsNotEnded(t *testing.T) {
+	r := outcomeFixture(t)
+	o, first := usageLimited(t, r)
+	r.s.SetSessionStarter(&endFails{outcomeStarterFake: r.starter})
+	if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	r.settle(t, o.ID)
+	// Another outcome follows the exhausted session.
+	other, err := r.st.CreateGafferOutcomeFor(r.p.UserID, store.GafferOutcome{ID: strings.Repeat("e", 32), Objective: "Ship it.", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it. Do not merge.", RequestID: strings.Repeat("f", 32)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.st.UpdateGafferOutcomeFor(r.p.UserID, other.ID, other.Revision, func(o *store.GafferOutcome) bool {
+		o.State, o.Sessions[0].State, o.Sessions[0].SessionID = "settled", "following", first.SessionID
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.s.SetSessionStarter(r.starter)
+	r.s.endTried.Delete(first.SessionID)
+	r.startsNothingMore(t, 2)
+	if !r.s.sessionRunning(r.p.UserID, first.SessionID) {
+		t.Fatal("a session another pipeline follows was ended")
+	}
+}

@@ -386,10 +386,16 @@ func deliveryView(o store.GafferOutcome, item store.GafferOutcomeSession, head d
 		Branch: head.branch, Remote: head.remote, Checks: []DeliveryCheck{}, Criteria: []DeliveryCriterionView{}, Decisions: []store.GafferDeliveryDecision{}, Stages: []string{}}
 	if head.pull != nil {
 		view.Pull = &DeliveryPull{Number: head.pull.Number, URL: head.pull.URL, State: head.pull.State, HeadCommit: head.pull.HeadOID, AtHead: head.atHead()}
-		if head.atHead() {
-			for _, check := range head.pull.Checks {
-				view.Checks = append(view.Checks, DeliveryCheck{Name: check.Name, State: check.State, Tone: checkTone(check.State), URL: check.URL})
+		// Each name once, as evidence would read it: the worst of the checks
+		// that share it.
+		live, listed := liveChecks(head), map[string]bool{}
+		for _, named := range head.pull.Checks {
+			check, ok := live[named.Name]
+			if !ok || listed[named.Name] {
+				continue
 			}
+			listed[named.Name] = true
+			view.Checks = append(view.Checks, DeliveryCheck{Name: check.Name, State: check.State, Tone: checkTone(check.State), URL: check.URL})
 		}
 	}
 	for _, c := range item.Criteria {

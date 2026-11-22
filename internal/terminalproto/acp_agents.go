@@ -431,7 +431,8 @@ func (c Capabilities) ChatReattachFor(tool string) bool {
 // session-mode-v1 and can launch the tool in a terminal (launch-v1 with the
 // tool among its launch tools). The validator requires launch-v1 but not the
 // tool, because an older connector reports session mode on a machine whose
-// chats come from another adapter; such a machine is simply not asked.
+// chats come from another adapter; such a machine is simply not asked. Only OpenCode is asked of a connector that
+// predates session-mode-agents-v1: its catalogue may have no resume flag for another agent.
 func (c Capabilities) SessionModeFor(tool string) bool {
-	return c.SessionMode && c.Launch && slices.Contains(c.Tools, tool)
+	return c.SessionMode && c.Launch && slices.Contains(c.Tools, tool) && (tool == "opencode" || c.SessionModeAgents)
 }

@@ -101,6 +101,7 @@ type AgentConfig struct {
 	acpLongPrompt      bool
 	acpApproval        bool
 	sessionMode        bool
+	sessionModeAgents  bool
 	nativeView         bool
 	chatReattach       bool
 	chatReattachDetail bool
@@ -1028,6 +1029,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	// never claimed without all three.
 	cfg.nativeView = terminalproto.SupportsNativeView(advertised) && cfg.acp && cfg.launch
 	cfg.sessionMode = terminalproto.SupportsSessionMode(advertised) && cfg.acp && cfg.acpHistory && cfg.launch
+	cfg.sessionModeAgents = cfg.sessionMode && terminalproto.SupportsSessionModeAgents(advertised)
 	// chat-reattach-v1 stands on chats and their history; it is never
 	// claimed without both.
 	cfg.chatReattach = terminalproto.SupportsChatReattach(advertised) && cfg.acp && cfg.acpHistory
@@ -1171,6 +1173,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	if cfg.sessionMode {
 		features = append(features, terminalproto.SessionModeFeature)
 	}
+	if cfg.sessionModeAgents {
+		features = append(features, terminalproto.SessionModeAgentsFeature)
+	}
 	if cfg.chatReattach {
 		features = append(features, terminalproto.ChatReattachFeature)
 	}
@@ -1309,6 +1314,8 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		}
 	}
 	acp := cfg.acp && control && enabled && chatTool
+	// A switch stands on chats, their history and a launchable chat agent.
+	sessionMode := acp && cfg.acpHistory && cfg.sessionMode && launch && slices.ContainsFunc(tools, terminalproto.ReviewedChatTool)
 	var software []terminalproto.SoftwareEntry
 	softwareEnabled := cfg.software && cfg.Software != nil
 	if softwareEnabled && control {
@@ -1403,7 +1410,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// their history, and only when a chat agent can be launched in a
 		// terminal: a switch opens that agent's TUI. NativeView stays OpenCode's.
 		NativeView:  acp && cfg.nativeView && launch && slices.Contains(tools, "opencode"),
-		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.ContainsFunc(tools, terminalproto.ReviewedChatTool),
+		SessionMode: sessionMode,
+		// Only with SessionMode, so the flag never appears without it.
+		SessionModeAgents: sessionMode && cfg.sessionModeAgents,
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
 		// their history, and for an agent that can reopen its stored
 		// conversation: OpenCode, or one whose descriptor claims it.

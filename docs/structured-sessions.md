@@ -593,7 +593,8 @@ The separate **Restart in another interface** control in Session actions uses th
   `codex resume`, `opencode --session`, `cline --id`, `agy --conversation`).
 - **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
   to finish or answer what it is asking." The controller refuses it too.
-- **`session-mode-v1` machines only.** A connector that did not negotiate it, has no chat history for the agent, or
+- **`session-mode-v1` machines only** (and, for any agent but OpenCode, `session-mode-agents-v1`, which a connector that
+  can open that agent's terminal on a saved conversation negotiates). A connector that did not negotiate it, has no chat history for the agent, or
   cannot launch the agent in a terminal (it is not among its launch tools) is not asked: "Update reet on this
   machine to switch between Gaffer and the agent's TUI." Only a running session can switch. Asking for the mode
   the session is already in changes nothing.

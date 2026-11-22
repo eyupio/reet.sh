@@ -171,6 +171,13 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 	if !c.SessionMode {
 		t.Fatal("session mode not reported with Claude among the launch tools")
 	}
+	if c.SessionModeAgents {
+		t.Fatal("session-mode-agents-v1 reported to a controller that did not advertise it")
+	}
+	negotiateFeatures(&claudeOnly, base+","+terminalproto.ACPAgentsFeature+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature+","+terminalproto.SessionModeAgentsFeature+","+terminalproto.ChatGateFeature)
+	if c := capabilitiesFor(claudeOnly, true, terminalproto.Ready); !c.SessionModeAgents || c.Validate() != nil {
+		t.Fatalf("session-mode-agents-v1 not reported once negotiated: %+v", c)
+	}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}

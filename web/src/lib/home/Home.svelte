@@ -643,6 +643,8 @@
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <FirstRun bind:this={firstRun} machine={firstMachine} {sessions} projects={projects ?? []} {userId} bind:showing={guideShowing} bind:back={guideBack} onterminal={opener => startFromWorkbench('terminal', opener)} onchanged={() => void load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      <!-- The guide's own running session hides the workbench, where this link otherwise lives. -->
+      {#if guideBack && !showWorkbench}<div class="guide-back"><button type="button" class="btn quiet" onclick={() => void firstRun?.restore()}>Show the first-session guide</button></div>{/if}
       <ListSection name="Waiting for you" count={waiting.length} summary={waitingSummary(waiting, now)} open={waitingOpen} ontoggle={toggleWaiting}>
         {#if waiting.length}
           <ul class="waiting-list" class:rows={!narrow} class:cards={narrow} bind:this={waitingList}>
@@ -720,6 +722,9 @@
 </div>
 
 <style>
+  .guide-back { margin-bottom: 8px; }
+  .guide-back .btn { margin-left: -8px; }
+  @media (pointer: coarse) { .guide-back .btn { min-height: 44px; } }
   /* Skills New on a machine: one row opening their review on the Skills page. */
   .new-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 44px; box-sizing: border-box; padding: 14px 16px; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
   .new-skills:hover .new-skills-text { text-decoration: underline; text-underline-offset: 2px; }

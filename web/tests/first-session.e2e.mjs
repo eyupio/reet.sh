@@ -385,6 +385,27 @@ try {
   })
  }
 
+ // Not now while the question is still running: the guide's own session hides the workbench, so the way back lives beside the guide's place.
+ if (run('dismiss-asking')) {
+  await both({}, async ({page, g, world, capture}) => {
+   await g.getByRole('button', {name:'Ask Claude Code'}).click()
+   await expect(g.getByText('Asking Claude Code. Waiting for its first reply.')).toBeVisible()
+   await g.getByRole('button', {name:'Not now'}).click()
+   await expect(guide(page)).toHaveCount(0)
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toBeVisible()
+   await capture('guide-way-back-asking')
+   await page.reload()
+   await expect(page.getByRole('heading', {name:'Home', level:1})).toBeVisible()
+   await expect(guide(page)).toHaveCount(0)
+   await page.getByRole('button', {name:'Show the first-session guide'}).click()
+   await expect(guide(page).getByText('Asking Claude Code. Waiting for its first reply.')).toBeVisible()
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toHaveCount(0)
+   // The answer arrives after the person has read it in the session: a seen, finished turn is quiet but carries its completion time.
+   world.sessions = world.sessions.map(s => ({...s, attention:'quiet', completedAt:Date.now()}))
+   await readAgain(page, () => expect(guide(page).getByRole('status')).toHaveText('Claude Code answered. It was asked to change nothing and ran without YOLO.', {timeout:1000}))
+  })
+ }
+
  // The phone step: where to open reet and how to keep it to hand, with the Notifications page one link away. On a phone it is not offered, only the notifications link.
  if (run('phone')) {
   await both({}, async ({g, width, capture}) => {

@@ -170,6 +170,14 @@ test('causes are sorted blocked, look, note and a backup that is not eligible is
   assert.deepEqual(r.launchSummary([{ stage: 'Code', crew: 'Standard', readiness: one }]).causes.map(c => c.level), ['look', 'look', 'note'])
 })
 
+test('backups that fail for one reason are one cause, and the first choice’s own missing sign-in is not said again for them', () => {
+  const two = r.launchReadiness(input({ spares: [{ tool: 'cline', model: '' }, { tool: 'codex', model: '' }, { tool: 'cline', model: 'other' }] }))
+  assert.deepEqual(r.readinessItems(two).map(item => item.text), ['Backups 1 and 3, Cline: Cline is not on workshop. It is still tried after a usage limit, and is likely to be refused there.'])
+  const none = r.launchReadiness(input({ accounts: read({ tool: 'claude', state: 'none', limitsState: 'not_asked' }), spares: [{ tool: 'claude', model: 'claude-big' }, { tool: 'claude', model: '' }] }))
+  assert.equal(none.backups.filter(item => !item.eligible).length, 2)
+  assert.deepEqual(r.readinessItems(none).map(item => item.text), [none.signIn.text])
+})
+
 test('a backup is compared with the first choice when both have fresh figures', () => {
   const more = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [{ kind: 'week', usedPercent: 90 }] }), signed('codex', { limits: [{ kind: 'week', usedPercent: 20 }] })), spares: [{ tool: 'codex', model: '' }] }))
   assert.deepEqual([more.backups[0].balances, more.backups[0].eligible], [true, true]); assert.match(more.backups[0].reason, /Codex has 80% of its plan left against Claude Code’s 10%, so balancing can move a stage onto it/)

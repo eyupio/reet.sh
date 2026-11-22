@@ -792,10 +792,11 @@ try {
       {
         const {w,row,summary,causes,approve}=await planWith(width,theme,{accounts:accountsOf(acct('claude',{state:'none',limits:[],limitsState:'not_asked',account:'',plan:''}),acct('opencode'))})
         try{
-          // The two backups that are Claude Code too say so as well, each under its own number, after the sign-in.
-          await expect(causes).toHaveCount(3)
-          await expect(causes.nth(1)).toContainText('Backup 2, Claude Code: No sign-in found on this machine.')
-          await expect(causes.nth(2)).toContainText('Backup 3, Claude Code: No sign-in found on this machine.')
+          // One cause: the two backups that are Claude Code too add nothing once its missing sign-in is said. Their own
+          // lines, folded under the stage, still say it.
+          await expect(causes).toHaveCount(1)
+          await expect(causes.first()).not.toContainText('Backup')
+          await expect(row('review').locator('details.backups summary')).toContainText('2 to look at')
           await expect(causes.first()).toContainText('No Claude Code sign-in was found on workshop. Sign in to Claude Code there first, or its first message may be refused.')
           await expect(causes.first()).toContainText('Heavy and Standard crews, used by Code, Review and Test')
           await expect(row('code')).not.toContainText('No Claude Code sign-in')

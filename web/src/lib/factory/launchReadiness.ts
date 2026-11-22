@@ -221,10 +221,18 @@ export function readinessItems(ready: StageReadiness): ReadinessItem[] {
   if (ready.agent.state !== 'ready') return [{ level: 'blocked', text: ready.agent.text }]
   const facts = [ready.signIn, ready.model, ready.effort, ready.sourceFact].filter(item => !item.pending && item.state !== 'ready' && item.state !== 'default')
   const later = [...new Set([ready.model.later, ready.effort.later].filter((text): text is string => !!text))]
+  // Backups that share an agent and a reason are one cause, and a backup on the first choice's own agent adds nothing
+  // once that agent's sign-in is already said.
+  const spares = new Map<string, string[]>()
+  ready.backups.forEach((item, at) => {
+    if (item.pending || item.eligible || (facts.includes(ready.signIn) && item.agent === ready.agent.label)) return
+    const key = `${item.agent}: ${item.reason}`
+    spares.set(key, [...(spares.get(key) ?? []), String(at + 1)])
+  })
   return [
     ...facts.map((item): ReadinessItem => ({ level: item.quiet ? 'note' : 'look', text: item.text })),
     ...later.map((text): ReadinessItem => ({ level: 'note', text })),
-    ...ready.backups.flatMap((item, at): ReadinessItem[] => item.pending || item.eligible ? [] : [{ level: 'look', text: `Backup ${at + 1}, ${item.agent}: ${item.reason}` }]),
+    ...[...spares].map(([text, at]): ReadinessItem => ({ level: 'look', text: `${at.length > 1 ? 'Backups' : 'Backup'} ${inWords(at)}, ${text}` })),
   ]
 }
 

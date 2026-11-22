@@ -299,7 +299,7 @@
   const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
   let blockerSeen = $state(false)
-  $effect(() => { if (approveBlocker) blockerSeen = true; else if (step !== 'plan') blockerSeen = false })
+  $effect(() => { if (step !== 'plan') blockerSeen = false; else if (approveBlocker) blockerSeen = true })
   let crewEditor = $state<HTMLDetailsElement>()
   // Opens the crew editor and puts the person on the first affected tier's agent.
   async function chooseWho(crews: string[]) {

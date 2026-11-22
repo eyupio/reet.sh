@@ -13,7 +13,7 @@ if (shots) mkdirSync(shots, {recursive:true})
 const shot = async (page, name, g) => {
  if (!shots) return
  const narrow = page.viewportSize().width < 600
- if (narrow && g) await g.evaluate(el => el.scrollIntoView({block:'start'}))
+ if (narrow && g && await g.count()) await g.evaluate(el => el.scrollIntoView({block:'start'}))
  await page.mouse.move(0, 0)
  await page.waitForTimeout(300)
  await page.screenshot({path:`${shots}/${name}-${narrow ? '390-dark' : '1280-light'}.png`, fullPage:!narrow})
@@ -25,9 +25,9 @@ const account = (tool, over = {}) => ({tool, state:'signed_in', method:'subscrip
 const accountsOf = accounts => ({state:'read', sentence:'', planLimits:true, checkedAt:Date.now(), accounts})
 const descriptor = (tool, adapter) => ({tool, adapter, state:'available'})
 
-// One machine, `studio`, connected, with these agents installed. `world` is what the machine answers and what the controller keeps;
+// One machine, `studio`, connected, with these agents installed (`acpAgents` are the ones that run as a chat; the rest are terminal-only). `world` is what the machine answers and what the controller keeps;
 // a test changes it and the page sees the change on its next read.
-function scene({tools = ['claude', 'opencode'], acpAgents = [descriptor('claude', 'claude-agent-acp')], accounts = [account('claude'), account('opencode', {method:'api_key', account:undefined, plan:undefined})], models = {}, sessions = [], projects = []} = {}) {
+function scene({tools = ['claude', 'opencode'], acpAgents = [descriptor('claude', 'claude-agent-acp'), descriptor('opencode', 'opencode')], accounts = [account('claude'), account('opencode', {method:'api_key', account:undefined, plan:undefined})], models = {}, sessions = [], projects = []} = {}) {
  const world = {accounts, models, sessions, projects, posts:[], answer:null}
  const machine = terminalMachine('a1', 'studio', true)
  machine.capabilities = {...machine.capabilities, launch:true, agentsV2:true, models:true, acp:true, acpAgents, tools}
@@ -98,6 +98,10 @@ try {
    await expect(g.locator('label').filter({hasText:'OpenCode'})).toContainText('That machine couldn’t read its models.')
    await expect(g.getByText(PROMPT)).toBeVisible()
    await expect(g.getByText('no YOLO')).toHaveCount(0)
+   // Both chat agents are rows and the ready one that needs no trust is the one asked; no help link while nothing is wrong.
+   await expect(g.getByRole('radio')).toHaveCount(2)
+   await expect(g.getByRole('link', {name:/How the first session works/})).toHaveCount(0)
+   await expect(g.getByRole('button', {name:'Show the first-session guide'})).toHaveCount(0)
    await expect(g.getByRole('button', {name:'Ask Claude Code'})).toBeEnabled()
    await expect(opencode).not.toBeChecked()
    await reachable(page, width)
@@ -106,7 +110,7 @@ try {
    await expect(page.getByRole('button', {name:'Open terminal', exact:true})).toBeVisible()
    // The status region is there from the start, empty, so its first message is announced.
    await expect(g.getByRole('status')).toBeAttached()
-   if (width < 600) for (const control of [g.getByRole('button', {name:'Ask Claude Code'}), g.getByRole('button', {name:'Not now'}), g.getByText('Use reet on your phone')]) {
+   if (width < 600) for (const control of [g.getByRole('button', {name:'Ask Claude Code'}), g.getByRole('button', {name:'Not now'})]) {
     expect((await control.boundingBox()).height, 'touch target height').toBeGreaterThanOrEqual(43.5)
    }
    // Not now sits on the heading's line, at the content edge.
@@ -114,6 +118,8 @@ try {
    expect(Math.abs(heading.y + heading.height / 2 - (notNow.y + notNow.height / 2)), 'Not now on the heading line').toBeLessThan(8)
    expect(box.x + box.width - (notNow.x + notNow.width), 'Not now inside the guide').toBeLessThan(width < 600 ? 14 : 20)
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no sideways scroll at ${width}px`).toBe(true)
+   // The card is full width; what it says stays at a comfortable measure.
+   if (width >= 1100) for (const part of [g.locator('.prompt'), g.locator('fieldset.agents'), g.getByRole('status')]) expect((await part.boundingBox()).width, 'guide content measure').toBeLessThanOrEqual(720.5)
    await capture('guide-ready')
   })
  }
@@ -153,6 +159,8 @@ try {
    expect(world.posts[0].yolo).toBeUndefined()
    expect(world.posts[0].dir).toBeUndefined()
    await expect(g.getByRole('link', {name:'Open the session'})).toHaveAttribute('href', '/sessions?agent=a1&session=s1')
+   // The Ask button is gone; the focus goes to the link that took its place.
+   await expect(g.getByRole('link', {name:'Open the session'})).toBeFocused()
    await expect(g.getByRole('radio').first()).toBeDisabled()
    await reachable(page, width)
    await capture('guide-asking')
@@ -161,8 +169,11 @@ try {
    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
    await expect(status).toHaveText('Asking Claude Code. Waiting for its first reply.')
    world.sessions = world.sessions.map(s => ({...s, attention:'waiting', changedSinceSeen:true}))
-   await readAgain(page, () => expect(status).toHaveText('Claude Code replied. Nothing in your files was changed.', {timeout:1000}))
+   await readAgain(page, () => expect(status).toHaveText('Claude Code answered. It was asked to change nothing and ran without YOLO.', {timeout:1000}))
    await expect(g.getByRole('link', {name:'Read the reply'})).toBeVisible()
+   // Done is the one way out once there is a reply.
+   await expect(g.getByRole('button', {name:'Not now'})).toHaveCount(0)
+   await expect(g.getByRole('button', {name:'Done'})).toBeVisible()
    await capture('guide-first-reply')
    await page.reload()
    await expect(page.getByRole('heading', {name:'Home', level:1})).toBeVisible()
@@ -185,34 +196,90 @@ try {
    await g.getByRole('button', {name:'Done'}).click()
    await expect(guide(page)).toHaveCount(0)
    await expect(start(page)).toBeFocused()
+   // Done is for good: no way back is offered.
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toHaveCount(0)
+   await page.reload()
+   await expect(start(page)).toBeVisible()
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toHaveCount(0)
   })
  }
 
- // An agent that asks for trust shows the same checkbox as Start an agent, and Ask waits for it.
+ // An agent that asks for trust shows the same checkbox as Start an agent, names the folder it is about, and Ask waits for it.
  if (run('trust')) {
-  await both({tools:['opencode'], acpAgents:[descriptor('opencode', 'opencode')], accounts:[account('opencode')]}, async ({g, world, capture}) => {
+  const home = 'I trust the home folder on studio; OpenCode plugins in .opencode may run.'
+  await both({tools:['opencode'], acpAgents:[descriptor('opencode', 'opencode')], accounts:[account('opencode')]}, async ({g, world, width, capture}) => {
    const ask = g.getByRole('button', {name:'Ask OpenCode'})
-   await expect(g.getByLabel('I trust this folder; OpenCode plugins in .opencode may run.')).not.toBeChecked()
+   await expect(g.getByLabel(home)).not.toBeChecked()
    await expect(ask).toBeDisabled()
+   // The reason it is disabled is tied to it.
+   const label = g.locator('label.trust')
+   await expect(ask).toHaveAttribute('aria-describedby', await label.getAttribute('id'))
+   if (width < 600) expect((await label.boundingBox()).height, 'trust row touch height').toBeGreaterThanOrEqual(43.5)
    await capture('guide-trust')
-   await g.getByLabel('I trust this folder; OpenCode plugins in .opencode may run.').check()
+   await g.getByLabel(home).check()
    await expect(ask).toBeEnabled()
+   await expect(ask).not.toHaveAttribute('aria-describedby')
    await ask.click()
    await expect(g.getByRole('link', {name:'Open the session'})).toBeVisible()
    expect(world.posts[0]).toMatchObject({tool:'opencode', structured:true, trust:true})
   })
+  // With both agents ready the one that needs no trust is asked; choosing the other names the chosen project folder.
+  const project = {id:'fp1', host:'a1', machine:'studio', dir:'/home/dev/site', name:'site', isRepo:true, baseBranch:'main', worktreeDefault:'inherit', colour:'', defaultTool:'', defaultModel:'', defaultEffort:'', defaultYolo:false, hasStarterPrompt:false, note:'', position:0, createdAt:now, updatedAt:now, version:1}
+  const {context, page} = await open({width:1280}, {projects:[project]})
+  await page.goto(base)
+  await expect(guide(page).getByRole('radio', {name:/Claude Code/})).toBeChecked()
+  await guide(page).getByRole('radio', {name:/OpenCode/}).check()
+  await expect(guide(page).getByLabel(home)).toBeVisible()
+  await guide(page).getByLabel('Where it looks').selectOption('/home/dev/site')
+  await expect(guide(page).getByLabel('I trust /home/dev/site; OpenCode plugins in .opencode may run.')).toBeVisible()
+  await context.close()
  }
 
- // A session that ended before it answered says so and offers another go.
+ // A session that ended before it answered says so, says nothing was asked of the files, and offers another go or another agent.
  if (run('ended')) {
-  await both({}, async ({page, g, world, capture}) => {
+  await both({tools:['claude', 'codex'], acpAgents:[descriptor('claude', 'claude-agent-acp'), descriptor('codex', 'codex-acp')], accounts:[account('claude'), account('codex')]}, async ({page, g, world, capture}) => {
    await g.getByRole('button', {name:'Ask Claude Code'}).click()
    await expect(g.getByRole('link', {name:'Open the session'})).toBeVisible()
    world.sessions = world.sessions.map(s => ({...s, state:'exited', exitCode:1}))
-   await readAgain(page, () => expect(g.getByRole('status')).toHaveText('The session ended before Claude Code answered.', {timeout:1000}))
+   await readAgain(page, () => expect(g.getByRole('status')).toHaveText('The session ended before Claude Code answered. It was only asked to look, not to change anything. It exited with code 1.', {timeout:1000}))
+   await expect(g.getByRole('link', {name:/How the first session works/})).toHaveAttribute('href', 'https://reet.sh/quick-start/#your-first-session')
    await capture('guide-ended')
    await g.getByRole('button', {name:'Try again'}).click()
    await expect(g.getByRole('button', {name:'Ask Claude Code'})).toBeVisible()
+  })
+  // Ask Codex instead asks at once; an agent that needs trust is not offered that way.
+  const {context, page, world} = await open({width:1280}, {tools:['claude', 'codex'], acpAgents:[descriptor('claude', 'claude-agent-acp'), descriptor('codex', 'codex-acp')], accounts:[account('claude'), account('codex')]})
+  await page.goto(base)
+  await guide(page).getByRole('button', {name:'Ask Claude Code'}).click()
+  await expect(guide(page).getByRole('link', {name:'Open the session'})).toBeVisible()
+  world.sessions = world.sessions.map(s => ({...s, state:'exited', exitCode:null}))
+  await readAgain(page, () => expect(guide(page).getByRole('status')).toHaveText('The session ended before Claude Code answered. It was only asked to look, not to change anything.', {timeout:1000}))
+  await guide(page).getByRole('button', {name:'Ask Codex instead'}).click()
+  await expect(guide(page).getByText('Asking Codex. Waiting for its first reply.')).toBeVisible()
+  expect(world.posts.map(post => post.tool)).toEqual(['claude', 'codex'])
+  await context.close()
+  const second = await open({width:1280}, {})
+  await second.page.goto(base)
+  await guide(second.page).getByRole('button', {name:'Ask Claude Code'}).click()
+  await expect(guide(second.page).getByRole('link', {name:'Open the session'})).toBeVisible()
+  second.world.sessions = second.world.sessions.map(s => ({...s, state:'exited'}))
+  await readAgain(second.page, () => expect(guide(second.page).getByRole('button', {name:'Try again'})).toBeVisible({timeout:1000}))
+  await expect(guide(second.page).getByRole('button', {name:/instead/})).toHaveCount(0)
+  await second.context.close()
+ }
+
+ // A reply that takes over a minute is said to be slow, once and quietly. The page clock is driven, not slept.
+ if (run('slow')) {
+  await both({}, async ({page, g, capture}) => {
+   await page.clock.install()
+   await g.getByRole('button', {name:'Ask Claude Code'}).click()
+   const status = g.getByRole('status')
+   await expect(status).toHaveText('Asking Claude Code. Waiting for its first reply.')
+   await page.clock.fastForward(30_000)
+   await expect(status).toHaveText('Asking Claude Code. Waiting for its first reply.')
+   await page.clock.fastForward(31_000)
+   await expect(status).toHaveText('Asking Claude Code. Waiting for its first reply. This is taking longer than usual. Open the session to look.')
+   await capture('guide-slow')
   })
  }
 
@@ -222,15 +289,22 @@ try {
    // The agent that is ready is the one asked first; choosing the signed-out one shows what to do.
    await expect(g.getByRole('radio', {name:/OpenCode/})).toBeChecked()
    await g.getByRole('radio', {name:/Claude Code/}).check()
-   await expect(g.locator('label').filter({hasText:'Claude Code'})).toContainText('No Claude Code sign-in was found on studio. Sign in to Claude Code there first, or its first message may be refused.')
-   await expect(g.getByRole('status')).toHaveText('Waiting for Claude Code to be signed in on studio. Asking the machine again every 15 seconds.')
+   await expect(g.locator('label').filter({hasText:'Claude Code'})).toContainText('No Claude Code sign-in was found on studio. Sign in to Claude Code there first.')
+   await expect(g.locator('label').filter({hasText:'Claude Code'})).not.toContainText('may be refused')
+   await expect(g.getByRole('status')).toHaveText('Waiting for Claude Code to be signed in on studio. Sign in in Claude Code’s own program on studio; this asks the machine again every 15 seconds.')
    await expect(g.getByRole('button', {name:'Ask Claude Code'})).toHaveCount(0)
    await expect(g.getByRole('button', {name:'Use OpenCode instead'})).toBeVisible()
+   // The way to sign in is the primary step; checking again is secondary.
+   await expect(g.getByRole('button', {name:'Open terminal'})).toHaveClass(/primary/)
+   await expect(g.getByRole('button', {name:'Check again'})).not.toHaveClass(/primary/)
+   await expect(g.getByRole('link', {name:/How the first session works/})).toBeVisible()
    await expect(page.getByRole('alert')).toHaveCount(0)
    await reachable(page, width)
    await capture('guide-signed-out')
    // The other agent takes the question.
    await g.getByRole('button', {name:'Use OpenCode instead'}).click()
+   await expect(g.getByRole('button', {name:'Ask OpenCode'})).toBeDisabled()
+   await g.getByLabel('I trust the home folder on studio; OpenCode plugins in .opencode may run.').check()
    await expect(g.getByRole('button', {name:'Ask OpenCode'})).toBeEnabled()
    // The sign-in appears on the machine; the guide notices without being asked.
    await g.getByRole('radio', {name:/Claude Code/}).check()
@@ -250,6 +324,7 @@ try {
   await both({tools:['claude'], accounts:[account('claude', {state:'none'})]}, async ({g, world, capture}) => {
    await expect(g.getByRole('button', {name:'Use OpenCode instead'})).toHaveCount(0)
    await expect(g.getByRole('button', {name:'Check again'})).toBeVisible()
+   await expect(g.getByRole('button', {name:'Open terminal'})).toHaveClass(/primary/)
    await capture('guide-signed-out-only-agent')
    await g.getByRole('button', {name:'Check again'}).click()
    await expect(g.getByRole('button', {name:'Check again'})).toBeVisible()
@@ -259,33 +334,68 @@ try {
   })
  }
 
- // No agent installed: said once, with where to look next.
+ // No agent installed: said once, naming every agent reet starts, with where to look next.
  if (run('no-agent')) {
   await both({tools:[], accounts:[]}, async ({g, capture}) => {
-   await expect(g.getByText('No agent is installed on studio yet. Install Claude Code, Codex or OpenCode there; this looks again by itself.')).toBeVisible()
+   await expect(g.getByText('No agent is installed on studio yet. Install Claude Code, Codex, OpenCode, Cline, Google Antigravity (AGY) or GitHub Copilot there; this looks again by itself.')).toBeVisible()
    await expect(g.getByRole('radio')).toHaveCount(0)
+   await expect(g.getByRole('link', {name:/How the first session works/})).toBeVisible()
    await capture('guide-no-agent')
   })
  }
 
- // Not now sticks, and puts the focus on a control that is still there.
- if (run('dismiss')) {
-  const {context, page} = await open({width:1280})
-  await page.goto(base)
-  await guide(page).getByRole('button', {name:'Not now'}).click()
-  await expect(guide(page)).toHaveCount(0)
-  await expect(start(page)).toBeFocused()
-  await page.reload()
-  await expect(page.getByRole('heading', {name:'Home', level:1})).toBeVisible()
-  await expect(start(page)).toBeVisible()
-  await expect(guide(page)).toHaveCount(0)
-  await context.close()
+ // Agents that only run in a terminal are not rows: one quiet line names them. With no chat agent at all, the guide says so and Start an agent session is the step.
+ if (run('terminal-only')) {
+  await both({tools:['claude', 'codex', 'copilot'], acpAgents:[descriptor('claude', 'claude-agent-acp')], accounts:[account('claude'), account('codex')]}, async ({page, g, capture}) => {
+   await expect(g.getByRole('radio')).toHaveCount(1)
+   await expect(g.getByRole('radio', {name:/Codex/})).toHaveCount(0)
+   await expect(g.getByText('Codex and GitHub Copilot run in a terminal here. Start one from Start an agent session.')).toBeVisible()
+   await expect(page.getByRole('button', {name:'Start an agent session'})).not.toHaveClass(/primary/)
+   await capture('guide-terminal-only-line')
+  })
+  await both({tools:['codex'], acpAgents:[], accounts:[account('codex')]}, async ({page, g, capture}) => {
+   await expect(g.getByRole('radio')).toHaveCount(0)
+   await expect(g.getByText('None of the agents on studio runs as a chat here, so reet cannot see when one answers. Codex runs in a terminal here. Start it from Start an agent session.')).toBeVisible()
+   await expect(g.getByRole('button', {name:/^Ask /})).toHaveCount(0)
+   await expect(page.getByRole('button', {name:'Start an agent session'})).toHaveClass(/primary/)
+   await capture('guide-no-chat-agent')
+  })
  }
 
- // The phone step: where to open reet and how to keep it to hand, with the Notifications page one link away.
+ // Not now sticks, puts the focus on a control that is still there, and leaves a quiet way back until there has been a reply.
+ if (run('dismiss')) {
+  await both({}, async ({page, g, capture}) => {
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toHaveCount(0)
+   await g.getByRole('button', {name:'Not now'}).click()
+   await expect(guide(page)).toHaveCount(0)
+   await expect(start(page)).toBeFocused()
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toBeVisible()
+   await capture('guide-way-back')
+   await page.reload()
+   await expect(page.getByRole('heading', {name:'Home', level:1})).toBeVisible()
+   await expect(start(page)).toBeVisible()
+   await expect(guide(page)).toHaveCount(0)
+   await page.getByRole('button', {name:'Show the first-session guide'}).click()
+   await expect(guide(page)).toBeVisible()
+   await expect(guide(page).getByRole('heading', {name:'Your first session'})).toBeFocused()
+   await expect(page.getByRole('button', {name:'Show the first-session guide'})).toHaveCount(0)
+   // The dismissal is cleared: it stays gone after a reload.
+   await page.reload()
+   await expect(guide(page)).toBeVisible()
+  })
+ }
+
+ // The phone step: where to open reet and how to keep it to hand, with the Notifications page one link away. On a phone it is not offered, only the notifications link.
  if (run('phone')) {
-  await both({}, async ({g, capture}) => {
+  await both({}, async ({g, width, capture}) => {
    const summary = g.getByText('Use reet on your phone')
+   if (width < 600) {
+    await expect(summary).toBeHidden()
+    await expect(g.getByRole('link', {name:'Turn on notifications'})).toHaveAttribute('href', '/notifications')
+    expect((await g.getByRole('link', {name:'Turn on notifications'}).boundingBox()).height, 'touch target height').toBeGreaterThanOrEqual(43.5)
+    return
+   }
+   await expect(g.getByRole('link', {name:'Turn on notifications'})).toBeHidden()
    // A disclosure shows its triangle like the others on Home, and is not styled as a link.
    expect(await summary.evaluate(el => getComputedStyle(el).display)).toBe('list-item')
    await summary.click()
@@ -304,11 +414,14 @@ try {
   for (const [width, theme] of [[1280, 'light'], [390, 'dark']]) {
    const {context, page} = await openWorkspace(browser, {width, height:width < 600 ? 844 : 800, theme, touch:width < 600, routes})
    await page.goto(base)
-   await expect(guide(page).getByText('Enable terminal access locally on this machine.')).toBeVisible()
+   await expect(guide(page).getByText('studio cannot take a session yet. Enable terminal access locally on this machine.')).toBeVisible()
+   await expect(guide(page).getByRole('link', {name:'Open Machines'})).toHaveAttribute('href', '/machines')
+   await expect(guide(page).getByRole('link', {name:/How the first session works/})).toBeVisible()
+   await expect(guide(page).getByText('studio is connected.')).toHaveCount(0)
    await expect(guide(page).getByRole('radio')).toHaveCount(0)
    await shot(page, 'guide-machine-not-ready', guide(page))
    await context.close()
   }
  }
- console.log('First session: the guide shows once for a first machine, one line per ready agent, the read-only question and its reply, a signed-out agent and recovery, Not now, the phone step, and what stays reachable passed.')
+ console.log('First session: the guide shows once for a first machine, one line per ready agent, the read-only question and its reply, a signed-out agent and recovery, a slow or ended session, terminal-only agents, Not now and the way back, the phone step, and what stays reachable passed.')
 } finally {await browser.close()}

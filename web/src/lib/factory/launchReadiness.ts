@@ -43,6 +43,8 @@ export type StageReadiness = {
   backups: SpareReadiness[]
   /** Model or effort was not checked against this machine: the sentences say what happens once the stage starts. */
   checkedAtStart: boolean
+  /** What the stage runs on in one statement: "Claude Code · opus · high effort". Defaults are said here once, as a choice. */
+  line: string
   /** Something is still being read, so the stage is neither ready nor a problem yet. */
   pending: boolean
   /** blocked: Approve waits. look: something to read, the stage may still start. ready: nothing to say. */
@@ -201,8 +203,11 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
   const notes = [signIn, model, effort, sourceF].filter(item => !item.pending && !item.quiet && (item.state === 'missing' || item.state === 'stale' || item.state === 'unavailable'))
   const spareNote = backups.find(item => !item.pending && (!item.eligible || item.stale))
   const issue = blocked?.text ?? notes[0]?.text ?? spareNote?.reason ?? ''
+  const wholeDefault = !member.model.trim() && effort.state === 'default' && !effort.quiet
+  const asked = effort.label === 'Effort not offered' || !member.effort ? '' : `${member.effort} effort`
+  const line = [name(member.tool), ...(wholeDefault ? ['Agent’s default model and effort'] : [member.model.trim() || 'Agent’s default model', ...(effort.state === 'default' && !effort.quiet ? ['Agent’s default effort'] : asked ? [asked] : [])])].join(' · ')
   return {
-    machine: machine?.host ?? '', connected, agent, model, effort, signIn, source, sourceFact: sourceF, backups,
+    machine: machine?.host ?? '', connected, agent, model, effort, signIn, source, sourceFact: sourceF, backups, line,
     checkedAtStart: [model, effort].some(item => item.later),
     pending: [signIn, model, effort].some(item => item.pending) || backups.some(item => item.pending),
     level: blocked ? 'blocked' : issue ? 'look' : 'ready', issue,

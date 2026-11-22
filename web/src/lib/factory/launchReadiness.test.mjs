@@ -179,3 +179,14 @@ test('an agent the machine never reports is a quiet note, not the first thing to
   assert.equal(s.signIn.quiet, true); assert.equal(s.level, 'ready'); assert.equal(s.backups[0].eligible, true)
   assert.equal(r.launchSummary([{ label: 'Code', readiness: s }]).text, '1 of 1 stage ready.')
 })
+
+test('the stage line says what it runs on once, with defaults as a choice and nothing for an agent with no effort setting', () => {
+  const line = over => r.launchReadiness(input(over)).line
+  assert.equal(line({}), 'Claude Code · claude-big · high effort')
+  assert.equal(line({ member: { tool: 'claude', model: '', effort: '' } }), 'Claude Code · Agent’s default model and effort')
+  assert.equal(line({ member: { tool: 'claude', model: '', effort: 'low' } }), 'Claude Code · Agent’s default model · low effort')
+  assert.equal(line({ member: { tool: 'claude', model: 'claude-big', effort: '' } }), 'Claude Code · claude-big · Agent’s default effort')
+  assert.equal(line({ member: { tool: 'opencode', model: '', effort: '' } }), 'OpenCode · Agent’s default model')
+  // An effort the machine does not offer is not part of what it runs on; its own line says so.
+  assert.equal(line({ member: { tool: 'claude', model: 'claude-big', effort: 'xhigh' } }), 'Claude Code · claude-big')
+})

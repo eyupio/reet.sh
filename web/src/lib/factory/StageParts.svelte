@@ -24,8 +24,9 @@
     <select aria-label={`Part ${at + 1} tier`} value={part.tier} disabled={busy} onchange={event => onchange(at, { tier: event.currentTarget.value as StagePart['tier'] })}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
     <button class="link remove" type="button" disabled={busy} aria-label={`Remove part ${at + 1} of ${name} in ${where}`} onclick={() => onchange(at, null)}>Remove</button>
     <textarea aria-label={`Part ${at + 1} brief`} placeholder="What this part does. Its agent sees only this and the handover from the part before." rows="2" maxlength="1000" value={part.brief} disabled={busy} oninput={event => onchange(at, { brief: event.currentTarget.value })}></textarea>
-    <span class="who">{who(part.tier)}{#if part.why}<span class="why"><strong>Gaffer’s assessment.</strong> {part.why}</span>{/if}</span>
-    {#if ready}<div class="ready"><LaunchReadiness ready={ready(part.tier)} label={`part ${at + 1} of ${name} in ${where}`}/></div>{/if}
+    {#if ready}<LaunchReadiness ready={ready(part.tier)} label={`part ${at + 1} of ${name} in ${where}`}/>
+      {#if part.why}<span class="who"><span class="why"><strong>Gaffer’s assessment.</strong> {part.why}</span></span>{/if}
+    {:else}<span class="who">{who(part.tier)}{#if part.why}<span class="why"><strong>Gaffer’s assessment.</strong> {part.why}</span>{/if}</span>{/if}
   </div>{/each}
   {#if parts.length < MAX_STAGE_PARTS}<button class="link add" type="button" disabled={busy} aria-label={`Add a part to ${name} in ${where}`} onclick={onadd}>Add a part</button>{/if}
 </div>
@@ -36,9 +37,9 @@
   .part{display:grid;grid-template-columns:1.75rem minmax(0,1fr) 8rem auto;gap:6px 10px;align-items:center;padding:8px;border:1px solid var(--line-soft);border-radius:8px;background:var(--card)}
   .no{width:1.75rem;height:1.75rem;border-radius:999px;display:grid;place-items:center;font-weight:700;font-size:0.875rem;border:1px solid var(--line);color:var(--muted)}
   input,select{min-height:44px;min-width:0;width:100%;font:inherit}textarea{grid-column:2/-1;min-width:0;width:100%;resize:vertical;font:inherit}
-  .ready{grid-column:2/-1;min-width:0}
+  .part :global(.ready-line),.part :global(.notes){grid-column:2/-1}
   .who{grid-column:2/-1;font-size:0.875rem;color:var(--muted);overflow-wrap:anywhere}.why{display:block}
   .link{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:44px}.link:hover{text-decoration:underline}.link:disabled{opacity:.6;cursor:default}
   .add{justify-self:start}
-  @media(max-width:479px){.part{grid-template-columns:1.75rem minmax(0,1fr)}select,textarea,.who,.ready,.remove{grid-column:2}.remove{order:5;justify-self:start}}
+  @media(max-width:479px){.part{grid-template-columns:1.75rem minmax(0,1fr)}select,textarea,.who,.part :global(.ready-line),.part :global(.notes),.remove{grid-column:2}.remove{order:5;justify-self:start}}
 </style>

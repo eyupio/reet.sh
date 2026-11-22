@@ -40,16 +40,16 @@ browser.
 ### Before you approve
 
 When the plan opens, reet reads the machine again and asks it which agents are signed in and how much of each plan is
-left. A machine that cannot answer is a state on the stage, not an error. Under each stage, and each part of a split
-stage, you see:
+left. A machine that cannot answer is a state on the stage, not an error. **Launch readiness on** the machine, above
+**Approve and start**, counts the stages that are ready, how many have something to look at and the first thing to fix.
+Each stage, and each part of a split stage, is then one line: a mark, the agent, model and effort it will run on, and
+where the choice came from. **✓** is ready, and says nothing more; **!** (**Look at**), **✕** (**Cannot start**) and **…**
+(**Reading**) carry their word. The source is your **Saved crew** for that tier, **Your choice** made in this dialog, or
+**Outcome's agent**, which is the outcome's own agent because no crew is saved for the tier or because the saved agent is
+not on this machine (a line under the stage says which). A model or effort you left to the agent reads as a choice:
+**Agent's default model and effort**. Under the line are only the things to look at, and the backups:
 
-- the **machine** it runs on and where the agent came from: your **Saved crew** for that tier, **Your choice** made in
-  this dialog, or **Outcome's agent**, which is the outcome's own agent because no crew is saved for the tier or because
-  the saved agent is not on this machine (the stage says which);
-- **Ready**, **Look at** or **Cannot start**, each with a mark as well as a word, and a line for whatever needs a look;
-- **Your choice: Agent's default model, Agent's default effort** when you left the model or effort to the agent. That is a
-  choice, not a gap, and nothing is flagged for it;
-- every **Backup**, in the order it is tried, and what it will do. It **can take over** when balancing can move a stage
+- **Backups: …**, folded under the stage in the order tried, open only when one needs a look, with what each will do. It **can take over** when balancing can move a stage
   onto it. Otherwise it **takes over only after a usage limit**, or **balancing will not use it**, and the line says
   why. Balancing moves a stage to a backup only when the first choice's plan figures are less than six hours old and
   low, the backup is signed in, and, if it has figures, has more of its plan left. A backup on the same agent shares
@@ -242,8 +242,7 @@ item on a tablet or phone. Nothing happens until you choose.
 
 ### A worker reached its usage limit
 
-The pipeline is marked **Usage limit**. It says which agent and model ran out on which stage, what **Continue with**
-the next backup does, and what **Choose another model…** does. Either one continues the same stage in a new session in
+The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage; the two buttons say what each choice does. Either one continues the same stage in a new session in
 the same folder and branch, and the pipeline keeps its history. If another model had already taken over on the stage
 after a usage limit, it says so and which agent the stage started on. It says whether no backup is saved for the
 stage or none is left. The detail adds how much of that agent's plan is left and when it

@@ -727,13 +727,14 @@ const TOOL_WORDS: Record<string, string> = { claude: 'Claude Code', codex: 'Code
 const agentWords = (agent: { tool?: string; model?: string } | undefined): string => agent?.tool ? `${TOOL_WORDS[agent.tool] ?? agent.tool}${agent.model ? ` (${agent.model})` : ''}` : ''
 /** What happened when a stage's worker reached its usage limit, from the stage's own record, and what each choice does. */
 export function usageLimitWhy(stage: NonNullable<WaitingPiece['stages']>[number]): string {
-  const ran = agentWords(stage), backup = stage.nextUsageBackup, first = agentWords(stage.first)
+  const ran = agentWords(stage), first = agentWords(stage.first), where = `on the ${stageLabel(stage.kind).toLowerCase()} stage`
+  const none = `${stage.backup?.tool || stage.moreBackups?.length ? 'No backup is left for this stage' : 'No backup is saved for this stage'}; choose another model to carry on in the same folder and branch.`
+  // The buttons say what each choice does; this says what happened. usageFailover is also set when the person chose the
+  // other model, and there can be a third stop: say only what is always true.
   return [
-    'The worker reached its usage limit.',
-    ran && `${ran} ran out on the ${stageLabel(stage.kind).toLowerCase()} stage.`,
-    // usageFailover is also set when the person chose the other model, and there can be a third stop: say only what is always true.
+    ran ? `${ran} reached its usage limit ${where}.` : `The worker reached its usage limit ${where}.`,
     stage.usageFailover && `Another model already took over on this stage after a usage limit${first ? `; it started on ${first}` : ''}.`,
-    backup ? `Continue with ${backup} resumes the stage on its next backup. Choose another model… resumes it on one you pick. Either way it carries on in the same folder and branch.` : `${stage.backup?.tool || stage.moreBackups?.length ? 'No backup is left for this stage.' : 'No backup is saved for this stage.'} Choose another model to resume it in the same folder and branch.`,
+    stage.nextUsageBackup ? 'Either choice carries on in the same folder and branch.' : none,
   ].filter(Boolean).join(' ')
 }
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */

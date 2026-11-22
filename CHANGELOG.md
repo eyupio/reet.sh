@@ -5,14 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
-- **Launch readiness before you approve a Factory plan**: each stage of the plan, and each part of a split stage, now
-  says the machine it will run on, where its agent came from (your saved crew, your choice here, or the outcome's agent
-  because no crew is saved or the saved agent is not on the machine), what to look at, and every backup in order with
+- **Launch readiness before you approve a Factory plan**: each stage of the plan, and each part of a split stage, 
+  is now one line saying the agent, model and effort it will run on, where its agent came from (your saved crew, your choice here, or the outcome's agent
+  because no crew is saved or the saved agent is not on the machine), with what to look at under it and the backups folded away, in order, with
   what it will do (balancing can move a stage onto it, or it takes over only after a usage limit). A summary above **Approve and start** counts the stages that are ready. A model the
   machine does not list, an old list, no sign-in found, sign-ins the machine could not read, old plan figures and an
   effort the agent does not offer are each worded differently from a model or effort you left to the agent, which is
-  shown as your choice. Where something was not checked, the stage says its **Applied** line confirms it once the stage
-  starts. The machine is read again when the plan opens. Only an agent that is not on the machine now, or a machine
+  shown as your choice. Where something was not checked, the stage says what happens when it
+  starts, and its **Applied** line says what it is running on. The machine is read again when the plan opens. Only an agent that is not on the machine now, or a machine
   that is not connected, holds **Approve and start**, with the reason beside it; everything else is a warning.
 - **A usage limit is explained, with both ways on, on Home and in the Factory**: a pipeline whose worker reached its
   plan's limit now says which agent ran out, what **Continue with** the backup and **Choose another model…** each do,

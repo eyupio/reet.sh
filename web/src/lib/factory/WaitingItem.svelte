@@ -74,7 +74,10 @@
     <!-- Marked as the detail's bar marks it: a caption above the button. -->
     {#if advised}<span class="lead"><span class="rec" aria-hidden="true">Recommended</span>{@render fill()}</span>{:else}{@render fill()}{/if}
   {/if}
-  {#if recover}<button type="button" class="btn" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(recover)}>{recover.label}</button>{/if}
+  <!-- A usage limit has two ways on: the filled one above, and the other with Details on a line of their own under it. -->
+  {#if recover}<span class="pair"><button type="button" class="btn" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(recover)}>{recover.label}</button>{@render more()}</span>{:else}{@render more()}{/if}
+{/snippet}
+{#snippet more()}
   {#if detailsHref}<a class="btn" href={detailsHref} aria-label={detailsLabel}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></a>
   {:else}<button type="button" class="btn" aria-label={detailsLabel} onclick={ondetails}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></button>{/if}
 {/snippet}
@@ -148,6 +151,7 @@
   .buttons{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
   .buttons .btn{min-height:44px;max-width:100%}
   a.btn{display:inline-flex;align-items:center;text-decoration:none}
+  .pair{display:flex;gap:8px;flex:1 0 100%;min-width:0}.pair .btn{flex:1 1 auto;min-width:0}
   .lead{display:grid;gap:2px;min-width:0}
   .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

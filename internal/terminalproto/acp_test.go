@@ -287,6 +287,24 @@ func TestSessionModeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionModeAgentsFeatureAndSwitchableTools(t *testing.T) {
+	if !SupportsSessionModeAgents("acp-v1, "+SessionModeAgentsFeature) || SupportsSessionModeAgents("session-mode-v1") {
+		t.Fatal("session mode agents feature negotiation")
+	}
+	old := Capabilities{SessionMode: true, Launch: true, Tools: []string{"opencode", "claude", "antigravity"}}
+	if !old.SessionModeFor("opencode") || old.SessionModeFor("claude") || old.SessionModeFor("antigravity") {
+		t.Fatal("a connector without session-mode-agents-v1 may only be asked for OpenCode")
+	}
+	if err := (Capabilities{SessionModeAgents: true}).Validate(); err == nil {
+		t.Fatal("session-mode-agents without session mode accepted")
+	}
+	cur := old
+	cur.SessionModeAgents = true
+	if !cur.SessionModeFor("claude") || !cur.SessionModeFor("antigravity") || cur.SessionModeFor("cline") {
+		t.Fatal("a negotiated connector is asked for its launchable tools")
+	}
+}
+
 func TestSessionModeFeature(t *testing.T) {
 	if !SupportsSessionMode("acp-v1, "+SessionModeFeature) || SupportsSessionMode("acp-v1") {
 		t.Fatal("session mode feature negotiation")

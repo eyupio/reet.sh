@@ -296,11 +296,12 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ...['claude', 'codex', 'cline', 'antigravity'].flatMap(tool => {
-      const agents = { ...caps, acpAgents: [{ tool, adapter: { claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline', antigravity: 'agy' }[tool], state: 'available', history: true }] }
+      const agents = { ...caps, sessionModeAgents: true, acpAgents: [{ tool, adapter: { claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline', antigravity: 'agy' }[tool], state: 'available', history: true }] }
       return [
         [`a ${tool} chat can go to its TUI`, { ...chat, tool }, agents, false, { to: 'terminal', enabled: true, why: '' }],
         [`a ${tool} TUI can come back to Gaffer`, { ...tui, tool }, agents, false, { to: 'chat', enabled: true, why: '' }],
         [`a ${tool} machine without its descriptor is outdated`, { ...chat, tool }, caps, false, { to: 'terminal', enabled: false, why: UPDATE }],
+        [`a ${tool} machine that predates session-mode-agents-v1 is outdated`, { ...chat, tool }, { ...agents, sessionModeAgents: undefined }, false, { to: 'terminal', enabled: false, why: UPDATE }],
       ]
     }),
     ['an agent with no Gaffer chat cannot switch', { ...started, tool: 'copilot' }, caps, false, { to: 'chat', enabled: false, why: NO_CHAT }],

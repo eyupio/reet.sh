@@ -543,7 +543,14 @@ try {
       await expect(outcome.getByRole('alert')).toHaveText('The image could not be uploaded.')
       expect(f.box.approved).toEqual([])
       f.box.uploadFails=false
+      // While the image uploads the plan is being saved, so the crew cannot be changed under what was approved.
+      let release;const held=new Promise(done=>release=done),send=f.routes['/api/v2/machines/a1/uploads']
+      f.routes['/api/v2/machines/a1/uploads']=async request=>{await held;return send(request)}
       await outcome.getByRole('button',{name:/^Approve and start/}).click()
+      await expect(outcome.getByRole('button',{name:'Saving the plan…',exact:true})).toBeDisabled()
+      await outcome.locator('details.crew summary').click()
+      for(const name of ['Heavy agent','Heavy model','Heavy effort','Heavy backup agent'])await expect(outcome.getByRole('combobox',{name,exact:true})).toBeDisabled()
+      release()
       await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible({timeout:20000})
       expect(f.box.uploads).toBe(2)
       expect(f.box.approved[0].images).toEqual(['/home/dev/launch-uploads/outcome-1.png'])

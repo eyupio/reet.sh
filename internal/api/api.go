@@ -439,7 +439,7 @@ func (s *server) routes() http.Handler {
 	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quickConfirm))
 	mux.HandleFunc("POST /quick", s.requireWriter(s.quick))
-	return mux
+	return compressJSON(mux)
 }
 
 type statusWriter struct {

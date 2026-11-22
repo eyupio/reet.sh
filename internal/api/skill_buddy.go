@@ -72,7 +72,7 @@ func (s *server) buddyScope(uid int64, in buddyContext) (scope, stage, task stri
 			st := p.Stages[in.Stage]
 			scope = fmt.Sprintf("factory:%s:%s:%d", o.ID, p.Key, in.Stage)
 			stage = st.Kind
-			task = p.Title + " " + p.Prompt + " " + st.Brief
+			task = p.Title + " " + p.Prompt + " " + st.Brief + " " + o.Objective
 			editable = o.ArchivedAt == 0 && st.State == "pending" && in.Stage > p.Stage
 			return
 		}

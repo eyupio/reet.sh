@@ -708,15 +708,17 @@ try {
   // every backup with whether it can take over. Warnings never block; a missing agent or a machine that is gone does.
   {
     const acct=(tool,over={})=>({tool,state:'signed_in',method:'subscription',account:`${tool}@example.test`,plan:'max',limitsState:'read',limitsAt:Date.now(),limits:[{kind:'week',usedPercent:20}],...over})
+    const kept=(state,sentence,...list)=>({state,sentence,planLimits:true,checkedAt:list.length?Date.now()-30*60000:null,accounts:list})
     const accountsOf=(...list)=>({state:'read',sentence:'',planLimits:true,checkedAt:Date.now(),accounts:list})
     const crewOf=(over={})=>({heavy:{tool:'claude',model:'claude/on-the-machine',effort:'high',backup:{tool:'opencode',model:'',effort:''},moreBackups:[{tool:'claude',model:'claude/on-the-machine',effort:'low'},{tool:'claude',model:'',effort:''}]},standard:{tool:'claude',model:'',effort:''},light:{tool:'opencode',model:'',effort:''},...over})
     const full={terminalControl:true,terminalEnabled:true,readiness:'ready'}
     // Opens the plan step with a hand-written plan on workshop; `accounts` answers the machine's sign-ins and `later` is what a second read of the machines says.
-    async function planWith(width,theme,{crew=crewOf(),accounts=accountsOf(acct('claude'),acct('opencode')),later=null}={}){
-      const f=fixture({crew}),w=await openWorkspace(browser,{width,height:1000,theme,touch:width<1000,terminalMachines:machines,routes:f.routes})
+    async function planWith(width,theme,{crew=crewOf(),accounts=accountsOf(acct('claude'),acct('opencode',{limits:[{kind:'week',usedPercent:5}]})),later=null,gates={}}={}){
+      const f=fixture({crew}),w=await openWorkspace(browser,{width,height:1000,theme,touch:width<1000,terminalMachines:machines,routes:f.routes,gates})
       let plan=false
+      f.reads=0
       f.routes['/api/v2/machines/a1/accounts']=typeof accounts==='function'?accounts:accounts
-      if(later)f.routes['/api/v2/terminal/machines']=()=>({machines:plan?later:machines})
+      f.routes['/api/v2/terminal/machines']=()=>{if(plan)f.reads++;return {machines:plan&&later?(typeof later==='function'?later():later):machines}}
       const {outcome}=await openOutcome(w)
       await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
@@ -733,12 +735,12 @@ try {
         try{
           await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
           const review=row('review'),code=row('code')
-          await expect(review.getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Ready · workshop · Saved crew')
-          const spares=review.getByRole('group',{name:'Backups, in the order tried',exact:true})
+          await expect(review.getByRole('group',{name:'Launch readiness for Review in pipeline 1',exact:true})).toContainText('Ready · workshop · Saved crew')
+          const spares=review.getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true})
           await expect(spares.locator('p')).toHaveCount(3)
-          await expect(spares.locator('p').nth(0)).toContainText('Backup 1: OpenCode · can take over. Plan figures are current.')
-          await expect(spares.locator('p').nth(1)).toContainText('Backup 2: Claude Code · claude/on-the-machine · low effort · can take over')
-          await expect(spares.locator('p').nth(2)).toContainText('Backup 3: Claude Code · can take over')
+          await expect(spares.locator('p').nth(0)).toContainText('Backup 1: OpenCode · can take over. OpenCode has 95% of its plan left against Claude Code’s 80%, so balancing can move a stage onto it when Claude Code’s runs low.')
+          await expect(spares.locator('p').nth(1)).toContainText('Backup 2: Claude Code · claude/on-the-machine · low effort · takes over only after a usage limit. It shares Claude Code’s plan with the first choice')
+          await expect(spares.locator('p').nth(2)).toContainText('Backup 3: Claude Code · takes over only after a usage limit.')
           await expect(code).toContainText('Your choice: Agent’s default model, Agent’s default effort')
           await expect(code.getByText('Checked when the stage starts',{exact:false})).toHaveCount(0)
           await expect(approve).toBeEnabled()
@@ -751,7 +753,7 @@ try {
       {
         const {w,row,summary,approve}=await planWith(width,theme,{crew:crewOf({light:{tool:'codex',model:'gone'}})})
         try{
-          await expect(row('merge').getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Codex from your saved crew is not on workshop, so this tier uses the outcome’s agent, Claude Code.')
+          await expect(row('merge').getByRole('group',{name:'Launch readiness for Merge in pipeline 1',exact:true})).toContainText('Codex from your saved crew is not on workshop, so this tier uses the outcome’s agent, Claude Code.')
           await expect(row('merge')).toContainText('Look at')
           await expect(summary).toContainText('3 of 6 stages ready, 3 to look at. First: PR in pipeline 1: Codex from your saved crew is not on workshop')
           await expect(approve).toBeEnabled()
@@ -766,12 +768,30 @@ try {
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}
       }
-      // A machine that cannot read its sign-ins is a state of its own, not an error dialog.
+      // A machine that cannot read its sign-ins is a state of its own, not an error dialog. As the server answers: nothing kept.
       {
-        const {w,row,approve}=await planWith(width,theme,{accounts:{status:200,json:{state:'offline',sentence:'workshop is offline, so its sign-ins were not read.',planLimits:true,checkedAt:null,accounts:[]}}})
+        const {w,row,approve}=await planWith(width,theme,{accounts:kept('offline','That machine is reconnecting. Try again in a moment.')})
         try{
-          await expect(row('code')).toContainText('workshop is offline, so its sign-ins were not read.')
+          await expect(row('code')).toContainText('That machine is reconnecting. Try again in a moment.')
           await expect(approve).toBeEnabled()
+        }finally{await w.context.close()}
+      }
+      // Offline with what the controller kept: the figures still count, and only the read itself is said to be old.
+      {
+        const {w,row,approve}=await planWith(width,theme,{accounts:kept('offline','That machine is reconnecting. Try again in a moment.',acct('claude'),acct('opencode',{limits:[{kind:'week',usedPercent:5}]}))})
+        try{
+          await expect(row('code')).toContainText('Last read 30 min ago. That machine is reconnecting. Try again in a moment.')
+          await expect(row('review').getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true}).locator('p').nth(0)).toContainText('Backup 1: OpenCode · can take over. OpenCode has 95% of its plan left')
+          await expect(approve).toBeEnabled()
+        }finally{await w.context.close()}
+      }
+      // A busy machine is asked once more, and not again.
+      {
+        let asks=0
+        const {w,row}=await planWith(width,theme,{accounts:()=>{asks++;return asks===1?kept('busy','That machine is already reading its agents’ sign-ins. Try again in a moment.'):accountsOf(acct('claude'),acct('opencode'))}})
+        try{
+          await expect(row('code')).toContainText('Ready')
+          expect(asks).toBe(2)
         }finally{await w.context.close()}
       }
       // Plan figures read long ago on a backup are ignored when balancing: it takes over without a comparison, and the person is told.
@@ -779,12 +799,57 @@ try {
         const {w,row,approve}=await planWith(width,theme,{accounts:accountsOf(acct('claude'),acct('opencode',{limitsAt:Date.now()-8*3600000}))})
         try{
           const review=row('review')
-          await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low.')
-          await expect(review.getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Look at')
+          await expect(review.getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low.')
+          await expect(review.getByRole('group',{name:'Launch readiness for Review in pipeline 1',exact:true})).toContainText('Look at')
           // The backup that makes the stage one to look at carries the same mark, and the others keep their tick.
-          await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('.mark')).toHaveText(['!','✓','✓'])
+          await expect(review.getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true}).locator('.mark')).toHaveText(['!','✓','✓'])
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}
+      }
+      // The backups on screen are the backups sent: one equal to the first choice and a duplicate are dropped, and an effort the machine does not report is not listed.
+      for(const [name,heavy,shown,sent] of [
+        ['a duplicate and an unreported effort',{tool:'claude',model:'claude/on-the-machine',effort:'high',backup:{tool:'opencode',model:'',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''},{tool:'claude',model:'claude/on-the-machine',effort:'xhigh'}]},['Backup 1: OpenCode','Backup 2: Claude Code · claude/on-the-machine'],{backup:{tool:'opencode'},moreBackups:[{tool:'claude',model:'claude/on-the-machine'}]}],
+        ['a backup equal to the first choice',{tool:'claude',model:'claude/on-the-machine',effort:'high',backup:{tool:'claude',model:'claude/on-the-machine',effort:'high'},moreBackups:[{tool:'opencode',model:'',effort:''}]},['Backup 1: OpenCode'],{backup:{tool:'opencode'}}],
+      ]){
+        const {f,w,row,approve}=await planWith(width,theme,{crew:crewOf({heavy})})
+        try{
+          const lines=row('review').getByRole('group',{name:/^Backups for Review in pipeline 1, in the order tried$/}).locator('p')
+          await expect(lines).toHaveCount(shown.length)
+          for(const [at,text] of shown.entries())await expect(lines.nth(at)).toContainText(text)
+          await expect(row('review')).not.toContainText('xhigh')
+          await approve.click()
+          await expect.poll(()=>f.box.approved.length).toBe(1)
+          const review=f.box.approved[0].sessions[0].stages.find(stage=>stage.kind==='review')
+          expect({backup:review.backup,moreBackups:review.moreBackups}).toEqual({backup:undefined,moreBackups:undefined,...sent})
+          expect(name).toBeTruthy()
+        }finally{await w.context.close()}
+      }
+      // A saved effort the machine does not offer is not the person's choice: the stage says it starts on the agent's default effort.
+      {
+        const {f,w,row,approve}=await planWith(width,theme,{crew:crewOf({heavy:{tool:'claude',model:'claude/on-the-machine',effort:'xhigh'}})})
+        try{
+          const review=row('review')
+          await expect(review).toContainText('Saved crew')
+          await expect(review).toContainText('Xhigh effort is not offered by Claude Code here, so the stage starts on the agent’s default effort.')
+          await expect(review).not.toContainText('Your choice: Agent’s default effort')
+          await expect(review).toContainText('Look at')
+          await expect(approve).toBeEnabled()
+          await approve.click()
+          await expect.poll(()=>f.box.approved.length).toBe(1)
+          expect(f.box.approved[0].sessions[0].stages.find(stage=>stage.kind==='review').effort).toBeUndefined()
+        }finally{await w.context.close()}
+      }
+      // Models being read are not a problem: the stage says it is reading, and the summary counts it as neither ready nor to look at.
+      {
+        let release;const gate=new Promise(done=>{release=done})
+        const {w,row,summary}=await planWith(width,theme,{gates:{'/api/v2/machines/a1/models':gate}})
+        try{
+          await expect(row('review')).toContainText('Reading')
+          await expect(row('review')).not.toContainText('Look at')
+          await expect(summary).toHaveText('Launch readiness. … 5 of 6 stages ready, 1 still being read.')
+          release()
+          await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
+        }finally{release();await w.context.close()}
       }
       // The agent left the machine while the plan was being edited: the machine is read again when the plan opens, and Approve waits with the reason beside it.
       {
@@ -799,13 +864,28 @@ try {
           await outcome.screenshot({path:`${shots}/gaffer-outcome-readiness-blocked-${width}-${theme}.png`})
         }finally{await w.context.close()}
       }
-      // The machine is not connected any more: the same, with the machine's own sentence.
+      // The machine is not connected any more: the same, with the machine's own sentence. It is read again while blocked, so
+      // it clears when the machine comes back, without leaving the step.
       {
         const away=[{...machines[0],ready:false,capabilities:{...machines[0].capabilities,...full}},machines[1]]
-        const {w,row,approve}=await planWith(width,theme,{later:away})
+        let back=false
+        const {w,row,approve}=await planWith(width,theme,{later:()=>back?machines:away})
         try{
           await expect(approve).toBeDisabled()
           await expect(row('review')).toContainText('The machine is reconnecting. Existing shells will be kept.')
+          back=true
+          await expect(approve).toBeEnabled({timeout:20000})
+          await expect(row('review')).not.toContainText('Cannot start')
+        }finally{await w.context.close()}
+      }
+      // Nothing blocked, nothing read again.
+      if(width===1280){
+        const {f,w,summary}=await planWith(width,theme)
+        try{
+          await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
+          const before=f.reads
+          await w.page.waitForTimeout(12000)
+          expect(f.reads).toBe(before)
         }finally{await w.context.close()}
       }
     }

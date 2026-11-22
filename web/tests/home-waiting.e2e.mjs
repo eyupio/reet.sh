@@ -515,7 +515,7 @@ try{
    const w=await open(width,'light',limited({backup:false,second:true})),page=w.page
    try{
     const item=entries(page).filter({hasText:'Export API'})
-    await expect(item).toContainText('A backup already took over once, so this is the second stop: the stage started on Claude Code (opus). No backup is left for this stage. Choose another model to resume it in the same folder and branch.')
+    await expect(item).toContainText('Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage. Choose another model to resume it in the same folder and branch.')
     await expect(item.getByRole('button',{name:'Choose another model',exact:true})).toHaveClass(/primary/)
     await expect(item.getByRole('button',{name:/^Continue with/})).toHaveCount(0)
     await item.getByRole('button',{name:'Choose another model',exact:true}).click()

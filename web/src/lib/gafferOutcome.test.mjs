@@ -617,3 +617,24 @@ test('a delivery review says its status from the outcome list alone, and offers 
   assert.equal(o.deliveryHref('oo', 'a'), '/factory?pipeline=oo.a&review=1')
   assert.equal(o.deliveryAnchor('oo', 'a'), 'delivery-oo-a')
 })
+
+test('a pipeline that came back to review after acceptance says so, and what it is waiting for', () => {
+  const note = 'Delivery review. The work changed after you accepted it: a new commit arrived, the criteria were reworded, or the commit could not be read. Nothing merges until you accept what is there now.'
+  assert.equal(o.changedAfterAccept(note), true)
+  assert.equal(o.changedAfterAccept('Waiting for your delivery review.'), false)
+  assert.equal(o.changedAfterAccept(undefined), false)
+  assert.equal(o.deliveryWhy({ criteria: [{}, {}, {}], note }), 'Delivery review · changed after you accepted it · 3 criteria')
+  const piece = { key: 'a', title: 'A', state: 'delivery_review', note, criteria: [{}, {}, {}], stages: [{ kind: 'code' }] }
+  assert.equal(o.waitingDecisions({ sessions: [piece] }, new Map())[0].need.why, 'Delivery review · changed after you accepted it · 3 criteria')
+})
+
+test('a revised plan keeps the criteria typed for its pipelines, by title and then by place', () => {
+  const typed = [{ title: 'Export API', criteria: ['Downloads as CSV.'] }, { title: 'Docs' }, { title: 'Importer', criteria: ['Retries twice.'] }]
+  assert.deepEqual(o.carryCriteria(typed, ' Importer ', 0), { criteria: ['Retries twice.'] })
+  assert.deepEqual(o.carryCriteria(typed, 'Export, end to end', 0), { criteria: ['Downloads as CSV.'] })
+  assert.deepEqual(o.carryCriteria(typed, 'Something new', 1), {})
+  assert.deepEqual(o.carryCriteria(typed, 'Something new', 7), {})
+  const copy = o.carryCriteria(typed, 'Export API', 0)
+  copy.criteria.push('x')
+  assert.deepEqual(typed[0].criteria, ['Downloads as CSV.'])
+})

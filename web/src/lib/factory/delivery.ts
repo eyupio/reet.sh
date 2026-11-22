@@ -82,8 +82,8 @@ export function earlierLabel(evidence: Pick<DeliveryEvidence, 'historical' | 'co
 
 /** What a 409's code says changed. An unknown code gives ''. */
 const CONFLICTS: Record<string, string> = {
-  delivery_closed: 'Someone else already decided this delivery.',
-  delivery_changed: 'The review changed while you were looking at it: evidence or a decision was added.',
+  delivery_closed: 'This delivery was already decided, or is no longer waiting for a decision.',
+  delivery_changed: 'The evidence or a GitHub check changed since you looked.',
   delivery_criteria_changed: 'The criteria were changed while you were looking at them.',
   delivery_head_changed: 'A new commit arrived since you looked.',
   delivery_head_unverified: 'The commit could not be verified just now, so nothing was recorded.',
@@ -99,6 +99,36 @@ export const mayHaveArrived = (error: unknown): boolean => {
   const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status: unknown }).status) : 0
   return !status || status >= 500 || status === 408
 }
+
+/** How many criteria a recorded decision found not Passed, from the statuses it was shown. */
+export const notPassedThen = (d: { statuses?: Record<string, string> }): number => Object.values(d.statuses ?? {}).filter(status => status !== 'passed').length
+
+/** What accepting leads to now: the merge setting can change while the review is open, so it is worked out here from the
+ *  pipeline as it is, keeping the server's word only for a pipeline with no merge stage ahead. */
+export function nextNow(serverNext: DeliveryReview['next'], mergesNow: boolean): DeliveryReview['next'] {
+  return serverNext === 'done' || serverNext === undefined ? serverNext : mergesNow ? 'merge' : 'ready_to_merge'
+}
+
+/** Why there are no GitHub checks to choose from. */
+export function noChecksWords(review: Pick<DeliveryReview, 'pull'>): string {
+  if (!review.pull) return 'There is no pull request yet, so there are no GitHub checks to choose from.'
+  if (review.pull.atHead === false) return 'The pull request is not at the reviewed commit, so its checks are not offered.'
+  return 'No GitHub checks were found for this pull request.'
+}
+
+/** The kinds of evidence that can be added: a note always; an artefact link or a GitHub check only for a pipeline in a
+ *  Git repository with a GitHub remote. */
+export function evidenceKinds(review: Pick<DeliveryReview, 'remote' | 'commitState'>): ('note' | 'check' | 'artefact')[] {
+  return review.remote && review.commitState !== 'none' ? ['note', 'check', 'artefact'] : ['note']
+}
+
+/** What stands where a commit would be, when there is none. */
+export function noCommitWords(state: DeliveryReview['commitState']): string {
+  return state === 'none' ? 'No commit: not a Git repository' : state === 'verified' ? 'No commit' : 'No commit could be read'
+}
+
+/** The statuses of pipelines whose criteria the person may still edit; the server refuses the others. */
+export const EDITABLE_STATES = ['waiting', 'following', 'delivery_review', 'unfollowed', 'ready_to_merge']
 
 /** One decision as the history reads: "Accepted on 9f2c1ab by Paul" with the notes beside it. */
 export function decisionLine(d: { decision: string; commit?: string; byName?: string; stage?: string }): string {

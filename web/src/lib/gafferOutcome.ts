@@ -114,6 +114,12 @@ export const MAX_CRITERIA = 10
 export const MAX_CRITERION_BYTES = 240
 /** The criteria as they are sent: each on one line, trimmed, with empty rows dropped. */
 export const cleanCriteria = (list: readonly string[] | undefined): string[] => (list ?? []).map(oneLine).filter(Boolean)
+/** The criteria the person typed for the pipeline that a revised plan's pipeline stands in for: the one of the same
+ *  title, else the one in the same place. A pipeline that had none gets none. */
+export function carryCriteria(typed: readonly { title: string; criteria?: readonly string[] }[], title: string, at: number): { criteria?: string[] } {
+  const own = typed.find(old => old.title === title.trim() && old.criteria?.length) ?? (typed[at]?.criteria?.length ? typed[at] : undefined)
+  return own?.criteria ? { criteria: [...own.criteria] } : {}
+}
 /** Why a list of criteria cannot be sent, or ''. Empty rows are dropped, so they are never a problem. */
 export function criteriaBlocker(list: readonly string[] | undefined, who = ''): string {
   const own = cleanCriteria(list), where = who ? ` for ${who}` : ''
@@ -705,13 +711,16 @@ export function needsYou(goal: NeedGoal, reason: string | undefined, last: boole
   if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }])
   return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }], goal.advice)
 }
+/** The pipeline's own note when it came back to review after it had been accepted: the work changed under the acceptance. */
+export const CHANGED_AFTER_ACCEPT = 'Delivery review. The work changed after you accepted it'
+export const changedAfterAccept = (note: string | undefined): boolean => (note ?? '').startsWith(CHANGED_AFTER_ACCEPT)
 /** What a pipeline in delivery review says about itself from the outcome list alone, with no read of the machine:
  *  "Delivery review · 3 criteria", and how often it has already been sent back. */
-export function deliveryWhy(piece: { criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[] }): string {
+export function deliveryWhy(piece: { criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; note?: string }): string {
   const count = piece.criteria?.length ?? 0, back = (piece.deliveries ?? []).filter(d => d.decision === 'send_back').length
-  return ['Delivery review', `${count} ${count === 1 ? 'criterion' : 'criteria'}`, back ? `sent back ${back === 1 ? 'once' : back === 2 ? 'twice' : `${back} times`} before` : ''].filter(Boolean).join(' · ')
+  return ['Delivery review', changedAfterAccept(piece.note) ? 'changed after you accepted it' : '', `${count} ${count === 1 ? 'criterion' : 'criteria'}`, back ? `sent back ${back === 1 ? 'once' : back === 2 ? 'twice' : `${back} times`} before` : ''].filter(Boolean).join(' · ')
 }
-type WaitingPiece = { key: string; title: string; state: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
+type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
 export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' | 'delivery' | 'usage_limit' }
 /** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used

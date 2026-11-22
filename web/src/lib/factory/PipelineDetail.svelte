@@ -47,7 +47,7 @@
 <script lang="ts">
   // One pipeline, all of it: where it stands, what waits on the person, the facts of the stage they pick, the rest in
   // rows that open, and one bar of what can be done. Every action is the page's own; this only draws and asks.
-  import { DEFAULT_STAGES, MAX_STAGE_DECISIONS, agentActivity, agentTokensText, ago, contextLeft, decisionText, outcomeAgentUsage, outcomeFinished, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, sessionLost, stageChoice, stageLabel, timeLeft, tokensText } from '../gafferOutcome'
+  import { changedAfterAccept, DEFAULT_STAGES, MAX_STAGE_DECISIONS, agentActivity, agentTokensText, ago, contextLeft, decisionText, outcomeAgentUsage, outcomeFinished, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, sessionLost, stageChoice, stageLabel, timeLeft, tokensText } from '../gafferOutcome'
   import { chatToolName } from '../terminal/api'
   import { sourceLabel } from '../clineSource'
   import { eventLabel } from '../events'
@@ -92,6 +92,9 @@
   } = $props()
 
   const uid = $props.id()
+  // A pipeline that has just had its last criterion removed keeps its card for this visit, so the notice and the focus have somewhere to be.
+  let hadCriteria = $state(false)
+  $effect(() => { if (piece.criteria?.length) hadCriteria = true })
   const nodes = $derived(item.nodes)
   const status = $derived(pipelineStatus(piece, !!goal?.attention))
   const lost = $derived(sessionLost(piece))
@@ -255,11 +258,11 @@
     {#if item.need?.recommend?.by === 'gaffer'}<p class="advice"><strong>Gaffer recommends: {item.need.recommend.label.replace(/…$/, '')}.</strong> {item.need.recommend.why}</p>{/if}
     {#if !usageLimited && goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}
     {#if gafferNote}<p class="hint">{gafferNote}</p>{/if}
-    {#if item.kind === 'delivery'}<p class="hint">The pipeline’s work is ready to be checked against the criteria you agreed. The delivery review is below. Accepting the delivery is not approving the merge.</p>{/if}
+    {#if item.kind === 'delivery'}<p class="hint">{changedAfterAccept(piece.note) ? 'The work changed after you accepted it, so your acceptance and any merge approval were withdrawn. Review what is there now.' : 'The pipeline’s work is ready to be checked against the criteria you agreed.'} The delivery review is below. Accepting the delivery is not approving the merge.</p>{/if}
     {#if lost}<p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>{/if}
   </section>{/if}
 
-  {#if piece.criteria?.length}<DeliveryReview {record} {piece} {archived} {reviewShown} when={helpers.when} onchanged={actions.changed}/>{/if}
+  {#if piece.criteria?.length || hadCriteria}<DeliveryReview {record} {piece} {archived} {reviewShown} when={helpers.when} onchanged={actions.changed}/>{/if}
 
   <section class="stage" aria-label={node ? `${node.label} stage` : 'This pipeline'}>
     <p class="stage-head"><strong>{node ? `${node.label} stage` : 'This pipeline'}</strong>{#if nodes.length > 1}<span class="hint">Pick another stage above to see that one.</span>{/if}</p>

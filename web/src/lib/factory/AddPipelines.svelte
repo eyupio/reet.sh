@@ -73,8 +73,8 @@
   const spareWords = (one: CrewSpare) => `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}`
   const whoWords = (title: string, tier: keyof Crew) => { const one = crewOf(title)[tier]; return `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }
   // The acceptance criteria the person agrees for each added pipeline, as for a new outcome's.
-  let criteria = $state<Record<string, string[]>>({})
-  const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map(item => criteriaBlocker(criteria[item.title], `“${item.title}”`)).find(Boolean) || '')
+  let criteria = $state<Record<number, string[]>>({})
+  const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '')
   const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
   // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
@@ -85,9 +85,9 @@
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
   // The plan each added pipeline would send, and every agent in it this machine reports it does not offer. Approving is
   // refused while one is missing: its stage could only fail at its start.
-  const plans = $derived(proposals.map(item => ({
+  const plans = $derived(proposals.map((item, at) => ({
     title: item.title, prompt: item.prompt,
-    ...(cleanCriteria(criteria[item.title]).length ? { criteria: cleanCriteria(criteria[item.title]) } : {}),
+    ...(cleanCriteria(criteria[at]).length ? { criteria: cleanCriteria(criteria[at]) } : {}),
     stages: withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null),
   })))
   const unoffered = $derived(known ? [...new Set(plans.flatMap(({ stages }) => stages.flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
@@ -143,7 +143,7 @@
     <p>The controller starts each added pipeline as a chat in this outcome’s project, {record.yolo ? 'on YOLO like the rest of this outcome' : 'with ordinary approvals, never in YOLO'}, and Gaffer looks after it stage by stage. None of them merges by itself: each stops at <strong>Ready to merge</strong> and waits for you.</p>
     {#if (record.images ?? []).length}<p class="hint" role="status">{record.images!.length === 1 ? 'The image attached to this outcome travels' : `All ${record.images!.length} images attached to this outcome travel`} with each new pipeline.</p>{/if}
     <ul class="rows" aria-label="Pipelines to add">
-      {#each proposals as item (item.title)}{@const who = choice(item.title)}<li role="group" aria-label={item.title}>
+      {#each proposals as item, at (item.title)}{@const who = choice(item.title)}<li role="group" aria-label={item.title}>
         <div class="what"><strong>{item.title}</strong><span>{kinds(item).map(stageLabel).join(' → ')}</span></div>
         <div class="who">
           <label>Agent<select aria-label={`Agent for ${item.title}`} value={who.tool} disabled={busy} onchange={event => setMain(item.title, { tool: event.currentTarget.value, model: event.currentTarget.value === record.tool ? record.model ?? '' : '', effort: '' })}>
@@ -185,7 +185,7 @@
             {#if kinds(item).some(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2)}<p class="split-offer">Split a stage into parts of different work:{#each kinds(item).filter(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2) as kind (kind)}<button class="inline" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} of ${item.title} into parts`} onclick={() => splits[item.title] = withNewPart({ parts: splits[item.title], tiers: { [kind]: defaultTier(kind) } }, kind)}>{stageLabel(kind)}</button>{/each}</p>{/if}
           </div>
         </details>
-        <CriteriaEditor bind:items={criteria[item.title]} who={item.title} disabled={busy}/>
+        <CriteriaEditor bind:items={criteria[at]} who={item.title} disabled={busy}/>
       </li>{/each}
     </ul>
     <p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>

@@ -6,11 +6,12 @@
   // retry after a lost answer, so an interrupted request is recorded once.
   import { onMount, tick, untrack } from 'svelte'
   import { ApiError, addGafferDeliveryEvidence, decideGafferDelivery, getGafferDelivery, setGafferDeliveryCriteria, type DeliveryCriterion, type DeliveryEvidence, type DeliveryReview, type GafferOutcome, type GafferOutcomeSession } from '../api'
-  import { cleanCriteria, criteriaBlocker, deliveryAnchor, stageLabel } from '../gafferOutcome'
+  import { changedAfterAccept, cleanCriteria, criteriaBlocker, deliveryAnchor, stageLabel } from '../gafferOutcome'
   import { signalAttentionChanged } from '../attentionSignal'
   import { checkLabel, checkTone, safeInsightURL } from '../sessionInsights'
   import CriteriaEditor from './CriteriaEditor.svelte'
-  import { KIND_WORD, STATUS_MARK, STATUS_WORD, acceptConfirm, attemptIds, commitBlocker, commitStateWord, conflictAdvice, conflictWords, decisionLine, earlierLabel, mayHaveArrived, nextWords, sendBackBlocker, shortCommit, statusCount, statusMap, summaryLine } from './delivery'
+  import { mergesByItself } from './PipelineChoices.svelte'
+  import { EDITABLE_STATES, KIND_WORD, STATUS_MARK, STATUS_WORD, acceptConfirm, attemptIds, commitBlocker, commitStateWord, conflictAdvice, conflictWords, decisionLine, earlierLabel, evidenceKinds, mayHaveArrived, nextNow, nextWords, noChecksWords, noCommitWords, notPassedThen, sendBackBlocker, shortCommit, statusCount, statusMap, summaryLine } from './delivery'
 
   let { record, piece, archived = false, reviewShown = false, when, onchanged }: {
     record: GafferOutcome
@@ -42,35 +43,50 @@
       if (mine === generation) review = next
     } catch (e) {
       if (mine === generation) readError = mind.signal.aborted ? '' : e instanceof Error && e.name !== 'TimeoutError' ? e.message : 'The machine did not answer in time.'
-    } finally { if (mine === generation) reading = false }
+    } finally { if (mine === generation) { reading = false; settle() } }
   }
   onMount(() => () => { generation++; controller?.abort() })
   $effect(() => { if (wanted && !started) { started = true; void untrack(load) } })
-  // Something else recorded a change (another reviewer, the controller): the card reads again rather than show an old one.
-  $effect(() => {
-    const seen = piece.reviewRevision, state = piece.state
-    untrack(() => {
-      if (!review || reading || deciding || saving || addingBusy) return
-      if ((seen !== undefined && seen > review.reviewRevision) || state !== review.state) void load()
-    })
-  })
+  // Something else recorded a change (another reviewer, the controller): the card reads again rather than show an old
+  // one. The pipeline's state alone does not warrant a read of the machine (it moves from advancing to ready to merge
+  // by itself after an acceptance); only entering or leaving delivery review does. A change that arrives while the card
+  // is reading or writing is remembered and looked at when that ends.
+  let stale = false
+  const behind = () => !!review && ((piece.reviewRevision !== undefined && piece.reviewRevision > review.reviewRevision) || (piece.state === 'delivery_review') !== (review.state === 'delivery_review'))
+  function sync() {
+    if (!review) return
+    if (reading || deciding || saving || addingBusy) { stale = true; return }
+    if (behind()) void load()
+  }
+  function settle() { if (stale && !reading && !deciding && !saving && !addingBusy) { stale = false; sync() } }
+  $effect(() => { void piece.reviewRevision; void piece.state; untrack(sync) })
 
   const decideIds = attemptIds(), evidenceIds = attemptIds()
+  // What accepting leads to is worked out from the pipeline as it is now: the merge setting can change while the review is open.
+  const next = $derived(review ? nextNow(review.next, mergesByItself(record, piece)) : undefined)
   const count = $derived(review ? statusCount(review) : null)
+  const canEdit = $derived(EDITABLE_STATES.includes(piece.state))
+  const kinds = $derived(review ? evidenceKinds(review) : ['note' as const])
   const blocker = $derived(review ? commitBlocker(review) : '')
-  const edits = $derived(!archived && !!review)
+  const edits = $derived(!archived && !!review && canEdit)
   const decides = $derived(!archived && !!review?.open)
 
   // What a refusal said, kept above the controls it concerns. A conflict is not an error: the review is read again and
   // the person decides on what is now shown, with what they typed still in the fields.
   let notice = $state(''), problem = $state(''), conflict = $state('')
   const clear = () => { notice = ''; problem = ''; conflict = '' }
-  async function afterRefusal(e: unknown, ids: ReturnType<typeof attemptIds> | null, fallback: string) {
+  const SAFE = 'It may not have arrived. Trying again is safe: it is recorded once.'
+  /** Says what a refusal was. Returns whether it was a conflict, after which the review has been read again. */
+  async function afterRefusal(e: unknown, ids: ReturnType<typeof attemptIds> | null, fallback: string): Promise<boolean> {
     if (ids && !mayHaveArrived(e)) ids.clear()
     if (e instanceof ApiError && e.status === 409) {
       conflict = `${conflictWords(e.code) || e.message || 'The review changed.'} ${conflictAdvice}`
       await load()
-    } else problem = e instanceof ApiError ? e.message : `${e instanceof Error && e.message ? e.message : fallback} It may not have arrived. Trying again is safe: it is recorded once.`
+      return true
+    }
+    const said = e instanceof ApiError ? e.message : e instanceof Error && e.message ? e.message : fallback
+    problem = ids && mayHaveArrived(e) ? `${said} ${SAFE}` : said
+    return false
   }
 
   // Accepting asks first; sending back is a form of its own, so what is typed in it survives a conflict.
@@ -88,17 +104,24 @@
       decideIds.clear()
       review = answer.review; sending = false; notes = ''
       notice = kind === 'accept'
-        ? `Delivery accepted${shown.commit ? ` on ${shortCommit(shown.commit)}` : ''}. ${nextWords(shown.next)}`
+        ? `Delivery accepted${shown.commit ? ` on ${shortCommit(shown.commit)}` : ''}. ${nextWords(next)}`
         : `Sent back to ${stageLabel(stage).toLowerCase()}. The controller is starting that stage again, and the agent is told what failed and your notes.`
       signalAttentionChanged()
       await onchanged?.()
       await tick(); heading?.focus({ preventScroll: true })
-    } catch (e) { await afterRefusal(e, decideIds, kind === 'accept' ? 'The delivery was not accepted.' : 'The pipeline was not sent back.') }
-    finally { deciding = false; confirming = false }
+    } catch (e) {
+      await afterRefusal(e, decideIds, kind === 'accept' ? 'The delivery was not accepted.' : 'The pipeline was not sent back.')
+      confirming = false; deciding = false
+      // The confirmation is gone: the keyboard goes back to the button that opened it, or to the heading when nothing is left to press.
+      await tick()
+      const back = kind === 'accept' ? acceptButton : sendToggle
+      if (back) back.focus(); else heading?.focus({ preventScroll: true })
+    }
+    finally { deciding = false; confirming = false; settle() }
   }
   // Accepting asks first, in the card itself rather than over it: the button that confirms stays where it was pressed and
   // waits while the decision is in flight, so a second press lands on nothing.
-  let cancelAccept = $state<HTMLButtonElement>(), acceptButton = $state<HTMLButtonElement>()
+  let cancelAccept = $state<HTMLButtonElement>(), acceptButton = $state<HTMLButtonElement>(), sendToggle = $state<HTMLButtonElement>()
   async function askToAccept() { clear(); confirming = true; await tick(); cancelAccept?.focus() }
   const escapes = (event: KeyboardEvent) => { if (event.key === 'Escape' && !deciding) { event.stopPropagation(); closeConfirm() } }
   function closeConfirm() { confirming = false; void tick().then(() => acceptButton?.focus()) }
@@ -125,12 +148,14 @@
       await onchanged?.()
       await tick(); document.getElementById(`${uid}-add-${forId}`)?.focus()
     } catch (e) { await afterRefusal(e, evidenceIds, 'The evidence was not added.') }
-    finally { addingBusy = false }
+    finally { addingBusy = false; settle() }
   }
 
   // The criteria are edited in place, with the revision that was shown.
+  // After a conflict the rows are the server's again, and what the person typed stays on show to copy from.
+  let mine = $state<string[]>([])
   let editing = $state(false), saving = $state(false), rows = $state<string[]>([]), rowIds = $state<(string | undefined)[]>([]), editButton = $state<HTMLButtonElement>()
-  function startEdit() { if (!review) return; clear(); rows = review.criteria.map(item => item.text); rowIds = review.criteria.map(item => item.id); editing = true }
+  function startEdit() { if (!review) return; clear(); mine = []; rows = review.criteria.map(item => item.text); rowIds = review.criteria.map(item => item.id); editing = true }
   const editBlocker = $derived(criteriaBlocker(rows))
   async function saveCriteria() {
     const shown = review
@@ -139,11 +164,14 @@
     saving = true; clear()
     try {
       review = await setGafferDeliveryCriteria(record, piece.key, shown.criteriaRevision, body)
-      editing = false; notice = 'Criteria saved. Evidence for a criterion whose words changed counts again only once it is added afresh.'
+      editing = false; mine = []; notice = review.criteria.length ? 'Criteria saved. Evidence for a criterion whose words changed counts again only once it is added afresh.' : 'Criteria saved. This pipeline has none now.'
       await onchanged?.()
-      await tick(); editButton?.focus()
-    } catch (e) { await afterRefusal(e, null, 'The criteria were not saved.') }
-    finally { saving = false }
+      await tick(); (editButton ?? heading)?.focus({ preventScroll: true })
+    } catch (e) {
+      const typed = rows.map(text => text.trim()).filter(Boolean)
+      if (await afterRefusal(e, null, 'The criteria were not saved.') && review) { mine = typed; rows = review.criteria.map(item => item.text); rowIds = review.criteria.map(item => item.id) }
+    }
+    finally { saving = false; settle() }
   }
 
   let heading = $state<HTMLElement>(), copied = $state('')
@@ -153,7 +181,7 @@
     setTimeout(() => { copied = '' }, 3000)
   }
   const link = (url?: string) => safeInsightURL(url)
-  const evidenceWho = (item: DeliveryEvidence) => [item.byName, item.at ? when(item.at) : ''].filter(Boolean).join(' · ')
+  const evidenceWho = (item: DeliveryEvidence) => [item.byName ? (item.kind === 'check' ? `added by ${item.byName}` : item.byName) : '', item.at ? when(item.at) : ''].filter(Boolean).join(' · ')
   const verdict = (item: DeliveryEvidence) => item.verdict === 'passed' ? 'Passed' : item.verdict === 'needs_work' ? 'Needs work' : ''
   const pullURL = $derived(link(review?.pull?.url))
   const recorded = $derived([...(review?.decisions ?? [])].reverse())
@@ -162,7 +190,7 @@
 <section class="delivery" id={anchor} aria-labelledby={`${uid}-title`}>
   <header class="top">
     <h3 id={`${uid}-title`} tabindex="-1" bind:this={heading}>Delivery review</h3>
-    {#if review}<span class="state" data-open={review.open}>{review.open ? 'Waiting for your decision' : review.accepted ? 'Accepted' : 'Not open'}</span>{/if}
+    {#if review}<span class="state" data-open={review.open}>{review.open ? 'Waiting for your decision' : review.accepted ? 'Accepted' : 'No decision waiting'}</span>{/if}
   </header>
 
   {#if !wanted}
@@ -174,13 +202,14 @@
     <p role="alert" class="warning">The delivery review could not be read{readError ? `: ${readError}` : '.'}</p>
     <div class="actions"><button class="btn" type="button" onclick={() => void load()}>Retry</button></div>
   {:else}
-    <p class="lead">Accepting the delivery says the work meets the criteria below. It does <strong>not</strong> approve the GitHub merge: {review.next === 'merge' ? 'this pipeline merges by itself once its checks pass, as you set it to' : review.next === 'done' ? 'this pipeline has no merge stage' : 'Approve the merge stays its own action'}.</p>
+    {#if changedAfterAccept(piece.note) && piece.state === 'delivery_review'}<p class="conflict" role="note">{piece.note} Your acceptance and any merge approval you gave were withdrawn.</p>{/if}
+    <p class="lead">Accepting the delivery says the work meets the criteria below. It does <strong>not</strong> approve the GitHub merge: {next === 'merge' ? 'this pipeline merges by itself once its checks pass, as you set it to' : next === 'done' ? 'this pipeline has no merge stage' : 'Approve the merge stays its own action'}.</p>
 
     <dl class="facts" aria-label="What was reviewed">
       <div class="wide"><dt>Reviewed commit</dt><dd>
         {#if review.commit}<code title={review.commit}>{shortCommit(review.commit)}</code>
           <button class="inline" type="button" aria-label={`Copy the full commit ID ${review.commit}`} onclick={() => void copyCommit()}>Copy</button><span role="status" class="copied">{copied}</span>
-        {:else}<span>No commit</span>{/if}
+        {:else}<span>{noCommitWords(review.commitState)}</span>{/if}
         <span class="sub" class:bad={review.commitState !== 'verified' && review.commitState !== 'none'}>{commitStateWord(review.commitState)}{#if review.commitNote && review.commitState !== 'verified'}: {review.commitNote}{/if}</span>
       </dd></div>
       {#if review.branch}<div><dt>Branch</dt><dd><code>{review.branch}</code></dd></div>{/if}
@@ -223,10 +252,10 @@
             {#if decides}
               {#if draft?.criterion === item.id}{@const d = draft}
                 <form class="add" aria-label={`Add evidence for criterion ${index + 1}`} onsubmit={event => { event.preventDefault(); void addEvidence() }}>
-                  <label>What kind<select bind:value={d.kind} disabled={addingBusy}><option value="note">Reviewer note</option><option value="check">GitHub check</option><option value="artefact">Artefact link</option></select></label>
+                  <label>What kind<select bind:value={d.kind} disabled={addingBusy || kinds.length < 2}><option value="note">Reviewer note</option>{#if kinds.includes('check')}<option value="check">GitHub check</option>{/if}{#if kinds.includes('artefact')}<option value="artefact">Artefact link</option>{/if}</select></label>
                   {#if d.kind === 'check'}
-                    <label>Check<select bind:value={d.name} disabled={addingBusy || !(review.checks ?? []).length}><option value="">Choose a check</option>{#each review.checks ?? [] as check (check.name)}<option value={check.name}>{check.name} · {checkLabel(check.state)}</option>{/each}</select></label>
-                    {#if !(review.checks ?? []).length}<p class="hint">No GitHub checks were found for this pull request.</p>{/if}
+                    <label>Check<select bind:value={d.name} disabled={addingBusy || !(review.checks ?? []).length}><option value="">Choose a check</option>{#each review.checks ?? [] as check, at (at)}<option value={check.name}>{check.name} · {checkLabel(check.state)}</option>{/each}</select></label>
+                    {#if !(review.checks ?? []).length}<p class="hint">{noChecksWords(review)}</p>{/if}
                   {:else}
                     <label>Verdict<select bind:value={d.verdict} disabled={addingBusy}><option value="passed">Passed</option><option value="needs_work">Needs work</option></select></label>
                     {#if d.kind === 'artefact'}<label>Link inside the repository<input type="url" bind:value={d.url} disabled={addingBusy} placeholder="https://github.com/…"/></label>{/if}
@@ -246,10 +275,11 @@
       <div class="decide" role="group" aria-label="Your decision on this delivery">
         <div class="buttons">
           <button class="btn primary" type="button" bind:this={acceptButton} aria-expanded={confirming} disabled={deciding || reading || !!blocker || saving || addingBusy} onclick={() => void askToAccept()}>Accept delivery</button>
-          <button class="btn" type="button" aria-expanded={sending} aria-controls={`${uid}-back`} disabled={deciding || reading || !!blocker} onclick={() => { clear(); confirming = false; sending = !sending }}>Send back</button>
+          <button class="btn" type="button" bind:this={sendToggle} aria-expanded={sending} aria-controls={`${uid}-back`} disabled={deciding || reading || !!blocker || !(review.stages ?? []).length} onclick={() => { clear(); confirming = false; sending = !sending }}>Send back</button>
         </div>
-        <p class="hint">{nextWords(review.next)}</p>
-        {#if confirming}{@const ask = acceptConfirm(review)}
+        {#if !(review.stages ?? []).length}<p class="hint">Send back is not offered: this pipeline has no stage before its merge to do again.</p>{/if}
+        <p class="hint">{nextWords(next)}</p>
+        {#if confirming}{@const ask = acceptConfirm({ ...review, next })}
           <div class="confirm" role="group" aria-labelledby={`${uid}-ask`}>
             <h4 id={`${uid}-ask`}>{ask.title}</h4>
             <p>{ask.body}</p>
@@ -262,7 +292,7 @@
             <label>Notes for the agent<textarea bind:value={notes} rows="4" disabled={deciding} placeholder="The export leaks other tenants’ rows."></textarea></label>
             <p class="hint">The agent is also told which criteria need work or are unverified. That stage and every stage after it is done again in a fresh session, in the same folder and branch.</p>
             {#if sendBlocker}<p class="hint" role="status">{sendBlocker}</p>{/if}
-            <div class="actions"><button class="btn primary" type="submit" disabled={deciding || reading || !!sendBlocker}>{deciding ? 'Sending back…' : 'Send back'}</button><button class="btn quiet" type="button" disabled={deciding} onclick={() => { sending = false }}>Cancel</button></div>
+            <div class="actions"><button class="btn primary" type="submit" disabled={deciding || reading || !!sendBlocker}>{deciding ? 'Sending back…' : 'Send back'}</button><button class="btn quiet" type="button" disabled={deciding} onclick={() => { sending = false; void tick().then(() => sendToggle?.focus()) }}>Cancel</button></div>
           </form>
         {/if}
       </div>
@@ -280,20 +310,21 @@
         {#each recorded as d (`${d.requestId ?? ''}${d.at}`)}
           <li><p><strong>{decisionLine({ ...d, stage: d.stage ? stageLabel(d.stage) : '' })}</strong>{#if d.at} · <time datetime={new Date(d.at).toISOString()}>{when(d.at)}</time>{/if}</p>
             {#if d.notes}<p class="ev-text">{d.notes}</p>{/if}
-            {#if d.failed?.length}<p class="hint">Not passed then: {d.failed.length === 1 ? '1 criterion' : `${d.failed.length} criteria`}.</p>{/if}</li>
+            {#if notPassedThen(d)}<p class="hint">Not passed then: {notPassedThen(d) === 1 ? '1 criterion' : `${notPassedThen(d)} criteria`}.</p>{/if}</li>
         {/each}
       </ol>
     {/if}
 
     {#if edits}
       {#if editing}
+        {#if mine.length}<div class="conflict" role="note"><p>What you typed, to copy from:</p><ul class="mine">{#each mine as text, at (at)}<li>{text}</li>{/each}</ul></div>{/if}
         <form class="edit" aria-label="Edit the acceptance criteria" onsubmit={event => { event.preventDefault(); void saveCriteria() }}>
           <CriteriaEditor bind:items={rows} bind:ids={rowIds} who={piece.title} disabled={saving} explain={false}/>
-          <p class="hint">A criterion whose words you change keeps its place, but its evidence is then from earlier criteria and has to be added again.</p>
+          <p class="hint">A criterion whose words you change keeps its place, but its evidence is then from earlier criteria and has to be added again.{#if piece.state === 'ready_to_merge'} Changing the words withdraws your acceptance and the merge approval.{/if}</p>
           {#if editBlocker}<p class="warning" role="status">{editBlocker}</p>{/if}
           <div class="actions"><button class="btn primary" type="submit" disabled={saving || !!editBlocker}>{saving ? 'Saving…' : 'Save criteria'}</button><button class="btn quiet" type="button" disabled={saving} onclick={() => { editing = false; void tick().then(() => editButton?.focus()) }}>Cancel</button></div>
         </form>
-      {:else}<div class="actions"><button class="btn quiet" type="button" bind:this={editButton} disabled={deciding || reading} onclick={startEdit}>Edit criteria</button></div>{/if}
+      {:else}{#if mine.length}<div class="conflict" role="note"><p>What you typed, to copy from:</p><ul class="mine">{#each mine as text, at (at)}<li>{text}</li>{/each}</ul></div>{/if}<div class="actions"><button class="btn quiet" type="button" bind:this={editButton} disabled={deciding || reading} onclick={startEdit}>Edit criteria</button></div>{/if}
     {/if}
   {/if}
 </section>
@@ -349,6 +380,7 @@
   .decide{display:grid;gap:8px;padding:12px;border:1px solid var(--line-strong);border-radius:10px}
   .buttons,.actions{display:flex;flex-wrap:wrap;gap:8px}
   .btn{min-height:44px}
+  .mine{margin:4px 0 0;padding-left:18px;overflow-wrap:anywhere}
   .decisions li{padding:8px 12px;border-left:2px solid var(--line-strong);display:grid;gap:2px}
   .closed{display:grid;gap:4px}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

@@ -97,8 +97,9 @@ test('earlier evidence says whether the commit or the criteria moved on', () => 
 
 test('each documented conflict code is said plainly; an unknown one is left to the server’s own sentence', () => {
   assert.equal(d.conflictWords('delivery_head_changed'), 'A new commit arrived since you looked.')
-  assert.equal(d.conflictWords('delivery_closed'), 'Someone else already decided this delivery.')
-  for (const code of ['delivery_changed', 'delivery_criteria_changed', 'delivery_head_unverified', 'delivery_request_reused']) assert.notEqual(d.conflictWords(code), '', code)
+  assert.equal(d.conflictWords('delivery_closed'), 'This delivery was already decided, or is no longer waiting for a decision.')
+  assert.equal(d.conflictWords('delivery_changed'), 'The evidence or a GitHub check changed since you looked.')
+  for (const code of ['delivery_criteria_changed', 'delivery_head_unverified', 'delivery_request_reused']) assert.notEqual(d.conflictWords(code), '', code)
   assert.equal(d.conflictWords('something_else'), '')
   assert.match(d.conflictAdvice, /What you typed is kept/)
 })
@@ -109,4 +110,40 @@ test('a recorded decision reads as one line', () => {
   assert.equal(d.decisionLine({ decision: 'accept', commit: '' }), 'Accepted with no Git commit')
   assert.equal(d.shortCommit(COMMIT), '9f2c1ab')
   assert.equal(d.shortCommit(undefined), '')
+})
+
+test('a decision counts what was not Passed from the statuses it was shown, not from the list of failures', () => {
+  assert.equal(d.notPassedThen({ statuses: { a: 'passed', b: 'needs_work', c: 'unverified' } }), 2)
+  assert.equal(d.notPassedThen({ statuses: { a: 'passed' } }), 0)
+  assert.equal(d.notPassedThen({}), 0)
+})
+
+test('what accepting leads to follows the merge setting as it is now', () => {
+  assert.equal(d.nextNow('ready_to_merge', true), 'merge')
+  assert.equal(d.nextNow('merge', false), 'ready_to_merge')
+  assert.equal(d.nextNow('done', true), 'done')
+  assert.equal(d.nextNow(undefined, true), undefined)
+})
+
+test('no checks are offered, and why, for no pull request, one on another commit, or none reported', () => {
+  assert.match(d.noChecksWords({}), /no pull request yet/)
+  assert.match(d.noChecksWords({ pull: { atHead: false } }), /not at the reviewed commit/)
+  assert.match(d.noChecksWords({ pull: { atHead: true } }), /No GitHub checks were found/)
+})
+
+test('artefact and check evidence need a GitHub remote and a Git repository', () => {
+  assert.deepEqual(d.evidenceKinds({ remote: 'acme/billing', commitState: 'verified' }), ['note', 'check', 'artefact'])
+  assert.deepEqual(d.evidenceKinds({ remote: '', commitState: 'verified' }), ['note'])
+  assert.deepEqual(d.evidenceKinds({ remote: 'acme/billing', commitState: 'none' }), ['note'])
+})
+
+test('an empty commit says why', () => {
+  assert.equal(d.noCommitWords('none'), 'No commit: not a Git repository')
+  assert.equal(d.noCommitWords('unreachable'), 'No commit could be read')
+  assert.equal(d.noCommitWords('unverified'), 'No commit could be read')
+})
+
+test('criteria may be edited only where the server allows it', () => {
+  for (const state of ['waiting', 'following', 'delivery_review', 'unfollowed', 'ready_to_merge']) assert.ok(d.EDITABLE_STATES.includes(state), state)
+  for (const state of ['starting', 'advancing', 'done', 'failed', 'cancelled']) assert.ok(!d.EDITABLE_STATES.includes(state), state)
 })

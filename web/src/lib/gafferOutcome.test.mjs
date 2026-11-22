@@ -633,6 +633,9 @@ test('a revised plan keeps the criteria typed for its pipelines, by title and th
   assert.deepEqual(o.carryCriteria(typed, ' Importer ', 0), { criteria: ['Retries twice.'] })
   assert.deepEqual(o.carryCriteria(typed, 'Export, end to end', 0), { criteria: ['Downloads as CSV.'] })
   assert.deepEqual(o.carryCriteria(typed, 'Something new', 1), {})
+  // Reordered: a pipeline that had no criteria keeps none, whatever now sits where it was.
+  assert.deepEqual(o.carryCriteria(typed, 'Docs', 0), {})
+  assert.deepEqual(o.carryCriteria(typed, 'Docs', 2), {})
   assert.deepEqual(o.carryCriteria(typed, 'Something new', 7), {})
   const copy = o.carryCriteria(typed, 'Export API', 0)
   copy.criteria.push('x')

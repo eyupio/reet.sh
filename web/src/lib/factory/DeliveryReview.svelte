@@ -211,6 +211,9 @@
           <button class="inline" type="button" aria-label={`Copy the full commit ID ${review.commit}`} onclick={() => void copyCommit()}>Copy</button><span role="status" class="copied">{copied}</span>
         {:else}<span>{noCommitWords(review.commitState)}</span>{/if}
         <span class="sub" class:bad={review.commitState !== 'verified' && review.commitState !== 'none'}>{commitStateWord(review.commitState)}{#if review.commitNote && review.commitState !== 'verified'}: {review.commitNote}{/if}</span>
+        <!-- The machine coming back online, or a new commit, changes nothing the page is told about: the person asks again. -->
+        <button class="inline" type="button" disabled={reading || deciding} onclick={() => void load()}>{reading ? 'Reading…' : 'Look again'}</button>
+        {#if readError}<span class="sub bad" role="alert">The review could not be read again: {readError}</span>{/if}
       </dd></div>
       {#if review.branch}<div><dt>Branch</dt><dd><code>{review.branch}</code></dd></div>{/if}
       {#if review.remote}<div><dt>Repository</dt><dd>{review.remote}</dd></div>{/if}

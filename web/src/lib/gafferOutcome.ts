@@ -115,9 +115,10 @@ export const MAX_CRITERION_BYTES = 240
 /** The criteria as they are sent: each on one line, trimmed, with empty rows dropped. */
 export const cleanCriteria = (list: readonly string[] | undefined): string[] => (list ?? []).map(oneLine).filter(Boolean)
 /** The criteria the person typed for the pipeline that a revised plan's pipeline stands in for: the one of the same
- *  title, else the one in the same place. A pipeline that had none gets none. */
+ *  title, and only when no pipeline had that title, the one in the same place. A pipeline that had none gets none, so
+ *  a plan that comes back in another order never hands one pipeline another's criteria. */
 export function carryCriteria(typed: readonly { title: string; criteria?: readonly string[] }[], title: string, at: number): { criteria?: string[] } {
-  const own = typed.find(old => old.title === title.trim() && old.criteria?.length) ?? (typed[at]?.criteria?.length ? typed[at] : undefined)
+  const own = typed.find(old => old.title === title.trim()) ?? typed[at]
   return own?.criteria ? { criteria: [...own.criteria] } : {}
 }
 /** Why a list of criteria cannot be sent, or ''. Empty rows are dropped, so they are never a problem. */

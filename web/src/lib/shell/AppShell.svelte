@@ -18,7 +18,7 @@
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, waiting = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account,
+    tabs, waiting = [], onseen, onanswered, compact, bar, more, settings = [], bell = false, jump, jumpLive = [], account,
   }: {
     tabs: Tab[]
     /** What waits for the person: the bell lists it and its badge counts it. */
@@ -32,6 +32,9 @@
     bar: Tab[]
     /** Secondary pages, grouped in More at every screen size. */
     more: Tab[]
+    /** Personal settings and Instance administration, with what each applies to. The account menu holds them on a wide
+     *  screen; where that menu is only an unlabelled circle (a tablet, a phone, the slim header) More lists them too. */
+    settings?: (Tab & { note?: string })[]
     /** The bell and its Needs you count, for a writer in accounts mode only. */
     bell?: boolean
     jump: () => Promise<JumpItem[]>
@@ -44,7 +47,7 @@
   let viewportWidth = $state(window.innerWidth)
   let phoneLayout = $state(matchMedia(PHONE_SCREEN).matches)
   const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
-  const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
+  const moreCurrent = $derived([...visibleOverflow, ...more, ...(viewportWidth < 1100 || phoneLayout ? settings : [])].some(tab => tab.current))
 
   const moreId = $props.id()
   let moreOpen = $state(false)
@@ -53,7 +56,8 @@
   // The slim header has no bottom bar, so its More button also reaches the main pages.
   const moreItems = $derived((moreAll ? tabs : visibleOverflow).map(tab => ({
     ...tab, group: tab.href === '/skills' ? 'Skills & tools' : 'Main pages',
-  })).concat(more.map(tab => ({ ...tab, group: tab.group ?? 'Main pages' }))))
+  })).concat(more.map(tab => ({ ...tab, group: tab.group ?? 'Main pages' })))
+    .concat(moreAll || viewportWidth < 1100 || phoneLayout ? settings.map(tab => ({ ...tab, group: 'Settings' })) : []))
   let searchOpen = $state(false)
   let searchButton = $state<HTMLButtonElement>()
   let input = $state<HTMLInputElement>()

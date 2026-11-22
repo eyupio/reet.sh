@@ -3,7 +3,7 @@
 
   let { id, items, opener, open = $bindable(false) }: {
     id: string
-    items: (Tab & { group: string })[]
+    items: (Tab & { group: string; note?: string })[]
     opener?: HTMLElement
     open?: boolean
   } = $props()
@@ -41,7 +41,7 @@
         {@const external = item.href.startsWith('http')}
         <a href={item.href} aria-current={item.current ? 'page' : undefined}
           target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined}
-          onclick={() => panel?.hidePopover()}>{item.label}</a>
+          onclick={() => panel?.hidePopover()}>{#if item.note}<span class="label"><span>{item.label}</span><small>{item.note}</small></span>{:else}{item.label}{/if}</a>
       {/each}
     </section>
   {/each}
@@ -66,6 +66,7 @@
     display: flex; align-items: center; min-height: 38px; padding: 6px 10px; border-radius: 8px;
     color: var(--ink); font-size: .875rem; text-decoration: none; overflow-wrap: anywhere;
   }
+  .label { display: grid; gap: 2px; } .label small { color: var(--muted); font-size: .875rem; }
   a:hover, a[aria-current='page'] { background: var(--tint); }
   a[aria-current='page'] { font-weight: 600; box-shadow: inset 3px 0 0 var(--accent-text); }
   a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }

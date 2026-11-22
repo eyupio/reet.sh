@@ -534,7 +534,9 @@
 {/snippet}
 
 <div class="admin">
-  <PageHeader group="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} sectionsLabel="Instance administration" sections={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
+  <PageHeader group="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} sectionsLabel="Instance administration" sections={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))}>
+    {#snippet actions()}{#if accounts}<a class="btn" href="/account/profile">Your personal settings</a>{/if}{/snippet}
+  </PageHeader>
 
   {#if loading}
     <Skeleton label="Loading the administration page…" shape="cards" count={3} />

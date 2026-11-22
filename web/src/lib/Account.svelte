@@ -384,7 +384,9 @@
 <section class="account" aria-labelledby="account-title">
   <div class="idcard">
     <span class="avatar" aria-hidden="true">{initials()}</span>
-    <PageHeader group="Personal settings" title={sectionTitle} titleId="account-title" lede={who.name ? `${who.name} · ${who.email}` : who.email} sectionsLabel="Personal settings" sections={accountNav(sections, section)} />
+    <PageHeader group="Personal settings" title={sectionTitle} titleId="account-title" lede={who.name ? `${who.name} · ${who.email}` : who.email} sectionsLabel="Personal settings" sections={accountNav(sections, section)}>
+      {#snippet actions()}{#if who.role === 'owner' || who.role === 'admin'}<a class="btn" href="/admin/overview">Instance administration</a>{/if}{/snippet}
+    </PageHeader>
   </div>
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}

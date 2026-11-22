@@ -81,7 +81,7 @@ test('a machine that cannot read accounts is unavailable for sign-in and the sta
 
 test('an agent not on the machine, or a machine not connected, blocks', () => {
   const gone = r.launchReadiness(input({ member: { tool: 'cline', model: '' }, saved: null }))
-  assert.equal(gone.level, 'blocked'); assert.equal(gone.agent.state, 'unavailable'); assert.equal(gone.agent.text, 'Cline is not on workshop now. Choose another agent for the stage.')
+  assert.equal(gone.level, 'blocked'); assert.equal(gone.agent.state, 'unavailable'); assert.equal(gone.agent.text, 'Cline is not on workshop now.')
   const off = r.launchReadiness(input({ machine: machine({ ready: false }) }))
   assert.equal(off.level, 'blocked'); assert.equal(off.connected.state, 'unavailable'); assert.equal(off.issue, 'The machine is reconnecting. Existing shells will be kept.')
   assert.equal(r.launchReadiness(input({ machine: null })).level, 'blocked')
@@ -108,10 +108,10 @@ test('every backup is listed in order with its own eligibility', () => {
     accounts: read(signed('claude'), signed('codex', { limitsAt: now - 8 * HOUR }), { tool: 'opencode', state: 'none', limitsState: 'not_asked' }),
     spares: [{ tool: 'codex', model: 'gpt', effort: '' }, { tool: 'opencode', model: '' }, { tool: 'cline', model: '' }, { tool: 'claude', model: 'claude-small', effort: 'low' }],
   }))
-  assert.deepEqual(s.backups.map(b => [b.agent, b.eligible, b.balances, b.stale]), [['Codex', true, true, true], ['OpenCode', false, false, false], ['Cline', false, false, false], ['Claude Code', true, false, false]])
-  assert.match(s.backups[0].reason, /Codex’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low\./)
-  assert.match(s.backups[1].reason, /No sign-in found on this machine\. Balancing will not move a stage onto it; after a usage limit it is still the next one tried, and is likely to be refused there\./)
-  assert.match(s.backups[2].reason, /Cline is not on workshop\. Balancing will not move a stage onto it/)
+  assert.deepEqual(s.backups.map(b => [b.agent, b.eligible, b.balances]), [['Codex', true, true], ['OpenCode', false, false], ['Cline', false, false], ['Claude Code', true, false]])
+  assert.match(s.backups[0].reason, /Codex’s plan figures were read 8 h ago, so it takes over without a comparison when Claude Code’s plan runs low\./)
+  assert.match(s.backups[1].reason, /No sign-in found on this machine\. It is still tried after a usage limit, and is likely to be refused there\./)
+  assert.match(s.backups[2].reason, /Cline is not on workshop\. It is still tried after a usage limit/)
   assert.equal(s.backups[3].model, 'claude-small'); assert.equal(s.backups[3].verdict, 'takes over only after a usage limit'); assert.match(s.backups[3].reason, /shares Claude Code’s plan with the first choice/)
   assert.equal(s.backups[0].verdict, 'can take over'); assert.equal(s.backups[1].verdict, 'balancing will not use it')
   assert.equal(s.level, 'look')
@@ -120,28 +120,59 @@ test('every backup is listed in order with its own eligibility', () => {
 test('stale or absent figures on the first choice mean no balancing, and absent figures are only a note', () => {
   // A backup with no figures of its own still takes over once the first choice runs low: it is not compared.
   const bare = r.launchReadiness(input({ accounts: read(signed('claude'), signed('codex', { limits: [], limitsState: 'unsupported' })), spares: [{ tool: 'codex', model: '' }] }))
-  assert.deepEqual([bare.backups[0].eligible, bare.backups[0].balances, bare.backups[0].stale], [true, true, false]); assert.equal(bare.level, 'ready')
+  assert.deepEqual([bare.backups[0].eligible, bare.backups[0].balances], [true, true]); assert.equal(bare.level, 'ready')
   const stale = r.launchReadiness(input({ accounts: read(signed('claude', { limitsAt: now - 7 * HOUR }), signed('codex')), spares: [{ tool: 'codex', model: '' }] }))
-  assert.equal(stale.backups[0].balances, false); assert.match(stale.backups[0].reason, /Claude Code’s plan figures were read 7 h ago; figures over 6 hours old are ignored, so stages stay on the first choice/); assert.equal(stale.level, 'look')
+  assert.equal(stale.backups[0].balances, false); assert.match(stale.backups[0].reason, /Claude Code’s plan figures were read 7 h ago, so stages stay on the first choice/)
+  // Old figures on a backup that can still take over are quiet.
+  assert.equal(stale.backups[0].eligible, true); assert.equal(stale.level, 'ready')
   const none = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [], limitsState: 'unsupported' }), signed('codex')), spares: [{ tool: 'codex', model: '' }] }))
   assert.equal(none.backups[0].balances, false); assert.match(none.backups[0].reason, /Claude Code has no plan figures, so stages stay on the first choice/); assert.equal(none.level, 'ready')
   const blind = r.launchReadiness(input({ accounts: null, spares: [{ tool: 'codex', model: '' }] }))
   assert.equal(blind.backups[0].eligible, true); assert.equal(blind.backups[0].balances, false)
 })
 
-test('the summary counts stages and names the first thing to fix', () => {
+test('the summary counts stages and names the cause that blocks', () => {
   const ok = r.launchReadiness(input()), look = r.launchReadiness(input({ member: { tool: 'claude', model: 'nope' } })), block = r.launchReadiness(input({ member: { tool: 'cline', model: '' } }))
-  const row = (label, readiness) => ({ label, where: 'pipeline 1', readiness })
-  assert.equal(r.launchSummary([row('Code', ok), row('Review', ok)]).text, '2 of 2 stages ready.')
-  const mixed = r.launchSummary([row('Code', ok), row('Review', look)])
-  assert.equal(mixed.ready, 1); assert.equal(mixed.blocker, ''); assert.match(mixed.text, /^1 of 2 stages ready, 1 to look at\. First: Review in pipeline 1: workshop’s list/)
-  const stop = r.launchSummary([row('Code', look), row('Review', block)])
-  assert.match(stop.text, /1 cannot start/); assert.equal(stop.blocker, 'Review in pipeline 1: Cline is not on workshop now. Choose another agent for the stage.')
+  const row = (stage, crew, readiness) => ({ stage, crew, readiness })
+  const all = r.launchSummary([row('Code', 'Standard', ok), row('Review', 'Heavy', ok)])
+  assert.equal(all.text, '2 of 2 stages ready.'); assert.deepEqual(all.causes, []); assert.equal(all.blocker, '')
+  const mixed = r.launchSummary([row('Code', 'Standard', ok), row('Review', 'Heavy', look)])
+  assert.equal(mixed.ready, 1); assert.equal(mixed.blocker, ''); assert.equal(mixed.text, '1 of 2 stages ready, 1 to look at.')
+  assert.deepEqual(mixed.causes.map(c => [c.level, c.crews, c.stages]), [['look', ['Heavy'], ['Review']], ['note', ['Heavy'], ['Review']]])
+  assert.match(mixed.causes[0].text, /workshop’s list/); assert.equal(mixed.causes[1].text, r.MODEL_LATER)
+  const stop = r.launchSummary([row('Code', 'Standard', look), row('Review', 'Heavy', block)])
+  assert.match(stop.text, /1 cannot start/); assert.equal(stop.blocker, 'Cline is not on workshop now. Change the agent of the Heavy crew under “Choose who does what”.')
+  assert.equal(stop.causes[0].level, 'blocked')
+})
+
+test('a cause is said once, with the tiers and stages it affects', () => {
+  const gone = r.launchReadiness(input({ member: { tool: 'cline', model: 'x', effort: 'high' }, spares: [{ tool: 'codex', model: '' }] }))
+  const row = (stage, crew, readiness) => ({ stage, crew, readiness })
+  const s = r.launchSummary([row('Code', 'Standard', gone), row('Plan', 'Light', r.launchReadiness(input())), row('Review', 'Heavy', gone), row('Test', 'Standard', gone), row('Ship', 'Light', gone)])
+  // The model, effort and backups of a missing agent are not mentioned.
+  assert.deepEqual(s.causes, [{ level: 'blocked', text: 'Cline is not on workshop now.', machine: false, crews: ['Heavy', 'Standard', 'Light'], stages: ['Code', 'Review', 'Test', 'Ship'] }])
+  assert.equal(r.inWords(['Heavy', 'Standard']), 'Heavy and Standard'); assert.equal(r.inWords(['Code', 'Review', 'Test']), 'Code, Review and Test')
+  assert.equal(s.blocker, 'Cline is not on workshop now. Change the agent of the Heavy, Standard and Light crews under “Choose who does what”.')
+  const two = r.launchSummary([row('Code', 'Standard', gone), row('Review', 'Heavy', gone)])
+  assert.equal(two.blocker, 'Cline is not on workshop now. Change the agent of the Heavy and Standard crews under “Choose who does what”.')
+})
+
+test('a machine that is not connected is one cause for every tier, and has no crew to change', () => {
+  const off = r.launchReadiness(input({ machine: machine({ ready: false }) }))
+  const s = r.launchSummary([{ stage: 'Code', crew: 'Standard', readiness: off }, { stage: 'Review', crew: 'Heavy', readiness: off }])
+  assert.equal(s.causes.length, 1); assert.equal(s.causes[0].machine, true); assert.equal(s.blocker, 'The machine is reconnecting. Existing shells will be kept.')
+})
+
+test('causes are sorted blocked, look, note and a backup that is not eligible is something to look at', () => {
+  const one = r.launchReadiness(input({ member: { tool: 'claude', model: 'nope', effort: 'high' }, spares: [{ tool: 'cline', model: '' }] }))
+  assert.deepEqual(r.readinessItems(one).map(item => item.level), ['look', 'note', 'look'])
+  assert.equal(r.readinessItems(one)[2].text, 'Backup 1, Cline: Cline is not on workshop. It is still tried after a usage limit, and is likely to be refused there.')
+  assert.deepEqual(r.launchSummary([{ stage: 'Code', crew: 'Standard', readiness: one }]).causes.map(c => c.level), ['look', 'look', 'note'])
 })
 
 test('a backup is compared with the first choice when both have fresh figures', () => {
   const more = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [{ kind: 'week', usedPercent: 90 }] }), signed('codex', { limits: [{ kind: 'week', usedPercent: 20 }] })), spares: [{ tool: 'codex', model: '' }] }))
-  assert.deepEqual([more.backups[0].balances, more.backups[0].stale], [true, false]); assert.match(more.backups[0].reason, /Codex has 80% of its plan left against Claude Code’s 10%, so balancing can move a stage onto it/)
+  assert.deepEqual([more.backups[0].balances, more.backups[0].eligible], [true, true]); assert.match(more.backups[0].reason, /Codex has 80% of its plan left against Claude Code’s 10%, so balancing can move a stage onto it/)
   const less = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [{ kind: 'week', usedPercent: 20 }] }), signed('codex', { limits: [{ kind: 'week', usedPercent: 60 }] })), spares: [{ tool: 'codex', model: '' }] }))
   assert.equal(less.backups[0].balances, false); assert.equal(less.backups[0].eligible, true); assert.match(less.backups[0].reason, /Codex has 40% of its plan left, no more than Claude Code’s 80%, so balancing will not move a stage onto it; it takes over only after a usage limit/)
 })
@@ -160,7 +191,7 @@ test('what is being read is neither ready nor a problem', () => {
   const reading = r.launchReadiness(input({ models: () => 'reading', accounts: undefined, spares: [{ tool: 'codex', model: '' }] }))
   assert.equal(reading.model.pending, true); assert.equal(reading.signIn.pending, true); assert.equal(reading.backups[0].pending, true)
   assert.equal(reading.level, 'ready'); assert.equal(reading.pending, true)
-  const row = { label: 'Code', where: 'pipeline 1', readiness: reading }
+  const row = { stage: 'Code', crew: 'Standard', readiness: reading }
   assert.equal(r.launchSummary([row]).text, '0 of 1 stage ready, 1 still being read.')
   assert.equal(r.launchReadiness(input({ models: () => null })).model.state, 'unavailable')
 })
@@ -177,7 +208,7 @@ test('an answer that is not a fresh read still carries the accounts the controll
 test('an agent the machine never reports is a quiet note, not the first thing to look at', () => {
   const s = r.launchReadiness(input({ tools: ['claude', 'cline'], member: { tool: 'cline', model: '' }, saved: { tool: 'cline' }, edited: false, spares: [{ tool: 'cline', model: 'x' }] }))
   assert.equal(s.signIn.quiet, true); assert.equal(s.level, 'ready'); assert.equal(s.backups[0].eligible, true)
-  assert.equal(r.launchSummary([{ label: 'Code', readiness: s }]).text, '1 of 1 stage ready.')
+  assert.equal(r.launchSummary([{ stage: 'Code', crew: 'Light', readiness: s }]).text, '1 of 1 stage ready.')
 })
 
 test('the stage line says what it runs on once, with defaults as a choice and nothing for an agent with no effort setting', () => {

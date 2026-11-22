@@ -27,8 +27,6 @@ export type SpareReadiness = {
   eligible: boolean
   /** Whether balancing can move a stage onto it: the first choice's figures are fresh and it is signed in. */
   balances: boolean
-  /** Its own or the first choice's plan figures are old: they are ignored when balancing. */
-  stale: boolean
   /** Its sign-ins or plan figures are still being read. */
   pending: boolean
   /** What it will do, in a few words. */
@@ -163,25 +161,25 @@ function spareReadiness(spare: Choice, first: AgentAccount | undefined, input: R
   const { machine, accounts, now } = input, agent = name(spare.tool), host = machine?.host || 'this machine', firstName = name(input.member.tool)
   const out = { agent, model: spare.model.trim(), effort: spare.effort ?? '' }
   const after = 'after a usage limit it is still the next one tried'
-  const no = (reason: string): SpareReadiness => ({ ...out, eligible: false, balances: false, stale: false, pending: false, verdict: 'balancing will not use it', reason: `${reason} Balancing will not move a stage onto it; ${after}, and is likely to be refused there.` })
-  const yes = (balances: boolean, stale: boolean, reason: string, verdict = balances ? 'can take over' : 'takes over only after a usage limit'): SpareReadiness => ({ ...out, eligible: true, balances, stale, pending: false, verdict, reason })
+  const no = (reason: string): SpareReadiness => ({ ...out, eligible: false, balances: false, pending: false, verdict: 'balancing will not use it', reason: `${reason} It is still tried after a usage limit, and is likely to be refused there.` })
+  const yes = (balances: boolean, reason: string, verdict = balances ? 'can take over' : 'takes over only after a usage limit'): SpareReadiness => ({ ...out, eligible: true, balances, pending: false, verdict, reason })
   if (!input.tools.includes(spare.tool)) return no(`${agent} is not on ${host}.`)
-  if (accounts === undefined) return { ...yes(false, false, 'Reading plan figures…'), pending: true }
+  if (accounts === undefined) return { ...yes(false, 'Reading plan figures…'), pending: true }
   const account = accountFor({ accounts: kept(accounts) }, spare.tool)
   if (account && account.state !== 'signed_in') return no(`${signInLine(account)}.`)
   const stays = 'so stages stay on the first choice until it stops at its limit.'
-  if (!kept(accounts).length) return yes(false, false, `Plan figures are not available, ${stays}`)
-  if (!account) return yes(false, false, `${host} does not report ${agent}’s sign-in or plan, so balancing will not move a stage onto it; ${after}.`)
-  if (spare.tool === input.member.tool) return yes(false, false, `It shares ${agent}’s plan with the first choice, so balancing moves a stage onto it only when a plan window for its model has more left; otherwise it takes over only after a usage limit.`)
+  if (!kept(accounts).length) return yes(false, `Plan figures are not available, ${stays}`)
+  if (!account) return yes(false, `${host} does not report ${agent}’s sign-in or plan, so balancing will not move a stage onto it; ${after}.`)
+  if (spare.tool === input.member.tool) return yes(false, `It shares ${agent}’s plan with the first choice, so balancing moves a stage onto it only when a plan window for its model has more left; otherwise it takes over only after a usage limit.`)
   const one = figures(first, now), own = figures(account, now)
-  const old = (who: string, at: AgentAccount | undefined) => `${who}’s plan figures were read ${readAgo(at?.limitsAt, now)}; figures over 6 hours old are ignored`
-  if (one !== 'fresh') return yes(false, one === 'stale', one === 'stale' ? `${old(firstName, first)}, ${stays}` : `${firstName} has no plan figures, ${stays}`)
-  if (own === 'stale') return yes(true, true, `${old(agent, account)}, so it takes over without a comparison when ${firstName}’s plan runs low.`)
-  if (own === 'absent') return yes(true, false, `${agent} has no plan figures, so it takes over without a comparison when ${firstName}’s plan runs low.`)
+  const old = (who: string, at: AgentAccount | undefined) => `${who}’s plan figures were read ${readAgo(at?.limitsAt, now)}`
+  if (one !== 'fresh') return yes(false, one === 'stale' ? `${old(firstName, first)}, ${stays}` : `${firstName} has no plan figures, ${stays}`)
+  if (own === 'stale') return yes(true, `${old(agent, account)}, so it takes over without a comparison when ${firstName}’s plan runs low.`)
+  if (own === 'absent') return yes(true, `${agent} has no plan figures, so it takes over without a comparison when ${firstName}’s plan runs low.`)
   const a = planLeft(first, now)!.left, b = planLeft(account, now)!.left
   return b > a
-    ? yes(true, false, `${agent} has ${b}% of its plan left against ${firstName}’s ${a}%, so balancing can move a stage onto it when ${firstName}’s runs low.`)
-    : yes(false, false, `${agent} has ${b}% of its plan left, no more than ${firstName}’s ${a}%, so balancing will not move a stage onto it; it takes over only after a usage limit.`)
+    ? yes(true, `${agent} has ${b}% of its plan left against ${firstName}’s ${a}%, so balancing can move a stage onto it when ${firstName}’s runs low.`)
+    : yes(false, `${agent} has ${b}% of its plan left, no more than ${firstName}’s ${a}%, so balancing will not move a stage onto it; it takes over only after a usage limit.`)
 }
 
 /** What one crew tier will run on this machine, and how sure that is. */
@@ -192,7 +190,7 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
   const connected = gone ? fact('unavailable', 'Machine not connected', gone) : fact('ready', 'Connected', `${machine?.host} is connected.`)
   const agent = !member.tool ? fact('missing', 'No agent', 'No agent is chosen for this tier.')
     : input.tools.includes(member.tool) ? fact('ready', name(member.tool), `${name(member.tool)} is on ${machine?.host || 'this machine'}.`)
-    : fact('unavailable', 'Not on this machine', `${name(member.tool)} is not on ${machine?.host || 'this machine'} now. Choose another agent for the stage.`)
+    : fact('unavailable', 'Not on this machine', `${name(member.tool)} is not on ${machine?.host || 'this machine'} now.`)
   const model = modelFact(input), effort = effortFact(input), signIn = signInFact(input)
   const source = agentSource(input), sourceF = sourceFact(source, input)
   const first = accountFor({ accounts: kept(input.accounts) }, member.tool)
@@ -201,7 +199,7 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
   // Things to read, in the order a person would fix them. A default is a choice, a source that is simply the outcome's is
   // not news, and something still being read or never reported is not a problem.
   const notes = [signIn, model, effort, sourceF].filter(item => !item.pending && !item.quiet && (item.state === 'missing' || item.state === 'stale' || item.state === 'unavailable'))
-  const spareNote = backups.find(item => !item.pending && (!item.eligible || item.stale))
+  const spareNote = backups.find(item => !item.pending && !item.eligible)
   const issue = blocked?.text ?? notes[0]?.text ?? spareNote?.reason ?? ''
   const wholeDefault = !member.model.trim() && effort.state === 'default' && !effort.quiet
   const asked = effort.label === 'Effort not offered' || !member.effort ? '' : `${member.effort} effort`
@@ -214,14 +212,43 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
   }
 }
 
-/** The line above Approve: how many stages are ready, how many have something to read, and the first thing to fix. */
-export function launchSummary(stages: readonly { label: string; where?: string; readiness: StageReadiness }[]): { ready: number; look: number; blocked: number; reading: number; text: string; blocker: string } {
-  const count = (level: StageReadiness['level']) => stages.filter(stage => stage.readiness.level === level).length
-  const reading = stages.filter(stage => stage.readiness.level === 'ready' && stage.readiness.pending).length
+export type ReadinessItem = { level: 'blocked' | 'look' | 'note'; text: string; /** The machine, not a tier: it holds for every stage. */ machine?: true }
+
+/** Everything one tier has to say. A machine that is not connected, or an agent that is not on it, is the whole story:
+ *  the tier’s model, effort, sign-in and backups do not matter until that is fixed. */
+export function readinessItems(ready: StageReadiness): ReadinessItem[] {
+  if (ready.connected.state !== 'ready') return [{ level: 'blocked', text: ready.connected.text, machine: true }]
+  if (ready.agent.state !== 'ready') return [{ level: 'blocked', text: ready.agent.text }]
+  const facts = [ready.signIn, ready.model, ready.effort, ready.sourceFact].filter(item => !item.pending && item.state !== 'ready' && item.state !== 'default')
+  const later = [...new Set([ready.model.later, ready.effort.later].filter((text): text is string => !!text))]
+  return [
+    ...facts.map((item): ReadinessItem => ({ level: item.quiet ? 'note' : 'look', text: item.text })),
+    ...later.map((text): ReadinessItem => ({ level: 'note', text })),
+    ...ready.backups.flatMap((item, at): ReadinessItem[] => item.pending || item.eligible ? [] : [{ level: 'look', text: `Backup ${at + 1}, ${item.agent}: ${item.reason}` }]),
+  ]
+}
+
+export type LaunchCause = Omit<ReadinessItem, 'machine'> & { machine: boolean; /** Tier labels, Heavy first. */ crews: string[]; /** Stage labels in plan order. */ stages: string[] }
+const CREW_ORDER = ['Heavy', 'Standard', 'Light'], LEVEL_ORDER = ['blocked', 'look', 'note']
+/** "Heavy and Standard", "Code, Review and Test". */
+export const inWords = (items: readonly string[]) => new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(items)
+
+/** The summary at the head of the pipelines: how many stages are ready, and each cause said once with who it affects. */
+export function launchSummary(stages: readonly { /** "Code"; a part of a split stage uses the stage’s label. */ stage: string; /** The tier’s label: "Standard". */ crew: string; readiness: StageReadiness }[]): { ready: number; look: number; blocked: number; reading: number; text: string; blocker: string; causes: LaunchCause[] } {
+  const count = (level: StageReadiness['level']) => stages.filter(item => item.readiness.level === level).length
+  const reading = stages.filter(item => item.readiness.level === 'ready' && item.readiness.pending).length
   const ready = count('ready') - reading, look = count('look'), blocked = count('blocked')
-  const first = stages.find(stage => stage.readiness.level === 'blocked') ?? stages.find(stage => stage.readiness.level === 'look')
-  // A stage that cannot start is said once, beside Approve; the summary names the first thing to look at otherwise.
-  const where = first && !blocked ? `${first.label}${first.where ? ` in ${first.where}` : ''}: ${first.readiness.issue}` : ''
+  const found = new Map<string, LaunchCause>()
+  for (const item of stages) for (const one of readinessItems(item.readiness)) {
+    const cause = found.get(one.text) ?? { ...one, machine: !!one.machine, crews: [], stages: [] }
+    found.set(one.text, cause)
+    if (!cause.crews.includes(item.crew)) cause.crews.push(item.crew)
+    if (!cause.stages.includes(item.stage)) cause.stages.push(item.stage)
+  }
+  // Array.sort is stable, so causes of one level stay in the order they were first seen.
+  const causes = [...found.values()].map(cause => ({ ...cause, crews: cause.crews.sort((a, b) => CREW_ORDER.indexOf(a) - CREW_ORDER.indexOf(b)) })).sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level))
+  const first = causes.find(cause => cause.level === 'blocked')
   const parts = [`${ready} of ${stages.length} ${stages.length === 1 ? 'stage' : 'stages'} ready`, look ? `${look} to look at` : '', reading ? `${reading} still being read` : '', blocked ? `${blocked} cannot start` : ''].filter(Boolean)
-  return { ready, look, blocked, reading, text: `${parts.join(', ')}.${where ? ` First: ${where}` : ''}`, blocker: blocked ? `${first!.label}${first!.where ? ` in ${first!.where}` : ''}: ${first!.readiness.issue}` : '' }
+  const blocker = first ? `${first.text}${first.machine ? '' : ` Change the agent of the ${inWords(first.crews)} ${first.crews.length === 1 ? 'crew' : 'crews'} under “Choose who does what”.`}` : ''
+  return { ready, look, blocked, reading, text: `${parts.join(', ')}.`, blocker, causes }
 }

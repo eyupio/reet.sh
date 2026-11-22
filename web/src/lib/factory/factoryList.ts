@@ -4,7 +4,7 @@ import { track, waitingDecisions } from '../gafferOutcome'
 import type { Need, TrackNode } from '../gafferOutcome'
 
 export type FactorySection = 'waiting' | 'working' | 'finished'
-export type ItemKind = 'decision' | 'approval' | 'merge' | 'stopped' | 'failed' | 'running' | 'checking' | 'queued' | 'done' | 'halted'
+export type ItemKind = 'decision' | 'approval' | 'delivery' | 'merge' | 'stopped' | 'failed' | 'running' | 'checking' | 'queued' | 'done' | 'halted'
 export type FactoryItem = {
   id: string
   /** The session the pipeline has in hand, '' when none. */
@@ -25,6 +25,8 @@ export type ListRecord = {
   sessions: {
     key: string; title: string; state: string; sessionState?: string; sessionId?: string; conversationId?: string
     stage?: number; updatedAt: number; note?: string
+    /** What the outcome list carries of a pipeline's delivery review, enough to say its status without reading the machine. */
+    criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]
     stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; nextUsageBackup?: string; appliedModel?: string; agentState?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
   }[]
 }
@@ -34,8 +36,8 @@ export type ListGoal = {
   goal: { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean; advice?: { choice: string; why: string; text?: string }; updatedAt: number }
 }
 
-const CHIPS: Record<ItemKind, string> = { decision: 'Decision', approval: 'Approval', merge: 'Ready to merge', stopped: 'Agent stopped', failed: 'Failed', running: 'Running', checking: 'Checking', queued: 'Waiting its turn', done: 'Finished', halted: 'Stopped' }
-const SECTIONS: Record<ItemKind, FactorySection> = { decision: 'waiting', approval: 'waiting', merge: 'waiting', stopped: 'waiting', failed: 'waiting', running: 'working', checking: 'working', queued: 'working', done: 'finished', halted: 'finished' }
+const CHIPS: Record<ItemKind, string> = { decision: 'Decision', approval: 'Approval', delivery: 'Delivery review', merge: 'Ready to merge', stopped: 'Agent stopped', failed: 'Failed', running: 'Running', checking: 'Checking', queued: 'Waiting its turn', done: 'Finished', halted: 'Stopped' }
+const SECTIONS: Record<ItemKind, FactorySection> = { decision: 'waiting', approval: 'waiting', delivery: 'waiting', merge: 'waiting', stopped: 'waiting', failed: 'waiting', running: 'working', checking: 'working', queued: 'working', done: 'finished', halted: 'finished' }
 
 /** Every pipeline as one item, in record order. `permissions` is the set of session ids that hold a pending permission. */
 export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, ListGoal>, permissions: ReadonlySet<string> = new Set()): FactoryItem[] {
@@ -46,7 +48,7 @@ export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, L
       const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
       const decision = decisions.get(piece.key)
       let kind: ItemKind
-      if (decision) kind = decision.kind === 'merge' ? 'merge' : decision.kind === 'ended' ? 'stopped' : goal?.goal.waitingOnWorker && piece.sessionId && permissions.has(piece.sessionId) ? 'approval' : 'decision'
+      if (decision) kind = decision.kind === 'merge' ? 'merge' : decision.kind === 'delivery' ? 'delivery' : decision.kind === 'ended' ? 'stopped' : goal?.goal.waitingOnWorker && piece.sessionId && permissions.has(piece.sessionId) ? 'approval' : 'decision'
       else if (piece.state === 'failed') kind = 'failed'
       else if (piece.state === 'done') kind = 'done'
       else if (piece.state === 'cancelled' || piece.state === 'unfollowed') kind = 'halted'

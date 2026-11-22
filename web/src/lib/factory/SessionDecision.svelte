@@ -4,7 +4,7 @@
   // dialogs (a merge, a new budget, stopping the outcome) go to the pipeline's card there.
   import { onMount } from 'svelte'
   import { controlGafferGoal, getGafferGoal, listGafferGoals, listGafferOutcomes, moveGafferPipelineOn, recoverGafferPipeline, retryGafferPipeline, tellGafferPipelineAgent, type GafferGoalOverview, type GafferOutcome, type GafferOutcomeSession } from '../api'
-  import { MAX_STAGE_DECISIONS, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
+  import { MAX_STAGE_DECISIONS, deliveryHref, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import Decision from './Decision.svelte'
   import PipelineNote from './PipelineNote.svelte'
@@ -71,6 +71,8 @@
     else if (choice.id === 'restart') void act(async () => { await retryGafferPipeline(current, piece.key); return 'Running this stage again in a new session.' }, 'That pipeline was not tried again.')
     else if (choice.id === 'move') moving = true
     else if (choice.id === 'tell') { tellStart = choice.recommended && goal?.goal.advice?.choice === 'tell' ? goal.goal.advice.text ?? '' : ''; tellRequest = requestId(); dialogError = ''; telling = true }
+    // The delivery review is a card of its own on the Factory page, scrolled into view and focused.
+    else if (choice.id === 'review') location.href = deliveryHref(member.outcomeId, member.key)
     // A merge, a new budget and stopping the outcome each have their own review on the Factory.
     else location.href = card
   }

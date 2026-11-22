@@ -35,6 +35,19 @@ session link and add guidance there. A completed stage remains readable.
 
 **Unslop** is a built-in, selectable UX/UI skill for design, code and review work. The compact reet adaptation fits beside a task in a chat message or Factory stage prompt and needs no external plugin. It preserves credit to Damir Sokolovsky (@heydamir), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and its upstream link. Administrators can maintain or disable it like other system skills. It is an adaptation, not the complete upstream toolkit and reference bundle.
 
+## Integrated Impeccable
+
+Reet includes compact guidance inspired by [Impeccable](https://impeccable.style/docs/)
+for agent sessions and relevant Factory stages. Describe the work in the task
+or name a workflow explicitly, such as **Impeccable Distill** for duplicate
+actions, **Impeccable Critique** for a usability review, or **Impeccable Harden**
+for failure and recovery states. Inspect the suggestion before adding it to
+a draft or selecting it for a stage.
+
+The built-in guidance works across agents. Upstream features such as detector
+hooks and the interactive Live Mode overlay require the separate upstream
+installation.
+
 ## Built-ins, your library and community
 
 - **Reet built-in:** small, original, versioned instructions that need no install.
@@ -81,8 +94,10 @@ to the whole session. Current insights do not claim time, money or token savings
 ## Maintain system skills
 
 An owner or administrator opens **Instance administration → System skills**.
-Inspect/edit a skill, add keywords, choose its Factory stage, disable it, or add
-one. Inline guidance is limited to 1,000 bytes so it fits beside the person's
+Inspect or edit a skill, choose its Factory stages, disable it, or add one.
+Use keywords for broad matching or comma-separated task phrases for focused
+suggestions. Task phrases match consecutive words in the task and replace
+keyword matching when configured. Inline guidance is limited to 1,000 bytes so it fits beside the person's
 task. An upstream reference is offered as a source to explore, not executable
 guidance. Avoid putting private project information into instance-wide entries.
 

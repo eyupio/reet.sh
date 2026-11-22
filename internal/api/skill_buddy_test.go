@@ -180,3 +180,62 @@ func reviewBuiltin() skillbuddy.Skill {
 	}
 	panic("missing review skill")
 }
+
+func TestImpeccableDistillInSessionAndFactory(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	code, session, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp", "title": "Home page",
+	}))
+	if code != 200 {
+		t.Fatalf("create session %d %s", code, raw)
+	}
+	o, err := f.st.CreateGafferOutcomeFor(f.uid, store.GafferOutcome{
+		ID: strings.Repeat("d", 32), Objective: "Remove duplicate actions from the home page",
+		Sessions: []store.GafferOutcomeSession{{
+			Key: "a", Title: "Home page", Prompt: "Improve the empty state",
+			Stages: []store.GafferOutcomeStage{{Kind: "plan"}, {Kind: "design"}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const skillID = "builtin:impeccable-distill"
+	for _, tc := range []struct {
+		name, action string
+		context      map[string]any
+	}{
+		{"session", "drafted", map[string]any{"sessionId": session["id"], "task": "Remove duplicate actions"}},
+		{"factory", "selected", map[string]any{"outcomeId": o.ID, "pipeline": "a", "stage": 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, result, raw := f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/recommendations", tc.context)
+			if code != 200 {
+				t.Fatalf("recommend %d %s", code, raw)
+			}
+			for _, item := range result["skills"].([]any) {
+				sk := item.(map[string]any)
+				if sk["id"] == skillID {
+					tc.context["revision"] = sk["revision"]
+					break
+				}
+			}
+			if tc.context["revision"] == nil {
+				t.Fatalf("missing %s: %s", skillID, raw)
+			}
+			tc.context["skillId"] = skillID
+			tc.context["action"] = tc.action
+			code, result, raw = f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/choose", tc.context)
+			if code != 200 || !strings.Contains(result["text"].(string), "Consolidate where possible") {
+				t.Fatalf("choose %d %s", code, raw)
+			}
+		})
+	}
+	saved, err := f.st.GafferOutcomeFor(f.uid, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := saved.Sessions[0].Stages[1].SkillGuidance
+	if len(pinned) != 1 || pinned[0].ID != skillID || pinned[0].Instructions == "" {
+		t.Fatalf("guidance was not pinned: %+v", pinned)
+	}
+}

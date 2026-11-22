@@ -2,12 +2,12 @@
   import { onMount, tick } from 'svelte'
   import { terminalRequest } from './terminal/api'
   import type { BuddySkill } from './skillBuddy'
-  type SystemSkill = BuddySkill & { stage: string; stages?: string[]; keywords?: string; attribution?: string; disabled?: boolean }
+  type SystemSkill = BuddySkill & { stage: string; stages?: string[]; keywords?: string; matchPhrases?: string; attribution?: string; disabled?: boolean }
   type Answer = { skills: SystemSkill[]; defaults: SystemSkill[]; version: number }
   let answer = $state<Answer | null>(null), chosen = $state<SystemSkill | null>(null), error = $state(''), note = $state(''), busy = $state(false), query = $state('')
   let editor = $state<HTMLElement>(), confirmation = $state<HTMLParagraphElement>()
   const stages = ['plan','design','code','review','test','pr','babysit','merge']
-  const shown = $derived((answer?.skills ?? []).filter(s => `${s.name} ${s.description} ${s.keywords}`.toLowerCase().includes(query.toLowerCase())))
+  const shown = $derived((answer?.skills ?? []).filter(s => `${s.name} ${s.description} ${s.keywords ?? ''} ${s.matchPhrases ?? ''}`.toLowerCase().includes(query.toLowerCase())))
   async function load() { busy = true; error = ''; try { answer = await (await terminalRequest('/api/v2/admin/system-skills')).json() } catch(e) { error = e instanceof Error ? e.message : 'System skills could not be read.' } finally { busy = false } }
   async function edit(skill?: SystemSkill) { chosen = skill ? { ...skill } : { id: 'builtin:', name:'',description:'',source:'builtin',revision:'',reason:'',stage:'code',instructions:'',keywords:'',attribution:'',disabled:false }; error = ''; note = ''; await tick(); if (matchMedia('(max-width: 800px)').matches) { editor?.scrollIntoView({block:'start'}); editor?.querySelector<HTMLElement>('h2')?.focus({preventScroll:true}) } }
   async function save(reset = false) {
@@ -35,7 +35,8 @@
       <label>When it helps<textarea bind:value={chosen.description} maxlength="600" rows="2"></textarea></label>
       <label>Factory stage<select bind:value={chosen.stage}>{#each stages as stage}<option value={stage}>{stage}</option>{/each}</select></label>
       <fieldset><legend>Also suggest during</legend><div class="stage-options">{#each stages.filter(s => s !== chosen?.stage) as stage}<label class="check"><input type="checkbox" checked={chosen.stages?.includes(stage) ?? false} onchange={event => { if(chosen) chosen.stages = event.currentTarget.checked ? [...(chosen.stages ?? []),stage] : (chosen.stages ?? []).filter(s => s !== stage) }}/>{stage}</label>{/each}</div></fieldset>
-      <label>Match keywords<input bind:value={chosen.keywords} maxlength="600" placeholder="api endpoints contracts"/></label>
+      <label>Match keywords<input bind:value={chosen.keywords} maxlength="600" disabled={!!chosen.matchPhrases?.trim()} placeholder="api endpoints contracts"/></label>
+      <label>Match task phrases<input bind:value={chosen.matchPhrases} maxlength="600" placeholder="simplify the interface, remove duplicate actions"/><span class="muted">Optional. Separate phrases with commas. When present, a phrase must appear in the task and replaces keyword matching.</span></label>
       <label>Delivery<select bind:value={chosen.source}><option value="builtin">Built-in guidance — no install needed</option><option value="curated">Curated upstream source — discovery only</option></select></label>
       {#if chosen.source === 'curated'}<label>Upstream source URL<input type="url" bind:value={chosen.url} required placeholder="https://github.com/author/repo/blob/main/skills/name/SKILL.md"/></label><p class="muted">Offered as a source to explore. Reet does not install it or claim its scripts and hooks are available.</p>
       {:else}<label>Instructions<textarea class="instructions" bind:value={chosen.instructions} required rows="8"></textarea></label>

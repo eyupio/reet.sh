@@ -12,6 +12,7 @@ import (
 type Skill struct {
 	Stages       []string `json:"stages,omitempty"`
 	Disabled     bool     `json:"disabled,omitempty"`
+	MatchPhrases string   `json:"matchPhrases,omitempty"`
 	Keywords     string   `json:"keywords,omitempty"`
 	Attribution  string   `json:"attribution,omitempty"`
 	ID           string   `json:"id"`
@@ -48,9 +49,29 @@ func Builtins() []Skill {
 	return out
 }
 
+func tokens(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+}
+
+// Match whole, consecutive words so a specialist gets evidence from the task,
+// without matching generic words contributed by an inferred or Factory stage.
+func bestTaskPhrase(task string, phrases string) (match string, length int) {
+	for _, phrase := range strings.Split(phrases, ",") {
+		terms := tokens(phrase)
+		if len(terms) <= length {
+			continue
+		}
+		normalized := strings.Join(terms, " ")
+		if strings.Contains(task, " "+normalized+" ") {
+			match, length = normalized, len(terms)
+		}
+	}
+	return
+}
+
 func words(text string) map[string]bool {
 	out := map[string]bool{}
-	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) }) {
+	for _, w := range tokens(text) {
 		if len(w) < 3 && w != "ui" && w != "ux" && w != "go" {
 			continue
 		}
@@ -65,7 +86,9 @@ func words(text string) map[string]bool {
 
 // Recommend ranks metadata, never instructions. A community result is discovery only.
 func Recommend(task, stage string, candidates []Skill) []Skill {
-	if stage == "" {
+	explicitStage := stage != ""
+	normalizedTask := " " + strings.Join(tokens(task), " ") + " "
+	if !explicitStage {
 		stage = "code"
 		for _, candidate := range []string{"review", "design", "test", "plan", "merge"} {
 			if words(task)[candidate] {
@@ -90,6 +113,24 @@ func Recommend(task, stage string, candidates []Skill) []Skill {
 			sk.Score = 12
 			sk.Reason = "Reet's guidance for the " + stage + " stage."
 		}
+		fits := sk.Stage == stage
+		for _, allowed := range sk.Stages {
+			if allowed == stage {
+				fits = true
+			}
+		}
+		if sk.Source == "builtin" && !fits && (explicitStage || sk.MatchPhrases == "") {
+			continue
+		}
+		if sk.MatchPhrases != "" {
+			match, length := bestTaskPhrase(normalizedTask, sk.MatchPhrases)
+			if length > 0 {
+				sk.Score = 8 + 2*length
+				sk.Reason = "Matches “" + match + "” in this task."
+				out = append(out, sk)
+			}
+			continue
+		}
 		matches := []string{}
 		name, description := words(sk.Name), words(sk.Description+" "+sk.Keywords)
 		for word := range query {
@@ -100,15 +141,6 @@ func Recommend(task, stage string, candidates []Skill) []Skill {
 				sk.Score++
 				matches = append(matches, word)
 			}
-		}
-		fits := sk.Stage == stage
-		for _, allowed := range sk.Stages {
-			if allowed == stage {
-				fits = true
-			}
-		}
-		if sk.Source == "builtin" && stage != "" && !fits {
-			continue
 		}
 		if sk.Score < 2 {
 			continue

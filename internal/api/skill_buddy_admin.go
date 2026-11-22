@@ -82,6 +82,11 @@ func (s *server) buddyAdminSave(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "Give a name, stage and up to 1,000 bytes of instructions. Keep metadata on one line.")
 			return
 		}
+		sk.MatchPhrases = strings.TrimSpace(sk.MatchPhrases)
+		if len(sk.MatchPhrases) > 600 || !plain(sk.MatchPhrases) {
+			writeErr(w, 400, "Keep task phrases on one line and within 600 bytes.")
+			return
+		}
 		for _, stage := range sk.Stages {
 			if !skillbuddy.ValidStage(stage) || stage == "" {
 				writeErr(w, 400, "Choose valid Factory stages.")

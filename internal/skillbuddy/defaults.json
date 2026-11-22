@@ -168,6 +168,343 @@
     "revision": "1"
   },
   {
+    "id": "builtin:impeccable",
+    "name": "Impeccable",
+    "description": "Design or improve a UI from a plain-language brief.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Identify the core user task, inspect the existing interface and identify the design constraints. Choose a direction suited to the product and its components. Cover key states, responsive behaviour and keyboard access. Produce a direction or implement it as the stage allows. Check the result against the task.",
+    "matchPhrases": "impeccable",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/impeccable/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-shape",
+    "name": "Impeccable \u00b7 Shape",
+    "description": "Turn a product idea into a design brief before building.",
+    "stage": "design",
+    "stages": [
+      "plan"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Capture the audience, task, success criteria and constraints. Compare plausible interaction approaches and resolve decisions that affect the build. Record entry points, navigation, important states and open questions. Deliver a brief for implementation.",
+    "matchPhrases": "impeccable shape, design brief, shape the flow, shape the design, plan the user flow",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/shape/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-audit",
+    "name": "Impeccable \u00b7 Audit",
+    "description": "Find and prioritise technical UI defects in accessibility, responsive behaviour, themes and performance.",
+    "stage": "review",
+    "stages": [
+      "test"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Inspect the rendered interface and relevant source where available. Verify semantics, names, focus order, contrast, touch targets, reflow, themes and performance. List reproducible findings with severity and location. Identify any checks requiring tools or access you lack.",
+    "matchPhrases": "impeccable audit, ui audit, audit the ui, frontend audit, audit the interface, audit accessibility, technical ui audit",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/audit/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-critique",
+    "name": "Impeccable \u00b7 Critique",
+    "description": "Review how well a screen or flow guides users through its main task.",
+    "stage": "review",
+    "stages": [
+      "design"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Walk through the real interface from the user's starting point. Evaluate discoverability, visual hierarchy, labels, state feedback and recovery. Explain where friction arises, rank findings by user impact and identify strengths worth preserving. Deliver a critique with concrete examples.",
+    "matchPhrases": "impeccable critique, ux critique, ui critique, design critique, critique the ux, critique the design, usability review, review the user experience",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/critique/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-animate",
+    "name": "Impeccable \u00b7 Animate",
+    "description": "Use motion to explain transitions, state changes and interaction feedback.",
+    "stage": "code",
+    "stages": [
+      "design"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Pick a transition that helps users track a change. Use existing motion primitives, short timings and properties that avoid layout thrash. Preserve keyboard focus and an equivalent reduced-motion experience. Check the transition on a narrow viewport.",
+    "matchPhrases": "impeccable animate, ui animation, interface animation, add motion, animate the transition, transition feedback",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/animate/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-bolder",
+    "name": "Impeccable \u00b7 Bolder",
+    "description": "Give a section greater visual presence within an established design.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Decide what should draw attention first. Increase presence through scale, placement or contrast while keeping supporting elements subordinate. Use the existing visual language and check readability and focus across viewport sizes.",
+    "matchPhrases": "impeccable bolder, bolder design, make the hero bolder, bolder hero, stronger focal point, stronger visual presence",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/bolder/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-colorize",
+    "name": "Impeccable \u00b7 Colorize",
+    "description": "Use colour to communicate meaning and improve hierarchy.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Choose roles for colour in actions, states and emphasis. Use existing tokens where possible. Add labels or icons where users need to distinguish states without colour. Verify contrast, especially in alternate themes and disabled or focused states.",
+    "matchPhrases": "impeccable colorize, colour palette, color palette, colour coding, color coding, status colours, status colors",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/colorize/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-delight",
+    "name": "Impeccable \u00b7 Delight",
+    "description": "Add a small, recognisable touch to a meaningful interaction.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Choose a moment where a subtle branded detail reinforces useful feedback. Keep it brief, non-blocking and compatible with reduced motion. Check that the action and its result are understandable in every state.",
+    "matchPhrases": "impeccable delight, add personality, branded interaction, success animation, playful microinteraction, celebratory animation",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/delight/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-layout",
+    "name": "Impeccable \u00b7 Layout",
+    "description": "Improve reading order, grouping, alignment and spacing.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Put the primary task in a clear reading order. Group related items with spacing and alignment. Reuse the existing grid and spacing system. Check reflow and ensure keyboard order follows the visual flow.",
+    "matchPhrases": "impeccable layout, ui layout, page layout, layout the, visual grouping, form layout, rearrange the layout",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/layout/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-overdrive",
+    "name": "Impeccable \u00b7 Overdrive",
+    "description": "Explore ambitious effects for an explicitly expressive surface.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Identify where an expressive effect serves the brief. Explore a coherent visual direction and prototype the interaction within the stage. Set a performance budget, provide a usable static or reduced-motion fallback, and preserve access to essential controls.",
+    "matchPhrases": "impeccable overdrive, experimental visual design, ambitious visual treatment, showcase interaction, cinematic landing page",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/overdrive/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-quieter",
+    "name": "Impeccable \u00b7 Quieter",
+    "description": "Reduce visual competition while keeping useful information visible.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Find what competes with the primary action. Reduce decorative accents, heavy styling and unnecessary emphasis. Keep essential affordances and contrast clear. Check the before and after using the same task.",
+    "matchPhrases": "impeccable quieter, reduce visual noise, tone down the design, quieter design, soften the visual hierarchy, tone down the ui",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/quieter/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-typeset",
+    "name": "Impeccable \u00b7 Typeset",
+    "description": "Make typography more legible and easier to scan.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Define roles for headings, labels, body and supporting text. Express them through existing type tokens, weight, line height and measure. Check long text, zoom and small screens. Use meaningful heading structure.",
+    "matchPhrases": "impeccable typeset, typography hierarchy, improve typography, typeset the, text hierarchy, refine typography",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/typeset/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-adapt",
+    "name": "Impeccable \u00b7 Adapt",
+    "description": "Adapt an existing experience to a new screen size, device or platform.",
+    "stage": "design",
+    "stages": [
+      "code",
+      "test"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Identify the critical tasks and any desktop assumptions. Reflow content and controls for the target input and viewport using established patterns. Check touch targets, zoom, overflow and focus order. Keep key actions reachable.",
+    "matchPhrases": "impeccable adapt, mobile layout, mobile usability, mobile friendly, responsive layout, adapt to mobile, narrow screens, desktop to mobile",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/adapt/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-clarify",
+    "name": "Impeccable \u00b7 Clarify",
+    "description": "Make interface wording and next steps easier to understand.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Identify what users need to know, decide or do at each step. Rewrite labels, help, statuses and errors in plain, concrete language. Explain recovery in the relevant place and align terminology across the flow.",
+    "matchPhrases": "impeccable clarify, clarify the copy, clarify the wording, button labels, status messages, rewrite error messages, confusing labels, ux copy, decision needed",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/clarify/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-distill",
+    "name": "Impeccable \u00b7 Distill",
+    "description": "Remove unnecessary controls, information and steps while preserving essential actions.",
+    "stage": "design",
+    "stages": [
+      "code",
+      "review"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Walk the main user task and identify duplicate paths, unnecessary decisions and competing actions. Consolidate where possible and reveal secondary options when needed. Keep essential and accessible paths discoverable. Compare the steps before and after.",
+    "matchPhrases": "impeccable distill, simplify the interface, simplify the ui, simplify the ux, declutter the ui, declutter the interface, duplicate actions, duplicate controls, reduce clutter, competing actions, simplify the navigation",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/distill/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-harden",
+    "name": "Impeccable \u00b7 Harden",
+    "description": "Keep the interface usable through failures, long content and unusual states.",
+    "stage": "code",
+    "stages": [
+      "design",
+      "review",
+      "test"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Trace loading, empty, partial and failed states, plus long content and interrupted actions. Preserve user input, show the current state and provide a safe next step. Check retries, double submissions and accessible feedback when relevant.",
+    "matchPhrases": "impeccable harden, ui edge cases, harden the ui, ui recovery, failure states, interface resilience, resilient interface, retry flow",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/harden/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-onboard",
+    "name": "Impeccable \u00b7 Onboard",
+    "description": "Help new users get to their first useful result.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Map the first successful task and remove setup that can wait. Give a clear first action and useful empty states. Check returning, interrupted and permission-limited users. Walk through the flow with realistic starting data.",
+    "matchPhrases": "impeccable onboard, user onboarding, onboarding flow, first run, first useful result, empty state onboarding, first time users",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/onboard/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-optimize",
+    "name": "Impeccable \u00b7 Optimize",
+    "description": "Find and measure improvements to UI loading or rendering.",
+    "stage": "code",
+    "stages": [
+      "test"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Measure the slow interaction or load with representative inputs. Identify whether network, rendering, assets or repeated work is responsible. Change the measured bottleneck and compare results using the same scenario. Record any measurement limits.",
+    "matchPhrases": "impeccable optimize, frontend performance, slow rendering, rendering performance, ui performance, slow page, optimise the frontend, optimize the frontend",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/optimize/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-polish",
+    "name": "Impeccable \u00b7 Polish",
+    "description": "Finish an existing interface across visual details and interaction states.",
+    "stage": "code",
+    "stages": [
+      "design"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Inspect the rendered flow at wide and narrow sizes. Resolve inconsistent spacing, typography, alignment, labels and interaction feedback using existing patterns. Check focus, loading, empty and error states. Keep the changes focused on the agreed experience.",
+    "matchPhrases": "impeccable polish, ui polish, ux polish, visual polish, polish the interface, polish the ui, polish the page, final design pass",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/polish/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-document",
+    "name": "Impeccable \u00b7 Document",
+    "description": "Document the project's existing visual rules for future work.",
+    "stage": "design",
+    "stages": [
+      "pr"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Inspect working examples and tokens before describing the visual system. Record colour, typography, spacing, components and state patterns in the project's design documentation, with concrete references. Name uncertain or inconsistent conventions explicitly.",
+    "matchPhrases": "impeccable document, document the design system, document design tokens, visual system documentation",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/document/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-extract",
+    "name": "Impeccable \u00b7 Extract",
+    "description": "Turn repeated interface patterns into reusable components or tokens.",
+    "stage": "code",
+    "stages": [
+      "design"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Compare repeated instances and find a stable pattern with meaningful variation. Reuse an existing shared primitive when possible. Preserve semantics, behaviour and public interfaces. Check representative callers after any extraction.",
+    "matchPhrases": "impeccable extract, extract shared components, extract design tokens, consolidate ui components, extract ui patterns",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/extract/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-generate",
+    "name": "Impeccable \u00b7 Generate",
+    "description": "Explore comparable design variations for a named page or element.",
+    "stage": "design",
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Create a small set of distinct variants aimed at the same user task. Keep content and constraints comparable. Explain what each variant improves, identify trade-offs, and recommend one. Use available previews or provide clear descriptions.",
+    "matchPhrases": "impeccable generate, generate ui variants, compare design variants, generate design variants, explore layout variants",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/generate/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-init",
+    "name": "Impeccable \u00b7 Init",
+    "description": "Capture the audience, goals and constraints that should guide design.",
+    "stage": "plan",
+    "stages": [
+      "design"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Read the repository and project documentation. Capture the primary audience, important tasks, product goals and constraints in PRODUCT.md or the established equivalent. Mark assumptions and ask only about gaps that materially affect design.",
+    "matchPhrases": "impeccable init, initialize design context, initialise design context, set up impeccable, set up design context",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/init/ \u00b7 Upstream Apache-2.0."
+  },
+  {
+    "id": "builtin:impeccable-live",
+    "name": "Impeccable \u00b7 Live",
+    "description": "Use a rendered local preview to compare changes to a specific element.",
+    "stage": "design",
+    "stages": [
+      "code"
+    ],
+    "source": "builtin",
+    "revision": "reet-adaptation-1",
+    "instructions": "Use the project's existing local preview and available browser tools. Locate the named element, compare small variations against the same surrounding content, and ask which to apply when the choice is open. Verify the chosen version in the affected flow.",
+    "matchPhrases": "impeccable live, iterate in the browser, live design preview, compare variants in the browser, live ui iteration",
+    "attribution": "Reet guidance inspired by Impeccable by Paul Bakaus \u00b7 https://impeccable.style/docs/live/ \u00b7 Upstream Apache-2.0."
+  },
+  {
     "id": "builtin:upstream-ponytail",
     "name": "Ponytail",
     "description": "Focused implementation, code reuse and fewer unnecessary abstractions.",

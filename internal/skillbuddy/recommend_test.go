@@ -62,3 +62,65 @@ func TestUnslopIsIntegratedAndOfferedForUXWork(t *testing.T) {
 		}
 	}
 }
+
+func TestImpeccableWorkflowRecommendations(t *testing.T) {
+	catalogue := Builtins()
+	workflows := map[string]bool{}
+	for _, sk := range catalogue {
+		if !strings.HasPrefix(sk.ID, "builtin:impeccable") {
+			continue
+		}
+		workflows[sk.ID] = true
+		if sk.Source != "builtin" || sk.Instructions == "" || len(Prompt(sk)) > 1000 || sk.MatchPhrases == "" || !strings.Contains(sk.Attribution, "Paul Bakaus") {
+			t.Errorf("not usable as portable, stackable guidance: %+v", sk)
+		}
+		command, _, _ := strings.Cut(sk.MatchPhrases, ",")
+		for _, stage := range append([]string{"", sk.Stage}, sk.Stages...) {
+			if stage != "" && !ValidStage(stage) {
+				t.Errorf("%s has invalid stage %q", sk.ID, stage)
+			}
+			found := false
+			for _, got := range Recommend(command, stage, catalogue) {
+				if got.ID == sk.ID {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s is not suggested for %q in stage %q", sk.ID, command, stage)
+			}
+		}
+	}
+	if len(workflows) != 24 {
+		t.Fatalf("got %d Impeccable workflows, want 24", len(workflows))
+	}
+
+	for _, tc := range []struct {
+		task, stage, want string
+	}{
+		{"Remove duplicate controls from the home page", "", "builtin:impeccable-distill"},
+		{"Run $impeccable typeset on the dashboard", "", "builtin:impeccable-typeset"},
+		{"Remove duplicate controls from the home page", "design", "builtin:impeccable-distill"},
+		{"Fix navigation as part of the usability review", "review", "builtin:impeccable-critique"},
+		{"Check the UI audit findings", "test", "builtin:impeccable-audit"},
+		{"Improve frontend performance", "code", "builtin:impeccable-optimize"},
+		{"Use Impeccable Distill", "merge", ""},
+		{"Improve the design", "design", ""},
+		{"Fix a live API error and audit backend logs", "", ""},
+		{"Remove semiduplicate controls from the home page", "", ""},
+	} {
+		t.Run(tc.task+"/"+tc.stage, func(t *testing.T) {
+			found := false
+			for _, sk := range Recommend(tc.task, tc.stage, catalogue) {
+				if tc.want == "" && workflows[sk.ID] {
+					t.Errorf("unrelated workflow suggested: %s", sk.ID)
+				}
+				if sk.ID == tc.want {
+					found = true
+				}
+			}
+			if tc.want != "" && !found {
+				t.Errorf("missing suggestion %s", tc.want)
+			}
+		})
+	}
+}

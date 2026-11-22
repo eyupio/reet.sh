@@ -304,6 +304,10 @@ func (s *Service) recoverPipelineWorker(uid int64, id, key, session string, revi
 // is never interrupted: only a session that has ended, or whose agent has
 // stopped or failed, is replaced, and only once for a stage.
 func (s *Service) rebalanceStopped(ctx context.Context) {
+	// One pass at a time: a pass asked for while another runs would end the
+	// same session and retry the same stage beside it.
+	s.rebalancing.Lock()
+	defer s.rebalancing.Unlock()
 	rows, err := s.store.BackedGafferOutcomes()
 	if err != nil {
 		return
@@ -321,6 +325,9 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 				continue
 			}
 			running := s.sessionRunning(o.OwnerID, piece.SessionID)
+			if !running {
+				s.endTried.Delete(piece.SessionID)
+			}
 			if running {
 				// Still there: only an agent that has itself stopped or failed counts.
 				g, err := s.store.GafferGoalFor(o.OwnerID, piece.ConversationID)
@@ -363,7 +370,10 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 				endCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 				err := ender.EndOutcomeSession(endCtx, o.OwnerID, session)
 				cancel()
-				if err != nil {
+				// An end the machine has yet to carry out is recorded and
+				// answered at once; only a session that still runs after it
+				// counts as one that could not be ended.
+				if err != nil || s.sessionRunning(o.OwnerID, session) {
 					s.endFailed(session)
 					continue
 				}

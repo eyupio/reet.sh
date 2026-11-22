@@ -845,6 +845,56 @@ func TestALeftBehindSessionAnotherPipelineUsesIsNotEnded(t *testing.T) {
 	}
 }
 
+// endIgnored answers an end as done and leaves the session running.
+type endIgnored struct {
+	*outcomeStarterFake
+	tries atomic.Int32
+}
+
+func (m *endIgnored) EndOutcomeSession(context.Context, int64, string) error {
+	m.tries.Add(1)
+	return nil
+}
+
+// endRecorded is the real ender while the machine cannot be reached: the end
+// is recorded, to be sent when the machine answers, and the call succeeds.
+type endRecorded struct{ *outcomeStarterFake }
+
+func (m endRecorded) EndOutcomeSession(_ context.Context, uid int64, session string) error {
+	_, err := m.st.RequestTerminalEndFor(uid, m.agent, session, session[:32])
+	return err
+}
+
+// A session still running after its end was answered was not ended: the
+// stage is not run again beside it, and the machine is not asked again at once.
+func TestAStoppedStageWhoseSessionStillRunsAfterItsEndIsNotRunOnItsBackup(t *testing.T) {
+	r := outcomeFixture(t)
+	id, first := stoppedLow(t, r)
+	machine := &endIgnored{outcomeStarterFake: r.starter}
+	r.s.SetSessionStarter(machine)
+	for i := 0; i < 3; i++ {
+		r.s.rebalanceStopped(context.Background())
+	}
+	if mid := mustOutcome(t, r, id).Sessions[0]; machine.tries.Load() != 1 || mid.Stages[0].Rebalanced || mid.SessionID != first.SessionID {
+		t.Fatalf("after an end that left the session running: tries=%d %+v", machine.tries.Load(), mid)
+	}
+}
+
+// An end the machine has yet to carry out counts as done: the stage is run on
+// its backup.
+func TestAStoppedStageWhoseEndIsRecordedIsRunOnItsBackup(t *testing.T) {
+	r := outcomeFixture(t)
+	id, first := stoppedLow(t, r)
+	r.s.SetSessionStarter(endRecorded{r.starter})
+	r.s.rebalanceStopped(context.Background())
+	again := r.piece(t, id, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	if again.Stages[0].Model != "other/coder" || !again.Stages[0].Rebalanced {
+		t.Fatalf("the stage was not run on its backup: %+v", again.Stages[0])
+	}
+}
+
 // Launch, reply lost, then the person changes what the launch asks for
 // (here YOLO) before Try again: the request asked again no longer matches the
 // machine's record of it, and the session it started is taken up all the same

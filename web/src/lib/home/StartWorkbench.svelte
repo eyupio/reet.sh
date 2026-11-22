@@ -3,7 +3,7 @@
   // Machines page; otherwise it is an agent session. The other ways to start stay one quiet click away, and each
   // dialog asks for everything else.
   import type { NewSessionKind } from '../terminal/NewSessionChoice.svelte'
-  let { factory, machines, canAdd, machinesHref, addHref, onchoose, onplan, quiet = false }: {
+  let { factory, machines, canAdd, machinesHref, addHref, onchoose, onplan, onguide, quiet = false }: {
     factory: boolean
     /** How many machines the account has, and how many of them are connected; undefined until the first read. */
     machines?: { total: number; connected: number }
@@ -13,6 +13,8 @@
     addHref: string
     onchoose: (kind: NewSessionKind, opener: HTMLElement) => void
     onplan: () => void
+    /** Not now was said to the first-session guide and it can come back: a quiet link that brings it back. */
+    onguide?: () => void
     /** Something else on Home is the one filled step for now: this one is drawn plain. */
     quiet?: boolean
   } = $props()
@@ -42,6 +44,7 @@
       {/each}
     {/if}
     <button type="button" class="later" onclick={onplan}>Plan a session</button>
+    {#if onguide}<button type="button" class="later" onclick={onguide}>Show the first-session guide</button>{/if}
   </div>
 </section>
 

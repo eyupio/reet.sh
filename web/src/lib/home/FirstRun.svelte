@@ -1,0 +1,265 @@
+<script lang="ts">
+  // A calm, optional guide for the first session on a connected machine: which agents are there and how ready each is
+  // (the words stage 3 uses), one read-only question to ask the one chosen, and the way to reet on a phone. It blocks
+  // nothing on Home. It leaves when the person says Not now, or once the first reply has been seen.
+  import { onMount, untrack } from 'svelte'
+  import { UnauthorizedError } from '../api'
+  import { toolChoices, notStartedText, refusalText } from '../agentLaunch'
+  import { agentDisplayName } from '../catalogue'
+  import { launchReadiness } from '../factory/launchReadiness'
+  import type { MachineAccounts } from '../agentAccounts'
+  import { modelStatus, type MachineModels } from '../models'
+  import { chatNeedsTrust, chatTrustText, createTerminal, machineAccounts, machineModels, readiness, refreshMachineAccounts, sessionHref, structuredAgent, TerminalError,
+    type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { FIRST_PROMPT, guideShown, replyOf, type FirstRunMemory } from './firstRun'
+
+  let { machine, sessions, projects, userId, onchanged, onsignedout }: {
+    /** The first connected machine, as the terminal list reports it. */
+    machine: TerminalMachine | undefined
+    sessions: TerminalSession[] | undefined
+    projects: FolderProject[]
+    userId: number
+    /** Read Home again: a session was started. */
+    onchanged: () => void
+    onsignedout: () => void
+  } = $props()
+
+  const id = $props.id()
+  const POLL_MS = 15_000
+  const memoryKey = $derived(`reet.firstrun.${userId}`)
+  const sessionKey = $derived(`reet.firstrun.session.${userId}`)
+  const store = () => { try { return localStorage } catch { return undefined } }
+  const remembered = (key: string) => { try { return store()?.getItem(key) ?? '' } catch { return '' } }
+  const remember = (key: string, value: string) => { try { if (value) store()?.setItem(key, value); else store()?.removeItem(key) } catch { /* The guide simply shows again next time. */ } }
+
+  let memory = $state<FirstRunMemory>('')
+  // The sessions the guide started, kept so asking again after one ended does not hide the guide; the last is the one it follows.
+  let startedIds = $state<string[]>([])
+  let trackedId = $state('')
+  // Once the first reply is seen the guide is put away for good, but stays on this page until the person is done with it.
+  let celebrated = $state(false)
+  onMount(() => {
+    const saved = remembered(memoryKey)
+    memory = saved === 'dismissed' || saved === 'done' ? saved : ''
+    startedIds = remembered(sessionKey).split(',').filter(Boolean)
+    trackedId = startedIds.at(-1) ?? ''
+  })
+
+  const mine = $derived(sessions?.find(s => s.id === trackedId))
+  const reply = $derived(replyOf(mine))
+  const shown = $derived(celebrated || guideShown(memory, !!machine, sessions, startedIds))
+  $effect(() => {
+    if (reply === 'replied' && !celebrated && !memory) { celebrated = true; remember(memoryKey, 'done') }
+  })
+
+  // What the machine says of its agents: sign-ins (read again while one is missing) and model lists (read once each).
+  let accounts = $state<MachineAccounts | null | undefined>()
+  let models = $state<Record<string, MachineModels | null | 'reading'>>({})
+  let checking = $state(false)
+  const installed = $derived(machine ? toolChoices(machine).filter(choice => choice.available) : [])
+  const host = $derived(machine?.host ?? 'this machine')
+  const stuck = $derived(machine ? readiness(machine) : '')
+  const rows = $derived(installed.map(choice => {
+    const ready = launchReadiness({ machine, tools: installed.map(item => item.id), efforts: () => [''], models: tool => models[tool] ?? 'reading', accounts, now: Date.now(),
+      member: { tool: choice.id, model: '' }, spares: [], saved: null, edited: false })
+    const list = models[choice.id]
+    const modelLine = list === undefined || list === 'reading' ? `Reading ${choice.name}’s models…` : list === null ? `reet could not read ${choice.name}’s models from ${host}.` : modelStatus(list, host).sentence
+    return { ...choice, signIn: ready.signIn, modelLine, usable: ready.signIn.state !== 'missing' && !ready.signIn.pending }
+  }))
+
+  let picked = $state('')
+  // The agent asked: the person's choice if it is installed, else the first one that is ready, else the first installed.
+  const current = $derived(rows.find(row => row.id === picked) ?? rows.find(row => row.usable) ?? rows[0])
+  const other = $derived(rows.find(row => row.usable && row.id !== current?.id))
+  const signedOut = $derived(current?.signIn.state === 'missing')
+
+  async function readAccounts(refresh: boolean) {
+    const target = machine
+    if (!target) return
+    try {
+      const answer = await (refresh ? refreshMachineAccounts(target.agentId) : machineAccounts(target.agentId))
+      if (machine?.agentId === target.agentId) accounts = answer
+    } catch (e) {
+      if (e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)) return onsignedout()
+      if (machine?.agentId === target.agentId && accounts === undefined) accounts = null
+    }
+  }
+  async function readModels(agentId: string, tool: string) {
+    models = { ...models, [tool]: 'reading' }
+    let next: MachineModels | null = null
+    try { next = await machineModels(agentId, tool) } catch { /* said as not read */ }
+    if (machine?.agentId === agentId) models = { ...models, [tool]: next }
+  }
+  async function checkAgain() { checking = true; await readAccounts(true); checking = false }
+
+  // Reading starts when the guide shows, and the sign-ins are asked of the machine again every 15 seconds while one is
+  // missing, so the guide moves on by itself once the sign-in is there.
+  const agentKey = $derived(shown && machine?.ready ? machine.agentId : '')
+  $effect(() => {
+    if (!agentKey) return
+    untrack(() => { accounts = undefined; models = {}; void readAccounts(false) })
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void readAccounts(untrack(() => rows.some(row => row.signIn.state === 'missing'))) }, POLL_MS)
+    return () => clearInterval(timer)
+  })
+  $effect(() => {
+    if (!agentKey) return
+    for (const choice of installed) if (untrack(() => models[choice.id]) === undefined) void readModels(agentKey, choice.id)
+  })
+
+  // The question: where it looks, and for an agent that needs it, the same trust the Start an agent dialog asks for.
+  let folder = $state(''), trust = $state(false)
+  const folders = $derived(machine ? projects.filter(project => project.host === machine.agentId) : [])
+  const chat = $derived(!!current && !!structuredAgent(machine?.capabilities, current.id))
+  const needsTrust = $derived(chat && !!current && chatNeedsTrust(current.id))
+  let starting = $state(false), problem = $state(''), request = ''
+  async function ask() {
+    if (!machine || !current || starting || signedOut) return
+    const launch: LaunchRequest = { tool: current.id, prompt: FIRST_PROMPT }
+    if (chat) { launch.structured = true; if (needsTrust) launch.trust = true }
+    if (folder) launch.dir = folder
+    // A request whose answer was lost is asked again with the same id, so asking twice never starts two.
+    request ||= crypto.randomUUID()
+    starting = true; problem = ''
+    try {
+      const session = await createTerminal(machine.agentId, request, 'First look', 100, 30, AbortSignal.timeout(chat ? 60_000 : 15_000), launch)
+      const refused = notStartedText(session.state)
+      request = ''
+      if (refused) { problem = refused; return }
+      trackedId = session.id
+      startedIds = [...startedIds, session.id]
+      remember(sessionKey, startedIds.join(','))
+      onchanged()
+    } catch (e) {
+      if (e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)) return onsignedout()
+      if (e instanceof TerminalError && [400, 403, 404, 409, 422].includes(e.status)) { request = ''; problem = refusalText(e.status, e.code, e.message) }
+      else problem = "We didn't hear back, so the session may have started. Asking again uses the same request."
+    } finally { starting = false }
+  }
+  function again() { trackedId = ''; problem = '' }
+
+  function close(next: FirstRunMemory) {
+    memory = next; celebrated = false
+    remember(memoryKey, next)
+    queueMicrotask(() => document.querySelector<HTMLElement>('.home-start, .workbench .btn.primary')?.focus())
+  }
+
+  const name = $derived(current?.name ?? '')
+  // One sentence for the status region: it changes only when the state does, so a poll that finds the same thing says nothing.
+  const status = $derived(reply === 'replied' ? `${name} replied. Nothing in your files was changed.`
+    : reply === 'ended' ? `The session ended before ${name} answered.`
+    : reply === 'asking' ? `Asking ${name}. Waiting for its first reply.`
+    : starting ? `Starting ${name} on ${host}…`
+    : problem ? problem
+    : signedOut ? `Waiting for ${name} to be signed in on ${host}. This asks the machine again every few seconds.`
+    : '')
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+</script>
+
+{#if shown}
+  <section class="guide" aria-labelledby={`${id}-h`}>
+    <header>
+      <div>
+        <h2 id={`${id}-h`}>Your first session</h2>
+        <p class="lede">{host} is connected. Check an agent is ready, then ask it one question that changes nothing.</p>
+      </div>
+      <button type="button" class="btn quiet" onclick={() => close('dismissed')}>Not now</button>
+    </header>
+
+    {#if stuck}
+      <p class="note">{stuck}</p>
+    {:else if !rows.length}
+      <p class="note">No agent is installed on {host} yet. Install Claude Code, Codex or OpenCode there; this looks again by itself.</p>
+    {:else}
+      <fieldset class="agents" disabled={starting || !!trackedId}>
+        <legend>Agents on {host}</legend>
+        {#each rows as row (row.id)}
+          <label class="agent" class:on={row.id === current?.id}>
+            <input type="radio" name={`${id}-agent`} value={row.id} checked={row.id === current?.id} onchange={() => (picked = row.id)} />
+            <span class="what"><strong>{row.name}</strong>
+              <span class="line" class:warn={row.signIn.state === 'missing'}>{row.signIn.text}</span>
+              <span class="line">{row.modelLine}</span>
+            </span>
+          </label>
+        {/each}
+      </fieldset>
+
+      <div class="ask">
+        <p class="prompt"><span class="vh">The question: </span>{FIRST_PROMPT}</p>
+        {#if !trackedId}
+          <p class="hint">It reads only, and no YOLO. Nothing in your files changes.</p>
+          {#if folders.length}
+            <div class="field"><label for={`${id}-folder`}>Where it looks</label>
+              <select id={`${id}-folder`} bind:value={folder} disabled={starting}>
+                <option value="">The home folder on {host}</option>
+                {#each folders as project (project.id)}<option value={project.dir}>{project.name}</option>{/each}
+              </select></div>
+          {/if}
+          {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} /> {chatTrustText(current?.id)}</label>{/if}
+          {#if signedOut}
+            <div class="actions">
+              {#if other}<button type="button" class="btn primary" onclick={() => (picked = other.id)}>Use {other.name} instead</button>{/if}
+              <button type="button" class="btn" class:primary={!other} aria-busy={checking} onclick={checkAgain}>{checking ? 'Checking…' : 'Check again'}</button>
+            </div>
+          {:else}
+            <div class="actions">
+              <button type="button" class="btn primary" aria-busy={starting} disabled={starting || !current?.usable || (needsTrust && !trust)} onclick={ask}>{starting ? `Starting ${name}…` : `Ask ${name}`}</button>
+            </div>
+          {/if}
+        {:else}
+          <div class="actions">
+            {#if mine}<a class="btn" class:primary={reply === 'replied'} href={sessionHref(mine)}>{reply === 'replied' ? 'Read the reply' : 'Open the session'}</a>{/if}
+            {#if reply === 'replied'}<button type="button" class="btn" onclick={() => close('done')}>Done</button>
+            {:else if reply === 'ended'}<button type="button" class="btn" onclick={again}>Try again</button>{/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <p class="status" role="status" class:good={reply === 'replied'}>{status}</p>
+
+    <details class="phone">
+      <summary>Use reet on your phone</summary>
+      <p>On your phone, open {#if local}the address you use to reach this controller from other devices{:else}<strong>{location.origin}</strong>{/if} and sign in. Then use your browser’s <strong>Add to Home Screen</strong> to keep reet to hand.{#if local}{' '}A phone cannot open <strong>localhost</strong>.{/if}</p>
+      <p>To be told when a session needs you, turn on notifications on the phone. That needs this controller on https. <a href="/notifications">Open Notifications</a></p>
+    </details>
+  </section>
+{/if}
+
+<style>
+  .guide { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; align-items: start; }
+  h2 { margin: 0; font: 500 1.25rem/1.3 var(--serif); }
+  .lede { margin: 4px 0 0; color: var(--muted); font-size: 0.9375rem; max-width: 62ch; }
+  .note, .hint, .status, .prompt { margin: 0; font-size: 0.9375rem; overflow-wrap: anywhere; }
+  .hint { color: var(--muted); max-width: 62ch; }
+  .status:empty { display: none; }
+  .status.good { color: var(--good); font-weight: 600; }
+  .agents { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+  .agents legend { padding: 0; margin-bottom: 8px; font-weight: 600; font-size: 0.9375rem; }
+  .agent { display: flex; align-items: flex-start; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; min-width: 0; }
+  .agent.on { border-color: var(--accent); background: var(--accent-wash); }
+  .agent input { margin-top: 3px; flex: none; accent-color: var(--accent); }
+  .agent:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .what { display: grid; gap: 2px; min-width: 0; }
+  .line { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .line.warn { color: var(--warn); }
+  .ask { display: grid; gap: 10px; justify-items: start; min-width: 0; }
+  .prompt { padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 8px; font-family: var(--mono); font-size: 0.875rem; }
+  .field { display: grid; gap: 4px; min-width: 0; max-width: 100%; }
+  .field label { font-size: 0.875rem; font-weight: 600; }
+  .field select { min-height: 40px; max-width: 100%; }
+  .trust { display: flex; gap: 8px; align-items: flex-start; font-size: 0.875rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions .btn { min-height: 40px; }
+  .phone { border-top: 1px solid var(--line-soft); padding-top: 8px; font-size: 0.9375rem; }
+  .phone summary { display: flex; align-items: center; min-height: 40px; cursor: pointer; font-weight: 600; color: var(--accent-text); }
+  .phone summary:focus-visible, .phone a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  .phone p { margin: 4px 0 8px; max-width: 62ch; }
+  .phone a { color: var(--accent-text); font-weight: 600; }
+  @media (pointer: coarse) {
+    .actions .btn, .field select, .phone summary { min-height: 44px; }
+    .phone a { display: inline-flex; align-items: center; min-height: 44px; }
+    .agent input { width: 22px; height: 22px; }
+  }
+  @media (max-width: 650px) { .guide { padding: 12px; } }
+</style>

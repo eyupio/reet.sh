@@ -36,6 +36,7 @@
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
   import LaunchDialog from './LaunchDialog.svelte'
   import StartWorkbench from './StartWorkbench.svelte'
+  import FirstRun from './FirstRun.svelte'
   import GafferOutcome from '../GafferOutcome.svelte'
 
   // Writers get the persistent session board and project rail. New agents start from the standard Start an agent modal;
@@ -176,6 +177,8 @@
     openSessions ? `${openSessions} ${openSessions === 1 ? 'session' : 'sessions'} open` : '',
   ].filter(Boolean).join(' · '))
   const connected = $derived(cards.filter(reporting))
+  // The first connected machine, as the terminal list reports it: the one the first-session guide is about.
+  const firstMachine = $derived(terminals?.find(t => connected.some(card => card.agentId === t.agentId)))
 
   // Which sections are open, remembered in this browser for this person. The first time, only Waiting for you is.
   const SECTIONS_FIRST = { waiting: true }
@@ -637,6 +640,7 @@
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
+      <FirstRun machine={firstMachine} {sessions} projects={projects ?? []} {userId} onchanged={() => void load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       <ListSection name="Waiting for you" count={waiting.length} summary={waitingSummary(waiting, now)} open={waitingOpen} ontoggle={toggleWaiting}>
         {#if waiting.length}
           <ul class="waiting-list" class:rows={!narrow} class:cards={narrow} bind:this={waitingList}>

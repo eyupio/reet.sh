@@ -100,35 +100,54 @@ func factoryBaseline(t *testing.T, criteria, evidence int) {
 		if resp.StatusCode != 200 {
 			t.Fatalf("%s: %d %s", path, resp.StatusCode, body)
 		}
+		sent := len(body)
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			zr, err := gzip.NewReader(bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if body, err = io.ReadAll(zr); err != nil {
+				t.Fatal(err)
+			}
+		}
 		var zipped bytes.Buffer
 		zw := gzip.NewWriter(&zipped)
 		_, _ = zw.Write(body)
 		_ = zw.Close()
-		// The handler alone, on the same request, 20 times.
-		var times []time.Duration
-		for range 20 {
-			r := httptest.NewRequest("GET", path, nil)
-			r.Header.Set("Origin", "http://localhost:8080")
-			for _, c := range jar.Cookies(u) {
-				r.AddCookie(c)
-			}
-			rec := httptest.NewRecorder()
-			start := time.Now()
-			h.ServeHTTP(rec, r)
-			times = append(times, time.Since(start))
-			if rec.Code != 200 {
-				t.Fatalf("%s handler: %d", path, rec.Code)
-			}
-		}
-		slices.Sort(times)
-		t.Logf("%s: %d bytes, %d gzip bytes (%.1f%%); Content-Encoding %q; Cache-Control %q, ETag %q, Last-Modified %q, Vary %q; handler median %v, worst %v of 20",
-			path, len(body), zipped.Len(), 100*float64(zipped.Len())/float64(len(body)), resp.Header.Get("Content-Encoding"),
+		// The handler alone, on the same request, 20 times: as sent when not asked for gzip, and when asked.
+		times, zipTimes := baselineHandlerTimes(t, h, jar, u, path, ""), baselineHandlerTimes(t, h, jar, u, path, "gzip, deflate, br")
+		t.Logf("%s: %d bytes, %d gzip bytes (%.1f%%); sent %d bytes; Content-Encoding %q; Cache-Control %q, ETag %q, Last-Modified %q, Vary %q; handler median %v, worst %v of 20; asked for gzip: median %v, worst %v of 20",
+			path, len(body), zipped.Len(), 100*float64(zipped.Len())/float64(len(body)), sent, resp.Header.Get("Content-Encoding"),
 			resp.Header.Get("Cache-Control"), resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), resp.Header.Get("Vary"),
-			times[len(times)/2].Round(time.Microsecond), times[len(times)-1].Round(time.Microsecond))
+			times[len(times)/2].Round(time.Microsecond), times[len(times)-1].Round(time.Microsecond),
+			zipTimes[len(zipTimes)/2].Round(time.Microsecond), zipTimes[len(zipTimes)-1].Round(time.Microsecond))
 		if path == "/api/v2/gaffer/outcomes" {
 			baselineBreakdown(t, body)
 		}
 	}
+}
+
+func baselineHandlerTimes(t *testing.T, h http.Handler, jar http.CookieJar, u *url.URL, path, acceptEncoding string) []time.Duration {
+	var times []time.Duration
+	for range 20 {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Header.Set("Origin", "http://localhost:8080")
+		if acceptEncoding != "" {
+			r.Header.Set("Accept-Encoding", acceptEncoding)
+		}
+		for _, c := range jar.Cookies(u) {
+			r.AddCookie(c)
+		}
+		rec := httptest.NewRecorder()
+		start := time.Now()
+		h.ServeHTTP(rec, r)
+		times = append(times, time.Since(start))
+		if rec.Code != 200 {
+			t.Fatalf("%s handler: %d", path, rec.Code)
+		}
+	}
+	slices.Sort(times)
+	return times
 }
 
 // baselineBreakdown logs where the outcome read's bytes are: per outcome, per

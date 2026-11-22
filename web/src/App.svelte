@@ -218,8 +218,9 @@
     ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & tools', current: isHosting }] : []),
     ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }, { href: '/skill-insights', label: 'Skill insights', group: 'Skills & tools', current: isSkillInsights }] : []),
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
-    // An open instance has no account menu.
-    ...(authMode === 'none' ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
+    // The avatar menu holds these too, but it is a bare circle; More names them on a phone and on a desktop. Not marked current: those pages carry their own headers and the avatar shows where you are. An open instance has no account menu.
+    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Personal settings', group: 'Settings', current: false }] : []),
+    ...(authMode === 'none' || (authMode === 'accounts' && isAdminUser) ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Settings', current: authMode === 'none' && isAdmin }] : []),
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: DOCS_URL, label: 'Documentation', group: 'Help & community', current: false },

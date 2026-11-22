@@ -666,7 +666,7 @@
       </div>
       {#if homeView === 'continue'}<div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
-        {#if showWorkbench}<StartWorkbench factory={accounts} onchoose={startFromWorkbench} onplan={() => void planFromWorkbench()} />{:else}<InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
+        {#if showWorkbench}<StartWorkbench factory={accounts} connectHref={canAdd && health !== undefined && connected.length === 0 ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} onchoose={startFromWorkbench} onplan={() => void planFromWorkbench()} />{:else}<InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
           groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault} {factorySessionEndDefault}
           onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />{/if}
       </div>

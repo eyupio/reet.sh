@@ -530,7 +530,7 @@
       <div class="top-actions">
         {#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}
         <a class="btn quiet" href="/account/gaffer">Your Gaffer settings</a>
-        {#if loading || error || records.length || scope}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>New Factory outcome</button>{/if}
+        {#if loading || error || records.length || (scope && listed.length)}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>New Factory outcome</button>{/if}
       </div>
     </header>
     {#if narrow && (projects ?? []).length}<div class="projects"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} group={scope?.kind === 'group' ? scopeName : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></div>{/if}

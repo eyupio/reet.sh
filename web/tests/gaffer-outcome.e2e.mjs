@@ -781,6 +781,8 @@ try {
           const review=row('review')
           await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low.')
           await expect(review.getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Look at')
+          // The backup that makes the stage one to look at carries the same mark, and the others keep their tick.
+          await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('.mark')).toHaveText(['!','✓','✓'])
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}
       }

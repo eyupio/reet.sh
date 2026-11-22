@@ -137,5 +137,37 @@ seconds while the page is visible (12 requests a minute, about 3.3 MB a minute).
 With 5 criteria on every pipeline the same read is about 10% larger. Evidence is left out of that read on purpose: with
 one note on every criterion it would have been 32.5% larger (366,722 bytes), so only the review's own read carries it.
 
-Not captured here: the long-chat baseline (p95 update time, payload and scroll stability) and the time to a visible
-decision, which need the browser harness and belong with stage 4's measurements.
+### Long chat
+
+Measured on main at `2dec0d1` with `node web/tests/chat-long-baseline.mjs` against `vite preview`, in headless
+Chromium, twice with the same results to within a frame. One chat replays a history of 2,000 events (400 turns: a
+request, a reply in three pieces with a table and a code block, a tool result), then an agent's reply streams in 200
+pieces, first while the page follows the bottom and then while the reader has scrolled back to the middle.
+
+| | Desktop 1360 × 900 | Phone 390 × 844 |
+| --- | --- | --- |
+| History payload | 313,161 bytes for 2,000 events | the same |
+| Time to draw the history | 212–257 ms | 222–269 ms |
+| One streamed piece: payload | 107 bytes | 107 bytes |
+| One streamed piece: time to the screen, median | 34–50 ms | 48–50 ms |
+| One streamed piece: p95 | 50 ms | 50 ms |
+| One streamed piece: worst | 54–104 ms | 50–67 ms |
+| Distance from the bottom once the history is drawn | 45 px | 0 px |
+| Following a streaming reply: furthest behind | 166 px | 4,559–4,685 px |
+| Following a streaming reply: where it ends | 0 px | 4,559–4,685 px from the bottom |
+| Reading in the middle: movement of the line being read | 0 px | 0 px |
+| Elements in the page | about 6,700 | about 6,700 |
+
+How to read these:
+
+- The times are whole frames. Each includes one frame waited after the text is in the page, so 34 ms is two frames and
+  50 ms three; nothing finer is meant.
+- The history arrives through the chat's event stream. The payload is the events' JSON, without the stream's framing.
+- **Scroll while reading is stable**: with the reader scrolled back, 200 streamed pieces moved nothing.
+- **Following on a phone is not**: the log scrolls smoothly and follows only while it is within 80 px of the bottom.
+  At phone width a streamed piece wraps onto more lines, the smooth scroll falls more than 80 px behind, and the page
+  stops following, ending thousands of pixels above the latest text. Desktop trails by at most 166 px and catches up.
+  This is what stage 4's scroll-stability work should look at first; it wants confirming on a real phone, since the
+  pieces here arrive as fast as the page draws them.
+
+Still not captured: the time to a visible decision on the Factory page, which stage 4 measures with its own changes.

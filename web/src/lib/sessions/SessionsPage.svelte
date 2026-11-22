@@ -70,7 +70,7 @@
   let health = $state<MachineHealth[] | undefined>()
   let now = $state(Date.now())
   let checking = $state(false), failed = $state(false), projectsFailed = $state(false), groupsFailed = $state(false), denied = $state(false)
-  let query = $state(''), sort = $state<SessionSort>('recent')
+  let query = $state(''), sort = $state<SessionSort>('recent'), filtersOpen = $state(false)
   let filter = $state<SessionFilter>({ state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' })
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
   let savedWaiting = $state(0)
@@ -253,24 +253,32 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
       <input type="search" bind:value={query} placeholder="Search sessions" aria-label="Search sessions" autocomplete="off" />
     </label>
-    <div class="group-by" role="radiogroup" aria-label="Group by">
-      {#each GROUP_CHOICES as { value, label } (value)}
-        <label class:on={groupBy === value}><input type="radio" name="sessions-group" {value} checked={groupBy === value} onchange={() => chooseGroup(value)} />{label}</label>
-      {/each}
-    </div>
-    <details class="filters">
-      <summary><span>Filters</span>{#if on}<span class="on-count"> · {on} on</span>{/if}</summary>
-      <div class="filter-grid">
-        <label>State<select aria-label="State" bind:value={filter.state}><option value="">Any state</option><option value="needs">Needs you</option><option value="running">Running</option><option value="finished">Finished</option><option value="ended">Ended</option></select></label>
-        <label>Agent<select aria-label="Agent" bind:value={filter.agent}><option value="">Any agent</option>{#each agents as a (a.value)}<option value={a.value}>{a.label}</option>{/each}</select></label>
-        <label>Machine<select aria-label="Machine" bind:value={filter.machine}><option value="">Any machine</option>{#each machines as m (m.agentId)}<option value={m.agentId}>{m.host}</option>{/each}</select></label>
-        <label>Colour<select aria-label="Colour" bind:value={filter.colour}><option value="">Any colour</option>{#each PROJECT_COLOURS.filter(c => c.id) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}<option value="none">No colour</option></select></label>
-        <label>Sort<select aria-label="Sort" bind:value={sort}><option value="recent">Recently changed</option><option value="name">Name</option><option value="custom">Custom order</option></select></label>
-        <label class="check"><input type="checkbox" bind:checked={filter.yoloOnly} />YOLO only</label>
-        <label class="check"><input type="checkbox" bind:checked={filter.worktreeOnly} />Worktree only</label>
-        <button type="button" class="clear" disabled={on === 0} onclick={clearFilters}>Clear filters</button>
+    <div class="view-row">
+      <div class="group-by" role="radiogroup" aria-label="Group by">
+        {#each GROUP_CHOICES as { value, label } (value)}
+          <label class:on={groupBy === value}><input type="radio" name="sessions-group" {value} checked={groupBy === value} onchange={() => chooseGroup(value)} />{label}</label>
+        {/each}
       </div>
-    </details>
+      <button type="button" class="filters-toggle" aria-label={on ? `Filters & sort, ${on} on` : 'Filters & sort'} aria-expanded={filtersOpen} aria-controls="sessions-filters" onclick={() => (filtersOpen = !filtersOpen)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+        <span class="filters-label">Filters &amp; sort</span>
+        {#if on}<span class="on-count">{on}</span>{/if}
+      </button>
+    </div>
+    {#if filtersOpen}
+      <div class="filters-panel" id="sessions-filters">
+        <div class="filter-grid">
+          <label>State<select aria-label="State" bind:value={filter.state}><option value="">Any state</option><option value="needs">Needs you</option><option value="running">Running</option><option value="finished">Finished</option><option value="ended">Ended</option></select></label>
+          <label>Agent<select aria-label="Agent" bind:value={filter.agent}><option value="">Any agent</option>{#each agents as a (a.value)}<option value={a.value}>{a.label}</option>{/each}</select></label>
+          <label>Machine<select aria-label="Machine" bind:value={filter.machine}><option value="">Any machine</option>{#each machines as m (m.agentId)}<option value={m.agentId}>{m.host}</option>{/each}</select></label>
+          <label>Colour<select aria-label="Colour" bind:value={filter.colour}><option value="">Any colour</option>{#each PROJECT_COLOURS.filter(c => c.id) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}<option value="none">No colour</option></select></label>
+          <label>Sort<select aria-label="Sort" bind:value={sort}><option value="recent">Recently changed</option><option value="name">Name</option><option value="custom">Custom order</option></select></label>
+          <label class="check"><input type="checkbox" bind:checked={filter.yoloOnly} />YOLO only</label>
+          <label class="check"><input type="checkbox" bind:checked={filter.worktreeOnly} />Worktree only</label>
+          <button type="button" class="clear" disabled={on === 0} onclick={clearFilters}>Clear filters</button>
+        </div>
+      </div>
+    {/if}
   </div>
 
   <!-- One reserved line for the notice and "Checking…", so the rows below never move when a read starts or ends (a tap
@@ -405,19 +413,23 @@
   .search:focus-within { border-color: var(--accent); }
   .search svg { width: 16px; height: 16px; flex: none; }
   .search input { flex: 1; min-width: 0; min-height: 42px; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); font: 400 16px var(--sans); box-shadow: none; }
-  .group-by { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+  .view-row { display: flex; gap: 8px; min-width: 0; }
+  .group-by { flex: 1; min-width: 0; display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
   .group-by label { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 44px; color: var(--muted); cursor: pointer; }
   .group-by label.on { background: var(--line-soft); color: var(--ink); font-weight: 600; }
   .group-by label:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
   .group-by input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
-  .filters { border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
-  .filters summary { display: flex; align-items: center; min-height: 44px; padding: 0 12px; font-size: 14px; color: var(--ink-soft); cursor: pointer; }
-  .on-count { color: var(--accent-text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: pre; }
-  .filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 4px 12px 12px; align-items: end; }
+  .filters-toggle { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+  .filters-toggle:hover { background: var(--tint); }
+  .filters-toggle[aria-expanded='true'] { border-color: var(--accent); color: var(--ink); }
+  .filters-toggle svg { width: 16px; height: 16px; flex: none; }
+  .on-count { min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; box-sizing: border-box; }
+  .filters-panel { border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 12px; align-items: end; }
   .filter-grid label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); min-width: 0; }
   .filter-grid select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
   .filter-grid .check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; color: var(--ink); cursor: pointer; }
-  .filter-grid .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  .filter-grid .check input { width: 24px; height: 24px; margin: 0; accent-color: var(--accent); }
   .clear { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
   .clear:disabled { opacity: .45; cursor: default; }
   .live p, .problem { margin: 0; font-size: 14px; color: var(--muted); }
@@ -450,14 +462,18 @@
   .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px 6px 14px; color: var(--ink); text-decoration: none; }
   .open:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status); }
+  /* Shape as well as colour, so state survives without relying on hue: waiting is a ring, failed a square, ended hollow. */
+  .session-row[data-status='waiting'] .dot { background: transparent; box-shadow: inset 0 0 0 2px var(--status); }
+  .session-row[data-status='failed'] .dot { border-radius: 2px; }
+  .session-row[data-status='ended'] .dot, .session-row[data-status='quiet'] .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--status); }
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
   .badge { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 17px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .meta { font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .word { flex: none; max-width: 34%; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 1px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .session-row[data-status='waiting'], .session-row[data-status='working'], .session-row[data-status='starting'], .session-row[data-status='failed'] { background: color-mix(in srgb, var(--status) 5%, transparent); box-shadow: inset 3px 0 var(--status); }
+  .word { flex: none; max-width: 34%; font-size: 14px; font-weight: 600; color: var(--status); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .session-row[data-status='waiting'], .session-row[data-status='working'], .session-row[data-status='starting'], .session-row[data-status='failed'] { background: color-mix(in srgb, var(--status) 5%, transparent); }
   .session-row[data-status='waiting'] .title, .session-row[data-status='working'] .title, .session-row[data-status='failed'] .title { color: var(--status); }
   .age { flex: none; min-width: 28px; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--muted); }
   /* The desk a session is on: a chip after the row's words, opening the desk at that pane. */
@@ -500,10 +516,18 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sessions-page { gap: 12px; }
     .filter-grid { grid-template-columns: minmax(0, 1fr); }
-    .word { font-size: 14px; }
-    /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
-       title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
+    /* The filters keep their place beside Group by as a funnel with the count; the named control stays for assistive tech. */
+    .filters-toggle { position: relative; width: 44px; padding: 0; }
+    .filters-label { display: none; }
+    .filters-toggle .on-count { position: absolute; top: -6px; right: -6px; }
+    /* The mock-up's phone row: dot, title and age. The status word is left to the dot and row tint to keep the title readable;
+       assistive tech still reads it, and "last known" is in the group's offline sentence. The agent line and worktree badge
+       are left out too (YOLO stays). */
     .meta, .badge.wt { display: none; }
+    .word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    /* A long title wraps to a second line instead of disappearing behind an ellipsis. */
+    .line { align-items: flex-start; }
+    .title { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
     .desk-chip { max-width: 96px; padding: 0 8px; }
     .lk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     /* The colour's name is still read out; the strip shows it. */

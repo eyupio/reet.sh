@@ -43,7 +43,7 @@ export type SessionOwner = { id: string; name: string }
 export type HomeSession = TerminalSession
 export type GroupBy = 'project' | 'machine' | 'state' | 'attention'
 /** Every grouping, in the order the choice offers them. */
-export const GROUP_CHOICES: { value: GroupBy; label: string }[] = [{ value: 'attention', label: 'Attention' }, { value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
+export const GROUP_CHOICES: { value: GroupBy; label: string }[] = [{ value: 'attention', label: 'Priority' }, { value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
 export type Group = { key: string; label: string; count: number; sessions: HomeSession[] }
 export type NeedKind = 'waiting' | 'failed' | 'review' | 'finished'
 /** Why a card needs the person: what the session holds open for them, or how it ended. */

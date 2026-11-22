@@ -76,7 +76,13 @@ body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-are
 :where([data-status='failed']) { --status: var(--status-failed); }
 :where([data-status='ended']) { --status: var(--status-ended); }
 :where([data-status='quiet']) { --status: var(--status-quiet); }
-:where([data-status]) { --status-wash: color-mix(in srgb, var(--status) 13%, transparent); --status-edge: color-mix(in srgb, var(--status) 55%, var(--line)); }
+:where([data-status]) { --status-wash: color-mix(in srgb, var(--status) 13%, transparent); --status-edge: color-mix(in srgb, var(--status) 55%, var(--line)); --status-ink: var(--status); }
+/* A status pill's 13% wash lifts its background enough to drop the light palette's status colours below 4.5:1. The ink is
+   the same hue taken darker for that background; dots, ticks and edges keep the untinted --status. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) :where([data-status]) { --status-ink: color-mix(in srgb, var(--status) 85%, #000); }
+}
+:root[data-theme='light'] :where([data-status]) { --status-ink: color-mix(in srgb, var(--status) 85%, #000); }
 /* Finished is a tick, not another dot: the turn is complete and settled, wherever a session is listed. Components draw it
    in place of their dot and inherit the same --status colour, so Home, the panel, the tabs and the session header agree. */
 .status-tick {

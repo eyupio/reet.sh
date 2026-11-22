@@ -154,7 +154,7 @@
   .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
   .item { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
   .item:last-child { padding-bottom: 0; border-bottom: 0; }
-  .kind { align-self: flex-start; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+  .kind { align-self: flex-start; font-size: 14px; font-weight: 600; color: var(--status-ink); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
   .ask { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .ask .more { color: var(--muted); }
   .title { font-size: 14px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }

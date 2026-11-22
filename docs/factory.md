@@ -62,7 +62,8 @@ Under the line are the backups, folded until you open them:
   that agent's plan, so it is not balanced onto. A backup whose own figures are old or absent takes over without a
   comparison, and is not something to look at. After a usage limit the next backup is tried whatever its sign-in, so one
   whose agent is not on the machine or is not signed in is still tried and is likely to be refused there; that is
-  something to look at, and the folded line counts it.
+  something to look at, and the folded line counts it. Backups that fail for the same reason are said together, and a
+  backup on the first choice's own agent is not said again when that agent's missing sign-in already is.
 
 Sign-ins are read from the machine's last answer even when the latest read could not be made; only that read is then
 said to be old. A machine that does not report an agent's sign-in (Cline, for one) is noted and never counted as a
@@ -77,7 +78,8 @@ running stage says what it is running on.
 
 Warnings never stop you. **Approve and start** waits only when a stage's agent is not on the machine now, or the machine
 is not connected, and the reason is beside the button, with the crews to change under **Choose who does what**. When
-the reason clears, the same place says **Nothing is holding the plan now.** While a stage cannot start the machine list is read every ten seconds, so Approve clears when the machine comes back.
+the reason clears, the same place says **Nothing is holding the plan now.** While a stage cannot start the machine list
+is read every ten seconds, so Approve clears when the machine comes back.
 
 ## The page
 
@@ -250,11 +252,11 @@ item on a tablet or phone. Nothing happens until you choose.
 
 ### A worker reached its usage limit
 
-The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage, and which agent is the backup; the two buttons say what each choice does. Either one continues the same stage in a new session in
-the same folder and branch, and the pipeline keeps its history. If another model had already taken over on the stage
-after a usage limit, it says so and which agent the stage started on. It says whether no backup is saved for the
-stage or none is left. The detail adds how much of that agent's plan is left and when it
-resets, when the machine reports it.
+The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage, and which
+agent the backup is. Either button continues the same stage in a new session in the same folder and branch, and the
+pipeline keeps its history. If another model had already taken over on the stage after a usage limit, it says so and
+which agent the stage started on. It says whether no backup is saved for the stage or none is left. The detail adds
+how much of that agent's plan is left and when it resets, when the machine reports it.
 
 The item on Home and in the Factory list has both as buttons, **Continue with the backup** filled and **Choose another
 model…** beside it, so you can act without opening the detail. With no backup left only **Choose another model**

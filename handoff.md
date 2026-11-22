@@ -1,5 +1,19 @@
 # Reet central-control implementation handoff
 
+## TEMPORARY-ORDER-1: temporary projects made in the same millisecond list in the order made (22 November 2026)
+
+`TestTemporaryFolderProjectsListEveryAccountsOldestFirst` failed now and then. `TemporaryFolderProjects` ordered by
+`created_at,id`: two projects made in the same millisecond tie on `created_at` and fell to `id`, which is random, so
+"oldest first" listed them either way. The delivery review plan's stage 0 triaged it and left it for its own change.
+
+**What changed.** `internal/store/store_folder_projects.go` orders by `created_at,rowid`, so a tie is settled by the
+order the rows were made. The only caller is the temporary-project sweep, which looks at each project once and does
+not depend on the order of a tie. The test is unchanged.
+
+**Tests.** Before the change the test failed in each of three batches of 300 runs; after it, 2,000 runs pass
+(`go test ./internal/store/ -run TestTemporaryFolderProjectsListEveryAccountsOldestFirst -count=2000`), as do the
+other folder-project tests.
+
 ## FACTORY-DELIVERY-REVIEW-2: delivery review UI (22 November 2026)
 
 Stage 2 of [the delivery review plan](docs/handoffs/factory-delivery-review.md), on top of

@@ -29,6 +29,13 @@ var errOutcomeArchived = invalid("archived", "This outcome is archived. Bring it
 // back in the controller's hands. A stage that never started is asked for
 // under a new request; a session that did start is kept and followed.
 func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (store.GafferOutcome, error) {
+	return s.retryPipeline(uid, id, key, revision, nil)
+}
+
+// retryPipeline is RetryPipeline. only, when set, is asked about the row
+// before it is tried again, may record more in the same write, and leaves the
+// row as it is by reporting false.
+func (s *Service) retryPipeline(uid int64, id, key string, revision int64, only func(*store.GafferOutcomeSession) bool) (store.GafferOutcome, error) {
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return store.GafferOutcome{}, err
 	}
@@ -61,6 +68,9 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 			// the session it follows is no longer there to follow.
 			ended := row.State == "following" && dead != "" && row.SessionID == dead
 			if row.Key != key || !ended && row.State != "failed" && row.State != "unfollowed" && row.State != "cancelled" {
+				continue
+			}
+			if only != nil && !only(row) {
 				continue
 			}
 			staged := row.Stage < len(row.Stages)

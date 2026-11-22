@@ -662,3 +662,124 @@ func TestAnUnansweredMergeLaunchFoundNotStartedRunsTheMergeGateAgain(t *testing.
 		t.Fatalf("back for review: %+v launches=%d", back, len(asked)-launches)
 	}
 }
+
+// endFails is the machine unreachable for an end request only. tries counts
+// the end requests it was sent.
+type endFails struct {
+	*outcomeStarterFake
+	tries atomic.Int32
+}
+
+func (m *endFails) EndOutcomeSession(context.Context, int64, string) error {
+	m.tries.Add(1)
+	return errors.New("That machine is offline.")
+}
+
+// endLost is a machine that ends a session and loses the reply.
+type endLost struct{ *outcomeStarterFake }
+
+func (m endLost) EndOutcomeSession(ctx context.Context, uid int64, session string) error {
+	if err := m.outcomeStarterFake.EndOutcomeSession(ctx, uid, session); err != nil {
+		return err
+	}
+	return errors.New("That machine is offline.")
+}
+
+// stoppedLow runs a one-stage pipeline with a backup until its agent has
+// stopped with its plan now low, as balancing finds it.
+func stoppedLow(t *testing.T, r *outcomeRig) (string, store.GafferOutcomeSession) {
+	t.Helper()
+	now := time.Now()
+	plenty := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 40, "cheap"))}
+	if err := r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, plenty, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "other/coder"}},
+	}}}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.settle(t, created.ID)
+	low := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 97, "cheap"))}
+	if err = r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, low, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	goal, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.st.AppendTerminalChatEventFor(r.p.UserID, first.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"status","state":"error","detail":"The agent crashed."}`)); err != nil {
+		t.Fatal(err)
+	}
+	r.s.reviewGoal(t.Context(), goal)
+	return created.ID, first
+}
+
+// Fallback by balancing after the agent stopped, machine unreachable to end
+// its session: the stage is not marked as run again, and once the machine
+// answers it is run on its backup.
+func TestAStoppedStageWhoseSessionCouldNotBeEndedIsStillRunOnItsBackup(t *testing.T) {
+	r := outcomeFixture(t)
+	id, first := stoppedLow(t, r)
+	r.s.SetSessionStarter(&endFails{outcomeStarterFake: r.starter})
+	r.s.rebalanceStopped(context.Background())
+	if mid := mustOutcome(t, r, id).Sessions[0]; mid.State != "following" || mid.Stages[0].Rebalanced || mid.SessionID != first.SessionID {
+		t.Fatalf("after the failed end: state=%s rebalanced=%v session=%s", mid.State, mid.Stages[0].Rebalanced, mid.SessionID)
+	}
+	// The machine is back, and the wait before asking it again is over.
+	r.s.SetSessionStarter(r.starter)
+	r.s.endTried.Store(first.SessionID, time.Now().Add(-endRetryAfter))
+	r.s.rebalanceStopped(context.Background())
+	again := r.piece(t, id, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	if r.starter.sessions() != 2 || again.Stages[0].Model != "other/coder" || !again.Stages[0].Rebalanced {
+		t.Fatalf("the stage was not run on its backup: %+v sessions=%d", again.Stages[0], r.starter.sessions())
+	}
+}
+
+// A machine that cannot end the session is not asked again on every pass of
+// the controller: each ask can hold it up for its whole wait.
+func TestAStoppedStageWhoseSessionCouldNotBeEndedIsNotAskedAgainAtOnce(t *testing.T) {
+	r := outcomeFixture(t)
+	id, first := stoppedLow(t, r)
+	machine := &endFails{outcomeStarterFake: r.starter}
+	r.s.SetSessionStarter(machine)
+	for i := 0; i < 3; i++ {
+		r.s.rebalanceStopped(context.Background())
+	}
+	if n := machine.tries.Load(); n != 1 {
+		t.Fatalf("end requests while the machine could not end the session: %d", n)
+	}
+	r.s.endTried.Store(first.SessionID, time.Now().Add(-endRetryAfter))
+	r.s.rebalanceStopped(context.Background())
+	if n := machine.tries.Load(); n != 2 || mustOutcome(t, r, id).Sessions[0].Stages[0].Rebalanced {
+		t.Fatalf("end requests once the wait was over: %d", n)
+	}
+}
+
+// Fallback by balancing, controller stopped after the session was ended and
+// before the stage was run again: the next controller runs it on its backup.
+func TestAStoppedStageEndedJustBeforeARestartIsRunOnItsBackup(t *testing.T) {
+	r := outcomeFixture(t)
+	id, first := stoppedLow(t, r)
+	// The machine ends the session and its answer is lost.
+	r.s.SetSessionStarter(endLost{r.starter})
+	r.s.rebalanceStopped(context.Background())
+	if mid := mustOutcome(t, r, id).Sessions[0]; mid.Stages[0].Rebalanced || mid.SessionID != first.SessionID || r.s.sessionRunning(r.p.UserID, first.SessionID) {
+		t.Fatalf("before the restart: %+v", mid)
+	}
+	r.restart(t)
+	r.s.rebalanceStopped(context.Background())
+	again := r.piece(t, id, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	if r.starter.sessions() != 2 || again.Stages[0].Model != "other/coder" || !again.Stages[0].Rebalanced {
+		t.Fatalf("after the restart: %+v sessions=%d", again.Stages[0], r.starter.sessions())
+	}
+}

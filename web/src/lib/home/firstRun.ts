@@ -15,14 +15,24 @@ export function guideShown(memory: FirstRunMemory, machine: boolean, sessions: r
   return sessions.every(session => started.includes(session.id))
 }
 
+/** Not now was said, and the guide would otherwise still be due: Home then offers the way back. */
+export function guideBack(memory: FirstRunMemory, machine: boolean, sessions: readonly Pick<TerminalSession, 'id'>[] | undefined, started: readonly string[]): boolean {
+  return memory === 'dismissed' && guideShown('', machine, sessions, started)
+}
+
+/** "A", "A and B", "A, B and C" (or with `or`). */
+export function nameList(names: readonly string[], joiner = 'and'): string {
+  return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} ${joiner} ${names.at(-1)}`
+}
+
 export type FirstReply = 'none' | 'asking' | 'replied' | 'ended'
 
 /** Where the guide's own session stands. A chat that has finished its turn, or waits for the person with nothing to
- *  approve, has replied; a session that ended or stopped first has not. */
-export function replyOf(session: Pick<TerminalSession, 'state' | 'attention' | 'pendingPermission' | 'pendingQuestion'> | undefined): FirstReply {
+ *  approve, has replied; a session that ended or stopped first has not, and a terminal never counts: reet cannot see its turn end. */
+export function replyOf(session: Pick<TerminalSession, 'state' | 'attention' | 'pendingPermission' | 'pendingQuestion' | 'structured'> | undefined): FirstReply {
   if (!session) return 'none'
-  if (session.attention === 'finished') return 'replied'
-  if (session.attention === 'waiting' && !session.pendingPermission && !session.pendingQuestion) return 'replied'
+  if (session.structured && session.attention === 'finished') return 'replied'
+  if (session.structured && session.attention === 'waiting' && !session.pendingPermission && !session.pendingQuestion) return 'replied'
   if (session.attention === 'failed' || session.state === 'ended' || session.state === 'exited' || session.state === 'lost') return 'ended'
   return 'asking'
 }

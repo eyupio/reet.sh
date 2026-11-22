@@ -728,20 +728,35 @@ try {
       await outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true}).fill('Build the export and raise a pull request. Do not merge.')
       return {f,w,outcome,row:kind=>outcome.locator(`.stage-tier[data-stage="${kind}"]`),summary:outcome.locator('p.launch'),approve:outcome.getByRole('button',{name:/^Approve and start/})}
     }
+    // The backups fold away: open one for reading unless it already is.
+    const unfold=async details=>{if(!(await details.evaluate(el=>el.open)))await details.locator('summary').click();return details.locator('li')}
+    const backupsOf=(row,at='Review')=>row.getByRole('group',{name:`Backups for ${at} in pipeline 1, in the order tried`,exact:true})
     for(const [width,theme] of [[1280,'light'],[390,'dark']]){
       // A ready plan: machine, source and every backup in order; model and effort left to the agent read as a choice.
       {
         const {w,outcome,row,summary,approve}=await planWith(width,theme)
         try{
-          await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
+          await expect(summary).toHaveText('Launch readiness on workshop. ✓ 6 of 6 stages ready.')
           const review=row('review'),code=row('code')
-          await expect(review.getByRole('group',{name:'Launch readiness for Review in pipeline 1',exact:true})).toContainText('Ready · workshop · Saved crew')
-          const spares=review.getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true})
-          await expect(spares.locator('p')).toHaveCount(3)
-          await expect(spares.locator('p').nth(0)).toContainText('Backup 1: OpenCode · can take over. OpenCode has 95% of its plan left against Claude Code’s 80%, so balancing can move a stage onto it when Claude Code’s runs low.')
-          await expect(spares.locator('p').nth(1)).toContainText('Backup 2: Claude Code · claude/on-the-machine · low effort · takes over only after a usage limit. It shares Claude Code’s plan with the first choice')
-          await expect(spares.locator('p').nth(2)).toContainText('Backup 3: Claude Code · takes over only after a usage limit.')
-          await expect(code).toContainText('Your choice: Agent’s default model, Agent’s default effort')
+          // One line says what the stage runs on, in full, with its mark and its source; the machine is said once, above Approve.
+          await expect(review.locator('.ready-line .text')).toHaveText(/^Ready,\s?Claude Code · claude\/on-the-machine · high effort · Saved crew$/)
+          await expect(review.locator('.ready-line .mark')).toHaveText('✓')
+          await expect(review).not.toContainText('workshop')
+          const lineBox=await review.locator('.ready-line').evaluate(el=>({over:el.scrollWidth>el.clientWidth,overflow:getComputedStyle(el.querySelector('.text')).textOverflow,space:getComputedStyle(el.querySelector('.text')).whiteSpace}))
+          expect(lineBox).toEqual({over:false,overflow:'clip',space:'normal'})
+          // Backups fold away, in the order tried, closed while all can take over.
+          const spares=backupsOf(review)
+          await expect(spares).not.toHaveAttribute('open','')
+          await expect(spares.locator('summary')).toHaveText('Backups: OpenCode, then Claude Code (claude/on-the-machine), then Claude Code (default model)')
+          const items=await unfold(spares)
+          await expect(items).toHaveCount(3)
+          await expect(items.nth(0)).toContainText('Backup 1: OpenCode · can take over. OpenCode has 95% of its plan left against Claude Code’s 80%, so balancing can move a stage onto it when Claude Code’s runs low.')
+          await expect(items.nth(1)).toContainText('Backup 2: Claude Code · claude/on-the-machine · low effort · takes over only after a usage limit. It shares Claude Code’s plan with the first choice')
+          await expect(items.nth(2)).toContainText('Backup 3: Claude Code · takes over only after a usage limit.')
+          // Defaults are said once, as a choice; a ready stage with no backups is that one line and nothing else.
+          await expect(code.locator('.ready-line .text')).toHaveText(/^Ready,\s?Claude Code · Agent’s default model and effort · Saved crew$/)
+          await expect(code.locator('.notes')).toHaveCount(0)
+          await expect(outcome).not.toContainText('Your choice: Agent’s default')
           await expect(code.getByText('Checked when the stage starts',{exact:false})).toHaveCount(0)
           await expect(approve).toBeEnabled()
           expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
@@ -757,6 +772,8 @@ try {
           await expect(row('merge')).toContainText('Look at')
           await expect(summary).toContainText('3 of 6 stages ready, 3 to look at. First: PR in pipeline 1: Codex from your saved crew is not on workshop')
           await expect(approve).toBeEnabled()
+          await expect(approve).not.toHaveAttribute('aria-describedby')
+          await w.page.screenshot({path:`${shots}/gaffer-outcome-readiness-fallback-${width}-${theme}.png`})
         }finally{await w.context.close()}
       }
       // No sign-in found is a warning with the existing sentence, and it does not block Approve.
@@ -766,6 +783,7 @@ try {
           await expect(row('code')).toContainText('No Claude Code sign-in was found on workshop. Sign in to Claude Code there first, or its first message may be refused.')
           await expect(summary).toContainText('3 of 6 stages ready, 3 to look at. First: Code in pipeline 1: No Claude Code sign-in was found')
           await expect(approve).toBeEnabled()
+          await w.page.screenshot({path:`${shots}/gaffer-outcome-readiness-no-sign-in-${width}-${theme}.png`})
         }finally{await w.context.close()}
       }
       // A machine that cannot read its sign-ins is a state of its own, not an error dialog. As the server answers: nothing kept.
@@ -781,7 +799,7 @@ try {
         const {w,row,approve}=await planWith(width,theme,{accounts:kept('offline','That machine is reconnecting. Try again in a moment.',acct('claude'),acct('opencode',{limits:[{kind:'week',usedPercent:5}]}))})
         try{
           await expect(row('code')).toContainText('Last read 30 min ago. That machine is reconnecting. Try again in a moment.')
-          await expect(row('review').getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true}).locator('p').nth(0)).toContainText('Backup 1: OpenCode · can take over. OpenCode has 95% of its plan left')
+          await expect((await unfold(backupsOf(row('review')))).nth(0)).toContainText('Backup 1: OpenCode · can take over. OpenCode has 95% of its plan left')
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}
       }
@@ -799,10 +817,14 @@ try {
         const {w,row,approve}=await planWith(width,theme,{accounts:accountsOf(acct('claude'),acct('opencode',{limitsAt:Date.now()-8*3600000}))})
         try{
           const review=row('review')
-          await expect(review.getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low.')
-          await expect(review.getByRole('group',{name:'Launch readiness for Review in pipeline 1',exact:true})).toContainText('Look at')
+          await expect(backupsOf(review).locator('li').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low.')
+          await expect(review.locator('.ready-line')).toContainText('Look at')
+          // Open for what needs a look, and the summary counts it.
+          await expect(backupsOf(review)).toHaveAttribute('open','')
+          await expect(backupsOf(review).locator('summary')).toHaveText('Backups: OpenCode, then Claude Code (claude/on-the-machine), then Claude Code (default model) · 1 to look at')
           // The backup that makes the stage one to look at carries the same mark, and the others keep their tick.
-          await expect(review.getByRole('group',{name:'Backups for Review in pipeline 1, in the order tried',exact:true}).locator('.mark')).toHaveText(['!','✓','✓'])
+          await expect(backupsOf(review).locator('li .mark')).toHaveText(['!','✓','✓'])
+          await w.page.screenshot({path:`${shots}/gaffer-outcome-readiness-stale-${width}-${theme}.png`})
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}
       }
@@ -813,7 +835,7 @@ try {
       ]){
         const {f,w,row,approve}=await planWith(width,theme,{crew:crewOf({heavy})})
         try{
-          const lines=row('review').getByRole('group',{name:/^Backups for Review in pipeline 1, in the order tried$/}).locator('p')
+          const lines=await unfold(backupsOf(row('review')))
           await expect(lines).toHaveCount(shown.length)
           for(const [at,text] of shown.entries())await expect(lines.nth(at)).toContainText(text)
           await expect(row('review')).not.toContainText('xhigh')
@@ -846,9 +868,9 @@ try {
         try{
           await expect(row('review')).toContainText('Reading')
           await expect(row('review')).not.toContainText('Look at')
-          await expect(summary).toHaveText('Launch readiness. … 5 of 6 stages ready, 1 still being read.')
+          await expect(summary).toHaveText('Launch readiness on workshop. … 5 of 6 stages ready, 1 still being read.')
           release()
-          await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
+          await expect(summary).toHaveText('Launch readiness on workshop. ✓ 6 of 6 stages ready.')
         }finally{release();await w.context.close()}
       }
       // The agent left the machine while the plan was being edited: the machine is read again when the plan opens, and Approve waits with the reason beside it.
@@ -860,7 +882,11 @@ try {
           await expect(row('code')).toContainText('Claude Code is not on workshop now. Choose another agent for the stage.')
           await expect(row('code')).toContainText('Cannot start')
           await expect(summary).toContainText('3 cannot start')
-          await expect(outcome.getByRole('status').filter({hasText:'Code in pipeline 1: Claude Code is not on workshop now. Choose another agent for the stage.'})).toBeVisible()
+          const blocker=outcome.getByRole('status').filter({hasText:'Code in pipeline 1: Claude Code is not on workshop now. Choose another agent for the stage.'})
+          await expect(blocker).toBeVisible()
+          // Approve is described by its blocker, and by nothing once the blocker is gone.
+          await expect(approve).toHaveAttribute('aria-describedby',await blocker.getAttribute('id'))
+          await expect(summary).toHaveText('Launch readiness on workshop. ✕ 3 of 6 stages ready, 3 cannot start.')
           await outcome.screenshot({path:`${shots}/gaffer-outcome-readiness-blocked-${width}-${theme}.png`})
         }finally{await w.context.close()}
       }
@@ -882,7 +908,7 @@ try {
       if(width===1280){
         const {f,w,summary}=await planWith(width,theme)
         try{
-          await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
+          await expect(summary).toHaveText('Launch readiness on workshop. ✓ 6 of 6 stages ready.')
           const before=f.reads
           await w.page.waitForTimeout(12000)
           expect(f.reads).toBe(before)

@@ -112,12 +112,13 @@ try{
   await expect(page.getByText('Gaffer recommends:',{exact:false})).toHaveCount(0)
   // What happened, what each choice does and how much of the plan is left, from the stage's own record and the plan read the page already has.
   const waits=page.getByRole('region',{name:'What is waiting',exact:true})
-  await expect(waits).toContainText('The worker reached its usage limit. OpenCode ran out on the code stage. Continue with OpenCode (paid/backup) resumes the stage on its next backup.')
+  await expect(waits).toContainText('OpenCode reached its usage limit on the code stage. Either choice carries on in the same folder and branch.')
+  await page.screenshot({path:`${shots}/factory-usage-limit-1280.png`})
   await expect(waits).toContainText(/OpenCode plan: Week 0% left, resets in (2 h|1 h \d+ min)\./)
   await expect(page.getByRole('button',{name:'Choose another model…',exact:true})).toBeVisible()
   await page.goto(`${base}/sessions?agent=a1&session=${sid}`)
   const decision=page.getByRole('region',{name:'Decision for Export API',exact:true})
-  await expect(decision).toContainText('The worker reached its usage limit.')
+  await expect(decision).toContainText('OpenCode reached its usage limit on the code stage. Either choice carries on in the same folder and branch.')
   await expect(decision.getByRole('button',{name:'Have Gaffer look again',exact:true})).toHaveCount(0)
   await decision.getByRole('button',{name:/Continue with OpenCode/}).click()
   await expect.poll(()=>quota.box.backup).toEqual([{revision:5,stoppedSession:sid}])
@@ -146,7 +147,7 @@ try{
  try {
   const page=gw.page
   await page.goto(`${base}/factory`)
-  await expect(page.getByRole('region',{name:'What is waiting',exact:true})).toContainText('Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage.')
+  await expect(page.getByRole('region',{name:'What is waiting',exact:true})).toContainText('OpenCode (paid/backup) reached its usage limit on the code stage. Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage; choose another model to carry on in the same folder and branch.')
   await expect(page.getByRole('button',{name:/^Choose another model/})).toBeVisible()
   await expect(page.getByRole('button',{name:/^Continue with/})).toHaveCount(0)
  } finally {await gw.context.close()}
@@ -159,7 +160,7 @@ try{
   const page=sw.page
   await page.goto(`${base}/factory`)
   const item=page.locator('article.item',{hasText:'Export API'})
-  await expect(item).toContainText('The worker reached its usage limit.')
+  await expect(item).toContainText('OpenCode reached its usage limit on the code stage.')
   await expect(item.getByRole('button',{name:/^Continue with OpenCode/})).toBeVisible()
   await item.getByRole('button',{name:'Choose another model…',exact:true}).click()
   await expect(page.getByRole('dialog',{name:'Continue with another model',exact:true})).toBeVisible()

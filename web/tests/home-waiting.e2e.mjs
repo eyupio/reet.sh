@@ -489,13 +489,17 @@ try{
    try{
     const item=entries(page).filter({hasText:'Export API'})
     await expect(item.locator('.chip')).toHaveText('Usage limit')
-    await expect(item).toContainText('The worker reached its usage limit. OpenCode (paid/main) ran out on the code stage. Continue with OpenCode (paid/backup) resumes the stage on its next backup. Choose another model… resumes it on one you pick.')
+    await expect(item).toContainText('OpenCode (paid/main) reached its usage limit on the code stage. Either choice carries on in the same folder and branch.')
+   await expect(item).not.toContainText('Continue with OpenCode (paid/backup) resumes')
     const backup=item.getByRole('button',{name:'Continue with OpenCode (paid/backup)',exact:true}),other=item.getByRole('button',{name:'Choose another model…',exact:true})
     await expect(backup).toBeVisible();await expect(other).toBeVisible()
     await expect(backup).toHaveClass(/primary/);await expect(other).not.toHaveClass(/primary/)
     const edge=await right(item);for(const button of [backup,other,item.getByRole('link',{name:'Details and other actions for Export API'})])expect(await right(button)).toBeLessThanOrEqual(edge+1)
-    expect(await noSideways(page)).toBe(true)
-    await page.screenshot({path:`${shots}/home-usage-limit-${width}.png`})
+   expect(await noSideways(page)).toBe(true)
+   // The filled button has a line of its own; the other model and Details share the line under it.
+   const [b,o,d]=await Promise.all([backup,other,item.getByRole('link',{name:'Details and other actions for Export API'})].map(l=>l.boundingBox()))
+   expect(o.y).toBeGreaterThan(b.y+b.height-1);expect(Math.abs(o.y-d.y)).toBeLessThan(2);expect(d.x).toBeGreaterThan(o.x+o.width-1)
+   await page.screenshot({path:`${shots}/home-usage-limit-${width}.png`})
     // Another model opens the Factory's own dialog on Home, and the person stays on Home.
     await other.click()
     const dialog=page.getByRole('dialog',{name:'Continue with another model',exact:true})
@@ -515,7 +519,7 @@ try{
    const w=await open(width,'light',limited({backup:false,second:true})),page=w.page
    try{
     const item=entries(page).filter({hasText:'Export API'})
-    await expect(item).toContainText('Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage. Choose another model to resume it in the same folder and branch.')
+    await expect(item).toContainText('OpenCode (paid/main) reached its usage limit on the code stage. Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is saved for this stage; choose another model to carry on in the same folder and branch.')
     await expect(item.getByRole('button',{name:'Choose another model',exact:true})).toHaveClass(/primary/)
     await expect(item.getByRole('button',{name:/^Continue with/})).toHaveCount(0)
     await item.getByRole('button',{name:'Choose another model',exact:true}).click()

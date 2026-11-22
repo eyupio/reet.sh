@@ -29,9 +29,11 @@ export type FirstReply = 'none' | 'asking' | 'replied' | 'ended'
 
 /** Where the guide's own session stands. A chat that has finished its turn, or waits for the person with nothing to
  *  approve, has replied; a session that ended or stopped first has not, and a terminal never counts: reet cannot see its turn end. */
-export function replyOf(session: Pick<TerminalSession, 'state' | 'attention' | 'pendingPermission' | 'pendingQuestion' | 'structured'> | undefined): FirstReply {
+export function replyOf(session: Pick<TerminalSession, 'state' | 'attention' | 'pendingPermission' | 'pendingQuestion' | 'structured' | 'completedAt'> | undefined): FirstReply {
   if (!session) return 'none'
   if (session.structured && session.attention === 'finished') return 'replied'
+  // Once the person has seen a finished turn the controller reports it as quiet; its completion time is what is left of it.
+  if (session.structured && session.attention === 'quiet' && session.state === 'running' && (session.completedAt ?? 0) > 0) return 'replied'
   if (session.structured && session.attention === 'waiting' && !session.pendingPermission && !session.pendingQuestion) return 'replied'
   if (session.attention === 'failed' || session.state === 'ended' || session.state === 'exited' || session.state === 'lost') return 'ended'
   return 'asking'

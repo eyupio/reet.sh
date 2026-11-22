@@ -35,6 +35,15 @@ test('a reply is a chat turn that finished or waits with nothing to approve; an 
   assert.equal(replyOf({ ...chat, state: 'running', attention: 'failed' }), 'ended')
 })
 
+test('a finished turn that was then seen reports quiet, and still counts as the reply through its completion time', () => {
+  const chat = { structured: true, state: 'running', attention: 'quiet' }
+  assert.equal(replyOf({ ...chat, completedAt: 1700000000000 }), 'replied')
+  // Never answered: a cancelled or idle chat carries no completion time.
+  assert.equal(replyOf(chat), 'asking')
+  assert.equal(replyOf({ ...chat, completedAt: 0 }), 'asking')
+  assert.equal(replyOf({ ...chat, completedAt: 1, structured: false }), 'asking')
+})
+
 test('a terminal session never counts as a reply, because reet cannot see its turn end', () => {
   assert.equal(replyOf({ state: 'running', attention: 'finished' }), 'asking')
   assert.equal(replyOf({ state: 'running', attention: 'waiting', structured: false }), 'asking')

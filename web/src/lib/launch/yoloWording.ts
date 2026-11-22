@@ -16,6 +16,11 @@ export function yoloTerminalSentence(machine: string, name: string, tool: string
   return tool === 'codex' ? `${base} For Codex that includes turning its sandbox off, so commands can reach any file and the network on ${machine}.` : base
 }
 
+/** The warning in the switch-to-terminal confirmation for a Codex chat that is on YOLO: the terminal's YOLO also removes the sandbox. */
+export function yoloSandboxOffNotice(machine: string): string {
+  return `This chat is on YOLO. In the Codex terminal, YOLO also turns Codex’s sandbox off, so commands can reach any file and the network on ${machine}, and Codex will not ask first, including where it would have in “Let Codex decide”.`
+}
+
 /** The tooltip of the YOLO button in a live chat's session controls. */
 export function yoloSwitchTitle(tool: string): string {
   return tool === 'codex' ? 'Answer approvals when Codex asks before leaving its sandbox (not in “Let Codex decide”)' : 'Answer every approval for this session'

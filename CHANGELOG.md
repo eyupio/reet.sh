@@ -10,7 +10,8 @@ this file existed releases were described on their GitHub release pages.
   (`session-mode-agents-v1`). Update reet on the machine to enable it; OpenCode is unchanged.
 - **Codex YOLO now turns its sandbox off**: a Codex terminal started on YOLO runs with `--ask-for-approval never --sandbox
   danger-full-access`, so its commands can change any file and use the network on the machine. Before, it kept Codex's
-  sandbox and refused whatever needed to leave it. The YOLO confirmation says so. The account setting, the machine's own
+  sandbox and refused whatever needed to leave it. The YOLO confirmation says so, and so does the confirmation when a Codex
+  chat that is on YOLO is switched to its terminal, which now needs an explicit tick first. The account setting, the machine's own
   `reet terminal yolo` switch and the confirmation still gate it. A Gaffer chat on YOLO is unchanged: it still only answers
   the approvals Codex asks for.
 - **An empty turn is no longer silent for Antigravity, Claude Code and Codex**: a turn that says and does nothing shows a

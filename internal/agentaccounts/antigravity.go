@@ -24,10 +24,11 @@ const antigravityOtherModels = "Other models"
 
 // antigravity reads Google Antigravity's sign-in from antigravity-oauth-token
 // in its folder (~/.gemini/antigravity-cli, or the folder
-// ANTIGRAVITY_APP_DATA_DIR names). The access token and its expiry are the
-// file's token; the address is a claim of its identity token. Antigravity can
-// keep its sign-in in the desktop keyring or the macOS keychain instead, which
-// this reader does not open: such a machine reads as having no sign-in file.
+// ANTIGRAVITY_APP_DATA_DIR names), or from the desktop keyring the agent's own
+// keyring library writes to (the Linux Secret Service through secret-tool, or
+// the macOS login keychain). The later of the two is used. The access token
+// and its expiry come from the sign-in; the address is a claim of its identity
+// token.
 func (r *Reader) antigravity() signIn {
 	out := signIn{account: terminalproto.AgentAccount{Tool: "antigravity", State: terminalproto.AccountNone}, ask: askAntigravity}
 	dir, _, ok := r.folder("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(".gemini", "antigravity-cli"))
@@ -35,15 +36,77 @@ func (r *Reader) antigravity() signIn {
 		out.account.State = terminalproto.AccountUnreadable
 		return out
 	}
-	data, err := readFile(filepath.Join(dir, "antigravity-oauth-token"), maxCredentialBytes)
-	if errors.Is(err, os.ErrNotExist) {
+	data, readErr := readFile(filepath.Join(dir, "antigravity-oauth-token"), maxCredentialBytes)
+	file, fileOK, fileReadable := antigravitySignIn(data)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		fileOK, fileReadable = false, false
+	}
+	// A CLI keeps its sign-in in the keyring when the desktop session has one,
+	// and refreshes the file alone when it does not: the later token wins.
+	var item string
+	var keychainOK bool
+	if item, keychainOK = r.linuxKeyringItem("gemini", "antigravity"); !keychainOK {
+		item, keychainOK = r.macKeychainItem("gemini", "antigravity")
+	}
+	if keychainOK {
+		if keychain, parsed, readable := antigravitySignIn([]byte(item)); readable && parsed && (!fileOK || keychain.ExpiresAt > file.ExpiresAt) {
+			file, fileOK = keychain, true
+		}
+	}
+	if !fileOK {
+		if !fileReadable {
+			out.account.State = terminalproto.AccountUnreadable
+		}
 		return out
 	}
-	if err == nil {
-		data = bytes.TrimSpace(data)
-		if rest, found := bytes.CutPrefix(data, []byte(antigravityKeyringPrefix)); found {
-			data, err = base64.StdEncoding.DecodeString(string(rest))
+	out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountSubscription
+	out.token = file.AccessToken
+	if file.ExpiresAt > 0 {
+		out.expires = time.UnixMilli(file.ExpiresAt)
+	}
+	var identity struct {
+		Email   string `json:"email"`
+		Subject string `json:"sub"`
+	}
+	if jwtClaims(file.IDToken, &identity) {
+		out.account.Account = label(identity.Email, 128)
+	}
+	if identity.Subject != "" || out.account.Account != "" {
+		out.identity = "antigravity\x00" + identity.Subject + "\x00" + out.account.Account
+	} else {
+		// No identity token: a mark of the sign-in tells it from the next,
+		// so a new sign-in is not shown the last one's figures. The refresh
+		// token is marked when there is one, as it outlives each access token.
+		key := file.RefreshToken
+		if key == "" {
+			key = file.AccessToken
 		}
+		out.identity = "antigravity\x00\x00\x00" + keyMark(key)
+	}
+	return out
+}
+
+// antigravityAuth is the part of Antigravity's sign-in this package uses.
+type antigravityAuth struct {
+	AccessToken  string
+	RefreshToken string
+	IDToken      string
+	ExpiresAt    int64 // milliseconds since 1970, 0 when not said
+}
+
+// antigravitySignIn reads a sign-in document, plain or in the keyring
+// library's base64 form.
+func antigravitySignIn(data []byte) (antigravityAuth, bool, bool) {
+	if len(data) == 0 {
+		return antigravityAuth{}, false, true
+	}
+	data = bytes.TrimSpace(data)
+	if rest, found := bytes.CutPrefix(data, []byte(antigravityKeyringPrefix)); found {
+		decoded, err := base64.StdEncoding.DecodeString(string(rest))
+		if err != nil {
+			return antigravityAuth{}, false, false
+		}
+		data = decoded
 	}
 	type token struct {
 		AccessToken  string    `json:"access_token"`
@@ -55,42 +118,20 @@ func (r *Reader) antigravity() signIn {
 		Token   *token `json:"token"`
 		IDToken string `json:"id_token"`
 	}
-	if err != nil || json.Unmarshal(data, &file) != nil {
-		out.account.State = terminalproto.AccountUnreadable
-		return out
+	if json.Unmarshal(data, &file) != nil {
+		return antigravityAuth{}, false, false
 	}
 	if file.Token == nil || file.Token.AccessToken == "" {
-		return out
+		return antigravityAuth{}, false, true
 	}
-	out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountSubscription
-	out.token = file.Token.AccessToken
+	out := antigravityAuth{AccessToken: file.Token.AccessToken, RefreshToken: file.Token.RefreshToken, IDToken: file.Token.IDToken}
+	if out.IDToken == "" {
+		out.IDToken = file.IDToken
+	}
 	if !file.Token.Expiry.IsZero() && file.Token.Expiry.UnixMilli() > 0 {
-		out.expires = file.Token.Expiry
+		out.ExpiresAt = file.Token.Expiry.UnixMilli()
 	}
-	idToken := file.IDToken
-	if idToken == "" {
-		idToken = file.Token.IDToken
-	}
-	var identity struct {
-		Email   string `json:"email"`
-		Subject string `json:"sub"`
-	}
-	if jwtClaims(idToken, &identity) {
-		out.account.Account = label(identity.Email, 128)
-	}
-	if identity.Subject != "" || out.account.Account != "" {
-		out.identity = "antigravity\x00" + identity.Subject + "\x00" + out.account.Account
-	} else {
-		// No identity token: a mark of the sign-in tells it from the next,
-		// so a new sign-in is not shown the last one's figures. The refresh
-		// token is marked when there is one, as it outlives each access token.
-		key := file.Token.RefreshToken
-		if key == "" {
-			key = file.Token.AccessToken
-		}
-		out.identity = "antigravity\x00\x00\x00" + keyMark(key)
-	}
-	return out
+	return out, true, true
 }
 
 // askAntigravity reads the allowance of an Antigravity plan: a five-hour and a

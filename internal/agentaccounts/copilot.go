@@ -42,8 +42,8 @@ func copilotHeaders() map[string]string {
 // is the account; its tokens are tried in turn when asking for the allowance.
 // Only github.com's keys are read ("github.com", or "github.com:" and an app
 // id): a key for any other host, even one whose name starts the same way, is
-// never sent to api.github.com.
-// The GitHub CLI's sign-in is not read: that would mean running it.
+// never sent to api.github.com. The GitHub CLI's own sign-in is read too, so
+// a person signed in to Copilot only through `gh` is found.
 func (r *Reader) copilot() signIn {
 	out := signIn{account: terminalproto.AgentAccount{Tool: "copilot", State: terminalproto.AccountNone}, ask: askCopilot}
 	dir, _, ok := r.folder("XDG_CONFIG_HOME", ".config")
@@ -88,6 +88,18 @@ func (r *Reader) copilot() signIn {
 			}
 		}
 	}
+	// The GitHub CLI holds a token of its own for every account it is signed
+	// in to. An editor's token can outlive its value by years, so the CLI's
+	// tokens are tried after it when the first is refused.
+	ghLogin, ghTokens := r.githubCLI()
+	if login == "" && ghLogin != "" {
+		login, display = strings.ToLower(ghLogin), ghLogin
+	}
+	for _, token := range ghTokens {
+		if !slices.Contains(tokens, token) {
+			tokens = append(tokens, token)
+		}
+	}
 	if len(tokens) == 0 {
 		if unreadable {
 			out.account.State = terminalproto.AccountUnreadable
@@ -99,6 +111,45 @@ func (r *Reader) copilot() signIn {
 	out.token, out.alternates = tokens[0], tokens[1:]
 	out.identity = "copilot\x00" + login
 	return out
+}
+
+// githubCLI reads the GitHub CLI's sign-ins for github.com: every account it
+// reports as signed in, and its token for each. An older CLI that cannot list
+// accounts still gives the active account's token.
+func (r *Reader) githubCLI() (login string, tokens []string) {
+	if out, ok := r.readTool("gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"); ok {
+		var doc struct {
+			Hosts map[string][]struct {
+				Login       string `json:"login"`
+				State       string `json:"state"`
+				TokenSource string `json:"tokenSource"`
+			} `json:"hosts"`
+		}
+		if json.Unmarshal([]byte(out), &doc) == nil {
+			for _, account := range doc.Hosts["github.com"] {
+				// A token from the environment is not a stored sign-in: the
+				// per-user lookup finds nothing for it.
+				if account.State != "success" || account.Login == "" || account.TokenSource == "GH_TOKEN" || account.TokenSource == "GITHUB_TOKEN" {
+					continue
+				}
+				token, ok := r.readTool("gh", "auth", "token", "--hostname", "github.com", "--user", account.Login)
+				if !ok || slices.Contains(tokens, token) {
+					continue
+				}
+				if login == "" {
+					login = account.Login
+				}
+				tokens = append(tokens, token)
+			}
+			if len(tokens) > 0 {
+				return login, tokens
+			}
+		}
+	}
+	if token, ok := r.readTool("gh", "auth", "token", "--hostname", "github.com"); ok {
+		return "", []string{token}
+	}
+	return "", nil
 }
 
 // askCopilot reads the allowance of a Copilot plan: the month's premium

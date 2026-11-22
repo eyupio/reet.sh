@@ -44,28 +44,27 @@ vendors' logos.
 
 ## What a machine reads
 
-Sign-in, from files only (and, for OpenCode, one variable of reet's own environment). Nothing is sent anywhere, no
-agent is started and no command is run.
+Sign-in, from the agent's own files, from the keychain or keyring where its CLI keeps one (read with the platform's
+own read-only tool), and from the GitHub CLI's own token for Copilot. Nothing is sent anywhere and no agent is
+started; the only commands run are those read-only tools and `gh auth`.
 
 | Agent | Sign-in | Account and plan |
 | --- | --- | --- |
-| Claude Code | `.credentials.json` in `~/.claude`, or in the folder `CLAUDE_CONFIG_DIR` names | `oauthAccount` in `~/.claude.json` (inside the folder when it was moved); the plan is the sign-in's `subscriptionType` |
-| Codex | `auth.json` in `~/.codex`, or in the folder `CODEX_HOME` names | the address and plan claims of the identity token; an `OPENAI_API_KEY` there is a sign-in with no plan |
+| Claude Code | `.credentials.json` in `~/.claude`, or in the folder `CLAUDE_CONFIG_DIR` names; on macOS also the login keychain's `Claude Code-credentials` item, the later token winning | `oauthAccount` in `~/.claude.json` (inside the folder when it was moved); the plan is the sign-in's `subscriptionType` |
+| Codex | `auth.json` in `~/.codex`, or in the folder `CODEX_HOME` names; on macOS also the login keychain's `Codex Auth` item when the file holds none, the later token winning | the address and plan claims of the identity token; an `OPENAI_API_KEY` there is a sign-in with no plan |
 | OpenCode | its key for OpenCode's own models (`opencode-go`, else `opencode`), from the first of: OpenCode 2's store `opencode.db` in `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode` (or the file `OPENCODE_DB` names), opened read-only and only when it has OpenCode 2's tables; `auth.json` in that folder, not read when that store is there; `OPENCODE_API_KEY` in the environment reet's connector runs with | no name: the account shows as *Signed in*, on its machine; the plan word comes from the provider's answer (*Go*) |
-| Google Antigravity | `antigravity-oauth-token` in `~/.gemini/antigravity-cli`, or in the folder `ANTIGRAVITY_APP_DATA_DIR` names, plain or in its keyring library's `go-keyring-base64:` form | the address claim of the identity token; no plan word |
-| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only (a key named `github.com` or `github.com:` and an app id; another host's key, even one whose name starts the same way, is never read); the first login found is the account, and its tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
+| Google Antigravity | `antigravity-oauth-token` in `~/.gemini/antigravity-cli`, or in the folder `ANTIGRAVITY_APP_DATA_DIR` names, plain or in its keyring library's `go-keyring-base64:` form; also the Linux Secret Service item `service gemini, username antigravity` through `secret-tool`, or the macOS login keychain's `gemini`/`antigravity` item, the later token winning | the address claim of the identity token; no plan word |
+| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only (a key named `github.com` or `github.com:` and an app id; another host's key, even one whose name starts the same way, is never read); and the GitHub CLI's own sign-in for `github.com`, through `gh auth status` or, on an older CLI, `gh auth token`; the tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
 
 What this cannot see is said plainly rather than guessed:
 
-- On macOS Claude Code keeps its sign-in in the keychain, which reet does not open. A Mac with no sign-in file reads
-  as *reet can't read this agent's sign-in*, never as signed out.
-- Codex can be set to keep its sign-in in the system keyring. Such a machine reads as *No sign-in found*: the file was
-  looked for and is not there.
-- Google Antigravity can keep its sign-in in the desktop keyring (Linux) or the keychain (macOS) instead of its file.
-  reet opens neither, so such a machine reads as *No sign-in found*.
-- GitHub Copilot can be used with only the GitHub CLI's sign-in. Reading that would mean running `gh`, which this
-  reader never does, so a machine without Copilot's own files reads as *No sign-in found*. Only the first GitHub login
-  in Copilot's files is read.
+- On macOS Claude Code and Codex keep their sign-in in the login keychain, which reet reads through `security`. A
+  keychain item this session cannot read (a locked keychain) reads as *reet can't read this agent's sign-in* for
+  Claude, never as signed out.
+- On Linux Google Antigravity keeps its sign-in in the desktop keyring, which reet reads through `secret-tool`. Where
+  `secret-tool` is not installed, a machine with no sign-in file reads as *No sign-in found*.
+- GitHub Copilot can be used with only the GitHub CLI's sign-in, which reet reads through `gh`. Where `gh` is not
+  installed, only the files above are read.
 - An agent signed in only through an environment variable is not seen, except OpenCode's `OPENCODE_API_KEY` when it is
   set for reet's connector itself.
 - A folder variable that is not an absolute path, a file that is not a plain file, one over 256 KiB or one that does
@@ -164,6 +163,5 @@ install of those agents at all.
 `unsupported` means an API key, which has no plan, or a plan sign-in whose provider said it has no plan with limits
 to read (an OpenCode key without Go, a GitHub account without Copilot, a plan with every window unlimited).
 
-Not done: Cline; the macOS keychain and system keyrings (Claude Code, Codex and Antigravity can keep a sign-in there);
-the GitHub CLI's sign-in for Copilot; several accounts for one agent; signing in from the browser; limits beside a
-session or in the sessions list.
+Not done: Cline; several accounts for one agent; signing in from the browser; limits beside a session or in the
+sessions list.

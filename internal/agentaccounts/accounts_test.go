@@ -111,6 +111,7 @@ func newFixture(t *testing.T, env ...string) *fixture {
 		AntigravityUsageURL:         f.antigravity.server.URL + "/v1internal:retrieveUserQuotaSummary",
 		AntigravityFallbackUsageURL: f.antigravityStable.server.URL + "/v1internal:retrieveUserQuotaSummary",
 		CopilotUserURL:              f.copilot.server.URL + "/copilot_internal/user",
+		Run:                         func([]string, time.Duration) (string, bool) { return "", false },
 		Now:                         func() time.Time { return f.now },
 	})
 	return f
@@ -518,11 +519,11 @@ func TestWindowKindFollowsItsLength(t *testing.T) {
 	}
 }
 
-// The time a read may take is the sum of its parts, and the OpenCode store is
-// given a second of it.
+// The time a read may take is the sum of its parts: the sign-ins found side by
+// side, then the providers side by side.
 func TestAReadsTimeIsTheSumOfItsParts(t *testing.T) {
-	if openCodeStoreWait != time.Second || ReadTakesAtMost != openCodeStoreWait+requestTimeout+filesMargin || ReadTakesAtMost > 11*time.Second {
-		t.Fatalf("store %s + providers %s + files %s = %s", openCodeStoreWait, requestTimeout, filesMargin, ReadTakesAtMost)
+	if openCodeStoreWait != time.Second || toolTimeout != 2*time.Second || ReadTakesAtMost != toolTimeout+requestTimeout || ReadTakesAtMost > 11*time.Second {
+		t.Fatalf("tools %s + providers %s = %s", toolTimeout, requestTimeout, ReadTakesAtMost)
 	}
 }
 
@@ -577,5 +578,106 @@ func TestTheSourceHoldsNoInvisibleCharacters(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// runFor points the reader's tool runner at a table of command lines, so a
+// test can stand in for the keychain, the keyring and the GitHub CLI.
+func runFor(f *fixture, table map[string]string) {
+	f.reader.opts.Run = func(argv []string, _ time.Duration) (string, bool) {
+		out, ok := table[strings.Join(argv, " ")]
+		return out, ok
+	}
+}
+
+func TestCopilotIsFoundThroughTheGitHubCLI(t *testing.T) {
+	f := newFixture(t)
+	runFor(f, map[string]string{
+		"gh auth status --hostname github.com --json hosts": `{"hosts":{"github.com":[{"login":"Octo","state":"success","tokenSource":"keyring"}]}}`,
+		"gh auth token --hostname github.com --user Octo":   "gho_test_token",
+	})
+	f.copilot.answer(200, `{"login":"octo","copilot_plan":"individual","access_type_sku":"monthly_subscriber_quota","quota_snapshots":{"premium_interactions":{"entitlement":50,"percent_remaining":60}},"quota_reset_date":"2026-12-01"}`)
+	a := f.one("copilot", true, false)
+	if a.State != terminalproto.AccountSignedIn || a.Method != terminalproto.AccountSubscription || a.Account != "octo" || a.LimitsState != terminalproto.AccountLimitsRead || len(a.Limits) != 1 {
+		t.Fatalf("copilot through gh: %+v", a)
+	}
+	if got := f.copilot.last().Header.Get("Authorization"); got != "token gho_test_token" {
+		t.Fatalf("copilot request used %q", got)
+	}
+}
+
+func TestCopilotFallsBackToAnOlderGitHubCLI(t *testing.T) {
+	f := newFixture(t)
+	runFor(f, map[string]string{
+		"gh auth token --hostname github.com": "gho_old_cli",
+	})
+	f.copilot.answer(200, `{"login":"octo","copilot_plan":"individual","quota_snapshots":{"premium_interactions":{"entitlement":50,"percent_remaining":40}},"quota_reset_date":"2026-12-01"}`)
+	if a := f.one("copilot", true, false); a.State != terminalproto.AccountSignedIn || a.LimitsState != terminalproto.AccountLimitsRead {
+		t.Fatalf("copilot through an older gh: %+v", a)
+	}
+}
+
+func TestClaudeKeychainSignInIsReadOnMacOS(t *testing.T) {
+	f := newFixture(t)
+	f.reader.opts.GOOS = "darwin"
+	f.write(".claude.json", claudeProfile)
+	runFor(f, map[string]string{
+		"security find-generic-password -s Claude Code-credentials -w": claudeCredentials(f.now.Add(time.Hour)),
+	})
+	a := f.one("claude", false, false)
+	if a.State != terminalproto.AccountSignedIn || a.Account != "person@example.com" || a.LimitsState != terminalproto.AccountLimitsNotAsked {
+		t.Fatalf("claude from the keychain: %+v", a)
+	}
+	f.claude.answer(200, claudeUsage)
+	if a = f.one("claude", true, false); a.LimitsState != terminalproto.AccountLimitsRead || len(a.Limits) == 0 {
+		t.Fatalf("claude limits from the keychain: %+v", a)
+	}
+	if got := f.claude.last().Header.Get("Authorization"); got != "Bearer sk-ant-oat01-"+secret {
+		t.Fatalf("claude request used %q", got)
+	}
+}
+
+func TestCodexKeychainSignInIsReadOnMacOS(t *testing.T) {
+	f := newFixture(t)
+	f.reader.opts.GOOS = "darwin"
+	runFor(f, map[string]string{
+		"security find-generic-password -s Codex Auth -w": codexAuth(f.now.Add(time.Hour)),
+	})
+	if a := f.one("codex", false, false); a.State != terminalproto.AccountSignedIn || a.Account != "person@example.com" {
+		t.Fatalf("codex from the keychain: %+v", a)
+	}
+}
+
+func TestAntigravityKeyringSignInIsReadOnLinux(t *testing.T) {
+	f := newFixture(t)
+	runFor(f, map[string]string{
+		"secret-tool lookup service gemini username antigravity": antigravityToken(f.now.Add(time.Hour)),
+	})
+	if a := f.one("antigravity", false, false); a.State != terminalproto.AccountSignedIn || a.Account != "person@example.com" {
+		t.Fatalf("antigravity from the keyring: %+v", a)
+	}
+}
+
+func TestTheLaterOfTheFileAndTheKeychainIsUsed(t *testing.T) {
+	f := newFixture(t)
+	f.reader.opts.GOOS = "darwin"
+	f.write(".claude/.credentials.json", claudeCredentials(f.now.Add(-2*time.Hour)))
+	runFor(f, map[string]string{
+		"security find-generic-password -s Claude Code-credentials -w": claudeCredentials(f.now.Add(time.Hour)),
+	})
+	f.claude.answer(200, claudeUsage)
+	if a := f.one("claude", true, false); a.LimitsState != terminalproto.AccountLimitsRead {
+		t.Fatalf("claude should be read with the later keychain token: %+v", a)
+	}
+	// The file is the later one, so the keychain is not used.
+	f2 := newFixture(t)
+	f2.reader.opts.GOOS = "darwin"
+	f2.write(".claude/.credentials.json", claudeCredentials(f2.now.Add(time.Hour)))
+	runFor(f2, map[string]string{
+		"security find-generic-password -s Claude Code-credentials -w": claudeCredentials(f2.now.Add(-2 * time.Hour)),
+	})
+	f2.claude.answer(200, claudeUsage)
+	if a := f2.one("claude", true, false); a.LimitsState != terminalproto.AccountLimitsRead {
+		t.Fatalf("claude should be read with the later file token: %+v", a)
 	}
 }

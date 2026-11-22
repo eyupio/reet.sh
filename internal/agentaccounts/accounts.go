@@ -10,10 +10,11 @@
 //     tokens, so renewing one here could sign the agent out. A token that has
 //     run out is reported as needing renewal, which the agent does itself the
 //     next time it runs.
-//   - No agent is started and no command is run: a sign-in kept only in a
-//     keychain or keyring, or handed out only by another program's command,
-//     is not read.
-//   - Without Limits nothing is sent anywhere: the answer comes from files.
+//   - A sign-in is read from where its own agent keeps it: its file, the
+//     system keychain or keyring through the platform's read-only tool, or
+//     the GitHub CLI's own token for Copilot. No agent is started.
+//   - Without Limits nothing is sent anywhere: the answer comes from files,
+//     keychain items and the CLI's own token.
 package agentaccounts
 
 import (
@@ -29,6 +30,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -73,19 +75,15 @@ const (
 	// included, so the answer stays inside the connector's wait. The
 	// providers are asked side by side, so it is also all their time.
 	requestTimeout = 9 * time.Second
-	// filesMargin is the time allowed for the other sign-in files, each a
-	// plain file of at most maxCredentialBytes (maxProfileBytes for Claude's
-	// settings), read one after another, and for putting the answer together.
-	filesMargin = time.Second
 )
 
-// ReadTakesAtMost is the longest a Read takes: the sign-in files are read one
-// after another, OpenCode's store taking up to openCodeStoreWait (1 s) and the
-// rest filesMargin (1 s), then the providers are asked side by side, for
-// requestTimeout (9 s) at most: 1 + 1 + 9 = 11 s. The connector answers a read
-// that takes longer timed out after 12 s, so this leaves a second for the
-// reply.
-const ReadTakesAtMost = openCodeStoreWait + filesMargin + requestTimeout
+// ReadTakesAtMost is the longest a Read takes: the sign-ins are found side by
+// side, OpenCode's store taking up to openCodeStoreWait (1 s) and a keychain,
+// keyring or GitHub CLI tool up to toolTimeout (2 s), then the providers are
+// asked side by side, for requestTimeout (9 s) at most: 2 + 9 = 11 s. The
+// connector answers a read that takes longer timed out after 12 s, so this
+// leaves a second for the reply.
+const ReadTakesAtMost = toolTimeout + requestTimeout
 
 // Options configure a Reader. The zero value of every field but Home works.
 type Options struct {
@@ -94,8 +92,8 @@ type Options struct {
 	// Env is the environment the agents would run with; it may move their
 	// folders (CLAUDE_CONFIG_DIR, CODEX_HOME). Nil reads none.
 	Env []string
-	// GOOS is the operating system; empty means this one. Claude Code keeps
-	// its sign-in in the keychain on macOS, which is not opened.
+	// GOOS is the operating system; empty means this one. It chooses the
+	// keychain or keyring tool a sign-in is read with.
 	GOOS string
 	// Client makes the allowance requests. Nil uses a client that follows no
 	// redirect, so a sign-in is never sent on to another host.
@@ -104,6 +102,11 @@ type Options struct {
 	ClaudeUsageURL, CodexUsageURL, OpenCodeUsageURL  string
 	AntigravityUsageURL, AntigravityFallbackUsageURL string
 	CopilotUserURL                                   string
+	// Run runs a read-only tool that holds or names a sign-in (the keychain,
+	// the keyring, the GitHub CLI), returning its trimmed standard output.
+	// false when it is missing, fails or takes longer than the timeout. Nil
+	// runs the real tool.
+	Run func(argv []string, timeout time.Duration) (string, bool)
 	// Now replaces the clock in tests.
 	Now func() time.Time
 }
@@ -158,7 +161,69 @@ func New(opts Options) *Reader {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.Run == nil {
+		opts.Run = runTool
+	}
 	return &Reader{opts: opts, last: map[string]remembered{}}
+}
+
+// runTool runs one read-only tool (the keychain, the keyring, the GitHub CLI)
+// with a time limit, and returns its trimmed standard output. Anything but a
+// clean exit with a bounded answer is false, so a missing tool and a tool that
+// prompts, hangs or prints too much all read as "not found".
+func runTool(argv []string, timeout time.Duration) (string, bool) {
+	if len(argv) == 0 {
+		return "", false
+	}
+	path, err := exec.LookPath(argv[0])
+	if err != nil {
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, argv[1:]...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, io.Discard
+	if err := cmd.Run(); err != nil || out.Len() > maxCredentialBytes {
+		return "", false
+	}
+	return strings.TrimSpace(out.String()), true
+}
+
+// toolTimeout bounds one read of a keychain item, a keyring item or the
+// GitHub CLI: long enough for an unlocked keychain, short enough not to hold
+// up the read of every other agent.
+const toolTimeout = 2 * time.Second
+
+// readTool runs argv and returns its output when it is not empty.
+func (r *Reader) readTool(argv ...string) (string, bool) {
+	out, ok := r.opts.Run(argv, toolTimeout)
+	return out, ok && out != ""
+}
+
+// macKeychainItem reads one item's value from the macOS login keychain through
+// `security`, the read-only tool the platform provides. false where it is not
+// macOS, not installed, or the item is absent or locked.
+func (r *Reader) macKeychainItem(service, account string) (string, bool) {
+	if r.goos() != "darwin" {
+		return "", false
+	}
+	argv := []string{"security", "find-generic-password", "-s", service}
+	if account != "" {
+		argv = append(argv, "-a", account)
+	}
+	argv = append(argv, "-w")
+	return r.readTool(argv...)
+}
+
+// linuxKeyringItem reads one item's secret from the Linux Secret Service
+// through `secret-tool`, the same lookup the agent's own keyring library uses.
+// false where it is not Linux, not installed, or the item is absent.
+func (r *Reader) linuxKeyringItem(service, username string) (string, bool) {
+	if r.goos() != "linux" {
+		return "", false
+	}
+	return r.readTool("secret-tool", "lookup", "service", service, "username", username)
 }
 
 // signIn is one agent's sign-in as its files give it. token and expires are
@@ -197,10 +262,16 @@ type allowance struct {
 // read is a state.
 func (r *Reader) Read(ctx context.Context, limits, refresh bool) []terminalproto.AgentAccount {
 	readers := []func() signIn{r.claude, r.codex, r.openCode, r.antigravity, r.copilot}
+	signIns := make([]signIn, len(readers))
+	var found sync.WaitGroup
+	for i, read := range readers {
+		found.Add(1)
+		go func() { defer found.Done(); signIns[i] = read() }()
+	}
+	found.Wait()
 	out := make([]terminalproto.AgentAccount, len(readers))
 	var wg sync.WaitGroup
-	for i, read := range readers {
-		s := read()
+	for i, s := range signIns {
 		a := s.account
 		a.LimitsState = terminalproto.AccountLimitsNotAsked
 		switch {

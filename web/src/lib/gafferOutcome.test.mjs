@@ -571,6 +571,21 @@ test('a worker usage limit offers the configured backup and ignores older review
   assert.deepEqual(o.waitingDecisions({ sessions: [piece] }, goals)[0].need.choices.map(choice => choice.id), ['replace-worker'])
 })
 
+test('a usage limit says which agent ran out, what each choice does, and that a second stop follows a first', () => {
+  const stage = { kind: 'code', tool: 'claude', model: 'opus', nextUsageBackup: 'OpenCode (paid/backup)' }
+  const piece = { key: 'a', title: 'Code', state: 'following', sessionId: 's', conversationId: 'c', stages: [stage] }
+  const goals = new Map([['c', { goal: { state: 'needs_user', note: 'n' }, attention: true, workerUsageLimited: true }]])
+  const why = () => o.waitingDecisions({ sessions: [piece] }, goals)[0].need.why
+  // First stop with a backup: the agent, the backup that would take over and what choosing another does.
+  assert.equal(why(), 'The worker reached its usage limit. Claude Code (opus) ran out on the code stage. Continue with OpenCode (paid/backup) resumes the stage on its next backup. Choose another model… resumes it on one you pick. Either way it carries on in the same folder and branch.')
+  // No backup configured: it says so and names the one action.
+  delete stage.nextUsageBackup
+  assert.equal(why(), 'The worker reached its usage limit. Claude Code (opus) ran out on the code stage. No backup is left for this stage. Choose another model to resume it in the same folder and branch.')
+  // A backup already took over once: this is the second stop, and the stage started on the first choice.
+  Object.assign(stage, { tool: 'opencode', model: 'paid/backup', usageFailover: true, first: { tool: 'claude', model: 'opus' } })
+  assert.match(why(), /OpenCode \(paid\/backup\) ran out on the code stage\. A backup already took over once, so this is the second stop: the stage started on Claude Code \(opus\)\. No backup is left/)
+})
+
 test('acceptance criteria: empty rows are dropped, each is one line, and the limits are the contract’s', () => {
   assert.deepEqual(o.cleanCriteria(['  The export\n downloads  as CSV. ', '', '   ']), ['The export downloads as CSV.'])
   assert.deepEqual(o.cleanCriteria(undefined), [])

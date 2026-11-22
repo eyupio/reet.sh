@@ -6,13 +6,14 @@
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
-  import { CREW_TIERS, DEFAULT_STAGES, STAGES, defaultTier, partsBlocker, stagePlan, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, STAGES, cleanCriteria, criteriaBlocker, defaultTier, partsBlocker, stagePlan, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
   import StageParts from './StageParts.svelte'
+  import CriteriaEditor from './CriteriaEditor.svelte'
   import type { MachineModels, ModelFavourite } from '../models'
   import { START_EFFORTS, reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
-  export type AddedPipeline = { title: string; prompt: string; stages: ReturnType<typeof stagePlan> }
+  export type AddedPipeline = { title: string; prompt: string; criteria?: string[]; stages: ReturnType<typeof stagePlan> }
   let { record, proposals, busy = false, error = '', oncancel, onconfirm }: {
     record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
   } = $props()
@@ -71,7 +72,9 @@
   const ratingsOf = (title: string) => ({ parts: splits[title] ?? {} })
   const spareWords = (one: CrewSpare) => `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}`
   const whoWords = (title: string, tier: keyof Crew) => { const one = crewOf(title)[tier]; return `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }
-  const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))))
+  // The acceptance criteria the person agrees for each added pipeline, as for a new outcome's.
+  let criteria = $state<Record<string, string[]>>({})
+  const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map(item => criteriaBlocker(criteria[item.title], `“${item.title}”`)).find(Boolean) || '')
   const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
   // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
@@ -84,6 +87,7 @@
   // refused while one is missing: its stage could only fail at its start.
   const plans = $derived(proposals.map(item => ({
     title: item.title, prompt: item.prompt,
+    ...(cleanCriteria(criteria[item.title]).length ? { criteria: cleanCriteria(criteria[item.title]) } : {}),
     stages: withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null),
   })))
   const unoffered = $derived(known ? [...new Set(plans.flatMap(({ stages }) => stages.flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
@@ -181,6 +185,7 @@
             {#if kinds(item).some(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2)}<p class="split-offer">Split a stage into parts of different work:{#each kinds(item).filter(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2) as kind (kind)}<button class="inline" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} of ${item.title} into parts`} onclick={() => splits[item.title] = withNewPart({ parts: splits[item.title], tiers: { [kind]: defaultTier(kind) } }, kind)}>{stageLabel(kind)}</button>{/each}</p>{/if}
           </div>
         </details>
+        <CriteriaEditor bind:items={criteria[item.title]} who={item.title} disabled={busy}/>
       </li>{/each}
     </ul>
     <p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>
@@ -189,6 +194,7 @@
     {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if known && !tools.length}<p class="warning" role="alert">This machine reports no agent that can run a Gaffer chat. Update reet on the machine, or choose another project for a new outcome.</p>
     {:else if unoffered.length}<p class="warning" role="alert">{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.</p>{/if}
+    {#if blocked}<p class="warning" role="status">{blocked}</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
     <div class="actions"><button class="btn primary" type="button" disabled={busy || crewLoading || !capabilitiesRead || refused || !!blocked || unoffered.length > 0} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </div>

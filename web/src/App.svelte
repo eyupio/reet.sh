@@ -218,12 +218,16 @@
     ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & tools', current: isHosting }] : []),
     ...(sessionsAccess ? [{ href: '/usage', label: 'Usage', group: 'Workspace', current: isUsage }, { href: '/skill-insights', label: 'Skill insights', group: 'Skills & tools', current: isSkillInsights }] : []),
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
-    // The avatar menu holds these too, but it is a bare circle; More names them on a phone and on a desktop. Not marked current: those pages carry their own headers and the avatar shows where you are. An open instance has no account menu.
-    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Personal settings', group: 'Settings', current: false }] : []),
-    ...(authMode === 'none' || (authMode === 'accounts' && isAdminUser) ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Settings', current: authMode === 'none' && isAdmin }] : []),
+    // An open instance has no account menu.
+    ...(authMode === 'none' ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: DOCS_URL, label: 'Documentation', group: 'Help & community', current: false },
+  ])
+  // Where the account menu is only an unlabelled circle, More lists the two kinds of settings, each saying who it applies to.
+  const settings = $derived<(Tab & { note?: string })[]>([
+    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Personal settings', note: 'Applies to your account', current: isAccount || isActivity }] : []),
+    ...(authMode === 'accounts' && isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', note: 'Applies to everyone on this instance', current: isAdmin }] : []),
   ])
   // Every routed page's header reads the current page's group from here (the getter keeps it current as `more` changes).
   // Signed out, a public page names its group but has no siblings to offer (the other pages need a sign-in), so it gets the label only.
@@ -587,7 +591,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} waiting={waitingEntries} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
+    <AppShell {tabs} bar={barTabs} {more} {settings} waiting={waitingEntries} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu

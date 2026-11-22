@@ -342,7 +342,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	// What follows the brief is the stage's boundary, which the agent must
 	// read last; it is built apart so that a long prompt loses brief, not it.
 	text, brief := text+lead, item.Prompt
-	end := ""
+	// The criteria the person will review against are kept with the boundary:
+	// a long handover gives way to them, never the other way round.
+	end := criteriaPrompt(item.Criteria)
 	if stage.Part != "" {
 		end += "\n\nThis part is finished when you have left, for this part only, " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
 	} else {
@@ -641,6 +643,23 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
 		}
+		if len(item.Criteria) > 0 {
+			if len(piece.Stages) == 0 {
+				return nil, invalid("criteria", "Acceptance criteria belong to a pipeline with stages. Give “"+title+"” stages, or remove its criteria.")
+			}
+			// A delivery is reviewed where work was done: a pipeline that only
+			// merges has no folder to read a commit from and nothing to send back to.
+			if !hasWorkStage(piece.Stages) {
+				return nil, invalid("criteria", "Acceptance criteria need a stage of work before the merge. Give “"+title+"” one, or remove its criteria.")
+			}
+			criteria, err := planCriteria(item.Criteria)
+			if err != nil {
+				return nil, err
+			}
+			if len(criteria) > 0 {
+				piece.Criteria, piece.CriteriaRevision = criteria, 1
+			}
+		}
 		out = append(out, piece)
 	}
 	return out, nil
@@ -742,7 +761,7 @@ func (s *Service) Outcomes(uid int64) ([]store.GafferOutcome, error) {
 		return nil, err
 	}
 	for i := range rows {
-		rows[i] = s.withAgentUsage(uid, outcomeView(rows[i]))
+		rows[i] = withoutEvidence(s.withAgentUsage(uid, outcomeView(rows[i])))
 	}
 	return rows, nil
 }
@@ -752,7 +771,7 @@ func (s *Service) Outcome(uid int64, id string) (store.GafferOutcome, error) {
 		return store.GafferOutcome{}, err
 	}
 	o, err := s.store.GafferOutcomeFor(uid, id)
-	return s.withAgentUsage(uid, outcomeView(o)), err
+	return withoutEvidence(s.withAgentUsage(uid, outcomeView(o))), err
 }
 
 // StopOutcome ends the starting of sessions not yet attempted. Sessions
@@ -903,7 +922,7 @@ func autoReportEvent(o store.GafferOutcome) string {
 	var parts []string
 	for _, piece := range o.Sessions {
 		switch piece.State {
-		case "done", "ready_to_merge", "failed", "unfollowed":
+		case "done", "delivery_review", "ready_to_merge", "failed", "unfollowed":
 			parts = append(parts, piece.Key+":"+piece.State)
 		}
 	}
@@ -1197,6 +1216,11 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		next = item.Stage
 	}
 	if next >= len(item.Stages) {
+		// Work the person agreed criteria for is theirs to accept before it is
+		// called finished.
+		if awaitsDelivery(item) {
+			return set("delivery_review", deliveryWaitNote, func(row *store.GafferOutcomeSession) { row.ReviewRevision++ })
+		}
 		if !set("done", "Every stage is done. Check the result; only you mark the work complete.", nil) {
 			return false
 		}
@@ -1206,6 +1230,11 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		return true
 	}
 	stage := item.Stages[next]
+	// The delivery is accepted before anything merges, whoever decides the
+	// merge: accepting it is not approving the merge, which is asked next.
+	if stage.Kind == "merge" && awaitsDelivery(item) {
+		return set("delivery_review", deliveryWaitNote, func(row *store.GafferOutcomeSession) { row.Stage = next; row.ReviewRevision++ })
+	}
 	if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
 		return set("ready_to_merge", mergeWaitNote(item), func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
@@ -1322,8 +1351,28 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		// The merge gate holds on every path into the merge stage, not only on
 		// a hand-over: a pipeline tried again at its merge stage, or one whose
 		// first stage is the merge, waits for the person like any other.
+		if stage.Kind == "merge" && awaitsDelivery(item) {
+			after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "delivery_review", deliveryWaitNote, &wrote, func(row *store.GafferOutcomeSession) { row.ReviewRevision++ }))
+			if err == nil && wrote {
+				s.auditPipeline(after, item.Key)
+			}
+			return err == nil
+		}
 		if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
 			return fail("ready_to_merge", mergeWaitNote(item))
+		}
+		// What merges is what was accepted. A commit that arrived after the
+		// acceptance, or criteria reworded since, were never reviewed: the
+		// delivery goes back to the person, and so does the merge approval.
+		if stage.Kind == "merge" && item.SessionID == "" && item.UnsureRequest == "" && !s.acceptedStillStands(ctx, o, item) {
+			after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "delivery_review", deliveryChangedNote, &wrote, func(row *store.GafferOutcomeSession) {
+				row.DeliveryAccepted, row.MergeApproved = false, false
+				row.ReviewRevision++
+			}))
+			if err == nil && wrote {
+				s.auditPipeline(after, item.Key)
+			}
+			return err == nil
 		}
 		// A stage about to start runs on its backup when its first choice's
 		// plan is running low and the backup's has more left. A launch that

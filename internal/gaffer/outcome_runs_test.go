@@ -50,6 +50,26 @@ type outcomeStarterFake struct {
 	// refusal, when set, is the machine's answer to the nth launch (from 0):
 	// a non-nil error refuses it and nothing starts.
 	refusal func(n int, in OutcomeLaunch) error
+	// work, when set, is what the machine says about the folder a pipeline
+	// works in; worked counts how often it was asked. Without it the folder
+	// is a repository at one fixed commit with no pull request.
+	work   func(dir string, github bool) (terminalproto.InspectResult, error)
+	worked int
+}
+
+// fixedHead is the commit a pipeline's folder is at unless a test says otherwise.
+var fixedHead = strings.Repeat("a", 40)
+
+// OutcomeWorkState reads a pipeline folder's Git state, as the machine would.
+func (f *outcomeStarterFake) OutcomeWorkState(_ context.Context, _ int64, _, dir string, github bool) (terminalproto.InspectResult, error) {
+	f.mu.Lock()
+	f.worked++
+	work := f.work
+	f.mu.Unlock()
+	if work != nil {
+		return work(dir, github)
+	}
+	return terminalproto.InspectResult{Repo: true, Branch: "reet/export", Remote: "acme/billing", Head: fixedHead, Reason: map[bool]string{true: "no_pr"}[github]}, nil
 }
 
 // sessions is how many sessions were really started.

@@ -570,3 +570,74 @@ test('a worker usage limit offers the configured backup and ignores older review
   delete piece.stages[0].nextUsageBackup
   assert.deepEqual(o.waitingDecisions({ sessions: [piece] }, goals)[0].need.choices.map(choice => choice.id), ['replace-worker'])
 })
+
+test('acceptance criteria: empty rows are dropped, each is one line, and the limits are the contract’s', () => {
+  assert.deepEqual(o.cleanCriteria(['  The export\n downloads  as CSV. ', '', '   ']), ['The export downloads as CSV.'])
+  assert.deepEqual(o.cleanCriteria(undefined), [])
+  assert.equal(o.criteriaBlocker(['One', '', 'Two']), '')
+  assert.equal(o.criteriaBlocker(Array.from({ length: 10 }, (_, n) => `c${n}`)), '')
+  // Blank rows are never counted against the ten.
+  assert.equal(o.criteriaBlocker([...Array.from({ length: 10 }, (_, n) => `c${n}`), '', '']), '')
+  assert.match(o.criteriaBlocker(Array.from({ length: 11 }, (_, n) => `c${n}`), '“Export”'), /Keep the acceptance criteria for “Export” to 10 or fewer\./)
+  assert.equal(o.criteriaBlocker(['é'.repeat(120)]), '')
+  assert.equal(o.criteriaBlocker(['é'.repeat(121)]), 'Shorten criterion 1 to 240 bytes.')
+  assert.equal(o.criteriaBlocker(['ok', 'x'.repeat(241)], '“A”'), 'Shorten criterion 2 for “A” to 240 bytes.')
+})
+
+test('a plan with a criterion over the limit cannot be approved, and one with criteria or none can', () => {
+  const base = { key: 'a', title: 'Export', prompt: 'Do it. Do not merge.' }
+  assert.equal(o.planBlocker([{ ...base, criteria: ['Passes the tests.'] }], 5), '')
+  assert.equal(o.planBlocker([{ ...base }], 5), '')
+  assert.match(o.planBlocker([{ ...base, criteria: ['x'.repeat(241)] }], 5), /Shorten criterion 1 for “Export” to 240 bytes/)
+})
+
+test('a pipeline in delivery review waits for the person, with its own word, tone and stage mark', () => {
+  assert.deepEqual(o.pipelineStatus({ state: 'delivery_review' }, false), { label: 'Delivery review', tone: 'you' })
+  assert.deepEqual(o.pipelineStatus({ state: 'ready_to_merge' }, false), { label: 'Ready to merge', tone: 'you' })
+  const piece = { key: 'a', title: 'A', state: 'delivery_review', stage: 1, stages: [{ kind: 'code', tool: 'claude', state: 'done' }, { kind: 'review', tool: 'claude', state: 'running' }] }
+  assert.deepEqual(o.track(piece).map(node => node.state), ['done', 'waiting'])
+  assert.equal(o.outcomeFinished({ state: 'settled', sessions: [piece] }), false)
+  assert.deepEqual(o.factoryTally([{ sessions: [piece, { state: 'ready_to_merge' }, { state: 'done' }] }], new Set()), { running: 0, needYou: 1, ready: 1, done: 1 })
+  assert.equal(o.outcomeSummary([{ state: 'delivery_review' }, { state: 'following' }]), 'Reet. Gaffer owns this outcome: 2 started and followed.')
+  const members = o.factoryMembers([{ id: 'o', objective: 'x', sessions: [{ key: 'a', state: 'delivery_review', title: 'A', sessionId: 's', stage: 0, stages: [{ kind: 'code', sessionId: 's' }] }] }])
+  assert.equal(members.get('s').working, true)
+})
+
+test('a delivery review says its status from the outcome list alone, and offers to review it', () => {
+  assert.equal(o.deliveryWhy({ criteria: [{}, {}, {}] }), 'Delivery review · 3 criteria')
+  assert.equal(o.deliveryWhy({ criteria: [{}] }), 'Delivery review · 1 criterion')
+  assert.equal(o.deliveryWhy({ criteria: [{}, {}], deliveries: [{ decision: 'send_back' }] }), 'Delivery review · 2 criteria · sent back once before')
+  assert.equal(o.deliveryWhy({ criteria: [{}], deliveries: [{ decision: 'send_back' }, { decision: 'send_back' }, { decision: 'accept' }] }), 'Delivery review · 1 criterion · sent back twice before')
+  assert.equal(o.deliveryWhy({ criteria: [{}], deliveries: [{ decision: 'accept' }] }), 'Delivery review · 1 criterion')
+  const piece = { key: 'a', title: 'Export API', state: 'delivery_review', stage: 2, criteria: [{ id: '1' }, { id: '2' }, { id: '3' }], stages: [{ kind: 'code' }, { kind: 'review' }, { kind: 'test' }] }
+  const [decision] = o.waitingDecisions({ sessions: [piece] }, new Map())
+  assert.equal(decision.kind, 'delivery')
+  assert.equal(decision.need.why, 'Delivery review · 3 criteria')
+  assert.deepEqual(decision.need.choices.map(choice => [choice.id, choice.label, !!choice.primary]), [['review', 'Review delivery', true], ['open', 'Open the session', false]])
+  assert.equal(o.deliveryHref('oo', 'a'), '/factory?pipeline=oo.a&review=1')
+  assert.equal(o.deliveryAnchor('oo', 'a'), 'delivery-oo-a')
+})
+
+test('a pipeline that came back to review after acceptance says so, and what it is waiting for', () => {
+  const note = 'Delivery review. The work changed after you accepted it: a new commit arrived, the criteria were reworded, or the commit could not be read. Nothing merges until you accept what is there now.'
+  assert.equal(o.changedAfterAccept(note), true)
+  assert.equal(o.changedAfterAccept('Waiting for your delivery review.'), false)
+  assert.equal(o.changedAfterAccept(undefined), false)
+  assert.equal(o.deliveryWhy({ criteria: [{}, {}, {}], note }), 'Delivery review · changed after you accepted it · 3 criteria')
+  const piece = { key: 'a', title: 'A', state: 'delivery_review', note, criteria: [{}, {}, {}], stages: [{ kind: 'code' }] }
+  assert.equal(o.waitingDecisions({ sessions: [piece] }, new Map())[0].need.why, 'Delivery review · changed after you accepted it · 3 criteria')
+})
+
+test('a revised plan keeps the criteria typed for its pipelines, by title and then by place', () => {
+  const typed = [{ title: 'Export API', criteria: ['Downloads as CSV.'] }, { title: 'Docs' }, { title: 'Importer', criteria: ['Retries twice.'] }]
+  assert.deepEqual(o.carryCriteria(typed, ' Importer ', 0), { criteria: ['Retries twice.'] })
+  assert.deepEqual(o.carryCriteria(typed, 'Export, end to end', 0), { criteria: ['Downloads as CSV.'] })
+  assert.deepEqual(o.carryCriteria(typed, 'Something new', 1), {})
+  // Reordered: a pipeline that had no criteria keeps none, whatever now sits where it was.
+  assert.deepEqual(o.carryCriteria(typed, 'Docs', 0), {})
+  assert.deepEqual(o.carryCriteria(typed, 'Docs', 2), {})
+  assert.deepEqual(o.carryCriteria(typed, 'Something new', 7), {})
+  const copy = o.carryCriteria(typed, 'Export API', 0)
+  copy.criteria.push('x')
+  assert.deepEqual(typed[0].criteria, ['Downloads as CSV.'])
+})

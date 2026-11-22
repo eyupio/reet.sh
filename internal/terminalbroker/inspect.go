@@ -50,7 +50,17 @@ func (b *Broker) InspectSession(ctx context.Context, uid int64, session, view, p
 // to learn which GitHub repository its origin is. Sent only to a connection
 // that reported the inspect capability.
 func (b *Broker) InspectFolder(ctx context.Context, uid int64, agent, dir string) (terminalproto.InspectResult, error) {
-	req := terminalproto.Inspect{Dir: dir, View: "status"}
+	return b.InspectFolderView(ctx, uid, agent, dir, "status")
+}
+
+// InspectFolderView is InspectFolder for the status or the GitHub view. The
+// folder is the controller's own record of where a pipeline works, on a
+// machine the account owns.
+func (b *Broker) InspectFolderView(ctx context.Context, uid int64, agent, dir, view string) (terminalproto.InspectResult, error) {
+	if view != "status" && view != "github" {
+		return terminalproto.InspectResult{}, terminalproto.ErrInvalid
+	}
+	req := terminalproto.Inspect{Dir: dir, View: view}
 	p, caps, err := b.machinePeer(uid, agent, req)
 	if err != nil {
 		return terminalproto.InspectResult{}, err

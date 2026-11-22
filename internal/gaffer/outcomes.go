@@ -64,6 +64,11 @@ type OutcomeSession struct {
 	// own setting for this pipeline.
 	Stages    []OutcomeStageInput `json:"stages,omitempty"`
 	AutoMerge *bool               `json:"autoMerge,omitempty"`
+	// Criteria are the acceptance criteria the person agreed for this
+	// pipeline. They are the person's own: a plan from Gaffer's provider has
+	// no field for them. A pipeline with criteria stops for the person's
+	// delivery review before it merges or finishes.
+	Criteria []string `json:"criteria,omitempty"`
 }
 
 type OutcomePlan struct {

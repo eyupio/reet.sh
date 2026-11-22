@@ -3,7 +3,7 @@
 
   let { id, items, opener, open = $bindable(false) }: {
     id: string
-    items: (Tab & { group: string })[]
+    items: (Tab & { group: string; note?: string })[]
     opener?: HTMLElement
     open?: boolean
   } = $props()
@@ -35,13 +35,13 @@
 <nav {id} popover="auto" aria-label="More pages" class:bottom={atBottom} bind:this={panel}
   ontoggle={event => { open = event.newState === 'open' }}>
   {#each groups as group (group.label)}
-    <section aria-label={group.label} class:tools={group.label === 'Skills & tools'} style:--rows={groups.length - 1}>
+    <section aria-label={group.label} class:tools={group.label === 'Skills & tools'}>
       <h2>{group.label}</h2>
       {#each group.items as item (item.href)}
         {@const external = item.href.startsWith('http')}
         <a href={item.href} aria-current={item.current ? 'page' : undefined}
           target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined}
-          onclick={() => panel?.hidePopover()}>{item.label}</a>
+          onclick={() => panel?.hidePopover()}>{#if item.note}<span class="label"><span>{item.label}</span><small>{item.note}</small></span>{:else}{item.label}{/if}</a>
       {/each}
     </section>
   {/each}
@@ -60,12 +60,13 @@
   nav:popover-open { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .bottom { top: auto; bottom: calc(var(--trigger-edge, 64px) + 6px); }
   section { min-width: 0; }
-  section.tools { grid-row: span var(--rows, 2); }
+  section.tools { grid-row: span 2; }
   h2 { margin: 3px 10px 4px; color: var(--muted); font: 600 .875rem/1.35 var(--sans); }
   a {
     display: flex; align-items: center; min-height: 38px; padding: 6px 10px; border-radius: 8px;
     color: var(--ink); font-size: .875rem; text-decoration: none; overflow-wrap: anywhere;
   }
+  .label { display: grid; gap: 2px; } .label small { color: var(--muted); font-size: .875rem; }
   a:hover, a[aria-current='page'] { background: var(--tint); }
   a[aria-current='page'] { font-weight: 600; box-shadow: inset 3px 0 0 var(--accent-text); }
   a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }

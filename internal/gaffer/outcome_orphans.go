@@ -104,7 +104,7 @@ func (s *Service) StopFollowingOutcome(uid int64, id string, revision int64) (st
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
 			switch row.State {
-			case "following", "ready_to_merge", "advancing", "starting", "waiting":
+			case "following", "delivery_review", "ready_to_merge", "advancing", "starting", "waiting":
 				if row.SessionID == "" {
 					row.State, row.Note = "cancelled", "Not started: you stopped this outcome first."
 				} else {
@@ -175,7 +175,7 @@ func outcomeWorksIn(o store.GafferOutcome, sessionID string) bool {
 			continue
 		}
 		switch piece.State {
-		case "following", "starting", "advancing", "waiting", "ready_to_merge":
+		case "following", "starting", "advancing", "waiting", "delivery_review", "ready_to_merge":
 			return true
 		}
 	}

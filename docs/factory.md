@@ -27,6 +27,9 @@ To start one, choose **New Factory outcome**:
    else, and proposes the pipelines. **Write the plan myself** skips this.
 3. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the stages each runs through.
    **Reply to Gaffer** asks for a revised proposal.
+   Under **Acceptance criteria** you can write what must be true for a pipeline to count as delivered, up to ten
+   one-line criteria of up to 240 bytes each. A pipeline with criteria stops for a [delivery review](#delivery-review)
+   before it merges or finishes; one without them runs as before.
 4. Set the limits, **Approvals**, **Decisions** and the merge, described below, then choose **Approve and start**.
 
 Nothing starts until you approve. After that the controller does the starting and the moving on, so you can close the
@@ -51,7 +54,7 @@ open. **Other sessions** also opens by itself when a session in it needs you, an
 until you close it, so answering the last one does not close it under you. A closed section still says what is in
 it: how long the oldest has waited, or the first titles.
 
-A pipeline's status is **Decision**, **Approval**, **Ready to merge**, **Agent stopped** or **Failed** while it waits
+A pipeline's status is **Decision**, **Approval**, **Delivery review**, **Ready to merge**, **Agent stopped** or **Failed** while it waits
 for you, **Running** or **Waiting its turn** while it works, and **Finished** or **Stopped** once it ends. Each item in
 the list shows its status, its title, the outcome it is for and its stages.
 
@@ -238,6 +241,58 @@ switch at any time.
   stage starts that way.
 - An outcome started over MCP never runs on YOLO.
 
+## Delivery review
+
+A pipeline whose criteria you agreed when you approved the plan (or in **Add pipelines**) stops in **Delivery review**
+when its last stage before the merge is handed over, or when every stage is handed over and it has no merge stage.
+It is in **Waiting for you**, and its button is **Review delivery**. Home's **Waiting for you** shows it as
+"Delivery review · 3 criteria", read from the outcome list without asking the machine, and its button opens the Factory
+page on that pipeline with the review in view.
+
+The review is a card on the pipeline's page. Opening it asks the pipeline's machine for the folder's current Git commit,
+which can take up to about 15 seconds; **Retry** tries again if the read fails. The card shows:
+
+- the **reviewed commit**, with its state: **Verified on the machine**, **Not a Git repository** (a decision is then
+  recorded with no commit) or **Could not be verified**, with the reason. Nothing can be decided while the commit
+  cannot be verified. It also shows the branch, the repository and the pull request, and says so when the pull request's
+  head is not the reviewed commit.
+- each criterion with its status, in words and a shape: **Passed**, **Needs work** or **Unverified**, and the evidence
+  for it. Evidence is a **Reviewer note** (yours, labelled as such), an **Artefact** link inside the pipeline's
+  repository, or a **GitHub check** read from the machine. Evidence added for an earlier commit, or before the
+  criterion's words last changed, is shown dimmed as **Earlier commit** or **Earlier criteria** and never counts.
+  A criterion with no counting evidence, a check still running or missing, or a pull request on another commit is
+  **Unverified**.
+- **Add evidence** on each criterion, **Accept delivery** and **Send back** side by side, and **Edit criteria**.
+
+**Accept delivery** asks you to confirm, and the confirmation says how many criteria are not **Passed** when any are.
+It records who accepted, when, and which commit. **Accepting the delivery is not approving the merge**: a pipeline that
+waits for your approval then stops at **Ready to merge**, where **Approve the merge** is still its own action, and one
+set to merge by itself carries on to its merge stage. **Send back** asks for the stage to do again and your notes (the
+notes are required when no criterion is marked **Needs work**). That stage and the later ones are done again in a fresh
+session in the same folder and branch, and the agent is told which criteria failed or were not verified, and your notes.
+
+If something changed while you were looking (a new commit arrived, someone added evidence or edited the criteria, a
+GitHub check changed state, or the delivery was already decided) the decision is refused, the card says what changed, reads the review again and keeps what you typed, so
+you can decide again on what is now shown. A decision names the criteria revision, the review revision, the commit and
+the statuses you were shown, and an interrupted request that you send again is recorded once. When a delivery was
+accepted on a commit that is no longer the current one, the card says so.
+
+After you accept, the pipeline moves on. If, when its merge is about to start, the commit is not the one you accepted,
+the criteria were reworded, or the commit cannot be read, the pipeline comes back to **Delivery review**: its note
+starts "Delivery review. The work changed after you accepted it", your acceptance and any merge approval are withdrawn,
+and nothing merges until you accept what is there now. **Send back** from **Ready to merge** also clears the
+acceptance. The merge itself is never a stage you can send back to, so a pipeline with no stage before its merge has no
+**Send back** in its review. The plain **Send back…** is not offered while a pipeline is in delivery review; the card's
+**Send back** is the way.
+
+Criteria can be edited while a pipeline waits, runs, is in delivery review, has stopped following, or waits at **Ready
+to merge** (changing their words there withdraws your acceptance and the merge approval). They cannot be edited while
+the pipeline moves between stages, or once it has finished or failed, and a pipeline in delivery review cannot have
+every criterion removed.
+
+Gaffer never accepts a delivery for you, and there is no MCP tool for it. A read-only account, an API token and an MCP
+connection cannot change a review. Outcomes saved before criteria existed have no review and behave as before.
+
 ## Merging
 
 A pipeline with a merge stage either waits for you or merges by itself. The **Merge** line in **Settings for this
@@ -253,6 +308,8 @@ outcome** says which.
 - On a YOLO outcome, merging by itself takes a separate confirmation for each pipeline. Until you give it the Merge
   line reads **Waits for you (YOLO)** and the pipeline stops at Ready to merge, whatever was ticked at approval.
 - Added pipelines and pipelines started over MCP always stop at Ready to merge.
+- A pipeline in [delivery review](#delivery-review) reaches Ready to merge only after you accept its delivery, and
+  accepting it does not approve the merge.
 - A merge cannot be undone from reet.
 
 ## Stopping, retrying and sending back

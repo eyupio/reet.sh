@@ -20,7 +20,7 @@ export type SpareReadiness = {
   agent: string; model: string; effort: string
   /** On this machine and signed in: able to take over at all. */
   eligible: boolean
-  /** Whether plan figures will balance the stage onto it: both its own and the first choice's are fresh. */
+  /** Whether balancing can move a stage onto it: the first choice's figures are fresh and it is signed in. */
   balances: boolean
   /** Its own or the first choice's plan figures are old: they will not be used to balance. */
   stale: boolean
@@ -129,18 +129,27 @@ function effortFact(input: ReadinessInput): Fact {
   return fact('ready', `${capital(effort)} effort`, `${capital(effort)} effort is one the machine reports for ${name(member.tool)}.`)
 }
 
+/** One backup, judged as the controller balances (internal/gaffer/outcome_balance.go): a stage moves to a backup only when
+ *  the first choice's figures are fresh and low and the backup is signed in. A backup's own figures only decide whether
+ *  it is compared: old or missing ones let it take over without a comparison. */
 function spareReadiness(spare: Choice, first: AgentAccount | undefined, input: ReadinessInput): SpareReadiness {
-  const { machine, accounts, now } = input, agent = name(spare.tool), host = machine?.host || 'this machine'
+  const { machine, accounts, now } = input, agent = name(spare.tool), host = machine?.host || 'this machine', firstName = name(input.member.tool)
   const out = { agent, model: spare.model.trim(), effort: spare.effort ?? '' }
-  if (!input.tools.includes(spare.tool)) return { ...out, eligible: false, balances: false, stale: false, reason: `${agent} is not on ${host}, so it cannot take over.` }
-  const account = accounts?.state === 'read' ? accountFor(accounts, spare.tool) : undefined
-  if (account?.state === 'none') return { ...out, eligible: false, balances: false, stale: false, reason: `${signInLine(account)}, so it cannot take over.` }
-  const own = figures(account, now), firstFigures = figures(first, now)
-  const old = (a: AgentAccount | undefined, who: string) => `${who}’s plan figures were read ${readAgo(a?.limitsAt, now)}; figures over 6 hours old are not used to balance.`
-  if (accounts?.state !== 'read') return { ...out, eligible: true, balances: false, stale: false, reason: 'Plan figures are not available, so it will not be used to balance.' }
-  if (firstFigures !== 'fresh') return { ...out, eligible: true, balances: false, stale: firstFigures === 'stale', reason: firstFigures === 'stale' ? old(first, name(input.member.tool)) : `${name(input.member.tool)} has no plan figures, so it will not be used to balance.` }
-  if (own !== 'fresh') return { ...out, eligible: true, balances: false, stale: own === 'stale', reason: own === 'stale' ? old(account, agent) : `${agent} has no plan figures, so it will not be used to balance.` }
-  return { ...out, eligible: true, balances: true, stale: false, reason: '' }
+  const no = (reason: string): SpareReadiness => ({ ...out, eligible: false, balances: false, stale: false, reason })
+  const yes = (balances: boolean, stale: boolean, reason: string): SpareReadiness => ({ ...out, eligible: true, balances, stale, reason })
+  if (!input.tools.includes(spare.tool)) return no(`${agent} is not on ${host}, so it cannot take over.`)
+  const read = accounts?.state === 'read'
+  const account = read ? accountFor(accounts, spare.tool) : undefined
+  if (account && account.state !== 'signed_in') return no(`${signInLine(account)}, so it cannot take over.`)
+  const stays = 'so stages stay on the first choice until it stops at its limit.'
+  if (!read) return yes(false, false, `Plan figures are not available, ${stays}`)
+  if (!account) return yes(false, false, `${host} said nothing about ${agent}’s sign-in, so it will not be used to balance.`)
+  const one = figures(first, now), own = figures(account, now)
+  const old = (who: string, at: AgentAccount | undefined) => `${who}’s plan figures were read ${readAgo(at?.limitsAt, now)}; figures over 6 hours old are ignored`
+  if (one !== 'fresh') return yes(false, one === 'stale', one === 'stale' ? `${old(firstName, first)}, ${stays}` : `${firstName} has no plan figures, ${stays}`)
+  if (own === 'stale') return yes(true, true, `${old(agent, account)}, so it takes over without a comparison when ${firstName}’s plan runs low.`)
+  if (own === 'absent') return yes(true, false, `${agent} has no plan figures, so it takes over without a comparison when ${firstName}’s plan runs low.`)
+  return yes(true, false, '')
 }
 
 /** What one crew tier will run on this machine, and how sure that is. */

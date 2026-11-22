@@ -106,8 +106,8 @@ test('every backup is listed in order with its own eligibility', () => {
     accounts: read(signed('claude'), signed('codex', { limitsAt: now - 8 * HOUR }), { tool: 'opencode', state: 'none', limitsState: 'not_asked' }),
     spares: [{ tool: 'codex', model: 'gpt', effort: '' }, { tool: 'opencode', model: '' }, { tool: 'cline', model: '' }, { tool: 'claude', model: 'claude-small', effort: 'low' }],
   }))
-  assert.deepEqual(s.backups.map(b => [b.agent, b.eligible, b.balances, b.stale]), [['Codex', true, false, true], ['OpenCode', false, false, false], ['Cline', false, false, false], ['Claude Code', true, true, false]])
-  assert.match(s.backups[0].reason, /Codex’s plan figures were read 8 h ago; figures over 6 hours old are not used to balance/)
+  assert.deepEqual(s.backups.map(b => [b.agent, b.eligible, b.balances, b.stale]), [['Codex', true, true, true], ['OpenCode', false, false, false], ['Cline', false, false, false], ['Claude Code', true, true, false]])
+  assert.match(s.backups[0].reason, /Codex’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low\./)
   assert.match(s.backups[1].reason, /No sign-in found on this machine, so it cannot take over/)
   assert.match(s.backups[2].reason, /Cline is not on workshop, so it cannot take over/)
   assert.equal(s.backups[3].reason, ''); assert.equal(s.backups[3].model, 'claude-small')
@@ -115,10 +115,13 @@ test('every backup is listed in order with its own eligibility', () => {
 })
 
 test('stale or absent figures on the first choice mean no balancing, and absent figures are only a note', () => {
+  // A backup with no figures of its own still takes over once the first choice runs low: it is not compared.
+  const bare = r.launchReadiness(input({ accounts: read(signed('claude'), signed('codex', { limits: [], limitsState: 'unsupported' })), spares: [{ tool: 'codex', model: '' }] }))
+  assert.deepEqual([bare.backups[0].eligible, bare.backups[0].balances, bare.backups[0].stale], [true, true, false]); assert.equal(bare.level, 'ready')
   const stale = r.launchReadiness(input({ accounts: read(signed('claude', { limitsAt: now - 7 * HOUR }), signed('codex')), spares: [{ tool: 'codex', model: '' }] }))
-  assert.equal(stale.backups[0].balances, false); assert.match(stale.backups[0].reason, /Claude Code’s plan figures were read 7 h ago/); assert.equal(stale.level, 'look')
+  assert.equal(stale.backups[0].balances, false); assert.match(stale.backups[0].reason, /Claude Code’s plan figures were read 7 h ago; figures over 6 hours old are ignored, so stages stay on the first choice/); assert.equal(stale.level, 'look')
   const none = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [], limitsState: 'unsupported' }), signed('codex')), spares: [{ tool: 'codex', model: '' }] }))
-  assert.equal(none.backups[0].balances, false); assert.match(none.backups[0].reason, /Claude Code has no plan figures/); assert.equal(none.level, 'ready')
+  assert.equal(none.backups[0].balances, false); assert.match(none.backups[0].reason, /Claude Code has no plan figures, so stages stay on the first choice/); assert.equal(none.level, 'ready')
   const blind = r.launchReadiness(input({ accounts: null, spares: [{ tool: 'codex', model: '' }] }))
   assert.equal(blind.backups[0].eligible, true); assert.equal(blind.backups[0].balances, false)
 })

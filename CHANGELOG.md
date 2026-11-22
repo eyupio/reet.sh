@@ -5,6 +5,20 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Launch readiness before you approve a Factory plan**: each stage of the plan, and each part of a split stage, now
+  says the machine it will run on, where its agent came from (your saved crew, your choice here, or the outcome's agent
+  because no crew is saved or the saved agent is not on the machine), what to look at, and every backup in order with
+  whether it can take over. A summary above **Approve and start** counts the stages that are ready. A model the
+  machine does not list, an old list, no sign-in found, sign-ins the machine could not read, old plan figures and an
+  effort the agent does not offer are each worded differently from a model or effort you left to the agent, which is
+  shown as your choice. Where something was not checked, the stage says its **Applied** line confirms it once the stage
+  starts. The machine is read again when the plan opens. Only an agent that is not on the machine now, or a machine
+  that is not connected, holds **Approve and start**, with the reason beside it; everything else is a warning.
+- **A usage limit is explained, with both ways on, on Home and in the Factory**: a pipeline whose worker reached its
+  plan's limit now says which agent ran out, what **Continue with** the backup and **Choose another model…** each do,
+  and, after a backup has already taken over once, that this is the second stop and where the stage started. Home's
+  **Waiting for you** and the Factory list show both as buttons, on a phone too, and the detail adds the plan left and
+  when it resets.
 - **Delivery review for Factory pipelines**: when you approve a plan, or add pipelines, you can write acceptance
   criteria for each pipeline (up to ten, one line each). A pipeline with criteria stops in **Delivery review** before it
   merges or finishes. The review card on the Factory page shows the reviewed Git commit, each criterion as **Passed**,

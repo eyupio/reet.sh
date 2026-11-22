@@ -774,12 +774,12 @@ try {
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}
       }
-      // Plan figures read long ago on a backup say they will not be used to balance; the first backup is stale, the others are not.
+      // Plan figures read long ago on a backup are ignored when balancing: it takes over without a comparison, and the person is told.
       {
         const {w,row,approve}=await planWith(width,theme,{accounts:accountsOf(acct('claude'),acct('opencode',{limitsAt:Date.now()-8*3600000}))})
         try{
           const review=row('review')
-          await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are not used to balance.')
+          await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low.')
           await expect(review.getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Look at')
           await expect(approve).toBeEnabled()
         }finally{await w.context.close()}

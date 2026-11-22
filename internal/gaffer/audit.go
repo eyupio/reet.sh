@@ -79,6 +79,8 @@ func (s *Service) auditPipeline(o store.GafferOutcome, key string) {
 		switch row.State {
 		case "following":
 			action = "gaffer-stage-started"
+		case "delivery_review":
+			action = "gaffer-pipeline-waiting-delivery"
 		case "ready_to_merge":
 			action = "gaffer-pipeline-waiting-merge"
 		case "done":

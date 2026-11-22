@@ -1,5 +1,75 @@
 # Reet central-control implementation handoff
 
+## FACTORY-DELIVERY-REVIEW-1: delivery review backend (22 November 2026)
+
+Stages 0 and 1 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract both stages build
+to, with the states, the status rules, the conflict codes and the routes, is
+[docs/handoffs/factory-delivery-review-design.md](docs/handoffs/factory-delivery-review-design.md).
+
+**What changed.** A pipeline can be approved with acceptance criteria (`criteria` on each pipeline of the plan). Such a
+pipeline stops in a new state, `delivery_review`, before its merge stage or before it is called done, and waits for the
+person to **accept** the delivery or **send it back**. A pipeline without criteria, which is every outcome saved
+before this, never enters the state.
+
+- `internal/store/store_gaffer_outcomes.go`: `Criteria`, `CriteriaRevision`, `ReviewRevision`, `Evidence`,
+  `Deliveries` and `DeliveryAccepted` on the pipeline, inside the outcome document. No migration: the fields are
+  absent from old rows and omitted when empty.
+- `internal/gaffer/outcome_delivery.go`: the review read, criteria edits, evidence and the decision.
+  `outcome_runs.go` holds the gate on all three ways into the merge stage or the end, and tells every stage's agent the
+  criteria. `outcome_manage.go` shares one send-back path, which now also clears an acceptance.
+- `internal/api/gaffer_delivery.go`: four routes under `…/sessions/{key}/delivery`, the owning browser account's only.
+- `internal/terminalproto`, `terminalhost`, `terminalbroker`: the inspect answer gains the folder's `head` commit and
+  the pull request's `headOid`. Both are optional, so the inspect feature name is unchanged. A machine that predates
+  them reports neither, and the review then says the commit is **unverified** and refuses a decision until it updates.
+
+**Rules worth knowing.**
+
+- A decision names the criteria revision, the review revision, the commit and the statuses the person was shown. The
+  controller reads the head from the machine again, works the statuses out again, and writes only if the pipeline is
+  still waiting on the same two revisions. Otherwise the answer is 409 with a code.
+- A request ID makes a decision idempotent: the same request again answers the recorded decision, also after the
+  pipeline moved on. Two decisions at once leave one.
+- Accepting never sets `mergeApproved`. A pipeline whose merge waits for you still stops at `ready_to_merge`.
+- What merges is what was accepted: the head is read again when the merge stage is about to start, and a commit that
+  arrived since, or criteria reworded since, send the pipeline back to `delivery_review` with the acceptance and the
+  merge approval cleared.
+- A delivery is sent back to a work stage, never to the merge, and a pipeline in `delivery_review` leaves it only by
+  a recorded decision: the plain send-back, on the page or over MCP, is refused there.
+- A project reet knows is a repository is never decided without a commit, whatever its machine says of the folder.
+- Evidence counts only for the current commit and the current wording of its criterion. A GitHub check counts only
+  while GitHub's pull request is at the reviewed commit, and is read from the machine each time, never from the
+  request or from what was saved.
+- The head is read just before the write. A commit that lands between that read and the write is not seen; the
+  decision records the commit that was read.
+- Gaffer, given an outcome's decisions, cannot accept a delivery, and there is no MCP tool for it.
+- The outcome reads the Factory page polls leave `evidence` out; only the review's own read carries it.
+
+**Baseline (stage 0).** On main at `b3ad27c`, a synthetic Factory of 6 outcomes × 5 pipelines × 8 stages reads as
+276,692 bytes per refresh, every 5 seconds. The long-chat baseline and time to a visible decision were not captured;
+they need the browser harness and are left for stage 4.
+
+**Ordering test triage (stage 0).** `TestTemporaryFolderProjectsListEveryAccountsOldestFirst` orders by
+`created_at,id`. Two projects made in the same millisecond tie on `created_at` and fall to `id`, which is random, so
+the test can list them either way. It did not interfere with this work and is unchanged here; it wants its own small
+PR that either gives the fixture distinct times or settles the tie-break.
+
+**Tests.** `internal/gaffer/outcome_delivery_test.go` covers the gate and the separate merge approval, a pipeline
+without criteria, a repeated and an altered request, two reviewers at once, changed criteria, a new commit, an
+unreachable or older machine, checks read from GitHub, artefact links, send-back into rework, another account, a
+read-only and a disabled account, and another pipeline's criterion. `internal/store/store_gaffer_delivery_test.go`
+opens and writes back an outcome in the old format. `internal/api/gaffer_delivery_test.go` holds the route refusals,
+and the inspect tests cover the head commit on a real repository.
+
+**Independent review.** A separate reviewer, given the diff and the contract and not this account of them, found one
+blocker and several smaller faults, all fixed here with a test each: a send-back that lost a race answered 400 and
+could stop the goal of a stage the winning decision had started; send-back to the merge stage redid nothing; an
+encoded `..` passed the artefact allowlist; a commit added after acceptance could merge unreviewed; checks sharing a
+name could hide a failure; long handovers could push criteria out of a stage's prompt; `not_repo` was trusted for a
+repository; evidence at its cap could drop a failing item. Left as they are: the control routes other than the two
+outcome reads still answer with evidence in the outcome, and Gaffer's chat context does not yet mention a review.
+
+**Not done.** The UI is stage 2, in its own pull request on top of this one. Launch readiness, performance work and
+templates are later stages.
 ## DECISION-TEST-RACE-1: the lost-decision test no longer races the supervisor (22 November 2026)
 
 The `test` job for #876 failed once in `TestAStopWhoseAnswerNeverCameIsAskedAgain` with "That outcome changed. Reload

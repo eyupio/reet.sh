@@ -60,6 +60,11 @@ func TestInspectCheckoutAndWorktree(t *testing.T) {
 	if r.Reason != "" || r.Branch != "main" || r.Changed != 2 || !r.CountsKnown {
 		t.Fatalf("checkout %+v", r)
 	}
+	// The commit the folder is at travels with its status, so a decision about
+	// the work can name what was looked at.
+	if want := strings.TrimSpace(inspectGit(t, repo, "rev-parse", "HEAD")); r.Head != want || !terminalproto.ValidCommit(r.Head) {
+		t.Fatalf("head %q, want %q", r.Head, want)
+	}
 	for _, f := range r.Files {
 		if f.Path == "file.txt" && (f.Added != 2 || f.Removed != 1) {
 			t.Fatalf("counts %+v", f)
@@ -164,6 +169,10 @@ func TestInspectGitHubRemoteAndPriority(t *testing.T) {
 	assertInspect(t, r)
 	if r.Pull == nil || r.Pull.Checks[0].Name != "fail" || r.Pull.Mergeable != "CONFLICTING" {
 		t.Fatalf("github %+v", r)
+	}
+	// This reply carried no head commit, as an older GitHub CLI's would not: it is absent, not invented.
+	if r.Pull.HeadOID != "" {
+		t.Fatalf("pull head invented: %q", r.Pull.HeadOID)
 	}
 	// Failures sort first; the passing check keeps the times GitHub reported.
 	if r.Pull.Checks[1].StartedAt == 0 || r.Pull.Checks[1].CompletedAt == 0 {
@@ -426,5 +435,34 @@ func TestTheInspectReplyStillFitsWithTheExtraFieldsAndManyChecks(t *testing.T) {
 	assertInspect(t, r)
 	if r.Pull == nil || r.Pull.Reviews == nil || !r.Pull.More || len(r.Pull.Checks) == 0 {
 		t.Fatalf("truncation lost the pull request: %+v", r.Pull)
+	}
+}
+
+// The pull request's own head commit is what its checks ran on. It is kept
+// when GitHub reports a full object name and dropped when it does not, and a
+// repository with no commit yet reports no head of its own.
+func TestThePullRequestHeadCommitIsReadAndAnEmptyRepositoryHasNone(t *testing.T) {
+	home, repo := inspectRepo(t)
+	bin := filepath.Join(home, "bin")
+	os.Mkdir(bin, 0700)
+	oid := strings.Repeat("c3", 20)
+	for reported, want := range map[string]string{oid: oid, "not-a-commit": ""} {
+		script := "#!/bin/sh\nprintf '%s' '{\"number\":7,\"title\":\"Build\",\"url\":\"https://github.com/o/r/pull/7\",\"state\":\"MERGED\",\"headRefOid\":\"" + reported + "\"}'\n"
+		os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0700)
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		git := func(...string) ([]byte, error) { return []byte("https://github.com/o/r.git"), nil }
+		r := inspectGitHub(context.Background(), repo, git, terminalproto.InspectResult{Branch: "main"})
+		assertInspect(t, r)
+		if r.Pull == nil || r.Pull.HeadOID != want {
+			t.Fatalf("pull head for %q: %+v", reported, r.Pull)
+		}
+	}
+	empty := filepath.Join(home, "empty")
+	os.Mkdir(empty, 0700)
+	inspectGit(t, empty, "init", "-b", "main")
+	r := InspectSession(t.Context(), home, terminalproto.Inspect{Dir: empty, View: "status"})
+	assertInspect(t, r)
+	if !r.Repo || r.Head != "" {
+		t.Fatalf("a repository with no commit: %+v", r)
 	}
 }

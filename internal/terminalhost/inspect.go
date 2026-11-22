@@ -87,6 +87,13 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	filterArgs = offArgs
 	branch, _ := git("symbolic-ref", "--quiet", "--short", "HEAD")
 	r.Branch = inspectPlain(strings.TrimSpace(string(branch)), 1024)
+	// The commit the folder is at, so a decision about the work can name what
+	// was looked at. A repository with no commit yet has none.
+	if head, err := git("rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err == nil {
+		if oid := strings.TrimSpace(string(head)); terminalproto.ValidCommit(oid) {
+			r.Head = oid
+		}
+	}
 	// The page links the repository before any pull request exists, so the status
 	// view reports it too. A diff preview has no use for it.
 	if req.View != "diff" {
@@ -397,7 +404,7 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 	// Only small scalar fields are asked for here. Review bodies and commit lists can
 	// overrun the output cap and would turn the whole read into github_unavailable;
 	// reviews, requests and auto-merge come from the bounded GraphQL read below.
-	out, errOut, err := inspectRunGH(ctx, gh, dir, "pr", "view", r.Branch, "--repo", repo, "--json", "number,title,url,state,isDraft,reviewDecision,mergeable,additions,deletions,statusCheckRollup,createdAt,mergedAt,closedAt,baseRefName,headRefName")
+	out, errOut, err := inspectRunGH(ctx, gh, dir, "pr", "view", r.Branch, "--repo", repo, "--json", "number,title,url,state,isDraft,reviewDecision,mergeable,additions,deletions,statusCheckRollup,createdAt,mergedAt,closedAt,baseRefName,headRefName,headRefOid")
 	if err != nil {
 		r.Reason = "github_unavailable"
 		if strings.Contains(strings.ToLower(string(errOut)), "no pull requests found") {
@@ -412,7 +419,7 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		Additions, Deletions                         int
 		StatusCheckRollup                            []struct{ Name, Context, Status, Conclusion, State, DetailsURL, TargetURL, StartedAt, CompletedAt string }
 		CreatedAt, MergedAt, ClosedAt                string
-		BaseRefName, HeadRefName                     string
+		BaseRefName, HeadRefName, HeadRefOid         string
 	}
 	if json.Unmarshal(out, &pr) != nil {
 		r.Reason = "github_unavailable"
@@ -421,6 +428,9 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 	r.Pull = &terminalproto.InspectPull{Number: pr.Number, Title: inspectPlain(pr.Title, 300), URL: pr.URL, State: pr.State, Draft: pr.IsDraft, Review: pr.ReviewDecision, Mergeable: pr.Mergeable, Added: pr.Additions, Removed: pr.Deletions}
 	r.Pull.Base = inspectPlain(pr.BaseRefName, 255)
 	r.Pull.Head = inspectPlain(pr.HeadRefName, 255)
+	if terminalproto.ValidCommit(pr.HeadRefOid) {
+		r.Pull.HeadOID = pr.HeadRefOid
+	}
 	r.Pull.CreatedAt = inspectTime(pr.CreatedAt)
 	r.Pull.MergedAt = inspectTime(pr.MergedAt)
 	r.Pull.ClosedAt = inspectTime(pr.ClosedAt)

@@ -103,6 +103,9 @@ type InspectPull struct {
 	AutoMerge  bool            `json:"autoMerge,omitempty"`
 	Reviews    *InspectReviews `json:"reviews,omitempty"`
 	Threads    *InspectThreads `json:"threads,omitempty"`
+	// HeadOID is the commit the pull request's head branch is at on GitHub,
+	// which is the commit its checks ran on. Absent from an older machine.
+	HeadOID string `json:"headOid,omitempty"`
 	// DetailKnown means the machine read the extended pull request fields. It
 	// is how the page tells a machine that has not updated (false) from a pull
 	// request that simply has none of them.
@@ -131,6 +134,20 @@ const maxInspectCount = 10000
 
 var inspectRemote = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+// ValidCommit reports whether s is a full Git object name: 40 hex characters
+// for SHA-1 or 64 for SHA-256, in lower case.
+func ValidCommit(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func validInspectCount(n int) bool { return n >= 0 && n <= maxInspectCount }
 
 // validRef bounds a branch name by bytes as well as runes: the frame limit is
@@ -140,7 +157,7 @@ func validRef(s string) bool { return len(s) <= 255 && plainText(s, 255) }
 func (p *InspectPull) validDetail() bool {
 	times := validAttentionTime(p.CreatedAt) && validAttentionTime(p.MergedAt) &&
 		validAttentionTime(p.ClosedAt) && validAttentionTime(p.LastPushAt)
-	if !times || !validRef(p.Base) || !validRef(p.Head) {
+	if !times || !validRef(p.Base) || !validRef(p.Head) || p.HeadOID != "" && !ValidCommit(p.HeadOID) {
 		return false
 	}
 	if rv := p.Reviews; rv != nil {
@@ -176,6 +193,10 @@ type InspectResult struct {
 	// Remote is the repository as "owner/name", for the page's link; absent
 	// when the machine could not tell.
 	Remote string `json:"remote,omitempty"`
+	// Head is the commit the folder's HEAD is at, as full lowercase hex. It is
+	// absent from a machine that predates it and from a repository with no
+	// commit, so absent never means "unchanged".
+	Head string `json:"head,omitempty"`
 }
 
 func (InspectResult) kind() string { return "inspect_result" }
@@ -189,7 +210,7 @@ func (r InspectResult) valid() bool {
 	validCounts := len(r.Files) <= 100 && r.Changed >= 0 && r.Conflicts >= 0 && r.Ahead >= 0 && r.Behind >= 0
 	validBranch := plainText(r.Branch, 1024)
 	validRemote := r.Remote == "" || (len(r.Remote) <= 140 && inspectRemote.MatchString(r.Remote))
-	valid := validTime && validCounts && validBranch && validRemote
+	valid := validTime && validCounts && validBranch && validRemote && (r.Head == "" || ValidCommit(r.Head))
 	if !valid {
 		return false
 	}

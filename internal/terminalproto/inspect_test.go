@@ -54,6 +54,31 @@ func fullInspectResult() InspectResult {
 	return InspectResult{CountsKnown: true, CheckedAt: 1_700_000_000_000, Remote: "eyupio/reet.sh", Pull: p}
 }
 
+// The commit a folder is at, and the one its pull request is at, are full
+// lowercase object names or absent: an older machine sends neither.
+func TestInspectHeadIsAFullCommitOrAbsent(t *testing.T) {
+	sha1, sha256 := strings.Repeat("a1", 20), strings.Repeat("b2", 32)
+	for _, ok := range []string{"", sha1, sha256} {
+		r := fullInspectResult()
+		r.Head, r.Pull.HeadOID = ok, ok
+		if !r.valid() {
+			t.Fatalf("head %q refused", ok)
+		}
+	}
+	for _, bad := range []string{"abc1234", strings.ToUpper(sha1), sha1 + "0", strings.Repeat("g", 40), sha1[:39] + "\n"} {
+		r := fullInspectResult()
+		r.Head = bad
+		if r.valid() {
+			t.Fatalf("head %q accepted", bad)
+		}
+		r = fullInspectResult()
+		r.Pull.HeadOID = bad
+		if r.valid() {
+			t.Fatalf("pull head %q accepted", bad)
+		}
+	}
+}
+
 func TestInspectPullDetailBoundaries(t *testing.T) {
 	if !fullInspectResult().valid() {
 		t.Fatal("a fully populated result was refused")

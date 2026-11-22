@@ -46,6 +46,10 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/tell", access(s.gafferOutcomeTell))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions", access(s.gafferOutcomeAdd))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/review", access(s.gafferOutcomeReview))
+	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery", access(s.gafferDelivery))
+	mux.HandleFunc("PUT /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery/criteria", access(s.gafferDeliveryCriteria))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery/evidence", access(s.gafferDeliveryEvidence))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery/decision", access(s.gafferDeliveryDecision))
 }
 
 func gafferOutcomeError(w http.ResponseWriter, err error) {
@@ -592,6 +596,22 @@ func (o outcomeStarter) OutcomeSessionChoice(ctx context.Context, uid int64, ses
 		}
 	}
 	return choice, nil
+}
+
+// OutcomeWorkState reads the Git state of the folder a pipeline works in from
+// its machine: the commit it is at and, when github is set, its pull request
+// and checks. The folder is the controller's own record, on a machine the
+// account owns, and the read is the bounded, read-only one a session page uses.
+func (o outcomeStarter) OutcomeWorkState(ctx context.Context, uid int64, agentID, dir string, github bool) (terminalproto.InspectResult, error) {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return terminalproto.InspectResult{}, errors.New("Remote sessions are disabled on this controller.")
+	}
+	view := "status"
+	if github {
+		view = "github"
+	}
+	return s.terminals.InspectFolderView(ctx, uid, agentID, dir, view)
 }
 
 func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {

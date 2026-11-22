@@ -332,6 +332,7 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if stage.SentBack != "" {
 		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
 	}
+	text += criteriaPrompt(item.Criteria)
 	if stage.UsageFailover {
 		text += "\n\nThe previous worker reached its usage limit. Inspect the existing changes and commits in this folder and branch, keep useful work, and finish this stage."
 	}
@@ -641,6 +642,18 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
 		}
+		if len(item.Criteria) > 0 {
+			if len(piece.Stages) == 0 {
+				return nil, invalid("criteria", "Acceptance criteria belong to a pipeline with stages. Give “"+title+"” stages, or remove its criteria.")
+			}
+			criteria, err := planCriteria(item.Criteria)
+			if err != nil {
+				return nil, err
+			}
+			if len(criteria) > 0 {
+				piece.Criteria, piece.CriteriaRevision = criteria, 1
+			}
+		}
 		out = append(out, piece)
 	}
 	return out, nil
@@ -742,7 +755,7 @@ func (s *Service) Outcomes(uid int64) ([]store.GafferOutcome, error) {
 		return nil, err
 	}
 	for i := range rows {
-		rows[i] = s.withAgentUsage(uid, outcomeView(rows[i]))
+		rows[i] = withoutEvidence(s.withAgentUsage(uid, outcomeView(rows[i])))
 	}
 	return rows, nil
 }
@@ -752,7 +765,7 @@ func (s *Service) Outcome(uid int64, id string) (store.GafferOutcome, error) {
 		return store.GafferOutcome{}, err
 	}
 	o, err := s.store.GafferOutcomeFor(uid, id)
-	return s.withAgentUsage(uid, outcomeView(o)), err
+	return withoutEvidence(s.withAgentUsage(uid, outcomeView(o))), err
 }
 
 // StopOutcome ends the starting of sessions not yet attempted. Sessions
@@ -903,7 +916,7 @@ func autoReportEvent(o store.GafferOutcome) string {
 	var parts []string
 	for _, piece := range o.Sessions {
 		switch piece.State {
-		case "done", "ready_to_merge", "failed", "unfollowed":
+		case "done", "delivery_review", "ready_to_merge", "failed", "unfollowed":
 			parts = append(parts, piece.Key+":"+piece.State)
 		}
 	}
@@ -1197,6 +1210,11 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		next = item.Stage
 	}
 	if next >= len(item.Stages) {
+		// Work the person agreed criteria for is theirs to accept before it is
+		// called finished.
+		if awaitsDelivery(item) {
+			return set("delivery_review", deliveryWaitNote, func(row *store.GafferOutcomeSession) { row.ReviewRevision++ })
+		}
 		if !set("done", "Every stage is done. Check the result; only you mark the work complete.", nil) {
 			return false
 		}
@@ -1206,6 +1224,11 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		return true
 	}
 	stage := item.Stages[next]
+	// The delivery is accepted before anything merges, whoever decides the
+	// merge: accepting it is not approving the merge, which is asked next.
+	if stage.Kind == "merge" && awaitsDelivery(item) {
+		return set("delivery_review", deliveryWaitNote, func(row *store.GafferOutcomeSession) { row.Stage = next; row.ReviewRevision++ })
+	}
 	if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
 		return set("ready_to_merge", mergeWaitNote(item), func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
@@ -1322,6 +1345,9 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		// The merge gate holds on every path into the merge stage, not only on
 		// a hand-over: a pipeline tried again at its merge stage, or one whose
 		// first stage is the merge, waits for the person like any other.
+		if stage.Kind == "merge" && awaitsDelivery(item) {
+			return fail("delivery_review", deliveryWaitNote)
+		}
 		if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
 			return fail("ready_to_merge", mergeWaitNote(item))
 		}

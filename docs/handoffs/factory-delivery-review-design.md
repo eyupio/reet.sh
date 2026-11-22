@@ -27,7 +27,7 @@ change has none of these fields and behaves exactly as before.
 | `criteria[]` `{id, text, revision}` | The agreed acceptance criteria. `id` is stable for the life of the criterion; `revision` is the criteria revision in which its text was last set. Up to 10, each up to 240 bytes. |
 | `criteriaRevision` | 1 when the plan is approved with criteria, +1 on every edit. |
 | `reviewRevision` | +1 on every change to the review: criteria, evidence, a decision, or the pipeline arriving at review. Every write names the one it saw. |
-| `evidence[]` | `{id, criterionId, kind, verdict, text, url, name, state, commit, criteriaRevision, by, byName, at}`. `kind` is `note` (a reviewer's own note, labelled as such), `artefact` (a link inside the pipeline's GitHub repository) or `check` (a GitHub check, by name, read from the machine). Evidence is stored against the commit the machine reported when it was added. |
+| `evidence[]` (not in the outcome list or outcome read; only in the review) | `{id, criterionId, kind, verdict, text, url, name, state, commit, criteriaRevision, by, byName, at}`. `kind` is `note` (a reviewer's own note, labelled as such), `artefact` (a link inside the pipeline's GitHub repository) or `check` (a GitHub check, by name, read from the machine). Evidence is stored against the commit the machine reported when it was added. |
 | `deliveries[]` | Recorded decisions, newest last: `{requestId, decision, commit, criteriaRevision, by, byName, at, notes, stage, statuses, failed[]}`. `decision` is `accept` or `send_back`. |
 | `deliveryAccepted` | The delivery in hand was accepted. Cleared whenever the pipeline is sent back. |
 
@@ -120,6 +120,12 @@ All under `/api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery`, JSON, strict b
 
 ## Baseline
 
-Captured on main at `b3ad27c` with the synthetic Factory fixture of `web/tests/gaffer-factory.e2e.mjs`, for stage 4 to
-compare against; nothing here changes transport. See the numbers recorded in `handoff.md` under
-`FACTORY-DELIVERY-REVIEW-1`.
+Measured on main at `b3ad27c` with a synthetic Factory of 6 outcomes, 5 pipelines each, 8 stages each with three
+handed over: the Factory page's outcome read (`GET /api/v2/gaffer/outcomes`) is **276,692 bytes**, asked for every 5
+seconds while the page is visible (12 requests a minute, about 3.3 MB a minute). Stage 4 compares against this.
+
+With 5 criteria on every pipeline the same read is about 10% larger. Evidence is left out of that read on purpose: with
+one note on every criterion it would have been 32.5% larger (366,722 bytes), so only the review's own read carries it.
+
+Not captured here: the long-chat baseline (p95 update time, payload and scroll stability) and the time to a visible
+decision, which need the browser harness and belong with stage 4's measurements.

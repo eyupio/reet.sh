@@ -932,6 +932,8 @@ try {
           await causes.first().getByRole('button',{name:'Choose who does what for the Heavy and Standard crews',exact:true}).click()
           await expect(crew).toHaveAttribute('open','')
           await expect(outcome.getByRole('combobox',{name:'Heavy agent',exact:true})).toBeFocused()
+          // The agent that left the machine is still named in its box, not left blank.
+          await expect(outcome.getByRole('combobox',{name:'Heavy agent',exact:true}).locator('option:checked')).toHaveText('Claude Code (missing)')
           expect(await outcome.getByRole('combobox',{name:'Heavy agent',exact:true}).evaluate(el=>{const box=el.getBoundingClientRect();return box.top>=0&&box.bottom<=innerHeight})).toBe(true)
           await w.page.screenshot({path:`${shots}/gaffer-outcome-readiness-blocked-${width}-${theme}.png`})
         }finally{await w.context.close()}

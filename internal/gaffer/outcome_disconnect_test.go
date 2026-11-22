@@ -304,3 +304,113 @@ func TestAMergeLaunchInFlightAtARestartIsTakenUpWhenTheHeadStands(t *testing.T) 
 		t.Fatalf("after the restart: %+v sessions=%d", merge, r.starter.sessions()-before)
 	}
 }
+
+// usageLimited runs a one-stage pipeline with a backup until its agent stops
+// at its usage limit and Gaffer's review has seen it.
+func usageLimited(t *testing.T, r *outcomeRig) (store.GafferOutcome, store.GafferOutcomeSession) {
+	t.Helper()
+	if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{Standard: store.GafferCrewTier{Tool: "opencode", Model: "opencode/primary", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "paid/backup"}}}); err != nil {
+		t.Fatal(err)
+	}
+	in := pipelineInput(r, false)
+	in.Sessions[0].Stages = []OutcomeStageInput{{Kind: "code"}}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.settle(t, created.ID)
+	goal, err := r.st.GafferGoalFor(r.p.UserID, first.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.st.AppendTerminalChatEventFor(r.p.UserID, first.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"status","state":"error","detail":"Free usage limit reached."}`)); err != nil {
+		t.Fatal(err)
+	}
+	r.s.reviewGoal(t.Context(), goal)
+	return mustOutcome(t, r, created.ID), first
+}
+
+// Fallback after a usage limit, machine unreachable for the backup: the
+// switch stays recorded, the pipeline says it did not start, and Try again
+// starts the backup once.
+func TestABackupThatCannotReachTheMachineIsStartedOnceWhenTriedAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	o, first := usageLimited(t, r)
+	r.setOffline(true)
+	if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, nil); err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if stage := failed.Stages[0]; stage.Model != "paid/backup" || !stage.UsageFailover || failed.SessionID != "" || !strings.Contains(failed.Note, "offline") {
+		t.Fatalf("after an unreachable backup: %+v", failed)
+	}
+	r.startsNothingMore(t, 2)
+	r.setOffline(false)
+	r.retry(t, o.ID)
+	again := r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	asked := r.starter.asked()
+	if r.starter.sessions() != 2 || asked[len(asked)-1].Model != "paid/backup" || asked[len(asked)-1].Dir != first.WorkDir || again.SessionID == first.SessionID {
+		t.Fatalf("after Try again: %+v sessions=%d", again, r.starter.sessions())
+	}
+}
+
+// Fallback after a usage limit, controller restarted while the backup's
+// launch was in flight: the next controller asks under the same request and
+// one backup session runs.
+func TestABackupLaunchInFlightAtARestartIsStartedOnce(t *testing.T) {
+	r := outcomeFixture(t)
+	o, first := usageLimited(t, r)
+	r.starter.mu.Lock()
+	r.starter.late = "Export API · code"
+	r.starter.mu.Unlock()
+	if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for r.starter.sessions() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("the backup launch never reached the machine")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.restart(t)
+	again := r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	asked := r.starter.asked()
+	if r.starter.sessions() != 2 || len(asked) != 3 || asked[2].RequestID != asked[1].RequestID || asked[2].Model != "paid/backup" || again.Stages[0].Model != "paid/backup" {
+		t.Fatalf("after the restart: %+v sessions=%d launches=%d", again, r.starter.sessions(), len(asked))
+	}
+}
+
+// Fallback by balancing before the start, machine unreachable: the stage is
+// recorded on its backup and Try again starts it there once.
+func TestABalancedStageThatCannotReachTheMachineStartsOnItsBackupWhenTriedAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	now := time.Now()
+	low := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 97, "cheap"))}
+	if err := r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, low, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "other/coder"}},
+	}}}
+	r.setOffline(true)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if stage := failed.Stages[0]; stage.Model != "other/coder" || stage.First == nil || stage.Balanced == "" {
+		t.Fatalf("the balancing was not recorded: %+v", stage)
+	}
+	r.setOffline(false)
+	r.retry(t, created.ID)
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	asked := r.starter.asked()
+	if r.starter.sessions() != 1 || asked[len(asked)-1].Model != "other/coder" {
+		t.Fatalf("after Try again: sessions=%d %+v", r.starter.sessions(), asked[len(asked)-1])
+	}
+}

@@ -306,5 +306,53 @@ try{
    expect(f.errors).toEqual([])
   }finally{await f.context.close()}
  }
- console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count; on the Factory page an approved merge drops the bell and title at once, and an approval answered in the bell leaves the page without a poll.')
+ // On the Factory page outcomes and goals are read by the page's 5 s poll only: the bell's 15 s poll counts from what the
+ // page read. Over one 15 s window (three page polls, one bell poll) each is read three times, not four, and a pipeline
+ // that starts waiting still reaches the bell on its next poll.
+ {
+  const oid='e'.repeat(32),pid='a'.repeat(32)
+  const box={outcomeReads:0,goalReads:0,bellReads:0}
+  const outcome={id:oid,revision:1,objective:'Ship CSV export.',state:'settled',note:'',agentId:'a1',projectId:'',projectName:'',dir:'/work',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now-2*HOUR,updatedAt:now,sessions:[
+   {key:'a',title:'Export docs',prompt:'p',state:'following',sessionState:'running',note:'',sessionId:'factory-docs-0001',conversationId:'7'.repeat(32),updatedAt:now-50*MIN,stage:0,stages:[{kind:'code',tool:'opencode',state:'running',sessionId:'factory-docs-0001',conversationId:'7'.repeat(32)},{kind:'merge',tool:'opencode',state:'pending'}]}]}
+  const routes={
+   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
+   '/api/v2/terminal/machines':{machines:[machine]},
+   '/api/v2/terminal/sessions':{sessions:[session('factory-docs-0001','Export docs · code',{structured:true,attention:'working',attentionSource:'chat'})]},
+   '/api/v2/gaffer/outcomes':()=>{box.outcomeReads++;return{outcomes:[structuredClone(outcome)]}},
+   '/api/v2/gaffer/goals':()=>{box.goalReads++;return{goals:[],readAt:Date.now()}},
+   // Only the bell reads this, so it tells that the bell's poll ran.
+   '/api/v2/skills/new':()=>{box.bellReads++;return{newOnMachines:[]}},
+  }
+  const f=await openWorkspace(browser,{width:1440,height:950,terminalStatus:{configured:true,available:true},terminalMachines:[machine],routes})
+  await f.page.addInitScript(()=>{
+   const set=window.setInterval.bind(window),clear=window.clearInterval.bind(window),polls=new Map()
+   window.setInterval=(fn,d,...a)=>{if(d===15000||d===5000){const id=set(()=>{},2**30);polls.set(id,[d,()=>fn(...a)]);return id}return set(fn,d,...a)}
+   window.clearInterval=id=>{polls.delete(id);clear(id)}
+   window.__poll=d=>{for(const [delay,run] of [...polls.values()])if(delay===d)run()}
+   window.EventSource=class{constructor(){setTimeout(()=>this.onopen?.({}),0)}addEventListener(){}close(){}}
+  })
+  try{
+   const page=f.page
+   await page.goto(base+'/factory')
+   await expect(page.getByRole('main').getByText('Export docs',{exact:true}).first()).toBeVisible()
+   await expect(bellButton(page,0)).toBeVisible()
+   await page.waitForTimeout(300)
+   const before={...box}
+   const pagePoll=async()=>{const n=box.outcomeReads;await page.evaluate(()=>window.__poll(5000));await expect.poll(()=>box.outcomeReads).toBe(n+1)}
+   const bellPoll=async()=>{const n=box.bellReads;await page.evaluate(()=>window.__poll(15000));await expect.poll(()=>box.bellReads).toBe(n+1);await page.waitForTimeout(300)}
+   await pagePoll();await pagePoll();await bellPoll();await pagePoll()
+   expect([box.outcomeReads-before.outcomeReads,box.goalReads-before.goalReads,box.bellReads-before.bellReads]).toEqual([3,3,1])
+   // The pipeline starts waiting: the page reads it, and the bell's next poll counts it without reading outcomes itself.
+   Object.assign(outcome.sessions[0],{state:'ready_to_merge',note:'Ready to merge.'});outcome.revision++
+   await pagePoll()
+   await expect(page.getByRole('main').getByRole('button',{name:/^Approve the merge/}).first()).toBeVisible()
+   const reads=box.outcomeReads
+   await bellPoll()
+   await expect(bellButton(page,1)).toBeVisible({timeout:2000})
+   await expect.poll(()=>page.title()).toMatch(/^\(1\) Factory/)
+   expect(box.outcomeReads).toBe(reads)
+   expect(f.errors).toEqual([])
+  }finally{await f.context.close()}
+ }
+ console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count; on the Factory page an approved merge drops the bell and title at once, and an approval answered in the bell leaves the page without a poll; on the Factory page outcomes and goals are read by the page poll only and a pipeline that starts waiting still reaches the bell.')
 }finally{await browser.close()}

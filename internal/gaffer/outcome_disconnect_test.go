@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -412,5 +414,251 @@ func TestABalancedStageThatCannotReachTheMachineStartsOnItsBackupWhenTriedAgain(
 	asked := r.starter.asked()
 	if r.starter.sessions() != 1 || asked[len(asked)-1].Model != "other/coder" {
 		t.Fatalf("after Try again: sessions=%d %+v", r.starter.sessions(), asked[len(asked)-1])
+	}
+}
+
+// lostReply is the machine as the real starter reports a create whose reply
+// was lost after it was sent: the session starts, and the controller is told
+// only LaunchUnknown (internal/api/gaffer_outcomes.go maps a lost reply and a
+// deadline to it).
+type lostReply struct {
+	*outcomeStarterFake
+	lose atomic.Int32
+}
+
+func (l *lostReply) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
+	id, dir, err := l.outcomeStarterFake.StartOutcomeSession(ctx, uid, in)
+	if err == nil && l.lose.Add(-1) >= 0 {
+		return "", "", LaunchUnknown("That machine is offline.")
+	}
+	return id, dir, err
+}
+
+// Launch, reply lost after the machine started the session: the pipeline
+// says it cannot tell, and Try again takes that session up.
+func TestALaunchWhoseReplyWasLostIsNotStartedTwiceWhenTriedAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	machine := &lostReply{outcomeStarterFake: r.starter}
+	machine.lose.Store(1)
+	r.s.SetSessionStarter(machine)
+	r.in.Sessions = r.in.Sessions[:1]
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if r.starter.sessions() != 1 {
+		t.Fatalf("the machine did not start the first session: %d", r.starter.sessions())
+	}
+	if failed.UnsureRequest != r.starter.asked()[0].RequestID || strings.HasPrefix(failed.Note, "Not started") || !strings.Contains(failed.Note, "cannot tell") {
+		t.Fatalf("after the lost reply: unsure=%q note=%q", failed.UnsureRequest, failed.Note)
+	}
+	r.retry(t, created.ID)
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if n := r.starter.sessions(); n != 1 || again.UnsureRequest != "" {
+		t.Fatalf("Try again started a second session beside the one whose reply was lost: %d sessions, %+v", n, again)
+	}
+}
+
+// Approval, controller restarted while the merge launch was in flight and
+// the machine had started it, with the head unreadable afterwards: the
+// request recorded before the launch was sent is taken up, so the merge
+// session running on the machine is the one the pipeline follows.
+func TestAMergeLaunchInFlightAtARestartIsNotForgottenWhenTheHeadCannotBeRead(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(r.review(t, created.ID), "accept", 1)); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	r.starter.mu.Lock()
+	r.starter.late = "Export API · merge"
+	r.starter.mu.Unlock()
+	before := r.starter.sessions()
+	r.approveMerge(t, created.ID)
+	deadline := time.Now().Add(10 * time.Second)
+	for r.starter.sessions() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the merge launch never reached the machine")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The machine drops as the controller restarts.
+	r.headUnreadable(true)
+	r.restart(t)
+	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+	if r.starter.sessions() != before+1 || !merge.MergeApproved || !merge.DeliveryAccepted || merge.UnsureRequest != "" {
+		t.Fatalf("a merge session runs on the machine and the pipeline does not follow it: %+v sessions=%d", merge, r.starter.sessions()-before)
+	}
+}
+
+// A launch that never reached the machine, or that the machine refused,
+// holds nothing back: Try again balances the stage as any start does.
+func TestALaunchNeverSentOrRefusedLeavesTheStageToBeBalanced(t *testing.T) {
+	r := outcomeFixture(t)
+	now := time.Now()
+	plenty := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 40, "cheap"))}
+	if err := r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, plenty, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder", Backup: &store.GafferStageAgent{Tool: "opencode", Model: "other/coder"}},
+	}}}
+	r.starter.refuse = map[string]string{"Export API · code": "That machine could not start the session."}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if refused.UnsureRequest != "" || !strings.HasPrefix(refused.Note, "Not started") {
+		t.Fatalf("after a refusal: unsure=%q note=%q", refused.UnsureRequest, refused.Note)
+	}
+	r.starter.mu.Lock()
+	r.starter.refuse = nil
+	r.starter.mu.Unlock()
+	r.setOffline(true)
+	r.retry(t, created.ID)
+	unsent := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" && p.Note != refused.Note })
+	if unsent.UnsureRequest != "" || !strings.HasPrefix(unsent.Note, "Not started") || !strings.Contains(unsent.Note, "offline") {
+		t.Fatalf("after a launch that was never sent: unsure=%q note=%q", unsent.UnsureRequest, unsent.Note)
+	}
+	low := []terminalproto.AgentAccount{planAccount("opencode", now, window("week", 30, ""), window("week", 97, "cheap"))}
+	if err = r.st.SaveMachineAccountsFor(r.p.UserID, r.project.Host, low, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	r.setOffline(false)
+	r.retry(t, created.ID)
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if asked := r.starter.asked(); r.starter.sessions() != 1 || asked[len(asked)-1].Model != "other/coder" {
+		t.Fatalf("the stage was not balanced when tried again: sessions=%d %+v", r.starter.sessions(), asked[len(asked)-1])
+	}
+}
+
+// A start without the effort that never reached the machine holds nothing
+// back either: Try again asks for the effort again.
+func TestAStartWithoutTheEffortThatWasNeverSentAsksForTheEffortWhenTriedAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	r.starter.refusal = func(n int, _ OutcomeLaunch) error {
+		switch n {
+		case 0:
+			return effortRefusal
+		case 1:
+			return LaunchUnknown("That machine is offline.")
+		}
+		return nil
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, effortInput(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if failed.UnsureRequest != "" || !strings.HasPrefix(failed.Note, "Not started") || failed.Stages[0].EffortNotOffered != "high" {
+		t.Fatalf("after the unsent start: %+v", failed)
+	}
+	r.retry(t, created.ID)
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if asked := r.starter.asked(); len(asked) != 3 || asked[2].Effort != "high" {
+		t.Fatalf("the effort was not asked for again: %+v", asked)
+	}
+}
+
+// Approval, controller restarted after the merge launch was recorded and
+// before it was sent: nothing reached the machine, so the next controller
+// reads the head again, and with it unreadable the pipeline goes back to its
+// review and starts nothing.
+func TestAMergeLaunchRecordedButNeverSentRunsTheMergeGateAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(r.review(t, created.ID), "accept", 1)); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	r.starter.mu.Lock()
+	r.starter.hold, r.starter.holdOnly, r.starter.entered = hold, "Export API · merge", make(chan struct{})
+	r.starter.mu.Unlock()
+	launches, before := len(r.starter.asked()), r.starter.sessions()
+	r.approveMerge(t, created.ID)
+	<-r.starter.entered
+	if p := mustOutcome(t, r, created.ID).Sessions[0]; p.UnsureRequest != p.Stages[2].RequestID {
+		t.Fatalf("the merge launch was not recorded before it was sent: %+v", p)
+	}
+	r.headUnreadable(true)
+	r.restart(t)
+	back := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "delivery_review" })
+	if back.DeliveryAccepted || back.MergeApproved || back.UnsureRequest != "" || len(r.starter.asked()) != launches+1 || r.starter.sessions() != before {
+		t.Fatalf("back for review: %+v launches=%d", back, len(r.starter.asked())-launches)
+	}
+}
+
+// sentNotStarted is a machine that received a launch and never started it:
+// the create is on record, nothing runs, and asked again it says so.
+type sentNotStarted struct {
+	*outcomeStarterFake
+	title string
+	sent  sync.Map
+}
+
+func (m *sentNotStarted) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
+	if in.Title != m.title {
+		return m.outcomeStarterFake.StartOutcomeSession(ctx, uid, in)
+	}
+	m.mu.Lock()
+	m.launches = append(m.launches, in)
+	m.mu.Unlock()
+	if _, again := m.sent.LoadOrStore(in.RequestID, true); again {
+		return "", "", errors.New("That machine didn't start the agent.")
+	}
+	create := terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30}
+	if _, _, err := m.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, m.gen, create); err != nil {
+		return "", "", err
+	}
+	return "", "", LaunchUnknown("That machine did not answer.")
+}
+
+// Approval, merge launch unanswered and then found never to have started:
+// the merge gate it was spared runs before anything else is sent, so with the
+// head unreadable the pipeline goes back to its review and starts nothing.
+func TestAnUnansweredMergeLaunchFoundNotStartedRunsTheMergeGateAgain(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(r.review(t, created.ID), "accept", 1)); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	r.s.SetSessionStarter(&sentNotStarted{outcomeStarterFake: r.starter, title: "Export API · merge"})
+	before := r.starter.sessions()
+	r.approveMerge(t, created.ID)
+	unsure := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "unfollowed" })
+	if unsure.UnsureRequest == "" || strings.Contains(unsure.Note, "was not started") {
+		t.Fatalf("after the unanswered merge launch: %+v", unsure)
+	}
+	launches := len(r.starter.asked())
+	r.headUnreadable(true)
+	r.retry(t, created.ID)
+	back := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "delivery_review" })
+	asked := r.starter.asked()
+	if back.DeliveryAccepted || back.MergeApproved || back.UnsureRequest != "" || len(asked) != launches+1 || asked[launches].RequestID != unsure.UnsureRequest || r.starter.sessions() != before {
+		t.Fatalf("back for review: %+v launches=%d", back, len(asked)-launches)
 	}
 }

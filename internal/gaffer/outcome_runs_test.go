@@ -114,7 +114,8 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return "", "", ctx.Err()
+			// The real starter reports a deadline or a cancel as unknown.
+			return "", "", LaunchUnknown("That machine did not answer.")
 		}
 	}
 	if refusal != "" {
@@ -152,7 +153,7 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	f.mu.Unlock()
 	if slow {
 		<-ctx.Done()
-		return "", "", ctx.Err()
+		return "", "", LaunchUnknown("That machine did not answer.")
 	}
 	return row.ID, work, nil
 }

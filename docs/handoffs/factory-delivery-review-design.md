@@ -48,6 +48,13 @@ retry at the merge stage ────────────┘          │
 - **Send back** records the decision and reuses the existing send-back: the chosen stage and every later one are done
   again in a fresh session in the same folder and branch. The agent is told the failed criteria, the criteria not
   verified and the reviewer's notes.
+- **What merges is what was accepted.** When the merge stage is about to start, the controller reads the head again.
+  If it is not the accepted commit, the criteria were reworded since, or the commit cannot be read, the pipeline goes
+  back to `delivery_review` and both `deliveryAccepted` and `mergeApproved` are cleared.
+- The merge is never a stage to send back to: `stages` lists the work stages already done.
+- A pipeline waiting in `delivery_review` leaves it only by a recorded decision. The plain send-back, on the page or
+  over MCP, is refused there.
+- Criteria cannot be edited while the controller is moving the pipeline between stages (`starting`, `advancing`).
 - Gaffer, given an outcome's decisions, never accepts a delivery, and there is no MCP tool for it.
 - A pipeline without criteria never enters `delivery_review`.
 
@@ -62,9 +69,12 @@ Computed on every read, never stored, for the commit the machine reports now:
   pull request's head is not the reviewed commit, or GitHub could not be read.
 - **Passed**: otherwise, with at least one counting passing note, artefact or check.
 
-The reviewed commit itself has a state: `verified` (the machine reported the folder's `HEAD`), `none` (the folder is
-not a Git repository; the decision is recorded with no commit), `unverified` (the machine is too old to report it) or
-`unreachable`. A decision is refused in the last two.
+Checks that share a name, as the jobs of a matrix do, read as the worst of them.
+
+The reviewed commit itself has a state: `verified` (the machine reported the folder's `HEAD`), `none` (the project is
+not a Git repository; the decision is recorded with no commit), `unverified` (the machine is too old to report it, or
+could not read the Git state of a project that is a repository) or `unreachable`. A decision is refused in the last
+two.
 
 ## Server rules
 

@@ -22,6 +22,8 @@ import (
 const (
 	deliveryWaitNote = "Delivery review. The work is ready for your decision against the criteria you agreed. Nothing merges until you accept it."
 
+	deliveryChangedNote = "Delivery review. The work changed after you accepted it: a new commit arrived, the criteria were reworded, or the commit could not be read. Nothing merges until you accept what is there now."
+
 	maxEvidenceTextBytes  = 1000
 	maxDeliveryNotesBytes = 2000
 	// maxDeliverySentBackBytes bounds what a sent-back stage is told, so the
@@ -63,6 +65,22 @@ type DeliveryInspector interface {
 // review before it merges or finishes.
 func awaitsDelivery(item store.GafferOutcomeSession) bool {
 	return len(item.Criteria) > 0 && !item.DeliveryAccepted
+}
+
+// acceptedStillStands reports whether a pipeline about to merge is still the
+// delivery that was accepted: the same commit, read from the machine now, and
+// the same criteria. A pipeline with no criteria has nothing to hold.
+func (s *Service) acceptedStillStands(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
+	if len(item.Criteria) == 0 || !item.DeliveryAccepted {
+		return true
+	}
+	for i := len(item.Deliveries) - 1; i >= 0; i-- {
+		if d := item.Deliveries[i]; d.Decision == "accept" {
+			head := s.readDeliveryHead(ctx, o, item, false)
+			return head.decidable() && head.commit == d.Commit && d.CriteriaRevision == item.CriteriaRevision
+		}
+	}
+	return false
 }
 
 // CriterionInput is one criterion as the person wrote it. ID names the
@@ -153,6 +171,24 @@ func checkTone(state string) string {
 	return "pending"
 }
 
+// liveChecks are GitHub's checks of the reviewed commit by name, or none when
+// its pull request is at another commit. Checks that share a name, as the
+// jobs of a matrix do, read as the worst of them: one failure is a failure,
+// and one still running is not yet a pass.
+func liveChecks(head deliveryHead) map[string]terminalproto.InspectCheck {
+	live := map[string]terminalproto.InspectCheck{}
+	if !head.atHead() {
+		return live
+	}
+	rank := map[string]int{"good": 0, "pending": 1, "bad": 2}
+	for _, check := range head.pull.Checks {
+		if have, ok := live[check.Name]; !ok || rank[checkTone(check.State)] > rank[checkTone(have.State)] {
+			live[check.Name] = check
+		}
+	}
+	return live
+}
+
 // deliveryHead is what the machine said about the folder a pipeline works in.
 type deliveryHead struct {
 	state, note, commit string
@@ -190,6 +226,13 @@ func (s *Service) readDeliveryHead(ctx context.Context, o store.GafferOutcome, i
 	head := deliveryHead{branch: got.Branch, remote: got.Remote, pull: got.Pull}
 	switch {
 	case got.Reason == "not_repo":
+		// "Not a repository" is also what a machine says of a folder whose Git
+		// it could not read. Only a project reet itself knows is not one is
+		// decided without a commit; for a repository it is a failed read.
+		if project, err := s.store.FolderProjectFor(o.OwnerID, o.ProjectID); err != nil || project.IsRepo {
+			head.state, head.note = commitUnverified, "The machine could not read this folder's Git state, so the commit this work is at is not known. Look again in a moment."
+			break
+		}
 		head.state, head.note = commitNone, "This folder is not a Git repository, so the decision is recorded without a commit."
 	case got.Head != "" && terminalproto.ValidCommit(got.Head):
 		head.state, head.commit = commitVerified, got.Head
@@ -293,12 +336,7 @@ func evidenceCounts(ev store.GafferEvidence, c store.GafferCriterion, head deliv
 // check is read from GitHub as it is now, never from what was saved.
 func criterionView(c store.GafferCriterion, evidence []store.GafferEvidence, head deliveryHead) DeliveryCriterionView {
 	view := DeliveryCriterionView{ID: c.ID, Text: c.Text, Status: CriterionUnverified, Evidence: []DeliveryEvidenceView{}}
-	live := map[string]terminalproto.InspectCheck{}
-	if head.atHead() {
-		for _, check := range head.pull.Checks {
-			live[check.Name] = check
-		}
-	}
+	live := liveChecks(head)
 	manual, good, bad, unsure := "", false, false, false
 	for _, ev := range evidence {
 		if ev.CriterionID != c.ID {
@@ -373,6 +411,11 @@ func deliveryView(o store.GafferOutcome, item store.GafferOutcomeSession, head d
 	}
 	for i := 0; i <= at; i++ {
 		kind := item.Stages[i].Kind
+		// The merge is not work to do again: sent back to it, a pipeline
+		// would come straight back for review with nothing changed.
+		if kind == "merge" {
+			continue
+		}
 		if len(view.Stages) == 0 || view.Stages[len(view.Stages)-1] != kind {
 			view.Stages = append(view.Stages, kind)
 		}
@@ -515,7 +558,12 @@ func (s *Service) SetDeliveryCriteria(ctx context.Context, uid int64, id, key st
 				return false
 			}
 			switch row.State {
-			case "waiting", "starting", "following", "advancing", "delivery_review", "unfollowed":
+			case "starting", "advancing":
+				// The controller is deciding where this pipeline goes next, on
+				// the criteria it read: they do not change under it.
+				refused = invalid("criteria", "This pipeline is moving to its next stage. Edit its criteria again in a moment.")
+				return false
+			case "waiting", "following", "delivery_review", "unfollowed":
 			case "ready_to_merge":
 				// Past its delivery review: criteria can be reworded, not begun.
 				if len(row.Criteria) == 0 {
@@ -572,15 +620,29 @@ type DeliveryEvidenceInput struct {
 
 // artefactLink accepts only a link inside the pipeline's own GitHub
 // repository, as the machine named it: a run, an artefact, a commit, a file.
-func artefactLink(raw, remote string) bool {
-	if remote == "" || len(raw) > 2048 || strings.ContainsAny(raw, " \t\r\n") {
-		return false
+// It answers the link as it is kept. The path is judged decoded, because a
+// browser reads an encoded dot segment as the real thing, and a path that
+// climbs, or hides a separator in an encoding, is refused.
+func artefactLink(raw, remote string) (string, bool) {
+	if remote == "" || len(raw) > 2048 || strings.ContainsAny(raw, " \t\r\n\\") {
+		return "", false
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.Opaque != "" {
-		return false
+		return "", false
 	}
-	return strings.HasPrefix(strings.ToLower(u.EscapedPath()), "/"+strings.ToLower(remote)+"/") && !strings.Contains(u.EscapedPath(), "..")
+	if lower := strings.ToLower(u.EscapedPath()); strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") {
+		return "", false
+	}
+	for _, segment := range strings.Split(u.Path, "/") {
+		if segment == "." || segment == ".." {
+			return "", false
+		}
+	}
+	if !strings.HasPrefix(strings.ToLower(u.Path), "/"+strings.ToLower(remote)+"/") {
+		return "", false
+	}
+	return u.String(), true
 }
 
 // AddDeliveryEvidence records evidence against a criterion at the commit the
@@ -599,6 +661,10 @@ func (s *Service) AddDeliveryEvidence(ctx context.Context, uid int64, id, key st
 	for _, ev := range item.Evidence {
 		if ev.ID == in.RequestID {
 			// Asked for before under this request: it is already recorded.
+			// The same request with other content is not that evidence.
+			if ev.CriterionID != in.CriterionID || ev.Kind != in.Kind || ev.Text != strings.TrimSpace(in.Text) || in.Kind == "check" && ev.Name != in.Name || in.Kind != "check" && ev.Verdict != in.Verdict {
+				return DeliveryReviewView{}, deliveryConflict("delivery_request_reused", "That request already recorded different evidence. Reload the review and add it again.")
+			}
 			return s.deliveryRead(ctx, o, item), nil
 		}
 	}
@@ -642,19 +708,18 @@ func (s *Service) AddDeliveryEvidence(ctx context.Context, uid int64, id, key st
 	ev := store.GafferEvidence{ID: in.RequestID, CriterionID: in.CriterionID, Kind: in.Kind, Verdict: verdict, Text: text, Commit: head.commit, CriteriaRevision: item.CriteriaRevision, By: uid, ByName: actorName(user), At: time.Now().UnixMilli()}
 	switch in.Kind {
 	case "artefact":
-		if !artefactLink(in.URL, head.remote) {
+		link, ok := artefactLink(in.URL, head.remote)
+		if !ok {
 			return DeliveryReviewView{}, invalid("url", "Link an artefact inside this pipeline's own repository on github.com, by https.")
 		}
-		ev.URL = in.URL
+		ev.URL = link
 	case "check":
 		if !head.atHead() {
 			return DeliveryReviewView{}, invalid("name", "GitHub has no pull request at the reviewed commit, so none of its checks can be evidence for it yet. Push the work, then look again.")
 		}
-		ok := false
-		for _, check := range head.pull.Checks {
-			if check.Name == in.Name && in.Name != "" {
-				ev.Name, ev.State, ev.URL, ev.Verdict, ok = check.Name, check.State, check.URL, "", true
-			}
+		check, ok := liveChecks(head)[in.Name]
+		if ok = ok && in.Name != ""; ok {
+			ev.Name, ev.State, ev.URL, ev.Verdict = check.Name, check.State, check.URL, ""
 		}
 		if !ok {
 			return DeliveryReviewView{}, invalid("name", "GitHub reports no check of that name for the reviewed commit.")
@@ -682,8 +747,9 @@ func (s *Service) AddDeliveryEvidence(ctx context.Context, uid int64, id, key st
 				return false
 			}
 			row.Evidence = append(row.Evidence, ev)
-			// The oldest evidence of other commits goes first; evidence of the
-			// commit under review is kept while there is room for it.
+			// The oldest evidence of other commits makes room. Evidence of the
+			// commit under review is never dropped: losing one could turn a
+			// criterion that needs work into one that passed.
 			for j := 0; len(row.Evidence) > store.MaxGafferEvidence && j < len(row.Evidence); {
 				if row.Evidence[j].Commit != ev.Commit {
 					row.Evidence = append(row.Evidence[:j], row.Evidence[j+1:]...)
@@ -691,8 +757,9 @@ func (s *Service) AddDeliveryEvidence(ctx context.Context, uid int64, id, key st
 				}
 				j++
 			}
-			if extra := len(row.Evidence) - store.MaxGafferEvidence; extra > 0 {
-				row.Evidence = append([]store.GafferEvidence(nil), row.Evidence[extra:]...)
+			if len(row.Evidence) > store.MaxGafferEvidence {
+				refused = invalid("evidence", "This review holds as much evidence for this commit as it can. Decide on what is recorded.")
+				return false
 			}
 			row.ReviewRevision, row.UpdatedAt = row.ReviewRevision+1, time.Now().UnixMilli()
 			return true
@@ -881,11 +948,12 @@ func (s *Service) DecideDelivery(ctx context.Context, uid int64, id, key string,
 			decision.Failed = append(decision.Failed, c.ID)
 		}
 	}
-	// guard is the conditional part of the write: the pipeline is still
+	// check is the conditional part of the write: the pipeline is still
 	// waiting, on the review and criteria the decision was made on, and this
-	// request has not been recorded. It runs on the record being written.
-	guard := func(row *store.GafferOutcomeSession) error {
-		if _, ok := recordedDecision(*row, in.RequestID); ok {
+	// request has not been recorded. It runs on the record being written, and
+	// record then notes the decision on it.
+	check := func(row store.GafferOutcomeSession) error {
+		if _, ok := recordedDecision(row, in.RequestID); ok {
 			return errDeliveryReplay
 		}
 		if row.State != "delivery_review" {
@@ -897,12 +965,14 @@ func (s *Service) DecideDelivery(ctx context.Context, uid int64, id, key string,
 		if row.ReviewRevision != in.ReviewRevision {
 			return changed
 		}
+		return nil
+	}
+	record := func(row *store.GafferOutcomeSession) {
 		row.Deliveries = append(row.Deliveries, decision)
 		if extra := len(row.Deliveries) - store.MaxGafferDeliveries; extra > 0 {
 			row.Deliveries = append([]store.GafferDeliveryDecision(nil), row.Deliveries[extra:]...)
 		}
 		row.ReviewRevision++
-		return nil
 	}
 	if in.Decision == "send_back" {
 		if notes == "" && len(decision.Failed) == 0 {
@@ -912,8 +982,15 @@ func (s *Service) DecideDelivery(ctx context.Context, uid int64, id, key string,
 		if decision.Stage == "" {
 			decision.Stage = view.DefaultStage
 		}
+		offered := false
+		for _, kind := range view.Stages {
+			offered = offered || kind == decision.Stage
+		}
+		if !offered {
+			return o, DeliveryReviewView{}, none, false, invalid("stage", "Choose a stage this pipeline has done to send the delivery back to. The merge is not one of them.")
+		}
 		words := sentBackWords(view, notes)
-		_, err = s.sendPipelineBack(uid, id, key, decision.Stage, func(string) string { return words }, guard)
+		_, err = s.sendPipelineBack(uid, id, key, decision.Stage, func(string) string { return words }, check, record)
 	} else {
 		var refused error
 		_, err = s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
@@ -927,9 +1004,10 @@ func (s *Service) DecideDelivery(ctx context.Context, uid int64, id, key string,
 					refused = errOutcomeArchived
 					return false
 				}
-				if refused = guard(row); refused != nil {
+				if refused = check(*row); refused != nil {
 					return false
 				}
+				record(row)
 				// Accepting is the person asking for the work to carry on, as
 				// approving a merge is; it approves no merge itself.
 				settleStoppedOutcome(o)

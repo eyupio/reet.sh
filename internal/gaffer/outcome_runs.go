@@ -332,7 +332,6 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if stage.SentBack != "" {
 		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
 	}
-	text += criteriaPrompt(item.Criteria)
 	if stage.UsageFailover {
 		text += "\n\nThe previous worker reached its usage limit. Inspect the existing changes and commits in this folder and branch, keep useful work, and finish this stage."
 	}
@@ -343,7 +342,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	// What follows the brief is the stage's boundary, which the agent must
 	// read last; it is built apart so that a long prompt loses brief, not it.
 	text, brief := text+lead, item.Prompt
-	end := ""
+	// The criteria the person will review against are kept with the boundary:
+	// a long handover gives way to them, never the other way round.
+	end := criteriaPrompt(item.Criteria)
 	if stage.Part != "" {
 		end += "\n\nThis part is finished when you have left, for this part only, " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
 	} else {
@@ -1346,10 +1347,27 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		// a hand-over: a pipeline tried again at its merge stage, or one whose
 		// first stage is the merge, waits for the person like any other.
 		if stage.Kind == "merge" && awaitsDelivery(item) {
-			return fail("delivery_review", deliveryWaitNote)
+			after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "delivery_review", deliveryWaitNote, &wrote, func(row *store.GafferOutcomeSession) { row.ReviewRevision++ }))
+			if err == nil && wrote {
+				s.auditPipeline(after, item.Key)
+			}
+			return err == nil
 		}
 		if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
 			return fail("ready_to_merge", mergeWaitNote(item))
+		}
+		// What merges is what was accepted. A commit that arrived after the
+		// acceptance, or criteria reworded since, were never reviewed: the
+		// delivery goes back to the person, and so does the merge approval.
+		if stage.Kind == "merge" && item.SessionID == "" && item.UnsureRequest == "" && !s.acceptedStillStands(ctx, o, item) {
+			after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "delivery_review", deliveryChangedNote, &wrote, func(row *store.GafferOutcomeSession) {
+				row.DeliveryAccepted, row.MergeApproved = false, false
+				row.ReviewRevision++
+			}))
+			if err == nil && wrote {
+				s.auditPipeline(after, item.Key)
+			}
+			return err == nil
 		}
 		// A stage about to start runs on its backup when its first choice's
 		// plan is running low and the backup's has more left. A launch that

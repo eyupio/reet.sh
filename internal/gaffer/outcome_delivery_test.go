@@ -38,6 +38,22 @@ func toReview(t *testing.T, r *outcomeRig, id string) store.GafferOutcomeSession
 	}
 }
 
+// approveMerge approves a pipeline's merge on the revision it reads, reading
+// again when the controller wrote in between, as the page does.
+func (r *outcomeRig) approveMerge(t *testing.T, id string) {
+	t.Helper()
+	for attempt := 0; ; attempt++ {
+		_, err := r.s.ApproveMerge(r.p.UserID, id, "a", mustOutcome(t, r, id).Revision)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || attempt > 20 {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func request(n byte) string { return strings.Repeat(string(rune('0'+n)), 32) }
 
 func decisionFor(v DeliveryReviewView, kind string, n byte) DeliveryDecisionInput {
@@ -98,7 +114,7 @@ func TestAPipelineWithCriteriaWaitsForItsDeliveryReviewAndTheMergeStaysSeparate(
 		t.Fatal("an outcome waiting for a delivery review reads as finished")
 	}
 	v := r.review(t, created.ID)
-	if !v.Open || v.Commit != fixedHead || v.CommitState != "verified" || v.Next != "ready_to_merge" || v.DefaultStage != "code" || strings.Join(v.Stages, ",") != "code,test,merge" || v.Accepted {
+	if !v.Open || v.Commit != fixedHead || v.CommitState != "verified" || v.Next != "ready_to_merge" || v.DefaultStage != "code" || strings.Join(v.Stages, ",") != "code,test" || v.Accepted {
 		t.Fatalf("review: %+v", v)
 	}
 	// Nothing was recorded for either criterion: missing evidence is Unverified, never Passed.
@@ -139,9 +155,7 @@ func TestAPipelineWithCriteriaWaitsForItsDeliveryReviewAndTheMergeStaysSeparate(
 	if ready.MergeApproved || !ready.DeliveryAccepted || len(r.starter.asked()) != 2 {
 		t.Fatalf("after acceptance: %+v launches=%d", ready, len(r.starter.asked()))
 	}
-	if _, err := r.s.ApproveMerge(r.p.UserID, created.ID, "a", mustOutcome(t, r, created.ID).Revision); err != nil {
-		t.Fatal(err)
-	}
+	r.approveMerge(t, created.ID)
 	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
 	if !merge.MergeApproved {
 		t.Fatalf("merge stage: %+v", merge)
@@ -179,6 +193,16 @@ func TestAPipelineWithoutCriteriaNeverStopsForADeliveryReview(t *testing.T) {
 	}
 	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(v, "accept", 1)); conflictCode(err) != "delivery_closed" {
 		t.Fatalf("a decision on a pipeline with no review: %v", err)
+	}
+	// Its merge is approved and started as it always was, with no machine asked about a delivery.
+	r.approveMerge(t, created.ID)
+	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.Stage == 2 && p.ConversationID != ""
+	})
+	r.s.stageHandedOver(r.p.UserID, merge.ConversationID, "Merged.", "gaffer")
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "done" })
+	if r.starter.worked != 0 {
+		t.Fatalf("a pipeline without criteria had its machine asked %d times", r.starter.worked)
 	}
 }
 
@@ -252,7 +276,7 @@ func TestTwoReviewersDecidingAtOnceLeaveOneDecision(t *testing.T) {
 		switch {
 		case err == nil:
 			won++
-		case conflictCode(err) == "delivery_closed" || conflictCode(err) == "delivery_changed":
+		case conflictCode(err) == "delivery_closed":
 			lost++
 		default:
 			t.Fatalf("unexpected refusal: %v", err)
@@ -261,6 +285,55 @@ func TestTwoReviewersDecidingAtOnceLeaveOneDecision(t *testing.T) {
 	p := mustOutcome(t, r, created.ID).Sessions[0]
 	if won != 1 || lost != 1 || len(p.Deliveries) != 1 {
 		t.Fatalf("won=%d lost=%d decisions=%+v", won, lost, p.Deliveries)
+	}
+	// The decision that lost touched nothing: the pipeline goes where the one that won sent it.
+	if p.Deliveries[0].Decision == "accept" {
+		r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" && p.DeliveryAccepted })
+	} else {
+		again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+			return p.State == "following" && p.Stage == 0 && p.ConversationID != ""
+		})
+		if g, err := r.st.GafferGoalFor(r.p.UserID, again.ConversationID); err != nil || g.State != "active" {
+			t.Fatalf("the reworked stage's goal: %+v %v", g, err)
+		}
+	}
+}
+
+// The same send-back asked twice at the same moment, as a double click does,
+// is one decision and one stage done again, and neither answer is an error.
+func TestADoubleClickedSendBackIsOneDecision(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	in := decisionFor(r.review(t, created.ID), "send_back", 1)
+	in.Notes = "The totals are wrong."
+	launches := len(r.starter.asked())
+	errs, fresh := make([]error, 2), make([]bool, 2)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, _, fresh[i], errs[i] = r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", in)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if errs[0] != nil || errs[1] != nil || fresh[0] == fresh[1] {
+		t.Fatalf("errors %v %v, recorded %v %v", errs[0], errs[1], fresh[0], fresh[1])
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.Stage == 0 && p.ConversationID != ""
+	})
+	time.Sleep(60 * time.Millisecond)
+	if g, err := r.st.GafferGoalFor(r.p.UserID, again.ConversationID); err != nil || g.State != "active" || len(again.Deliveries) != 1 || len(r.starter.asked()) != launches+1 {
+		t.Fatalf("after a double click: goal %+v %v decisions=%d launches=%d", g, err, len(again.Deliveries), len(r.starter.asked())-launches)
 	}
 }
 
@@ -431,7 +504,8 @@ func TestACheckIsReadFromGitHubForTheReviewedCommit(t *testing.T) {
 		t.Fatal("a check of another commit was accepted as evidence")
 	}
 	// An artefact is a link inside the pipeline's own repository, nothing else.
-	for _, bad := range []string{"http://github.com/acme/billing/actions/runs/1", "https://github.com/other/repo/actions/runs/1", "https://evil.example/acme/billing/x", "https://github.com/acme/billing/../../other/x", "https://user@github.com/acme/billing/x", "javascript:alert(1)"} {
+	for _, bad := range []string{"http://github.com/acme/billing/actions/runs/1", "https://github.com/other/repo/actions/runs/1", "https://evil.example/acme/billing/x", "https://github.com/acme/billing/../../other/x", "https://user@github.com/acme/billing/x", "javascript:alert(1)",
+		"https://github.com/acme/billing/%2e%2e/%2e%2e/attacker/repo", "https://github.com/acme/billing/.%2E/%2E%2E/attacker/repo/releases/download/x/evil.exe", "https://github.com/acme/billing%2f..%2fother/x", "https://github.com/acme/billing/./x", "https://github.com/acme/billing\\..\\x"} {
 		if _, err := add(got, DeliveryEvidenceInput{Kind: "artefact", Verdict: CriterionPassed, URL: bad}, 5); err == nil {
 			t.Fatalf("artefact link %q was accepted", bad)
 		}
@@ -571,6 +645,16 @@ func TestADeliveryReviewIsItsOwnersAndItsPipelinesOnly(t *testing.T) {
 	if _, err := r.s.AddDeliveryEvidence(ctx, r.p.UserID, created.ID, "a", DeliveryEvidenceInput{RequestID: request(3), ReviewRevision: v.ReviewRevision, CriterionID: theirs, Kind: "note", Verdict: CriterionPassed, Text: "Wrong pipeline."}); err == nil {
 		t.Fatal("evidence was recorded against another pipeline's criterion")
 	}
+	// The owner made read-only after looking can decide nothing either.
+	if err := r.st.UpdateUserRole(r.p.UserID, "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := r.s.DecideDelivery(ctx, r.p.UserID, created.ID, "a", decisionFor(v, "accept", 5)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a read-only owner decided the delivery: %v", err)
+	}
+	if _, err := r.s.DeliveryReview(ctx, r.p.UserID, created.ID, "a"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a read-only owner read the review: %v", err)
+	}
 	// The owner disabled after looking can decide nothing.
 	if err := r.st.SetUserDisabled(r.p.UserID, true); err != nil {
 		t.Fatal(err)
@@ -650,5 +734,195 @@ func TestCriteriaAreCheckedWhenThePlanIsApproved(t *testing.T) {
 	}
 	if r.starter.sessions() != 0 {
 		t.Fatal("a refused plan started a session")
+	}
+}
+
+// Jobs of a matrix share a name. Evidence that names them reads as the worst
+// of them: one failure is Needs work, and one still running is not a pass.
+func TestChecksThatShareANameReadAsTheWorstOfThem(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	states := []string{"FAILURE", "SUCCESS"}
+	r.starter.mu.Lock()
+	r.starter.work = func(string, bool) (terminalproto.InspectResult, error) {
+		pull := &terminalproto.InspectPull{Number: 3, URL: "https://github.com/acme/billing/pull/3", State: "OPEN", HeadOID: fixedHead}
+		for _, state := range states {
+			pull.Checks = append(pull.Checks, terminalproto.InspectCheck{Name: "test", State: state})
+		}
+		return terminalproto.InspectResult{Repo: true, Head: fixedHead, Remote: "acme/billing", Pull: pull}, nil
+	}
+	r.starter.mu.Unlock()
+	v := r.review(t, created.ID)
+	v, err = r.s.AddDeliveryEvidence(context.Background(), r.p.UserID, created.ID, "a", DeliveryEvidenceInput{RequestID: request(1), ReviewRevision: v.ReviewRevision, CriterionID: v.Criteria[0].ID, Kind: "check", Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Criteria[0].Status != CriterionNeedsWork {
+		t.Fatalf("a failed job hidden by a passing one of the same name: %+v", v.Criteria[0])
+	}
+	states = []string{"SUCCESS", "IN_PROGRESS", "SUCCESS"}
+	if got := r.review(t, created.ID); got.Criteria[0].Status != CriterionUnverified {
+		t.Fatalf("a running job hidden by passing ones: %+v", got.Criteria[0])
+	}
+	states = []string{"SUCCESS", "SKIPPED"}
+	if got := r.review(t, created.ID); got.Criteria[0].Status != CriterionPassed {
+		t.Fatalf("every job passed: %+v", got.Criteria[0])
+	}
+	// The same evidence request with other content is not answered as recorded.
+	if _, err := r.s.AddDeliveryEvidence(context.Background(), r.p.UserID, created.ID, "a", DeliveryEvidenceInput{RequestID: request(1), ReviewRevision: v.ReviewRevision, CriterionID: v.Criteria[1].ID, Kind: "check", Name: "test"}); conflictCode(err) != "delivery_request_reused" {
+		t.Fatalf("an evidence request reused for another criterion: %v", err)
+	}
+}
+
+// The merge is not a stage to do again: a delivery is sent back to work that
+// was done, by default the last such stage where there was no code stage. The
+// person's plain send-back and an MCP client's cannot end a review unrecorded.
+func TestADeliveryIsSentBackToWorkThatWasDoneNeverToTheMerge(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := deliveryInput(r, false)
+	in.Sessions[0].Stages = []OutcomeStageInput{{Kind: "test", Tool: "opencode"}, {Kind: "merge", Tool: "opencode"}}
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	v := r.review(t, created.ID)
+	if strings.Join(v.Stages, ",") != "test" || v.DefaultStage != "test" {
+		t.Fatalf("stages offered: %v default %q", v.Stages, v.DefaultStage)
+	}
+	if _, err := r.s.SendPipelineBack(r.p.UserID, created.ID, "a", "test", "Skip the review."); err == nil {
+		t.Fatal("a plain send-back ended a delivery review with no decision recorded")
+	}
+	back := decisionFor(v, "send_back", 1)
+	back.Notes, back.Stage = "Run it against last month's data.", "merge"
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", back); err == nil {
+		t.Fatal("a delivery was sent back to its merge stage")
+	}
+	if p := mustOutcome(t, r, created.ID).Sessions[0]; p.State != "delivery_review" || len(p.Deliveries) != 0 {
+		t.Fatalf("after the refusals: %+v", p)
+	}
+	back.Stage = ""
+	_, _, decision, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", back)
+	if err != nil || decision.Stage != "test" {
+		t.Fatalf("send back with no stage named: %+v %v", decision, err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 0 })
+}
+
+// What merges is what was accepted. A commit that arrives after the
+// acceptance was never reviewed: when the merge is approved the delivery
+// comes back for review, and the approval does not carry over.
+func TestACommitAfterAcceptanceBringsTheDeliveryBackBeforeItMerges(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(r.review(t, created.ID), "accept", 1)); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	later := strings.Repeat("e", 40)
+	r.starter.mu.Lock()
+	r.starter.work = func(string, bool) (terminalproto.InspectResult, error) {
+		return terminalproto.InspectResult{Repo: true, Head: later}, nil
+	}
+	r.starter.mu.Unlock()
+	launches := len(r.starter.asked())
+	r.approveMerge(t, created.ID)
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "delivery_review" })
+	time.Sleep(60 * time.Millisecond)
+	if again.DeliveryAccepted || again.MergeApproved || len(r.starter.asked()) != launches || !strings.Contains(again.Note, "changed after you accepted") {
+		t.Fatalf("back for review: %+v launches=%d", again, len(r.starter.asked())-launches)
+	}
+	v := r.review(t, created.ID)
+	if !v.Open || v.Accepted || v.Commit != later || len(v.Decisions) != 1 {
+		t.Fatalf("the review of the new commit: %+v", v)
+	}
+	// Accepted again at the commit that is there, the merge waits for its own approval again, then starts.
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(v, "accept", 2)); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" && !p.MergeApproved })
+	r.approveMerge(t, created.ID)
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+}
+
+// Ten criteria at their longest, a full handover and a delivery sent back
+// with long notes still fit a stage's prompt with every criterion and the
+// stage's boundary in it: the handover gives way, not they.
+func TestEveryCriterionAndTheBoundarySurviveALongHandover(t *testing.T) {
+	item := store.GafferOutcomeSession{Title: "Export API", Prompt: strings.Repeat("Build the export. ", 300), Stages: []store.GafferOutcomeStage{
+		{Kind: "code", State: "done", Summary: strings.Repeat("h", maxHandoverBytes)},
+		{Kind: "test", SentBack: strings.Repeat("s", maxDeliverySentBackBytes)},
+		{Kind: "merge"},
+	}}
+	for i := 0; i < store.MaxGafferCriteria; i++ {
+		item.Criteria = append(item.Criteria, store.GafferCriterion{ID: request(byte(i)), Text: "Criterion " + string(rune('A'+i)) + " " + strings.Repeat("x", store.MaxGafferCriterionText-12), Revision: 1})
+	}
+	prompt := stagePrompt(store.GafferOutcome{Objective: "Ship it."}, item, 1)
+	if len(prompt) > MaxOutcomePromptBytes || !strings.HasSuffix(prompt, "Do not merge.") || !strings.Contains(prompt, "This stage is finished when you have left") {
+		t.Fatalf("prompt of %d bytes lost its boundary: …%q", len(prompt), prompt[len(prompt)-200:])
+	}
+	for i, c := range item.Criteria {
+		if !strings.Contains(prompt, c.Text) {
+			t.Fatalf("criterion %d was cut from the prompt", i+1)
+		}
+	}
+}
+
+// A folder reet knows is a repository is never decided without a commit: a
+// machine that calls it "not a repository" could not read its Git. Only a
+// project that is not a repository is decided with none.
+func TestOnlyAProjectThatIsNotARepositoryIsDecidedWithoutACommit(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.starter.mu.Lock()
+	r.starter.work = func(string, bool) (terminalproto.InspectResult, error) {
+		return terminalproto.InspectResult{Reason: "not_repo"}, nil
+	}
+	r.starter.mu.Unlock()
+	created, err := r.s.CreateOutcome(r.p.UserID, deliveryInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	v := r.review(t, created.ID)
+	if v.CommitState != "unverified" || v.CommitNote == "" {
+		t.Fatalf("a repository read as not one: %+v", v)
+	}
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", decisionFor(v, "accept", 1)); conflictCode(err) != "delivery_head_unverified" {
+		t.Fatalf("a decision with no commit on a repository: %v", err)
+	}
+	plain, err := r.st.CreateFolderProjectFor(r.p.UserID, store.FolderProject{Host: r.project.Host, Dir: "/work/notes", Name: "notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := deliveryInput(r, false)
+	in.ProjectID = plain.ID
+	second, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, second.ID)
+	n := r.review(t, second.ID)
+	if n.CommitState != "none" || n.Commit != "" {
+		t.Fatalf("a folder that is not a repository: %+v", n)
+	}
+	n = r.note(t, second.ID, n, 0, CriterionPassed, "Read the notes.", 2)
+	if n.Criteria[0].Status != CriterionPassed {
+		t.Fatalf("evidence with no commit: %+v", n.Criteria[0])
+	}
+	_, _, decision, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, second.ID, "a", decisionFor(n, "accept", 3))
+	if err != nil || decision.Commit != "" {
+		t.Fatalf("decision with no commit: %+v %v", decision, err)
 	}
 }

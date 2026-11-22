@@ -30,6 +30,12 @@ before this, never enters the state.
 - A request ID makes a decision idempotent: the same request again answers the recorded decision, also after the
   pipeline moved on. Two decisions at once leave one.
 - Accepting never sets `mergeApproved`. A pipeline whose merge waits for you still stops at `ready_to_merge`.
+- What merges is what was accepted: the head is read again when the merge stage is about to start, and a commit that
+  arrived since, or criteria reworded since, send the pipeline back to `delivery_review` with the acceptance and the
+  merge approval cleared.
+- A delivery is sent back to a work stage, never to the merge, and a pipeline in `delivery_review` leaves it only by
+  a recorded decision: the plain send-back, on the page or over MCP, is refused there.
+- A project reet knows is a repository is never decided without a commit, whatever its machine says of the folder.
 - Evidence counts only for the current commit and the current wording of its criterion. A GitHub check counts only
   while GitHub's pull request is at the reviewed commit, and is read from the machine each time, never from the
   request or from what was saved.
@@ -53,6 +59,14 @@ unreachable or older machine, checks read from GitHub, artefact links, send-back
 read-only and a disabled account, and another pipeline's criterion. `internal/store/store_gaffer_delivery_test.go`
 opens and writes back an outcome in the old format. `internal/api/gaffer_delivery_test.go` holds the route refusals,
 and the inspect tests cover the head commit on a real repository.
+
+**Independent review.** A separate reviewer, given the diff and the contract and not this account of them, found one
+blocker and several smaller faults, all fixed here with a test each: a send-back that lost a race answered 400 and
+could stop the goal of a stage the winning decision had started; send-back to the merge stage redid nothing; an
+encoded `..` passed the artefact allowlist; a commit added after acceptance could merge unreviewed; checks sharing a
+name could hide a failure; long handovers could push criteria out of a stage's prompt; `not_repo` was trusted for a
+repository; evidence at its cap could drop a failing item. Left as they are: the control routes other than the two
+outcome reads still answer with evidence in the outcome, and Gaffer's chat context does not yet mention a review.
 
 **Not done.** The UI is stage 2, in its own pull request on top of this one. Launch readiness, performance work and
 templates are later stages.

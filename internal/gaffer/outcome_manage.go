@@ -606,15 +606,20 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 	}
 	return s.sendPipelineBack(uid, id, key, kind, func(from string) string {
 		return "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
-	}, nil)
+	}, nil, nil)
 }
 
 // sendPipelineBack does the sending back. why is given the stage the pipeline
-// was at and returns what the agent of the stage done again is told. guard,
-// when given, runs inside the write that sends the pipeline back, on the
-// record as it is then: an error from it leaves the record untouched and is
-// returned, and anything it changes on the pipeline is saved with the rest.
-func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(from string) string, guard func(row *store.GafferOutcomeSession) error) (store.GafferOutcome, error) {
+// was at and returns what the agent of the stage done again is told.
+//
+// A delivery review's send-back gives check and record. check says whether
+// the pipeline is still the review the decision was made on: it is asked
+// before anything is touched, and again inside the write on the record as it
+// is then, and an error from it leaves everything as it was and is returned.
+// record then notes the decision on the pipeline, saved with the rest. With
+// neither, this is the person's plain send-back, which is not for a pipeline
+// waiting on its delivery review: that decision is recorded.
+func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(from string) string, check func(row store.GafferOutcomeSession) error, record func(row *store.GafferOutcomeSession)) (store.GafferOutcome, error) {
 	o, err := s.store.GafferOutcomeFor(uid, id)
 	if err != nil {
 		return o, err
@@ -630,6 +635,14 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 		if o.Sessions[i].Key == key {
 			piece = &o.Sessions[i]
 		}
+	}
+	if piece != nil && check != nil {
+		// Decided or moved on meanwhile: nothing of the pipeline as it is now is touched.
+		if err := check(*piece); err != nil {
+			return outcomeView(o), err
+		}
+	} else if piece != nil && piece.State == "delivery_review" {
+		return outcomeView(o), invalid("back", "This pipeline is waiting for your delivery review. Send it back from the review, so the decision and its reasons are recorded.")
 	}
 	if piece == nil || len(piece.Stages) == 0 || piece.State != "following" && piece.State != "delivery_review" && piece.State != "ready_to_merge" && piece.State != "done" && piece.State != "unfollowed" {
 		return outcomeView(o), invalid("back", "That pipeline has no stage to send back to.")
@@ -649,7 +662,11 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 	if target < 0 {
 		return outcomeView(o), invalid("back", "Choose the stage in hand or one before it.")
 	}
-	if piece.ConversationID != "" {
+	// A pipeline in delivery review has no stage at work: its last goal was
+	// closed when that stage was handed over, so there is none to stop here,
+	// and a decision that lost a race must not stop the goal of a stage the
+	// winning one has since started.
+	if piece.ConversationID != "" && check == nil {
 		if g, err := s.store.GafferGoalFor(uid, piece.ConversationID); err == nil {
 			if g.ActiveTurnID != "" {
 				return outcomeView(o), invalid("back", "Gaffer is reviewing this stage right now. Try again in a moment.")
@@ -677,10 +694,14 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 			if row.Key != key || len(row.Stages) != len(fresh) || o.ArchivedAt > 0 {
 				continue
 			}
-			if guard != nil {
-				if refused = guard(row); refused != nil {
+			if check != nil {
+				if refused = check(*row); refused != nil {
 					return false
 				}
+				record(row)
+			} else if row.State == "delivery_review" {
+				refused = invalid("back", "This pipeline is waiting for your delivery review. Send it back from the review, so the decision and its reasons are recorded.")
+				return false
 			}
 			// Sending work back is the person asking for it to be done: it sets a stopped outcome going again.
 			settleStoppedOutcome(o)

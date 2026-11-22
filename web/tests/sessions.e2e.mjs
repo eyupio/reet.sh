@@ -785,21 +785,21 @@ try {
   await expect(tuiSelect(page)).toHaveCount(0)
   const label = tuiPill(page)
   await expect(label).toHaveText('OpenCode TUI')
-  await expect(label).toHaveAttribute('title','This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
+  await expect(label).toHaveAttribute('title','This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.')
   // One reet started and switched to the OpenCode TUI can go back.
   await closeActions(page)
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
   await openActions(page)
   await expect(tuiSelect(page)).toHaveValue('terminal')
   await expect(tuiSelect(page)).toBeEnabled()
-  // Another agent cannot switch between Gaffer and its TUI.
+  // A Claude Code session started in its TUI has no conversation for Gaffer to load.
   await closeActions(page)
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   await openActions(page)
   await expect(tuiSelect(page)).toHaveCount(0)
   const other = tuiPill(page)
   await expect(other).toHaveText('Claude Code TUI')
-  await expect(other).toHaveAttribute('title','Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.')
+  await expect(other).toHaveAttribute('title','This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.')
   await expect(page.locator('.pane')).toBeVisible()
   // The header: agent · model · started, the state in words with its source, and no step count or progress bar (R10).
   await expect(screen(page).locator('.sub')).toHaveText('Claude Code · sonnet · started 2 hours ago')
@@ -832,7 +832,7 @@ try {
   const item = tuiPill(page)
   await expect(item).toBeVisible()
   await expect(item).toHaveText('OpenCode TUI')
-  await expect(item).toHaveAttribute('title','This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
+  await expect(item).toHaveAttribute('title','This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.')
   await page.goto(`${base}/sessions?agent=a1&session=s8`)
   await openActions(page)
   const offered = tuiSelect(page)

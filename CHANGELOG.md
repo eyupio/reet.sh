@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Restart any agent in its own terminal**: Session actions (and the **Terminal** tab, when the agent has no shared native terminal) can restart a Gaffer chat in the agent's terminal UI, and back, for
+  Claude Code, Codex, Cline and Antigravity as well as OpenCode, on the same saved conversation. Cline's terminal resume
+  (`--id`) has not been checked against a chat created over ACP; if it cannot open the conversation the chat is restored.
 - **Delivery review for Factory pipelines**: when you approve a plan, or add pipelines, you can write acceptance
   criteria for each pipeline (up to ten, one line each). A pipeline with criteria stops in **Delivery review** before it
   merges or finishes. The review card on the Factory page shows the reviewed Git commit, each criterion as **Passed**,

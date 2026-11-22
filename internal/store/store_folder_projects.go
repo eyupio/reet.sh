@@ -771,9 +771,10 @@ type TemporaryFolderProject struct {
 }
 
 // TemporaryFolderProjects lists every account's temporary projects, oldest
-// first.
+// first. Two made in the same millisecond are listed in the order they were
+// made: the ID is random, so it would order them either way.
 func (s *Store) TemporaryFolderProjects() ([]TemporaryFolderProject, error) {
-	rows, err := s.db.Query(`SELECT user_id,` + folderColumns + ` FROM folder_projects WHERE temporary=1 ORDER BY created_at,id`)
+	rows, err := s.db.Query(`SELECT user_id,` + folderColumns + ` FROM folder_projects WHERE temporary=1 ORDER BY created_at,rowid`)
 	if err != nil {
 		return nil, err
 	}

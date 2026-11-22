@@ -473,14 +473,25 @@ func TestLaunchArgvSessionRefusesResumeAndStructured(t *testing.T) {
 	}
 }
 
-// ErrLaunchOptionUnsupported for a session is reachable only for a tool whose
-// preset has no sessionArgs and which still passes Validate: today that is
-// Antigravity with a UUID-shaped id.
-func TestLaunchArgvSessionUnsupportedTool(t *testing.T) {
-	look := fakeLookPath("agy")
-	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity", LaunchSession: "11111111-2222-3333-4444-555555555555"}
-	if _, err := LaunchArgv(in, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
-		t.Fatal(err)
+// Antigravity and Cline open their TUI on a chat's conversation id, with the
+// launch's own approval arguments in front of the session arguments.
+func TestLaunchArgvSessionForAntigravityAndCline(t *testing.T) {
+	const agy = "11111111-2222-3333-4444-555555555555"
+	const cline = "1793848855723_8zvJS_cli"
+	cases := []struct {
+		in   terminalproto.Create
+		want []string
+	}{
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity", LaunchSession: agy}, []string{"/opt/fake/bin/agy", "--conversation", agy}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity", LaunchSession: agy, Yolo: true}, []string{"/opt/fake/bin/agy", "--dangerously-skip-permissions", "--conversation", agy}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "cline", LaunchSession: cline}, []string{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--id", cline}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "cline", LaunchSession: cline, Yolo: true}, []string{"/opt/fake/bin/cline", "--yolo", "--tui", "--id", cline}},
+	}
+	for _, c := range cases {
+		got, err := LaunchArgv(c.in, fakeLookPath("agy", "cline"))
+		if err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Fatal(c.in.Tool, c.in.Yolo, got, err)
+		}
 	}
 }
 

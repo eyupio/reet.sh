@@ -79,9 +79,9 @@ choice is **Gaffer** by default; choose the agent's own TUI for the terminal int
 `structured: true`, and OpenCode also sends the person's trust confirmation. The **Model** control chooses the model;
 **Agent default** uses the agent's configured model, and Thinking stays the agent's own. The opening prompt is the first
 message. The new session opens on its Gaffer, where the agent asks before it edits a file or runs a command with
-**Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, OpenCode's session header **OpenCode TUI**
-button switches the running session to OpenCode's own terminal UI and **Gaffer** switches it back, once the agent is idle;
-a session started in the OpenCode TUI cannot move to Gaffer, and a Cline chat stays in Gaffer. Terminal scrollback is not
+**Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, a Gaffer chat for any agent with one (OpenCode, Claude Code, Codex,
+Cline, Antigravity) can be restarted in the agent's own terminal UI from Session actions, and **Gaffer** switches it back,
+once the agent is idle; a session started in the agent's TUI cannot move to Gaffer. Terminal scrollback is not
 kept across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or
 paste/drop) sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or
 crashed reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`, for OpenCode and, on a

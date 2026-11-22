@@ -225,6 +225,8 @@
   async function closeCommands() { commandsOpen = false; await tick(); commandsButton?.focus() }
 
   const projectLabel = (p: FolderProject) => [p.name, p.machine || 'machine not enrolled', projectSource(p), railState(sessions ? running.get(p.id) ?? 0 : null, health?.some(m => m.agentId === p.host) ? !offline.has(p.host) : undefined)?.text].filter(Boolean).join(', ')
+  // Nothing to list and nothing to filter: the page's one action is in the empty state, so the header carries no second New.
+  const firstRun = $derived(sessions !== undefined && sessions.length === 0 && terminals !== undefined && !denied)
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
@@ -245,7 +247,7 @@
     <a class="back" href="/" aria-label="Back to Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
     <h1>Sessions</h1>
     <button type="button" class="commands" aria-label="Saved commands" bind:this={commandsButton} onclick={() => (commandsOpen = true)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 7l4 5-4 5M12 17h7" /></svg><span class="wide">Saved commands</span><span class="narrow">Commands</span></button>
-    <a class="new" href="/#launch" aria-label="New session">New</a>
+    {#if !firstRun}<a class="new" href="/#launch" aria-label="New session">New</a>{/if}
   </header>
 
   <div class="tools">
@@ -298,7 +300,7 @@
     <div class="first-machine"><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to start sessions here.</p><a class="btn primary" href={machinesAt('add-machine')}>Connect a machine</a></div>
   {:else if sessions !== undefined}
     {#if listed.length === 0}
-      {#if (sessions ?? []).length === 0}<p class="none">No sessions yet. Start one from Home.</p>
+      {#if (sessions ?? []).length === 0}<div class="first-machine"><h2>No sessions yet</h2><p>Start an agent or a terminal on one of your machines.</p><a class="btn primary" href="/#launch" aria-label="New session">Start a session</a></div>
       {:else}<p class="none">Every session here is on a desk. Open Desks to see them.</p>{/if}
     {:else if groups.length === 0}
       <p class="none">{filter.state === 'needs' ? 'Nothing marks a session as needing you yet, so none is listed here.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>

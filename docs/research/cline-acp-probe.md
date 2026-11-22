@@ -116,8 +116,8 @@ that looks like a free source. Run it on a machine where Cline is signed in, the
 
 ## Gaffer | Cline TUI switching (not yet checked)
 
-The Chat | Terminal switch is offered for OpenCode only (`switchModeState` in `web/src/lib/sessions.ts`), and Cline's
-catalogue row has no `SessionArgs`, so `launchArgv` refuses a launch on a chat's id with `launch_option_unsupported`.
+The Gaffer | TUI restart is offered for every chat agent, and Cline's catalogue row now carries `SessionArgs: --id`
+from its own `--help`, ahead of the probe below. What the probe settles is still unchecked.
 Cline's own `--help` lists `--id <session-id>` ("Resume an existing session by ID"), but nobody has checked what
 `cline --tui --id <chat id>` does with an id that `cline --acp` created. Three things decide whether the switch can be
 built, and the other two parts of it (the controller's `SwitchSessionMode` and the connector's `swap`) already work for

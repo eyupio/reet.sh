@@ -11,7 +11,7 @@
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { onAttentionChanged, signalAttentionChanged } from '../attentionSignal'
-  import { pipelineAnchor, stageLabel, type NeedChoice } from '../gafferOutcome'
+  import { deliveryAnchor, pipelineAnchor, stageLabel, type NeedChoice } from '../gafferOutcome'
   import { sourceLabel } from '../clineSource'
   import { planEntries, type MachineAccounts } from '../agentAccounts'
   import { machinePlans, PLAN_REFRESH } from '../planLimits'
@@ -402,6 +402,23 @@
   let pushed = false
   let chosenId = $state(new URLSearchParams(location.search).get('pipeline') ?? ''), shownId = $state('')
   let pane = $state<HTMLElement>()
+  // A pipeline's delivery review is opened from Home, a waiting item or the address (?pipeline=…&review=1): that
+  // pipeline is chosen, its review card is read at once, scrolled into view and focused. `reviewFor` is the pipeline
+  // whose review was asked for; `reviewFocus` is the one-time move of the focus once the page has it.
+  const askedForReview = new URLSearchParams(location.search).get('review') === '1'
+  // svelte-ignore state_referenced_locally
+  let reviewFor = $state(askedForReview ? chosenId : ''), reviewFocus = $state(askedForReview)
+  async function focusReview(item: FactoryItem) {
+    await tick(); await tick()
+    const card = document.getElementById(deliveryAnchor(item.outcomeId, item.key))
+    card?.scrollIntoView({ block: 'start' })
+    card?.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true })
+  }
+  $effect(() => {
+    if (!reviewFocus || !selected || !pairs.has(selected.id) || reviewFor !== selected.id) return
+    reviewFocus = false
+    void focusReview(selected)
+  })
   const firstId = $derived((waitingItems[0] ?? inSection(items, 'working')[0])?.id ?? '')
   $effect(() => { if (!narrow && !byId.has(chosenId) && !byId.has(shownId) && shownId !== firstId) shownId = firstId })
   const selectedId = $derived(byId.has(chosenId) ? chosenId : narrow ? '' : byId.has(shownId) ? shownId : firstId)
@@ -414,13 +431,15 @@
   function select(id: string) {
     chosenId = id
     if (id) shownId = id
-    address({ pipeline: id || null }, '')
+    reviewFor = ''
+    address({ pipeline: id || null, review: null }, '')
     if (narrow) void tick().then(() => scrollTo({ top: 0 })); else if (pane) pane.scrollTop = 0
   }
   // Details on an item: on a narrow screen a new history entry, with the focus on the detail's title.
   function open(id: string) {
     if (!narrow || byId.has(chosenId)) { select(id); return }
-    history.pushState(history.state, '', addressed({ pipeline: id }, ''))
+    history.pushState(history.state, '', addressed({ pipeline: id, review: null }, ''))
+    reviewFor = ''
     pushed = true; chosenId = id; shownId = id
     void tick().then(() => scrollTo({ top: 0 }))
     focusTitle()
@@ -450,6 +469,7 @@
     const moved = () => {
       const item = selected
       chosenId = new URLSearchParams(location.search).get('pipeline') ?? ''
+      reviewFor = new URLSearchParams(location.search).get('review') === '1' ? chosenId : ''
       pushed = !!chosenId
       if (chosenId) { shownId = chosenId; focusTitle() } else returnTo(item)
     }
@@ -479,7 +499,15 @@
   }
 
   // Every choice goes through PipelineChoices. The detail's own buttons that do what a choice does are that choice.
-  const choose = (choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession) => choices?.choose(choice, record, piece)
+  function reviewDelivery(record: Outcome, piece: GafferOutcomeSession) {
+    const item = byId.get(`${record.id}.${piece.key}`)
+    if (!item) return
+    if (selectedId !== item.id || (narrow && !byId.has(chosenId))) open(item.id)
+    reviewFor = item.id
+    address({ review: '1' })
+    void focusReview(item)
+  }
+  const choose = (choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession) => choice.id === 'review' ? reviewDelivery(record, piece) : choices?.choose(choice, record, piece)
   const actions: DetailActions = {
     choose, setDecisions, setYolo, mergeMode, report, loadHistory, stop, putAway, pick,
     retry: (record, piece) => choose({ id: 'restart', label: 'Try again' }, record, piece),
@@ -487,6 +515,7 @@
     moving: ({ record, piece }) => choose({ id: 'move', label: 'Move on' }, record, piece),
     telling: ({ record, piece }) => choose({ id: 'tell', label: 'Tell the agent…' }, record, piece), sending: pair => { sending = pair },
     merging: ({ record, piece }) => choose({ id: 'merge', label: 'Approve merge' }, record, piece), managing: goal => choices?.manage(goal),
+    changed: () => load(),
   }
   const helpers: DetailHelpers = { crew, planFor, sessionHref, when, usable, mergesByItself, pipelineOf }
 </script>
@@ -568,7 +597,7 @@
       </div>{/if}
       {#if selected && selectedPair}{@const record = selectedPair.record}{@const piece = selectedPair.piece}<div class="pane" bind:this={pane}>
         {#key selected.id}<PipelineDetail {record} {piece} item={selected} goal={piece.conversationId ? byConversation.get(piece.conversationId) : undefined} goals={byConversation} {busy} {reporting} {clock} {planClock}
-          timeline={timeline[record.id]} ticked={ticked(record)} bind:expanded {narrow} {removeMode} position={place >= 0 ? { at: place + 1, of: waitingItems.length } : undefined} {actions} {helpers}
+          timeline={timeline[record.id]} ticked={ticked(record)} bind:expanded {narrow} reviewShown={reviewFor === selected.id} {removeMode} position={place >= 0 ? { at: place + 1, of: waitingItems.length } : undefined} {actions} {helpers}
           permission={approvalFor(piece.sessionId)} onanswered={answered}
           onback={back} onprev={() => step(-1)} onnext={() => step(1)}/>{/key}
       </div>

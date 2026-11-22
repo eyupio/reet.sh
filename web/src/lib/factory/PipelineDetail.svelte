@@ -27,6 +27,8 @@
     sending: (pair: Pair) => void
     merging: (pair: Pair) => void
     managing: (goal: GafferGoalOverview) => void
+    /** A delivery decision, evidence or criteria were recorded: the page reads the outcomes again. */
+    changed: () => void | Promise<void>
   }
   /** The page's pure helpers, under their own names. */
   export type DetailHelpers = {
@@ -56,10 +58,11 @@
   import PlanMeters from '../PlanMeters.svelte'
   import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
+  import DeliveryReview from './DeliveryReview.svelte'
   import { ciRun, ciWord, gafferFixes } from './githubFacts'
   import type { FactoryItem } from './factoryList'
 
-  let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, removeMode = 'archive', position, permission, onanswered, actions, helpers, onback, onprev, onnext }: {
+  let { record, piece, item, goal, goals, busy, reporting, clock, planClock, timeline, ticked, expanded = $bindable(), narrow = false, reviewShown = false, removeMode = 'archive', position, permission, onanswered, actions, helpers, onback, onprev, onnext }: {
     record: Outcome
     piece: GafferOutcomeSession
     item: FactoryItem
@@ -73,6 +76,8 @@
     ticked: string[]
     expanded: Record<string, boolean>
     narrow?: boolean
+    /** The address or a button asked for the delivery review: it is read at once. */
+    reviewShown?: boolean
     /** The account's default for putting a finished outcome away: that entry comes first in the menu. */
     removeMode?: 'archive' | 'delete'
     position?: { at: number; of: number }
@@ -133,7 +138,7 @@
   // A decision Gaffer could not take, or chose to leave, keeps this stop with the person; saying it is deciding would be
   // a promise nothing is going to keep.
   const leftToYou = $derived(used > 0 && taken.some(d => d.failed && d.key === piece.key && d.stage === inHand?.kind))
-  const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' || usageLimited ? '' : leftToYou ? 'Gaffer left this one to you. See what it decided, below.' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.')
+  const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' || item.kind === 'delivery' || usageLimited ? '' : leftToYou ? 'Gaffer left this one to you. See what it decided, below.' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.')
 
   // One bar: the choices of what waits, then the buttons a pipeline has today, each only once. A choice and a button
   // that do the same thing share a key. Opening the session is a link (`href`).
@@ -250,8 +255,11 @@
     {#if item.need?.recommend?.by === 'gaffer'}<p class="advice"><strong>Gaffer recommends: {item.need.recommend.label.replace(/…$/, '')}.</strong> {item.need.recommend.why}</p>{/if}
     {#if !usageLimited && goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}
     {#if gafferNote}<p class="hint">{gafferNote}</p>{/if}
+    {#if item.kind === 'delivery'}<p class="hint">The pipeline’s work is ready to be checked against the criteria you agreed. The delivery review is below. Accepting the delivery is not approving the merge.</p>{/if}
     {#if lost}<p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>{/if}
   </section>{/if}
+
+  {#if piece.criteria?.length}<DeliveryReview {record} {piece} {archived} {reviewShown} when={helpers.when} onchanged={actions.changed}/>{/if}
 
   <section class="stage" aria-label={node ? `${node.label} stage` : 'This pipeline'}>
     <p class="stage-head"><strong>{node ? `${node.label} stage` : 'This pipeline'}</strong>{#if nodes.length > 1}<span class="hint">Pick another stage above to see that one.</span>{/if}</p>
@@ -261,7 +269,7 @@
         {#if piece.state !== 'done' && inHand?.balanced}<div><dt>Balanced</dt><dd>{inHand.balanced}</dd></div>{/if}
         {#if piece.state !== 'done'}{@const plan = helpers.planFor(record, piece)}
           {#if plan.length}<div><dt>Plan left</dt><dd><PlanMeters entries={plan} now={planClock} wide /></dd></div>{/if}{/if}
-        {#if piece.state === 'following' || piece.state === 'ready_to_merge'}{@const applied = stageChoice(piece.stages?.length ? inHand : piece.applied)}
+        {#if piece.state === 'following' || piece.state === 'delivery_review' || piece.state === 'ready_to_merge'}{@const applied = stageChoice(piece.stages?.length ? inHand : piece.applied)}
           {#if applied}<div><dt>Applied</dt><dd class:low={applied.tone === 'bad'}><strong>{applied.label}.</strong> {applied.text}</dd></div>{/if}{/if}
         {#if piece.state === 'following'}{@const activity = agentActivity(inHand, clock)}
           {#if inHand?.startedAt}<div><dt>In this stage</dt><dd>{ago(inHand.startedAt, clock)}</dd></div>{/if}

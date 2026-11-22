@@ -13,11 +13,12 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
-// claude reads Claude Code's sign-in. On Linux it is a file,
-// .credentials.json in the configuration folder (~/.claude, or the folder
-// CLAUDE_CONFIG_DIR names). On macOS Claude Code keeps it in the keychain,
-// which this reader does not open, so a missing file there is "cannot tell",
-// not "not signed in". The account's address comes from .claude.json.
+// claude reads Claude Code's sign-in. It is .credentials.json in the
+// configuration folder (~/.claude, or the folder CLAUDE_CONFIG_DIR names),
+// or, on macOS, the login keychain's `Claude Code-credentials` item. A CLI
+// that cannot write the keychain refreshes the file alone, and the keychain
+// can then hold an older token, so the later of the two is used. The
+// account's address comes from .claude.json.
 func (r *Reader) claude() signIn {
 	out := signIn{account: terminalproto.AgentAccount{Tool: "claude", State: terminalproto.AccountNone}, ask: askClaude}
 	dir, moved, ok := r.folder("CLAUDE_CONFIG_DIR", ".claude")
@@ -25,33 +26,36 @@ func (r *Reader) claude() signIn {
 		out.account.State = terminalproto.AccountUnreadable
 		return out
 	}
-	data, err := readFile(filepath.Join(dir, ".credentials.json"), maxCredentialBytes)
-	if errors.Is(err, os.ErrNotExist) {
-		if r.goos() == "darwin" {
+	data, readErr := readFile(filepath.Join(dir, ".credentials.json"), maxCredentialBytes)
+	file, fileOK, fileReadable := claudeSignIn(data)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		fileOK, fileReadable = false, false
+	}
+	// macOS may hold the same sign-in in the keychain; the later token wins.
+	var keychain claudeToken
+	keychainOK := false
+	if item, found := r.macKeychainItem("Claude Code-credentials", r.env("USER")); found {
+		if token, ok, readable := claudeSignIn([]byte(item)); readable && ok {
+			keychain, keychainOK = token, true
+		}
+	}
+	if keychainOK && (!fileOK || claudeLater(keychain, file)) {
+		file, fileOK = keychain, true
+	}
+	if !fileOK {
+		if !fileReadable {
+			out.account.State = terminalproto.AccountUnreadable
+		} else if r.goos() == "darwin" {
+			// The keychain may hold a sign-in this session cannot read.
 			out.account.State = terminalproto.AccountUnreadable
 		}
 		return out
 	}
-	var file struct {
-		OAuth *struct {
-			AccessToken      string  `json:"accessToken"`
-			RefreshToken     string  `json:"refreshToken"`
-			ExpiresAt        float64 `json:"expiresAt"`
-			SubscriptionType string  `json:"subscriptionType"`
-		} `json:"claudeAiOauth"`
-	}
-	if err != nil || json.Unmarshal(data, &file) != nil {
-		out.account.State = terminalproto.AccountUnreadable
-		return out
-	}
-	if file.OAuth == nil || (file.OAuth.AccessToken == "" && file.OAuth.RefreshToken == "") {
-		return out
-	}
 	out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountSubscription
-	out.account.Plan = label(strings.ToLower(file.OAuth.SubscriptionType), 32)
-	out.token = file.OAuth.AccessToken
-	if file.OAuth.ExpiresAt > 0 && file.OAuth.ExpiresAt < 1e15 {
-		out.expires = time.UnixMilli(int64(file.OAuth.ExpiresAt))
+	out.account.Plan = label(file.Plan, 32)
+	out.token = file.AccessToken
+	if file.ExpiresAt > 0 {
+		out.expires = time.UnixMilli(file.ExpiresAt)
 	}
 	if out.token == "" {
 		// Only the renewal token is there: the agent must run to get a new one.
@@ -77,6 +81,53 @@ func (r *Reader) claude() signIn {
 	}
 	out.identity = "claude\x00" + uuid + "\x00" + out.account.Account + "\x00" + out.account.Plan
 	return out
+}
+
+// claudeToken is the part of Claude Code's sign-in this package uses.
+type claudeToken struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    int64 // milliseconds since 1970, 0 when not said
+	Plan         string
+}
+
+// claudeSignIn reads Claude Code's credential document. It reports whether
+// the document could be read at all, which tells a file that will not parse
+// (unreadable) from one that simply holds no sign-in (MCP sign-ins only).
+func claudeSignIn(data []byte) (claudeToken, bool, bool) {
+	if len(data) == 0 {
+		return claudeToken{}, false, true
+	}
+	var file struct {
+		OAuth *struct {
+			AccessToken      string  `json:"accessToken"`
+			RefreshToken     string  `json:"refreshToken"`
+			ExpiresAt        float64 `json:"expiresAt"`
+			SubscriptionType string  `json:"subscriptionType"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(data, &file) != nil {
+		return claudeToken{}, false, false
+	}
+	if file.OAuth == nil || (file.OAuth.AccessToken == "" && file.OAuth.RefreshToken == "") {
+		return claudeToken{}, false, true
+	}
+	token := claudeToken{AccessToken: file.OAuth.AccessToken, RefreshToken: file.OAuth.RefreshToken, Plan: strings.ToLower(file.OAuth.SubscriptionType)}
+	if file.OAuth.ExpiresAt > 0 && file.OAuth.ExpiresAt < 1e15 {
+		token.ExpiresAt = int64(file.OAuth.ExpiresAt)
+	}
+	return token, true, true
+}
+
+// claudeLater reports whether a is the later of two sign-ins.
+func claudeLater(a, b claudeToken) bool {
+	if a.ExpiresAt == 0 {
+		return false
+	}
+	if b.ExpiresAt == 0 {
+		return true
+	}
+	return a.ExpiresAt > b.ExpiresAt
 }
 
 func (r *Reader) goos() string {

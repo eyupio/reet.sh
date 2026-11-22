@@ -48,13 +48,15 @@ export function resetsIn(at: number | undefined, now: number): string {
   return `resets in ${d} ${d === 1 ? 'day' : 'days'}${d === 1 && h ? ` ${h} h` : ''}`
 }
 
-/** Each allowance window as what is left of it, in the order the machine gave them (plan-wide windows first). */
+/** Each allowance window as what is left of it, in the order the machine gave them (plan-wide windows first). The key
+ *  includes the position: a provider may send two windows of the same kind and label (Codex's two windows when neither
+ *  says its length), and a keyed `each` must never see the same key twice. */
 export function limitLines(account: AgentAccount | undefined, now: number): LimitLine[] {
-  return (account?.limits ?? []).map(limit => {
+  return (account?.limits ?? []).map((limit, at) => {
     const [name, phrase] = WINDOWS[limit.kind] ?? ['Limit', '']
     const left = 100 - Math.max(0, Math.min(100, Math.round(limit.usedPercent)))
     const title = limit.label ? `${limit.label} ${phrase}`.trim() : name
-    return { key: limit.label ? `${limit.kind}:${limit.label}` : limit.kind, name: title, left, low: left <= LOW_LIMIT_PERCENT, text: `${title} ${left}% left`, resets: resetsIn(limit.resetsAt, now) }
+    return { key: `${limit.label ? `${limit.kind}:${limit.label}` : limit.kind}#${at}`, name: title, left, low: left <= LOW_LIMIT_PERCENT, text: `${title} ${left}% left`, resets: resetsIn(limit.resetsAt, now) }
   })
 }
 

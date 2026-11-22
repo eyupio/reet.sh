@@ -1,5 +1,42 @@
 # Reet central-control implementation handoff
 
+## USAGE-PLANS-2: plan limits read where each agent keeps its sign-in (22 November 2026)
+
+The owner reported that the Usage page showed a plan for Codex only: Claude Code and Google Antigravity said the
+sign-in had run out, OpenCode said no sign-in, and GitHub Copilot was not read, though the person was signed in to
+them. A review of the plan readers against the reference implementation found that reet read only each agent's files
+(and OpenCode's variable), while the agents also keep sign-ins in the platform keychain or keyring, and Copilot is
+often signed in through the GitHub CLI alone.
+
+**What changed.** `internal/agentaccounts` now reads each sign-in from more of the places its own agent keeps it, and
+uses the later token where a file and a keychain item disagree (a CLI that cannot write the keychain refreshes the
+file alone):
+
+- **Claude Code**: the macOS login keychain's `Claude Code-credentials` item, as well as `.credentials.json`.
+- **Codex**: the macOS keychain's `Codex Auth` item when the file holds none (or an older token).
+- **Google Antigravity**: the Linux Secret Service item (`secret-tool lookup service gemini username antigravity`)
+  and the macOS keychain's `gemini`/`antigravity` item, as well as `antigravity-oauth-token`.
+- **GitHub Copilot**: the GitHub CLI's own sign-ins for `github.com` (`gh auth status --json hosts`, then
+  `gh auth token --user`; an older CLI's `gh auth token` alone), tried in turn after the editor files.
+
+Sign-ins are now found side by side and each keychain, keyring or CLI read is bounded at 2 s, so
+`agentaccounts.ReadTakesAtMost` stays 11 s inside the connector's 12 s answer. The reader still never renews or
+rewrites a sign-in.
+
+**Usage page.** `limitLines` keys each plan window by its position, so two windows of the same kind (Codex's, when a
+provider does not say each length) no longer collide in a keyed `each`. Stale figures stay dimmed after a failed
+period change instead of only while loading.
+
+**Verified.** A real read on this machine (states only): Codex `plus`, 2 windows; GitHub Copilot now `individual`,
+1 window, through `gh`; Claude Code is signed in with an API key/prepaid (no plan to read); OpenCode holds only an
+`ollama-cloud` key (no Go plan); Antigravity's file token expired on 12 November. `go test
+./internal/agentaccounts/ ./internal/terminalagent/ ./internal/api/` passes, as do all 117 web test files, and the
+`usage`, `plan-meters` and `chat-usage` browser suites pass against `vite preview`.
+
+**Docs.** `docs/agent-accounts.md` names the new places; `CHANGELOG.md` records the change.
+
+**PR.** [#877](https://github.com/eyupio/reet.sh/pull/877) opened against `main`; its checks are this change's.
+
 ## PHONE-SKILL-BUDDY-1: skill suggestions fold to one row on a phone (22 November 2026)
 
 The owner shared a phone screenshot of an active chat where the **Skills for this task** panel filled much of the screen

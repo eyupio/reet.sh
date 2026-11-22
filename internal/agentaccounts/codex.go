@@ -13,10 +13,11 @@ import (
 )
 
 // codex reads Codex's sign-in from auth.json in its folder (~/.codex, or the
-// folder CODEX_HOME names). A ChatGPT sign-in holds tokens; its address and
-// plan are claims of the identity token. An API key is a sign-in with no plan.
-// Codex can also be set to keep its sign-in in the system keyring, which this
-// reader does not open: such a machine reads as having no sign-in file.
+// folder CODEX_HOME names), or from the macOS login keychain's `Codex Auth`
+// item when the file holds none. A ChatGPT sign-in holds tokens; its address
+// and plan are claims of the identity token. An API key is a sign-in with no
+// plan. The later of the file and the keychain is used: a CLI that cannot
+// write the keychain refreshes the file alone.
 func (r *Reader) codex() signIn {
 	out := signIn{account: terminalproto.AgentAccount{Tool: "codex", State: terminalproto.AccountNone}, ask: askCodex}
 	dir, _, ok := r.folder("CODEX_HOME", ".codex")
@@ -24,9 +25,61 @@ func (r *Reader) codex() signIn {
 		out.account.State = terminalproto.AccountUnreadable
 		return out
 	}
-	data, err := readFile(filepath.Join(dir, "auth.json"), maxCredentialBytes)
-	if errors.Is(err, os.ErrNotExist) {
+	data, readErr := readFile(filepath.Join(dir, "auth.json"), maxCredentialBytes)
+	file, fileOK, fileReadable := codexSignIn(data)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		fileOK, fileReadable = false, false
+	}
+	if item, keychainOK := r.macKeychainItem("Codex Auth", ""); keychainOK {
+		if keychain, parsed, readable := codexSignIn([]byte(item)); readable && parsed && (!fileOK || codexLater(keychain, file)) {
+			file, fileOK = keychain, true
+		}
+	}
+	if !fileOK {
+		if !fileReadable {
+			out.account.State = terminalproto.AccountUnreadable
+		}
 		return out
+	}
+	if file.AccessToken == "" {
+		if file.APIKey != "" {
+			out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountAPIKey
+		}
+		return out
+	}
+	out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountSubscription
+	out.token = file.AccessToken
+	var identity struct {
+		Email string `json:"email"`
+		Auth  struct {
+			Plan string `json:"chatgpt_plan_type"`
+		} `json:"https://api.openai.com/auth"`
+	}
+	if jwtClaims(file.IDToken, &identity) {
+		out.account.Account = label(identity.Email, 128)
+		out.account.Plan = label(strings.ToLower(identity.Auth.Plan), 32)
+	}
+	if file.ExpiresAt > 0 {
+		out.expires = time.Unix(file.ExpiresAt, 0)
+	}
+	out.accountID = file.AccountID
+	out.identity = "codex\x00" + file.AccountID + "\x00" + out.account.Account + "\x00" + out.account.Plan
+	return out
+}
+
+// codexCredential is the part of Codex's credential document this package uses.
+type codexCredential struct {
+	APIKey      string
+	IDToken     string
+	AccessToken string
+	AccountID   string
+	ExpiresAt   int64 // seconds since 1970, 0 when not said
+}
+
+// codexSignIn reads Codex's credential document.
+func codexSignIn(data []byte) (codexCredential, bool, bool) {
+	if len(data) == 0 {
+		return codexCredential{}, false, true
 	}
 	var file struct {
 		APIKey string `json:"OPENAI_API_KEY"`
@@ -36,37 +89,32 @@ func (r *Reader) codex() signIn {
 			AccountID   string `json:"account_id"`
 		} `json:"tokens"`
 	}
-	if err != nil || json.Unmarshal(data, &file) != nil {
-		out.account.State = terminalproto.AccountUnreadable
-		return out
+	if json.Unmarshal(data, &file) != nil {
+		return codexCredential{}, false, false
 	}
-	if file.Tokens == nil || file.Tokens.AccessToken == "" {
-		if file.APIKey != "" {
-			out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountAPIKey
-		}
-		return out
+	out := codexCredential{APIKey: file.APIKey}
+	if file.Tokens == nil {
+		return out, out.APIKey != "", true
 	}
-	out.account.State, out.account.Method = terminalproto.AccountSignedIn, terminalproto.AccountSubscription
-	out.token = file.Tokens.AccessToken
-	var identity struct {
-		Email string `json:"email"`
-		Auth  struct {
-			Plan string `json:"chatgpt_plan_type"`
-		} `json:"https://api.openai.com/auth"`
-	}
-	if jwtClaims(file.Tokens.IDToken, &identity) {
-		out.account.Account = label(identity.Email, 128)
-		out.account.Plan = label(strings.ToLower(identity.Auth.Plan), 32)
-	}
+	out.IDToken, out.AccessToken, out.AccountID = file.Tokens.IDToken, file.Tokens.AccessToken, file.Tokens.AccountID
 	var access struct {
 		Expires float64 `json:"exp"`
 	}
-	if jwtClaims(file.Tokens.AccessToken, &access) && access.Expires > 0 && access.Expires < 1e12 {
-		out.expires = time.Unix(int64(access.Expires), 0)
+	if jwtClaims(out.AccessToken, &access) && access.Expires > 0 && access.Expires < 1e12 {
+		out.ExpiresAt = int64(access.Expires)
 	}
-	out.accountID = file.Tokens.AccountID
-	out.identity = "codex\x00" + file.Tokens.AccountID + "\x00" + out.account.Account + "\x00" + out.account.Plan
-	return out
+	return out, out.AccessToken != "" || out.APIKey != "", true
+}
+
+// codexLater reports whether a is the later of two sign-ins.
+func codexLater(a, b codexCredential) bool {
+	if a.ExpiresAt == 0 {
+		return false
+	}
+	if b.ExpiresAt == 0 {
+		return true
+	}
+	return a.ExpiresAt > b.ExpiresAt
 }
 
 // askCodex reads the allowance of a ChatGPT plan: one or two windows, each a

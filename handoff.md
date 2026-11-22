@@ -35,7 +35,7 @@ period change instead of only while loading.
 
 **Docs.** `docs/agent-accounts.md` names the new places; `CHANGELOG.md` records the change.
 
-**PR.** [#877](https://github.com/eyupio/reet.sh/pull/877) opened against `main`; its checks are this change's.
+**PR.** [#877](https://github.com/eyupio/reet.sh/pull/877) opened against `main`. **Merged** as `6fbac352` on 22 November 2026, after the CodeQL, source, compare, test, web, build, image, offline, phone-chat, phone-dialogs, phone-gaffer, phone-sessions, phone-zoom, terminal-browser and Gaffer settings checks passed.
 
 ## PHONE-SKILL-BUDDY-1: skill suggestions fold to one row on a phone (22 November 2026)
 

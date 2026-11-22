@@ -1,5 +1,27 @@
 # Reet central-control implementation handoff
 
+## CHAT-LONG-BASELINE-1: the long-chat baseline is measured (22 November 2026)
+
+The delivery review plan's stage 0 asked for a long-chat baseline for stage 4 to compare against; it had not been
+captured. This records it and keeps the script that measures it.
+
+**What changed (a measurement and its record only).** `web/tests/chat-long-baseline.mjs` opens one chat on the
+production bundle with the same fake API and event stream the chat suites use, replays a history through the stream,
+streams a reply a piece at a time, and prints JSON: the history's bytes and time to draw, the time one streamed piece
+takes to reach the screen (median, 95th percentile, worst), and how the scroll position behaves while following and
+while reading. `REET_CHAT_EVENTS` and `REET_CHAT_UPDATES` set its size. It is not a test, asserts nothing and is in no
+workflow. The figures are in
+[docs/handoffs/factory-delivery-review-design.md](docs/handoffs/factory-delivery-review-design.md#long-chat).
+
+**What it found, on main at `2dec0d1`.** A 2,000-event history is 313,161 bytes and draws in about a quarter of a
+second. A streamed piece of 107 bytes reaches the screen in two or three frames (p95 50 ms) at both widths. A reader
+scrolled back to the middle is not moved at all by 200 streamed pieces. Following is the weak spot: at phone width the
+page stops following a streaming reply and ends about 4,600 px above the latest text, where desktop stays at the
+bottom. The log follows only within 80 px of the bottom and scrolls smoothly, and on a narrow screen the smooth scroll
+falls further behind than that. Nothing was changed about it here; it wants confirming on a real phone.
+
+**Not captured.** Time to a visible decision on the Factory page, which belongs with stage 4's own changes.
+
 ## FACTORY-DELIVERY-REVIEW-2: delivery review UI (22 November 2026)
 
 Stage 2 of [the delivery review plan](docs/handoffs/factory-delivery-review.md), on top of

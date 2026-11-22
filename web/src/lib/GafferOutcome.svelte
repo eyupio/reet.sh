@@ -4,7 +4,7 @@
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, untrack } from 'svelte'
   import { createGafferOutcome, getGafferCrew, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
-  import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
   import { MAX_ATTACHMENTS, attachmentMessage, attachmentsFromPaste, type AttachmentReason } from './imageAttachment'
@@ -24,6 +24,9 @@
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
   import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
+  import LaunchReadiness from './factory/LaunchReadiness.svelte'
+  import { launchReadiness, launchSummary } from './factory/launchReadiness'
+  import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
@@ -131,6 +134,7 @@
     return true
   }
   const crewTools = $derived(CREW_TIERS.map(item => crew[item.tier].tool))
+  const spareTools = $derived(CREW_TIERS.flatMap(({ tier }) => [backups[tier], ...more[tier]].map(one => one.tool).filter(Boolean)))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
   const sourceOffered = $derived(sourceOptions({ saved: savedSource }).map(item => item.id))
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
@@ -150,7 +154,6 @@
   // Whether Gaffer settings has a saved crew, and what it holds, is read once when the dialog opens: the summary below
   // shows the saved agent and model for each tier before the person submits, without a second copy of the data.
   let crewRead = $state<'reading' | 'saved' | 'empty' | 'failed'>('reading')
-  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : planBlocker(sessions, room) || partsBlocker(sessions) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   const savedSettings = $derived(savedCrewRows(savedCrew))
   const unavailableCrew = $derived(savedSettings.filter(item => tools.length > 0 && !tools.includes(item.tool)))
   let chosenRoles = $state<Partial<Record<keyof Crew, boolean>>>({})
@@ -224,7 +227,7 @@
   $effect(() => {
     const agentId = machine?.agentId
     if (!agentId) return
-    for (const id of new Set([tool, ...crewTools])) {
+    for (const id of new Set([tool, ...crewTools, ...spareTools])) {
       const slot = `${agentId}:${id}`
       if (!id || slot in offered) continue
       offered[slot] = null
@@ -246,6 +249,30 @@
     }
   })
   const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
+  // What each tier will run on this machine, before the person approves: the saved crew's entry, what the machine reports
+  // and its sign-ins (read once per machine when the plan opens; a failed read is a state, not an error).
+  // The machine list is read again when the plan opens: the person may have taken a while, and a machine that went away
+  // or lost an agent in the meantime must stop Approve now, not after the controller has refused each stage.
+  $effect(() => { if (step === 'plan') void terminalMachines(life.signal).then(found => { if (!life.signal.aborted) machines = found }).catch(() => { /* the list read at the start stands */ }) })
+  let accounts = $state<Record<string, MachineAccounts | null>>({})
+  const askedAccounts = new Set<string>()
+  $effect(() => {
+    const id = machine?.agentId
+    if (step !== 'plan' || !id || askedAccounts.has(id)) return
+    askedAccounts.add(id)
+    void machineAccounts(id, life.signal).then(found => { accounts[id] = found }).catch(() => { if (!life.signal.aborted) accounts[id] = null })
+  })
+  const savedFor = (tier: 'heavy' | 'standard' | 'light') => crewRead === 'failed' || crewRead === 'reading' ? undefined : crewRead === 'saved' && savedCrew?.[tier]?.tool ? savedCrew[tier] : null
+  const tierReady = $derived.by(() => {
+    const now = Date.now()
+    return Object.fromEntries(CREW_TIERS.map(({ tier }) => [tier, launchReadiness({ machine, tools, efforts, models: offeredFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: crew[tier], spares: [backups[tier], ...more[tier]], saved: savedFor(tier), edited: !!chosenRoles[tier] })])) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
+  })
+  // Every stage, and every part of a split stage, with the readiness of the tier it is on.
+  const launch = $derived(launchSummary(sessions.flatMap((item, index) => (item.stages ?? []).flatMap(kind => {
+    const split = stageParts(item, kind), where = `pipeline ${index + 1}`
+    return split.length > 1 ? split.map((part, at) => ({ label: `${stageLabel(kind)} part ${at + 1}`, where, readiness: tierReady[part.tier] })) : [{ label: stageLabel(kind), where, readiness: tierReady[stageTier(kind, item).tier] }]
+  }))))
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   const yoloGates = $derived.by((): YoloGate[] => {
     const account = yoloSetting?.allowed === true
     const host = machine?.host || 'This machine'
@@ -551,13 +578,14 @@
           </div>
           {#if item.stages?.length}<div class="stage-tiers" role="group" aria-label={`Pipeline ${index + 1} stage tiers`}>
             {#each item.stages as kind (kind)}{@const split = stageParts(item, kind)}{#if split.length > 1}
-            <StageParts {kind} where={`pipeline ${index + 1}`} parts={split} {busy} who={tier => { const one = crew[tier]; return `${one.tool ? chatToolName(one.tool) : 'No agent'}${one.model.trim() ? ` · ${one.model.trim()}` : ' · Agent’s default model'}${one.effort ? ` · ${one.effort} effort` : ''}` }}
+            <StageParts {kind} where={`pipeline ${index + 1}`} parts={split} {busy} ready={tier => tierReady[tier]} who={tier => { const one = crew[tier]; return `${one.tool ? chatToolName(one.tool) : 'No agent'}${one.model.trim() ? ` · ${one.model.trim()}` : ' · Agent’s default model'}${one.effort ? ` · ${one.effort} effort` : ''}` }}
               onchange={(at, next) => item.parts = withPart(item, kind, at, next)} onadd={() => item.parts = withNewPart(item, kind)} onjoin={() => item.parts = withoutParts(item, kind)}/>
             {:else}{@const rated = stageTier(kind, item)}{@const member = crew[rated.tier]}
             <div class="stage-tier" class:changed={rated.changed} data-stage={kind}>
               <span class="stage-name">{stageLabel(kind)}</span>
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
-              <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ' · Agent’s default model'}{member.effort ? ` · ${member.effort} effort` : ''}{#if backups[rated.tier].tool}<span class="stage-spare">Backup: {chatToolName(backups[rated.tier].tool)}{backups[rated.tier].model.trim() ? ` · ${backups[rated.tier].model.trim()}` : ''}{backups[rated.tier].effort ? ` · ${backups[rated.tier].effort} effort` : ''}</span>{/if}</span>
+              <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ' · Agent’s default model'}{member.effort ? ` · ${member.effort} effort` : ''}</span>
+              <LaunchReadiness ready={tierReady[rated.tier]}/>
               {#if stageTakesParts(kind)}<button class="link stage-splitter" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} in pipeline ${index + 1} into parts`} onclick={() => item.parts = withNewPart(item, kind)}>Split into parts</button>{/if}
               {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
             </div>{/if}{/each}
@@ -588,6 +616,7 @@
       <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
       {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.{#if yolo && !yoloWhy}{' '}<strong>On YOLO a pipeline still stops there</strong> until you confirm on the Factory page that it may merge by itself.{/if}</span></label>{/if}
       {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. {crewTools.includes('antigravity') ? 'Google Antigravity needs this to start at all; OpenCode needs it only in a folder that has plugins.' : 'Leave this off and a folder that has any is refused.'}</span></label>{/if}
+      {#if launch.ready + launch.look + launch.blocked}<p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0} role="status"><strong>Launch readiness.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : '✓'}</span> {launch.text}</p>{/if}
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>
       {:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
@@ -657,7 +686,7 @@
   .saved-part{font-size:0.875rem;color:var(--muted)}
   .saved-sep{margin:0 6px;color:var(--muted)}
   @media(max-width:479px){.saved-crew-list>div{grid-template-columns:4.5rem minmax(0,1fr)}}
-  .stage-spare{display:block;color:var(--muted)}.stage-splitter{font-size:0.875rem;white-space:nowrap}
+  .launch{color:var(--ink-soft)}.launch.look span{color:var(--warn)}.launch.stop span{color:var(--bad)}.stage-splitter{font-size:0.875rem;white-space:nowrap}
   .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1.25fr) minmax(0,1.05fr);gap:8px 10px;align-items:start}.crew-row+.crew-row{padding-top:12px;border-top:1px solid var(--line)}.crew-source{grid-column:2/-1}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   /* Each chosen stage with its tier and who that means. One the plan or the person moved off its default is marked, with why. */

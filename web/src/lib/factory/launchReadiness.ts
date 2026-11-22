@@ -11,7 +11,7 @@ import { readiness, type TerminalMachine } from '../terminal/api'
 /** Five distinct outcomes. `default` is a choice (left to the agent); `missing` is nothing where something is needed;
  *  `stale` is an old answer; `unavailable` cannot be used or asked now; `ready` is reported by the machine as chosen. */
 export type FactState = 'ready' | 'default' | 'missing' | 'stale' | 'unavailable'
-export type Fact = { state: FactState; /** Short, for the line: "Agent’s default model". */ label: string; /** The sentence, with when it was read where that matters. */ text: string; /** Not read yet, so not yet a thing to look at. */ pending?: boolean }
+export type Fact = { state: FactState; /** Short, for the line: "Agent’s default model". */ label: string; /** The sentence, with when it was read where that matters. */ text: string; /** Not read yet, so not yet a thing to look at. */ pending?: boolean; /** Not checked against this machine: the stage's Applied line confirms it once the stage starts. */ later?: boolean }
 /** Where the agent came from: the saved crew's tier, the outcome's own agent, the person's change in this dialog, or the
  *  outcome's agent because the saved crew's is not on this machine. */
 export type AgentSource = 'saved' | 'outcome' | 'chosen' | 'fallback'
@@ -67,6 +67,7 @@ export const CHECKED_AT_START = 'Checked when the stage starts: its Applied line
 
 const name = (tool: string) => tool ? agentDisplayName(tool) : 'No agent'
 const fact = (state: FactState, label: string, text = label, pending = false): Fact => ({ state, label, text, ...(pending ? { pending } : {}) })
+const later = (item: Fact): Fact => ({ ...item, later: true })
 const capital = (word: string) => word ? word[0].toUpperCase() + word.slice(1) : ''
 
 export function agentSource(input: Pick<ReadinessInput, 'saved' | 'edited' | 'member' | 'tools'>): AgentSource {
@@ -108,13 +109,13 @@ function modelFact(input: ReadinessInput): Fact {
   const { member, machine, now } = input, model = member.model.trim()
   if (!model) return fact('default', 'Agent’s default model', 'The agent’s default model, as you chose.')
   const list = input.models(member.tool)
-  if (!list) return fact('unavailable', 'Model not checked', `reet has not read ${member.tool ? name(member.tool) : 'the agent'}’s models from ${machine?.host || 'this machine'}. ${CHECKED_AT_START}`)
-  if (list.state !== 'listed') return fact('unavailable', 'Model not checked', `${modelStatus(list, machine?.host ?? '').sentence} ${CHECKED_AT_START}`)
+  if (!list) return later(fact('unavailable', 'Model not checked', `reet has not read ${member.tool ? name(member.tool) : 'the agent'}’s models from ${machine?.host || 'this machine'}.`))
+  if (list.state !== 'listed') return later(fact('unavailable', 'Model not checked', modelStatus(list, machine?.host ?? '').sentence))
   const read = list.fetchedAt ? `read ${formatAge(now, list.fetchedAt)}` : ''
   if (!list.models.some(entry => entry.id === model)) {
     // A list that says it is partial cannot prove a model is missing.
-    return list.more ? fact('unavailable', 'Model not checked', `${model} is not in the part of ${machine?.host || 'the machine'}’s list that reet has. ${CHECKED_AT_START}`)
-      : fact('missing', 'Not in the list', `${machine?.host || 'This machine'}’s list${read ? `, ${read},` : ''} has no ${model}. ${CHECKED_AT_START}`)
+    return list.more ? later(fact('unavailable', 'Model not checked', `${model} is not in the part of ${machine?.host || 'the machine'}’s list that reet has.`))
+      : later(fact('missing', 'Not in the list', `${machine?.host || 'This machine'}’s list${read ? `, ${read},` : ''} has no ${model}.`))
   }
   if (list.fetchedAt && now - list.fetchedAt > MODELS_STALE_MS) return fact('stale', 'List is old', `${model} is in ${machine?.host || 'the machine'}’s list, but that list was ${read}.`)
   return fact('ready', 'Listed', `${model} is in ${machine?.host || 'the machine'}’s list${read ? `, ${read}` : ''}.`)
@@ -123,7 +124,7 @@ function modelFact(input: ReadinessInput): Fact {
 function effortFact(input: ReadinessInput): Fact {
   const { member, machine } = input, effort = member.effort ?? ''
   if (!effort) return fact('default', 'Agent’s default effort', input.efforts(member.tool).length < 2 && machine?.capabilities ? 'The agent has no effort setting here, so it uses its own.' : 'The agent’s default effort, as you chose.')
-  if (!machine?.capabilities?.acpStartOptions) return fact('unavailable', 'Effort not checked', `This machine has not reported effort levels. ${CHECKED_AT_START}`)
+  if (!machine?.capabilities?.acpStartOptions) return later(fact('unavailable', 'Effort not checked', 'This machine has not reported effort levels.'))
   if (!input.efforts(member.tool).includes(effort)) return fact('unavailable', 'Effort not offered', `${capital(effort)} effort is not offered by ${name(member.tool)} here, so the stage starts on the agent’s default effort.`)
   return fact('ready', `${capital(effort)} effort`, `${capital(effort)} effort is one the machine reports for ${name(member.tool)}.`)
 }
@@ -145,7 +146,8 @@ function spareReadiness(spare: Choice, first: AgentAccount | undefined, input: R
 /** What one crew tier will run on this machine, and how sure that is. */
 export function launchReadiness(input: ReadinessInput): StageReadiness {
   const { machine, member } = input
-  const gone = readiness(machine ?? undefined)
+  // The server's own verdict (`ready`) decides; readiness() says why it is not.
+  const gone = machine?.ready ? '' : readiness(machine ?? undefined) || 'The machine is not connected.'
   const connected = gone ? fact('unavailable', 'Machine not connected', gone) : fact('ready', 'Connected', `${machine?.host} is connected.`)
   const agent = !member.tool ? fact('missing', 'No agent', 'No agent is chosen for this tier.')
     : input.tools.includes(member.tool) ? fact('ready', name(member.tool), `${name(member.tool)} is on ${machine?.host || 'this machine'}.`)
@@ -161,7 +163,7 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
   const issue = blocked?.text ?? notes[0]?.text ?? spareNote?.reason ?? ''
   return {
     machine: machine?.host ?? '', connected, agent, model, effort, signIn, source, sourceFact: sourceF, backups,
-    checkedAtStart: [model, effort].some(item => item.text.includes(CHECKED_AT_START)),
+    checkedAtStart: [model, effort].some(item => item.later),
     level: blocked ? 'blocked' : issue ? 'look' : 'ready', issue,
   }
 }
@@ -171,7 +173,8 @@ export function launchSummary(stages: readonly { label: string; where?: string; 
   const count = (level: StageReadiness['level']) => stages.filter(stage => stage.readiness.level === level).length
   const ready = count('ready'), look = count('look'), blocked = count('blocked')
   const first = stages.find(stage => stage.readiness.level === 'blocked') ?? stages.find(stage => stage.readiness.level === 'look')
-  const where = first ? `${first.label}${first.where ? ` in ${first.where}` : ''}: ${first.readiness.issue}` : ''
+  // A stage that cannot start is said once, beside Approve; the summary names the first thing to look at otherwise.
+  const where = first && !blocked ? `${first.label}${first.where ? ` in ${first.where}` : ''}: ${first.readiness.issue}` : ''
   const parts = [`${ready} of ${stages.length} ${stages.length === 1 ? 'stage' : 'stages'} ready`, look ? `${look} to look at` : '', blocked ? `${blocked} cannot start` : ''].filter(Boolean)
   return { ready, look, blocked, text: `${parts.join(', ')}.${where ? ` First: ${where}` : ''}`, blocker: blocked ? `${first!.label}${first!.where ? ` in ${first!.where}` : ''}: ${first!.readiness.issue}` : '' }
 }

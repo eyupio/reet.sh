@@ -704,5 +704,109 @@ try {
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, several images at once, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, passed on desktop and phone.')
+  // Launch readiness: before Approve each stage says the machine, agent, model, effort, where the choice came from and
+  // every backup with whether it can take over. Warnings never block; a missing agent or a machine that is gone does.
+  {
+    const acct=(tool,over={})=>({tool,state:'signed_in',method:'subscription',account:`${tool}@example.test`,plan:'max',limitsState:'read',limitsAt:Date.now(),limits:[{kind:'week',usedPercent:20}],...over})
+    const accountsOf=(...list)=>({state:'read',sentence:'',planLimits:true,checkedAt:Date.now(),accounts:list})
+    const crewOf=(over={})=>({heavy:{tool:'claude',model:'claude/on-the-machine',effort:'high',backup:{tool:'opencode',model:'',effort:''},moreBackups:[{tool:'claude',model:'claude/on-the-machine',effort:'low'},{tool:'claude',model:'',effort:''}]},standard:{tool:'claude',model:'',effort:''},light:{tool:'opencode',model:'',effort:''},...over})
+    const full={terminalControl:true,terminalEnabled:true,readiness:'ready'}
+    // Opens the plan step with a hand-written plan on workshop; `accounts` answers the machine's sign-ins and `later` is what a second read of the machines says.
+    async function planWith(width,theme,{crew=crewOf(),accounts=accountsOf(acct('claude'),acct('opencode')),later=null}={}){
+      const f=fixture({crew}),w=await openWorkspace(browser,{width,height:1000,theme,touch:width<1000,terminalMachines:machines,routes:f.routes})
+      let plan=false
+      f.routes['/api/v2/machines/a1/accounts']=typeof accounts==='function'?accounts:accounts
+      if(later)f.routes['/api/v2/terminal/machines']=()=>({machines:plan?later:machines})
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      plan=true
+      await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()
+      await outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true}).fill('Whole export')
+      await outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true}).fill('Build the export and raise a pull request. Do not merge.')
+      return {f,w,outcome,row:kind=>outcome.locator(`.stage-tier[data-stage="${kind}"]`),summary:outcome.locator('p.launch'),approve:outcome.getByRole('button',{name:/^Approve and start/})}
+    }
+    for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+      // A ready plan: machine, source and every backup in order; model and effort left to the agent read as a choice.
+      {
+        const {w,outcome,row,summary,approve}=await planWith(width,theme)
+        try{
+          await expect(summary).toHaveText('Launch readiness. ✓ 6 of 6 stages ready.')
+          const review=row('review'),code=row('code')
+          await expect(review.getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Ready · workshop · Saved crew')
+          const spares=review.getByRole('group',{name:'Backups, in the order tried',exact:true})
+          await expect(spares.locator('p')).toHaveCount(3)
+          await expect(spares.locator('p').nth(0)).toContainText('Backup 1: OpenCode · can take over. Plan figures are current.')
+          await expect(spares.locator('p').nth(1)).toContainText('Backup 2: Claude Code · claude/on-the-machine · low effort · can take over')
+          await expect(spares.locator('p').nth(2)).toContainText('Backup 3: Claude Code · can take over')
+          await expect(code).toContainText('Your choice: Agent’s default model, Agent’s default effort')
+          await expect(code.getByText('Checked when the stage starts',{exact:false})).toHaveCount(0)
+          await expect(approve).toBeEnabled()
+          expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+          await outcome.locator('.stage-tiers').screenshot({path:`${shots}/gaffer-outcome-readiness-ready-${width}-${theme}.png`})
+          expect(w.errors).toEqual([])
+        }finally{await w.context.close()}
+      }
+      // A saved crew agent that is not on this machine: the tier says so and runs on the outcome's agent. A warning, not a block.
+      {
+        const {w,row,summary,approve}=await planWith(width,theme,{crew:crewOf({light:{tool:'codex',model:'gone'}})})
+        try{
+          await expect(row('merge').getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Codex from your saved crew is not on workshop, so this tier uses the outcome’s agent, Claude Code.')
+          await expect(row('merge')).toContainText('Look at')
+          await expect(summary).toContainText('3 of 6 stages ready, 3 to look at. First: PR in pipeline 1: Codex from your saved crew is not on workshop')
+          await expect(approve).toBeEnabled()
+        }finally{await w.context.close()}
+      }
+      // No sign-in found is a warning with the existing sentence, and it does not block Approve.
+      {
+        const {w,row,summary,approve}=await planWith(width,theme,{accounts:accountsOf(acct('claude',{state:'none',limits:[],limitsState:'not_asked',account:'',plan:''}),acct('opencode'))})
+        try{
+          await expect(row('code')).toContainText('No Claude Code sign-in was found on workshop. Sign in to Claude Code there first, or its first message may be refused.')
+          await expect(summary).toContainText('3 of 6 stages ready, 3 to look at. First: Code in pipeline 1: No Claude Code sign-in was found')
+          await expect(approve).toBeEnabled()
+        }finally{await w.context.close()}
+      }
+      // A machine that cannot read its sign-ins is a state of its own, not an error dialog.
+      {
+        const {w,row,approve}=await planWith(width,theme,{accounts:{status:200,json:{state:'offline',sentence:'workshop is offline, so its sign-ins were not read.',planLimits:true,checkedAt:null,accounts:[]}}})
+        try{
+          await expect(row('code')).toContainText('workshop is offline, so its sign-ins were not read.')
+          await expect(approve).toBeEnabled()
+        }finally{await w.context.close()}
+      }
+      // Plan figures read long ago on a backup say they will not be used to balance; the first backup is stale, the others are not.
+      {
+        const {w,row,approve}=await planWith(width,theme,{accounts:accountsOf(acct('claude'),acct('opencode',{limitsAt:Date.now()-8*3600000}))})
+        try{
+          const review=row('review')
+          await expect(review.getByRole('group',{name:'Backups, in the order tried',exact:true}).locator('p').nth(0)).toContainText('OpenCode’s plan figures were read 8 h ago; figures over 6 hours old are not used to balance.')
+          await expect(review.getByRole('group',{name:'Launch readiness',exact:true})).toContainText('Look at')
+          await expect(approve).toBeEnabled()
+        }finally{await w.context.close()}
+      }
+      // The agent left the machine while the plan was being edited: the machine is read again when the plan opens, and Approve waits with the reason beside it.
+      {
+        const gone=[{...machines[0],capabilities:{...machines[0].capabilities,acpAgents:[{tool:'opencode',adapter:'opencode',state:'available'}]}},machines[1]]
+        const {w,row,summary,approve,outcome}=await planWith(width,theme,{later:gone})
+        try{
+          await expect(approve).toBeDisabled()
+          await expect(row('code')).toContainText('Claude Code is not on workshop now. Choose another agent for the stage.')
+          await expect(row('code')).toContainText('Cannot start')
+          await expect(summary).toContainText('3 cannot start')
+          await expect(outcome.getByRole('status').filter({hasText:'Code in pipeline 1: Claude Code is not on workshop now. Choose another agent for the stage.'})).toBeVisible()
+          await outcome.screenshot({path:`${shots}/gaffer-outcome-readiness-blocked-${width}-${theme}.png`})
+        }finally{await w.context.close()}
+      }
+      // The machine is not connected any more: the same, with the machine's own sentence.
+      {
+        const away=[{...machines[0],ready:false,capabilities:{...machines[0].capabilities,...full}},machines[1]]
+        const {w,row,approve}=await planWith(width,theme,{later:away})
+        try{
+          await expect(approve).toBeDisabled()
+          await expect(row('review')).toContainText('The machine is reconnecting. Existing shells will be kept.')
+        }finally{await w.context.close()}
+      }
+    }
+  }
+  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, several images at once, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, launch readiness before approval (ready, saved agent missing, no sign-in, unreadable sign-ins, stale backup figures, agent or machine gone), passed on desktop and phone.')
 } finally { await browser.close() }

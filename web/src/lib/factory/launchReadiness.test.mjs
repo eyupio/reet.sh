@@ -45,7 +45,7 @@ test('missing, stale, unavailable and default stay distinct for the model', () =
   assert.equal(stale.model.state, 'stale'); assert.match(stale.model.text, /read 1 d ago/); assert.equal(stale.level, 'look')
   for (const state of ['offline', 'update', 'off', 'failed', 'unsupported']) {
     const s = r.launchReadiness(input({ models: () => listed([], { state }) }))
-    assert.equal(s.model.state, 'unavailable', state); assert.ok(s.model.text.endsWith(r.CHECKED_AT_START)); assert.equal(s.checkedAtStart, true); assert.equal(s.level, 'look')
+    assert.equal(s.model.state, 'unavailable', state); assert.equal(s.model.later, true); assert.equal(s.checkedAtStart, true); assert.equal(s.level, 'look')
   }
   assert.equal(r.launchReadiness(input({ models: () => null })).model.state, 'unavailable')
   assert.equal(r.launchReadiness(input({ models: () => listed([], { more: true }), member: { tool: 'claude', model: 'x' } })).model.state, 'unavailable')

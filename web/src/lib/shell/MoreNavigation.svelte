@@ -68,7 +68,7 @@
   }
   .label { display: grid; gap: 2px; } .label small { color: var(--muted); font-size: .875rem; }
   a:hover, a[aria-current='page'] { background: var(--tint); }
-  a[aria-current='page'] { font-weight: 600; box-shadow: inset 3px 0 0 var(--accent-text); }
+  a[aria-current='page'] { font-weight: 600; color: var(--accent-text); }
   a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   @media (pointer: coarse) { a { min-height: 44px; } }
   @media (max-width: 650px) { nav { --panel-width: calc(100% - 16px); } }

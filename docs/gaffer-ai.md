@@ -533,6 +533,11 @@ reason in the controller's own words:
 | `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
 | `gaffer-stage-effort-not-offered` | The effort chosen for a stage (`effort`) is not offered by its agent for the model on that machine, so the stage is started without it, on the agent's default effort. Written before that start is answered; `reason` says why ("OpenCode does not offer it for this model here."). Trying the pipeline again or sending it back asks for the effort again, except while an earlier start of that stage is still unanswered; Gaffer's own decision to run a stage again and the restart on a backup ask again too. |
 | `gaffer-stage-started` | The controller started the next stage, in a session of its own. |
+| `gaffer-pipeline-waiting-delivery` | The work of a pipeline with acceptance criteria is done and waits for your delivery review. |
+| `gaffer-delivery-criteria` | You edited a pipeline's acceptance criteria. `criteriaRevision` is the revision the edit made. |
+| `gaffer-delivery-evidence` | You recorded evidence against a criterion: `kind` is `note`, `artefact` or `check`, `commit` the commit it is of. |
+| `gaffer-delivery-accepted` | You accepted a delivery, at `commit` and `criteriaRevision`. It approves no merge. |
+| `gaffer-delivery-sent-back` | You sent a delivery back to `stage`. `needsWork` counts the criteria that needed work. |
 | `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
 | `gaffer-pipeline-done` | Every stage is done. |
 | `gaffer-pipeline-stopped` | A stage could not be started or followed; the reason says why. |

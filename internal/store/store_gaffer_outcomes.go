@@ -31,8 +31,9 @@ var (
 // Session states: "waiting", "starting", "following", "unfollowed" (started,
 // no goal), "failed" (not started) and "cancelled" (never attempted). A
 // session with stages is a pipeline and adds "advancing" (the controller is
-// to start its next stage), "ready_to_merge" (waiting for the person) and
-// "done" (its last stage was handed over).
+// to start its next stage), "delivery_review" (the work is done and waits for
+// the person's decision against the criteria they agreed), "ready_to_merge"
+// (waiting for the person) and "done" (its last stage was handed over).
 //
 // A stage is one step of a pipeline, done by the agent and model the person
 // approved for it. Stage states: "pending", "running", "done".
@@ -205,9 +206,81 @@ type GafferOutcomeSession struct {
 	// replaced. Their closed goals belong to the pipeline, not to the list of
 	// the person's other sessions.
 	Retired []string `json:"retired,omitempty"`
+	// Criteria are the acceptance criteria the person agreed for this pipeline
+	// before it started, or edited since. CriteriaRevision counts those edits
+	// from 1; ReviewRevision counts every change to the delivery review
+	// (criteria, evidence, a decision, the pipeline arriving at review), so a
+	// write can name the review it was made on. Evidence is what was recorded
+	// against a criterion and a commit, Deliveries the person's decisions,
+	// newest last, and DeliveryAccepted whether the delivery in hand was
+	// accepted. A pipeline saved before delivery review has none of these and
+	// never stops for one.
+	Criteria         []GafferCriterion        `json:"criteria,omitempty"`
+	CriteriaRevision int                      `json:"criteriaRevision,omitempty"`
+	ReviewRevision   int                      `json:"reviewRevision,omitempty"`
+	Evidence         []GafferEvidence         `json:"evidence,omitempty"`
+	Deliveries       []GafferDeliveryDecision `json:"deliveries,omitempty"`
+	DeliveryAccepted bool                     `json:"deliveryAccepted,omitempty"`
 	// SessionState is whether the session in hand is still there: "running",
 	// "ended" (closed, history kept) or "gone" (removed). Live only, never saved.
 	SessionState string `json:"sessionState,omitempty"`
+}
+
+// Limits of a pipeline's delivery review.
+const (
+	MaxGafferCriteria      = 10
+	MaxGafferCriterionText = 240
+	MaxGafferEvidence      = 40
+	MaxGafferDeliveries    = 20
+)
+
+// GafferCriterion is one acceptance criterion. ID is stable for as long as
+// the criterion exists; Revision is the criteria revision in which its text
+// was last set, so evidence recorded against an earlier wording is not
+// counted for the present one.
+type GafferCriterion struct {
+	ID       string `json:"id"`
+	Text     string `json:"text"`
+	Revision int    `json:"revision"`
+}
+
+// GafferEvidence is one thing recorded against a criterion at a commit. Kind
+// is "note" (a reviewer's own note), "artefact" (a link inside the pipeline's
+// GitHub repository) or "check" (a GitHub check by Name, whose State and URL
+// are what the machine reported when it was added). Verdict is "passed" or
+// "needs_work". Commit is empty where the folder is not a Git repository.
+type GafferEvidence struct {
+	ID               string `json:"id"`
+	CriterionID      string `json:"criterionId"`
+	Kind             string `json:"kind"`
+	Verdict          string `json:"verdict,omitempty"`
+	Text             string `json:"text,omitempty"`
+	URL              string `json:"url,omitempty"`
+	Name             string `json:"name,omitempty"`
+	State            string `json:"state,omitempty"`
+	Commit           string `json:"commit,omitempty"`
+	CriteriaRevision int    `json:"criteriaRevision"`
+	By               int64  `json:"by"`
+	ByName           string `json:"byName,omitempty"`
+	At               int64  `json:"at"`
+}
+
+// GafferDeliveryDecision is the person's recorded decision on a delivery:
+// "accept" or "send_back", for one criteria revision and one commit, with who
+// decided and when. Statuses is each criterion's status as it stood, Failed
+// the criteria that needed work, and Stage where a sent-back pipeline went.
+type GafferDeliveryDecision struct {
+	RequestID        string            `json:"requestId"`
+	Decision         string            `json:"decision"`
+	Commit           string            `json:"commit,omitempty"`
+	CriteriaRevision int               `json:"criteriaRevision"`
+	By               int64             `json:"by"`
+	ByName           string            `json:"byName,omitempty"`
+	At               int64             `json:"at"`
+	Notes            string            `json:"notes,omitempty"`
+	Stage            string            `json:"stage,omitempty"`
+	Statuses         map[string]string `json:"statuses,omitempty"`
+	Failed           []string          `json:"failed,omitempty"`
 }
 
 type GafferOutcome struct {
@@ -310,15 +383,15 @@ func (p *GafferOutcomeSession) Retire(conversations ...string) {
 }
 
 // Finished reports whether nothing in the outcome is still moving: it is not
-// starting sessions and no pipeline is following, waiting, advancing or
-// ready to merge. Only a finished outcome may be archived or deleted.
+// starting sessions and no pipeline is following, waiting, advancing, in
+// delivery review or ready to merge. Only a finished outcome may be archived or deleted.
 func (o GafferOutcome) Finished() bool {
 	if o.State == "starting" {
 		return false
 	}
 	for _, item := range o.Sessions {
 		switch item.State {
-		case "following", "starting", "advancing", "waiting", "ready_to_merge":
+		case "following", "starting", "advancing", "waiting", "delivery_review", "ready_to_merge":
 			return false
 		}
 	}
@@ -381,7 +454,7 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
 	// Only an outcome with nothing still moving is dropped: one whose pipelines
 	// are followed or waiting for a merge decision is kept however old it is.
 	if _, err = tx.Exec(`DELETE FROM gaffer_outcomes WHERE user_id=? AND json_extract(data,'$.state')!='starting'
- AND NOT EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN('following','starting','advancing','waiting','ready_to_merge'))
+ AND NOT EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN('following','starting','advancing','waiting','delivery_review','ready_to_merge'))
  AND id NOT IN(SELECT id FROM gaffer_outcomes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?)`, uid, uid, MaxGafferOutcomes); err != nil {
 		return o, err
 	}

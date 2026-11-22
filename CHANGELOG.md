@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Delivery review for Factory pipelines**: when you approve a plan, or add pipelines, you can write acceptance
+  criteria for each pipeline (up to ten, one line each). A pipeline with criteria stops in **Delivery review** before it
+  merges or finishes. The review card on the Factory page shows the reviewed Git commit, each criterion as **Passed**,
+  **Needs work** or **Unverified** with its evidence (your notes, artefact links and GitHub checks), and **Accept
+  delivery** and **Send back** beside them. A decision names the commit and the review you saw; if a new commit arrived,
+  or someone else changed or decided the review, it is refused and the card reads the review again and keeps what you
+  typed. Accepting the delivery is not approving the merge: **Approve the merge** stays its own action. Home's
+  **Waiting for you** shows the status and opens the exact review. Outcomes saved before this have no review.
 - **Plan limits from more sign-ins**: a machine now also reads Claude Code's and Codex's macOS keychain items,
   Google Antigravity's Linux keyring item or macOS keychain item, and GitHub Copilot's own `gh` sign-ins, so their
   plan left shows where an agent keeps its sign-in outside its files. Where a file and a keychain item disagree the

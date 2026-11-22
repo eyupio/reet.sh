@@ -604,6 +604,22 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 	if reason == "" || len(reason) > 2000 || !store.ValidWorkerText(reason) {
 		return store.GafferOutcome{}, invalid("back", "Say why it is being sent back, in up to 2,000 UTF-8 bytes of plain text.")
 	}
+	return s.sendPipelineBack(uid, id, key, kind, func(from string) string {
+		return "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
+	}, nil, nil)
+}
+
+// sendPipelineBack does the sending back. why is given the stage the pipeline
+// was at and returns what the agent of the stage done again is told.
+//
+// A delivery review's send-back gives check and record. check says whether
+// the pipeline is still the review the decision was made on: it is asked
+// before anything is touched, and again inside the write on the record as it
+// is then, and an error from it leaves everything as it was and is returned.
+// record then notes the decision on the pipeline, saved with the rest. With
+// neither, this is the person's plain send-back, which is not for a pipeline
+// waiting on its delivery review: that decision is recorded.
+func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(from string) string, check func(row store.GafferOutcomeSession) error, record func(row *store.GafferOutcomeSession)) (store.GafferOutcome, error) {
 	o, err := s.store.GafferOutcomeFor(uid, id)
 	if err != nil {
 		return o, err
@@ -620,7 +636,15 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			piece = &o.Sessions[i]
 		}
 	}
-	if piece == nil || len(piece.Stages) == 0 || piece.State != "following" && piece.State != "ready_to_merge" && piece.State != "done" && piece.State != "unfollowed" {
+	if piece != nil && check != nil {
+		// Decided or moved on meanwhile: nothing of the pipeline as it is now is touched.
+		if err := check(*piece); err != nil {
+			return outcomeView(o), err
+		}
+	} else if piece != nil && piece.State == "delivery_review" {
+		return outcomeView(o), invalid("back", "This pipeline is waiting for your delivery review. Send it back from the review, so the decision and its reasons are recorded.")
+	}
+	if piece == nil || len(piece.Stages) == 0 || piece.State != "following" && piece.State != "delivery_review" && piece.State != "ready_to_merge" && piece.State != "done" && piece.State != "unfollowed" {
 		return outcomeView(o), invalid("back", "That pipeline has no stage to send back to.")
 	}
 	at := piece.Stage
@@ -638,7 +662,11 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 	if target < 0 {
 		return outcomeView(o), invalid("back", "Choose the stage in hand or one before it.")
 	}
-	if piece.ConversationID != "" {
+	// A pipeline in delivery review has no stage at work: its last goal was
+	// closed when that stage was handed over, so there is none to stop here,
+	// and a decision that lost a race must not stop the goal of a stage the
+	// winning one has since started.
+	if piece.ConversationID != "" && check == nil {
 		if g, err := s.store.GafferGoalFor(uid, piece.ConversationID); err == nil {
 			if g.ActiveTurnID != "" {
 				return outcomeView(o), invalid("back", "Gaffer is reviewing this stage right now. Try again in a moment.")
@@ -658,11 +686,22 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 		}
 	}
 	found := false
+	var refused error
 	o, err = s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
+		found, refused = false, nil
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
 			if row.Key != key || len(row.Stages) != len(fresh) || o.ArchivedAt > 0 {
 				continue
+			}
+			if check != nil {
+				if refused = check(*row); refused != nil {
+					return false
+				}
+				record(row)
+			} else if row.State == "delivery_review" {
+				refused = invalid("back", "This pipeline is waiting for your delivery review. Send it back from the review, so the decision and its reasons are recorded.")
+				return false
 			}
 			// Sending work back is the person asking for it to be done: it sets a stopped outcome going again.
 			settleStoppedOutcome(o)
@@ -674,8 +713,10 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 				// A stage done again is asked for under a new request, so it gets a session of its own.
 				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: askedEffort(row.Stages[j]), Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, SkillGuidance: row.Stages[j].SkillGuidance, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
-			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
-			row.Stage, row.MergeApproved = target, false
+			row.Stages[target].SentBack = why(from)
+			// Work that is done again is delivered again: an earlier acceptance
+			// was of what is now being changed.
+			row.Stage, row.MergeApproved, row.DeliveryAccepted = target, false, false
 			// The session in hand belongs to the stage that was left; the stage done again starts its own.
 			row.SessionID, row.ConversationID = "", ""
 			row.State, row.Note, row.UpdatedAt = "advancing", "Sent back to the "+kind+" stage. Starting it again.", time.Now().UnixMilli()
@@ -685,6 +726,9 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 		}
 		return false
 	})
+	if refused != nil {
+		return outcomeView(o), refused
+	}
 	if err != nil {
 		return outcomeView(o), err
 	}
@@ -714,7 +758,7 @@ func (s *Service) TellPipelineAgent(ctx context.Context, uid int64, id, key, req
 		if piece.Key != key {
 			continue
 		}
-		if piece.SessionID == "" || piece.ConversationID == "" || piece.State != "following" && piece.State != "unfollowed" && piece.State != "ready_to_merge" {
+		if piece.SessionID == "" || piece.ConversationID == "" || piece.State != "following" && piece.State != "unfollowed" && piece.State != "delivery_review" && piece.State != "ready_to_merge" {
 			return store.WorkerMessage{}, invalid("tell", "That pipeline has no working session to tell right now.")
 		}
 		return s.WorkerMessage(ctx, uid, "gaffer", piece.ConversationID, piece.SessionID, request, "", text)

@@ -397,6 +397,52 @@ outcome** says which.
 - The controller ends the sessions a pipeline has finished with and keeps their history. Worktrees are not touched,
   and a worktree a pipeline still works in is kept by every kind of cleaning.
 
+## Templates
+
+A template is a plan you saved from a finished outcome, so the next outcome that needs the same shape does not start
+from nothing. Templates are private to your account. They are not shared and have no MCP tool.
+
+**Saving.** On a finished outcome, choose **Save as template…** in the bar at the foot of the pipeline. Give it a name
+and, if you like, a description. It is kept only when every pipeline of the outcome is done or has its delivery
+accepted; otherwise reet says which one is not. Where you already have templates, **Save as** also offers **A new
+version of** one of them, saved on the version you were shown. If someone, or another tab, saved a newer version
+first, reet says so and reads it again; what you typed stays.
+
+**What is kept.** The objective and review limits, and for each pipeline its title, prompt, merge setting, stages
+(with their tiers and the reason for them) and criteria, and the skills each stage was approved with, at their
+revisions. **What is not kept:** the machine, project or folder, agents, models and sign-ins, YOLO and folder trust,
+images, notes, decisions, reports and usage. You choose those when you use it.
+
+**The Templates page.** **Templates** at the top of the Factory page lists them with their description, latest
+version, how many pipelines, when they last changed and at which version you last used them. Open one to read its plan
+(read only), its versions, and to compare any two versions. From there you can **Use** a version, **Rename or change
+the description** (this saves a new version with the same plan), or **Delete template…**. Deleting removes the template
+and all its versions; outcomes already started from it keep their own inputs and are not touched. To change the plan
+itself, start from the template, adjust it, and save the finished run as a new version. An account keeps twenty
+templates, and twenty versions of each: saving another version drops the oldest.
+
+**Using one.** **Use** opens New Factory outcome on its plan step. You can also reach it from the first step with
+**Start from a template**; what you typed there is kept. The plan is shown read only. Everything that belongs to a
+start is chosen now: the project (which decides the machine), the agent and model, YOLO, decisions, reports, trust and
+whether to pull the latest code. Each stage runs on its tier's agent from the crew saved in Gaffer settings at the
+moment you start, else the outcome's agent. Launch readiness is shown and holds the start as it does for any plan.
+Starting does not ask Gaffer to plan anything.
+
+**Changes since you last used it.** When the version you are about to use differs from the one you last used, the
+plan step shows what changed first, above the plan: pipelines added, removed or changed, a changed prompt, stages
+before and after, criteria added, removed or reworded, and skills moved to another revision. A template you have not
+used yet shows nothing. The **Template version** list lets you start an older version instead.
+
+**Skills.** A template keeps the revision of each skill it was approved with, and never swaps in another. If a skill is
+no longer approved at that revision, because a newer revision is approved or because it was archived, removed or
+switched off, the stage says so and the start waits until you tick **Start without these skills**. Only those skills
+are left out. If the approved skills change while you are looking, reet reads them again and asks again; your other
+choices stay.
+
+**On the run.** An outcome started from a template says **From template {name}, version {n}** under its title, and
+links to the template. If the template has since been deleted, or that version is no longer kept, it says so. Editing
+or deleting a template never changes a run that has started.
+
 ## From an AI client
 
 A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The three

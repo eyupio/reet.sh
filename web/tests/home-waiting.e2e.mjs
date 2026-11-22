@@ -489,9 +489,9 @@ try{
    try{
     const item=entries(page).filter({hasText:'Export API'})
     await expect(item.locator('.chip')).toHaveText('Usage limit')
-    await expect(item).toContainText('OpenCode (paid/main) reached its usage limit on the code stage. Either choice carries on in the same folder and branch.')
+    await expect(item).toContainText('OpenCode (paid/main) reached its usage limit on the code stage. The backup is OpenCode (paid/backup). Either choice carries on in the same folder and branch.')
    await expect(item).not.toContainText('Continue with OpenCode (paid/backup) resumes')
-    const backup=item.getByRole('button',{name:'Continue with OpenCode (paid/backup)',exact:true}),other=item.getByRole('button',{name:'Choose another model…',exact:true})
+    const backup=item.getByRole('button',{name:'Continue with the backup',exact:true}),other=item.getByRole('button',{name:'Choose another model…',exact:true})
     await expect(backup).toBeVisible();await expect(other).toBeVisible()
     await expect(backup).toHaveClass(/primary/);await expect(other).not.toHaveClass(/primary/)
     const edge=await right(item);for(const button of [backup,other,item.getByRole('link',{name:'Details and other actions for Export API'})])expect(await right(button)).toBeLessThanOrEqual(edge+1)

@@ -13,12 +13,14 @@
     type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { FIRST_PROMPT, guideShown, replyOf, type FirstRunMemory } from './firstRun'
 
-  let { machine, sessions, projects, userId, onchanged, onsignedout }: {
+  let { machine, sessions, projects, userId, showing = $bindable(false), onchanged, onsignedout }: {
     /** The first connected machine, as the terminal list reports it. */
     machine: TerminalMachine | undefined
     sessions: TerminalSession[] | undefined
     projects: FolderProject[]
     userId: number
+    /** Whether the guide is on Home, for the page to quieten its own first step while it is. */
+    showing?: boolean
     /** Read Home again: a session was started. */
     onchanged: () => void
     onsignedout: () => void
@@ -48,11 +50,12 @@
   const mine = $derived(sessions?.find(s => s.id === trackedId))
   const reply = $derived(replyOf(mine))
   const shown = $derived(celebrated || guideShown(memory, !!machine, sessions, startedIds))
+  $effect(() => { showing = shown })
   $effect(() => {
     if (reply === 'replied' && !celebrated && !memory) { celebrated = true; remember(memoryKey, 'done') }
   })
 
-  // What the machine says of its agents: sign-ins (read again while one is missing) and model lists (read once each).
+  // What the machine says of its agents: sign-ins (read again every 15 seconds while one is missing) and model lists (read once each).
   let accounts = $state<MachineAccounts | null | undefined>()
   let models = $state<Record<string, MachineModels | null | 'reading'>>({})
   let checking = $state(false)
@@ -63,8 +66,10 @@
     const ready = launchReadiness({ machine, tools: installed.map(item => item.id), efforts: () => [''], models: tool => models[tool] ?? 'reading', accounts, now: Date.now(),
       member: { tool: choice.id, model: '' }, spares: [], saved: null, edited: false })
     const list = models[choice.id]
-    const modelLine = list === undefined || list === 'reading' ? `Reading ${choice.name}’s models…` : list === null ? `reet could not read ${choice.name}’s models from ${host}.` : modelStatus(list, host).sentence
-    return { ...choice, signIn: ready.signIn, modelLine, usable: ready.signIn.state !== 'missing' && !ready.signIn.pending }
+    // A model list is said only when it is not fine; an agent that is ready is one line, as a stage in the plan is.
+    const modelLine = list === undefined || list === 'reading' ? '' : list === null ? `reet could not read ${choice.name}’s models from ${host}.` : list.state === 'listed' ? '' : modelStatus(list, host).sentence
+    const mark = ready.signIn.pending ? '…' : ready.signIn.state === 'missing' ? '!' : ready.signIn.quiet ? '·' : ready.signIn.state === 'ready' ? '✓' : '!'
+    return { ...choice, signIn: ready.signIn, mark, modelLine, usable: ready.signIn.state !== 'missing' && !ready.signIn.pending }
   }))
 
   let picked = $state('')
@@ -92,13 +97,17 @@
   }
   async function checkAgain() { checking = true; await readAccounts(true); checking = false }
 
-  // Reading starts when the guide shows, and the sign-ins are asked of the machine again every 15 seconds while one is
-  // missing, so the guide moves on by itself once the sign-in is there.
+  // Reading starts when the guide shows. While a sign-in is missing the machine is asked again every 15 seconds, so the
+  // guide moves on by itself once the sign-in is there; with nothing missing it stops asking.
   const agentKey = $derived(shown && machine?.ready ? machine.agentId : '')
+  const missing = $derived(rows.some(row => row.signIn.state === 'missing'))
   $effect(() => {
     if (!agentKey) return
     untrack(() => { accounts = undefined; models = {}; void readAccounts(false) })
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') void readAccounts(untrack(() => rows.some(row => row.signIn.state === 'missing'))) }, POLL_MS)
+  })
+  $effect(() => {
+    if (!agentKey || !missing) return
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void readAccounts(true) }, POLL_MS)
     return () => clearInterval(timer)
   })
   $effect(() => {
@@ -140,7 +149,7 @@
   function close(next: FirstRunMemory) {
     memory = next; celebrated = false
     remember(memoryKey, next)
-    queueMicrotask(() => document.querySelector<HTMLElement>('.home-start, .workbench .btn.primary')?.focus())
+    queueMicrotask(() => document.querySelector<HTMLElement>('.home-start, .workbench button.btn')?.focus())
   }
 
   const name = $derived(current?.name ?? '')
@@ -150,7 +159,7 @@
     : reply === 'asking' ? `Asking ${name}. Waiting for its first reply.`
     : starting ? `Starting ${name} on ${host}…`
     : problem ? problem
-    : signedOut ? `Waiting for ${name} to be signed in on ${host}. This asks the machine again every few seconds.`
+    : signedOut ? `Waiting for ${name} to be signed in on ${host}. Asking the machine again every 15 seconds.`
     : '')
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
 </script>
@@ -158,12 +167,10 @@
 {#if shown}
   <section class="guide" aria-labelledby={`${id}-h`}>
     <header>
-      <div>
-        <h2 id={`${id}-h`}>Your first session</h2>
-        <p class="lede">{host} is connected. Check an agent is ready, then ask it one question that changes nothing.</p>
-      </div>
+      <h2 id={`${id}-h`}>Your first session</h2>
       <button type="button" class="btn quiet" onclick={() => close('dismissed')}>Not now</button>
     </header>
+    <p class="lede">{host} is connected.{#if !stuck && rows.length}{' '}Ask an agent one question that changes nothing.{/if}</p>
 
     {#if stuck}
       <p class="note">{stuck}</p>
@@ -171,13 +178,13 @@
       <p class="note">No agent is installed on {host} yet. Install Claude Code, Codex or OpenCode there; this looks again by itself.</p>
     {:else}
       <fieldset class="agents" disabled={starting || !!trackedId}>
-        <legend>Agents on {host}</legend>
+        <legend>Agent</legend>
         {#each rows as row (row.id)}
           <label class="agent" class:on={row.id === current?.id}>
             <input type="radio" name={`${id}-agent`} value={row.id} checked={row.id === current?.id} onchange={() => (picked = row.id)} />
             <span class="what"><strong>{row.name}</strong>
-              <span class="line" class:warn={row.signIn.state === 'missing'}>{row.signIn.text}</span>
-              <span class="line">{row.modelLine}</span>
+              <span class="line" class:warn={row.mark === '!'}><span class="mark" aria-hidden="true">{row.mark}</span><span>{row.signIn.text}</span></span>
+              {#if row.modelLine}<span class="line warn"><span class="mark" aria-hidden="true">!</span><span>{row.modelLine}</span></span>{/if}
             </span>
           </label>
         {/each}
@@ -186,7 +193,6 @@
       <div class="ask">
         <p class="prompt"><span class="vh">The question: </span>{FIRST_PROMPT}</p>
         {#if !trackedId}
-          <p class="hint">It reads only, and no YOLO. Nothing in your files changes.</p>
           {#if folders.length}
             <div class="field"><label for={`${id}-folder`}>Where it looks</label>
               <select id={`${id}-folder`} bind:value={folder} disabled={starting}>
@@ -220,19 +226,20 @@
     <details class="phone">
       <summary>Use reet on your phone</summary>
       <p>On your phone, open {#if local}the address you use to reach this controller from other devices{:else}<strong>{location.origin}</strong>{/if} and sign in. Then use your browser’s <strong>Add to Home Screen</strong> to keep reet to hand.{#if local}{' '}A phone cannot open <strong>localhost</strong>.{/if}</p>
-      <p>To be told when a session needs you, turn on notifications on the phone. That needs this controller on https. <a href="/notifications">Open Notifications</a></p>
+      <p>To be told when a session needs you, turn on notifications on the phone; that needs https. <a href="/notifications">Open Notifications</a></p>
     </details>
   </section>
 {/if}
 
 <style>
-  .guide { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-  header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; align-items: start; }
+  .guide { position: relative; display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  header { display: flex; justify-content: space-between; gap: 8px 16px; align-items: center; min-width: 0; }
   h2 { margin: 0; font: 500 1.25rem/1.3 var(--serif); }
-  .lede { margin: 4px 0 0; color: var(--muted); font-size: 0.9375rem; max-width: 62ch; }
-  .note, .hint, .status, .prompt { margin: 0; font-size: 0.9375rem; overflow-wrap: anywhere; }
-  .hint { color: var(--muted); max-width: 62ch; }
-  .status:empty { display: none; }
+  header .btn { flex: none; margin-right: -8px; }
+  .lede { margin: -8px 0 0; color: var(--muted); font-size: 0.9375rem; max-width: 62ch; }
+  .note, .status, .prompt { margin: 0; font-size: 0.9375rem; overflow-wrap: anywhere; }
+  /* Empty, it stays in the accessibility tree so its first message is announced, and takes no room. */
+  .status:empty { position: absolute; }
   .status.good { color: var(--good); font-weight: 600; }
   .agents { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
   .agents legend { padding: 0; margin-bottom: 8px; font-weight: 600; font-size: 0.9375rem; }
@@ -241,8 +248,9 @@
   .agent input { margin-top: 3px; flex: none; accent-color: var(--accent); }
   .agent:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .what { display: grid; gap: 2px; min-width: 0; }
-  .line { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .line.warn { color: var(--warn); }
+  .line { display: grid; grid-template-columns: 1.5em minmax(0, 1fr); color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .line .mark { font-weight: 700; color: var(--good); }
+  .line.warn, .line.warn .mark { color: var(--warn); }
   .ask { display: grid; gap: 10px; justify-items: start; min-width: 0; }
   .prompt { padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 8px; font-family: var(--mono); font-size: 0.875rem; }
   .field { display: grid; gap: 4px; min-width: 0; max-width: 100%; }
@@ -251,8 +259,9 @@
   .trust { display: flex; gap: 8px; align-items: flex-start; font-size: 0.875rem; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .actions .btn { min-height: 40px; }
-  .phone { border-top: 1px solid var(--line-soft); padding-top: 8px; font-size: 0.9375rem; }
-  .phone summary { display: flex; align-items: center; min-height: 40px; cursor: pointer; font-weight: 600; color: var(--accent-text); }
+  .phone { border-top: 1px solid var(--line-soft); padding-top: 4px; font-size: 0.9375rem; }
+  .phone summary { display: list-item; list-style-position: inside; align-content: center; min-height: 40px; cursor: pointer; color: var(--ink); }
+  .phone summary:hover { text-decoration: underline; }
   .phone summary:focus-visible, .phone a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
   .phone p { margin: 4px 0 8px; max-width: 62ch; }
   .phone a { color: var(--accent-text); font-weight: 600; }
@@ -261,5 +270,5 @@
     .phone a { display: inline-flex; align-items: center; min-height: 44px; }
     .agent input { width: 22px; height: 22px; }
   }
-  @media (max-width: 650px) { .guide { padding: 12px; } }
+  @media (max-width: 650px) { .guide { padding: 12px; } header .btn { margin-right: -4px; } }
 </style>

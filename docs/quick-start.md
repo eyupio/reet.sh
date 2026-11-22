@@ -68,10 +68,10 @@ A started terminal means the program started; it does not prove the tool is sign
 
 Once your first machine is connected and you have no sessions yet, Home shows **Your first session**. It is optional: Factory, Sessions, terminals and **Start an agent session** stay where they are, and **Not now** puts it away for good in that browser.
 
-1. **Agents on the machine.** Each installed agent is listed with whether it is signed in on that machine and whether reet could read its model list, in the same words the Factory uses before it approves a run.
+1. **Agents on the machine.** Each installed agent is one line: a ✓ and who it is signed in as on that machine, in the same words the Factory uses before it approves a run. A line says more only when something is wrong, such as no sign-in or a model list reet could not read.
 2. **One question that changes nothing.** The guide suggests asking the agent to say which folder it is in and list what it can see, and to change, create or delete nothing. It starts a normal agent session without YOLO, in the machine’s home folder or in a project folder you pick from the ones you already have. The session is named **First look**.
 3. **The reply.** When the agent has answered, the guide says so and gets out of the way. **Read the reply** opens the session. If the session ended first, it says so and you can try again.
-4. **Signed out?** That is not an error. The guide shows the agent’s own line, such as “No Claude Code sign-in was found on studio”, and says to sign in to the agent on that machine. If another installed agent is ready, **Use … instead** switches to it. Reet asks the machine again every few seconds, and **Check again** asks at once, so the guide moves on when the sign-in is there.
+4. **Signed out?** That is not an error. The guide shows the agent’s own line, such as “No Claude Code sign-in was found on studio”, and says to sign in to the agent on that machine. If another installed agent is ready, **Use … instead** switches to it. While a sign-in is missing, reet asks the machine again every 15 seconds, and **Check again** asks at once, so the guide moves on when the sign-in is there. With nothing missing it stops asking.
 5. **Use reet on your phone.** Open this controller’s address in your phone’s browser, sign in, and use the browser’s **Add to Home Screen**. To be told when a session needs you, turn on notifications on the phone; see [notifications on a device](push-notifications.md), which needs accounts and https.
 
 Someone who already has sessions never sees the guide.

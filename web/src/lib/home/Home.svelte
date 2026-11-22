@@ -178,6 +178,7 @@
   ].filter(Boolean).join(' · '))
   const connected = $derived(cards.filter(reporting))
   // The first connected machine, as the terminal list reports it: the one the first-session guide is about.
+  let guideShowing = $state(false)
   const firstMachine = $derived(terminals?.find(t => connected.some(card => card.agentId === t.agentId)))
 
   // Which sections are open, remembered in this browser for this person. The first time, only Waiting for you is.
@@ -640,7 +641,7 @@
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
-      <FirstRun machine={firstMachine} {sessions} projects={projects ?? []} {userId} onchanged={() => void load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      <FirstRun machine={firstMachine} {sessions} projects={projects ?? []} {userId} bind:showing={guideShowing} onchanged={() => void load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       <ListSection name="Waiting for you" count={waiting.length} summary={waitingSummary(waiting, now)} open={waitingOpen} ontoggle={toggleWaiting}>
         {#if waiting.length}
           <ul class="waiting-list" class:rows={!narrow} class:cards={narrow} bind:this={waitingList}>
@@ -669,7 +670,7 @@
       </div>
       {#if homeView === 'continue'}<div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
-        {#if showWorkbench}<StartWorkbench factory={accounts} machines={health === undefined ? undefined : { total: cards.length, connected: connected.length }} {canAdd}
+        {#if showWorkbench}<StartWorkbench factory={accounts} machines={health === undefined ? undefined : { total: cards.length, connected: connected.length }} {canAdd} quiet={guideShowing}
           machinesHref="/machines" addHref={machinesAt(accounts ? 'add-machine' : 'connect-machine')} onchoose={startFromWorkbench} onplan={() => void planFromWorkbench()} />{:else}<InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
           groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault} {factorySessionEndDefault}
           onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />{/if}

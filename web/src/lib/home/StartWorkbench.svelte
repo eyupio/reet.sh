@@ -3,7 +3,7 @@
   // Machines page; otherwise it is an agent session. The other ways to start stay one quiet click away, and each
   // dialog asks for everything else.
   import type { NewSessionKind } from '../terminal/NewSessionChoice.svelte'
-  let { factory, machines, canAdd, machinesHref, addHref, onchoose, onplan }: {
+  let { factory, machines, canAdd, machinesHref, addHref, onchoose, onplan, quiet = false }: {
     factory: boolean
     /** How many machines the account has, and how many of them are connected; undefined until the first read. */
     machines?: { total: number; connected: number }
@@ -13,6 +13,8 @@
     addHref: string
     onchoose: (kind: NewSessionKind, opener: HTMLElement) => void
     onplan: () => void
+    /** Something else on Home is the one filled step for now: this one is drawn plain. */
+    quiet?: boolean
   } = $props()
   const id = $props.id()
   const none = $derived(machines !== undefined && machines.connected === 0)
@@ -30,7 +32,7 @@
     {#if nothingEnrolled && canAdd}<a class="btn primary" href={addHref}>Add a machine</a>
     {:else}<a class="btn primary" href={machinesHref}>Open Machines</a>{/if}
   {:else}
-    <button class="btn primary" type="button" onclick={event => onchoose('agent', event.currentTarget)}>Start an agent session</button>
+    <button class="btn" class:primary={!quiet} type="button" onclick={event => onchoose('agent', event.currentTarget)}>Start an agent session</button>
     {#if factory}<p class="guidance">Or give Gaffer a goal, approve the plan and follow the work in Factory.</p>{/if}
   {/if}
   <div class="more">

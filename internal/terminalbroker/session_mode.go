@@ -16,10 +16,10 @@ var (
 	ErrSessionModeBusy = errors.New("Wait for the agent to finish or answer what it is asking, then switch.")
 	// ErrSessionModeUnsupported means the machine did not negotiate
 	// session-mode-v1, so it was not asked.
-	ErrSessionModeUnsupported = errors.New("Update reet on this machine to switch between Gaffer and the OpenCode TUI.")
+	ErrSessionModeUnsupported = errors.New("Update reet on this machine to switch between Gaffer and the agent’s TUI.")
 	// ErrSessionModeNoSession means the row has no OpenCode session id to
 	// load, because the session began in the OpenCode TUI.
-	ErrSessionModeNoSession = errors.New("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.")
+	ErrSessionModeNoSession = errors.New("This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.")
 	// ErrSessionModeTrust is the structured create's trust refusal: the folder
 	// has OpenCode plugins and the switch did not carry the person's trust.
 	ErrSessionModeTrust = errors.New("This folder has OpenCode plugins. Start only in a folder you trust.")
@@ -32,7 +32,7 @@ var (
 	ErrSessionModeEnded = errors.New("The session could not be switched and has ended. Start a new session or continue it with history.")
 	// ErrSessionModeNoConversation means a chat has no recorded OpenCode
 	// session id, which the OpenCode TUI needs to open the conversation.
-	ErrSessionModeNoConversation = errors.New("This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.")
+	ErrSessionModeNoConversation = errors.New("This session has no saved conversation yet, so it cannot move to the agent’s TUI.")
 )
 
 // sessionModeTrustError is ErrSessionModeTrust carrying the machine's
@@ -224,7 +224,7 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 		"machine": s.AgentID, "tool": s.Tool, "session": session, "mode": to, "yolo": strconv.FormatBool(s.Yolo),
 	})
 	if to == terminalproto.SessionModeTerminal && s.Yolo {
-		// The OpenCode TUI starts with --auto: a YOLO launch like a create's.
+		// The agent's TUI starts with its YOLO arguments: a YOLO launch like a create's.
 		_ = b.st.AddEventFor(uid, "machine", "yolo-launch", "", map[string]string{
 			"machine": s.AgentID, "tool": s.Tool, "session": session, "worktree": s.WorktreePath,
 		})

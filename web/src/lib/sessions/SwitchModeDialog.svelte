@@ -3,8 +3,8 @@
   import { onMount, tick } from 'svelte'
   import { shell } from '../dialogShell'
 
-  // Switch a running OpenCode session between Gaffer and the OpenCode TUI: what happens on the machine, what is not
-  // kept, and (to Gaffer, when the machine answers that the folder has OpenCode plugins) the folder-trust confirmation.
+  // Switch a running agent session between Gaffer and the agent's TUI: what happens on the machine, what is not
+  // kept, and (to Gaffer, when the machine answers that the folder has plugins) the folder-trust confirmation.
   let {
     to,
     agentTui,
@@ -14,7 +14,7 @@
     oncancel,
   }: {
     to: 'terminal' | 'chat'
-    /** The agent's own TUI, as the header names it ("OpenCode TUI"). */
+    /** The agent's own TUI, as the header names it ("Claude Code TUI"). */
     agentTui: string
     machine: string
     /** Set when the machine refused for want of trust: its sentence naming the plugin files. */
@@ -45,23 +45,23 @@
   oncancel={(event) => { event.preventDefault(); cancel() }}>
   <div class="box" data-shell-card>
     <h2 id={titleId}>Switch to {to === 'chat' ? target : `the ${target}`}?</h2>
-    <p id={`${titleId}-body`}>reet stops {to === 'chat' ? `the ${from}` : from} and starts {to === 'chat' ? target : `the ${target}`} on {machine}, on the same OpenCode conversation in the same folder.</p>
+    <p id={`${titleId}-body`}>reet stops {to === 'chat' ? `the ${from}` : from} and starts {to === 'chat' ? target : `the ${target}`} on {machine}, on the same conversation in the same folder.</p>
     <ul class="terms">
       <li>One process is stopped and another started: anything the agent was doing in {to === 'chat' ? `the ${from}` : from} is stopped with it.</li>
       {#if to === 'chat'}
-        <li>Terminal scrollback is not kept. Gaffer rebuilds the conversation from OpenCode's history.</li>
-        <li>A Gaffer session ends if reet on the machine restarts; the OpenCode TUI keeps running through that.</li>
+        <li>Terminal scrollback is not kept. Gaffer rebuilds the conversation from the agent's history.</li>
+        <li>A Gaffer session ends if reet on the machine restarts; the {agentTui} keeps running through that.</li>
       {:else}
-        <li>Terminal scrollback is not kept: the OpenCode TUI starts on a fresh screen with the conversation loaded.</li>
+        <li>Terminal scrollback is not kept: the {agentTui} starts on a fresh screen with the conversation loaded.</li>
         <li>You can switch back to Gaffer from this session's header.</li>
       {/if}
       <li>It can take a few minutes. The session's header says when it is done.</li>
     </ul>
     {#if trust}
       <div class="trust" role="group" aria-labelledby={`${titleId}-trust`}>
-        <p class="warn" id={`${titleId}-trust`}><span class="mark" aria-hidden="true">!</span>This folder has OpenCode plugins. They run when Gaffer opens the session.</p>
+        <p class="warn" id={`${titleId}-trust`}><span class="mark" aria-hidden="true">!</span>This folder has agent plugins. They run when Gaffer opens the session.</p>
         <p class="detail">{trust.detail}</p>
-        <label><input type="checkbox" bind:this={trustBox} bind:checked={trusted} />I trust this folder. OpenCode plugins in it may run.</label>
+        <label><input type="checkbox" bind:this={trustBox} bind:checked={trusted} />I trust this folder. Plugins in it may run.</label>
       </div>
     {/if}
     <div class="actions" data-shell-foot>

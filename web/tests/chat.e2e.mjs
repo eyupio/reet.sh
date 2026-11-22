@@ -139,7 +139,7 @@ try {
   await page.getByRole('button', {name:'Session actions',exact:true}).click()
   const tui = page.locator('.session-screen .tui-pill')
   await expect(tui).toHaveText('Gaffer')
-  await expect(tui).toHaveAttribute('title','Update reet on this machine to switch between Gaffer and the OpenCode TUI.')
+  await expect(tui).toHaveAttribute('title','Update reet on this machine to switch between Gaffer and the agent’s TUI.')
   await expect(page.locator('.session-screen .tui-picker select')).toHaveCount(0)
   await tui.hover()
   await expect(page.getByRole('tooltip')).toHaveText(`Gaffer${explanation}`)

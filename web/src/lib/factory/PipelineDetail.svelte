@@ -21,6 +21,10 @@
     releasing: (record: Outcome) => void
     deleting: (record: Outcome) => void
     adding: (record: Outcome) => void
+    /** Saves the finished outcome's plan as a private template. */
+    savingTemplate: (record: Outcome) => void
+    /** Opens a template, from the line that says an outcome was started from it. */
+    openTemplate: (id: string) => void
     moving: (pair: Pair) => void
     /** Opens the Tell dialog with no words of Gaffer's in it, as today's Tell the agent… button does. */
     telling: (pair: Pair) => void
@@ -59,6 +63,7 @@
   import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
   import DeliveryReview from './DeliveryReview.svelte'
+  import TemplateLine from './TemplateLine.svelte'
   import { ciRun, ciWord, gafferFixes } from './githubFacts'
   import type { FactoryItem } from './factoryList'
 
@@ -167,6 +172,7 @@
     // A finished outcome needs nothing from the line, so the one thing to do next is to put it away. The account's
     // default comes first, and Delete asks first in its own dialog.
     if (finished) {
+      add({ key: 'template', label: 'Save as template…', run: () => actions.savingTemplate(record) })
       const archive = { key: 'putaway-archive', label: 'Archive outcome', primary: true, run: () => actions.putAway(record, 'archive') }
       const remove = { key: 'putaway-delete', label: 'Delete outcome…', run: () => actions.deleting(record) }
       if (removeMode === 'delete') { add(remove); add(archive) } else { add(archive); add(remove) }
@@ -224,6 +230,7 @@
       <p class="eyebrow">{objective} · pipeline {item.index} of {item.of}</p>
       <div class="name"><h2 id={`${uid}-title`} tabindex="-1">{piece.title}</h2><span class="chip {tone}">{item.chip}</span></div>
       <p class="meta">{record.projectName || 'Project'} · started {helpers.when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {helpers.when(record.archivedAt)}{/if}</p>
+      {#if record.templateId && record.templateVersion}{#key record.templateId + record.templateVersion}<TemplateLine id={record.templateId} version={record.templateVersion} onopen={actions.openTemplate}/>{/key}{/if}
     </div>
     <div class="head-actions">
       {#if piece.sessionId && piece.sessionState !== 'gone'}<a class="btn quiet" href={helpers.sessionHref(record, piece.sessionId)}>{alive ? 'Open session' : 'Read the ended session'}</a>{/if}

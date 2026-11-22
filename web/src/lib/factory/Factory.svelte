@@ -19,6 +19,8 @@
   import { formatWhen } from '../time'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import GafferOutcome from '../GafferOutcome.svelte'
+  import Templates from './Templates.svelte'
+  import TemplateSave from './TemplateSave.svelte'
   import GafferFollowedSessions from '../GafferFollowedSessions.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
@@ -37,6 +39,9 @@
   // What a new installation still needs before a pipeline can run. Each is read once and again after an outcome dialog closes.
   let setup = $state<{ provider: boolean; machine: boolean; project: boolean } | null>(null)
   let outcomeOpen = $state(false), outcomeButton = $state<HTMLButtonElement>(), outcomeObjective = $state('')
+  // Private templates: the list (opened on one when an address or an outcome names it), the template an outcome is being
+  // started from, and the finished outcome whose plan is being saved.
+  let templatesOpen = $state(false), templateWanted = $state(''), outcomeTemplate = $state<{ id: string; version: number } | undefined>(), savingTemplate = $state<Outcome | null>(null), templatesButton = $state<HTMLButtonElement>()
   let welcome = $state<FactoryWelcome>()
   // Carries out a pipeline's choice, and holds the dialogs those choices open.
   let choices = $state<PipelineChoices>()
@@ -165,6 +170,8 @@
     void getProfile().then(p => { removeMode = p.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive' }).catch(() => { /* archiving is the safe default */ })
     // A page opened to give Gaffer an outcome (from Home or the chat) starts with that dialog up.
     if (new URLSearchParams(location.search).get('outcome') === '1') openOutcome(wanted)
+    const named = new URLSearchParams(location.search).get('template')
+    if (named) { templateWanted = named; templatesOpen = true }
     const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !choices?.holdsRefresh() && !adding && !reporting) void load() }, 5000)
     const changed = () => void load()
     window.addEventListener(GAFFER_GOALS_CHANGED, changed)
@@ -174,7 +181,7 @@
     return () => { offAttention(); epoch++; controller?.abort(); life.abort(); clearInterval(timer); clearInterval(railTimer); query.removeEventListener('change', resized); small.removeEventListener('change', resized); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
   })
   async function closeOutcome() {
-    outcomeOpen = false; floorKey++
+    outcomeOpen = false; outcomeTemplate = undefined; floorKey++
     address({ outcome: null, project: null })
     await Promise.all([load(), loadSetup(), loadRail(true)]); await tick()
     if (outcomeButton?.isConnected) outcomeButton.focus({ preventScroll: true }); else welcome?.focus()
@@ -511,7 +518,7 @@
   const actions: DetailActions = {
     choose, setDecisions, setYolo, mergeMode, report, loadHistory, stop, putAway, pick,
     retry: (record, piece) => choose({ id: 'restart', label: 'Try again' }, record, piece),
-    releasing: record => choices?.release(record), deleting: record => { deleting = record }, adding: record => { adding = record },
+    releasing: record => choices?.release(record), deleting: record => { deleting = record }, adding: record => { adding = record }, savingTemplate: record => { savingTemplate = record }, openTemplate: id => { templateWanted = id; templatesOpen = true },
     moving: ({ record, piece }) => choose({ id: 'move', label: 'Move on' }, record, piece),
     telling: ({ record, piece }) => choose({ id: 'tell', label: 'Tell the agent…' }, record, piece), sending: pair => { sending = pair },
     merging: ({ record, piece }) => choose({ id: 'merge', label: 'Approve merge' }, record, piece), managing: goal => choices?.manage(goal),
@@ -558,6 +565,7 @@
       <div class="identity"><h1>Factory</h1><p class="factory-purpose">Track the work Gaffer plans and follows for you.</p>{#if records.length}<p class="counts">{count('waiting')} waiting for you · {count('working')} working · {count('finished')} finished</p>{/if}</div>
       <div class="top-actions">
         {#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}
+        <button class="btn quiet" type="button" bind:this={templatesButton} onclick={() => { templateWanted = ''; templatesOpen = true }}>Templates</button>
         <a class="btn quiet" href="/account/gaffer">Your Gaffer settings</a>
         {#if loading || error || records.length || (scope && (listed.length || scope.kind !== 'project'))}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>New Factory outcome</button>{/if}
       </div>
@@ -610,7 +618,9 @@
 
 </div>
 
-{#if outcomeOpen}<GafferOutcome projectId={outcomeProject} initialObjective={outcomeObjective} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if templatesOpen}<Templates openId={templateWanted} {timeZone} {dateFormat} onuse={(id, version) => { templatesOpen = false; outcomeTemplate = { id, version }; openOutcome() }} onclose={() => { templatesOpen = false; address({ template: null }); void tick().then(() => templatesButton?.focus({ preventScroll: true })) }}/>{/if}
+{#if savingTemplate}<TemplateSave record={savingTemplate} onclose={() => (savingTemplate = null)} onsaved={saved => { savingTemplate = null; notice = `Saved as template “${saved.content.name}”, version ${saved.version}. Find it under Templates.`; bad = false }}/>{/if}
+{#if outcomeOpen}<GafferOutcome template={outcomeTemplate} projectId={outcomeProject} initialObjective={outcomeObjective} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 <PipelineChoices bind:this={choices} bind:busy {userId} {timeZone} {dateFormat} goals={byConversation} {latest} onchanged={load} onnotice={(text, failed = false) => { notice = text; bad = failed }} {onsignedout}/>
 {#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}

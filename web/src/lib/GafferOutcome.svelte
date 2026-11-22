@@ -3,7 +3,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { createGafferOutcome, getGafferCrew, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -25,6 +25,11 @@
   import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
   import LaunchReadiness from './factory/LaunchReadiness.svelte'
+  import TemplateChanges from './factory/TemplateChanges.svelte'
+  import TemplatePlan from './factory/TemplatePlan.svelte'
+  import Templates from './factory/Templates.svelte'
+  import { attemptIds, mayHaveArrived } from './factory/delivery'
+  import { changesSince, conflictWords, skippedKeys } from './factory/templates'
   import { inWords, launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
@@ -33,13 +38,34 @@
   import { cloneForStart } from './cloneForStart'
   import { cloneFolder, repoProject, parseGitHubRepo } from './githubRepo'
 
-  let { room, userId = 0, projectId: wantedProject = '', initialObjective = '', onclose, onstarted }: { room: number; userId?: number;
+  let { room, userId = 0, projectId: wantedProject = '', initialObjective = '', template: initialTemplate, onclose, onstarted }: { room: number; userId?: number;
+    /** A template to start from: the dialog opens on its plan, read only, with the launch choices still open. */
+    template?: { id: string; version: number };
     /** The project the page had chosen when the dialog opened; it starts selected and can be changed. */
     projectId?: string; initialObjective?: string; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
   const formId = $props.id()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
-  let step = $state<'objective' | 'plan' | 'results'>('objective')
+  let step = $state<'objective' | 'plan' | 'results'>(untrack(() => initialTemplate ? 'plan' : 'objective'))
+  // Starting from a template: its plan is read only, and everything that belongs to a launch is chosen here. The skills
+  // the person agreed to start without are exactly the gaps they were shown.
+  let template = $state<{ id: string; version: number } | null>(untrack(() => initialTemplate ?? null))
+  let tpl = $state<Template | null>(null), tplDiff = $state<TemplateDiff | null>(null), tplReading = $state(false), tplError = $state(''), skipOk = $state(false), picking = $state(false)
+  const launchIds = attemptIds()
+  const gaps = $derived(tpl?.skillGaps ?? [])
+  async function readTemplate(id: string, version = 0) {
+    tplReading = true; tplError = ''
+    try {
+      const next = await getGafferTemplate(id, version, life.signal)
+      const base = changesSince(next.lastUsedVersion, next.version)
+      tplDiff = base ? await diffGafferTemplate(id, base, next.version, life.signal).catch(() => null) : null
+      tpl = next; template = { id, version: next.version }; skipOk = false
+      sessions = next.content.pipelines.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: orderStages([...new Set(item.stages.map(stage => stage.kind))]), criteria: item.criteria.map(one => one.text), ...planRatings(item.stages) }))
+      step = 'plan'
+    } catch (e) { if (!life.signal.aborted) tplError = e instanceof ApiError && e.status === 404 ? 'That template or version is not kept any more.' : e instanceof Error ? e.message : 'The template could not be read.' }
+    finally { tplReading = false }
+  }
+  function leaveTemplate() { template = null; tpl = null; tplDiff = null; tplError = ''; sessions = []; skipOk = false; startError = ''; step = 'objective' }
   let loading = $state(true), loadError = $state('')
   let provider = $state<GafferProvider | null>(null), projects = $state<FolderProject[]>([]), machines = $state<TerminalMachine[]>([])
   let objective = $state(untrack(() => initialObjective)), projectId = $state(''), tool = $state(''), wanted = $state(3)
@@ -118,7 +144,7 @@
   const tools = $derived(machine ? CHAT_TOOLS.filter(id => structuredAgent(machine.capabilities, id)) : [])
   const cap = $derived(Math.max(1, Math.min(MAX_OUTCOME_SESSIONS, room)))
   const githubBlocker = $derived(!github ? '' : !cloners.length ? 'No machine here can clone from GitHub yet. It needs a current reet, git and the GitHub CLI.' : !machine ? 'Choose the machine to clone it on.' : !ghParsed ? 'Choose a repository, or type owner/name.' : '')
-  const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : (objective.trim() && githubBlocker) || objectiveBlocker({ objective, project: !!project || github, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
+  const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : (objective.trim() && githubBlocker) || objectiveBlocker({ objective: tpl?.content.objective ?? objective, project: !!project || github, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
   /** The project the outcome works in: the one chosen, or the repository From GitHub made into one. False when it could not be. */
   async function ensureProject(): Promise<boolean> {
     if (!github) return !!project
@@ -296,7 +322,7 @@
     const split = stageParts(item, kind), stage = stageLabel(kind)
     return split.length > 1 ? split.map(part => ({ stage, crew: tierLabel(part.tier), readiness: tierReady[part.tier] })) : [{ stage, crew: tierLabel(stageTier(kind, item).tier), readiness: tierReady[stageTier(kind, item).tier] }]
   }))))
-  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
   let blockerSeen = $state(false)
   $effect(() => { if (step !== 'plan') blockerSeen = false; else if (approveBlocker) blockerSeen = true })
@@ -340,6 +366,7 @@
       else if (folders.length === 1) projectId = folders[0].id
     }).catch(e => { if (!life.signal.aborted) loadError = e instanceof Error ? e.message : 'Projects and machines could not be read.' })
       .finally(() => { loading = false })
+    if (initialTemplate) void readTemplate(initialTemplate.id, initialTemplate.version)
     return () => life.abort()
   })
 
@@ -465,6 +492,24 @@
     } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The outcome was not saved. Nothing was started.' }
     finally { busy = false }
   }
+  async function startFromTemplate() {
+    const one = tpl
+    if (busy || approveBlocker || !provider || !project || !tool || !one || (gaps.length && !skipOk)) return
+    busy = true; startError = ''
+    const skipped = skippedKeys(gaps)
+    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
+    try {
+      record = await launchGafferTemplate(one.id, { ...body, requestId: launchIds.idFor(JSON.stringify(body)) }, life.signal)
+      launchIds.clear(); step = 'results'; watch(record.id); await onstarted()
+    } catch (e) {
+      if (life.signal.aborted) return
+      const code = e instanceof ApiError ? e.code : ''
+      if (!mayHaveArrived(e)) launchIds.clear()
+      // The skills changed since they were shown: read them again and keep every other choice.
+      if (code === 'template_skills_changed') { await readTemplate(one.id, one.version); startError = 'The approved skills changed while you were looking. The list below is the current one. Check it and start again.' }
+      else startError = e instanceof Error && e.message ? conflictWords(code, e.message) + (mayHaveArrived(e) ? ' It may not have arrived. Trying again is safe: it starts once.' : '') : 'The outcome was not started. Nothing was started.'
+    } finally { busy = false }
+  }
   async function stop() {
     if (!record || busy) return
     busy = true
@@ -478,10 +523,11 @@
 <WorkspaceDialog title="New Factory outcome" {onclose}>
   <div class="outcome">
     <ol class="steps" aria-label="Steps">
-      {#each [['objective','Outcome'],['plan','Plan'],['results','Start']] as [id,name],index (id)}<li aria-current={step===id?'step':undefined} class:done={['objective','plan','results'].indexOf(step)>index}><span class="n">{index+1}</span>{name}</li>{/each}
+      {#each [['objective', template ? 'Template' : 'Outcome'],['plan','Plan'],['results','Start']] as [id,name],index (id)}<li aria-current={step===id?'step':undefined} class:done={['objective','plan','results'].indexOf(step)>index}><span class="n">{index+1}</span>{name}</li>{/each}
     </ol>
     {#if step === 'objective'}
       <p>Describe the result you want. Gaffer can draft the plan for your approval. Once you start it, track the work in Factory.</p>
+      <p><button class="link" type="button" onclick={() => (picking = true)}>Start from a template</button></p>
       {#if loading}<p role="status">Reading your projects…</p>
       {:else if loadError}<p class="warning" role="alert">{loadError}</p>
       {:else}
@@ -489,54 +535,8 @@
           <label for={`${formId}-objective`}>Outcome</label>
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning} onpaste={pasted}></textarea>
           <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
-          <div class="pair">
-            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning || cloning}>
-              <option value="">Choose a project…</option>
-              {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
-              <option value={GITHUB}>A repository from GitHub…</option>
-            </select></label>
-            {#if github}<label>Machine<select aria-label="Machine" bind:value={ghHost} disabled={planning || cloning || !cloners.length}>
-              {#if !ghHost}<option value="" disabled>{cloners.length ? 'Choose a machine…' : 'None can clone'}</option>{/if}
-              {#each cloners as item (item.agentId)}<option value={item.agentId}>{item.host}</option>{/each}
-            </select></label>{/if}
-            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; source = ''; explicitSource = false }}>
-              {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
-              {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
-            </select></label>
-            <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool}/></label>
-            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2}>
-              {#each efforts(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : efforts(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
-            </select></label>
-            <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
-              {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
-            </select></label>
-            {#if sourceShown}<div class="source-field"><ClineSourceSelect label="Source" value={chosenSource} saved={savedSource} offered={sourceOffered} note={startSource.note} disabled={planning} onchange={pickSource} onsaved={next => savedSource = next} /></div>{/if}
-          </div>
-          {#if launchesInWorktree && machine && project}
-            <div class="latest-field">
-              <LatestCodeChoice agentId={machine.agentId} host={machine.host} dir={project.dir} base={project.baseBranch}
-                value={latestChoice} disabled={planning} onchange={(choice) => { latestOverride = choice === 'github'; planError = '' }} />
-            </div>
-          {/if}
-          {#if crewRead !== 'reading'}
-            <section class="saved-crew" aria-label="Your Gaffer settings">
-              <h3>Your Gaffer settings</h3>
-              {#if savedSettings.length}
-                <dl class="saved-crew-list">
-                  {#each savedSettings as row (row.tier)}<div>
-                    <dt>{row.label}</dt>
-                    <dd><span class="saved-part">Agent</span> {chatToolName(row.tool)}<span class="saved-sep" aria-hidden="true">·</span><span class="saved-part">Model</span> {row.model || 'Agent’s default model'}</dd>
-                  </div>{/each}
-                </dl>
-                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. The crew below starts from these; a saved agent this machine cannot run falls back to the outcome’s own agent. You can change them for this outcome below.</p>
-                {#if unavailableCrew.length}<p class="hint" role="status">{unavailableCrew.map(item => `${item.label} uses the outcome’s agent because ${chatToolName(item.tool)} is unavailable on this machine.`).join(' ')}</p>{/if}
-              {:else if crewRead === 'failed'}
-                <p class="hint">Your Gaffer settings could not be read. Each stage will use the agent and model you choose below. <a href="/account/gaffer">Open Gaffer settings</a>.</p>
-              {:else}
-                <p class="hint">No crew is saved in <a href="/account/gaffer">Gaffer settings</a> yet. Each stage will use the agent and model you choose below.</p>
-              {/if}
-            </section>
-          {/if}
+          {@render where()}
+          {@render savedCrewBlock()}
           {@render crewDetails()}
           {#if github}
             <div class="repo-field">
@@ -555,6 +555,30 @@
           <div class="actions"><button class="btn primary" type="submit" disabled={planning || cloning || !!blocker}>{cloning ? 'Cloning…' : planning ? 'Gaffer is planning…' : 'Ask Gaffer for a plan'}</button><button class="btn quiet" type="button" disabled={planning || cloning || !!blocker} onclick={() => void writeOwn()}>Write the plan myself</button></div>
         </form>
       {/if}
+    {:else if step === 'plan' && template}
+      {#if !tpl}
+        {#if tplError}<p class="warning" role="alert">{tplError}</p><div class="actions"><button class="btn" type="button" onclick={() => template && void readTemplate(template.id, template.version)}>Try again</button><button class="btn quiet" type="button" onclick={leaveTemplate}>Back</button></div>
+        {:else}<p role="status">Reading the template…</p>{/if}
+      {:else}
+        <p><strong>{tpl.content.name}</strong>, version {tpl.version}{tpl.versions.length > 1 ? ` of ${tpl.latest}` : ''}. The plan is the one you saved and is not edited here. You choose where it runs and how it starts.</p>
+        <p class="objective">{tpl.content.objective}</p>
+        {#if tpl.versions.length > 1}<label>Template version<select aria-label="Template version" value={tpl.version} disabled={busy || tplReading} onchange={event => void readTemplate(tpl!.id, Number(event.currentTarget.value))}>
+          {#each [...tpl.versions].reverse() as n (n)}<option value={n}>Version {n}{n === tpl.latest ? ' (latest)' : ''}{n === tpl.lastUsedVersion ? ' (last used)' : ''}</option>{/each}
+        </select></label>{/if}
+        {#if tplError}<p class="warning" role="alert">{tplError}</p>{/if}
+        {#if tplDiff}<TemplateChanges diff={tplDiff} title={`Changed since version ${tplDiff.from}, the one you last used`}/>{/if}
+        <TemplatePlan content={tpl.content} gaps={gaps}/>
+        {#if gaps.length}<label class="trust"><input type="checkbox" bind:checked={skipOk} disabled={busy}/><span><strong>Start without these skills.</strong> {gaps.length === 1 ? 'The skill' : `The ${gaps.length} skills`} marked above {gaps.length === 1 ? 'is' : 'are'} left out of {gaps.length === 1 ? 'its stage' : 'their stages'}. Nothing else changes.</span></label>{/if}
+        <p class="hint">Choose where it runs. The project decides the machine.</p>
+        {@render where()}
+        {@render savedCrewBlock()}
+        {#if anyBackup}{@render balanceField()}{/if}
+        {@render readinessPanel()}
+        {@render launchChoices()}
+        <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
+        {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
+        <div class="actions"><button class="btn primary" type="button" disabled={busy || tplReading || !!approveBlocker} aria-describedby={approveBlocker ? `${formId}-blocker` : undefined} onclick={() => void startFromTemplate()}>{busy ? 'Starting…' : `Start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'} from this template`}</button><button class="btn quiet" type="button" disabled={busy} onclick={leaveTemplate}>Back</button></div>
+      {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
       {#if planThread.length}
@@ -571,14 +595,7 @@
       <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
       {@render crewDetails()}
-      {#if launch.ready + launch.look + launch.blocked + launch.reading}<section class="readiness" aria-label="Launch readiness">
-        <p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
-        {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.level}>
-          <span class="mark" aria-hidden="true">{cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
-          <span class="text"><strong>{cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. {cause.text}</span>
-          {#if cause.level !== 'note' && !cause.machine}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
-        </li>{/each}</ul>{/if}
-      </section>{/if}
+      {@render readinessPanel()}
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
@@ -605,27 +622,7 @@
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a pipeline</button>{/if}
-      <div class="access" aria-label="Outcome access review"><p>Approving has the controller start {sessions.length === 1 ? 'this pipeline' : `these ${sessions.length} pipelines`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
-      <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
-        <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
-      </details>
-      <fieldset class="approvals"><legend>Approvals</legend>
-        <div class="choice" role="radiogroup" aria-label="Approvals">
-          <label class:on={!yolo}><input type="radio" name={`${formId}-approvals`} checked={!yolo} disabled={busy} onchange={() => yolo = false}/>Ask me</label>
-          <label class:on={yolo} class:off={!!yoloWhy}><input type="radio" name={`${formId}-approvals`} checked={yolo} disabled={busy || !!yoloWhy} onclick={event => { if (!yolo) { event.preventDefault(); yoloOpen = true } }}/>YOLO</label>
-        </div>
-        <p class="hint" class:warn={yolo}>{yoloWhy || (yolo ? 'Every session of this outcome starts on YOLO: no agent waits for you to approve commands or file changes. Each start is checked and audited.' : 'Agents ask before running commands. A pipeline waits whenever one is asking, and carries on once you answer. YOLO needs a confirmation.')}</p>
-      </fieldset>
-      <fieldset class="approvals"><legend>Decisions</legend>
-        <div class="choice" role="radiogroup" aria-label="Decisions">
-          <label class:on={!automation}><input type="radio" name={`${formId}-decisions`} checked={!automation} disabled={busy} onchange={() => automation = false}/>Ask me</label>
-          <label class:on={automation}><input type="radio" name={`${formId}-decisions`} checked={automation} disabled={busy} onchange={() => automation = true}/>Gaffer decides</label>
-        </div>
-        <p class="hint">{automation ? 'When a stage stops, Gaffer chooses what happens next (review again, tell the agent, move on, a new budget or a new session) and the Factory records what it chose and why, at most three times for a stage. It also answers an agent’s multiple-choice question. Each decision is one request to Gaffer’s model. Merges, approvals and questions that need your own words still come to you. You can take the decisions back on the outcome’s card.' : 'When a stage stops, the Factory shows you the choices with a recommendation first, and waits for you.'}</p>
-      </fieldset>
-      <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
-      {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.{#if yolo && !yoloWhy}{' '}<strong>On YOLO a pipeline still stops there</strong> until you confirm on the Factory page that it may merge by itself.{/if}</span></label>{/if}
-      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. {crewTools.includes('antigravity') ? 'Google Antigravity needs this to start at all; OpenCode needs it only in a folder that has plugins.' : 'Leave this off and a folder that has any is refused.'}</span></label>{/if}
+      {@render launchChoices()}
       <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
       {#if !approveBlocker && !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
@@ -663,12 +660,110 @@
     {/if}
   </div>
 </WorkspaceDialog>
+{#if picking}<Templates onuse={(id, version) => { picking = false; void readTemplate(id, version) }} onclose={() => (picking = false)}/>{/if}
 {#if yoloOpen && machine}<YoloDialog gates={yoloGates} tool={tool} structured machine={machine.host} enabling oncancel={() => { yoloOpen = false }} onstart={() => { if (yoloCanStart(yoloGates)) yolo = true; yoloOpen = false }}/>{/if}
 {#if declining}<ConfirmDialog title="Decline this proposal?" body="Nothing has started. This plan will not be approved or started, and stays here so you can tell Gaffer what you want instead or go back to the outcome." confirmLabel="Decline proposal" oncancel={() => declining = false} onconfirm={() => { declined = true; declining = false }}/>{/if}
+
+<!-- Where the work runs and which agent starts it. A template's launch has no effort or session count, and no repository to clone first. -->
+{#snippet where()}
+          <div class="pair">
+            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning || cloning}>
+              <option value="">Choose a project…</option>
+              {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
+              {#if !template}<option value={GITHUB}>A repository from GitHub…</option>{/if}
+            </select></label>
+            {#if github}<label>Machine<select aria-label="Machine" bind:value={ghHost} disabled={planning || cloning || !cloners.length}>
+              {#if !ghHost}<option value="" disabled>{cloners.length ? 'Choose a machine…' : 'None can clone'}</option>{/if}
+              {#each cloners as item (item.agentId)}<option value={item.agentId}>{item.host}</option>{/each}
+            </select></label>{/if}
+            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; source = ''; explicitSource = false }}>
+              {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
+              {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
+            </select></label>
+            <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool}/></label>
+            {#if !template}<label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2}>
+              {#each efforts(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : efforts(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
+            </select></label>
+            <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
+              {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
+            </select></label>{/if}
+            {#if sourceShown}<div class="source-field"><ClineSourceSelect label="Source" value={chosenSource} saved={savedSource} offered={sourceOffered} note={startSource.note} disabled={planning} onchange={pickSource} onsaved={next => savedSource = next} /></div>{/if}
+          </div>
+          {#if launchesInWorktree && machine && project}
+            <div class="latest-field">
+              <LatestCodeChoice agentId={machine.agentId} host={machine.host} dir={project.dir} base={project.baseBranch}
+                value={latestChoice} disabled={planning} onchange={(choice) => { latestOverride = choice === 'github'; planError = '' }} />
+            </div>
+          {/if}
+{/snippet}
+<!-- What the person saved in Gaffer settings: a template launch takes each stage's agent from it. -->
+{#snippet savedCrewBlock()}
+          {#if crewRead !== 'reading'}
+            <section class="saved-crew" aria-label="Your Gaffer settings">
+              <h3>Your Gaffer settings</h3>
+              {#if savedSettings.length}
+                <dl class="saved-crew-list">
+                  {#each savedSettings as row (row.tier)}<div>
+                    <dt>{row.label}</dt>
+                    <dd><span class="saved-part">Agent</span> {chatToolName(row.tool)}<span class="saved-sep" aria-hidden="true">·</span><span class="saved-part">Model</span> {row.model || 'Agent’s default model'}</dd>
+                  </div>{/each}
+                </dl>
+                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. {template ? 'A template starts each stage on its tier’s saved agent, the crew as it is saved when you start. A saved agent this machine cannot run falls back to the outcome’s own agent.' : 'The crew below starts from these; a saved agent this machine cannot run falls back to the outcome’s own agent. You can change them for this outcome below.'}</p>
+                {#if unavailableCrew.length}<p class="hint" role="status">{unavailableCrew.map(item => `${item.label} uses the outcome’s agent because ${chatToolName(item.tool)} is unavailable on this machine.`).join(' ')}</p>{/if}
+              {:else if crewRead === 'failed'}
+                <p class="hint">Your Gaffer settings could not be read. Each stage will use the agent and model you choose below. <a href="/account/gaffer">Open Gaffer settings</a>.</p>
+              {:else}
+                <p class="hint">No crew is saved in <a href="/account/gaffer">Gaffer settings</a> yet. Each stage will use the agent and model you choose below.</p>
+              {/if}
+            </section>
+          {/if}
+{/snippet}
+<!-- What each stage would run on, before the person starts. A blocker here holds the start, for a template as for a plan. -->
+{#snippet readinessPanel()}
+      {#if launch.ready + launch.look + launch.blocked + launch.reading}<section class="readiness" aria-label="Launch readiness">
+        <p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
+        {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.level}>
+          <span class="mark" aria-hidden="true">{cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
+          <span class="text"><strong>{cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. {cause.text}</span>
+          {#if cause.level !== 'note' && !cause.machine}{#if template}{#if cause.level === 'blocked'}<a class="btn" href="/account/gaffer">Open Gaffer settings</a>{/if}{:else}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}{/if}
+        </li>{/each}</ul>{/if}
+      </section>{/if}
+{/snippet}
+<!-- How the work is run: access, limits, approvals, decisions, reporting, merge and trust. -->
+{#snippet launchChoices()}
+      <div class="access" aria-label="Outcome access review"><p>{template ? 'Starting' : 'Approving'} has the controller start {sessions.length === 1 ? 'this pipeline' : `these ${sessions.length} pipelines`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
+      {#if !template}<details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
+        <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
+      </details>{/if}
+      <fieldset class="approvals"><legend>Approvals</legend>
+        <div class="choice" role="radiogroup" aria-label="Approvals">
+          <label class:on={!yolo}><input type="radio" name={`${formId}-approvals`} checked={!yolo} disabled={busy} onchange={() => yolo = false}/>Ask me</label>
+          <label class:on={yolo} class:off={!!yoloWhy}><input type="radio" name={`${formId}-approvals`} checked={yolo} disabled={busy || !!yoloWhy} onclick={event => { if (!yolo) { event.preventDefault(); yoloOpen = true } }}/>YOLO</label>
+        </div>
+        <p class="hint" class:warn={yolo}>{yoloWhy || (yolo ? 'Every session of this outcome starts on YOLO: no agent waits for you to approve commands or file changes. Each start is checked and audited.' : 'Agents ask before running commands. A pipeline waits whenever one is asking, and carries on once you answer. YOLO needs a confirmation.')}</p>
+      </fieldset>
+      <fieldset class="approvals"><legend>Decisions</legend>
+        <div class="choice" role="radiogroup" aria-label="Decisions">
+          <label class:on={!automation}><input type="radio" name={`${formId}-decisions`} checked={!automation} disabled={busy} onchange={() => automation = false}/>Ask me</label>
+          <label class:on={automation}><input type="radio" name={`${formId}-decisions`} checked={automation} disabled={busy} onchange={() => automation = true}/>Gaffer decides</label>
+        </div>
+        <p class="hint">{automation ? 'When a stage stops, Gaffer chooses what happens next (review again, tell the agent, move on, a new budget or a new session) and the Factory records what it chose and why, at most three times for a stage. It also answers an agent’s multiple-choice question. Each decision is one request to Gaffer’s model. Merges, approvals and questions that need your own words still come to you. You can take the decisions back on the outcome’s card.' : 'When a stage stops, the Factory shows you the choices with a recommendation first, and waits for you.'}</p>
+      </fieldset>
+      <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
+      {#if hasMerge && !template}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.{#if yolo && !yoloWhy}{' '}<strong>On YOLO a pipeline still stops there</strong> until you confirm on the Factory page that it may merge by itself.{/if}</span></label>{/if}
+      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. {crewTools.includes('antigravity') ? 'Google Antigravity needs this to start at all; OpenCode needs it only in a folder that has plugins.' : 'Leave this off and a folder that has any is refused.'}</span></label>{/if}
+{/snippet}
 
 <!-- An agent that has left the machine stays in its box, said as missing, so the box is never blank. -->
 {#snippet awayAgent(id: string)}{#if id && !tools.includes(id)}<option value={id} disabled>{chatToolName(id)}{tools.length ? ' (missing)' : ''}</option>{/if}{/snippet}
 <!-- On the plan step too. Frozen while the plan is being saved: approve() awaits the image uploads before it builds what it sends. -->
+<!-- The share of a plan under which a backup takes over. -->
+{#snippet balanceField()}
+            <div class="balance" role="group" aria-label="When a backup takes over">
+              <label for={`${formId}-balance`}>Switch to a backup below</label>
+              <span class="percent"><input id={`${formId}-balance`} type="number" inputmode="numeric" min={BALANCE_MIN_PERCENT} max={BALANCE_MAX_PERCENT} step="5" bind:value={balanceBelow} disabled={planning || busy} aria-describedby={`${formId}-balance-unit`} onblur={() => balanceBelow = balancePercent(balanceBelow)}/><span id={`${formId}-balance-unit`}>% of the first choice’s plan left</span></span>
+            </div>
+{/snippet}
 {#snippet crewDetails()}
           <details class="limit-editor crew" bind:this={crewEditor}><summary>{crewTools.every(id => id === tool) && CREW_TIERS.every(item => crew[item.tier].model.trim() === model.trim() && (crew[item.tier].effort ?? '') === effort) ? 'One agent does every stage' : 'A crew does the stages'} <span>Choose who does what</span></summary>
             <p class="hint">Right tool for the job. Each stage has a tier: Heavy for careful judgement, Standard for ordinary building, Light for routine work. Say here which agent, model and effort each tier means. Gaffer’s plan puts a stage on another tier where the work calls for it, and you can change any stage below. Every stage runs in a session of its own.</p>
@@ -699,10 +794,7 @@
                 </div>
               </div>{/each}
             </div>
-            <div class="balance" role="group" aria-label="When a backup takes over">
-              <label for={`${formId}-balance`}>Switch to a backup below</label>
-              <span class="percent"><input id={`${formId}-balance`} type="number" inputmode="numeric" min={BALANCE_MIN_PERCENT} max={BALANCE_MAX_PERCENT} step="5" bind:value={balanceBelow} disabled={planning || busy} aria-describedby={`${formId}-balance-unit`} onblur={() => balanceBelow = balancePercent(balanceBelow)}/><span id={`${formId}-balance-unit`}>% of the first choice’s plan left</span></span>
-            </div>
+            {@render balanceField()}
             <p class="hint">{anyBackup ? `A stage starts on its tier’s backup when the first choice’s plan has under ${balancePercent(balanceBelow)}% left in its tightest window and the backup’s has more. The stage says when that happened and why.` : 'No tier has a backup yet, so every stage runs on its first choice.'} Balancing needs the machine to be able to read the agent’s plan; without figures every stage stays on its first choice.</p>
             <p class="crew-save"><button class="link" type="button" disabled={planning || busy || crewSaving || !tools.length} onclick={() => void rememberCrew()}>{crewSaving ? 'Saving…' : 'Save as my crew'}</button> <span role="status">{crewNote}</span></p>
           </details>

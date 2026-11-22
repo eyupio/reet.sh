@@ -418,7 +418,7 @@
       </div>
       <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
-        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} You can restart it in the ${terminalLabel} from Session actions.` : nativeReason} {onview} onunavailable={text => notice = { text }} />{/if}
+        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}
         {#if (terminalShowing || focusOn) && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
         <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}

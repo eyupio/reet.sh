@@ -59,7 +59,7 @@ exactly as before.
   `templateId` and `baseVersion`, or editing, makes version `baseVersion + 1`, and only when `baseVersion` is the latest:
   otherwise **409 `template_changed`**. Two saves on the same version: one wins, the other gets `template_changed`.
 - **Bounded.** 20 templates per account (**409 `template_limit`** for a 21st), 20 versions kept per template (saving
-  the 21st drops the oldest; the latest always stays), 64 KiB of JSON per version (422).
+  the 21st drops the oldest; the latest always stays), 64 KiB of JSON per version (**422 `template_too_large`**).
 - **Duplicate requests.** Every write carries `requestId` (32 lowercase hex). The same request again answers the
   version it made; the same id with a different request is **409 `template_request_reused`**. A launch passes its
   `requestId` to the outcome, which already answers a repeated create with the outcome it started.
@@ -95,7 +95,10 @@ not have; 422 with `field` for invalid input.
 | `POST /templates/{id}/launch` | `{requestId, version, projectId, tool, model?, provider?, trust, yolo, pullLatest?, autoReport, automation, balanceBelow?, skippedSkills?, confirmed}` | 201 outcome, as `POST /outcomes` |
 | `DELETE /templates/{id}?version=N` | — | 204 |
 
-`content` in a `PUT` is the version's `data` above. A criterion with a known `id` keeps it; one without gets a new one.
+`content` in a `PUT` is the version's `data` above, checked as a plan approval would check it. A criterion with an
+`id` the template has keeps it; one without gets a new one; an unknown `id` is refused. A stage without a tier takes its
+kind's default. An outcome started from a template keeps the template's criterion ids, so a criterion reworded during
+the run and saved back reads as reworded, not as removed and added.
 
 `Summary`: `{id, version, name, description, pipelines, createdAt, updatedAt, lastUsedVersion}`.
 
@@ -103,7 +106,7 @@ not have; 422 with `field` for invalid input.
 
 ```json
 {
-  "id": "…", "version": 3, "latest": 3, "versions": [1, 2, 3],
+  "id": "…", "version": 3, "latest": 3, "versions": [1, 2, 3], "requestId": "…",
   "outcomeId": "…", "createdAt": 1795000000000, "lastUsedVersion": 2,
   "content": {"name": "CSV export", "description": "", "objective": "…", "maxReviews": 8, "hours": 24,
     "pipelines": [{"title": "Export API", "prompt": "…", "autoMerge": false,

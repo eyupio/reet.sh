@@ -25,7 +25,7 @@
     <button class="link remove" type="button" disabled={busy} aria-label={`Remove part ${at + 1} of ${name} in ${where}`} onclick={() => onchange(at, null)}>Remove</button>
     <textarea aria-label={`Part ${at + 1} brief`} placeholder="What this part does. Its agent sees only this and the handover from the part before." rows="2" maxlength="1000" value={part.brief} disabled={busy} oninput={event => onchange(at, { brief: event.currentTarget.value })}></textarea>
     <span class="who">{who(part.tier)}{#if part.why}<span class="why"><strong>Gaffer’s assessment.</strong> {part.why}</span>{/if}</span>
-    {#if ready}<div class="ready"><LaunchReadiness ready={ready(part.tier)}/></div>{/if}
+    {#if ready}<div class="ready"><LaunchReadiness ready={ready(part.tier)} label={`part ${at + 1} of ${name} in ${where}`}/></div>{/if}
   </div>{/each}
   {#if parts.length < MAX_STAGE_PARTS}<button class="link add" type="button" disabled={busy} aria-label={`Add a part to ${name} in ${where}`} onclick={onadd}>Add a part</button>{/if}
 </div>

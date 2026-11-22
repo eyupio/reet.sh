@@ -49,19 +49,27 @@ stage, you see:
 - **Ready**, **Look at** or **Cannot start**, each with a mark as well as a word, and a line for whatever needs a look;
 - **Your choice: Agent's default model, Agent's default effort** when you left the model or effort to the agent. That is a
   choice, not a gap, and nothing is flagged for it;
-- every **Backup**, in the order it is tried, with **can take over** or **cannot take over** and a reason. A backup is
-  ruled out when its agent is not on the machine or has no sign-in. The first choice's plan figures must be less than six
-  hours old for balancing to move a stage at all. A backup whose own figures are older, or absent, takes over without a
-  comparison, and the stage says so.
+- every **Backup**, in the order it is tried, and what it will do. It **can take over** when balancing can move a stage
+  onto it. Otherwise it **takes over only after a usage limit**, or **balancing will not use it**, and the line says
+  why. Balancing moves a stage to a backup only when the first choice's plan figures are less than six hours old and
+  low, the backup is signed in, and, if it has figures, has more of its plan left. A backup on the same agent shares
+  that agent's plan, so it is not balanced onto. A backup whose own figures are old or absent takes over without a
+  comparison. After a usage limit the next backup is tried whatever its sign-in, so one whose agent is not on the
+  machine or is not signed in is still tried and is likely to be refused there.
+
+Sign-ins are read from the machine's last answer even when the latest read could not be made; only that read is then
+said to be old. A machine that does not report an agent's sign-in (Cline, for one) is noted and never counted as a
+problem. Things still being read, such as a model list, are shown as being read, not as a problem.
 
 A model that the machine's list does not have, a list read more than a day ago, a model list or effort levels the machine
 could not give, a missing sign-in and sign-ins the machine could not read are each worded differently, with when the
-list was read. Where the model or effort was not checked against the machine, the stage adds **Checked when the stage
-starts: its Applied line says Confirmed or Not as chosen.** The [Applied line](#the-page) on the running stage is that
-check.
+list was read. A saved effort that the machine does not offer is shown as the saved crew's, with the note that the stage
+starts on the agent's default effort. Where the model or effort was not checked against the machine, the stage says so:
+an agent that does not offer the model stops the stage when it starts; otherwise the [Applied line](#the-page) on the
+running stage says what it is running on.
 
 Warnings never stop you. **Approve and start** waits only when a stage's agent is not on the machine now, or the machine
-is not connected, and the reason is beside the button. Choose another agent for the stage, or reconnect the machine.
+is not connected, and the reason is beside the button. Choose another agent for the stage, or reconnect the machine. While a stage cannot start the machine list is read every ten seconds, so Approve clears when the machine comes back.
 
 ## The page
 
@@ -236,8 +244,9 @@ item on a tablet or phone. Nothing happens until you choose.
 
 The pipeline is marked **Usage limit**. It says which agent and model ran out on which stage, what **Continue with**
 the next backup does, and what **Choose another model…** does. Either one continues the same stage in a new session in
-the same folder and branch, and the pipeline keeps its history. If a backup had already taken over once, it says this is
-the second stop and which agent the stage started on. The detail adds how much of that agent's plan is left and when it
+the same folder and branch, and the pipeline keeps its history. If another model had already taken over on the stage
+after a usage limit, it says so and which agent the stage started on. It says whether no backup is saved for the
+stage or none is left. The detail adds how much of that agent's plan is left and when it
 resets, when the machine reports it.
 
 The item on Home and in the Factory list has both as buttons, **Continue with** the backup filled and **Choose another

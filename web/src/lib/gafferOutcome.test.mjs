@@ -580,10 +580,12 @@ test('a usage limit says which agent ran out, what each choice does, and that a 
   assert.equal(why(), 'The worker reached its usage limit. Claude Code (opus) ran out on the code stage. Continue with OpenCode (paid/backup) resumes the stage on its next backup. Choose another model… resumes it on one you pick. Either way it carries on in the same folder and branch.')
   // No backup configured: it says so and names the one action.
   delete stage.nextUsageBackup
-  assert.equal(why(), 'The worker reached its usage limit. Claude Code (opus) ran out on the code stage. No backup is left for this stage. Choose another model to resume it in the same folder and branch.')
-  // A backup already took over once: this is the second stop, and the stage started on the first choice.
+  assert.equal(why(), 'The worker reached its usage limit. Claude Code (opus) ran out on the code stage. No backup is saved for this stage. Choose another model to resume it in the same folder and branch.')
+  stage.backup = { tool: 'opencode' }
+  assert.match(why(), /No backup is left for this stage\./)
+  // Another model already took over (a backup or the person's choice): say only that, and where the stage started.
   Object.assign(stage, { tool: 'opencode', model: 'paid/backup', usageFailover: true, first: { tool: 'claude', model: 'opus' } })
-  assert.match(why(), /OpenCode \(paid\/backup\) ran out on the code stage\. A backup already took over once, so this is the second stop: the stage started on Claude Code \(opus\)\. No backup is left/)
+  assert.match(why(), /OpenCode \(paid\/backup\) ran out on the code stage\. Another model already took over on this stage after a usage limit; it started on Claude Code \(opus\)\. No backup is left/)
 })
 
 test('acceptance criteria: empty rows are dropped, each is one line, and the limits are the contract’s', () => {

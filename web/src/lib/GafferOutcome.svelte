@@ -25,7 +25,7 @@
   import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
   import LaunchReadiness from './factory/LaunchReadiness.svelte'
-  import { launchReadiness, launchSummary } from './factory/launchReadiness'
+  import { launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
   import { gafferAutoMerge } from './gafferMotion'
@@ -55,6 +55,7 @@
   let savedSource = $state(''), explicitSource = $state(false), source = $state('')
   let crewSourceExplicit = $state<Record<string, boolean>>({ heavy: false, standard: false, light: false })
   // What each agent offers on the project's machine, read once per agent. A failed read leaves favourites, suggestions and Other.
+  let offerFailed = $state<Record<string, boolean>>({})
   let offered = $state<Record<string, MachineModels | null>>({}), favourites = $state<ModelFavourite[]>([])
   // YOLO: the account setting, and whether the person confirmed it for this outcome. It is never remembered.
   let yoloSetting = $state<YoloSetting | null>(null), yolo = $state(false), yoloOpen = $state(false)
@@ -169,6 +170,7 @@
         const member = saved?.[tier]
         const useSaved = !!member?.tool && available.includes(member.tool)
         chosenRoles[tier] = useSaved
+        droppedEffort[tier] = ''
         crew[tier] = useSaved
           ? { tool: member.tool!, model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
           : { tool, model, effort, source: chosenSource }
@@ -231,12 +233,15 @@
       const slot = `${agentId}:${id}`
       if (!id || slot in offered) continue
       offered[slot] = null
-      void machineModels(agentId, id, life.signal).then(found => { offered[slot] = found }).catch(() => { /* suggestions and Other still work */ })
+      void machineModels(agentId, id, life.signal).then(found => { offered[slot] = found }).catch(() => { offerFailed[slot] = true /* suggestions and Other still work */ })
     }
   })
   // Every session here is a chat, so the efforts are the agent's own thinking levels as this machine reports them.
   // A level this machine does not report is never carried: the controller starts the stage on the agent's default effort.
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
+  // The effort a crew role asked for (saved, or typed) and the machine does not report: it is cleared above, and kept here so the plan can say so.
+  let droppedEffort = $state<Record<string, string>>({})
+  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; droppedEffort[tier] = '' }
   // A chosen level the agent no longer reports (another project's machine, or a crew role's own agent) goes back to the
   // agent's default, so what is shown is what the outcome will start with.
   // Nothing is cleared while the machine's capabilities are not known: a guess would only lose the person's choice.
@@ -245,27 +250,46 @@
     if (effort && !efforts(tool).includes(effort)) effort = ''
     for (const item of CREW_TIERS) {
       const role = crew[item.tier]
-      if (role.effort && !efforts(role.tool).includes(role.effort)) crew[item.tier] = { ...role, effort: '' }
+      if (role.effort && !efforts(role.tool).includes(role.effort)) { droppedEffort[item.tier] = role.effort; crew[item.tier] = { ...role, effort: '' } }
     }
   })
   const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
   // What each tier will run on this machine, before the person approves: the saved crew's entry, what the machine reports
   // and its sign-ins (read once per machine when the plan opens; a failed read is a state, not an error).
   // The machine list is read again when the plan opens: the person may have taken a while, and a machine that went away
-  // or lost an agent in the meantime must stop Approve now, not after the controller has refused each stage.
-  $effect(() => { if (step === 'plan') void terminalMachines(life.signal).then(found => { if (!life.signal.aborted) machines = found }).catch(() => { /* the list read at the start stands */ }) })
+  // or lost an agent in the meantime must stop Approve now, not after the controller has refused each stage. While a
+  // stage cannot start it is read every ten seconds, so a machine that comes back clears the block; no reads otherwise.
+  const readMachines = () => void terminalMachines(life.signal).then(found => { if (!life.signal.aborted) machines = found }).catch(() => { /* the list read before stands */ })
+  $effect(() => { if (step === 'plan') readMachines() })
+  $effect(() => {
+    if (step !== 'plan' || !launch.blocked) return
+    const timer = setInterval(readMachines, 10_000)
+    return () => clearInterval(timer)
+  })
   let accounts = $state<Record<string, MachineAccounts | null>>({})
   const askedAccounts = new Set<string>()
+  // A machine that is busy, or a request that failed, is asked once more a moment later, and not again.
+  function askAccounts(id: string, again: boolean) {
+    const retry = () => { if (again) setTimeout(() => { if (!life.signal.aborted) askAccounts(id, false) }, 3000) }
+    void machineAccounts(id, life.signal).then(found => { accounts[id] = found; if (found.state === 'busy') retry() }).catch(() => { if (!life.signal.aborted) { accounts[id] = null; retry() } })
+  }
   $effect(() => {
     const id = machine?.agentId
     if (step !== 'plan' || !id || askedAccounts.has(id)) return
     askedAccounts.add(id)
-    void machineAccounts(id, life.signal).then(found => { accounts[id] = found }).catch(() => { if (!life.signal.aborted) accounts[id] = null })
+    askAccounts(id, true)
   })
   const savedFor = (tier: 'heavy' | 'standard' | 'light') => crewRead === 'failed' || crewRead === 'reading' ? undefined : crewRead === 'saved' && savedCrew?.[tier]?.tool ? savedCrew[tier] : null
+  const modelsFor = (id: string): ModelsRead => { const slot = machine ? `${machine.agentId}:${id}` : ''; return !slot ? null : offered[slot] ?? (offerFailed[slot] ? null : 'reading') }
+  // A tier as the payload will carry it: the same dedupe and the same effort strip, so a row never lists a backup or an effort that is not sent.
+  const sentFor = (tier: 'heavy' | 'standard' | 'light') => withReportedEfforts(stagePlan(['code'], crewSent, machine?.capabilities?.acpProvider === true, { tiers: { code: tier } }), machine?.capabilities ? efforts : null)[0]
   const tierReady = $derived.by(() => {
     const now = Date.now()
-    return Object.fromEntries(CREW_TIERS.map(({ tier }) => [tier, launchReadiness({ machine, tools, efforts, models: offeredFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: crew[tier], spares: [backups[tier], ...more[tier]], saved: savedFor(tier), edited: !!chosenRoles[tier] })])) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
+    return Object.fromEntries(CREW_TIERS.map(({ tier }) => {
+      const one = sentFor(tier), asked = one.effort || (chosenRoles[tier] ? droppedEffort[tier] : '') || ''
+      const spares = [one.backup, ...(one.moreBackups ?? [])].flatMap(spare => spare ? [{ tool: spare.tool, model: spare.model ?? '', effort: spare.effort ?? '' }] : [])
+      return [tier, launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: { tool: one.tool, model: one.model, effort: asked }, spares, saved: savedFor(tier), edited: !!chosenRoles[tier] })]
+    })) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
   })
   // Every stage, and every part of a split stage, with the readiness of the tier it is on.
   const launch = $derived(launchSummary(sessions.flatMap((item, index) => (item.stages ?? []).flatMap(kind => {
@@ -506,9 +530,9 @@
               {#each CREW_TIERS as item (item.tier)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
                 <span class="crew-slot">First choice</span>
-                <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || !tools.length} onchange={() => { chosenRoles[item.tier] = true; const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
-                <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning} onchange={() => chosenRoles[item.tier] = true}/>
-                <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} onchange={() => chosenRoles[item.tier] = true} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || !tools.length} onchange={() => { edit(item.tier); const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning} onchange={() => edit(item.tier)}/>
+                <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} onchange={() => edit(item.tier)} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
                 {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={crew[item.tier].source || savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
                 <div class="crew-backup" role="group" aria-label={`${item.label} backup`}>
                   <span class="crew-slot">Backup</span>
@@ -585,7 +609,7 @@
               <span class="stage-name">{stageLabel(kind)}</span>
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
               <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ' · Agent’s default model'}{member.effort ? ` · ${member.effort} effort` : ''}</span>
-              <LaunchReadiness ready={tierReady[rated.tier]}/>
+              <LaunchReadiness ready={tierReady[rated.tier]} label={`${stageLabel(kind)} in pipeline ${index + 1}`}/>
               {#if stageTakesParts(kind)}<button class="link stage-splitter" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} in pipeline ${index + 1} into parts`} onclick={() => item.parts = withNewPart(item, kind)}>Split into parts</button>{/if}
               {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
             </div>{/if}{/each}
@@ -616,7 +640,7 @@
       <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
       {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.{#if yolo && !yoloWhy}{' '}<strong>On YOLO a pipeline still stops there</strong> until you confirm on the Factory page that it may merge by itself.{/if}</span></label>{/if}
       {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. {crewTools.includes('antigravity') ? 'Google Antigravity needs this to start at all; OpenCode needs it only in a folder that has plugins.' : 'Leave this off and a folder that has any is refused.'}</span></label>{/if}
-      {#if launch.ready + launch.look + launch.blocked}<p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0} role="status"><strong>Launch readiness.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : '✓'}</span> {launch.text}</p>{/if}
+      {#if launch.ready + launch.look + launch.blocked + launch.reading}<p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0}><strong>Launch readiness.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>{/if}
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>
       {:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}

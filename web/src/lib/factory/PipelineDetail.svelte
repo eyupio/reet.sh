@@ -254,7 +254,7 @@
   {#if item.section === 'waiting'}<section class="waits" aria-label="What is waiting">
     <p class="waits-head">{usageLimited ? 'Worker usage limit reached' : 'Waiting for you'}</p>
     <p>{item.need?.why ?? item.why}</p>
-    {#if usageLimited}{@const plan = helpers.planFor(record, piece)}{#if plan.length}<p class="hint">{plan.map(entry => entry.plan.detail).join(' ')}</p>{/if}{/if}
+    {#if usageLimited}{@const plan = helpers.planFor(record, piece)}{#if plan.length}<p class="hint">{plan.map(entry => `${chatToolName(entry.tool)} plan: ${entry.plan.detail}`).join(' ')}</p>{/if}{/if}
     {#if reviewWaits && goal?.goal.summary}{@render review(goal.goal.summary, piece.conversationId ?? '')}{/if}
     {#if item.need?.recommend?.by === 'gaffer'}<p class="advice"><strong>Gaffer recommends: {item.need.recommend.label.replace(/…$/, '')}.</strong> {item.need.recommend.why}</p>{/if}
     {#if !usageLimited && goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}

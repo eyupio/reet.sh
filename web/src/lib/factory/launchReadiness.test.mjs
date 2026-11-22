@@ -45,7 +45,7 @@ test('missing, stale, unavailable and default stay distinct for the model', () =
   assert.equal(stale.model.state, 'stale'); assert.match(stale.model.text, /read 1 d ago/); assert.equal(stale.level, 'look')
   for (const state of ['offline', 'update', 'off', 'failed', 'unsupported']) {
     const s = r.launchReadiness(input({ models: () => listed([], { state }) }))
-    assert.equal(s.model.state, 'unavailable', state); assert.equal(s.model.later, true); assert.equal(s.checkedAtStart, true); assert.equal(s.level, 'look')
+    assert.equal(s.model.state, 'unavailable', state); assert.equal(s.model.later, r.MODEL_LATER); assert.equal(s.checkedAtStart, true); assert.equal(s.level, 'look')
   }
   assert.equal(r.launchReadiness(input({ models: () => null })).model.state, 'unavailable')
   assert.equal(r.launchReadiness(input({ models: () => listed([], { more: true }), member: { tool: 'claude', model: 'x' } })).model.state, 'unavailable')
@@ -73,7 +73,9 @@ test('a machine that cannot read accounts is unavailable for sign-in and the sta
   assert.equal(failed.signIn.state, 'unavailable'); assert.equal(failed.level, 'look')
   const reading = r.launchReadiness(input({ accounts: undefined }))
   assert.equal(reading.signIn.pending, true); assert.equal(reading.level, 'ready')
-  assert.equal(r.launchReadiness(input({ accounts: read() })).signIn.state, 'unavailable')
+  // A read that does not cover the agent (Cline has no reader) is a quiet note: never a thing to look at.
+  const quiet = r.launchReadiness(input({ accounts: read() }))
+  assert.equal(quiet.signIn.quiet, true); assert.equal(quiet.level, 'ready')
   assert.equal(r.launchReadiness(input({ accounts: read({ tool: 'claude', state: 'unreadable', limitsState: 'not_asked' }) })).signIn.state, 'unavailable')
 })
 
@@ -106,11 +108,12 @@ test('every backup is listed in order with its own eligibility', () => {
     accounts: read(signed('claude'), signed('codex', { limitsAt: now - 8 * HOUR }), { tool: 'opencode', state: 'none', limitsState: 'not_asked' }),
     spares: [{ tool: 'codex', model: 'gpt', effort: '' }, { tool: 'opencode', model: '' }, { tool: 'cline', model: '' }, { tool: 'claude', model: 'claude-small', effort: 'low' }],
   }))
-  assert.deepEqual(s.backups.map(b => [b.agent, b.eligible, b.balances, b.stale]), [['Codex', true, true, true], ['OpenCode', false, false, false], ['Cline', false, false, false], ['Claude Code', true, true, false]])
+  assert.deepEqual(s.backups.map(b => [b.agent, b.eligible, b.balances, b.stale]), [['Codex', true, true, true], ['OpenCode', false, false, false], ['Cline', false, false, false], ['Claude Code', true, false, false]])
   assert.match(s.backups[0].reason, /Codex’s plan figures were read 8 h ago; figures over 6 hours old are ignored, so it takes over without a comparison when Claude Code’s plan runs low\./)
-  assert.match(s.backups[1].reason, /No sign-in found on this machine, so it cannot take over/)
-  assert.match(s.backups[2].reason, /Cline is not on workshop, so it cannot take over/)
-  assert.equal(s.backups[3].reason, ''); assert.equal(s.backups[3].model, 'claude-small')
+  assert.match(s.backups[1].reason, /No sign-in found on this machine\. Balancing will not move a stage onto it; after a usage limit it is still the next one tried, and is likely to be refused there\./)
+  assert.match(s.backups[2].reason, /Cline is not on workshop\. Balancing will not move a stage onto it/)
+  assert.equal(s.backups[3].model, 'claude-small'); assert.equal(s.backups[3].verdict, 'takes over only after a usage limit'); assert.match(s.backups[3].reason, /shares Claude Code’s plan with the first choice/)
+  assert.equal(s.backups[0].verdict, 'can take over'); assert.equal(s.backups[1].verdict, 'balancing will not use it')
   assert.equal(s.level, 'look')
 })
 
@@ -134,4 +137,45 @@ test('the summary counts stages and names the first thing to fix', () => {
   assert.equal(mixed.ready, 1); assert.equal(mixed.blocker, ''); assert.match(mixed.text, /^1 of 2 stages ready, 1 to look at\. First: Review in pipeline 1: workshop’s list/)
   const stop = r.launchSummary([row('Code', look), row('Review', block)])
   assert.match(stop.text, /1 cannot start/); assert.equal(stop.blocker, 'Review in pipeline 1: Cline is not on workshop now. Choose another agent for the stage.')
+})
+
+test('a backup is compared with the first choice when both have fresh figures', () => {
+  const more = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [{ kind: 'week', usedPercent: 90 }] }), signed('codex', { limits: [{ kind: 'week', usedPercent: 20 }] })), spares: [{ tool: 'codex', model: '' }] }))
+  assert.deepEqual([more.backups[0].balances, more.backups[0].stale], [true, false]); assert.match(more.backups[0].reason, /Codex has 80% of its plan left against Claude Code’s 10%, so balancing can move a stage onto it/)
+  const less = r.launchReadiness(input({ accounts: read(signed('claude', { limits: [{ kind: 'week', usedPercent: 20 }] }), signed('codex', { limits: [{ kind: 'week', usedPercent: 60 }] })), spares: [{ tool: 'codex', model: '' }] }))
+  assert.equal(less.backups[0].balances, false); assert.equal(less.backups[0].eligible, true); assert.match(less.backups[0].reason, /Codex has 40% of its plan left, no more than Claude Code’s 80%, so balancing will not move a stage onto it; it takes over only after a usage limit/)
+})
+
+test('an effort the machine does not offer, asked by the saved crew, is not the person’s choice and is not hidden', () => {
+  // The dialog clears the effort it cannot send and passes the one that was asked.
+  const s = r.launchReadiness(input({ member: { tool: 'claude', model: 'claude-big', effort: 'xhigh' }, saved: { tool: 'claude', model: 'claude-big', effort: 'xhigh' } }))
+  assert.equal(s.source, 'saved'); assert.equal(s.effort.state, 'unavailable'); assert.match(s.effort.text, /Xhigh effort is not offered by Claude Code here, so the stage starts on the agent’s default effort\./)
+  assert.equal(s.level, 'look'); assert.match(s.issue, /Xhigh effort is not offered/)
+  // An agent with no effort setting has no choice to repeat back.
+  const none = r.launchReadiness(input({ member: { tool: 'opencode', model: '', effort: '' }, saved: null, edited: false }))
+  assert.equal(none.effort.state, 'default'); assert.equal(none.effort.quiet, true)
+})
+
+test('what is being read is neither ready nor a problem', () => {
+  const reading = r.launchReadiness(input({ models: () => 'reading', accounts: undefined, spares: [{ tool: 'codex', model: '' }] }))
+  assert.equal(reading.model.pending, true); assert.equal(reading.signIn.pending, true); assert.equal(reading.backups[0].pending, true)
+  assert.equal(reading.level, 'ready'); assert.equal(reading.pending, true)
+  const row = { label: 'Code', where: 'pipeline 1', readiness: reading }
+  assert.equal(r.launchSummary([row]).text, '0 of 1 stage ready, 1 still being read.')
+  assert.equal(r.launchReadiness(input({ models: () => null })).model.state, 'unavailable')
+})
+
+test('an answer that is not a fresh read still carries the accounts the controller kept', () => {
+  const busy = { state: 'busy', sentence: 'That machine is already reading its agents’ sign-ins. Try again in a moment.', planLimits: true, checkedAt: now - 20 * 60_000, accounts: [signed('claude'), signed('codex', { limits: [{ kind: 'week', usedPercent: 5 }] })] }
+  const s = r.launchReadiness(input({ accounts: busy, spares: [{ tool: 'codex', model: '' }] }))
+  assert.equal(s.signIn.state, 'stale'); assert.match(s.signIn.text, /Signed in as me@example\.test.*Last read 20 min ago\. That machine is already reading/)
+  assert.equal(s.backups[0].balances, true); assert.equal(s.backups[0].eligible, true)
+  // Nothing kept: the read itself is the problem.
+  assert.equal(r.launchReadiness(input({ accounts: { ...busy, accounts: [] } })).signIn.state, 'unavailable')
+})
+
+test('an agent the machine never reports is a quiet note, not the first thing to look at', () => {
+  const s = r.launchReadiness(input({ tools: ['claude', 'cline'], member: { tool: 'cline', model: '' }, saved: { tool: 'cline' }, edited: false, spares: [{ tool: 'cline', model: 'x' }] }))
+  assert.equal(s.signIn.quiet, true); assert.equal(s.level, 'ready'); assert.equal(s.backups[0].eligible, true)
+  assert.equal(r.launchSummary([{ label: 'Code', readiness: s }]).text, '1 of 1 stage ready.')
 })

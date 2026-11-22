@@ -721,7 +721,7 @@ export function deliveryWhy(piece: { criteria?: readonly unknown[]; deliveries?:
   const count = piece.criteria?.length ?? 0, back = (piece.deliveries ?? []).filter(d => d.decision === 'send_back').length
   return ['Delivery review', changedAfterAccept(piece.note) ? 'changed after you accepted it' : '', `${count} ${count === 1 ? 'criterion' : 'criteria'}`, back ? `sent back ${back === 1 ? 'once' : back === 2 ? 'twice' : `${back} times`} before` : ''].filter(Boolean).join(' · ')
 }
-type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; tool?: string; model?: string; first?: { tool: string; model?: string }; usageFailover?: boolean; nextUsageBackup?: string }[] }
+type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; tool?: string; model?: string; first?: { tool: string; model?: string }; usageFailover?: boolean; backup?: { tool: string }; moreBackups?: { tool: string }[]; nextUsageBackup?: string }[] }
 const TOOL_WORDS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cline: 'Cline', antigravity: 'Google Antigravity (AGY)', copilot: 'GitHub Copilot' }
 /** An agent and its model as the controller words a backup: "OpenCode (paid/backup)". */
 const agentWords = (agent: { tool?: string; model?: string } | undefined): string => agent?.tool ? `${TOOL_WORDS[agent.tool] ?? agent.tool}${agent.model ? ` (${agent.model})` : ''}` : ''
@@ -731,8 +731,9 @@ export function usageLimitWhy(stage: NonNullable<WaitingPiece['stages']>[number]
   return [
     'The worker reached its usage limit.',
     ran && `${ran} ran out on the ${stageLabel(stage.kind).toLowerCase()} stage.`,
-    stage.usageFailover && `A backup already took over once, so this is the second stop${first ? `: the stage started on ${first}` : ''}.`,
-    backup ? `Continue with ${backup} resumes the stage on its next backup. Choose another model… resumes it on one you pick. Either way it carries on in the same folder and branch.` : 'No backup is left for this stage. Choose another model to resume it in the same folder and branch.',
+    // usageFailover is also set when the person chose the other model, and there can be a third stop: say only what is always true.
+    stage.usageFailover && `Another model already took over on this stage after a usage limit${first ? `; it started on ${first}` : ''}.`,
+    backup ? `Continue with ${backup} resumes the stage on its next backup. Choose another model… resumes it on one you pick. Either way it carries on in the same folder and branch.` : `${stage.backup?.tool || stage.moreBackups?.length ? 'No backup is left for this stage.' : 'No backup is saved for this stage.'} Choose another model to resume it in the same folder and branch.`,
   ].filter(Boolean).join(' ')
 }
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */

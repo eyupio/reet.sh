@@ -56,6 +56,22 @@ and the inspect tests cover the head commit on a real repository.
 
 **Not done.** The UI is stage 2, in its own pull request on top of this one. Launch readiness, performance work and
 templates are later stages.
+## DECISION-TEST-RACE-1: the lost-decision test no longer races the supervisor (22 November 2026)
+
+The `test` job for #876 failed once in `TestAStopWhoseAnswerNeverCameIsAskedAgain` with "That outcome changed. Reload
+it before trying again." The test read the outcome's revision and then gave Gaffer the decisions through
+`SetOutcomeAutomation`; the outcome supervisor can record other progress in that window, so the optimistic update lost
+the revision check. The same hand-read/write pattern was in two neighbouring decision tests.
+
+**Fix (tests only).** `internal/gaffer/outcome_decide_test.go` gains `setAutomation`, which retries on
+`store.ErrGafferOutcomeBusy` with a fresh revision, as the person's card does after a reload. The three decision tests
+use it instead of writing with a revision read by hand. No product behaviour changed: a stale revision is still
+refused, and a real person still gets the reload sentence.
+
+**Verified.** The three decision tests pass 20 times under `-race` (492 s), the whole `internal/gaffer` package
+passes, and `go vet ./internal/gaffer` is clean.
+
+**PR.** [#881](https://github.com/eyupio/reet.sh/pull/881) opened against `main`. **Merged** as `c827b800` on 22 November 2026, after the CodeQL, source, compare, test, web, build, offline and Gaffer offline checks passed.
 
 ## FACTORY-STAGES-TEST-1: finished Factory stages leave every list (22 November 2026)
 

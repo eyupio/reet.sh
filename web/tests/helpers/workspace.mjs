@@ -88,6 +88,9 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/push')return json({available:false,devices:[]})
   // A page that inspects a session's workspace reads GitHub by itself: no pull request unless a test answers this route.
   if (/^\/api\/v2\/terminal\/sessions\/[^/]+\/inspect$/.test(path))return json({checkedAt:Date.now(),reason:'no_pr'})
+  // What a machine reports when it has nothing to say, read by Home's first-session guide for a connected machine: no sign-ins, no model list. A test that cares answers the route itself.
+  if(/^\/api\/v2\/machines\/[^/]+\/accounts(\/refresh)?$/.test(path))return json({state:'read',sentence:'',planLimits:false,checkedAt:Date.now(),accounts:[]})
+  if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path))return json({tool:new URL(route.request().url()).searchParams.get('tool')||'',state:'unsupported',models:[],more:false,source:'',version:'',fetchedAt:null,checkedAt:null,reason:'',sentence:''})
   state.unexpected.push(path)
   return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  })

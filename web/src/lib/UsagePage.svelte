@@ -122,7 +122,7 @@
   <Skeleton label="Reading usage…" shape="cards" count={3} height="160px" />
 {:else if answer}
   {@const view = answer}
-  <div class="body" class:dim={stale && loading} aria-busy={loading}>
+  <div class="body" class:dim={stale} aria-busy={loading}>
     <section class="agents" aria-labelledby="usage-agents">
       <h2 id="usage-agents">Agents</h2>
       <div class="grid">

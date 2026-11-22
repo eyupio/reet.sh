@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Plan limits from more sign-ins**: a machine now also reads Claude Code's and Codex's macOS keychain items,
+  Google Antigravity's Linux keyring item or macOS keychain item, and GitHub Copilot's own `gh` sign-ins, so their
+  plan left shows where an agent keeps its sign-in outside its files. Where a file and a keychain item disagree the
+  later token is used; reet still never renews a sign-in. The Usage page also draws every plan window even when a
+  provider sends two of the same kind, and keeps figures from the last read dimmed after a failed period change.
 - **Skill suggestions fold away on a phone**: the **Skills for this task** panel above a session's message box now
   starts folded to its header on a phone, so it no longer crowds the conversation and composer. **See skills** opens
   it; the desktop panel and a Factory stage's suggestions are unchanged.

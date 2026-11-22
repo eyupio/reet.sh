@@ -67,9 +67,9 @@ test('what was not found, and what could not be read, are said as that and no mo
 test('limits read as what is left, plan-wide windows first, with the reset', () => {
   const lines = a.limitLines(signedIn({ limitsState: 'read', limits, limitsAt: now }), now)
   assert.deepEqual(lines, [
-    { key: 'session', name: 'Session', left: 81, low: false, text: 'Session 81% left', resets: 'resets in 2 h 10 min' },
-    { key: 'week', name: 'Week', left: 40, low: false, text: 'Week 40% left', resets: 'resets in 3 days' },
-    { key: 'week:Opus', name: 'Opus this week', left: 8, low: true, text: 'Opus this week 8% left', resets: '' },
+    { key: 'session#0', name: 'Session', left: 81, low: false, text: 'Session 81% left', resets: 'resets in 2 h 10 min' },
+    { key: 'week#1', name: 'Week', left: 40, low: false, text: 'Week 40% left', resets: 'resets in 3 days' },
+    { key: 'week:Opus#2', name: 'Opus this week', left: 8, low: true, text: 'Opus this week 8% left', resets: '' },
   ])
   assert.deepEqual(a.limitLines(signedIn(), now), [])
   assert.deepEqual(a.limitLines(undefined, now), [])
@@ -83,6 +83,8 @@ test('a window is low at 15% left and under, and its bounds are held', () => {
   const odd = a.limitLines(signedIn({ limitsState: 'read', limitsAt: now, limits: [{ kind: 'month', usedPercent: 140 }, { kind: 'month', usedPercent: -3 }] }), now)
   assert.deepEqual(odd.map(line => line.left), [0, 100])
   assert.equal(odd[0].name, 'Month')
+  // Two windows of the same kind (Codex's, when neither says its length) still get a key each, so a keyed each renders.
+  assert.equal(new Set(odd.map(line => line.key)).size, 2)
 })
 
 test('a reset is worded by how far off it is', () => {
@@ -118,7 +120,7 @@ test('windows kept for part of a plan are named by their scope and length', () =
   const lines = a.limitLines(signedIn({ tool: 'copilot', limitsState: 'read', limitsAt: now, limits: [
     { kind: 'month', label: 'Premium', usedPercent: 60 }, { kind: 'month', label: 'Completions', usedPercent: 25 },
   ] }), now)
-  assert.deepEqual(lines.map(line => [line.key, line.text]), [['month:Premium', 'Premium this month 40% left'], ['month:Completions', 'Completions this month 75% left']])
+  assert.deepEqual(lines.map(line => [line.key, line.text]), [['month:Premium#0', 'Premium this month 40% left'], ['month:Completions#1', 'Completions this month 75% left']])
   const other = a.limitLines(signedIn({ tool: 'antigravity', limitsState: 'read', limitsAt: now, limits: [
     { kind: 'session', usedPercent: 25 }, { kind: 'session', label: 'Other models', usedPercent: 0 }, { kind: 'week', label: 'Other models', usedPercent: 100 },
   ] }), now)

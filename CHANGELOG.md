@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Skill suggestions fold away on a phone**: the **Skills for this task** panel above a session's message box now
+  starts folded to its header on a phone, so it no longer crowds the conversation and composer. **See skills** opens
+  it; the desktop panel and a Factory stage's suggestions are unchanged.
 - **Add pipelines stays on agents the machine has**: when the machine's report leaves out an agent, even the
   outcome's own, the **Add pipelines** dialog no longer offers it or picks it by default, and a pipeline that names
   an agent the machine does not offer cannot be added until another is chosen. The wording around stage efforts now

@@ -16,6 +16,9 @@ guidance inserts without Enter and retains the terminal's paste safeguards.
 **Pause** stops suggestions for this work in this browser. **Resume** brings
 them back. A failure leaves your draft alone and offers retry.
 
+On a phone the panel starts folded to its header so it does not crowd the
+conversation and message box; **See skills** opens the suggestions.
+
 ## Factory stages
 
 Select any stage in a pipeline to see suggestions for that stage, including

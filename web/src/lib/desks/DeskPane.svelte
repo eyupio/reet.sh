@@ -11,14 +11,14 @@
   import PaneStateCard from './PaneStateCard.svelte'
   import StartupBar from './StartupBar.svelte'
   import { shell } from '../dialogShell'
-  import { leaves, MAX_PANES, type Pane, type Tab } from './tree'
+  import { leaves, MAX_PANES, MAX_TABS, type Pane, type Tab } from './tree'
 
   // One pane of a desk tab: a one-line header washed in the pane's colour (name, machine, folder, state and a menu) over
   // either the terminal or a card that says what happened and offers its actions (PaneStateCard). A pane never shows a
   // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
   let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '', receiving = false, template = false, phone = false,
-    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onstartcommand, onstartup, onreceivable, oninput }: {
+    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onmovetonewtab, onstartcommand, onstartup, onreceivable, oninput }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -64,6 +64,7 @@
     onzoom?: () => void
     onswap?: (other: string) => void
     onmovetab?: (tab: string) => void
+    onmovetonewtab?: () => void
     /** The start-up command to offer above the terminal: set only after this pane was reopened or started here. */
     startup?: string
     /** Saves the pane's start-up command ('' removes it). */
@@ -141,6 +142,8 @@
   const swappable = $derived(leaves(tab.root).filter(id => id !== pane.id && tab.panes[id]).map(id => tab.panes[id]))
   // A pane can move to another tab that has a pane to split and room for one more.
   const movable = $derived(tabs.filter(t => t.id !== tab.id && leaves(t.root).length > 0 && leaves(t.root).length < MAX_PANES))
+  // A pane can have a new tab of its own when its tab holds another pane and there is room for one more tab.
+  const canOwnTab = $derived(leaves(tab.root).length > 1 && tabs.length < MAX_TABS)
   const paneName = (p: Pane) => p.name || 'Untitled'
   // Run types the command and Enter once, through the terminal's own input, and only into a connected terminal.
   // A command with a hidden character (a line break, a control or format character) is never typed: what is run must be
@@ -216,6 +219,7 @@
 {:else if menu?.list === 'move'}
   {#key 'move'}
     <DeskMenu x={menu.x} y={menu.y} label={`Move ${name} to tab`} opener={menu.opener} onclose={closeMenu}>
+      {#if canOwnTab}<button type="button" role="menuitem" onclick={() => { closeMenu(false); onmovetonewtab?.() }}>New tab</button>{/if}
       {#each movable as t (t.id)}<button type="button" role="menuitem" onclick={() => { closeMenu(false); onmovetab?.(t.id) }}>{t.name || 'Untitled'}</button>{/each}
     </DeskMenu>
   {/key}
@@ -229,7 +233,7 @@
       {/if}
       <button type="button" role="menuitem" disabled={swappable.length === 0} onclick={() => { closeMenu(true); onzoom?.() }}>{zoomed ? 'Show all panes' : 'Zoom'}</button>
       <button type="button" role="menuitem" aria-haspopup="menu" disabled={swappable.length === 0} onclick={() => openList('swap')}>Swap with…</button>
-      <button type="button" role="menuitem" aria-haspopup="menu" disabled={movable.length === 0} onclick={() => openList('move')}>Move to tab…</button>
+      <button type="button" role="menuitem" aria-haspopup="menu" disabled={movable.length === 0 && !canOwnTab} onclick={() => openList('move')}>Move to tab…</button>
     {/if}
     <button type="button" role="menuitem" aria-haspopup="dialog" onclick={() => { closeMenu(false); void openStart() }}>Start-up command…</button>
     {#if session}<a role="menuitem" href={sessionHref(session)}>Open in Sessions</a>{/if}

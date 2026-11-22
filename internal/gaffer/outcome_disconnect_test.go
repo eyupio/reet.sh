@@ -808,9 +808,44 @@ func TestTheExhaustedSessionIsEndedWhenItsMachineCouldNotBeReachedAtTheSwitch(t 
 	// The machine is back, and any wait before asking it again is over.
 	r.s.SetSessionStarter(r.starter)
 	r.s.endTried.Delete(first.SessionID)
-	r.startsNothingMore(t, 2)
-	if old, err := r.st.TerminalSessionFor(r.p.UserID, first.SessionID); err != nil || old.State == terminalproto.Running {
-		t.Fatalf("the exhausted session is still running beside its backup: %v %v", old.State, err)
+	deadline := time.Now().Add(15 * time.Second)
+	for r.s.sessionRunning(r.p.UserID, first.SessionID) {
+		if time.Now().After(deadline) {
+			t.Fatal("the exhausted session is still running beside its backup")
+		}
+		r.s.wakeOutcomes()
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := len(r.starter.asked()); n != 2 {
+		t.Fatalf("launches asked for while the session was ended: %d, want 2", n)
+	}
+}
+
+// A session left behind is ended once its machine answers even when its
+// pipeline has moved on past following meanwhile: to its review, its merge
+// or its end.
+func TestASessionLeftBehindIsEndedAfterItsPipelineHasFinished(t *testing.T) {
+	r := outcomeFixture(t)
+	o, first := usageLimited(t, r)
+	r.s.SetSessionStarter(&endFails{outcomeStarterFake: r.starter})
+	if _, err := r.s.RecoverPipelineWorker(r.p.UserID, o.ID, first.Key, first.SessionID, o.Revision, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != first.SessionID
+	})
+	r.settle(t, o.ID)
+	if _, err := r.st.UpdateGafferOutcomeFor(r.p.UserID, o.ID, mustOutcome(t, r, o.ID).Revision, func(o *store.GafferOutcome) bool {
+		o.Sessions[0].State = "done"
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.s.SetSessionStarter(r.starter)
+	r.s.endTried.Delete(first.SessionID)
+	r.s.endLeftBehind()
+	if r.s.sessionRunning(r.p.UserID, first.SessionID) {
+		t.Fatal("the session left behind runs on after its pipeline finished")
 	}
 }
 
@@ -839,9 +874,22 @@ func TestALeftBehindSessionAnotherPipelineUsesIsNotEnded(t *testing.T) {
 	}
 	r.s.SetSessionStarter(r.starter)
 	r.s.endTried.Delete(first.SessionID)
-	r.startsNothingMore(t, 2)
+	r.s.endLeftBehind()
 	if !r.s.sessionRunning(r.p.UserID, first.SessionID) {
 		t.Fatal("a session another pipeline follows was ended")
+	}
+	// The same pass ends it once nothing else follows it, so the pass above
+	// did look at it.
+	if _, err = r.st.UpdateGafferOutcomeFor(r.p.UserID, other.ID, mustOutcome(t, r, other.ID).Revision, func(o *store.GafferOutcome) bool {
+		o.Sessions[0].State = "done"
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.s.endTried.Delete(first.SessionID)
+	r.s.endLeftBehind()
+	if r.s.sessionRunning(r.p.UserID, first.SessionID) {
+		t.Fatal("the session left behind was not ended once nothing else followed it")
 	}
 }
 

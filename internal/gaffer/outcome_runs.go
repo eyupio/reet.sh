@@ -865,6 +865,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 		return
 	}
 	s.releaseGoneSessions()
+	s.endLeftBehind()
 	s.rebalanceStopped(ctx)
 	s.autoReports(ctx)
 	s.autoDecisions(ctx)

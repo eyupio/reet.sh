@@ -45,7 +45,9 @@
   .things p.warn .mark{color:var(--warn)}.things p.bad .mark{color:var(--bad)}
   .notes{grid-column:1/-1;display:grid;gap:2px;min-width:0}
   .things{display:grid;gap:2px}.things p.note{padding:0}
-  .backups summary{min-height:28px;display:list-item;align-content:center;cursor:pointer;font-size:0.875rem;color:var(--accent-text);font-weight:600;overflow-wrap:anywhere}
+  /* Quieter than the stage's own line above it: backups are detail, opened when wanted or when one needs a look. */
+  .backups summary{min-height:28px;display:list-item;list-style-position:outside;margin-left:1.5em;align-content:center;cursor:pointer;font-size:0.875rem;color:var(--muted);overflow-wrap:anywhere}
+  .backups summary:hover{color:var(--ink-soft)}
   .backups summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
   .backups ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
   .backups li strong{font-weight:600;color:var(--ink-soft)}

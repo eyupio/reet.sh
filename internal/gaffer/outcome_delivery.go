@@ -83,6 +83,17 @@ func (s *Service) acceptedStillStands(ctx context.Context, o store.GafferOutcome
 	return false
 }
 
+// hasWorkStage reports whether a pipeline has a stage other than the merge:
+// work whose delivery can be reviewed and sent back to.
+func hasWorkStage(stages []store.GafferOutcomeStage) bool {
+	for _, stage := range stages {
+		if stage.Kind != "merge" {
+			return true
+		}
+	}
+	return false
+}
+
 // CriterionInput is one criterion as the person wrote it. ID names the
 // criterion being kept or reworded; empty makes a new one.
 type CriterionInput struct {
@@ -561,6 +572,16 @@ func (s *Service) SetDeliveryCriteria(ctx context.Context, uid int64, id, key st
 			}
 			if row.CriteriaRevision != in.CriteriaRevision {
 				refused = deliveryConflict("delivery_criteria_changed", "The criteria changed since you looked. Look at them again before editing.")
+				return false
+			}
+			if !hasWorkStage(row.Stages) {
+				refused = invalid("criteria", "Acceptance criteria need a stage of work before the merge, and this pipeline only merges.")
+				return false
+			}
+			// Once the merge stage has started the review can no longer hold
+			// anything: criteria changed now would be recorded and never enforced.
+			if row.Stage < len(row.Stages) && row.Stages[row.Stage].Kind == "merge" && row.State != "delivery_review" && row.State != "ready_to_merge" {
+				refused = invalid("criteria", "This pipeline's merge has started, so its criteria can no longer change. Send it back to review it against others.")
 				return false
 			}
 			switch row.State {

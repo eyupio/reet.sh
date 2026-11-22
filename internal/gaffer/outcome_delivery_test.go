@@ -732,6 +732,12 @@ func TestCriteriaAreCheckedWhenThePlanIsApproved(t *testing.T) {
 	if _, err := r.s.CreateOutcome(r.p.UserID, in); err == nil {
 		t.Fatal("criteria were accepted for a session with no stages")
 	}
+	// A pipeline that only merges has no work to review or send back to.
+	only := deliveryInput(r, false)
+	only.Sessions[0].Stages = []OutcomeStageInput{{Kind: "merge", Tool: "opencode"}}
+	if _, err := r.s.CreateOutcome(r.p.UserID, only); err == nil {
+		t.Fatal("criteria were accepted for a pipeline whose only stage is the merge")
+	}
 	if r.starter.sessions() != 0 {
 		t.Fatal("a refused plan started a session")
 	}
@@ -857,7 +863,15 @@ func TestACommitAfterAcceptanceBringsTheDeliveryBackBeforeItMerges(t *testing.T)
 	}
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" && !p.MergeApproved })
 	r.approveMerge(t, created.ID)
-	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+	merging := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+	// The merge has started: criteria reworded now could not be enforced, so they are refused.
+	edit := DeliveryCriteriaInput{CriteriaRevision: merging.CriteriaRevision, Criteria: []CriterionInput{{ID: merging.Criteria[0].ID, Text: "Something else entirely."}}}
+	if _, err := r.s.SetDeliveryCriteria(context.Background(), r.p.UserID, created.ID, "a", edit); err == nil {
+		t.Fatal("criteria were edited while the merge stage was running")
+	}
+	if p := mustOutcome(t, r, created.ID).Sessions[0]; p.CriteriaRevision != merging.CriteriaRevision || !p.DeliveryAccepted {
+		t.Fatalf("after the refused edit: %+v", p)
+	}
 }
 
 // Ten criteria at their longest, a full handover and a delivery sent back

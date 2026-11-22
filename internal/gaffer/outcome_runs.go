@@ -647,6 +647,11 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if len(piece.Stages) == 0 {
 				return nil, invalid("criteria", "Acceptance criteria belong to a pipeline with stages. Give “"+title+"” stages, or remove its criteria.")
 			}
+			// A delivery is reviewed where work was done: a pipeline that only
+			// merges has no folder to read a commit from and nothing to send back to.
+			if !hasWorkStage(piece.Stages) {
+				return nil, invalid("criteria", "Acceptance criteria need a stage of work before the merge. Give “"+title+"” one, or remove its criteria.")
+			}
 			criteria, err := planCriteria(item.Criteria)
 			if err != nil {
 				return nil, err

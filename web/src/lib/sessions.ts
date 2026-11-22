@@ -233,24 +233,24 @@ export function decisionsLine(s: Pick<TerminalSession, 'yolo' | 'structured' | '
 }
 
 /**
- * The session header's Gaffer | OpenCode TUI switch: where the inactive button goes (`to`) and whether it can go now.
+ * The session header's Gaffer | agent TUI switch: where the inactive button goes (`to`) and whether it can go now.
  * The first reason that holds is the one given: an agent with no Gaffer, a session that is not running, a session started
- * in the OpenCode TUI (no OpenCode session id for Gaffer to load), a machine that has not negotiated session-mode-v1
- * (or has no chat history for this agent), a chat with no saved conversation yet (nothing for `opencode --session` to open),
+ * in the agent's TUI (no session id for Gaffer to load), a machine that has not negotiated session-mode-v1
+ * (or has no chat history for this agent), a chat with no saved conversation yet (nothing for the agent's resume flag to open),
  * then a busy chat. `busy` (a running turn, a waiting approval or question) only
- * holds a chat back: the OpenCode TUI's own state is not watched, as the controller does not watch it either.
+ * holds a chat back: the TUI's own state is not watched, as the controller does not watch it either.
  */
 export function switchModeState(session: TerminalSession, caps: Capabilities | undefined, busy: boolean): { to: 'terminal' | 'chat'; enabled: boolean; why: string } {
   const to = session.structured ? 'terminal' : 'chat'
   const no = (why: string) => ({ to, enabled: false, why } as const)
-  if (session.tool !== 'opencode') return no('Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.')
+  if (!isChatTool(session.tool)) return no('Only an agent with a Gaffer chat can switch between Gaffer and its TUI.')
   if (session.state !== 'running') return no('Only a running session can switch.')
-  if (to === 'chat' && !session.acpSessionId) return no('This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
-  // The controller also requires OpenCode to be one of the machine's launch tools (Capabilities.SessionModeFor); an absent list is unknown.
-  if (caps?.sessionMode !== true || (caps.tools && !caps.tools.includes(session.tool)) || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between Gaffer and the OpenCode TUI.')
-  // `opencode --session` needs the id; the controller refuses with this same sentence (session_mode_no_conversation), and
+  if (to === 'chat' && !session.acpSessionId) return no('This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.')
+  // The controller also requires the agent to be one of the machine's launch tools (Capabilities.SessionModeFor); an absent list is unknown.
+  if (caps?.sessionMode !== true || (caps.tools && !caps.tools.includes(session.tool as string)) || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between Gaffer and the agent’s TUI.')
+  // The agent's resume flag needs the id; the controller refuses with this same sentence (session_mode_no_conversation), and
   // as there, an old machine is named first.
-  if (to === 'terminal' && !session.acpSessionId) return no('This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.')
+  if (to === 'terminal' && !session.acpSessionId) return no('This session has no saved conversation yet, so it cannot move to the agent’s TUI.')
   if (session.structured && busy) return no('Wait for the agent to finish or answer what it is asking.')
   return { to, enabled: true, why: '' }
 }

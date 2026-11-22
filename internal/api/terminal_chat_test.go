@@ -533,7 +533,7 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 			if c.code == "session_mode_ended" && out["error"] != "The session could not be switched and has ended. Start a new session or continue it with history." {
 				t.Fatalf("ended sentence: %s", body)
 			}
-			if c.code == "session_mode_no_conversation" && out["error"] != "This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI." {
+			if c.code == "session_mode_no_conversation" && out["error"] != "This session has no saved conversation yet, so it cannot move to the agent’s TUI." {
 				t.Fatalf("no conversation sentence: %s", body)
 			}
 			if c.name == "trust" && out["detail"] != ".opencode/plugins/x.js" {

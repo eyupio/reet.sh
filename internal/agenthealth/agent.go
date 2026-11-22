@@ -1400,10 +1400,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPLongPrompt:    acp && cfg.acpLongPrompt,
 		ACPApproval:      acp && cfg.acpApproval,
 		// Only on a connection that negotiated session-mode-v1, with chats and
-		// their history, and only when OpenCode can be launched in a
-		// terminal: a switch opens the OpenCode TUI.
+		// their history, and only when a chat agent can be launched in a
+		// terminal: a switch opens that agent's TUI. NativeView stays OpenCode's.
 		NativeView:  acp && cfg.nativeView && launch && slices.Contains(tools, "opencode"),
-		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
+		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.ContainsFunc(tools, terminalproto.ReviewedChatTool),
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
 		// their history, and for an agent that can reopen its stored
 		// conversation: OpenCode, or one whose descriptor claims it.

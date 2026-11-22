@@ -578,23 +578,24 @@ to Ask me stops the auto-answer immediately. A connector older than `acp-approva
 so the switch is not offered; terminal sessions keep the mode they launched with. A refusal is sentence-shaped and leaves
 the mode as it was.
 
-## Switching between Gaffer and the OpenCode TUI
+## Switching between Gaffer and the agent's TUI
 
 The primary **Chat / Terminal** header control is a view change, independent of runtime mode. For a supported chat, it attaches a disposable native client to the existing worker and conversation. Returning to Chat preserves its draft and stream. Closing the terminal client leaves the worker running. Service credentials remain local to the connector.
 
 The separate **Restart in another interface** control in Session actions uses the legacy mode-change API. It stops one process and starts another on the same saved conversation, requires confirmation, loses terminal scrollback and can take a few minutes. The restrictions below apply to that explicit restart operation, not the primary view switch.
 
-- **Only reet-started sessions return to Gaffer.** Going to Gaffer needs OpenCode's session id, which reet
-  records only for a session that started (or has been) in Gaffer. A session started in the OpenCode TUI keeps the
-  **Gaffer** button disabled: "This session started in the OpenCode TUI, so Gaffer cannot pick up its
-  conversation." Going the other way needs the same id: a Gaffer session whose OpenCode id was never recorded keeps
-  the **OpenCode TUI** button disabled, and the controller refuses it too: "This session has no saved OpenCode
-  conversation yet, so it cannot move to the OpenCode TUI."
+- **Only reet-started sessions return to Gaffer.** Going to Gaffer needs the agent's session id, which reet
+  records only for a session that started (or has been) in Gaffer. A session started in the agent's TUI keeps the
+  **Gaffer** button disabled: "This session started in the agent's TUI, so Gaffer cannot pick up its
+  conversation." Going the other way needs the same id: a Gaffer session whose id was never recorded keeps
+  the TUI button disabled, and the controller refuses it too: "This session has no saved conversation yet, so it
+  cannot move to the agent's TUI." The TUI opens on that id with the agent's own resume flag (`claude --resume`,
+  `codex resume`, `opencode --session`, `cline --id`, `agy --conversation`).
 - **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
   to finish or answer what it is asking." The controller refuses it too.
-- **`session-mode-v1` machines only.** A connector that did not negotiate it, has no chat history for OpenCode, or
-  cannot launch OpenCode in a terminal (OpenCode is not among its launch tools) is not asked: "Update reet on this
-  machine to switch between Gaffer and the OpenCode TUI." Only a running session can switch. Asking for the mode
+- **`session-mode-v1` machines only.** A connector that did not negotiate it, has no chat history for the agent, or
+  cannot launch the agent in a terminal (it is not among its launch tools) is not asked: "Update reet on this
+  machine to switch between Gaffer and the agent's TUI." Only a running session can switch. Asking for the mode
   the session is already in changes nothing.
 - **YOLO stays YOLO, and is checked again.** A YOLO session moving to the OpenCode TUI starts it with `--auto`, so the
   switch is refused if the account no longer allows YOLO ("An owner or admin can allow YOLO for this account in

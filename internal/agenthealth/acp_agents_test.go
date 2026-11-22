@@ -158,8 +158,8 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 	if c := capabilitiesFor(noOpenCode, true, terminalproto.Ready); c.SessionMode {
 		t.Fatal("session mode reported without chats")
 	}
-	// Chats from Claude's adapter but no OpenCode to launch: the OpenCode TUI
-	// cannot be opened, so session mode is not reported.
+	// Chats from Claude's adapter with Claude launchable: its TUI can be opened,
+	// so session mode is reported without OpenCode.
 	claudeOnly := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: func() []terminalproto.ACPAgent {
 		return []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", History: true}}
 	}}
@@ -168,11 +168,18 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 	if !c.ACP || !c.ACPHistory {
 		t.Fatalf("claude chats not reported: %+v", c)
 	}
-	if c.SessionMode {
-		t.Fatal("session mode reported without OpenCode among the launch tools")
+	if !c.SessionMode {
+		t.Fatal("session mode not reported with Claude among the launch tools")
 	}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	// Chats are available but only a tool with no chat agent (Copilot) can be
+	// launched: there is no TUI to switch to.
+	copilotOnly := claudeOnly
+	copilotOnly.LaunchTools = func() []string { return []string{"copilot"} }
+	if c := capabilitiesFor(copilotOnly, true, terminalproto.Ready); c.SessionMode {
+		t.Fatal("session mode reported without a chat agent among the launch tools")
 	}
 }
 

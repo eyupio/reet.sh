@@ -271,10 +271,11 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
   const tui = { ...chat, structured: false }
   const started = { ...chat, structured: false, acpSessionId: undefined }
   const BUSY = 'Wait for the agent to finish or answer what it is asking.'
-  const NO_SESSION = 'This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.'
-  const UPDATE = 'Update reet on this machine to switch between Gaffer and the OpenCode TUI.'
+  const NO_SESSION = 'This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.'
+  const UPDATE = 'Update reet on this machine to switch between Gaffer and the agent’s TUI.'
   const NOT_LIVE = 'Only a running session can switch.'
-  const NO_CONVERSATION = 'This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.'
+  const NO_CHAT = 'Only an agent with a Gaffer chat can switch between Gaffer and its TUI.'
+  const NO_CONVERSATION = 'This session has no saved conversation yet, so it cannot move to the agent’s TUI.'
   const fresh = { ...chat, acpSessionId: undefined }
   const rows = [
     ['an idle Gaffer chat can go to the OpenCode TUI', chat, caps, false, { to: 'terminal', enabled: true, why: '' }],
@@ -294,12 +295,20 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['a chat with no saved OpenCode conversation cannot open in the OpenCode TUI', fresh, caps, false, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
-    ['another agent cannot switch between Gaffer and its TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.' }],
+    ...['claude', 'codex', 'cline', 'antigravity'].flatMap(tool => {
+      const agents = { ...caps, acpAgents: [{ tool, adapter: { claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline', antigravity: 'agy' }[tool], state: 'available', history: true }] }
+      return [
+        [`a ${tool} chat can go to its TUI`, { ...chat, tool }, agents, false, { to: 'terminal', enabled: true, why: '' }],
+        [`a ${tool} TUI can come back to Gaffer`, { ...tui, tool }, agents, false, { to: 'chat', enabled: true, why: '' }],
+        [`a ${tool} machine without its descriptor is outdated`, { ...chat, tool }, caps, false, { to: 'terminal', enabled: false, why: UPDATE }],
+      ]
+    }),
+    ['an agent with no Gaffer chat cannot switch', { ...started, tool: 'copilot' }, caps, false, { to: 'chat', enabled: false, why: NO_CHAT }],
     ['OpenCode among the launch tools keeps the switch', chat, { ...caps, tools: ['claude', 'opencode'] }, false, { to: 'terminal', enabled: true, why: '' }],
     ['OpenCode not a launch tool on the machine, to the OpenCode TUI', chat, { ...caps, tools: ['claude'] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['OpenCode not a launch tool on the machine, to Gaffer', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
     ['an empty launch tool list is a known list without OpenCode', chat, { ...caps, tools: [] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
-    ['a plain shell cannot switch to Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.' }],
+    ['a plain shell cannot switch to Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: NO_CHAT }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
 })

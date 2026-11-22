@@ -627,7 +627,6 @@
         {#if narrow && (projects ?? []).length}<span class="picker"><ProjectPicker projects={projects ?? []} counts={projectCounts} chosen={scope?.kind === 'project' ? scope.id : ''} group={scope?.kind === 'group' ? scopeName : ''} onchoose={id => (scope = id ? { kind: 'project', id } : null)}/></span>{/if}
         <span class="plan-slot"><FleetPlanMeters machines={terminals} caption="Plans" max={3}/></span>
         {#if !workbenchVisible}<div class="home-controls">
-          {#if accounts}<button type="button" class="btn home-outcome" onclick={event => { notice = null; factoryStart = { opener: event.currentTarget } }}>New Factory outcome</button>{/if}
           <button type="button" class="btn primary home-start" onclick={event => { notice = null; projectStart = { opener: event.currentTarget } }}>New session</button>
         </div>{/if}
       {:else}
@@ -666,7 +665,8 @@
       </div>
       {#if homeView === 'continue'}<div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
-        {#if showWorkbench}<StartWorkbench factory={accounts} onchoose={startFromWorkbench} onplan={() => void planFromWorkbench()} />{:else}<InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
+        {#if showWorkbench}<StartWorkbench factory={accounts} machines={health === undefined ? undefined : { total: cards.length, connected: connected.length }} {canAdd}
+          machinesHref="/machines" addHref={machinesAt(accounts ? 'add-machine' : 'connect-machine')} onchoose={startFromWorkbench} onplan={() => void planFromWorkbench()} />{:else}<InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
           groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault} {factorySessionEndDefault}
           onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />{/if}
       </div>

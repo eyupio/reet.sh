@@ -166,7 +166,11 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Skill insights','Usage','Teams & organisations','Community','Support','Documentation'])
+   expect(links.map(t=>t.replace(/\s+/g,' ').trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Skill insights','Usage','Teams & organisations','Community','Support','Documentation','Personal settings Applies to your account','Instance administration Applies to everyone on this instance'])
+   // Where the account menu is only a circle, More lists both kinds of settings and says who each applies to.
+   await expect(more.getByRole('region',{name:'Settings'}).getByRole('link')).toHaveCount(2)
+   await expect(more.getByRole('link',{name:'Personal settings'})).toHaveAttribute('href','/account/profile')
+   await expect(more.getByRole('link',{name:'Instance administration'})).toHaveAttribute('href','/admin/overview')
    await expect(more.getByRole('link',{name:'Desks',exact:true})).toHaveCount(0)
    await expect(bar.getByRole('button',{name:'More'})).toHaveAttribute('aria-expanded','true')
    await page.keyboard.press('Tab')

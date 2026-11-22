@@ -224,6 +224,11 @@
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: DOCS_URL, label: 'Documentation', group: 'Help & community', current: false },
   ])
+  // Where the account menu is only an unlabelled circle, More lists the two kinds of settings, each saying who it applies to.
+  const settings = $derived<(Tab & { note?: string })[]>([
+    ...(authMode === 'accounts' ? [{ href: '/account/profile', label: 'Personal settings', note: 'Applies to your account', current: isAccount || isActivity }] : []),
+    ...(authMode === 'accounts' && isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', note: 'Applies to everyone on this instance', current: isAdmin }] : []),
+  ])
   // Every routed page's header reads the current page's group from here (the getter keeps it current as `more` changes).
   // Signed out, a public page names its group but has no siblings to offer (the other pages need a sign-in), so it gets the label only.
   setContext(PAGE_GROUP, { get group() {
@@ -586,7 +591,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} waiting={waitingEntries} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
+    <AppShell {tabs} bar={barTabs} {more} {settings} waiting={waitingEntries} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout || deskScreen} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu

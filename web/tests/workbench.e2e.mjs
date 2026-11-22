@@ -40,16 +40,16 @@ try {
       await expect(start.getByRole('article')).toHaveCount(0)
       await expect(start.getByRole('img')).toHaveCount(0)
       await expect(start.getByRole('heading')).toHaveText(['Nothing in flight.'])
-      const buttons = start.locator('.choices .btn')
-      await expect(buttons).toHaveText(['New Factory outcome', 'Start an agent session', 'Open terminal'])
+      // One obvious next step; the other ways to start are quiet links beneath it.
+      const buttons = start.locator('.btn')
+      await expect(buttons).toHaveText(['Start an agent session'])
+      await expect(start.locator('.later')).toHaveText(['New Factory outcome', 'Open terminal', 'Plan a session'])
       await expect(page.getByRole('button', { name: 'New Factory outcome', exact: true })).toHaveCount(1)
       await expect(start).toContainText('follow the work in Factory')
       await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
       await expect(page.getByRole('button', { name: 'Start an agent session', exact: true })).toHaveCount(1)
-      const styles = await buttons.evaluateAll(elements => elements.map(el => { const css = getComputedStyle(el), box = el.getBoundingClientRect(); return { background: css.backgroundColor, color: css.color, radius: css.borderRadius, padding: css.padding, height: box.height } }))
-      expect(styles[1]).toEqual(styles[0]); expect(styles[2]).toEqual(styles[0])
-      expect(styles[0].height).toBeGreaterThanOrEqual(44)
-      expect((await start.getByRole('button', { name: 'Plan a session', exact: true }).boundingBox()).height).toBeGreaterThanOrEqual(44)
+      expect((await buttons.first().boundingBox()).height).toBeGreaterThanOrEqual(44)
+      for (const name of ['New Factory outcome', 'Open terminal', 'Plan a session']) expect((await start.getByRole('button', { name, exact: true }).boundingBox()).height).toBeGreaterThanOrEqual(44)
       // The whole block is short: it is a prompt to start, not a page of its own.
       expect((await start.boundingBox()).height).toBeLessThanOrEqual(width < 500 ? 320 : 200)
       expect(await noSideways(page)).toBe(true)
@@ -85,7 +85,9 @@ try {
       await expect(planning).toHaveAttribute('aria-pressed', 'true')
       await expect(workbench(page)).toHaveCount(0)
       await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'New Factory outcome', exact: true })).toBeVisible()
+      // The board has one way to start something: New session, whose dialog also offers a Factory outcome.
+      await expect(page.getByRole('button', { name: 'New Factory outcome', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Start a session', exact: true })).toHaveCount(0)
       expect(w.writes).toEqual([])
 
       await page.goto(`${base}/factory`)
@@ -118,6 +120,20 @@ try {
       await expect(w.page.getByRole('button', { name: 'Planning board', exact: true })).toHaveAttribute('aria-pressed', 'true')
       await expect(w.page.getByText('Saved idea', { exact: true })).toBeVisible()
       await expect(workbench(w.page)).toHaveCount(0)
+      expect(w.writes).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // With no machine connected the one next step is to connect one, not to start something that cannot run.
+  {
+    const w = await open({ routes: { '/api/v2/machines/health': { serverNow: now, machines: [] }, '/api/v2/terminal/machines': { machines: [] } } })
+    try {
+      await w.page.goto(base)
+      const start = workbench(w.page)
+      await expect(start).toBeVisible()
+      await expect(start.getByRole('link', { name: 'Add a machine', exact: true })).toHaveAttribute('href', '/machines#add-machine')
+      await expect(start.getByRole('button', { name: 'Start an agent session', exact: true })).toHaveCount(0)
+      await expect(start.getByRole('button', { name: 'Open terminal', exact: true })).toHaveCount(0)
+      await expect(start.getByRole('button', { name: 'Plan a session', exact: true })).toBeVisible()
       expect(w.writes).toEqual([])
     } finally { await w.context.close() }
   }

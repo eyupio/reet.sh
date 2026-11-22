@@ -16,7 +16,7 @@ it shows the suggestions. `npm run check` and `npm run build` pass, and the whol
 
 **Docs.** `docs/skill-buddy.md` says the panel folds on a phone; `CHANGELOG.md` records it.
 
-**PR.** [#874](https://github.com/eyupio/reet.sh/pull/874) opened against `main`; its checks are this change's.
+**PR.** [#874](https://github.com/eyupio/reet.sh/pull/874) opened against `main`. **Merged** as `8cf7455b` on 22 November 2026, after the CodeQL, source, test, web, build, image, phone-chat, phone-dialogs, phone-gaffer, phone-sessions, phone-zoom, terminal-browser, Gaffer offline and Gaffer settings checks passed.
 
 ## FACTORY-CAPABILITIES-1: Add pipelines stays within the machine's agents (21 November 2026)
 

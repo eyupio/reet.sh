@@ -166,7 +166,7 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Skill insights','Usage','Teams & organisations','Community','Support','Documentation'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Skill insights','Usage','Teams & organisations','Personal settings','Instance administration','Community','Support','Documentation'])
    await expect(more.getByRole('link',{name:'Desks',exact:true})).toHaveCount(0)
    await expect(bar.getByRole('button',{name:'More'})).toHaveAttribute('aria-expanded','true')
    await page.keyboard.press('Tab')
@@ -279,7 +279,7 @@ try {
   await tabs(page).getByRole('button',{name:'More',exact:true}).click()
   const more = page.getByRole('navigation',{name:'More pages'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Library','Prompts','Setups','Lists','Write a skill','Skill insights','Usage','Teams & organisations','Community','Support','Documentation'])
+  expect(names.map(t=>t.trim())).toEqual(['Library','Prompts','Setups','Lists','Write a skill','Skill insights','Usage','Teams & organisations','Personal settings','Instance administration','Community','Support','Documentation'])
   await expect(more.getByRole('region',{name:'Skills & tools'}).getByRole('link')).toHaveText(['Library','Prompts','Setups','Lists','Write a skill','Skill insights'])
   await expect(more.getByRole('region',{name:'Help & community'}).getByRole('link')).toHaveText(['Community','Support','Documentation'])
   await expect(more.getByRole('region',{name:'Workspace'}).getByRole('link')).toHaveText(['Usage','Teams & organisations'])

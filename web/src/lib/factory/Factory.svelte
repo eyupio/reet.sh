@@ -33,7 +33,7 @@
   import { readSections, writeSections } from './sectionMemory'
 
   // onread hands each fresh read to the app shell, whose bell would otherwise read the same outcomes and goals again.
-  let { userId = 0, timeZone = '', dateFormat = 'locale', onsignedout, onread }: { userId?: number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void; onread?: (outcomes: Outcome[], goals: GafferGoalOverview[]) => void } = $props()
+  let { userId = 0, timeZone = '', dateFormat = 'locale', onsignedout, onread }: { userId?: number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void; onread?: (outcomes: Outcome[], goals: GafferGoalOverview[], startedAt: number) => void } = $props()
   let records = $state<Outcome[]>([]), goals = $state<GafferGoalOverview[]>([]), loading = $state(true), error = $state(''), readAt = $state(0)
   // What a new installation still needs before a pipeline can run. Each is read once and again after an outcome dialog closes.
   let setup = $state<{ provider: boolean; machine: boolean; project: boolean } | null>(null)
@@ -144,12 +144,12 @@
 
   async function load() {
     controller?.abort(); controller = new AbortController()
-    const current = controller, mine = ++epoch
+    const current = controller, mine = ++epoch, startedAt = Date.now()
     try {
       const [owned, view] = await Promise.all([listGafferOutcomes(current.signal), listGafferGoals(current.signal)])
       if (mine !== epoch) return
       records = owned; goals = view.goals; readAt = view.readAt; error = ''
-      onread?.(owned, view.goals)
+      onread?.(owned, view.goals, startedAt)
     } catch (e) { if (mine === epoch && !current.signal.aborted) error = e instanceof Error ? e.message : 'The factory could not be read.' }
     finally { if (mine === epoch) loading = false }
   }

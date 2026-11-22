@@ -342,13 +342,17 @@
   const readDeskPanes = deskPaneReader(getDesk)
   // The Factory reads outcomes and goals every 5 seconds and hands them here, so while its reads are recent the bell's
   // poll does not read them again. A paused Factory (a dialog open) stops handing them over and the poll reads its own;
-  // a load after an answer always reads, as the Factory's own read of it may not have landed yet.
-  let factoryReadAt = 0
-  function factoryRead(outcomes: GafferOutcome[], goals: GafferGoalOverview[]) { lastOutcomes = outcomes; lastGoals = goals; factoryReadAt = Date.now() }
+  // a load after an answer always reads, as the Factory's own read of it may not have landed yet. A Factory read that
+  // started before the bell's own last read of them may hold an item answered since, so it is not taken.
+  let factoryReadAt = 0, ownReadAt = 0
+  function factoryRead(outcomes: GafferOutcome[], goals: GafferGoalOverview[], startedAt: number) {
+    if (startedAt < ownReadAt) return
+    lastOutcomes = outcomes; lastGoals = goals; factoryReadAt = startedAt
+  }
   async function loadAttention(poll = false) {
     if (!authenticated || needsAuth || !sessionsAccess || isHome) return
-    const mine = ++attentionGeneration
-    const fromFactory = poll && isFactory && Date.now() - factoryReadAt < 15000
+    const mine = ++attentionGeneration, startedAt = Date.now()
+    const fromFactory = poll && isFactory && startedAt - factoryReadAt < 15000
     try {
       // A background read: like the terminal reads, it does not drive the progress bar.
       const [read, outcomes, goals, desks, fresh] = await Promise.allSettled([terminalSessions(),
@@ -359,6 +363,7 @@
       const sessions = read.value
       if (outcomes.status === 'fulfilled') lastOutcomes = outcomes.value
       if (goals.status === 'fulfilled') lastGoals = goals.value.goals
+      if (!fromFactory && outcomes.status === 'fulfilled' && goals.status === 'fulfilled') ownReadAt = Math.max(ownReadAt, startedAt)
       if (desks.status === 'fulfilled') lastDesks = desks.value
       if (fresh.status === 'fulfilled') lastNewSkills = fresh.value
       let projects: FolderProject[] = []

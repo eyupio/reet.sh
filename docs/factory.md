@@ -271,11 +271,24 @@ set to merge by itself carries on to its merge stage. **Send back** asks for the
 notes are required when no criterion is marked **Needs work**). That stage and the later ones are done again in a fresh
 session in the same folder and branch, and the agent is told which criteria failed or were not verified, and your notes.
 
-If something changed while you were looking (a new commit arrived, someone added evidence, edited the criteria or
-decided first) the decision is refused, the card says what changed, reads the review again and keeps what you typed, so
+If something changed while you were looking (a new commit arrived, someone added evidence or edited the criteria, a
+GitHub check changed state, or the delivery was already decided) the decision is refused, the card says what changed, reads the review again and keeps what you typed, so
 you can decide again on what is now shown. A decision names the criteria revision, the review revision, the commit and
 the statuses you were shown, and an interrupted request that you send again is recorded once. When a delivery was
 accepted on a commit that is no longer the current one, the card says so.
+
+After you accept, the pipeline moves on. If, when its merge is about to start, the commit is not the one you accepted,
+the criteria were reworded, or the commit cannot be read, the pipeline comes back to **Delivery review**: its note
+starts "Delivery review. The work changed after you accepted it", your acceptance and any merge approval are withdrawn,
+and nothing merges until you accept what is there now. **Send back** from **Ready to merge** also clears the
+acceptance. The merge itself is never a stage you can send back to, so a pipeline with no stage before its merge has no
+**Send back** in its review. The plain **Send back…** is not offered while a pipeline is in delivery review; the card's
+**Send back** is the way.
+
+Criteria can be edited while a pipeline waits, runs, is in delivery review, has stopped following, or waits at **Ready
+to merge** (changing their words there withdraws your acceptance and the merge approval). They cannot be edited while
+the pipeline moves between stages, or once it has finished or failed, and a pipeline in delivery review cannot have
+every criterion removed.
 
 Gaffer never accepts a delivery for you, and there is no MCP tool for it. A read-only account, an API token and an MCP
 connection cannot change a review. Outcomes saved before criteria existed have no review and behave as before.

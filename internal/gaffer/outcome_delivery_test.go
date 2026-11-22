@@ -765,6 +765,10 @@ func TestChecksThatShareANameReadAsTheWorstOfThem(t *testing.T) {
 	if v.Criteria[0].Status != CriterionNeedsWork {
 		t.Fatalf("a failed job hidden by a passing one of the same name: %+v", v.Criteria[0])
 	}
+	// The name is offered once, in the state evidence of it would read.
+	if len(v.Checks) != 1 || v.Checks[0].Name != "test" || v.Checks[0].Tone != "bad" {
+		t.Fatalf("checks offered: %+v", v.Checks)
+	}
 	states = []string{"SUCCESS", "IN_PROGRESS", "SUCCESS"}
 	if got := r.review(t, created.ID); got.Criteria[0].Status != CriterionUnverified {
 		t.Fatalf("a running job hidden by passing ones: %+v", got.Criteria[0])

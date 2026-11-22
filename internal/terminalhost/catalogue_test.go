@@ -239,7 +239,7 @@ func TestLaunchArgvCodexEffort(t *testing.T) {
 func TestLaunchArgvYoloOption(t *testing.T) {
 	in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "codex", Yolo: true}
 	argv, err := LaunchArgv(in, fakeLookPath("codex"))
-	want := []string{"/opt/fake/bin/codex", "--ask-for-approval", "never"}
+	want := []string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "--sandbox", "danger-full-access"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatal(argv, err)
 	}
@@ -579,7 +579,7 @@ func TestYoloNeverWithoutFlag(t *testing.T) {
 		tool string
 		args []string
 	}{
-		{"codex", []string{"--ask-for-approval", "never"}},
+		{"codex", []string{"--ask-for-approval", "never", "--sandbox", "danger-full-access"}},
 		{"opencode", []string{"--auto"}},
 		{"cline", []string{"--yolo"}},
 		{"antigravity", []string{"--dangerously-skip-permissions"}},

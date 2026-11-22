@@ -2946,8 +2946,8 @@ Machines that negotiate `attention-v1` configure tmux (`monitor-activity on`, `m
 immediately when a new bell fires. The controller derives `attention` (`starting`, `working`, `quiet`, `waiting`,
 `finished`, `failed`), `attentionSource` (`terminal`) and `changedSinceSeen` per person (`terminal_session_seen` in SQLite;
 `POST /api/v2/terminal/sessions/{id}/seen`). Structured reet TUI sessions also report `waiting` while a permission is
-pending and `working` while a model turn is in flight. Codex's YOLO preset uses `--ask-for-approval never` so Codex keeps
-its own sandbox.
+pending and `working` while a model turn is in flight. Codex's YOLO preset uses `--ask-for-approval never --sandbox danger-full-access`, so Codex
+loses its own sandbox (changed 22 November 2026; it used to keep it).
 
 On the web, `needsYou` builds cards for `waiting` ("Waiting for you"), `finished` ("Ready to review", querying
 `worktreeStatus` once per `(sessionId, at)` when the session has a worktree) and `failed` ("Exited with an error"), newest

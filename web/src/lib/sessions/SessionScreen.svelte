@@ -541,7 +541,7 @@
   <WorktreeDialog member={removing} {host} opener={null} onremoved={onrefresh} {onsignedout} onclose={() => (removing = null)} />
 {/if}
 {#if switchAsk}
-  <SwitchModeDialog to={switchAsk.to} agentTui={terminalLabel} machine={host} trust={switchAsk.trust}
+  <SwitchModeDialog to={switchAsk.to} agentTui={terminalLabel} machine={host} trust={switchAsk.trust} sandboxOff={session.tool === 'codex' && !!session.yolo}
     onconfirm={trust => void confirmSwitch(trust)} oncancel={closeSwitch} />
 {/if}
 {#if yoloOpen}

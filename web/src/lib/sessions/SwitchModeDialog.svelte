@@ -2,6 +2,7 @@
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick } from 'svelte'
   import { shell } from '../dialogShell'
+  import { yoloSandboxOffNotice } from '../launch/yoloWording'
 
   // Switch a running agent session between Gaffer and the agent's TUI: what happens on the machine, what is not
   // kept, and (to Gaffer, when the machine answers that the folder has plugins) the folder-trust confirmation.
@@ -10,6 +11,7 @@
     agentTui,
     machine,
     trust,
+    sandboxOff = false,
     onconfirm,
     oncancel,
   }: {
@@ -19,13 +21,17 @@
     machine: string
     /** Set when the machine refused for want of trust: its sentence naming the plugin files. */
     trust?: { detail: string }
+    /** The chat is a Codex chat on YOLO: its terminal runs without Codex's sandbox, so going there needs an explicit yes. */
+    sandboxOff?: boolean
     onconfirm: (trust: boolean) => void
     oncancel: () => void
   } = $props()
 
   let dialog = $state<HTMLDialogElement>()
   let keep = $state<HTMLButtonElement>(), trustBox = $state<HTMLInputElement>()
-  let trusted = $state(false)
+  let trusted = $state(false), fullAccess = $state(false)
+  const needsFullAccess = $derived(sandboxOff && to === 'terminal')
+  const blocked = $derived((!!trust && !trusted) || (needsFullAccess && !fullAccess))
   const titleId = $props.id()
   const target = $derived(to === 'chat' ? 'Gaffer' : agentTui)
   const from = $derived(to === 'chat' ? agentTui : 'Gaffer')
@@ -38,7 +44,7 @@
   // The trust question arrives after the first answer: focus goes to it, so it is the next thing read.
   $effect(() => { if (trust) { trusted = false; void tick().then(() => trustBox?.focus()) } })
   function cancel() { dialog?.close(); oncancel() }
-  function confirm() { if (trust && !trusted) return; dialog?.close(); onconfirm(!!trust && trusted) }
+  function confirm() { if (blocked) return; dialog?.close(); onconfirm(!!trust && trusted) }
 </script>
 
 <dialog bind:this={dialog} role="alertdialog" use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} aria-describedby={`${titleId}-body`}
@@ -64,9 +70,15 @@
         <label><input type="checkbox" bind:this={trustBox} bind:checked={trusted} />I trust this folder. Plugins in it may run.</label>
       </div>
     {/if}
+    {#if needsFullAccess}
+      <div class="trust" role="group" aria-labelledby={`${titleId}-sandbox`}>
+        <p class="warn" id={`${titleId}-sandbox`}><span class="mark" aria-hidden="true">!</span>{yoloSandboxOffNotice(machine)}</p>
+        <label><input type="checkbox" bind:checked={fullAccess} />I understand Codex will run without its sandbox.</label>
+      </div>
+    {/if}
     <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" bind:this={keep} onclick={cancel}>Cancel</button>
-      <button use:gafferTooltip={to === 'chat'} type="button" class="btn primary" disabled={!!trust && !trusted} onclick={confirm}>Switch to {to === 'chat' ? target : `the ${target}`}</button>
+      <button use:gafferTooltip={to === 'chat'} type="button" class="btn primary" disabled={blocked} onclick={confirm}>Switch to {to === 'chat' ? target : `the ${target}`}</button>
     </div>
   </div>
 </dialog>

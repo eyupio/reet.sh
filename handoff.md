@@ -15,7 +15,7 @@ refused, and a real person still gets the reload sentence.
 **Verified.** The three decision tests pass 20 times under `-race` (492 s), the whole `internal/gaffer` package
 passes, and `go vet ./internal/gaffer` is clean.
 
-**PR.** Opened against `main`; its checks are this change's.
+**PR.** [#881](https://github.com/eyupio/reet.sh/pull/881) opened against `main`. **Merged** as `c827b800` on 22 November 2026, after the CodeQL, source, compare, test, web, build, offline and Gaffer offline checks passed.
 
 ## FACTORY-STAGES-TEST-1: finished Factory stages leave every list (22 November 2026)
 

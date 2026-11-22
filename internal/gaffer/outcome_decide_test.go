@@ -3,6 +3,7 @@ package gaffer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -38,6 +39,24 @@ func stopStage(t *testing.T, r *outcomeRig, piece store.GafferOutcomeSession) st
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the stage's goal could not be stopped: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// setAutomation gives Gaffer the outcome's decisions, retrying while the
+// supervisor records other progress. The person's card does the same after a
+// reload when the outcome changed under it.
+func setAutomation(t *testing.T, r *outcomeRig, id string, on bool) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		_, err := r.s.SetOutcomeAutomation(r.p.UserID, id, mustOutcome(t, r, id).Revision, on)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || time.Now().After(deadline) {
+			t.Fatalf("set automation: %v", err)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -81,9 +100,7 @@ func TestGafferTakesAStoppedStagesDecisionOnlyWhenItWasGivenThem(t *testing.T) {
 	}
 
 	// The person gives Gaffer the decisions on the card.
-	if _, err = r.s.SetOutcomeAutomation(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision, true); err != nil {
-		t.Fatal(err)
-	}
+	setAutomation(t, r, created.ID, true)
 	got := decisions(t, r, created.ID, 1)[0]
 	if got.Choice != "move" || got.Failed || got.Key != code.Key || got.Stage != "code" || got.About != "question" || !strings.Contains(got.Why, "handover") || got.Model != "fake-model" {
 		t.Fatalf("decision: %+v", got)
@@ -178,9 +195,7 @@ func TestAStopWhoseAnswerNeverCameIsAskedAgain(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = r.s.SetOutcomeAutomation(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision, true); err != nil {
-		t.Fatal(err)
-	}
+	setAutomation(t, r, created.ID, true)
 	got := decisions(t, r, created.ID, 1)[0]
 	if got.Choice != "move" || got.Failed || calls.Load() != 1 {
 		t.Fatalf("the lost stop was not asked again: calls %d, %+v", calls.Load(), got)
@@ -224,9 +239,7 @@ func TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered(t *testing.T) {
 		}
 	}
 	claim(time.Now().UnixMilli(), false)
-	if _, err = r.s.SetOutcomeAutomation(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision, true); err != nil {
-		t.Fatal(err)
-	}
+	setAutomation(t, r, created.ID, true)
 	time.Sleep(120 * time.Millisecond)
 	if calls.Load() != 0 || len(mustOutcome(t, r, created.ID).Decisions) != 0 {
 		t.Fatalf("a stop still being decided was asked again: calls %d", calls.Load())

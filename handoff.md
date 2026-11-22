@@ -35,7 +35,7 @@ period change instead of only while loading.
 
 **Docs.** `docs/agent-accounts.md` names the new places; `CHANGELOG.md` records the change.
 
-**PR.** Pending.
+**PR.** [#877](https://github.com/eyupio/reet.sh/pull/877) opened against `main`; its checks are this change's.
 
 ## PHONE-SKILL-BUDDY-1: skill suggestions fold to one row on a phone (22 November 2026)
 

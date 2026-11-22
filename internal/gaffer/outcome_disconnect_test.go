@@ -607,7 +607,8 @@ func TestAMergeLaunchRecordedButNeverSentRunsTheMergeGateAgain(t *testing.T) {
 }
 
 // sentNotStarted is a machine that received a launch and never started it:
-// the create is on record, nothing runs, and asked again it says so.
+// the create is on record, nothing runs, and asked again it says so, with the
+// session recorded as lost as the real starter finds it.
 type sentNotStarted struct {
 	*outcomeStarterFake
 	title string
@@ -621,12 +622,16 @@ func (m *sentNotStarted) StartOutcomeSession(ctx context.Context, uid int64, in 
 	m.mu.Lock()
 	m.launches = append(m.launches, in)
 	m.mu.Unlock()
-	if _, again := m.sent.LoadOrStore(in.RequestID, true); again {
-		return "", "", errors.New("That machine didn't start the agent.")
-	}
 	create := terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30}
-	if _, _, err := m.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, m.gen, create); err != nil {
+	row, _, err := m.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, m.gen, create)
+	if err != nil {
 		return "", "", err
+	}
+	if _, again := m.sent.LoadOrStore(in.RequestID, true); again {
+		if err = m.st.ObserveTerminalStateFor(uid, in.AgentID, row.ID, m.gen, terminalproto.Lost, nil); err != nil {
+			return "", "", err
+		}
+		return "", "", errors.New("That machine didn't start the agent.")
 	}
 	return "", "", LaunchUnknown("That machine did not answer.")
 }
@@ -837,5 +842,177 @@ func TestALeftBehindSessionAnotherPipelineUsesIsNotEnded(t *testing.T) {
 	r.startsNothingMore(t, 2)
 	if !r.s.sessionRunning(r.p.UserID, first.SessionID) {
 		t.Fatal("a session another pipeline follows was ended")
+	}
+}
+
+// Launch, reply lost, then the person changes what the launch asks for
+// (here YOLO) before Try again: the request asked again no longer matches the
+// machine's record of it, and the session it started is taken up all the same
+// instead of a second one being started beside it.
+func TestALaunchWhoseReplyWasLostIsTakenUpAfterTheLaunchWasChanged(t *testing.T) {
+	r := outcomeFixture(t)
+	machine := &lostReplyYolo{lostReply: &lostReply{outcomeStarterFake: r.starter}}
+	machine.lose.Store(1)
+	r.s.SetSessionStarter(machine)
+	r.in.Sessions = r.in.Sessions[:1]
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	op, err := r.st.TerminalOperationFor(r.p.UserID, r.starter.agent, "create", failed.UnsureRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = r.s.SetOutcomeYolo(context.Background(), r.p.UserID, created.ID, r.settle(t, created.ID).Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	r.retry(t, created.ID)
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" || p.State == "failed" && p.Note != failed.Note
+	})
+	if n := r.starter.sessions(); n != 1 || again.SessionID != op.SessionID || again.UnsureRequest != "" {
+		t.Fatalf("Try again after the change did not take up the session already started: %d sessions, %+v", n, again)
+	}
+	// It was started off YOLO, so it is switched to what the outcome asks now.
+	if on, ok := machine.sets.Load(op.SessionID); !ok || !on.(bool) {
+		t.Fatalf("the session taken up was not put on YOLO: %v %v", on, ok)
+	}
+}
+
+// lostReplyYolo is lostReply on a machine that can switch a session's approvals.
+type lostReplyYolo struct {
+	*lostReply
+	sets sync.Map
+}
+
+func (m *lostReplyYolo) SetOutcomeSessionYolo(_ context.Context, _ int64, session string, on bool) error {
+	m.sets.Store(session, on)
+	return nil
+}
+
+// Send back, while the next stage's launch was not answered: the person
+// gives that launch up, so the session it started is ended rather than left
+// running with nothing following it, and the stage done again starts its own.
+func TestASessionStartedByAnUnansweredLaunchIsEndedWhenThePipelineIsSentBack(t *testing.T) {
+	wait := outcomeStartWait
+	outcomeStartWait = 150 * time.Millisecond
+	t.Cleanup(func() { outcomeStartWait = wait })
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.starter.mu.Lock()
+	r.starter.late = code.Title + " · review"
+	r.starter.mu.Unlock()
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed.", "gaffer")
+	stopped := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "unfollowed" })
+	if stopped.UnsureRequest == "" || !strings.HasPrefix(stopped.Note, "The review stage") || !strings.Contains(stopped.Note, "cannot tell whether") {
+		t.Fatalf("after the unanswered review launch: unsure=%q note=%q", stopped.UnsureRequest, stopped.Note)
+	}
+	op, err := r.st.TerminalOperationFor(r.p.UserID, r.starter.agent, "create", stopped.UnsureRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomeStartWait = wait
+	if _, err = r.s.SendPipelineBack(r.p.UserID, created.ID, "a", "code", "Redo it please."); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 0 })
+	if again.UnsureRequest != "" || again.SessionID == op.SessionID || r.s.sessionRunning(r.p.UserID, op.SessionID) {
+		t.Fatalf("the review session the unanswered launch started runs on beside the code stage done again: %+v", again)
+	}
+}
+
+// refusedOnRecord is a machine that receives a launch, holds it until
+// released, and then refuses it: the create is on record as failed and
+// nothing runs.
+type refusedOnRecord struct {
+	*outcomeStarterFake
+	entered, release chan struct{}
+}
+
+func (m *refusedOnRecord) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
+	m.mu.Lock()
+	m.launches = append(m.launches, in)
+	m.mu.Unlock()
+	create := terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30}
+	if _, _, err := m.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, m.gen, create); err != nil {
+		return "", "", err
+	}
+	close(m.entered)
+	<-m.release
+	if err := m.st.FailTerminalCreateFor(uid, in.AgentID, in.RequestID, m.gen, terminalproto.Capacity); err != nil {
+		return "", "", err
+	}
+	return "", "", errors.New("That machine could not start the session.")
+}
+
+// A launch the machine refused after the person stopped the outcome is known
+// to have started nothing: it is not kept as unanswered, and Try again on a
+// machine that cannot be reached says plainly that nothing started.
+func TestALaunchRefusedAfterTheOutcomeWasStoppedIsNotKeptAsUnanswered(t *testing.T) {
+	r := outcomeFixture(t)
+	machine := &refusedOnRecord{outcomeStarterFake: r.starter, entered: make(chan struct{}), release: make(chan struct{})}
+	r.s.SetSessionStarter(machine)
+	r.in.Sessions = r.in.Sessions[:1]
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-machine.entered
+	if _, err = r.s.StopFollowingOutcome(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision); err != nil {
+		t.Fatal(err)
+	}
+	close(machine.release)
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "cancelled" && p.UnsureRequest == "" })
+	r.s.SetSessionStarter(r.starter)
+	r.setOffline(true)
+	r.retry(t, created.ID)
+	failed := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if failed.UnsureRequest != "" || !strings.HasPrefix(failed.Note, "Not started") || strings.Contains(failed.Note, "earlier") {
+		t.Fatalf("after Try again on an unreachable machine: unsure=%q note=%q", failed.UnsureRequest, failed.Note)
+	}
+}
+
+// Launch in flight at a restart while the account cannot start sessions: the
+// request that reached the machine is kept, so once the account may start
+// sessions again Try again takes that session up rather than starting another.
+func TestALaunchInFlightAtARestartIsKeptWhileTheAccountCannotStartSessions(t *testing.T) {
+	r := outcomeFixture(t)
+	r.starter.late = "Export API"
+	r.in.Sessions = r.in.Sessions[:1]
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for r.starter.sessions() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the launch never reached the machine")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err = r.st.UpdateUserRole(r.p.UserID, "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	r.restart(t)
+	refused := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+	if refused.UnsureRequest == "" {
+		t.Fatalf("the request that reached the machine was forgotten: %+v", refused)
+	}
+	if err = r.st.UpdateUserRole(r.p.UserID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	r.retry(t, created.ID)
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if n := r.starter.sessions(); n != 1 || again.UnsureRequest != "" {
+		t.Fatalf("Try again started a second session: %d sessions, %+v", n, again)
 	}
 }

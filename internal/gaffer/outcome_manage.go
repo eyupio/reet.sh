@@ -697,8 +697,9 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 	}
 	found := false
 	var refused error
+	abandoned := ""
 	o, err = s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
-		found, refused = false, nil
+		found, refused, abandoned = false, nil, ""
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
 			if row.Key != key || len(row.Stages) != len(fresh) || o.ArchivedAt > 0 {
@@ -729,6 +730,8 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 			row.Stage, row.MergeApproved, row.DeliveryAccepted = target, false, false
 			// The session in hand belongs to the stage that was left; the stage done again starts its own.
 			row.SessionID, row.ConversationID = "", ""
+			// A launch that was not answered is given up with the stage it was for.
+			abandoned, row.UnsureRequest = row.UnsureRequest, ""
 			row.State, row.Note, row.UpdatedAt = "advancing", "Sent back to the "+kind+" stage. Starting it again.", time.Now().UnixMilli()
 			o.State, o.Note = "starting", ""
 			found = true
@@ -747,6 +750,7 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 	}
 	// The stage done again gets a session of its own; the one that was left is finished with.
 	s.endFinishedSession(context.Background(), o, key, left, "The pipeline was sent back to the "+kind+" stage.")
+	s.endUnansweredLaunch(o, key, abandoned, "The pipeline was sent back to the "+kind+" stage while this session's launch was not answered.")
 	s.wakeOutcomes()
 	return outcomeView(o), nil
 }

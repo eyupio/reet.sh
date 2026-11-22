@@ -121,7 +121,9 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	if refusal != "" {
 		return "", "", errors.New(refusal)
 	}
-	create := terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30}
+	// The whole launch is recorded, as the real starter does: the store
+	// answers a request asked again with anything changed as a conflict.
+	create := terminalproto.Create{Title: in.Title, Tool: in.Tool, Model: in.Model, Effort: in.Effort, Provider: in.Provider, Structured: true, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Dir: in.Dir, Prompt: OutcomePromptImages(in.Prompt, in.Images), Cols: 100, Rows: 30}
 	// The first launch of a project gets a worktree where a machine makes one:
 	// under the home folder, by project, repository and run. Later stages are sent there.
 	work := in.Dir

@@ -15,7 +15,7 @@ now accepts `outcomes` for the route, empty by default.
 **Tests.** `npm run check` passes (node tests and 0 Svelte diagnostics/warnings) and the new section passes against
 `vite preview` with `REET_E2E_ONLY='finished Factory stages'`. No application or Go code changed.
 
-**PR.** Opened against `main`; its checks are this change's.
+**PR.** [#876](https://github.com/eyupio/reet.sh/pull/876) opened against `main`. **Merged** as `6073cff9` on 22 November 2026, after the CodeQL, source, test, web, build, image, offline, phone-chat, phone-dialogs, phone-gaffer, phone-sessions, phone-zoom, terminal-browser and Gaffer settings checks passed.
 
 ## USAGE-PLANS-2: plan limits read where each agent keeps its sign-in (22 November 2026)
 

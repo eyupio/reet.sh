@@ -215,6 +215,9 @@ type Capabilities struct {
 	// SessionMode is sent only when session-mode-v1 was negotiated; a session
 	// can then switch between the OpenCode terminal and the chat.
 	SessionMode bool `json:"sessionMode,omitempty"`
+	// SessionModeAgents is sent only with SessionMode, when session-mode-agents-v1 was negotiated: agents other
+	// than OpenCode can then switch too.
+	SessionModeAgents bool `json:"sessionModeAgents,omitempty"`
 	// NativeView is negotiated separately from the process-replacing session mode operation.
 	NativeView bool `json:"nativeView,omitempty"`
 	// ChatReattach is sent only when chat-reattach-v1 was negotiated; a lost
@@ -442,6 +445,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.SessionMode && !(c.ACP && c.ACPHistory && c.Launch) {
+		return ErrInvalid
+	}
+	if c.SessionModeAgents && !c.SessionMode {
 		return ErrInvalid
 	}
 	if c.ChatReattach && !(c.ACP && c.ACPHistory) {

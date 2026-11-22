@@ -97,6 +97,10 @@ const ACPQuestionFeature = "acp-question-v1"
 // never sends or receives the body.
 const SessionModeFeature = "session-mode-v1"
 
+// SessionModeAgentsFeature extends session-mode-v1 beyond OpenCode: a connector that negotiated it can open
+// every reviewed chat agent's terminal on a saved conversation. A connector without it is only asked for OpenCode.
+const SessionModeAgentsFeature = "session-mode-agents-v1"
+
 // ChatReattachFeature lets a controller ask a machine to reconnect a lost or
 // crashed OpenCode chat in place (chat_reattach). A peer without it never
 // sends or receives the body.
@@ -190,6 +194,16 @@ func SupportsChatReattachDetail(features string) bool {
 func SupportsSessionMode(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == SessionModeFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsSessionModeAgents reports whether the peer negotiated session-mode-agents-v1.
+func SupportsSessionModeAgents(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == SessionModeAgentsFeature {
 			return true
 		}
 	}

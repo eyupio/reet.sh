@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Older machines are not asked to restart other agents**: reet only offers the terminal restart for Claude Code, Codex, Cline
+  and Antigravity on a machine whose connector is new enough to open their terminal on a saved conversation
+  (`session-mode-agents-v1`). Update reet on the machine to enable it; OpenCode is unchanged.
 - **Restart any agent in its own terminal**: Session actions (and the **Terminal** tab, when the agent has no shared native terminal) can restart a Gaffer chat in the agent's terminal UI, and back, for
   Claude Code, Codex, Cline and Antigravity as well as OpenCode, on the same saved conversation. Cline's terminal resume
   (`--id`) has not been checked against a chat created over ACP; if it cannot open the conversation the chat is restored.

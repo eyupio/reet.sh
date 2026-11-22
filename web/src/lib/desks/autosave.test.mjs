@@ -448,6 +448,25 @@ test('movePaneToTab moves a pane in one step, and takes the tab it leaves when i
   assert.equal(apply(full, { kind: 'movePaneToTab', from: 't1', to: 't9', pane: 'b' }), null)
 })
 
+test('movePaneToNewTab lifts a pane into a new tab of its own, in one step', () => {
+  const d = deskOf(1, [tabOf('t1', 'a', 'b'), tabOf('t2', 'c')])
+  const moved = apply(d, { kind: 'movePaneToNewTab', from: 't1', pane: 'b', tab: 'n1' })
+  assert.deepEqual(moved.doc.tabs.map(t => t.id), ['t1', 'n1', 't2'])
+  assert.deepEqual(Object.keys(moved.doc.tabs[0].panes), ['a'])
+  assert.deepEqual(moved.doc.tabs[0].root, { pane: 'a' })
+  assert.deepEqual(moved.doc.tabs[1], { id: 'n1', name: '', colour: '', root: { pane: 'b' }, zoomed: '', active: 'b', panes: { b: pane('b') } })
+  assert.equal(moved.doc.active, 'n1')
+  // The last pane of a tab takes the tab with it: the new tab stands where it stood.
+  const last = apply(d, { kind: 'movePaneToNewTab', from: 't2', pane: 'c', tab: 'n2' })
+  assert.deepEqual(last.doc.tabs.map(t => t.id), ['t1', 'n2'])
+  // Nothing moves when the source is gone, the tab id is taken, or there is no room for a tab.
+  assert.equal(apply(d, { kind: 'movePaneToNewTab', from: 'gone', pane: 'b', tab: 'n1' }), null)
+  assert.equal(apply(d, { kind: 'movePaneToNewTab', from: 't1', pane: 'zz', tab: 'n1' }), null)
+  assert.equal(apply(d, { kind: 'movePaneToNewTab', from: 't1', pane: 'b', tab: 't2' }), null)
+  const full = deskOf(1, [tabOf('t1', 'a', 'b'), ...Array.from({ length: 19 }, (_, i) => tabOf(`t${i + 2}`, `p${i}`))])
+  assert.equal(apply(full, { kind: 'movePaneToNewTab', from: 't1', pane: 'b', tab: 'new' }), null)
+})
+
 test('a move whose target tab went in another window is dropped whole at the merge', async () => {
   const newer = deskOf(5, [tabOf('t1', 'a', 'b')])
   let calls = 0

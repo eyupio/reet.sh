@@ -521,6 +521,13 @@
     if (desk?.doc.tabs.some(x => x.id === toId && x.panes[paneId])) showTab(toId)
     if (!desk?.doc.tabs.find(t => t.id === toId)?.panes[paneId]) notice = 'That pane could not be moved there.'
   }
+  function moveToNewTab(from: Tab, paneId: string) {
+    if (!from.panes[paneId] || tabs.length >= MAX_TABS) return
+    const id = newId()
+    change({ kind: 'movePaneToNewTab', from: from.id, pane: paneId, tab: id })
+    if (desk?.doc.tabs.some(x => x.id === id && x.panes[paneId])) showTab(id)
+    if (!desk?.doc.tabs.find(t => t.id === id)?.panes[paneId]) notice = 'That pane could not be moved to a new tab.'
+  }
 
   // Reopen: a fresh shell in a pane whose shell ended or was lost, through the desk's reopen route, which binds the new
   // session into the pane and answers with the desk. Pending edits are saved first so the version sent is current; the
@@ -1002,6 +1009,7 @@
                 onzoom={() => zoom(pid)}
                 onswap={other => change({ kind: 'swap', tab: t.id, a: pid, b: other })}
                 onmovetab={to => moveToTab(t, pid, to)}
+                onmovetonewtab={() => moveToNewTab(t, pid)}
                 onclose={() => askClose(t.id, pid)} />
             {/if}
           {/snippet}

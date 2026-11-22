@@ -16,7 +16,7 @@ it shows the suggestions. `npm run check` and `npm run build` pass, and the whol
 
 **Docs.** `docs/skill-buddy.md` says the panel folds on a phone; `CHANGELOG.md` records it.
 
-**PR.** Opened against `main`; its checks are this change's. (Record the number here before merging.)
+**PR.** [#874](https://github.com/eyupio/reet.sh/pull/874) opened against `main`; its checks are this change's.
 
 ## FACTORY-CAPABILITIES-1: Add pipelines stays within the machine's agents (21 November 2026)
 

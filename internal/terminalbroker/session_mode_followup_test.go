@@ -335,7 +335,7 @@ func TestSwitchToTerminalWithoutConversation(t *testing.T) {
 		t.Fatalf("session %+v", s)
 	}
 	err = b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeTerminal, false)
-	if !errors.Is(err, ErrSessionModeNoConversation) || err.Error() != "This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI." {
+	if !errors.Is(err, ErrSessionModeNoConversation) || err.Error() != "This session has no saved conversation yet, so it cannot move to the agent’s TUI." {
 		t.Fatalf("err %v", err)
 	}
 	if len(machine.sent()) != 0 || !row(t, b, uid, s.ID).Structured {

@@ -42,7 +42,7 @@ not assumed, and each one that does not work is hidden or explained.
 Settled with the owner:
 
 1. **Run B** is recorded in the same sitting as Claude Code's signed-in run (steps in `docs/device-checks.md`). Slice 1 and every signed-out part proceed now; rows that need a signed-in session are marked "waiting for Run B" and are not claimed until measured.
-2. **Terminal YOLO** stays `--ask-for-approval never` (the sandbox stays). Wording says so; no full-bypass option.
+2. **Terminal YOLO** was `--ask-for-approval never` (the sandbox stayed; no full-bypass option). **Superseded 22 November 2026:** the owner chose full access, so it is now `--ask-for-approval never --sandbox danger-full-access` and the YOLO confirmation says the sandbox is off.
 3. **Terminal effort** uses `-c model_reasoning_effort=<value>` only once a probe confirms Codex accepts it, with the allowed values taken from that probe. Until then Codex terminals keep refusing effort.
 
 Defaults I will follow unless the owner says otherwise (each is cheap to reverse):

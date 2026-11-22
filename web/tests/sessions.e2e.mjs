@@ -965,6 +965,47 @@ try {
   await context.close()
  }
 
+ if (run('a Codex chat on YOLO needs an explicit yes before its terminal runs without the sandbox')) {
+  const codexChat = session('s10','a1','Codex chat on YOLO',6*MIN,{tool:'codex',dir:'/home/dev/reet',structured:true,yolo:true,acpSessionId:'0199a213-81c0-7800-8aa1-bbab2a035a53'})
+  const machines = switchMachines().map(m => m.agentId === 'a1' ? {...m, capabilities:{...m.capabilities, sessionModeAgents:true, acpAgents:[{tool:'codex',adapter:'codex-acp',state:'available',history:true,approval:true,modes:['read-only','agent']}]}} : m)
+  const {context,page,errors,box} = await open({sessions:[...sessions(), codexChat], machines, chat:true})
+  box.mode = () => Promise.resolve({status:204, body:''})
+  await page.goto(`${base}/sessions?agent=a1&session=s10`)
+  await openActions(page)
+  await tuiSelect(page).selectOption('terminal')
+  const dialog = page.getByRole('alertdialog',{name:'Switch to the Codex TUI?'})
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('turns Codex’s sandbox off')
+  const confirm = dialog.getByRole('button',{name:'Switch to the Codex TUI'})
+  await expect(confirm).toBeDisabled()
+  // Cancelling sends nothing.
+  await dialog.getByRole('button',{name:'Cancel'}).click()
+  await expect(dialog).toBeHidden()
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  await tuiSelect(page).selectOption('terminal')
+  await dialog.getByRole('checkbox',{name:'I understand Codex will run without its sandbox.'}).check()
+  await expect(confirm).toBeEnabled()
+  await confirm.click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('a Codex chat that is not on YOLO switches without the sandbox warning')) {
+  const codexChat = session('s10','a1','Codex chat',6*MIN,{tool:'codex',dir:'/home/dev/reet',structured:true,acpSessionId:'0199a213-81c0-7800-8aa1-bbab2a035a53'})
+  const machines = switchMachines().map(m => m.agentId === 'a1' ? {...m, capabilities:{...m.capabilities, sessionModeAgents:true, acpAgents:[{tool:'codex',adapter:'codex-acp',state:'available',history:true,approval:true,modes:['read-only','agent']}]}} : m)
+  const {context,page,errors} = await open({sessions:[...sessions(), codexChat], machines, chat:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s10`)
+  await openActions(page)
+  await tuiSelect(page).selectOption('terminal')
+  const dialog = page.getByRole('alertdialog',{name:'Switch to the Codex TUI?'})
+  await expect(dialog).toBeVisible()
+  await expect(dialog).not.toContainText('sandbox')
+  await expect(dialog.getByRole('button',{name:'Switch to the Codex TUI'})).toBeEnabled()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('switch is disabled while an approval card waits')) {
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
   await page.goto(`${base}/sessions?agent=a1&session=s9`)

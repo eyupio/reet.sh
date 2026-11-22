@@ -509,7 +509,7 @@ func TestFakeACP(t *testing.T) {
 			case "cline-reply":
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_reply", "content": map[string]string{"type": "text", "text": "done"}})
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
-			case "cline-empty-turn":
+			case "cline-empty-turn", "empty-turn":
 				// The turn ends with no ACP frame and nothing in Cline's log: the
 				// provider said nothing at all.
 				reply(promptID, map[string]any{"stopReason": "end_turn"})

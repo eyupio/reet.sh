@@ -1702,16 +1702,18 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		s.mu.Lock()
 		progress := s.turnProgress
 		s.mu.Unlock()
-		if !progress && s.opts.Agent.RecoverError != nil {
-			if message := s.opts.Agent.RecoverError(s.recoverRoot(), acpID, startedAt.UnixMilli()); message != "" {
-				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
-				return nil
+		if !progress {
+			if s.opts.Agent.RecoverError != nil {
+				if message := s.opts.Agent.RecoverError(s.recoverRoot(), acpID, startedAt.UnixMilli()); message != "" {
+					s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
+					return nil
+				}
 			}
 			// These adapters end a failed turn without an ACP frame, so a turn
 			// that said and did nothing and logged no reason is not a finished
 			// turn. Saying so is better than a ready chat under an unanswered
 			// prompt; the notice comes first so the chat never reads as done.
-			s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " ended the turn without a reply and gave no reason. Check the model and provider it is using, or try another.", Bad: true})
+			s.emit(Event{Kind: "notice", Text: emptyTurnNotice(s.opts.Agent), Bad: true})
 		}
 		s.emit(Event{Kind: "status", State: "idle"})
 	default:
@@ -2103,4 +2105,14 @@ func (s *Session) SetMode(ctx context.Context, mode string) error {
 		}
 	}
 	return ErrModeUnconfirmed
+}
+
+// emptyTurnNotice says that a turn ended with nothing said or done. An agent whose log can explain a failed turn
+// (RecoverError) points at the provider; one that cannot may be waiting on something only its own terminal shows (a plan
+// to approve, a login), so it points there instead.
+func emptyTurnNotice(a Spec) string {
+	if a.RecoverError != nil {
+		return a.displayName() + " ended the turn without a reply and gave no reason. Check the model and provider it is using, or try another."
+	}
+	return a.displayName() + " ended the turn without a reply and gave no reason. It may be waiting on something only its terminal shows: restart it in the terminal from Session actions, or try another model."
 }

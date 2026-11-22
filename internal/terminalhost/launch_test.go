@@ -432,10 +432,10 @@ func TestLaunchArgvCodexResumeAndSession(t *testing.T) {
 	}{
 		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Resume: true}, []string{"/opt/fake/bin/codex", "resume", "--last"}},
 		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Resume: true, Yolo: true, Effort: "low", Model: "m", Prompt: "go on"},
-			[]string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "resume", "--last", "-c", "model_reasoning_effort=low", "--model", "m", "--", "go on"}},
+			[]string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "--sandbox", "danger-full-access", "resume", "--last", "-c", "model_reasoning_effort=low", "--model", "m", "--", "go on"}},
 		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", LaunchSession: id}, []string{"/opt/fake/bin/codex", "resume", id}},
 		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", LaunchSession: id, Yolo: true, Effort: "high", Model: "m"},
-			[]string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "resume", id, "-c", "model_reasoning_effort=high", "--model", "m"}},
+			[]string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "--sandbox", "danger-full-access", "resume", id, "-c", "model_reasoning_effort=high", "--model", "m"}},
 	} {
 		got, err := LaunchArgv(tc.in, look)
 		if err != nil || !reflect.DeepEqual(got, tc.want) {

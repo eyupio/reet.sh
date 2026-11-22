@@ -1,5 +1,22 @@
 # Reet central-control implementation handoff
 
+## FACTORY-STAGES-TEST-1: finished Factory stages leave every list (22 November 2026)
+
+`FACTORY-STAGES-LIST-1` left one gap it named: no browser suite proved a Factory-finished stage disappearing from Home,
+Sessions and the workspace sidebar.
+
+**What changed (tests only).** `web/tests/sessions.e2e.mjs` gains a `finished Factory stages` section. It answers one
+outcome with two pipelines in the sessions fixture: an earlier plan stage whose session has ended and a finished
+pipeline's session, both Factory-finished, beside the code stage in hand and a plain session. The Sessions page lists
+the stage in hand and the plain session and omits the finished two; the workspace's **Terminal sessions** list agrees;
+Home's **Continue working** and **Planning board** show the same two and omit the finished ones. `open()` in that file
+now accepts `outcomes` for the route, empty by default.
+
+**Tests.** `npm run check` passes (node tests and 0 Svelte diagnostics/warnings) and the new section passes against
+`vite preview` with `REET_E2E_ONLY='finished Factory stages'`. No application or Go code changed.
+
+**PR.** Opened against `main`; its checks are this change's.
+
 ## USAGE-PLANS-2: plan limits read where each agent keeps its sign-in (22 November 2026)
 
 The owner reported that the Usage page showed a plan for Codex only: Claude Code and Google Antigravity said the

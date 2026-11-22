@@ -60,6 +60,7 @@ async function open(options={}) {
  const routes = {
   '/api/v2/sync/skills': {active:1,activity:[],work:{},machines:[{agentId:'a1',host:'studio',state:'ok',lastSeen:Date.now()-3*MIN,failed:[],waiting:[]}]},
   '/api/v2/desks': () => box.desksFail ? {status:503,json:{error:'unavailable'}} : {desks:box.desks},
+  '/api/v2/gaffer/outcomes': () => ({outcomes: options.outcomes ?? []}),
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
   '/api/v2/terminal/sessions': async () => { box.lists++; if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
@@ -220,6 +221,46 @@ try {
   await expect(page.getByText("Couldn't read your sessions just now.",{exact:true})).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
+ }
+
+ // The Factory's finished stages leave this page, the workspace list and Home; the stage in hand stays.
+ if (run('finished Factory stages')) {
+  const live = session('factory-live00000001','a1','Ship the API · code',3*MIN,{tool:'opencode',projectId:'p1'})
+  const plan = session('factory-plane00000001','a1','Ship the API · plan',40*MIN,{tool:'opencode',projectId:'p1',state:'ended'})
+  const docs = session('factory-done000000001','a1','Ship the docs',50*MIN,{tool:'opencode',projectId:'p1',state:'ended'})
+  const plain = session('factory-plain00000001','a1','Unrelated tidy-up',8*MIN,{tool:'claude',projectId:'p1'})
+  const outcomes = [{id:'f'.repeat(32),revision:1,objective:'Ship the API.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'reet',dir:'/home/dev/reet',tool:'opencode',providerId:'',maxReviews:12,hours:24,createdAt:1,updatedAt:1,sessions:[
+   {key:'a',title:'API',prompt:'p',state:'following',sessionId:live.id,stage:1,stages:[{kind:'plan',tool:'opencode',state:'done',sessionId:plan.id},{kind:'code',tool:'opencode',state:'running',sessionId:live.id},{kind:'review',tool:'opencode',state:'pending'}]},
+   {key:'b',title:'Docs',prompt:'p',state:'done',sessionId:docs.id,stage:0,stages:[{kind:'code',tool:'opencode',state:'done',sessionId:docs.id}]},
+  ]}]
+  const {context,page,errors} = await open({sessions:[...sessions(),live,plan,docs,plain],outcomes})
+  const stays = where => Promise.all(['Ship the API · code','Unrelated tidy-up'].map(title => expect(where.getByText(title,{exact:false})).toBeVisible()))
+  const leaves = where => Promise.all(['Ship the API · plan','Ship the docs'].map(title => expect(where.getByText(title,{exact:false})).toHaveCount(0)))
+  try {
+   // The Sessions page lists the stage in hand and the plain session, not the earlier stage or the finished pipeline.
+   await page.goto(`${base}/sessions?view=list`)
+   await expect(rows(page)).toHaveCount(8)
+   await stays(page.locator('main'))
+   await leaves(page.locator('main'))
+   // The workspace's session list agrees, with the stage marked on the one in hand.
+   await page.goto(`${base}/sessions?agent=a1&session=${live.id}`)
+   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+   const listed = page.getByRole('navigation',{name:'Terminal sessions'})
+   await expect(listed.getByRole('button',{name:/^Ship the API · code on/})).toBeVisible()
+   await expect(listed.getByRole('button',{name:/^Unrelated tidy-up on/})).toBeVisible()
+   await expect(listed.getByRole('button',{name:/^Ship the API · plan on/})).toHaveCount(0)
+   await expect(listed.getByRole('button',{name:/^Ship the docs on/})).toHaveCount(0)
+   // Home's Continue working and Planning board leave the same sessions out.
+   await page.goto(`${base}/`)
+   const views = page.getByRole('group',{name:'Home view',exact:true})
+   await views.getByRole('button',{name:'Continue working',exact:true}).click()
+   await stays(page.getByRole('region',{name:'Continue working',exact:true}))
+   await leaves(page.getByRole('region',{name:'Continue working',exact:true}))
+   await views.getByRole('button',{name:'Planning board',exact:true}).click()
+   for (const title of ['Ship the API · code','Unrelated tidy-up']) await expect(page.locator('.session-card',{hasText:title})).toBeVisible()
+   for (const title of ['Ship the API · plan','Ship the docs']) await expect(page.locator('.session-card',{hasText:title})).toHaveCount(0)
+   expect(errors).toEqual([])
+  } finally { await context.close() }
  }
 
  if (run('search matches branch and machine')) {
@@ -1506,5 +1547,5 @@ try {
   }
  }
  if (!reached) throw new Error(`Unknown starting section: ${from}`)
- console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, Gaffer | OpenCode TUI switch (its disabled reasons, the confirmation, the busy state while a switch runs, the panes swapping both ways, held while an approval waits, and the folder-trust confirmation to return to Gaffer) and the YOLO decisions line.')
+ console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, finished Factory stages leaving Sessions, the workspace list and Home while the stage in hand stays, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, Gaffer | OpenCode TUI switch (its disabled reasons, the confirmation, the busy state while a switch runs, the panes swapping both ways, held while an approval waits, and the folder-trust confirmation to return to Gaffer) and the YOLO decisions line.')
 } finally { await browser.close() }

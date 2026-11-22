@@ -564,7 +564,7 @@ test('a worker usage limit offers the configured backup and ignores older review
   assert.match(waiting.need.why, /usage limit/)
   assert.equal(waiting.need.recommend.by, 'default')
   assert.deepEqual(waiting.need.choices.map(({ id, label }) => [id, label]), [
-    ['backup', 'Continue with OpenCode (paid/backup)'],
+    ['backup', 'Continue with the backup'],
     ['replace-worker', 'Choose another model…'],
   ])
   delete piece.stages[0].nextUsageBackup
@@ -576,7 +576,7 @@ test('a usage limit says which agent ran out and what happened before, and leave
   const piece = { key: 'a', title: 'Code', state: 'following', sessionId: 's', conversationId: 'c', stages: [stage] }
   const goals = new Map([['c', { goal: { state: 'needs_user', note: 'n' }, attention: true, workerUsageLimited: true }]])
   const why = () => o.waitingDecisions({ sessions: [piece] }, goals)[0].need.why
-  assert.equal(why(), 'Claude Code (opus) reached its usage limit on the code stage. Either choice carries on in the same folder and branch.')
+  assert.equal(why(), 'Claude Code (opus) reached its usage limit on the code stage. The backup is OpenCode (paid/backup). Either choice carries on in the same folder and branch.')
   // No backup configured: it says so and names the one action.
   delete stage.nextUsageBackup
   assert.equal(why(), 'Claude Code (opus) reached its usage limit on the code stage. No backup is saved for this stage; choose another model to carry on in the same folder and branch.')
@@ -587,7 +587,7 @@ test('a usage limit says which agent ran out and what happened before, and leave
   assert.equal(why(), 'OpenCode (paid/backup) reached its usage limit on the code stage. Another model already took over on this stage after a usage limit; it started on Claude Code (opus). No backup is left for this stage; choose another model to carry on in the same folder and branch.')
   // An agent that is not known is the worker.
   const bare = { key: 'b', title: 'B', state: 'following', sessionId: 's', conversationId: 'c', stages: [{ kind: 'review', nextUsageBackup: 'Codex' }] }
-  assert.equal(o.waitingDecisions({ sessions: [bare] }, goals)[0].need.why, 'The worker reached its usage limit on the review stage. Either choice carries on in the same folder and branch.')
+  assert.equal(o.waitingDecisions({ sessions: [bare] }, goals)[0].need.why, 'The worker reached its usage limit on the review stage. The backup is Codex. Either choice carries on in the same folder and branch.')
 })
 
 test('acceptance criteria: empty rows are dropped, each is one line, and the limits are the contract’s', () => {

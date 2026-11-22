@@ -734,7 +734,7 @@ export function usageLimitWhy(stage: NonNullable<WaitingPiece['stages']>[number]
   return [
     ran ? `${ran} reached its usage limit ${where}.` : `The worker reached its usage limit ${where}.`,
     stage.usageFailover && `Another model already took over on this stage after a usage limit${first ? `; it started on ${first}` : ''}.`,
-    stage.nextUsageBackup ? 'Either choice carries on in the same folder and branch.' : none,
+    stage.nextUsageBackup ? `The backup is ${stage.nextUsageBackup}. Either choice carries on in the same folder and branch.` : none,
   ].filter(Boolean).join(' ')
 }
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
@@ -758,7 +758,7 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
         const need = !stages[at]
           ? { why: goal.reason || goal.goal.note, choices: [{ id: 'open', label: 'Open worker session', primary: true } satisfies NeedChoice] }
           : backup
-            ? recommend(why, [{ id: 'backup', label: `Continue with ${backup}` }, replace])
+            ? recommend(why, [{ id: 'backup', label: 'Continue with the backup' }, replace])
             : { why, choices: [replace] }
         out.push({ piece, stage, kind: 'usage_limit', need })
       } else out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })

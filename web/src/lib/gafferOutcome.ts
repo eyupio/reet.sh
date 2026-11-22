@@ -9,14 +9,14 @@ const MAX_GOAL_BYTES = 2000
 const OUTCOME_PREFIX = 'Outcome: '
 const OUTCOME_LINE_BYTES = 600
 
-export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string>; /** The parts a stage is split into, by stage kind, in the order they run. */ parts?: Record<string, StagePart[]> }
+export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The acceptance criteria the person agrees for this pipeline; empty rows are dropped when sent. */ criteria?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string>; /** The parts a stage is split into, by stage kind, in the order they run. */ parts?: Record<string, StagePart[]> }
 /** One part of a split stage: a short name, what it does, and how demanding it is. `why` is Gaffer's reason for the tier. */
 export type StagePart = { title: string; brief: string; tier: 'heavy' | 'standard' | 'light'; why?: string }
 /** How many parts a stage can be split into. */
 export const MAX_STAGE_PARTS = 4
 export type OutcomeRow = { goal: { text: string; state: string }; attention: boolean }
 export type OutcomeGroup<T> = { objective: string; rows: T[]; needsReview: number; following: number; finished: number }
-export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'
+export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'advancing' | 'delivery_review' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'
 export type OutcomeResult = { key: string; title: string; state: OutcomeStep; note: string; sessionId?: string }
 export type OutcomeRecord = { id: string; objective: string; state: string; sessions: OutcomeResult[] }
 
@@ -109,6 +109,28 @@ export function wholeBetween(value: unknown, low: number, high: number): boolean
   return typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high
 }
 
+/** Acceptance criteria a pipeline is reviewed against before it merges or finishes: how many, and how long each may be. */
+export const MAX_CRITERIA = 10
+export const MAX_CRITERION_BYTES = 240
+/** The criteria as they are sent: each on one line, trimmed, with empty rows dropped. */
+export const cleanCriteria = (list: readonly string[] | undefined): string[] => (list ?? []).map(oneLine).filter(Boolean)
+/** The criteria the person typed for the pipeline that a revised plan's pipeline stands in for: the one of the same
+ *  title, and only when no pipeline had that title, the one in the same place. A pipeline that had none gets none, so
+ *  a plan that comes back in another order never hands one pipeline another's criteria. */
+export function carryCriteria(typed: readonly { title: string; criteria?: readonly string[] }[], title: string, at: number): { criteria?: string[] } {
+  const own = typed.find(old => old.title === title.trim()) ?? typed[at]
+  return own?.criteria ? { criteria: [...own.criteria] } : {}
+}
+/** Why a list of criteria cannot be sent, or ''. Empty rows are dropped, so they are never a problem. */
+export function criteriaBlocker(list: readonly string[] | undefined, who = ''): string {
+  const own = cleanCriteria(list), where = who ? ` for ${who}` : ''
+  if (own.length > MAX_CRITERIA) return `Keep the acceptance criteria${where} to ${MAX_CRITERIA} or fewer.`
+  const long = own.findIndex(text => bytes(text) > MAX_CRITERION_BYTES)
+  if (long >= 0) return `Shorten criterion ${long + 1}${where} to ${MAX_CRITERION_BYTES} bytes.`
+  if (own.some(text => CONTROL.test(text))) return `A criterion${where} has a character that cannot be sent. Retype that part.`
+  return ''
+}
+
 export const MAX_OUTCOME_REPLY_BYTES = 2000
 // Tabs and newlines are ordinary typing; other controls are not sent to a provider.
 const REPLY_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
@@ -156,13 +178,15 @@ export function planBlocker(sessions: PlanSession[], room: number): string {
     if (CONTROL.test(prompt)) return `The prompt for “${title}” has a character that cannot be sent. Retype that part.`
     if (CONTROL.test(title) || /\p{Cf}/u.test(title)) return `The title of session ${n} has a character that cannot be used. Retype it.`
     if (session.stages && !session.stages.length) return `Choose at least one stage for “${title}”.`
+    const criteria = criteriaBlocker(session.criteria, `“${title}”`)
+    if (criteria) return criteria
   }
   return ''
 }
 
 export function outcomeSummary(results: Pick<OutcomeResult, 'state'>[]): string {
   const count = (state: OutcomeStep) => results.filter(r => r.state === state).length
-  const following = count('following') + count('advancing') + count('ready_to_merge') + count('done'), unfollowed = count('unfollowed'), failed = count('failed') + count('cancelled')
+  const following = count('following') + count('advancing') + count('delivery_review') + count('ready_to_merge') + count('done'), unfollowed = count('unfollowed'), failed = count('failed') + count('cancelled')
   const parts: string[] = []
   if (following) parts.push(`${following} started and followed`)
   if (unfollowed) parts.push(`${unfollowed} started but not followed yet`)
@@ -214,8 +238,10 @@ export function floorOutcomeLine(group: OutcomeGroup<unknown> & { record?: Outco
   if (record.state === 'starting') parts.push('starting')
   if (group.needsReview) parts.push(`${group.needsReview} ${group.needsReview === 1 ? 'needs' : 'need'} review`)
   if (group.following) parts.push(`${group.following} following`)
+  const review = record.sessions.filter(s => s.state === 'delivery_review').length
   const ready = record.sessions.filter(s => s.state === 'ready_to_merge').length
   const done = record.sessions.filter(s => s.state === 'done').length
+  if (review) parts.push(`${review} in delivery review`)
   if (ready) parts.push(`${ready} ready to merge`)
   if (done) parts.push(`${done} done`)
   else if (group.finished) parts.push(`${group.finished} finished`)
@@ -429,7 +455,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
   return (piece.stages ?? []).map((stage, index) => {
     let state: TrackNode['state'] = stage.state === 'done' ? 'done' : 'pending'
     if (index === at && stage.state !== 'done') {
-      if (piece.state === 'ready_to_merge') state = 'waiting'
+      if (piece.state === 'ready_to_merge' || piece.state === 'delivery_review') state = 'waiting'
       else if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) state = 'failed'
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
@@ -441,6 +467,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
 /** One word for where a pipeline stands, for its badge. */
 export function pipelineStatus(piece: { state: string; sessionState?: string }, attention: boolean): { label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle' } {
   if (sessionLost(piece)) return { label: 'Needs you', tone: 'you' }
+  if (piece.state === 'delivery_review') return { label: 'Delivery review', tone: 'you' }
   if (piece.state === 'ready_to_merge') return { label: 'Ready to merge', tone: 'you' }
   if (piece.state === 'done') return { label: 'Done', tone: 'good' }
   if (piece.state === 'failed' || piece.state === 'cancelled') return { label: 'Not started', tone: 'bad' }
@@ -456,14 +483,15 @@ export const SESSION_ENDED_WHY = 'This stage’s session was ended, so nothing i
 
 /** An outcome is finished when it is not starting sessions and no pipeline is moving. Only a finished one can be put away. */
 export function outcomeFinished(record: { state: string; sessions: { state: string }[] }): boolean {
-  return record.state !== 'starting' && !record.sessions.some(piece => ['following', 'starting', 'advancing', 'waiting', 'ready_to_merge'].includes(piece.state))
+  return record.state !== 'starting' && !record.sessions.some(piece => ['following', 'starting', 'advancing', 'waiting', 'delivery_review', 'ready_to_merge'].includes(piece.state))
 }
 
 /** The page's headline numbers across every outcome. */
 export function factoryTally(records: { sessions: { state: string; conversationId?: string; sessionState?: string }[] }[], attention: ReadonlySet<string>): { running: number; needYou: number; ready: number; done: number } {
   const out = { running: 0, needYou: 0, ready: 0, done: 0 }
   for (const record of records) for (const piece of record.sessions) {
-    if (piece.state === 'ready_to_merge') out.ready++
+    if (piece.state === 'delivery_review') out.needYou++
+    else if (piece.state === 'ready_to_merge') out.ready++
     else if (piece.state === 'done') out.done++
     else if (['following', 'starting', 'advancing', 'waiting'].includes(piece.state)) {
       if (sessionLost(piece) || piece.conversationId && attention.has(piece.conversationId)) out.needYou++
@@ -555,7 +583,7 @@ export function factoryMembers(records: { id: string; objective: string; session
   const label = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
   for (const record of records) for (const piece of record.sessions) {
     const stages = piece.stages ?? []
-    const moving = ['following', 'starting', 'advancing', 'ready_to_merge'].includes(piece.state ?? 'following')
+    const moving = ['following', 'starting', 'advancing', 'delivery_review', 'ready_to_merge'].includes(piece.state ?? 'following')
     const base = { outcomeId: record.id, objective: record.objective, pipeline: piece.title, steps: stages.length, key: piece.key ?? '' }
     // Later stages that keep one session overwrite earlier ones, so a session shows the latest stage it is doing.
     stages.forEach((stage, index) => { if (stage.sessionId && index <= (piece.stage ?? 0)) out.set(stage.sessionId, { ...base, stage: label(stage.kind), step: index + 1, current: index === (piece.stage ?? 0), working: moving && stage.sessionId === piece.sessionId }) })
@@ -645,7 +673,12 @@ export const short = (text: string): string => { const line = text.replace(/\s+/
 /** The id of a pipeline's card on the Factory page, so Home and other pages can link straight to it. */
 export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
 
-export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'backup' | 'replace-worker' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
+/** The id of a pipeline's delivery review card on the Factory page. */
+export const deliveryAnchor = (outcomeId: string, key: string): string => `delivery-${outcomeId}-${key}`
+/** The Factory page opened on one pipeline with its delivery review in view and focused. */
+export const deliveryHref = (outcomeId: string, key: string): string => `/factory?pipeline=${encodeURIComponent(`${outcomeId}.${key}`)}&review=1`
+
+export type NeedChoice = { id: 'review' | 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'backup' | 'replace-worker' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
 /** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
 export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }
 export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend }
@@ -679,9 +712,18 @@ export function needsYou(goal: NeedGoal, reason: string | undefined, last: boole
   if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }])
   return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }], goal.advice)
 }
-type WaitingPiece = { key: string; title: string; state: string; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
+/** The pipeline's own note when it came back to review after it had been accepted: the work changed under the acceptance. */
+export const CHANGED_AFTER_ACCEPT = 'Delivery review. The work changed after you accepted it'
+export const changedAfterAccept = (note: string | undefined): boolean => (note ?? '').startsWith(CHANGED_AFTER_ACCEPT)
+/** What a pipeline in delivery review says about itself from the outcome list alone, with no read of the machine:
+ *  "Delivery review · 3 criteria", and how often it has already been sent back. */
+export function deliveryWhy(piece: { criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; note?: string }): string {
+  const count = piece.criteria?.length ?? 0, back = (piece.deliveries ?? []).filter(d => d.decision === 'send_back').length
+  return ['Delivery review', changedAfterAccept(piece.note) ? 'changed after you accepted it' : '', `${count} ${count === 1 ? 'criterion' : 'criteria'}`, back ? `sent back ${back === 1 ? 'once' : back === 2 ? 'twice' : `${back} times`} before` : ''].filter(Boolean).join(' · ')
+}
+type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
-export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' | 'usage_limit' }
+export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' | 'delivery' | 'usage_limit' }
 /** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used
  *  its budget, a stage whose session ended, and a merge that waits for approval. */
 export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[] }, goals: Map<string, { attention: boolean; reason?: string; goal: NeedGoal; workerUsageLimited?: boolean }>): WaitingDecision<P>[] {
@@ -691,6 +733,7 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
     const stage = stages.length ? stageLabel(stages[at].kind) : '', last = (piece.stage ?? 0) >= stages.length - 1
     const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
     if (sessionLost(piece)) out.push({ piece, stage, kind: 'ended', need: sessionEndedChoices(last, piece.sessionState === 'gone') })
+    else if (piece.state === 'delivery_review') out.push({ piece, stage, kind: 'delivery', need: recommend(deliveryWhy(piece), [{ id: 'review', label: 'Review delivery' }, { id: 'open', label: 'Open the session' }]) })
     else if (piece.state === 'ready_to_merge') out.push({ piece, stage, kind: 'merge', need: recommend('Ready to merge. Nothing merges until you approve it.', [{ id: 'merge', label: 'Approve the merge…' }, { id: 'open', label: 'Open the session' }]) })
     else if (goal && pipelineStatus(piece, goal.attention).label === 'Needs you') {
       if (goal.workerUsageLimited) {

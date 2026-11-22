@@ -4,6 +4,8 @@ import { baseSentence } from './baseNotice'
 
 type Detail = {
   host?: string
+  /** The Git commit a delivery decision was recorded on. */
+  commit?: string
   /** The effort chosen for a Factory stage that its agent does not offer. */
   effort?: string
   /** A decision Gaffer took for the person on a Factory outcome: what it chose, or that it could not. */
@@ -124,6 +126,11 @@ export function eventLabel(e: Event): string {
     case 'gaffer-stage-balanced': return `A pipeline's ${d.stage || 'next'} stage started on its backup agent${d.reason ? `: ${d.reason}` : ''}`
     case 'gaffer-stage-started': return d.stage ? `A pipeline's ${d.stage} stage started` : 'An outcome session started and Gaffer is following it'
     case 'gaffer-pipeline-waiting-merge': return 'A pipeline is ready and waits for your merge decision'
+    case 'gaffer-pipeline-waiting-delivery': return 'A pipeline is ready and waits for your delivery review'
+    case 'gaffer-delivery-accepted': return `A pipeline's delivery was accepted${d.commit ? ` on ${d.commit.slice(0, 7)}` : ''}; the merge approval is a separate decision`
+    case 'gaffer-delivery-sent-back': return `A pipeline's delivery was sent back${d.stage ? ` to its ${d.stage} stage` : ''}`
+    case 'gaffer-delivery-evidence': return `Added ${({ note: 'a reviewer note', check: 'a GitHub check', artefact: 'an artefact' } as Record<string, string>)[String(d.kind)] ?? 'evidence'} to a delivery criterion`
+    case 'gaffer-delivery-criteria': return 'Changed the acceptance criteria a pipeline is reviewed against'
     case 'gaffer-pipeline-done': return 'A pipeline finished every stage'
     case 'gaffer-session-ended': return 'The controller ended a session its pipeline had finished with'
     case 'gaffer-pipeline-stopped': return `A pipeline stopped${d.stage ? ` at its ${d.stage} stage` : ''}${d.reason ? `: ${d.reason}` : ''}`
@@ -453,7 +460,7 @@ export function eventCategory(e: Event): EventCategory {
   if (known) return known
   if (e.action.startsWith('project-')) return 'projects'
   if (e.action.startsWith('sync-agent-')) return 'agents'
-  if (e.action.startsWith('gaffer-tool') || e.action.startsWith('gaffer-stage-') || e.action.startsWith('gaffer-pipeline-') || e.action.startsWith('gaffer-goal-')) return 'agents'
+  if (e.action.startsWith('gaffer-tool') || e.action.startsWith('gaffer-stage-') || e.action.startsWith('gaffer-pipeline-') || e.action.startsWith('gaffer-delivery-') || e.action.startsWith('gaffer-goal-')) return 'agents'
   if (e.action.startsWith('bulk-') || e.action.startsWith('hosted-') || e.action.startsWith('skill-content-')) return 'skills'
   if (e.action.startsWith('list-')) return 'lists'
   if (e.action.startsWith('backup-') || e.action.startsWith('mail-') || e.action.startsWith('group-') || e.action.startsWith('ticket-')) return 'admin'

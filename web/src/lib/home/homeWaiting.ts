@@ -39,10 +39,10 @@ export function homeWaiting(items: FactoryItem[], cards: NeedCard[], goals: Goal
   return entries.sort((a, b) => a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 }
 
-type Label = 'decision' | 'approval' | 'merge' | 'question' | 'waiting' | 'stopped' | 'failed' | 'review' | 'gaffer' | 'skills'
-const ORDER: Label[] = ['decision', 'approval', 'merge', 'question', 'waiting', 'stopped', 'failed', 'review', 'gaffer', 'skills']
+type Label = 'decision' | 'approval' | 'delivery' | 'merge' | 'question' | 'waiting' | 'stopped' | 'failed' | 'review' | 'gaffer' | 'skills'
+const ORDER: Label[] = ['decision', 'approval', 'delivery', 'merge', 'question', 'waiting', 'stopped', 'failed', 'review', 'gaffer', 'skills']
 const WORDS: Record<Label, [string, string]> = {
-  decision: ['decision', 'decisions'], approval: ['approval', 'approvals'], merge: ['merge', 'merges'], question: ['question', 'questions'], waiting: ['waiting', 'waiting'],
+  decision: ['decision', 'decisions'], approval: ['approval', 'approvals'], delivery: ['delivery review', 'delivery reviews'], merge: ['merge', 'merges'], question: ['question', 'questions'], waiting: ['waiting', 'waiting'],
   stopped: ['stopped', 'stopped'], failed: ['failed', 'failed'], review: ['to review', 'to review'], gaffer: ['Gaffer goal', 'Gaffer goals'],
   skills: ['new skill', 'new skills'],
 }
@@ -52,7 +52,7 @@ function labelOf(entry: WaitingEntry): Label {
   if (entry.source === 'gaffer') return 'gaffer'
   if (entry.source === 'factory') {
     const kind = entry.item.kind
-    return kind === 'approval' || kind === 'merge' || kind === 'stopped' || kind === 'failed' ? kind : 'decision'
+    return kind === 'approval' || kind === 'delivery' || kind === 'merge' || kind === 'stopped' || kind === 'failed' ? kind : 'decision'
   }
   const { card } = entry
   if (card.kind === 'failed') return 'failed'

@@ -127,3 +127,18 @@ test('a stage whose agent has finished its turn says Gaffer is checking it, not 
   assert.equal(b.kind, 'running')
   assert.equal(b.why, 'The plan stage is under way.')
 })
+
+test('a pipeline in delivery review is in Waiting for you, named Delivery review, with Review delivery as its filled choice', () => {
+  const record = { id: 'o1', objective: 'Ship it', projectId: 'p1', sessions: [
+    piece('a', 'delivery_review', { stage: 2, criteria: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }], deliveries: [] }),
+    piece('b', 'delivery_review', { stage: 2, criteria: [{ id: 'c1' }], deliveries: [{ decision: 'send_back' }] }),
+  ] }
+  const items = f.factoryItems([record], new Map())
+  assert.deepEqual(items.map(i => [i.section, i.kind, i.chip]), [['waiting', 'delivery', 'Delivery review'], ['waiting', 'delivery', 'Delivery review']])
+  assert.deepEqual(items.map(i => i.why), ['Delivery review · 3 criteria', 'Delivery review · 1 criterion · sent back once before'])
+  assert.deepEqual(items[0].need.choices.filter(choice => choice.primary).map(choice => choice.label), ['Review delivery'])
+  assert.equal(items[0].nodes[2].state, 'waiting')
+  assert.equal(f.inSection(items, 'waiting').length, 2)
+  // Ready to merge stays its own thing: accepting the delivery is not approving the merge.
+  assert.equal(f.factoryItems([{ ...record, sessions: [piece('c', 'ready_to_merge')] }], new Map())[0].kind, 'merge')
+})

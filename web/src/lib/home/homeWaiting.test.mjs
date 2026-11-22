@@ -120,3 +120,10 @@ test('a plain waiting session is counted as waiting, as its chip says', () => {
   const out = w.homeWaiting([], [card('s1', 'waiting', 0), card('s2', 'waiting', 10, { reasons: ['question'], question: { questionId: 'q', message: 'm', truncated: false, queued: 0 } }), card('s3', 'failed', 20)])
   assert.equal(w.waitingSummary(out, HOUR), '1 question, 1 waiting, 1 failed · oldest 1 h')
 })
+
+test('a delivery review is a waiting entry of its own, counted as one, with the status the outcome list gives', () => {
+  const entries = w.homeWaiting([item('o.d', 'delivery', 'waiting', 0, { why: 'Delivery review · 3 criteria' }), item('o.m', 'merge', 'waiting', 5)], [])
+  assert.deepEqual(entries.map(e => e.id), ['o.d', 'o.m'])
+  assert.equal(entries[0].item.why, 'Delivery review · 3 criteria')
+  assert.equal(w.waitingSummary(entries, HOUR), '1 delivery review, 1 merge · oldest 1 h')
+})

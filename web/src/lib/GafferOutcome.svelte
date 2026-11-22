@@ -22,8 +22,9 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
+  import CriteriaEditor from './factory/CriteriaEditor.svelte'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
   import { cloneForStart } from './cloneForStart'
@@ -322,7 +323,9 @@
     try {
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted, reply: text, previous: previousPlan(summary, sessions) }, life.signal)
       summary = plan.summary
-      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
+      // Criteria the person typed are theirs, not Gaffer's: they stay with the pipeline of the same title, else the one in the same place.
+      const typed = sessions.map(old => ({ title: old.title.trim(), criteria: old.criteria }))
+      sessions = plan.sessions.map((item, at) => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages), ...carryCriteria(typed, item.title, at) }))
       planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
       declined = false
     } catch (e) {
@@ -386,7 +389,7 @@
     try {
       record = await createGafferOutcome({
         objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
         ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
       }, life.signal)
       step = 'results'
@@ -560,6 +563,7 @@
             </div>{/if}{/each}
           </div>{/if}
           {#if true}{@const count = (item.stages ?? []).reduce((sum, kind) => sum + Math.max(1, stageParts(item, kind).length), 0)}{@const splits = (item.stages ?? []).filter(kind => stageParts(item, kind).length > 1).length}<p class="hint">{item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}{splits ? `, ${splits} split into parts: ${count} agent sessions in all, one after another.` : ', each in an agent session of its own.'}</p>{/if}
+          <CriteriaEditor bind:items={item.criteria} who={`pipeline ${index + 1}`} disabled={busy}/>
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a pipeline</button>{/if}

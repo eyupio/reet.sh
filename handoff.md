@@ -1,5 +1,49 @@
 # Reet central-control implementation handoff
 
+## FACTORY-DELIVERY-REVIEW-2: delivery review UI (22 November 2026)
+
+Stage 2 of [the delivery review plan](docs/handoffs/factory-delivery-review.md), on top of
+`FACTORY-DELIVERY-REVIEW-1` below, built to
+[the contract](docs/handoffs/factory-delivery-review-design.md).
+
+**What changed.**
+
+- **Plan approval.** `web/src/lib/factory/CriteriaEditor.svelte`, used by `GafferOutcome.svelte` and
+  `AddPipelines.svelte`: an editable list of acceptance criteria per pipeline, sent as `criteria` only when there are
+  some. A reply to Gaffer keeps the criteria already typed.
+- **The card.** `web/src/lib/factory/DeliveryReview.svelte` with pure helpers in `delivery.ts`, shown in
+  `PipelineDetail` for a pipeline with criteria. It shows the reviewed commit, branch and pull request, each criterion
+  as **Passed**, **Needs work** or **Unverified** with its evidence, **Add evidence**, **Edit criteria**, and
+  **Accept delivery** and **Send back** beside the findings. A pipeline waiting for review, or one opened from Home,
+  is read at once; any other shows **Show the delivery review**, so choosing a pipeline asks no machine anything.
+- **Decisions.** Both send the criteria revision, review revision, commit and statuses on screen, with a request ID
+  kept only for a retry of the same attempt. A 409 keeps what was typed, says what changed and reloads the review.
+  What accepting leads to is worked out from the pipeline's own merge setting, and the copy says throughout that
+  accepting is not approving the merge.
+- **State.** `delivery_review` is in **Waiting for you** everywhere pipeline states are read (`gafferOutcome.ts`,
+  `factoryList.ts`, `homeWaiting.ts`, `SessionDecision`), with **Review delivery** as its button. A pipeline that
+  came back after acceptance says why and that the acceptance and merge approval were withdrawn.
+- **Home.** The waiting card reads "Delivery review · 3 criteria" from the outcome list alone and links to
+  `/factory?pipeline=<outcome>.<key>&review=1`, which selects the pipeline, brings the card into view and focuses its
+  heading. Reload keeps it and Back returns to Home.
+
+**Independent review.** A separate reviewer compared the UI with the finished backend and found one blocker (the
+check picker threw when two CI jobs shared a name) and several smaller faults, fixed here: stale "what accepting leads
+to", no reason shown for a returned review, two wrong conflict messages, a miscounted history line, criteria lost on
+a reply to Gaffer, Edit criteria offered where the server refuses it, focus lost after a refusal, needless machine
+re-reads, and browser fixtures that did not match what the server sends.
+
+**Tests.** `web/tests/factory-delivery.e2e.mjs` runs at 1440 and 390 wide, with Accept and Send back by keyboard:
+criteria into the create body, the card's states, both decisions and their bodies, the separate merge approval, the
+409s, a retry reusing its request ID, a double click, duplicate check names, long text at phone width, an old
+outcome with no card and no machine read, and Home's link. It is added to `gaffer-settings.yml`. `npm run check`
+passes (118 test files, 0 Svelte errors, 0 warnings), and against `vite preview` the suites `factory-delivery`,
+`gaffer-factory`, `factory-decision`, `gaffer-outcome`, `home-waiting`, `gaffer-factory-session`, `factory-pieces`,
+`home-followups`, `phone-dialogs` and `phone-layout` pass.
+
+**Not done.** The send-back stage is not changed by keyboard in the browser test (the default stage is kept), and the
+reply-to-Gaffer carry-over has a unit test only.
+
 ## FACTORY-DELIVERY-REVIEW-1: delivery review backend (22 November 2026)
 
 Stages 0 and 1 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract both stages build

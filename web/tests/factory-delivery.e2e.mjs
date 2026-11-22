@@ -23,14 +23,16 @@ function fixture(over={}){
   box.texts={...TEXTS}
   box.ids=['c1','c2','c3']
   const evidence=[
-    {id:'e1',criterionId:'c1',kind:'check',name:'test',state:'SUCCESS',verdict:'passed',commit:HEAD1,criteriaRevision:1,url:'https://github.com/acme/billing/actions/runs/1',byName:'GitHub',at:now-30*60000},
+    {id:'e1',criterionId:'c1',kind:'check',name:'test',state:'SUCCESS',verdict:'passed',commit:HEAD1,criteriaRevision:1,url:'https://github.com/acme/billing/actions/runs/1',byName:'Paul',at:now-30*60000},
     ...(over.noNeedsWork?[]:[{id:'e2',criterionId:'c2',kind:'note',verdict:'needs_work',text:'Rounds the pence down.',commit:HEAD1,criteriaRevision:1,byName:'Paul',at:now-20*60000}]),
     {id:'e3',criterionId:'c3',kind:'note',verdict:'passed',text:'Checked by hand on the old commit.',commit:HEAD0,criteriaRevision:1,byName:'Paul',at:now-3*3600000},
-    {id:'e4',criterionId:'c3',kind:'check',name:'security',state:'EXPECTED',verdict:'',commit:HEAD1,criteriaRevision:1,unverified:true,byName:'GitHub',at:now-10*60000},
+    {id:'e4',criterionId:'c3',kind:'check',name:'security',state:'EXPECTED',verdict:'',commit:HEAD1,criteriaRevision:1,unverified:true,byName:'Paul',at:now-10*60000},
   ]
   box.evidence=evidence
   const piece={key:'a',title:'Export API',prompt:'p',state:'delivery_review',note:'Waiting for your delivery review.',sessionId:'s-a',conversationId:'1'.repeat(32),sessionState:'running',updatedAt:now-5*60000,stage:3,
-    stages:[st('code','done'),st('review','done'),st('test','done'),st('merge','pending')],criteria:Object.keys(TEXTS).map(id=>({id,text:TEXTS[id],revision:1})),criteriaRevision:1,reviewRevision:3,deliveries:[]}
+    stages:[st('code','done'),st('review','done'),st('test','done'),st('merge','pending')],criteria:Object.keys(TEXTS).map(id=>({id,text:over.long&&id==='c1'?'x'.repeat(240):TEXTS[id],revision:1})),criteriaRevision:1,reviewRevision:3,deliveries:[]}
+  if(over.note)piece.note=over.note
+  if(over.long)box.recorded=[{requestId:'a'.repeat(32),decision:'send_back',commit:HEAD0,criteriaRevision:1,byName:'Paul'.repeat(20),at:now-7200000,notes:'n'.repeat(300),stage:'code',statuses:{c1:'needs_work',c2:'passed',c3:'unverified'},failed:['c1']}]
   const other={key:'b',title:'Importer retry',prompt:'p',state:'following',note:'The code stage is under way.',sessionId:'s-b',conversationId:'2'.repeat(32),sessionState:'running',updatedAt:now,stage:0,stages:[st('code','running',{sessionId:'s-b',conversationId:'2'.repeat(32)}),st('merge','pending')]}
   const outcome={id:oid,revision:5,objective:'Ship CSV export for billing.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'billing',dir:'/work/billing',tool:'claude',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now,sessions:[piece,other]}
   const statusOf=c=>{
@@ -40,9 +42,9 @@ function fixture(over={}){
   const review=()=>{
     const criteria=piece.criteria.map(c=>({id:c.id,text:c.text,status:statusOf(c),evidence:box.evidence.filter(e=>e.criterionId===c.id).map(e=>({...e,historical:e.commit!==box.head,unverified:!!e.unverified}))}))
     const accepted=box.recorded.length>0&&box.recorded.at(-1).decision==='accept'
-    return {outcomeId:oid,key:'a',title:'Export API',state:piece.state,open:piece.state==='delivery_review',criteriaRevision:box.criteriaRevision,reviewRevision:box.rev,commit:box.commitState==='none'?'':box.head,commitState:box.commitState,commitNote:box.commitState==='unverified'?'The machine is too old to report its folder’s commit.':'',branch:'reet/export-api',remote:'acme/billing',
-      pull:{number:12,url:'https://github.com/acme/billing/pull/12',state:'OPEN',headCommit:box.pullAtHead?box.head:HEAD0,atHead:box.pullAtHead},checks:[{name:'test',state:'SUCCESS',tone:'good',url:'https://github.com/acme/billing/actions/runs/1'},{name:'lint',state:'FAILURE',tone:'bad',url:'https://github.com/acme/billing/actions/runs/2'}],
-      criteria,decisions:box.recorded,accepted,acceptedCommit:accepted?box.recorded.at(-1).commit:'',acceptedCurrent:accepted&&box.recorded.at(-1).commit===box.head,stages:['code','review','test'],defaultStage:'code',next:'ready_to_merge'}
+    return {outcomeId:oid,key:'a',title:'Export API',state:piece.state,open:piece.state==='delivery_review',criteriaRevision:box.criteriaRevision,reviewRevision:box.rev,commit:box.commitState==='verified'?box.head:'',commitState:box.commitState,commitNote:box.commitState==='unverified'?'The machine is too old to report its folder’s commit.':'',branch:box.long?'reet/'+'long-branch-name-'.repeat(8):'reet/export-api',remote:box.noRemote?'':'acme/billing',
+      pull:{number:12,url:'https://github.com/acme/billing/pull/12',state:'OPEN',headCommit:box.pullAtHead?box.head:HEAD0,atHead:box.pullAtHead},checks:box.pullAtHead&&box.commitState==='verified'?[{name:'test',state:'SUCCESS',tone:'good',url:'https://github.com/acme/billing/actions/runs/1'},...(box.dupChecks?[{name:'test',state:'SUCCESS',tone:'good',url:'https://github.com/acme/billing/actions/runs/3'}]:[]),{name:'lint',state:'FAILURE',tone:'bad',url:'https://github.com/acme/billing/actions/runs/2'}]:[],
+      criteria,decisions:box.recorded,accepted,acceptedCommit:accepted?box.recorded.at(-1).commit:'',acceptedCurrent:accepted&&box.recorded.at(-1).commit===box.head,stages:box.stagesEmpty?[]:['code','review','test'],defaultStage:box.stagesEmpty?'':'code',next:'ready_to_merge'}
   }
   const bump=()=>{box.rev++;piece.reviewRevision=box.rev;outcome.revision++;piece.criteriaRevision=box.criteriaRevision}
   const path=`/api/v2/gaffer/outcomes/${oid}/sessions/a/delivery`
@@ -52,6 +54,7 @@ function fixture(over={}){
     '/api/v2/gaffer/goals':()=>({goals:[],readAt:Date.now()}),
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()==='POST'){const input=request.postDataJSON();box.approved.push(input);return{status:201,json:{id:'d'.repeat(32),revision:1,objective:input.objective,state:'settled',note:'',agentId:'a1',projectId:input.projectId,projectName:'billing',dir:'/work/billing',tool:input.tool,providerId:pid,maxReviews:input.maxReviews,hours:input.hours,createdAt:now,updatedAt:now,sessions:input.sessions.map((s,n)=>({key:'abc'[n],title:s.title,prompt:s.prompt,state:'following',note:'Started and followed.',updatedAt:now,stage:0,stages:s.stages.map(x=>st(x.kind,'pending'))}))}}}
+      if(box.promoting){if(box.promoting>1){Object.assign(piece,{state:'ready_to_merge',note:'Ready to merge. Nothing merges until you approve it.'});outcome.revision++;box.promoting=0}else box.promoting++}
       return {outcomes:[outcome]}
     },
     [`/api/v2/gaffer/outcomes/${'d'.repeat(32)}`]:()=>({id:'d'.repeat(32),revision:1,state:'settled',sessions:[]}),
@@ -90,13 +93,16 @@ function fixture(over={}){
         const code=box.conflictNext;box.conflictNext=''
         if(code==='delivery_head_changed'){box.head=HEAD2;bump()}
         if(code==='delivery_closed'){piece.state='ready_to_merge';bump()}
+        if(code==='delivery_criteria_changed'){box.criteriaRevision++;bump()}
         return{status:409,json:{error:'The review moved on.',code}}
       }
       if(piece.state!=='delivery_review')return{status:409,json:{error:'closed',code:'delivery_closed'}}
-      if(body.reviewRevision!==box.rev||body.commit!==box.head||body.criteriaRevision!==box.criteriaRevision)return{status:409,json:{error:'changed',code:'delivery_changed'}}
-      const decision={requestId:body.requestId,decision:body.decision,commit:body.commit,criteriaRevision:body.criteriaRevision,byName:'Sam',at:Date.now(),notes:body.notes??'',stage:body.stage??'',statuses:body.statuses,failed:Object.entries(body.statuses).filter(([,s])=>s!=='passed').map(([id])=>id)}
+      if(body.criteriaRevision!==box.criteriaRevision)return{status:409,json:{error:'changed',code:'delivery_criteria_changed'}}
+      if(body.commit!==(box.commitState==='verified'?box.head:''))return{status:409,json:{error:'changed',code:'delivery_head_changed'}}
+      if(body.reviewRevision!==box.rev)return{status:409,json:{error:'changed',code:'delivery_changed'}}
+      const decision={requestId:body.requestId,decision:body.decision,commit:body.commit,criteriaRevision:body.criteriaRevision,byName:'Sam',at:Date.now(),notes:body.notes??'',stage:body.stage??'',statuses:body.statuses,failed:Object.entries(body.statuses).filter(([,s])=>s==='needs_work').map(([id])=>id)}
       box.recorded.push(decision);piece.deliveries=[...piece.deliveries,{decision:body.decision}]
-      if(body.decision==='accept'){piece.state='ready_to_merge';piece.note='Ready to merge. Nothing merges until you approve it.'}
+      if(body.decision==='accept'){piece.state='advancing';piece.note='You accepted the delivery. Moving on.';piece.deliveryAccepted=true;box.promoting=1}
       else{piece.state='advancing';piece.note=`Sent back to the ${body.stage} stage.`;piece.stage=['code','review','test'].indexOf(body.stage);piece.stages=piece.stages.map((s,n)=>n>=piece.stage?{...s,state:n===piece.stage?'running':'pending'}:s);piece.sessionId='s-a2'}
       bump();return{outcome,review:review(),decision}
     },
@@ -177,7 +183,7 @@ try{
     //    reviewed commit and the pull request. Opening it from the address focuses it and reads it at once.
     {
       let release;const gate=new Promise(r=>{release=r})
-      const {f,w,page}=await open(width,theme,{},{gates:{[`/api/v2/gaffer/outcomes/${oid}/sessions/a/delivery`]:gate}})
+      const {f,w,page}=await open(width,theme,{dupChecks:true},{gates:{[`/api/v2/gaffer/outcomes/${oid}/sessions/a/delivery`]:gate}})
       try{
         await page.goto(REVIEW)
         const card=cardOf(page)
@@ -202,7 +208,7 @@ try{
         await expect(card).toContainText('1 of 3 criteria passed · 1 needs work · 1 unverified')
         expect(await items.nth(0).locator('.glyph').getAttribute('aria-hidden')).toBe('true')
         const e1=items.nth(0).getByRole('list',{name:'Evidence for criterion 1',exact:true})
-        await expect(e1).toContainText('GitHub check');await expect(e1).toContainText('test');await expect(e1).toContainText('Passed');await expect(e1).toContainText('GitHub')
+        await expect(e1).toContainText('GitHub check');await expect(e1).toContainText('test');await expect(e1).toContainText('Passed');await expect(e1).toContainText('added by Paul')
         await expect(e1.getByRole('link',{name:'Open the check',exact:true})).toHaveAttribute('href','https://github.com/acme/billing/actions/runs/1')
         const e2=items.nth(1).getByRole('list',{name:'Evidence for criterion 2',exact:true})
         await expect(e2).toContainText('Reviewer note');await expect(e2).toContainText('Needs work');await expect(e2).toContainText('Rounds the pence down.');await expect(e2).toContainText('Paul')
@@ -232,8 +238,8 @@ try{
         await card.getByRole('button',{name:'Add evidence for criterion 1',exact:true}).click()
         const f1=card.getByRole('form',{name:'Add evidence for criterion 1',exact:true})
         await f1.getByRole('combobox',{name:'What kind',exact:true}).selectOption('check')
-        await expect(f1.getByRole('combobox',{name:'Check',exact:true}).getByRole('option')).toHaveText(['Choose a check','test · Passed','lint · Failed'])
-        await f1.getByRole('combobox',{name:'Check',exact:true}).selectOption('lint')
+        await expect(f1.getByRole('combobox',{name:'Check',exact:true}).getByRole('option')).toHaveText(['Choose a check','test · Passed','test · Passed','lint · Failed'])
+        await f1.getByRole('combobox',{name:'Check',exact:true}).selectOption({label:'lint · Failed'})
         await f1.getByRole('button',{name:'Add evidence',exact:true}).click()
         await expect(items.nth(0)).toContainText('Needs work')
         expect(f.box.evidenceBodies[1]).toMatchObject({reviewRevision:4,criterionId:'c1',kind:'check',name:'lint'})
@@ -258,7 +264,12 @@ try{
         await card.getByRole('button',{name:'Retry',exact:true}).click()
         await expect(card.getByText('Waiting for your decision',{exact:true})).toBeVisible()
         await expect(card).toContainText('Could not be verified: The machine is too old to report its folder’s commit.')
-        await expect(card.getByRole('note').filter({hasText:'is not the reviewed commit'})).toContainText(`Its head (${HEAD0.slice(0,7)}) is not the reviewed commit (${FIRST}), so its checks do not count until they do.`)
+        await expect(card.getByRole('note').filter({hasText:'is not the reviewed commit'})).toContainText(`Its head (${HEAD0.slice(0,7)}) is not the reviewed commit, so its checks do not count until they do.`)
+        await expect(card).toContainText('No commit could be read')
+        await expect(card.getByRole('button',{name:/^Copy the full commit ID/})).toHaveCount(0)
+        await card.getByRole('button',{name:'Add evidence for criterion 1',exact:true}).click()
+        await card.getByRole('form',{name:'Add evidence for criterion 1',exact:true}).getByRole('combobox',{name:'What kind',exact:true}).selectOption('check')
+        await expect(card).toContainText('The pull request is not at the reviewed commit, so its checks are not offered.')
         // A decision is not offered while the commit cannot be verified.
         await expect(card.getByRole('button',{name:'Accept delivery',exact:true})).toBeDisabled();await expect(card.getByRole('button',{name:'Send back',exact:true})).toBeDisabled()
         await expect(card.getByRole('note').filter({hasText:'A decision is not recorded until it can.'})).toBeVisible()
@@ -296,13 +307,15 @@ try{
         await expect(card.getByRole('heading',{name:'Delivery review',level:3})).toBeFocused()
         await expect(card.getByRole('button',{name:'Accept delivery',exact:true})).toHaveCount(0)
         await expect(card).toContainText(`The delivery was accepted on the current commit (${FIRST}).`)
-        await expect(card).toContainText('Accepting the delivery did not approve the merge. This pipeline waits at Ready to merge: Approve the merge is its own action on this page.')
+        // The pipeline is advancing for a moment; the polled list then brings it to Ready to merge, with no new read of the machine.
+        await expect(card).toContainText('Accepting the delivery did not approve the merge. This pipeline waits at Ready to merge: Approve the merge is its own action on this page.',{timeout:15000})
+        expect(f.box.reads).toBe(1)
         const recorded=card.getByRole('list',{name:'Recorded decisions, newest first',exact:true})
         await expect(recorded).toContainText(`Accepted on ${FIRST} by Sam`)
         // Nothing merged: the existing merge approval is its own action, still there to be pressed.
         expect(f.box.merges).toEqual([])
-        await expect(page.getByRole('region',{name:'Export API',exact:true}).getByRole('button',{name:/^Approve the merge/})).toBeVisible()
-        await expect(page.getByRole('region',{name:'Export API',exact:true}).locator('.chip').first()).toHaveText('Ready to merge')
+        await expect(page.getByRole('region',{name:'Export API',exact:true}).getByRole('button',{name:/^Approve the merge/})).toBeVisible({timeout:15000})
+        await expect(page.getByRole('region',{name:'Export API',exact:true}).locator('.chip').first()).toHaveText('Ready to merge',{timeout:15000})
         expect(f.box.writes).toEqual([`POST /api/v2/gaffer/outcomes/${oid}/sessions/a/delivery/decision`])
         await noOverflow(page,card);await card.screenshot({path:`${shots}/card-accepted-${width}-${theme}.png`})
         expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
@@ -395,7 +408,8 @@ try{
         const card=cardOf(page)
         await card.getByRole('button',{name:'Accept delivery',exact:true}).click()
         await card.getByRole('button',{name:'Accept anyway',exact:true}).click()
-        await expect(card.getByRole('alert')).toContainText('Someone else already decided this delivery.')
+        await expect(card.getByRole('alert')).toContainText('This delivery was already decided, or is no longer waiting for a decision.')
+        await expect(card.getByRole('heading',{name:'Delivery review',level:3})).toBeFocused()
         await expect(card.getByRole('button',{name:'Accept delivery',exact:true})).toHaveCount(0)
         expect(f.box.decisions.length).toBe(1)
       }finally{await w.context.close()}
@@ -410,6 +424,8 @@ try{
         await card.getByRole('button',{name:'Accept delivery',exact:true}).click()
         await card.getByRole('button',{name:'Accept anyway',exact:true}).click()
         await expect(card.getByRole('alert')).toContainText('502 Bad Gateway')
+        await expect(card.getByRole('alert')).toContainText('Trying again is safe')
+        await expect(card.getByRole('button',{name:'Accept delivery',exact:true})).toBeFocused()
         await card.getByRole('button',{name:'Accept delivery',exact:true}).click()
         await card.getByRole('button',{name:'Accept anyway',exact:true}).click()
         await expect(card.getByRole('status').filter({hasText:'Delivery accepted'})).toBeVisible()
@@ -462,13 +478,146 @@ try{
         await edit.getByRole('button',{name:'Add another criterion',exact:true}).click()
         await edit.getByRole('button',{name:'Save criteria',exact:true}).click()
         await expect(card.getByRole('alert')).toContainText('The criteria were changed while you were looking at them. The review below is as it is now. What you typed is kept.')
-        await expect(edit.getByRole('textbox',{name:'Criterion 2 for Export API',exact:true})).toHaveValue('Totals match the ledger to the penny.')
+        await expect(edit.getByRole('textbox',{name:'Criterion 2 for Export API',exact:true})).toHaveValue(TEXTS.c2)
+        await expect(card.getByRole('note').filter({hasText:'What you typed, to copy from:'})).toContainText('Totals match the ledger to the penny.')
+        await expect(card.getByRole('note').filter({hasText:'What you typed, to copy from:'})).toContainText('The file opens in a spreadsheet.')
         expect(f.box.puts[0]).toEqual({criteriaRevision:1,criteria:[{id:'c1',text:TEXTS.c1},{id:'c2',text:'Totals match the ledger to the penny.'},{text:'The file opens in a spreadsheet.'}]})
+        await edit.getByRole('textbox',{name:'Criterion 2 for Export API',exact:true}).fill('Totals match the ledger to the penny.')
         await edit.getByRole('button',{name:'Save criteria',exact:true}).click()
         await expect.poll(()=>f.box.puts.length).toBe(2)
         expect(f.box.puts[1].criteriaRevision).toBe(2)
         await expect(card.getByRole('button',{name:'Edit criteria',exact:true})).toBeFocused()
         await expect(card.getByRole('list',{name:'Acceptance criteria',exact:true}).locator(':scope > li')).toHaveCount(3)
+      }finally{await w.context.close()}
+    }
+
+    // 8b. The review goes back to the person after an acceptance when the work changed under it: the pipeline's own note
+    //     says why and that the approval was withdrawn, on the card, on the pipeline's page and on Home.
+    {
+      const note='Delivery review. The work changed after you accepted it: a new commit arrived, the criteria were reworded, or the commit could not be read. Nothing merges until you accept what is there now.'
+      const {f,w,page}=await open(width,theme,{note,recorded:[{requestId:'f'.repeat(32),decision:'accept',commit:HEAD0,criteriaRevision:1,byName:'Paul',at:now-3600000,notes:'',stage:'',statuses:{c1:'passed',c2:'passed',c3:'passed'},failed:[]}]})
+      try{
+        f.piece.deliveries=[{decision:'accept'}]
+        await page.goto(base+'/')
+        const item=page.locator('article').filter({hasText:'Export API'}).first()
+        await expect(item).toContainText('Delivery review · changed after you accepted it · 3 criteria')
+        expect(f.box.reads).toBe(0)
+        await page.goto(REVIEW)
+        const card=cardOf(page)
+        await expect(card.getByRole('note').filter({hasText:'The work changed after you accepted it'})).toContainText('Your acceptance and any merge approval you gave were withdrawn.')
+        await expect(page.getByRole('region',{name:'What is waiting',exact:true})).toContainText('The work changed after you accepted it, so your acceptance and any merge approval were withdrawn.')
+        await expect(card.getByRole('button',{name:'Accept delivery',exact:true})).toBeEnabled()
+        await noOverflow(page,card)
+      }finally{await w.context.close()}
+    }
+
+    // 8c. The criteria change under a decision: it is refused with that reason, the typed notes stay, the review is read
+    //     again, and the keyboard is back on the button that was pressed.
+    {
+      const {f,w,page}=await open(width,theme,{conflictNext:'delivery_criteria_changed'})
+      try{
+        await page.goto(REVIEW)
+        const card=cardOf(page)
+        await card.getByRole('button',{name:'Send back',exact:true}).click()
+        const form=card.getByRole('form',{name:'Send this delivery back',exact:true})
+        await form.getByRole('textbox',{name:'Notes for the agent',exact:true}).fill('Keep this text.')
+        await form.getByRole('button',{name:'Send back',exact:true}).click()
+        await expect(card.getByRole('alert')).toContainText('The criteria were changed while you were looking at them. The review below is as it is now. What you typed is kept.')
+        await expect(form.getByRole('textbox',{name:'Notes for the agent',exact:true})).toHaveValue('Keep this text.')
+        await expect(card.getByRole('button',{name:'Send back',exact:true}).first()).toBeFocused()
+        expect(f.box.reads).toBe(2)
+        await form.getByRole('button',{name:'Send back',exact:true}).click()
+        await expect.poll(()=>f.box.decisions.length).toBe(2)
+        expect(f.box.decisions[1].criteriaRevision).toBe(2)
+        // Cancelling the form puts the keyboard back on its toggle.
+      }finally{await w.context.close()}
+    }
+
+    // 8d. Send back by keyboard alone, and Cancel returns to the toggle.
+    {
+      const {f,w,page}=await open(width,theme)
+      try{
+        await page.goto(REVIEW)
+        const card=cardOf(page)
+        await expect(card.getByText('Waiting for your decision',{exact:true})).toBeVisible()
+        await tabTo(page,'Send back')
+        await page.keyboard.press('Enter')
+        const form=card.getByRole('form',{name:'Send this delivery back',exact:true})
+        await expect(form).toBeVisible()
+        await page.keyboard.press('Tab');await expect(form.getByRole('combobox',{name:'Stage to do again',exact:true})).toBeFocused()
+        await expect(form.getByRole('combobox',{name:'Stage to do again',exact:true})).toHaveValue('code')
+        await page.keyboard.press('Tab');await expect(form.getByRole('textbox',{name:'Notes for the agent',exact:true})).toBeFocused()
+        await page.keyboard.type('Use banker’s rounding.')
+        await page.keyboard.press('Tab');await expect(form.getByRole('button',{name:'Send back',exact:true})).toBeFocused()
+        await page.keyboard.press('Tab');await expect(form.getByRole('button',{name:'Cancel',exact:true})).toBeFocused()
+        await page.keyboard.press('Enter')
+        await expect(form).toHaveCount(0)
+        await expect(card.getByRole('button',{name:'Send back',exact:true})).toBeFocused()
+        expect(f.box.decisions).toEqual([])
+        await page.keyboard.press('Enter')
+        // The notes typed before Cancel are still there: Tab past the stage and them to the submit button.
+        await page.keyboard.press('Tab');await page.keyboard.press('Tab');await page.keyboard.press('Tab');await page.keyboard.press('Enter')
+        await expect.poll(()=>f.box.decisions.length).toBe(1)
+        expect(f.box.decisions[0]).toMatchObject({decision:'send_back',stage:'code',notes:'Use banker’s rounding.',confirmed:true})
+        await expect(card.getByRole('heading',{name:'Delivery review',level:3})).toBeFocused()
+      }finally{await w.context.close()}
+    }
+
+    // 8e. Long words in a criterion, the branch, a person's name and a note never push the page sideways.
+    {
+      const {f,w,page}=await open(width,theme,{long:true})
+      try{
+        await page.goto(REVIEW)
+        const card=cardOf(page)
+        await expect(card.getByText('Waiting for your decision',{exact:true})).toBeVisible()
+        await expect(card).toContainText('x'.repeat(240))
+        await expect(card).toContainText('n'.repeat(300))
+        await card.getByRole('button',{name:'Send back',exact:true}).click()
+        await card.getByRole('form',{name:'Send this delivery back',exact:true}).getByRole('textbox',{name:'Notes for the agent',exact:true}).fill('w'.repeat(400))
+        await noOverflow(page,card);await card.screenshot({path:`${shots}/card-long-${width}-${theme}.png`})
+        // The history counts what was not Passed from the statuses it was shown, not from the failures alone.
+        await expect(card.getByRole('list',{name:'Recorded decisions, newest first',exact:true})).toContainText('Not passed then: 2 criteria.')
+      }finally{await w.context.close()}
+    }
+
+    // 8f. Not a Git repository, and a pipeline with no stage before its merge: no commit to copy, notes only for evidence,
+    //     and Send back says why it is not offered. Accepting records no commit.
+    {
+      const {f,w,page}=await open(width,theme,{commitState:'none',noRemote:true,stagesEmpty:true})
+      try{
+        await page.goto(REVIEW)
+        const card=cardOf(page)
+        await expect(card).toContainText('No commit: not a Git repository')
+        await expect(card.getByRole('button',{name:'Send back',exact:true})).toBeDisabled()
+        await expect(card).toContainText('Send back is not offered: this pipeline has no stage before its merge to do again.')
+        await card.getByRole('button',{name:'Add evidence for criterion 1',exact:true}).click()
+        const kind=card.getByRole('form',{name:'Add evidence for criterion 1',exact:true}).getByRole('combobox',{name:'What kind',exact:true})
+        await expect(kind).toBeDisabled();await expect(kind.getByRole('option')).toHaveText(['Reviewer note'])
+        await card.getByRole('button',{name:'Accept delivery',exact:true}).click()
+        await card.getByRole('button',{name:'Accept anyway',exact:true}).click()
+        await expect(card.getByRole('status').filter({hasText:'Delivery accepted.'})).toBeVisible()
+        expect(f.box.decisions[0].commit).toBe('')
+      }finally{await w.context.close()}
+    }
+
+    // 8g. Another reviewer decides while this card is open: the polled list leaves delivery review and the card reads again
+    //     (once), showing no decision to make. The merge setting changing is worked out on the page, with no read.
+    {
+      const {f,w,page}=await open(width,theme)
+      try{
+        await page.goto(REVIEW)
+        const card=cardOf(page)
+        await expect(card.getByText('Waiting for your decision',{exact:true})).toBeVisible()
+        expect(f.box.reads).toBe(1)
+        // Letting the pipeline merge by itself changes what accepting leads to, and asks the machine nothing.
+        f.piece.autoMerge=true
+        await expect(card.getByRole('group',{name:'Your decision on this delivery',exact:true})).toContainText('goes on to its merge stage and merges by itself once its checks pass',{timeout:15000})
+        expect(f.box.reads).toBe(1)
+        f.box.recorded.push({requestId:'c'.repeat(32),decision:'accept',commit:HEAD1,criteriaRevision:1,byName:'Paul',at:Date.now(),notes:'',stage:'',statuses:{c1:'passed',c2:'passed',c3:'passed'},failed:[]})
+        Object.assign(f.piece,{state:'ready_to_merge',note:'Ready to merge.'});f.box.rev++;f.piece.reviewRevision=f.box.rev;f.outcome.revision++
+        await expect(card.getByRole('button',{name:'Accept delivery',exact:true})).toHaveCount(0,{timeout:20000})
+        await expect(card).toContainText('The delivery was accepted on the current commit')
+        expect(f.box.reads).toBe(2)
       }finally{await w.context.close()}
     }
 
@@ -498,7 +647,7 @@ try{
         await expect(card).toContainText('3 criteria agreed')
         expect(f.box.reads).toBe(0)
         await card.getByRole('button',{name:'Show the delivery review',exact:true}).click()
-        await expect(card.getByText('Not open',{exact:true})).toBeVisible()
+        await expect(card.getByText('No decision waiting',{exact:true})).toBeVisible()
         expect(f.box.reads).toBe(1)
       }finally{await w.context.close()}
     }

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,32 +98,95 @@ func HashToken(token string) string {
 }
 
 // Limiter is a fixed-window attempt limiter keyed by one or more strings.
+// An attempt reads and prunes only its own keys; the whole map is walked at
+// most once a window to drop keys that went quiet, and when it is full.
 type Limiter struct {
 	mu     sync.Mutex
 	max    int
 	window time.Duration
-	hits   map[string][]time.Time
+	hits   map[string][]time.Time // each key's attempts, oldest first
+	// maxKeys bounds the map: keys are strings an attacker chooses, such as
+	// emails that do not exist, and an hour-long window would otherwise keep
+	// every one of them.
+	maxKeys   int
+	nextSweep time.Time
+	scans     int // walks of the whole map, for tests
 }
+
+// maxLimiterKeys is how many keys one limiter holds at once.
+const maxLimiterKeys = 100_000
 
 func NewLimiter(max int, window time.Duration) *Limiter {
-	return &Limiter{max: max, window: window, hits: map[string][]time.Time{}}
+	return &Limiter{max: max, window: window, hits: map[string][]time.Time{}, maxKeys: maxLimiterKeys}
 }
 
-func (l *Limiter) pruneLocked(now time.Time) {
+// liveLocked returns key's attempts inside the window, dropping older ones.
+func (l *Limiter) liveLocked(key string, now time.Time) []time.Time {
+	times := l.hits[key]
 	cutoff := now.Add(-l.window)
-	for key, times := range l.hits {
-		kept := times[:0]
-		for _, at := range times {
-			if at.After(cutoff) {
-				kept = append(kept, at)
+	i := 0
+	for i < len(times) && !times[i].After(cutoff) {
+		i++
+	}
+	if i > 0 {
+		if i == len(times) {
+			delete(l.hits, key)
+			return nil
+		}
+		times = times[i:]
+		l.hits[key] = times
+	}
+	return times
+}
+
+// pruneLocked walks the whole map, dropping attempts outside the window.
+func (l *Limiter) pruneLocked(now time.Time) {
+	l.scans++
+	l.nextSweep = now.Add(l.window)
+	for key := range l.hits {
+		l.liveLocked(key, now)
+	}
+}
+
+// sweepLocked prunes the whole map at most once a window.
+func (l *Limiter) sweepLocked(now time.Time) {
+	if !now.Before(l.nextSweep) {
+		l.pruneLocked(now)
+	}
+}
+
+// recordLocked records one attempt for key. A new key at the bound first
+// drops expired keys and then, if that freed too little, an eighth of the
+// bound in keys with the fewest attempts, the oldest among equals. Freeing a
+// batch keeps the walk rare; dropping the fewest keeps a flood of one-off keys
+// from pushing out the key of an account that is being guessed at, and
+// nobody is refused because the map is full.
+func (l *Limiter) recordLocked(key string, now time.Time) {
+	if _, ok := l.hits[key]; !ok && len(l.hits) >= l.maxKeys {
+		l.pruneLocked(now)
+		keep := l.maxKeys - max(1, l.maxKeys/8)
+		if len(l.hits) > keep {
+			type entry struct {
+				key  string
+				n    int
+				last time.Time
+			}
+			all := make([]entry, 0, len(l.hits))
+			for k, times := range l.hits {
+				all = append(all, entry{k, len(times), times[len(times)-1]})
+			}
+			sort.Slice(all, func(i, j int) bool {
+				if all[i].n != all[j].n {
+					return all[i].n < all[j].n
+				}
+				return all[i].last.Before(all[j].last)
+			})
+			for _, e := range all[:len(all)-keep] {
+				delete(l.hits, e.key)
 			}
 		}
-		if len(kept) == 0 {
-			delete(l.hits, key)
-		} else {
-			l.hits[key] = kept
-		}
 	}
+	l.hits[key] = append(l.hits[key], now)
 }
 
 // Allow reports whether every key is still under the limit.
@@ -130,9 +194,9 @@ func (l *Limiter) Allow(keys ...string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	l.pruneLocked(now)
+	l.sweepLocked(now)
 	for _, key := range keys {
-		if len(l.hits[key]) >= l.max {
+		if len(l.liveLocked(key, now)) >= l.max {
 			return false
 		}
 	}
@@ -152,9 +216,10 @@ func (l *Limiter) Hit(keys ...string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	l.pruneLocked(now)
+	l.sweepLocked(now)
 	for _, key := range keys {
-		l.hits[key] = append(l.hits[key], now)
+		l.liveLocked(key, now)
+		l.recordLocked(key, now)
 	}
 }
 
@@ -165,16 +230,31 @@ func (l *Limiter) Take(keys ...string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	l.pruneLocked(now)
+	l.sweepLocked(now)
 	for _, key := range keys {
-		if len(l.hits[key]) >= l.max {
+		if len(l.liveLocked(key, now)) >= l.max {
 			return false
 		}
 	}
 	for _, key := range keys {
-		l.hits[key] = append(l.hits[key], now)
+		l.recordLocked(key, now)
 	}
 	return true
+}
+
+// Wait reports how long until every full key has room for another attempt:
+// until the oldest attempt of the fullest key leaves the window.
+func (l *Limiter) Wait(keys ...string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	var wait time.Duration
+	for _, key := range keys {
+		if times := l.liveLocked(key, now); len(times) >= l.max {
+			wait = max(wait, times[len(times)-l.max].Add(l.window).Sub(now))
+		}
+	}
+	return wait
 }
 
 // Forgive takes back the newest attempt recorded for key, for an attempt

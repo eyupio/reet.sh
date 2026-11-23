@@ -164,6 +164,10 @@ Configuration (environment variables):
   REET_SIGNUP     open to allow self-serve accounts (default invite-only)
   REET_SUPPORT_DESK  on to offer support tickets answered by this instance's administrators (default off)
   REET_CONTACT_EMAIL  Optional admin address shown for account/reset requests
+  REET_TRUSTED_PROXIES  Reverse proxies (IPs or CIDR ranges, comma-separated) whose
+                      X-Forwarded-For names the visitor for sign-in limits (default none).
+                      List only the proxy's own address, and only a proxy that overwrites
+                      or appends that header.
   REET_MAIL_OUTBOX_DIR  Local dev only: write emails here instead of sending
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh
@@ -273,6 +277,10 @@ func serve() error {
 		return err
 	}
 	defer terminalControl.Close()
+	proxies, err := api.ParseTrustedProxies(os.Getenv("REET_TRUSTED_PROXIES"))
+	if err != nil {
+		return err
+	}
 	publicURL := os.Getenv("REET_PUBLIC_URL")
 	if publicURL == "" {
 		publicURL = terminalControl.PublicURL()
@@ -367,7 +375,7 @@ func serve() error {
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(publicURL),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithMaintenance(os.Getenv("REET_MAINTENANCE") != "off"), api.WithBackups(backups),
-		api.WithSignup(signup), api.WithSupportDesk(truthy(os.Getenv("REET_SUPPORT_DESK"))), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
+		api.WithSignup(signup), api.WithSupportDesk(truthy(os.Getenv("REET_SUPPORT_DESK"))), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithTrustedProxies(proxies), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
 		api.WithGafferProviders(bcfg.Sealer),
 		api.WithSkillFetcher(skillfetch.Fetcher{}), // the guarded default client

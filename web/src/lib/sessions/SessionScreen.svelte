@@ -569,7 +569,7 @@
   .below-head { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; }
   .question { padding: 8px 20px 0; }
   /* A tall dialog never squeezes the terminal out: the holder caps at 40% of the height and scrolls. */
-  .below-head:has(.question) { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
+  .below-head:has(.question) { max-height: 33dvh; overflow-y: auto; overscroll-behavior: contain; }
   /* The long dialog is the thing to read: the holder allows it more of a phone's height. */
   @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .below-head:has(.question) { max-height: 70dvh; } }
   /* A long Factory decision sits above the conversation. On a phone (or a sideways one) it keeps a bounded height and

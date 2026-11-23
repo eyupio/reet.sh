@@ -20,6 +20,20 @@ pin the canonical origin; it has no path component. When empty, reet.sh follows
 the request host and HTTPS proxy header. Configure the proxy to preserve the
 public host and replace forwarded headers. Do not strip bearer authorization.
 
+Set `REET_TRUSTED_PROXIES` to the proxy's address (IP addresses and CIDR ranges,
+comma-separated) so sign-in limits count each visitor rather than the proxy, and
+have the proxy set `X-Forwarded-For`: in Caddy's `reverse_proxy` block,
+`header_up X-Forwarded-For {remote_host}`, or in nginx `proxy_set_header X-Forwarded-For $remote_addr;`. List only a proxy that
+overwrites or appends that header: a listed proxy that passes it through lets
+visitors choose their own address. Empty, the header is ignored.
+
+List only the proxy's own address, not a whole private range. With Docker's
+default port publishing, direct connections arrive from the bridge gateway (for
+example `172.17.0.1`), so listing `172.16.0.0/12` while the controller's port is
+published lets anyone who connects directly choose their own address: bind the
+controller to loopback or do not publish its port. A visitor whose own address
+is inside a listed range can also choose their address.
+
 No Node process or separate MCP service is needed for the hosted connection.
 The optional [stdio bridge](https://github.com/eyupio/reet.sh/blob/main/mcp/README.md) is available for subprocess-only
 clients. OAuth and managed MCP credentials require `REET_AUTH=accounts`.

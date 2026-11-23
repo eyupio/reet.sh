@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -53,8 +55,8 @@ func TestSuccessfulSignInsDoNotUseUpTheAddressAllowance(t *testing.T) {
 			t.Fatalf("sign-in %d from one address: %d %s", i, code, body)
 		}
 	}
-	if n := s.addrLimiter.Len(); n != 0 {
-		t.Fatalf("%d address keys hold attempts after only successful sign-ins", n)
+	if n := s.addrLimiter.Len() + s.limiter.Len() + s.accountLimiter.Len(); n != 0 {
+		t.Fatalf("%d limiter keys hold attempts after only successful sign-ins", n)
 	}
 	// A wrong password is counted, under a namespaced key.
 	if code, _ := do(t, srv, "POST", "/api/v2/auth/sign-in", signInBody("m0@example.com", "wrong")); code != 401 {
@@ -96,6 +98,104 @@ func TestSignInLimitsEachEmailAndCapsItsLength(t *testing.T) {
 	}
 	if s.limiter.Len() != keys || s.addrLimiter.Len() != addrs {
 		t.Fatal("an over-long email became a limiter key")
+	}
+}
+
+// signInFrom signs in as a visitor a trusted proxy names.
+func signInFrom(t *testing.T, srv *httptest.Server, addr, email, password string) (int, string, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v2/auth/sign-in", strings.NewReader(signInBody(email, password)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", addr)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b), resp.Header.Get("Retry-After")
+}
+
+func proxiedAuditServer(t *testing.T) (*server, *httptest.Server) {
+	s, _, srv, _ := auditServer(t, "", WithAuthMode(AuthAccounts))
+	s.trustedProxies, _ = ParseTrustedProxies("127.0.0.1, ::1")
+	return s, srv
+}
+
+// Wrong guesses from one address do not keep the owner out from another.
+func TestWrongGuessesFromOneAddressDoNotLockTheOwnerOutElsewhere(t *testing.T) {
+	_, srv := proxiedAuditServer(t)
+	for i := 0; i < 5; i++ {
+		if code, body, _ := signInFrom(t, srv, "203.0.113.1", "owner@example.com", "wrong"); code != 401 {
+			t.Fatalf("guess %d: %d %s", i, code, body)
+		}
+	}
+	if code, _, after := signInFrom(t, srv, "203.0.113.1", "owner@example.com", ownerPassword); code != http.StatusTooManyRequests || after != "60" {
+		t.Fatalf("a sixth try from the guessing address: %d, Retry-After %q", code, after)
+	}
+	if code, body, _ := signInFrom(t, srv, "198.51.100.2", "owner@example.com", ownerPassword); code != 200 {
+		t.Fatalf("the owner from another address: %d %s", code, body)
+	}
+	// One IPv6 /64 is one source: changing the low bits gives no fresh budget.
+	for i := 0; i < 5; i++ {
+		signInFrom(t, srv, fmt.Sprintf("2001:db8:1:2::%x", i+1), "owner@example.com", "wrong")
+	}
+	if code, _, _ := signInFrom(t, srv, "2001:db8:1:2:ffff::9", "owner@example.com", ownerPassword); code != http.StatusTooManyRequests {
+		t.Fatalf("another address in the same /64: %d", code)
+	}
+	if code, _, _ := signInFrom(t, srv, "2001:db8:1:3::1", "owner@example.com", ownerPassword); code != 200 {
+		t.Fatalf("an address in the next /64: %d", code)
+	}
+}
+
+// A guess spread over many addresses meets an hourly cap on the account,
+// and the answer says how long it lasts without saying which limit it was.
+func TestSignInFailuresHaveAnHourlyCapPerAccount(t *testing.T) {
+	s, srv := proxiedAuditServer(t)
+	for i := 0; i < 99; i++ {
+		if !s.accountLimiter.Take("email:owner@example.com") {
+			t.Fatalf("the account cap is under 100: refused at %d", i)
+		}
+	}
+	if code, _, _ := signInFrom(t, srv, "203.0.113.50", "owner@example.com", "wrong"); code != 401 {
+		t.Fatalf("the hundredth failure: %d", code)
+	}
+	code, body, after := signInFrom(t, srv, "198.51.100.60", "owner@example.com", ownerPassword)
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("past the account cap from a fresh address: %d %s", code, body)
+	}
+	if n, err := strconv.Atoi(after); err != nil || n < 3590 || n > 3600 {
+		t.Fatalf("Retry-After past the account cap = %q", after)
+	}
+	// The wait is over a minute, so the answer does not promise one.
+	if !strings.Contains(body, "too many attempts, try again later") {
+		t.Fatalf("the refusal past the account cap reads %s", body)
+	}
+	// Refused attempts are not charged: the fresh address kept its budget.
+	if n := s.addrLimiter.Len() + s.limiter.Len(); n != 1+1 {
+		t.Fatalf("refused attempts left %d address and pair keys, want only the failure's two", n)
+	}
+	// Another account is not held back by it.
+	if code, _, _ := signInFrom(t, srv, "198.51.100.60", "other@example.com", "wrong"); code != 401 {
+		t.Fatalf("another account: %d", code)
+	}
+}
+
+// An email with no account is limited and answered exactly as one with.
+func TestSignInLimitsAnswerTheSameForAnEmailWithNoAccount(t *testing.T) {
+	_, srv := proxiedAuditServer(t)
+	var replies []string
+	for _, email := range []string{"owner@example.com", "nobody@example.com"} {
+		for i := 0; i < 5; i++ {
+			if code, body, _ := signInFrom(t, srv, "203.0.113.1", email, "wrong"); code != 401 {
+				t.Fatalf("%s guess %d: %d %s", email, i, code, body)
+			}
+		}
+		code, body, after := signInFrom(t, srv, "203.0.113.1", email, "wrong")
+		replies = append(replies, fmt.Sprint(code, " ", after, " ", body))
+	}
+	if replies[0] != replies[1] || !strings.HasPrefix(replies[0], "429 60 ") || !strings.Contains(replies[0], "try again later") {
+		t.Fatalf("limited replies differ or are not 429: %q", replies)
 	}
 }
 

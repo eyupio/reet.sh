@@ -528,8 +528,9 @@ try {
    await expect(word).toContainText('In background')
    // One line, nothing cut from the word, and the title still readable beside it.
    const box = await word.evaluate(el => ({h:el.getBoundingClientRect().height, cut:el.scrollWidth > el.clientWidth + 1}))
-   expect(box.h, `word on one line at ${width}px`).toBeLessThan(30)
-   expect(box.cut, `word not cut at ${width}px`).toBe(false)
+   // On a phone the row leaves the word to the ring and the tint: it stays in the page for a screen reader, one pixel wide.
+   if (phone) expect((await word.boundingBox()).width, `word hidden from sight at ${width}px`).toBeLessThanOrEqual(1)
+   else { expect(box.h, `word on one line at ${width}px`).toBeLessThan(30); expect(box.cut, `word not cut at ${width}px`).toBe(false) }
    const room = await row.evaluate(el => [el.querySelector('.title').clientWidth, el.querySelector('.title').scrollWidth, el.querySelector('.word').getBoundingClientRect().width])
    // The title keeps most of its width beside the short word, so it stays readable on a phone, and no less than a
    // "Waiting for you" row leaves its title of the same length.

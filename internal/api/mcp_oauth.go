@@ -119,8 +119,7 @@ func mcpRedirectMatches(registered, requested string) bool {
 }
 
 func (s *server) oauthRegister(w http.ResponseWriter, r *http.Request) {
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if !s.oauthLimiter.Take("oauth-register:" + ip) {
+	if !s.oauthLimiter.Take("oauth-register:" + s.clientKey(r)) {
 		oauthError(w, 429, "temporarily_unavailable", "try registration again later")
 		return
 	}

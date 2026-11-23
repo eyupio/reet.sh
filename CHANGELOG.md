@@ -5,6 +5,15 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Sign-in limits charge the right person**: a stranger who knows your email can no longer keep you out of password
+  sign-in with five wrong passwords a minute from anywhere. A failed sign-in now counts against its address (60 a
+  minute), the email from that address (5 a minute) and the account from anywhere (100 an hour); a correct one counts
+  against none. IPv6 addresses are counted by their /64. A refused sign-in says "too many attempts, try again later".
+- **`REET_TRUSTED_PROXIES` for controllers behind a reverse proxy**: until now every visitor behind a proxy shared the
+  proxy's address, so one person's failures could block sign-in, single sign-on and password reset for everyone. List
+  your proxy's own address (or a range) and reet takes the visitor's address from `X-Forwarded-For`. Empty by default,
+  which keeps today's behaviour; a range that trusts every address is refused at start-up. List only the proxy itself:
+  see the warnings in the README.
 - **Answer a terminal agent's question from reet**: when Claude Code or Codex in a terminal session stops at a dialog
   with numbered options, the session's screen shows what it is asking (the command, file or plan heading, then the
   question) with the options as buttons, and Home's "Waiting for you" shows the same for a short dialog. Choosing one

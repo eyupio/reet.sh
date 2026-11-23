@@ -13,7 +13,9 @@ priority order within each group):
 
 - **Security and access.**
   - Harden sign-in rate limiting for controllers behind a reverse proxy, so one visitor cannot throttle another and a failed
-    attempt is charged to the right key.
+    attempt is charged to the right key. Built: `REET_TRUSTED_PROXIES` names the proxies whose `X-Forwarded-For` is
+    believed, IPv6 addresses are counted by their /64, and a failed password sign-in is charged to its address, to the
+    email from that address and to the email from anywhere (hourly), a right one to none of them.
   - Give machine enrolment its own narrow, short-lived credential instead of a personal API token, and require a browser
     session to create or revoke tokens.
   - Extend `SECURITY.md` with a scope and trust model for the remote surfaces: the machine agent, enrolment, the

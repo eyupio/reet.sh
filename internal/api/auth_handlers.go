@@ -3,7 +3,9 @@ package api
 import (
 	"errors"
 	"log"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -164,7 +166,7 @@ func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "password is too long")
 		return
 	}
-	if !s.limiter.Take("signup:all", "signup-ip:"+clientIP(r), "email:"+email) {
+	if !s.limiter.Take("signup:all", "signup-ip:"+s.clientKey(r), "email:"+email) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
@@ -215,15 +217,32 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "enter a valid email address")
 		return
 	}
-	// The address the server sees is charged for failed attempts only: the
-	// attempt is recorded now and taken back when the password is right, so
-	// people behind one proxy do not use up each other's allowance.
-	ipKey := "ip:" + clientIP(r)
-	allowed := s.addrLimiter.Take(ipKey) && s.limiter.Take("email:"+email)
-	if !allowed {
-		w.Header().Set("Retry-After", "60")
-		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
-		return
+	// Failed attempts only are charged, to three keys: the address, the
+	// email from that address, and the email from anywhere. Each is taken
+	// before the password is checked and given back if it is right, so
+	// attempts made at once cannot all slip past a limit; a refused attempt
+	// is given back at once, as it checked nothing.
+	prefix := s.clientKey(r)
+	keys := []struct {
+		l   *auth.Limiter
+		key string
+	}{{s.addrLimiter, "ip:" + prefix}, {s.limiter, "sign-in:" + prefix + " " + email}, {s.accountLimiter, "email:" + email}}
+	forgive := func(n int) {
+		for _, k := range keys[:n] {
+			k.l.Forgive(k.key)
+		}
+	}
+	for i, k := range keys {
+		if !k.l.Take(k.key) {
+			forgive(i)
+			// The wait tells a per-minute limit (60) from the account's hourly
+			// cap (more), but not which per-minute key, and is the same whether
+			// or not the account exists. The message holds for either wait.
+			wait := max(int(math.Ceil(k.l.Wait(k.key).Seconds())), 60)
+			w.Header().Set("Retry-After", strconv.Itoa(wait))
+			writeErr(w, http.StatusTooManyRequests, "too many attempts, try again later")
+			return
+		}
 	}
 	user, ok, err := s.st.UserByEmail(email)
 	if err != nil {
@@ -246,7 +265,7 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
-	s.addrLimiter.Forgive(ipKey)
+	forgive(len(keys))
 	if _, err := s.newSession(w, r, user); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not start a session")
 		return

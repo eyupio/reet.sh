@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -55,8 +56,11 @@ type server struct {
 	push           pushState
 	limiter        *auth.Limiter
 	addrLimiter    *auth.Limiter // failed password sign-ins per address seen; generous, as a proxy is one address
+	accountLimiter *auth.Limiter // failed password sign-ins per email from any address, against a spread-out guess
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
+	// trustedProxies are the peers whose X-Forwarded-For names the client.
+	trustedProxies []netip.Prefix
 	publicURL      string
 	defaultUser    store.User
 	queue          chan ref.Ref
@@ -232,7 +236,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
-		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), addrLimiter: auth.NewLimiter(60, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
+		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), addrLimiter: auth.NewLimiter(60, time.Minute), accountLimiter: auth.NewLimiter(100, time.Hour), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),

@@ -26,7 +26,9 @@ priority order within each group):
   - Show an agent's slash commands in Chat (`available_commands_update`), and say when a command needs the terminal. Built;
     not yet checked against real agents.
   - Show the full Claude Code plan at its approval dialog, and make the Codex queue visible, with answer keys re-checked
-    against the current attachment before they are written.
+    against the current attachment before they are written. The question card and the re-checked
+    answer are built for Claude Code and Codex, not yet checked against real agents; the full plan and the Codex queue
+    are not.
   - An Antigravity chat read from the conversation ledger the agent writes, so a turn cannot go silent. Staged; the plan is in
     `docs/superpowers/plans/2026-11-22-agy-transcript-chat.md`.
 - **Phone and web.** Keep unsent drafts and queued messages across a reload or a discarded tab, keep the composer typeable

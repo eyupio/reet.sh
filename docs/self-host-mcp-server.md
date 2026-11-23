@@ -91,6 +91,13 @@ Forward `/mcp`, `/oauth/`, `/.well-known/`, `/api/` and the web UI to the same i
 
 Configure the proxy to preserve the public host and replace forwarded headers. Do not strip the bearer authorization header. A local desktop client can use a localhost instance without a public origin.
 
+Set `REET_TRUSTED_PROXIES` to the proxy's address (IP addresses and CIDR ranges, comma-separated, for example `127.0.0.1`) so sign-in limits count each visitor rather than the proxy, and have the proxy set `X-Forwarded-For`:
+
+- Caddy, inside the `reverse_proxy` block: `header_up X-Forwarded-For {remote_host}`
+- nginx: `proxy_set_header X-Forwarded-For $remote_addr;`
+
+List only a proxy that overwrites or appends `X-Forwarded-For`. A listed proxy that passes the header through unchanged lets visitors choose their own address, and with it their own sign-in allowance. With the setting empty, reet.sh ignores the header.
+
 ## Troubleshooting
 
 - **401 or a refused connection.** The client is not sending a valid OAuth or bearer credential, or the connection was paused or revoked. Check the MCP access page, then reconnect.

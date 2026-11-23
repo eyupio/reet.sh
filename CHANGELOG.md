@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Skill suggestions stay out of the way in Chat**: **Skills for this task** now opens as one quiet line above the
+  message box on every screen size, naming the task and the first suggestion with **See skills** to open the rest.
+  **Pause** appears once the suggestions are open. A Factory stage's suggestions are unchanged and stay open beside
+  its plan.
 - **A desk can open in a tab of its own**: **Move to its own tab** in the desk switcher opens another desk in a new
   browser tab, leaving the desk you are on where it is; the desk already in this window is switched off. The same item
   is on each desk card's menu on the Desks list. Reet keeps one desk to a window, so each tab keeps its own address and

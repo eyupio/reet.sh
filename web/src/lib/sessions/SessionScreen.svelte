@@ -9,7 +9,7 @@
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
-  import { sessionStatus } from '../sessionStatus'
+  import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, stoppedWaiting } from '../sessionStatus'
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, switchModeState, switchWhy, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
@@ -416,7 +416,7 @@
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
-      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished' && !stoppedWaiting(session)}<span class="status-tick" aria-hidden="true"></span>{:else if statusKind === 'working' && heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}{statusKind === 'working' && heldWork(session) ? `. ${HELD_SENTENCE}` : stoppedWaiting(session) ? `. ${STOPPED_LINE}` : ''}</span></span>
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}
@@ -620,6 +620,7 @@
   .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 6px; box-sizing: border-box;
     background: none; border: 0; color: var(--muted); font-size: 14px; font-weight: 400; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
+  .pill .status-ring { --ring: 8px; }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .approvals { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); }

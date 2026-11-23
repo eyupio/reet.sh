@@ -98,10 +98,14 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 // that negotiated acp-model-catalogue-v1 reads the whole model list; an older
 // one keeps the 16 values its decoder and frame budget were sized for. A
 // controller that did not negotiate acp-provider-v1 never sees the provider
-// setting. The session keeps every value and setting either way, so a
+// setting, and one without acp-background-v1 never sees the background count.
+// The session keeps every value and setting either way, so a
 // reconnect with the feature gets the full snapshot without asking the agent
 // again.
 func (h *chatHost) forConnection(state terminalproto.ACPControls) terminalproto.ACPControls {
+	if !h.link.background {
+		state.Background = 0
+	}
 	if h.link.catalogue && h.link.provider {
 		return state
 	}

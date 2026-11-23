@@ -102,13 +102,14 @@ func newAgentConn(ctx context.Context, opts terminalhost.ManagerOptions, supervi
 	// The chats attach first: the terminal state observer below hides a
 	// session while a mode swap moves it between the two.
 	c.chats = attachChats(supervisor, ctx, opts, generation, send, chatFeatures{
-		history:   features.Has(terminalproto.ACPHistoryFeature),
-		details:   features.Has(terminalproto.ACPToolDetailsFeature),
-		questions: features.Has(terminalproto.ACPQuestionFeature),
-		previews:  features.Has(terminalproto.ACPPreviewsFeature),
-		catalogue: features.Has(terminalproto.ACPModelCatalogueFeature),
-		provider:  features.Has(terminalproto.ACPProviderFeature),
-		usage:     features.Has(terminalproto.ACPUsageFeature),
+		history:    features.Has(terminalproto.ACPHistoryFeature),
+		details:    features.Has(terminalproto.ACPToolDetailsFeature),
+		questions:  features.Has(terminalproto.ACPQuestionFeature),
+		previews:   features.Has(terminalproto.ACPPreviewsFeature),
+		catalogue:  features.Has(terminalproto.ACPModelCatalogueFeature),
+		provider:   features.Has(terminalproto.ACPProviderFeature),
+		usage:      features.Has(terminalproto.ACPUsageFeature),
+		background: features.Has(terminalproto.ACPBackgroundFeature),
 	})
 	c.m, c.managerErr = terminalhost.NewManager(ctx, opts)
 	c.switcher = &agentSwitch{chats: c.chats, shells: swapShells(c.m)}

@@ -145,7 +145,10 @@ type chatLink struct {
 	// provider is acp-provider-v1 on this connection: a controls snapshot may then
 	// carry the provider setting.
 	provider bool
-	live     bool
+	// background is acp-background-v1: an idle status may then say how much
+	// of the ended turn's work is still running.
+	background bool
+	live       bool
 }
 
 // ChatSupervisor is the process-scoped ACP session owner. The connector creates
@@ -258,13 +261,14 @@ type chatHost struct {
 // chatFeatures is one control connection's negotiated chat delivery. Named
 // fields keep a new feature from silently shifting the ones after it.
 type chatFeatures struct {
-	history   bool
-	details   bool
-	questions bool
-	previews  bool
-	catalogue bool
-	provider  bool
-	usage     bool
+	history    bool
+	details    bool
+	questions  bool
+	previews   bool
+	catalogue  bool
+	provider   bool
+	usage      bool
+	background bool
 }
 
 // attachChats attaches a control connection to a supervisor. A nil supervisor
@@ -278,11 +282,11 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 		s = newChatSupervisor(ctx, opts)
 		s.startResume()
 	}
-	return s.attach(ctx, generation, send, f.history, f.details, f.questions, f.previews, f.catalogue, f.provider, f.usage)
+	return s.attach(ctx, generation, send, f.history, f.details, f.questions, f.previews, f.catalogue, f.provider, f.usage, f.background)
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3], usage: len(flags) > 4 && flags[4]}
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3], usage: len(flags) > 4 && flags[4], background: len(flags) > 5 && flags[5]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -352,6 +356,9 @@ func (s *chatSupervisor) flush(h *chatHost) {
 
 		if !h.link.details {
 			event = withoutToolDetails(event)
+		}
+		if !h.link.background {
+			event = withoutBackground(event)
 		}
 		err := h.link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 			Generation: h.link.generation, Body: &event})
@@ -1141,6 +1148,9 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 	if !link.details {
 		wire = withoutToolDetails(wire)
 	}
+	if !link.background {
+		wire = withoutBackground(wire)
+	}
 	if err := link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 		Generation: link.generation, Body: &wire}); err != nil {
 		s.mu.Lock()
@@ -1234,7 +1244,14 @@ func settleChatWaitingStatus(cs *chatSession) {
 		if cs.busy || working {
 			next = "working"
 		}
-		cs.lastStatus = &terminalproto.ACPEvent{Kind: "status", State: next}
+		settled := &terminalproto.ACPEvent{Kind: "status", State: next}
+		if controls, ok := cs.process.(interface {
+			Controls() terminalproto.ACPControls
+		}); ok && next == "idle" {
+			// A reconnect replays this status: it must still say what work runs on.
+			settled.Background = controls.Controls().Background
+		}
+		cs.lastStatus = settled
 	}
 }
 
@@ -1363,6 +1380,15 @@ func chatEventBytes(event terminalproto.ACPEvent) int {
 		len(strings.Join(event.Locations, "")) + 48 // the numeric detail fields and their JSON separators
 }
 
+// withoutBackground is the status an older controller can decode: no held count and no stopped-waiting code.
+func withoutBackground(event terminalproto.ACPEvent) terminalproto.ACPEvent {
+	event.Background = 0
+	if event.Code == terminalproto.ACPCodeUnwatched {
+		event.Code = ""
+	}
+	return event
+}
+
 // withoutToolDetails is the plain tool event an older controller can decode: its strict decoder rejects unknown fields.
 func withoutToolDetails(event terminalproto.ACPEvent) terminalproto.ACPEvent {
 	if event.Kind == "tool" {
@@ -1378,7 +1404,7 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 		State: event.State, Text: event.Text, Command: event.Command, Path: event.Path, Diff: event.Diff,
 		Additions: event.Additions, Deletions: event.Deletions, DurationMs: event.DurationMs,
 		Locations: event.Locations, Allow: event.Allow, Bad: event.Bad, Truncated: event.Truncated,
-		Reason: event.Reason, Detail: event.Detail, QuestionID: event.QuestionID, Code: event.Code}
+		Reason: event.Reason, Detail: event.Detail, QuestionID: event.QuestionID, Code: event.Code, Background: event.Background}
 	if event.Question != nil {
 		question := event.Question.Wire()
 		wire.Question = &question

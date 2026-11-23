@@ -26,6 +26,42 @@ registry, so it is not attempted. Templates are left out, as in the switcher.
 link's address and new-tab attributes, and a real second window that opens the desk and keeps it across a reload.
 `npm run check`, `npm run build`, `desks.e2e.mjs` and `desks-phone.e2e.mjs` pass.
 
+## HELD-WORK-1: a turn that ends with work still running is not a finish (23 November 2026)
+
+The first "Agent behaviour" item of the roadmap's reliability workstream.
+
+**What it is.** Over ACP an agent can end a turn while tool calls it started (a subagent, a background command) are
+still open. Those sessions used to read as finished. The connector now keeps the open calls as a held set and puts
+their count on the idle status (`internal/acpagent/session.go`); the feature is `acp-background-v1`
+(`internal/terminalproto/acp_background.go`), and both the count and the give-up code are stripped for a peer without
+it, so an older machine or controller behaves as before.
+
+**States.** The broker stores chat status `background` (attention: working) while the count is above zero, with
+`held_since` for when the turn ended. A held call that completes, fails or is cancelled leaves the set; at zero the
+session finishes as usual, and a failed turn stays failed. A new message from the person clears the hold.
+
+**Giving up.** Nothing is waited on for ever. After `BackgroundHoldLimit` (30 minutes) the connector sends an idle
+status with the code `unwatched` and a transcript notice naming the agent, the count and the machine; the broker has
+its own 30-minute bound for a machine that goes silent and writes its own line. Either ends as chat status
+`unwatched`, never `finished`; it survives a restore, the push says "Stopped waiting for its background work; it may
+still be running.", and it gets its own card kind in the bell and Waiting for you.
+
+**Gaffer.** A stage in `background` is not reviewed as finished; its line says when waiting stops. A stored
+`unwatched` newer than the last review or resume puts the goal in needs-you with a note to read the session, and no
+review is spent. Both move-on confirmations open with the warning that moving on stops the work.
+
+**Web.** `web/src/lib/sessionStatus.ts` holds the words (`heldWork`, `HELD_SENTENCE`, `statusLabel(status, held)`);
+lists say "In background" with a static ring (`.status-ring`), sentences use the long form, and every surface reads
+the full sentence once to a screen reader. `docs/ui-verification.md` and `docs/handoffs/attention-contract.md`
+describe the state.
+
+**Not done, and not known.**
+- Nothing was run against a real agent or machine: which agents leave tool calls open at the end of a turn is not
+  known, so the state may never appear for some of them, or appear for a call an agent simply forgot to close.
+- There is no control to stop the background work; moving a stage on, or ending the session, is the only way.
+- Permissions asked by a held tool after the turn ended are not handled specially.
+- On a phone row "Stopped waiting" is cut short, as "Waiting for you" is.
+- The connector's notice names the machine by hostname; the controller's own line uses the name shown in reet.
 ## FACTORY-TEMPLATES-6: private, versioned Factory templates (23 November 2026)
 
 Stage 6 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract is

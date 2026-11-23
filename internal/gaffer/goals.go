@@ -290,6 +290,10 @@ const goalNoStepNote = "Gaffer reviewed this and chose no next step, so it has s
 const (
 	workerWaitingNote = "The working model needs your input or approval. Gaffer cannot answer for you, and carries on once you have."
 	heldGoalRecheck   = 15 * time.Second
+	// workerUnwatchedNote is a goal whose working model's held work reet stopped waiting for.
+	workerUnwatchedNote = "reet stopped waiting for work the working model's turn left running, and it may still be running. Read the end of its session, then resume the goal or move the work on."
+	// workerBackgroundNote is a goal waiting for work the working model's ended turn left running.
+	workerBackgroundNote = "The working model's turn ended, but work it started is still running. Gaffer waits for it to finish before reviewing."
 )
 
 // How long a goal may look active while nothing can happen without the
@@ -481,6 +485,11 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		observe("needs_user", "The working session has ended or is unavailable. Review its outcome before choosing further work.", time.Minute)
 		return
 	}
+	if row.ChatStatus == "unwatched" && row.CompletedAt > max(g.LastReviewedAt, g.ResumedAt) {
+		// Not a clean finish: work the turn started may still be running.
+		observe("needs_user", workerUnwatchedNote, time.Minute)
+		return
+	}
 	workerStatus, statusErr := s.store.GafferWorkerStatusFor(g.OwnerID, g.SessionID)
 	if statusErr == nil && workerStatus.UsageLimited() {
 		observe("needs_user", workerUsageLimitNote, heldGoalRecheck)
@@ -559,7 +568,7 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 				hold()
 				return
 			}
-			if ok && !controls.Working && !controls.Configuring && !controls.Compacting {
+			if ok && !controls.Working && controls.Background == 0 && !controls.Configuring && !controls.Compacting {
 				observe("needs_user", "The working model has been idle for "+minutes(time.Since(time.UnixMilli(since)))+" since Gaffer last looked, and nothing is queued for it. It may be waiting for your answer: read its last message, then resume the goal or move the work on.", time.Minute)
 				return
 			}
@@ -587,6 +596,12 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 	}
 	if status.Controls.Working || status.Controls.Configuring || status.Controls.Compacting {
 		observe("active", "The working model is busy. Gaffer is waiting for its next turn.", 15*time.Second)
+		return
+	}
+	if status.Controls.Background > 0 {
+		// A review now could hand the stage over and end the session, and the
+		// work with it. The machine stops holding at its limit, so this ends.
+		observe("active", workerBackgroundNote, 15*time.Second)
 		return
 	}
 	c, err := s.conversation(g.OwnerID, g.ConversationID)

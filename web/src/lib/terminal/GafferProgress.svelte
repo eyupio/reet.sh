@@ -27,7 +27,8 @@
   let sheet = $state(false), handoverMore = $state(false)
   let summaryKey = ''
   const NO_HANDOVER = 'No final handover was recorded. Check the conversation before calling the job done.'
-  const handoverText = $derived(summary ? summary.handover || NO_HANDOVER : '')
+  // While work the turn started still runs, a missing handover is not yet a gap to check.
+  const handoverText = $derived(summary ? summary.handover || (view.phase === 'background' ? '' : NO_HANDOVER) : '')
   let said = $state<HTMLElement>(), clamped = $state(false)
   const longHandover = $derived(handoverMore || clamped)
   const verdict = $derived(!summary ? '' : summary.failed || summary.attention.length ? 'Needs a look' : stopped ? 'Over to you' : '')
@@ -41,7 +42,7 @@
   const recentPerformances: GafferReaction[] = []
   let clicks = $state({ count: 0, at: -Infinity }), clickAside = $state('')
   const spokenQuote = $derived(view.phase === 'idle' && view.turnKey === 'unavailable' && !summary ? 'Ready when you are. Tell the agent what needs doing.' : quote)
-  const miniQuote = $derived(clickAside || (summary ? handoverText : spokenQuote))
+  const miniQuote = $derived(clickAside || (summary && handoverText ? handoverText : spokenQuote))
   // A nudge is answered by the pose he is already in; pokeKey restarts the acknowledgement even for the same kind twice.
   let pokeKind = $state<GafferPoke | ''>(''), pokeKey = $state(0)
 
@@ -180,11 +181,11 @@
   <section class="gaffer-progress mini" class:overview={placement === 'overview'} class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
     <button type="button" class="mini-portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
     <div class="mini-status" title={view.label} role="status" aria-live="polite" aria-atomic="true">
-      <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
+      <span class="signal" class:live={view.active && view.phase !== 'background'} data-status={view.phase === 'background' ? 'working' : undefined} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'background'}<span class="status-ring"></span>{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
       <strong>{view.label}</strong>
     </div>
     <p class="mini-quote" title={miniQuote} aria-live={clickAside ? 'polite' : 'off'}><span aria-hidden="true">“</span>{miniQuote}<span aria-hidden="true">”</span></p>
-    {#if summary}<span class="mini-count" class:snag={summary.failed || summary.stopped} title="Recorded tool results">{summary.completed} done{#if summary.failed} · {summary.failed} failed{/if}{#if summary.stopped} · {summary.stopped} unfinished{/if}</span>{/if}
+    {#if summary && view.phase !== 'background'}<span class="mini-count" class:snag={summary.failed || summary.stopped} title="Recorded tool results">{summary.completed} done{#if summary.failed} · {summary.failed} failed{/if}{#if summary.stopped} · {summary.stopped} unfinished{/if}</span>{/if}
     <button type="button" class="quiet fold" aria-label="Expand Gaffer’s card" aria-expanded="false" title="Show the full card" onclick={() => foldChoice = false}>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
     </button>
@@ -197,11 +198,11 @@
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
-          <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
+          <span class="signal" class:live={view.active && view.phase !== 'background'} data-status={view.phase === 'background' ? 'working' : undefined} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'background'}<span class="status-ring"></span>{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
           <strong>{view.label}</strong>
           {#if view.target}<span class="target" title={view.target}>{view.target}</span>{/if}
         </div>
-        {#if summary}
+        {#if summary && handoverText}
           <div class="handover" class:open={handoverMore}>
             {#if summary.handover}<span class="lead">{agent}’s handover, via Gaffer</span>{/if}
             <p class="said" bind:this={said} role="status" aria-live="polite" aria-atomic="true"><span aria-hidden="true">“</span>{handoverText}<span aria-hidden="true">”</span></p>

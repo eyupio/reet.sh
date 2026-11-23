@@ -71,3 +71,7 @@ test('the suggested prompt asks for a look and says nothing may change', () => {
   assert.match(FIRST_PROMPT, /Do not change, create or delete anything/)
   assert.ok(!FIRST_PROMPT.startsWith('-') && /[ \n]/.test(FIRST_PROMPT))
 })
+
+test('a first reply whose turn left work running is still awaited', () => {
+  assert.equal(replyOf({ structured: true, state: 'running', attention: 'working', chatStatus: 'background', completedAt: 0 }), 'asking')
+})

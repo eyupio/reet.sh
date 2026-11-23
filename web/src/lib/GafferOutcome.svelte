@@ -29,7 +29,8 @@
   import TemplatePlan from './factory/TemplatePlan.svelte'
   import Templates from './factory/Templates.svelte'
   import { attemptIds, mayHaveArrived } from './factory/delivery'
-  import { changesSince, changesWords, conflictWords, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
+  import { changesSince, changesWords, conflictWords, mergeAccessWords, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
+  import { reveal } from './dialogShell'
   import { inWords, launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
@@ -38,7 +39,7 @@
   import { cloneForStart } from './cloneForStart'
   import { cloneFolder, repoProject, parseGitHubRepo } from './githubRepo'
 
-  let { room, userId = 0, projectId: wantedProject = '', initialObjective = '', template: initialTemplate, onclose, onstarted }: { room: number; userId?: number;
+  let { room, userId = 0, projectId: wantedProject = '', initialObjective = '', template: initialTemplate, timeZone = '', dateFormat = 'locale', onclose, onstarted }: { room: number; userId?: number; timeZone?: string; dateFormat?: string;
     /** A template to start from: the dialog opens on its plan, read only, with the launch choices still open. */
     template?: { id: string; version: number };
     /** The project the page had chosen when the dialog opened; it starts selected and can be changed. */
@@ -333,7 +334,9 @@
     crewEditor.open = true
     await tick()
     const agent = crewEditor.querySelector<HTMLSelectElement>(`select[aria-label="${crews[0]} agent"]`)
-    agent?.scrollIntoView({ block: 'center' })
+    // Scrolls the dialog's own body only: scrollIntoView would move the dialog frame too and cut off its title.
+    const frame = agent?.closest('dialog')
+    if (agent && frame) reveal(agent, frame)
     agent?.focus({ preventScroll: true })
   }
   const yoloGates = $derived.by((): YoloGate[] => {
@@ -511,7 +514,7 @@
       if (code === 'template_skills_changed') {
         const now = refusedGaps(e instanceof ApiError ? e.body : undefined)
         if (now && tpl) { tpl = { ...tpl, skillGaps: now }; skipOk = false } else await readTemplate(one.id, one.version)
-        startError = 'The approved skills changed while you were looking. The list below is the current one. Check it and start again.'
+        startError = 'The approved skills changed while you were looking. The plan above now shows the current list. Check it and start again.'
       }
       else startError = e instanceof Error && e.message ? conflictWords(code, e.message) + (mayHaveArrived(e) ? ' It may not have arrived. Trying again is safe: it starts once.' : '') : 'The outcome was not started. Nothing was started.'
     } finally { busy = false }
@@ -566,21 +569,20 @@
         {#if tplError}<p class="warning" role="alert">{tplError}</p><div class="actions"><button class="btn" type="button" onclick={() => template && void readTemplate(template.id, template.version)}>Try again</button><button class="btn quiet" type="button" onclick={leaveTemplate}>Back</button></div>
         {:else}<p role="status">Reading the template…</p>{/if}
       {:else}
-        <p><strong>{tpl.content.name}</strong>, version {tpl.version}{tpl.versions.length > 1 ? ` of ${tpl.latest}` : ''}. The plan is the one you saved and is not edited here. You choose where it runs and how it starts.</p>
-        <p class="objective">{tpl.content.objective}</p>
+        <p><strong>{tpl.content.name}</strong>, version {tpl.version}{tpl.versions.length > 1 ? ` of ${tpl.latest}` : ''}. The plan is as you saved it. Choose where it runs, then start.</p>
+        <p class="objective"><span class="eyebrow">Outcome</span>{tpl.content.objective}</p>
         {#if tpl.versions.length > 1}<label>Template version<select aria-label="Template version" value={tpl.version} disabled={busy || tplReading} onchange={event => void readTemplate(tpl!.id, Number(event.currentTarget.value))}>
           {#each [...tpl.versions].reverse() as n (n)}<option value={n}>Version {n}{n === tpl.latest ? ' (latest)' : ''}{n === tpl.lastUsedVersion ? ' (last used)' : ''}</option>{/each}
         </select></label>{/if}
         {#if tplError}<p class="warning" role="alert">{tplError}</p>{/if}
         {#if tplDiff}{@const said = changesWords(tplDiff, tpl.lastUsedVersion)}<TemplateChanges diff={tplDiff} title={said.title} note={said.note}/>{/if}
         <TemplatePlan content={tpl.content} gaps={gaps}/>
-        {#if gaps.length}<label class="trust"><input type="checkbox" bind:checked={skipOk} disabled={busy}/><span><strong>Start without these skills.</strong> {gaps.length === 1 ? 'The skill' : `The ${gaps.length} skills`} marked above {gaps.length === 1 ? 'is' : 'are'} left out of {gaps.length === 1 ? 'its stage' : 'their stages'}. Nothing else changes.</span></label>{/if}
-        <p class="hint">Choose where it runs. The project decides the machine.</p>
         {@render where()}
         {@render savedCrewBlock()}
         {@render crewDetails()}
         {@render readinessPanel()}
         {@render launchChoices()}
+        {#if gaps.length}<label class="trust"><input type="checkbox" bind:checked={skipOk} disabled={busy}/><span><strong>Start without these skills.</strong> {gaps.length === 1 ? 'The skill' : `The ${gaps.length} skills`} marked in the plan {gaps.length === 1 ? 'is' : 'are'} left out of {gaps.length === 1 ? 'its stage' : 'their stages'}. Nothing else changes.</span></label>{/if}
         <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
         {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
         <div class="actions"><button class="btn primary" type="button" disabled={busy || tplReading || !!approveBlocker} aria-describedby={approveBlocker ? `${formId}-blocker` : undefined} onclick={() => void startFromTemplate()}>{busy ? 'Starting…' : `Start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'} from this template`}</button><button class="btn quiet" type="button" disabled={busy} onclick={leaveTemplate}>Back</button></div>
@@ -666,7 +668,7 @@
     {/if}
   </div>
 </WorkspaceDialog>
-{#if picking}<Templates onuse={(id, version) => { picking = false; void readTemplate(id, version) }} onclose={() => (picking = false)}/>{/if}
+{#if picking}<Templates {timeZone} {dateFormat} onuse={(id, version) => { picking = false; void readTemplate(id, version) }} onclose={() => (picking = false)}/>{/if}
 {#if yoloOpen && machine}<YoloDialog gates={yoloGates} tool={tool} structured machine={machine.host} enabling oncancel={() => { yoloOpen = false }} onstart={() => { if (yoloCanStart(yoloGates)) yolo = true; yoloOpen = false }}/>{/if}
 {#if declining}<ConfirmDialog title="Decline this proposal?" body="Nothing has started. This plan will not be approved or started, and stays here so you can tell Gaffer what you want instead or go back to the outcome." confirmLabel="Decline proposal" oncancel={() => declining = false} onconfirm={() => { declined = true; declining = false }}/>{/if}
 
@@ -737,7 +739,7 @@
 {/snippet}
 <!-- How the work is run: access, limits, approvals, decisions, reporting, merge and trust. -->
 {#snippet launchChoices()}
-      <div class="access" aria-label="Outcome access review"><p>{template ? 'Starting' : 'Approving'} has the controller start {sessions.length === 1 ? 'this pipeline' : `these ${sessions.length} pipelines`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
+      <div class="access" aria-label="Outcome access review"><p>{template ? 'Starting' : 'Approving'} has the controller start {sessions.length === 1 ? 'this pipeline' : `these ${sessions.length} pipelines`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. {template ? mergeAccessWords(tpl?.content.pipelines.filter(item => item.autoMerge).map(item => item.title) ?? [], sessions.length, yolo && !yoloWhy) : 'Gaffer cannot merge, run commands or answer approvals.'}</p></div>
       {#if !template}<details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
       </details>{/if}

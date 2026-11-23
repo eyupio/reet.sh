@@ -64,6 +64,7 @@
   import StagePipeline from './StagePipeline.svelte'
   import DeliveryReview from './DeliveryReview.svelte'
   import TemplateLine from './TemplateLine.svelte'
+  import { canSaveAsTemplate } from './templates'
   import { ciRun, ciWord, gafferFixes } from './githubFacts'
   import type { FactoryItem } from './factoryList'
 
@@ -172,7 +173,7 @@
     // A finished outcome needs nothing from the line, so the one thing to do next is to put it away. The account's
     // default comes first, and Delete asks first in its own dialog.
     if (finished) {
-      add({ key: 'template', label: 'Save as template…', run: () => actions.savingTemplate(record) })
+      if (canSaveAsTemplate(record)) add({ key: 'template', label: 'Save as template…', run: () => actions.savingTemplate(record) })
       const archive = { key: 'putaway-archive', label: 'Archive outcome', primary: true, run: () => actions.putAway(record, 'archive') }
       const remove = { key: 'putaway-delete', label: 'Delete outcome…', run: () => actions.deleting(record) }
       if (removeMode === 'delete') { add(remove); add(archive) } else { add(archive); add(remove) }

@@ -146,7 +146,7 @@ func TestATemplateIsSavedFromASuccessfulPlanWithOnlyWhatIsReusable(t *testing.T)
 		t.Fatalf("read-only account: %v", err)
 	}
 	// The same request again answers the same version; a reused id for something else is refused.
-	again, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(2), OutcomeID: o.ID, Name: "CSV export"})
+	again, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(2), OutcomeID: o.ID, Name: "CSV export", Description: "Billing exports."})
 	if err != nil || again.ID != saved.ID || again.Version != 1 {
 		t.Fatalf("repeat: %+v %v", again, err)
 	}
@@ -174,7 +174,7 @@ func TestALaunchedTemplateIsItsPlanWithTheCrewOfTheMoment(t *testing.T) {
 	}
 	launch := TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}
 	approved := skillsAt(map[string]string{"library:review": "rev-1"})
-	started, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, approved)
+	started, _, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, approved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestALaunchedTemplateIsItsPlanWithTheCrewOfTheMoment(t *testing.T) {
 	if g := started.Sessions[0].Stages[3].SkillGuidance; len(g) != 1 || g[0].Revision != "rev-1" || g[0].Instructions == "" {
 		t.Fatalf("skill guidance: %+v", g)
 	}
-	again, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, approved)
+	again, _, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, approved)
 	if err != nil || again.ID != started.ID {
 		t.Fatalf("repeated launch: %+v %v", again, err)
 	}
@@ -242,11 +242,11 @@ func TestASkillNoLongerApprovedIsShownAndNeverSubstituted(t *testing.T) {
 		t.Fatalf("unavailable: %+v", gone.SkillGaps)
 	}
 	launch := TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}
-	if _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, newer); conflictCode(err) != "template_skills_changed" {
+	if _, _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, newer); conflictCode(err) != "template_skills_changed" {
 		t.Fatalf("launch over a changed skill: %v", err)
 	}
 	launch.SkippedSkills = []string{"0:3:library:review"}
-	started, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, newer)
+	started, _, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, newer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestASkillNoLongerApprovedIsShownAndNeverSubstituted(t *testing.T) {
 	}
 	// Agreeing to skip a skill that is in fact still approved is refused too.
 	launch.RequestID = request(3)
-	if _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, skillsAt(map[string]string{"library:review": "rev-1"})); conflictCode(err) != "template_skills_changed" {
+	if _, _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, skillsAt(map[string]string{"library:review": "rev-1"})); conflictCode(err) != "template_skills_changed" {
 		t.Fatalf("skip of an approved skill: %v", err)
 	}
 }
@@ -270,7 +270,7 @@ func TestARunKeepsItsInputsWhenItsTemplateChangesOrGoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, skillsAt(map[string]string{"library:review": "rev-1"}))
+	started, _, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, skillsAt(map[string]string{"library:review": "rev-1"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,5 +358,256 @@ func TestATemplateEditIsCheckedLikeAPlan(t *testing.T) {
 	}
 	if versions, _ := r.st.GafferTemplateVersionsFor(r.p.UserID, saved.ID); len(versions) != 1 {
 		t.Fatalf("a refused edit saved a version: %v", versions)
+	}
+}
+
+// A repeated save or edit answers the version it made, even after the
+// outcome or the template moved on; the same id with other content, or an id
+// a launch used, is refused, and a launch may not take a save's id.
+func TestARepeatedTemplateRequestAnswersWhatItMade(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	o := finishedOutcome(t, r)
+	saved, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export", Description: "Billing."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The pipeline is sent back after the save: the plan is no longer saveable, but the save it made stands.
+	o = mustOutcome(t, r, o.ID)
+	if _, err = r.st.UpdateGafferOutcomeFor(r.p.UserID, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+		o.Sessions[1].DeliveryAccepted = false
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export", Description: "Billing."})
+	if err != nil || again.ID != saved.ID || again.Version != 1 {
+		t.Fatalf("repeated save after the outcome changed: %+v %v", again, err)
+	}
+	for name, in := range map[string]TemplateSaveInput{
+		"another name":        {RequestID: request(1), OutcomeID: o.ID, Name: "CSV export, again", Description: "Billing."},
+		"another description": {RequestID: request(1), OutcomeID: o.ID, Name: "CSV export", Description: "Something else."},
+	} {
+		if _, err = r.s.SaveTemplate(r.p.UserID, in); conflictCode(err) != "template_request_reused" {
+			t.Fatalf("save under a used id with %s: %v", name, err)
+		}
+	}
+	// Edit on version 1 makes version 2; a later edit removes a criterion. The first edit again is still version 2.
+	content := copyContent(t, saved.Content)
+	content.Objective = "Ship CSV export for billing and finance."
+	second, err := r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(2), BaseVersion: 1, Content: content})
+	if err != nil || second.Version != 2 {
+		t.Fatalf("edit: %+v %v", second, err)
+	}
+	third := copyContent(t, second.Content)
+	third.Pipelines[0].Criteria = third.Pipelines[0].Criteria[:1]
+	if _, err = r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(3), BaseVersion: 2, Content: third}); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(2), BaseVersion: 1, Content: content}); err != nil || again.Version != 2 {
+		t.Fatalf("repeated edit after a later one: %+v %v", again, err)
+	}
+	other := copyContent(t, content)
+	other.Objective = "Ship something else."
+	if _, err = r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(2), BaseVersion: 1, Content: other}); conflictCode(err) != "template_request_reused" {
+		t.Fatalf("edit under a used id with other content: %v", err)
+	}
+	// A launch may not take a save's or an edit's id, nor a save or edit a launch's.
+	approved := skillsAt(map[string]string{"library:review": "rev-1"})
+	for _, id := range []string{request(1), request(2)} {
+		if _, _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: id, Version: 3, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, approved); conflictCode(err) != "template_request_reused" {
+			t.Fatalf("launch under a template write's id: %v", err)
+		}
+	}
+	started, created, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: request(4), Version: 3, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, approved)
+	if err != nil || !created {
+		t.Fatalf("launch: %v %v", created, err)
+	}
+	if again, created, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: request(4), Version: 3, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, approved); err != nil || created || again.ID != started.ID {
+		t.Fatalf("repeated launch: %v %v", created, err)
+	}
+	if _, err = r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(4), OutcomeID: o.ID, Name: "CSV export"}); conflictCode(err) != "template_request_reused" {
+		t.Fatalf("save under a launch's id: %v", err)
+	}
+	if _, err = r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(4), BaseVersion: 3, Content: third}); conflictCode(err) != "template_request_reused" {
+		t.Fatalf("edit under a launch's id: %v", err)
+	}
+}
+
+// A pipeline whose delivery was accepted and which then failed, was
+// unfollowed or was cancelled did not succeed.
+func TestAnAcceptedPipelineThatThenFailedIsNotSuccessful(t *testing.T) {
+	r := outcomeFixture(t)
+	o := finishedOutcome(t, r)
+	for n, state := range []string{"failed", "unfollowed", "cancelled"} {
+		o = mustOutcome(t, r, o.ID)
+		if _, err := r.st.UpdateGafferOutcomeFor(r.p.UserID, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+			o.State, o.Sessions[1].State, o.Sessions[1].DeliveryAccepted = "stopped", state, true
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(byte(n + 1)), OutcomeID: o.ID, Name: "CSV export"}); conflictCode(err) != "template_not_successful" {
+			t.Fatalf("accepted then %s: %v", state, err)
+		}
+	}
+}
+
+// The crew chosen in the launch does the stages, tier by tier, and is checked
+// as an approval checks it. The run says when the template was last used and
+// keeps the template's name after the template goes.
+func TestALaunchTakesItsCrewAndTheRunKeepsTheTemplateName(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	o := finishedOutcome(t, r)
+	saved, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.st.SetGafferCrewFor(r.p.UserID, store.GafferCrew{Standard: store.GafferCrewTier{Tool: "codex", Model: "standard-saved"}}); err != nil {
+		t.Fatal(err)
+	}
+	approved := skillsAt(map[string]string{"library:review": "rev-1"})
+	if rows, _ := r.s.Templates(r.p.UserID); len(rows) != 1 || rows[0].LastUsedAt != 0 {
+		t.Fatalf("never used: %+v", rows)
+	}
+	bad := TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true, Crew: &TemplateCrew{Heavy: store.GafferCrewTier{Tool: "not-an-agent"}}}
+	var invalidCrew *Invalid
+	if _, _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, bad, approved); !errors.As(err, &invalidCrew) {
+		t.Fatalf("a crew no approval would take: %v", err)
+	}
+	launch := TemplateLaunchInput{RequestID: request(3), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true, Crew: &TemplateCrew{
+		Heavy: store.GafferCrewTier{Tool: "claude", Model: "heavy-now", Effort: "high", Backup: &store.GafferStageAgent{Tool: "codex", Model: "heavy-backup"}},
+		Light: store.GafferCrewTier{Tool: "codex", Model: "light-now"},
+	}}
+	started, _, err := r.s.LaunchTemplate(r.p.UserID, saved.ID, launch, approved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range started.Sessions {
+		for j, st := range p.Stages {
+			switch st.Tier {
+			case "heavy":
+				if st.Tool != "claude" || st.Model != "heavy-now" || st.Effort != "high" || st.Backup == nil || st.Backup.Tool != "codex" {
+					t.Fatalf("heavy stage %d.%d: %+v", i, j, st)
+				}
+			case "light":
+				if st.Tool != "codex" || st.Model != "light-now" {
+					t.Fatalf("light stage %d.%d: %+v", i, j, st)
+				}
+			default:
+				// The launch left standard empty: the outcome's agent, not the saved crew's.
+				if st.Tool != "opencode" || st.Model != "" {
+					t.Fatalf("standard stage %d.%d: %+v", i, j, st)
+				}
+			}
+		}
+	}
+	if started.TemplateName != "CSV export" || started.TemplateID != saved.ID || started.TemplateVersion != 1 {
+		t.Fatalf("template on the run: %+v", started)
+	}
+	if rows, _ := r.s.Templates(r.p.UserID); len(rows) != 1 || rows[0].LastUsedAt != started.CreatedAt || rows[0].LastUsedVersion != 1 {
+		t.Fatalf("summary after a launch: %+v", rows)
+	}
+	if view, _ := r.s.Template(r.p.UserID, saved.ID, 0, approved); view.LastUsedAt != started.CreatedAt {
+		t.Fatalf("view after a launch: %+v", view)
+	}
+	if err = r.s.DeleteTemplate(r.p.UserID, saved.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if after := mustOutcome(t, r, started.ID); after.TemplateName != "CSV export" {
+		t.Fatalf("the run forgot its template's name: %+v", after)
+	}
+}
+
+// The changes shown before a start reach back to the oldest version kept when
+// the one last used has been dropped, and say that older changes are not shown.
+func TestTheDefaultDiffFallsBackWhenTheLastUsedVersionIsDropped(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	o := finishedOutcome(t, r)
+	saved, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, skillsAt(map[string]string{"library:review": "rev-1"})); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := r.s.TemplateDiff(r.p.UserID, saved.ID, 0, 0); err != nil || d.From != 1 || d.OlderNotShown {
+		t.Fatalf("diff with the last used version kept: %+v %v", d, err)
+	}
+	content := copyContent(t, saved.Content)
+	for v := 1; v <= store.MaxGafferTemplateVersions; v++ {
+		content.Description = "Change " + strings.Repeat("x", v)
+		id := strings.Repeat("a", 30) + string(rune('a'+v/10)) + string(rune('0'+v%10))
+		if _, err = r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: id, BaseVersion: v, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := r.s.TemplateDiff(r.p.UserID, saved.ID, 0, 0)
+	if err != nil || d.From != 2 || d.To != 21 || !d.OlderNotShown || !d.DescriptionChanged {
+		t.Fatalf("diff with the last used version dropped: %+v %v", d, err)
+	}
+}
+
+// Renaming a template whose skill is no longer approved at its revision still
+// saves: the gap is the launch's to deal with, not the rename's. The same
+// skill twice in one stage is refused, text is stored trimmed, and the diff
+// reports pipelines put in another order.
+func TestARenameKeepsAGapAndAnEditIsTidied(t *testing.T) {
+	r := outcomeFixture(t)
+	o := finishedOutcome(t, r)
+	saved, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer := skillsAt(map[string]string{"library:review": "rev-2"})
+	if view, _ := r.s.Template(r.p.UserID, saved.ID, 0, newer); len(view.SkillGaps) != 1 {
+		t.Fatalf("gap: %+v", view.SkillGaps)
+	}
+	renamed := copyContent(t, saved.Content)
+	renamed.Name = "CSV export for billing"
+	got, err := r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(2), BaseVersion: 1, Content: renamed})
+	if err != nil || got.Version != 2 || got.Content.Pipelines[0].Stages[3].Skills[0].Revision != "rev-1" {
+		t.Fatalf("rename with a skill gap: %+v %v", got, err)
+	}
+	twice := copyContent(t, got.Content)
+	twice.Pipelines[0].Stages[3].Skills = append(twice.Pipelines[0].Stages[3].Skills, twice.Pipelines[0].Stages[3].Skills[0])
+	var bad *Invalid
+	if _, err = r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(3), BaseVersion: 2, Content: twice}); !errors.As(err, &bad) || bad.Field != "skills" {
+		t.Fatalf("the same skill twice: %v", err)
+	}
+	spaced := copyContent(t, got.Content)
+	p := &spaced.Pipelines[0]
+	p.Title, p.Prompt = " "+p.Title+" ", p.Prompt+"\n"
+	p.Stages[0].TierWhy = " " + p.Stages[0].TierWhy + " "
+	p.Stages[1].Part, p.Stages[1].Brief = p.Stages[1].Part+" ", " "+p.Stages[1].Brief
+	spaced.Pipelines[0], spaced.Pipelines[1] = spaced.Pipelines[1], spaced.Pipelines[0]
+	tidy, err := r.s.EditTemplate(r.p.UserID, saved.ID, TemplateEditInput{RequestID: request(4), BaseVersion: 2, Content: spaced})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := tidy.Content.Pipelines[1]
+	if api.Title != "Export API" || api.Prompt != "Add the CSV export endpoint with tests." || api.Stages[0].TierWhy != "Money must not be lost." || api.Stages[1].Part != "Endpoint" || api.Stages[1].Brief != "Write the endpoint." {
+		t.Fatalf("untrimmed: %+v", api)
+	}
+	d, err := r.s.TemplateDiff(r.p.UserID, saved.ID, 2, 3)
+	if err != nil || !d.Changed || !d.OrderChanged || d.Pipelines[0].Change != "same" || d.Pipelines[1].Change != "same" {
+		t.Fatalf("reordered pipelines: %+v %v", d, err)
+	}
+}
+
+// A launch refused because the skills changed carries the gaps as they are now.
+func TestASkillsChangedRefusalCarriesTheCurrentGaps(t *testing.T) {
+	r := outcomeFixture(t)
+	o := finishedOutcome(t, r)
+	saved, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = r.s.LaunchTemplate(r.p.UserID, saved.ID, TemplateLaunchInput{RequestID: request(2), Version: 1, ProjectID: r.project.ID, Tool: "opencode", Confirmed: true}, skillsAt(nil))
+	var changed *TemplateSkillsChanged
+	if !errors.As(err, &changed) || conflictCode(err) != "template_skills_changed" || len(changed.Gaps) != 1 || changed.Gaps[0].Key != "0:3:library:review" || changed.Gaps[0].Status != "unavailable" {
+		t.Fatalf("skills changed: %#v", err)
 	}
 }

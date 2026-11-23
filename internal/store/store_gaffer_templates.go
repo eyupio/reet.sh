@@ -76,10 +76,12 @@ type GafferTemplate struct {
 	FirstCreatedAt int64 `json:"-"`
 }
 
-// GafferTemplateRef is the template version an outcome was started from.
+// GafferTemplateRef is the template version an outcome was started from, and
+// the template's name at that moment.
 type GafferTemplateRef struct {
 	ID      string
 	Version int
+	Name    string
 }
 
 func (s *Store) migrateGafferTemplates() error {
@@ -170,6 +172,11 @@ func (s *Store) GafferTemplateFor(uid int64, id string, version int) (GafferTemp
 		return scanTemplate(uid, s.db.QueryRow(`SELECT `+templateColumns+` FROM gaffer_templates WHERE user_id=? AND id=? ORDER BY version DESC LIMIT 1`, uid, id))
 	}
 	return scanTemplate(uid, s.db.QueryRow(`SELECT `+templateColumns+` FROM gaffer_templates WHERE user_id=? AND id=? AND version=?`, uid, id, version))
+}
+
+// GafferTemplateByRequestFor reads the version the account's request made.
+func (s *Store) GafferTemplateByRequestFor(uid int64, requestID string) (GafferTemplate, error) {
+	return scanTemplate(uid, s.db.QueryRow(`SELECT `+templateColumns+` FROM gaffer_templates WHERE user_id=? AND request_id=?`, uid, requestID))
 }
 
 // GafferTemplateVersionsFor lists the kept versions of a template, oldest first.

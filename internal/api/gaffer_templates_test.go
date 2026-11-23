@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/skillbuddy"
@@ -203,8 +204,10 @@ func TestGafferTemplateRoutesSaveEditCompareAndDelete(t *testing.T) {
 	if code, body := gafferClient(t, owner, srv, "GET", path+"/diff", ""); code != 200 || !strings.Contains(body, `"from":1,"to":2`) || !strings.Contains(body, `"promptChanged":true`) {
 		t.Fatalf("diff: %d %s", code, body)
 	}
-	if code, body := gafferClient(t, owner, srv, "GET", path+"/diff?from=x", ""); code != 400 {
-		t.Fatalf("diff with a bad version: %d %s", code, body)
+	for _, bad := range []struct{ method, path string }{{"GET", path + "/diff?from=x"}, {"GET", path + "/diff?to=0"}, {"DELETE", path + "?version=x"}, {"DELETE", path}} {
+		if code, body := gafferClient(t, owner, srv, bad.method, bad.path, ""); code != 422 || !strings.Contains(body, `"field":"version"`) {
+			t.Fatalf("%s %s: %d %s", bad.method, bad.path, code, body)
+		}
 	}
 	if code, body := gafferClient(t, owner, srv, "GET", path+"/versions/1", ""); code != 200 || !strings.Contains(body, `"prompt":"Add the export."`) {
 		t.Fatalf("version 1 after the edit: %d %s", code, body)
@@ -226,5 +229,19 @@ func TestGafferTemplateRoutesSaveEditCompareAndDelete(t *testing.T) {
 	}
 	if after, err := st.GafferOutcomeFor(1, o.ID); err != nil || after.Sessions[0].Title != "Export API" {
 		t.Fatalf("the outcome after its template went: %+v %v", after, err)
+	}
+}
+
+// A launch refused because the skills changed says so with its code and the
+// gaps as they are now, so the page need not read the template again.
+func TestTemplateSkillsChangedCarriesItsGaps(t *testing.T) {
+	w := httptest.NewRecorder()
+	gafferTemplateError(w, &gaffer.TemplateSkillsChanged{Gaps: []gaffer.TemplateSkillGap{{Pipeline: 0, Stage: 1, ID: "library:gone", Name: "Gone", Revision: "r1", Status: "unavailable", Key: "0:1:library:gone"}}})
+	var body struct {
+		Code string                    `json:"code"`
+		Gaps []gaffer.TemplateSkillGap `json:"gaps"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != 409 || body.Code != "template_skills_changed" || len(body.Gaps) != 1 || body.Gaps[0].Key != "0:1:library:gone" {
+		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }

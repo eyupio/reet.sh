@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"encoding/json"
 	"errors"
 	"sort"
 	"strconv"
@@ -55,6 +56,29 @@ type TemplateLaunchInput struct {
 	// without, each as TemplateSkillGap.Key.
 	SkippedSkills []string `json:"skippedSkills"`
 	Confirmed     bool     `json:"confirmed"`
+	// Crew is who does each tier's stages in this outcome, as the dialog's
+	// crew editor sets it at a plan's approval. Absent takes the saved crew.
+	Crew *TemplateCrew `json:"crew"`
+}
+
+// TemplateCrew is the agent, model, effort and backups for each tier of a
+// launch. A tier with no agent falls back to the outcome's own.
+type TemplateCrew struct {
+	Light    store.GafferCrewTier `json:"light"`
+	Standard store.GafferCrewTier `json:"standard"`
+	Heavy    store.GafferCrewTier `json:"heavy"`
+}
+
+// TemplateSkillsChanged refuses a launch whose skill gaps are not the ones it
+// was shown, and carries the gaps as they are now.
+type TemplateSkillsChanged struct{ Gaps []TemplateSkillGap }
+
+func (e *TemplateSkillsChanged) Error() string {
+	return "The skills this template uses have changed since you looked. Review them before starting."
+}
+
+func (e *TemplateSkillsChanged) Unwrap() error {
+	return &DeliveryConflict{"template_skills_changed", e.Error()}
 }
 
 // TemplateSkillGap is a skill a template names that is no longer approved for
@@ -75,6 +99,7 @@ type TemplateView struct {
 	Latest          int                `json:"latest"`
 	Versions        []int              `json:"versions"`
 	LastUsedVersion int                `json:"lastUsedVersion"`
+	LastUsedAt      int64              `json:"lastUsedAt"`
 	SkillGaps       []TemplateSkillGap `json:"skillGaps"`
 }
 
@@ -87,14 +112,16 @@ type TemplateSummary struct {
 	CreatedAt       int64  `json:"createdAt"`
 	UpdatedAt       int64  `json:"updatedAt"`
 	LastUsedVersion int    `json:"lastUsedVersion"`
+	LastUsedAt      int64  `json:"lastUsedAt"`
 }
 
 func templateConflict(code, message string) error { return &DeliveryConflict{code, message} }
 
 // successfulPipeline is a pipeline whose work was finished: every stage was
-// handed over, or the person accepted its delivery.
+// handed over, or the person accepted its delivery and it did not then fail.
 func successfulPipeline(p store.GafferOutcomeSession) bool {
-	return len(p.Stages) > 0 && (p.State == "done" || p.DeliveryAccepted)
+	ended := p.State == "failed" || p.State == "unfollowed" || p.State == "cancelled"
+	return len(p.Stages) > 0 && (p.State == "done" || p.DeliveryAccepted && !ended)
 }
 
 // templateFromOutcome copies what is reusable from a successful outcome.
@@ -175,21 +202,28 @@ func normalTemplate(c *store.GafferTemplateContent, known []store.GafferTemplate
 	}
 	for i := range c.Pipelines {
 		p := &c.Pipelines[i]
+		p.Title, p.Prompt = strings.TrimSpace(p.Title), strings.TrimSpace(p.Prompt)
 		if len(p.Stages) == 0 {
 			return invalid("pipelines", "Give each pipeline of a template its stages.")
 		}
 		for j := range p.Stages {
 			st := &p.Stages[j]
+			st.Part, st.Brief, st.TierWhy = strings.TrimSpace(st.Part), strings.TrimSpace(st.Brief), strings.TrimSpace(st.TierWhy)
 			if st.Tier == "" {
 				st.Tier = DefaultStageTier(st.Kind)
 			}
 			if len(st.Skills) > 2 {
 				return invalid("skills", "A stage carries at most two skills.")
 			}
+			seen := map[string]bool{}
 			for _, sk := range st.Skills {
 				if !validSkillRef(sk) {
 					return invalid("skills", "One of the template's skills could not be read.")
 				}
+				if seen[sk.ID] {
+					return invalid("skills", "A stage carries each skill once.")
+				}
+				seen[sk.ID] = true
 			}
 		}
 		items := make([]CriterionInput, 0, len(p.Criteria))
@@ -231,6 +265,14 @@ func (s *Service) SaveTemplate(uid int64, in TemplateSaveInput) (store.GafferTem
 	if in.TemplateID != "" && (!store.ValidGafferOutcomeID(in.TemplateID) || in.BaseVersion < 1) || in.TemplateID == "" && in.BaseVersion != 0 {
 		return store.GafferTemplate{}, invalid("templateId", "Name the template and the version you were shown, or neither for a new template.")
 	}
+	// Asked for before under this request: the version it made is the answer,
+	// whatever has happened to the outcome or the template since.
+	if seen, found, err := s.templateRequest(uid, in.RequestID); err != nil || found {
+		if err == nil && !sameSave(seen, in) {
+			err = requestReused()
+		}
+		return seen, err
+	}
 	o, err := s.store.GafferOutcomeFor(uid, in.OutcomeID)
 	if err != nil {
 		return store.GafferTemplate{}, err
@@ -261,12 +303,74 @@ func (s *Service) SaveTemplate(uid int64, in TemplateSaveInput) (store.GafferTem
 	}
 	saved, err := s.store.SaveGafferTemplateFor(uid, store.GafferTemplate{ID: id, RequestID: in.RequestID, OutcomeID: o.ID, Content: content}, in.BaseVersion)
 	if errors.Is(err, store.ErrGafferTemplateRepeat) {
-		if saved.OutcomeID == o.ID && (in.TemplateID == "" && saved.Version == 1 || saved.ID == in.TemplateID && saved.Version == in.BaseVersion+1) {
+		if sameSave(saved, in) {
 			return saved, nil
 		}
-		return store.GafferTemplate{}, templateConflict("template_request_reused", "That request ID was already used for something else. Try again.")
+		return store.GafferTemplate{}, requestReused()
 	}
 	return saved, err
+}
+
+func requestReused() error {
+	return templateConflict("template_request_reused", "That request ID was already used for something else. Try again.")
+}
+
+// templateRequest finds what a request id already made for the account: a
+// template version, or an outcome, which only a launch may answer with.
+func (s *Service) templateRequest(uid int64, requestID string) (store.GafferTemplate, bool, error) {
+	seen, err := s.store.GafferTemplateByRequestFor(uid, requestID)
+	if err == nil {
+		return seen, true, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return seen, false, err
+	}
+	if _, err = s.store.GafferOutcomeFor(uid, requestID); err == nil {
+		return seen, true, requestReused()
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return seen, false, err
+	}
+	return seen, false, nil
+}
+
+// sameSave reports whether saved is what this save request made.
+func sameSave(saved store.GafferTemplate, in TemplateSaveInput) bool {
+	return saved.OutcomeID == in.OutcomeID && (in.TemplateID == "" && saved.Version == 1 || saved.ID == in.TemplateID && saved.Version == in.BaseVersion+1) &&
+		saved.Content.Name == strings.TrimSpace(in.Name) && saved.Content.Description == strings.TrimSpace(in.Description)
+}
+
+// sameEdit reports whether saved is what this edit request made. The content
+// is tidied as it was then; criteria are compared by their text, since one
+// sent without an id was given a new one.
+func sameEdit(saved store.GafferTemplate, id string, in TemplateEditInput) bool {
+	if saved.ID != id || saved.OutcomeID != "" || saved.Version != in.BaseVersion+1 {
+		return false
+	}
+	content := copyTemplate(in.Content)
+	if normalTemplate(&content, templateCriteria(saved.Content)) != nil {
+		return false
+	}
+	return withoutCriterionIDs(content) == withoutCriterionIDs(copyTemplate(saved.Content))
+}
+
+// copyTemplate is a copy of c that shares nothing with it.
+func copyTemplate(c store.GafferTemplateContent) store.GafferTemplateContent {
+	raw, _ := json.Marshal(c)
+	var out store.GafferTemplateContent
+	_ = json.Unmarshal(raw, &out)
+	return out
+}
+
+// withoutCriterionIDs is c as JSON with its criteria's ids left out. It
+// changes c, which must be a copy.
+func withoutCriterionIDs(c store.GafferTemplateContent) string {
+	for i := range c.Pipelines {
+		for k := range c.Pipelines[i].Criteria {
+			c.Pipelines[i].Criteria[k].ID = ""
+		}
+	}
+	raw, _ := json.Marshal(c)
+	return string(raw)
 }
 
 // EditTemplate saves changed content as the next version of a template.
@@ -280,6 +384,12 @@ func (s *Service) EditTemplate(uid int64, id string, in TemplateEditInput) (stor
 	if in.BaseVersion < 1 {
 		return store.GafferTemplate{}, invalid("baseVersion", "Reload this template before changing it.")
 	}
+	if seen, found, err := s.templateRequest(uid, in.RequestID); err != nil || found {
+		if err == nil && !sameEdit(seen, id, in) {
+			err = requestReused()
+		}
+		return seen, err
+	}
 	base, err := s.store.GafferTemplateFor(uid, id, 0)
 	if err != nil {
 		return store.GafferTemplate{}, err
@@ -290,25 +400,30 @@ func (s *Service) EditTemplate(uid int64, id string, in TemplateEditInput) (stor
 	}
 	saved, err := s.store.SaveGafferTemplateFor(uid, store.GafferTemplate{ID: id, RequestID: in.RequestID, Content: content}, in.BaseVersion)
 	if errors.Is(err, store.ErrGafferTemplateRepeat) {
-		if saved.ID == id && saved.OutcomeID == "" && saved.Version == in.BaseVersion+1 {
+		if sameEdit(saved, id, in) {
 			return saved, nil
 		}
-		return store.GafferTemplate{}, templateConflict("template_request_reused", "That request ID was already used for something else. Try again.")
+		return store.GafferTemplate{}, requestReused()
 	}
 	return saved, err
 }
 
-// lastUsedVersions is the version of each template the account's newest
-// outcome started from it used, from the outcomes kept.
-func (s *Service) lastUsedVersions(uid int64) (map[string]int, error) {
+type templateUse struct {
+	version int
+	at      int64
+}
+
+// lastUses is, for each template, the version the account's newest outcome
+// started from it used and when that outcome was made, from the outcomes kept.
+func (s *Service) lastUses(uid int64) (map[string]templateUse, error) {
 	rows, err := s.store.GafferOutcomesFor(uid)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]int{}
+	out := map[string]templateUse{}
 	for _, o := range rows {
 		if _, seen := out[o.TemplateID]; o.TemplateID != "" && !seen {
-			out[o.TemplateID] = o.TemplateVersion
+			out[o.TemplateID] = templateUse{o.TemplateVersion, o.CreatedAt}
 		}
 	}
 	return out, nil
@@ -322,13 +437,13 @@ func (s *Service) Templates(uid int64) ([]TemplateSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	used, err := s.lastUsedVersions(uid)
+	used, err := s.lastUses(uid)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]TemplateSummary, 0, len(rows))
 	for _, t := range rows {
-		out = append(out, TemplateSummary{ID: t.ID, Version: t.Version, Name: t.Content.Name, Description: t.Content.Description, Pipelines: len(t.Content.Pipelines), CreatedAt: t.FirstCreatedAt, UpdatedAt: t.CreatedAt, LastUsedVersion: used[t.ID]})
+		out = append(out, TemplateSummary{ID: t.ID, Version: t.Version, Name: t.Content.Name, Description: t.Content.Description, Pipelines: len(t.Content.Pipelines), CreatedAt: t.FirstCreatedAt, UpdatedAt: t.CreatedAt, LastUsedVersion: used[t.ID].version, LastUsedAt: used[t.ID].at})
 	}
 	return out, nil
 }
@@ -370,12 +485,12 @@ func (s *Service) Template(uid int64, id string, version int, load SkillLoader) 
 	if err != nil {
 		return TemplateView{}, err
 	}
-	used, err := s.lastUsedVersions(uid)
+	used, err := s.lastUses(uid)
 	if err != nil {
 		return TemplateView{}, err
 	}
 	_, gaps := templateSkills(t.Content, load)
-	return TemplateView{GafferTemplate: t, Latest: versions[len(versions)-1], Versions: versions, LastUsedVersion: used[id], SkillGaps: gaps}, nil
+	return TemplateView{GafferTemplate: t, Latest: versions[len(versions)-1], Versions: versions, LastUsedVersion: used[id].version, LastUsedAt: used[id].at, SkillGaps: gaps}, nil
 }
 
 // DeleteTemplate removes a template and its versions. Outcomes started from
@@ -389,27 +504,33 @@ func (s *Service) DeleteTemplate(uid int64, id string, version int) error {
 
 // LaunchTemplate starts an outcome from a template version, for the project
 // and agents the person chooses now. The plan is the version's; each stage's
-// agent comes from the crew as it is saved at this moment.
-func (s *Service) LaunchTemplate(uid int64, id string, in TemplateLaunchInput, load SkillLoader) (store.GafferOutcome, error) {
+// agent comes from the crew chosen in the launch, else the crew as it is
+// saved at this moment. created is false when the request was answered before.
+func (s *Service) LaunchTemplate(uid int64, id string, in TemplateLaunchInput, load SkillLoader) (o store.GafferOutcome, created bool, err error) {
 	if _, err := s.chatPrincipal(uid); err != nil {
-		return store.GafferOutcome{}, err
+		return o, false, err
 	}
 	if !store.ValidGafferOutcomeID(in.RequestID) {
-		return store.GafferOutcome{}, invalid("requestId", "A request ID is 32 lowercase hexadecimal characters.")
+		return o, false, invalid("requestId", "A request ID is 32 lowercase hexadecimal characters.")
 	}
 	if in.Version < 1 {
-		return store.GafferOutcome{}, invalid("version", "Choose the template version to start.")
+		return o, false, invalid("version", "Choose the template version to start.")
 	}
 	// Asked for before under this request: that outcome is the answer.
 	if existing, err := s.store.GafferOutcomeFor(uid, in.RequestID); err == nil {
 		if existing.TemplateID != id || existing.TemplateVersion != in.Version {
-			return store.GafferOutcome{}, templateConflict("template_request_reused", "That request ID was already used for something else. Try again.")
+			return o, false, requestReused()
 		}
-		return outcomeView(existing), nil
+		return outcomeView(existing), false, nil
+	}
+	if _, err := s.store.GafferTemplateByRequestFor(uid, in.RequestID); err == nil {
+		return o, false, requestReused()
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return o, false, err
 	}
 	t, err := s.store.GafferTemplateFor(uid, id, in.Version)
 	if err != nil {
-		return store.GafferOutcome{}, err
+		return o, false, err
 	}
 	loaded, gaps := templateSkills(t.Content, load)
 	have := make([]string, 0, len(gaps))
@@ -420,7 +541,7 @@ func (s *Service) LaunchTemplate(uid int64, id string, in TemplateLaunchInput, l
 	sort.Strings(have)
 	sort.Strings(skipped)
 	if strings.Join(have, "\n") != strings.Join(skipped, "\n") {
-		return store.GafferOutcome{}, templateConflict("template_skills_changed", "The skills this template uses have changed since you looked. Review them before starting.")
+		return o, false, &TemplateSkillsChanged{Gaps: gaps}
 	}
 	sessions := templateSessions(t.Content)
 	for i := range sessions {
@@ -434,13 +555,14 @@ func (s *Service) LaunchTemplate(uid int64, id string, in TemplateLaunchInput, l
 				}
 			}
 			if size > 2000 {
-				return store.GafferOutcome{}, invalid("skills", "A stage's skills must fit in 2,000 bytes. Edit the template's skills.")
+				return o, false, invalid("skills", "A stage's skills must fit in 2,000 bytes. Edit the template's skills.")
 			}
 		}
 	}
-	return s.CreateOutcome(uid, OutcomeInput{Objective: t.Content.Objective, ProjectID: in.ProjectID, Tool: in.Tool, Model: in.Model, Provider: in.Provider, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest,
+	o, err = s.CreateOutcome(uid, OutcomeInput{Objective: t.Content.Objective, ProjectID: in.ProjectID, Tool: in.Tool, Model: in.Model, Provider: in.Provider, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest,
 		Sessions: sessions, MaxReviews: t.Content.MaxReviews, Hours: t.Content.Hours, Confirmed: in.Confirmed, AutoReport: in.AutoReport, Automation: in.Automation, BalanceBelow: in.BalanceBelow,
-		RequestID: in.RequestID, Template: &store.GafferTemplateRef{ID: t.ID, Version: t.Version}})
+		RequestID: in.RequestID, Template: &store.GafferTemplateRef{ID: t.ID, Version: t.Version, Name: t.Content.Name}, Crew: in.Crew})
+	return o, err == nil, err
 }
 
 type TemplateCriteriaDiff struct {
@@ -476,14 +598,19 @@ type TemplatePipelineDiff struct {
 }
 
 type TemplateDiff struct {
-	From               int                    `json:"from"`
-	To                 int                    `json:"to"`
-	Changed            bool                   `json:"changed"`
-	NameChanged        bool                   `json:"nameChanged"`
-	DescriptionChanged bool                   `json:"descriptionChanged"`
-	ObjectiveChanged   bool                   `json:"objectiveChanged"`
-	LimitsChanged      bool                   `json:"limitsChanged"`
-	Pipelines          []TemplatePipelineDiff `json:"pipelines"`
+	From               int  `json:"from"`
+	To                 int  `json:"to"`
+	Changed            bool `json:"changed"`
+	NameChanged        bool `json:"nameChanged"`
+	DescriptionChanged bool `json:"descriptionChanged"`
+	ObjectiveChanged   bool `json:"objectiveChanged"`
+	LimitsChanged      bool `json:"limitsChanged"`
+	// OrderChanged is set when pipelines both versions have run in another order.
+	OrderChanged bool                   `json:"orderChanged"`
+	Pipelines    []TemplatePipelineDiff `json:"pipelines"`
+	// OlderNotShown is set when the version last used is no longer kept, so
+	// the comparison starts at the oldest version that is.
+	OlderNotShown bool `json:"olderNotShown"`
 }
 
 func stageLabel(st store.GafferTemplateStage) string {
@@ -522,7 +649,19 @@ func diffTemplates(a, b store.GafferTemplateContent) TemplateDiff {
 			d.Pipelines = append(d.Pipelines, item)
 		}
 	}
-	d.Changed = d.NameChanged || d.DescriptionChanged || d.ObjectiveChanged || d.LimitsChanged
+	var orderA, orderB []string
+	for _, p := range a.Pipelines {
+		if after[p.Title] {
+			orderA = append(orderA, p.Title)
+		}
+	}
+	for _, p := range b.Pipelines {
+		if _, ok := before[p.Title]; ok {
+			orderB = append(orderB, p.Title)
+		}
+	}
+	d.OrderChanged = strings.Join(orderA, "\n") != strings.Join(orderB, "\n")
+	d.Changed = d.NameChanged || d.DescriptionChanged || d.ObjectiveChanged || d.LimitsChanged || d.OrderChanged
 	for _, p := range d.Pipelines {
 		d.Changed = d.Changed || p.Change != "same"
 	}
@@ -612,13 +751,18 @@ func (s *Service) TemplateDiff(uid int64, id string, from, to int) (TemplateDiff
 	if err != nil {
 		return TemplateDiff{}, err
 	}
+	dropped := false
 	if from == 0 {
-		used, err := s.lastUsedVersions(uid)
+		used, err := s.lastUses(uid)
 		if err != nil {
 			return TemplateDiff{}, err
 		}
-		if from = used[id]; from == 0 {
+		if from = used[id].version; from == 0 {
 			from = max(b.Version-1, 1)
+		} else if versions, err := s.store.GafferTemplateVersionsFor(uid, id); err != nil {
+			return TemplateDiff{}, err
+		} else if from < versions[0] {
+			from, dropped = versions[0], true
 		}
 	}
 	a, err := s.store.GafferTemplateFor(uid, id, from)
@@ -626,6 +770,6 @@ func (s *Service) TemplateDiff(uid int64, id string, from, to int) (TemplateDiff
 		return TemplateDiff{}, err
 	}
 	d := diffTemplates(a.Content, b.Content)
-	d.From, d.To = a.Version, b.Version
+	d.From, d.To, d.OlderNotShown = a.Version, b.Version, dropped
 	return d, nil
 }

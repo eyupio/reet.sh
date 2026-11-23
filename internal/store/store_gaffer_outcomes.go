@@ -331,10 +331,12 @@ type GafferOutcome struct {
 	// it is on the Factory floor. The record and its report are kept.
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
 	// TemplateID and TemplateVersion name the template version the outcome was
-	// started from. The outcome holds its own copy of everything it runs on, so
-	// a later change to the template, or its deletion, changes nothing here.
+	// started from, and TemplateName what it was called then. The outcome holds
+	// its own copy of everything it runs on, so a later change to the template,
+	// or its deletion, changes nothing here.
 	TemplateID      string `json:"templateId,omitempty"`
 	TemplateVersion int    `json:"templateVersion,omitempty"`
+	TemplateName    string `json:"templateName,omitempty"`
 	CreatedAt       int64  `json:"createdAt"`
 	UpdatedAt       int64  `json:"updatedAt"`
 }

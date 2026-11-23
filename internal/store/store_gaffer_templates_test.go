@@ -182,3 +182,21 @@ func TestAnOutcomeWithoutATemplateStillReads(t *testing.T) {
 		t.Fatalf("old outcome: %+v %v", o, err)
 	}
 }
+
+// A request id is found by the account that used it, and only by that account.
+func TestGafferTemplateIsFoundByItsRequest(t *testing.T) {
+	s, uid, other := templateStore(t)
+	saved, err := s.SaveGafferTemplateFor(uid, templateVersion(hexID('a', 0), hexID('1', 1), "First"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, err := s.GafferTemplateByRequestFor(uid, hexID('1', 1)); err != nil || found.ID != saved.ID || found.Version != 1 || found.Content.Name != "First" {
+		t.Fatalf("by request: %+v %v", found, err)
+	}
+	if _, err := s.GafferTemplateByRequestFor(other, hexID('1', 1)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another account: %v", err)
+	}
+	if _, err := s.GafferTemplateByRequestFor(uid, hexID('1', 2)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an unused id: %v", err)
+	}
+}

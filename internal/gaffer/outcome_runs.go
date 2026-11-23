@@ -162,6 +162,9 @@ type OutcomeInput struct {
 	// Template is the template version this plan was built from, set only by
 	// a template launch and recorded on the outcome.
 	Template *store.GafferTemplateRef `json:"-"`
+	// Crew, set only by a template launch, is the crew the person chose for
+	// it, in place of the saved one: a template's stages name no agent.
+	Crew *TemplateCrew `json:"-"`
 }
 
 // OutcomeStageInput is one stage of a planned pipeline: what it is and which
@@ -512,6 +515,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
+	if in.Crew != nil {
+		crew.Light, crew.Standard, crew.Heavy = in.Crew.Light, in.Crew.Standard, in.Crew.Heavy
+	}
 	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, crew, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
 		return o, err
@@ -545,7 +551,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	}
 	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Images: append([]string(nil), in.Images...), Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	if in.Template != nil {
-		o.TemplateID, o.TemplateVersion = in.Template.ID, in.Template.Version
+		o.TemplateID, o.TemplateVersion, o.TemplateName = in.Template.ID, in.Template.Version, in.Template.Name
 	}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {

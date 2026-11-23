@@ -30,7 +30,10 @@ func (s *server) registerGafferTemplateRoutes(mux *http.ServeMux) {
 }
 
 func gafferTemplateError(w http.ResponseWriter, err error) {
+	var changed *gaffer.TemplateSkillsChanged
 	switch {
+	case errors.As(err, &changed):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": changed.Error(), "code": "template_skills_changed", "message": changed.Error(), "gaps": changed.Gaps})
 	case errors.Is(err, store.ErrGafferTemplateChanged):
 		writeErrCode(w, http.StatusConflict, "template_changed", "", err.Error(), "")
 	case errors.Is(err, store.ErrGafferTemplateLimit):
@@ -126,7 +129,7 @@ func (s *server) writeTemplate(w http.ResponseWriter, r *http.Request, id string
 func (s *server) gafferTemplateDiff(w http.ResponseWriter, r *http.Request) {
 	from, to := positive(r.URL.Query().Get("from")), positive(r.URL.Query().Get("to"))
 	if from < 0 || to < 0 {
-		writeErr(w, 400, "Name the versions to compare by number.")
+		gafferTemplateError(w, &gaffer.Invalid{Field: "version", Message: "Name the versions to compare by number."})
 		return
 	}
 	d, err := s.gafferProviders.TemplateDiff(s.uid(r), r.PathValue("id"), from, to)
@@ -142,7 +145,8 @@ func (s *server) gafferTemplateDiff(w http.ResponseWriter, r *http.Request) {
 // needs the account's setting.
 func (s *server) gafferTemplateLaunch(w http.ResponseWriter, r *http.Request) {
 	var in gaffer.TemplateLaunchInput
-	if !decodeStrictJSON(w, r, 8<<10, &in, "That launch is invalid or too large.") {
+	// Room for a skipped key for every skill of the largest plan, and the crew.
+	if !decodeStrictJSON(w, r, 64<<10, &in, "That launch is invalid or too large.") {
 		return
 	}
 	if !s.terminalEnabled() {
@@ -156,14 +160,18 @@ func (s *server) gafferTemplateLaunch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	uid := s.uid(r)
-	o, err := s.gafferProviders.LaunchTemplate(uid, r.PathValue("id"), in, s.templateSkills(uid))
+	o, created, err := s.gafferProviders.LaunchTemplate(uid, r.PathValue("id"), in, s.templateSkills(uid))
 	if err != nil {
 		gafferTemplateError(w, err)
 		return
 	}
 	// The skill receipts a choice on the page would have left, so the stage's
 	// launch marks them prepared. A receipt that is not saved changes nothing.
+	// A repeated request leaves the receipts of the outcome it already made.
 	for _, p := range o.Sessions {
+		if !created {
+			break
+		}
 		for i, st := range p.Stages {
 			for _, sk := range st.SkillGuidance {
 				sk.State = "selected"
@@ -178,7 +186,7 @@ func (s *server) gafferTemplateLaunch(w http.ResponseWriter, r *http.Request) {
 func (s *server) gafferTemplateDelete(w http.ResponseWriter, r *http.Request) {
 	version := positive(r.URL.Query().Get("version"))
 	if version < 1 {
-		writeErr(w, 400, "Reload this template before deleting it.")
+		gafferTemplateError(w, &gaffer.Invalid{Field: "version", Message: "Reload this template before deleting it."})
 		return
 	}
 	id := r.PathValue("id")

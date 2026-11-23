@@ -27,7 +27,7 @@ func answerFixture(t *testing.T, offer bool) (*launchAPI, string, string) {
 }
 
 func apiQuestion(fp string) *terminalproto.TerminalQuestion {
-	return &terminalproto.TerminalQuestion{Question: "Do you want to proceed?", Fingerprint: fp,
+	return &terminalproto.TerminalQuestion{Question: "Bash command\ngo test ./...\nDo you want to proceed?", Truncated: true, Fingerprint: fp,
 		Options: []terminalproto.TerminalOption{{Index: 1, Label: "Yes", Selected: true}, {Index: 2, Label: "No"}}}
 }
 
@@ -80,7 +80,7 @@ func TestTerminalAnswerRoute(t *testing.T) {
 	_, out, raw := f.do(t, f.cookie, "GET", "/api/v2/terminal/sessions", nil)
 	session := out["sessions"].([]any)[0].(map[string]any)
 	q, ok := session["terminalQuestion"].(map[string]any)
-	if !ok || q["question"] != "Do you want to proceed?" || q["fingerprint"] != fp || len(q["options"].([]any)) != 2 {
+	if !ok || q["question"] != "Bash command\ngo test ./...\nDo you want to proceed?" || q["truncated"] != true || q["fingerprint"] != fp || len(q["options"].([]any)) != 2 {
 		t.Fatalf("listed: %s", raw)
 	}
 	code, out, raw := f.do(t, f.cookie, "POST", path, map[string]any{"fingerprint": fp, "option": 2})

@@ -140,10 +140,10 @@ func (m *questionMachine) sent() int {
 	return len(m.answers)
 }
 
-const secretQuestion = "Do you want to run QUESTION_TEXT_NEVER_STORED_24680?"
+const secretQuestion = "Bash command\nSUBJECT_TEXT_NEVER_STORED_97531\nDo you want to run QUESTION_TEXT_NEVER_STORED_24680?"
 
 func waitingQuestion(fingerprint string) *terminalproto.TerminalQuestion {
-	return &terminalproto.TerminalQuestion{Question: secretQuestion, Fingerprint: fingerprint,
+	return &terminalproto.TerminalQuestion{Question: secretQuestion, Truncated: true, Fingerprint: fingerprint,
 		Options: []terminalproto.TerminalOption{{Index: 1, Label: "Yes", Selected: true}, {Index: 2, Label: "OPTION_TEXT_NEVER_STORED_13579"}}}
 }
 
@@ -172,10 +172,10 @@ func TestTerminalQuestionIsKeptInMemoryOnly(t *testing.T) {
 	fp := strings.Repeat("a", 64)
 	m.report(t, session, waitingQuestion(fp))
 	q := m.listed(t, session)
-	if q == nil || q.Question != secretQuestion || q.Fingerprint != fp || len(q.Options) != 2 {
+	if q == nil || q.Question != secretQuestion || !q.Truncated || q.Fingerprint != fp || len(q.Options) != 2 {
 		t.Fatalf("the question is not listed: %+v", q)
 	}
-	for _, text := range []string{"QUESTION_TEXT_NEVER_STORED_24680", "OPTION_TEXT_NEVER_STORED_13579", fp} {
+	for _, text := range []string{"SUBJECT_TEXT_NEVER_STORED_97531", "QUESTION_TEXT_NEVER_STORED_24680", "OPTION_TEXT_NEVER_STORED_13579", fp} {
 		if databaseHolds(t, m.b.st, text) {
 			t.Fatalf("the database holds %q", text)
 		}

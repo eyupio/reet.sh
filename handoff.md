@@ -1,5 +1,42 @@
 # Reet central-control implementation handoff
 
+## SIGN-IN-LIMITS-1: sign-in limits charged to the right key, and trusted reverse proxies (23 November 2026)
+
+The first "Security and access" item of the roadmap's reliability workstream.
+
+**What was wrong.** Failed password sign-ins were charged to the email alone (5 a minute, never forgiven, a correct
+sign-in included), so anyone who knew an email could keep its owner out from anywhere. `clientIP` was the peer
+address only, so behind a reverse proxy every visitor shared one address budget for sign-in, single sign-on start
+and password reset. Every address key was a full address, so one IPv6 /64 could rotate freely. No forwarded header was
+trusted for the address, so there was no spoofing to fix.
+
+**Client address** (`internal/api/auth_session.go`). `REET_TRUSTED_PROXIES` is a comma-separated list of addresses and
+ranges, empty by default, parsed at start-up (`ParseTrustedProxies`); a bad entry, or one that trusts every address
+(`0.0.0.0/0`, `::/0`, their mapped forms), stops the server with an error naming it. Only when the peer is listed does
+`clientIP` read `X-Forwarded-For`: all header lines, right to left, past trusted entries, to the first valid untrusted
+address; an entry that is not an address ends the walk at the last trusted hop. `Forwarded` and `X-Real-IP` are not
+read. Limiter keys use `clientKey`: the IPv4 address, or the IPv6 /64.
+
+**Sign-in** (`internal/api/auth_handlers.go`). Three keys, taken before the password check and all given back on
+success: `ip:<prefix>` 60 a minute, `sign-in:<prefix> <email>` 5 a minute, `email:<email>` 100 an hour
+(`accountLimiter`). The reply is the same 429 for every key and for an email with no account; `Retry-After` is 60, or
+the time until the hourly cap frees a slot. Sign-up, forgot, reset, single sign-on start, back-channel logout and MCP
+client registration keep their budgets and now key on `clientKey`.
+
+**Limiter** (`internal/auth/auth.go`). Still in memory. At most 100,000 keys; a call prunes only the keys it reads,
+the whole map is walked at most once a window, and at the bound it drops expired keys and then an eighth of the bound,
+fewest attempts first, so one-attempt flood keys go before a key holding real failures.
+
+**Known limits.**
+- The owner accepted the account-wide cap: one address can lock an account out of password sign-in with 100 failures
+  (about 20 minutes at 5 a minute) and hold it with under two a minute. Single sign-on is not affected.
+- `Retry-After` shows whether a per-minute limit or the hourly cap was hit; it does not show whether the account exists.
+- A visitor whose own address is inside a listed range can choose their address; with Docker's default port
+  publishing, direct connections come from the bridge gateway, so listing a private range while publishing the
+  controller's port does the same. The docs say to list only the proxy itself.
+- The Caddy and nginx lines in the docs were not run against a real proxy.
+- Limits are lost on restart, as before. `REET_TOKEN` guesses are still not limited.
+
 ## TERMINAL-QUESTION-1: a terminal agent's dialog shown and answered from reet (23 November 2026)
 
 The base for two "Agent behaviour" roadmap items: the question and its options for terminal agents, and answers

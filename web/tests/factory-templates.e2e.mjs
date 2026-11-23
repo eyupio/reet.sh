@@ -445,6 +445,7 @@ try{
         await page.getByRole('dialog',{name:'Templates',exact:true}).getByRole('button',{name:'Use CSV export',exact:true}).click()
         await expect(causes.first()).toHaveText(/^✕ Cannot start · Heavy crew, used by Review\. Codex is not on workshop now\. Choose who does what\s?for the Heavy crew$/)
         await expect(start).toBeDisabled()
+        await causes.first().scrollIntoViewIfNeeded()
         await shot(page,'crew-blocked',width,theme)
         await causes.first().getByRole('button',{name:'Choose who does what for the Heavy crew',exact:true}).click()
         await expect(outcome.locator('details.crew')).toHaveAttribute('open','')

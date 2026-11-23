@@ -409,7 +409,8 @@ export type TemplateDiff = {
   /** The pipelines both versions have run in another order. */ orderChanged?: boolean
   /** The version last used is no longer kept, so `from` is the oldest kept and older changes are not shown. */ olderNotShown?: boolean
   pipelines: { title: string; change: 'added' | 'removed' | 'changed' | 'same'; promptChanged: boolean; autoMergeChanged: boolean; stagesChanged: boolean; stagesBefore: string[]; stagesAfter: string[]
-    criteria: { added: string[]; removed: string[]; reworded: { id: string; from: string; to: string }[] }; skills: { stage: string; id: string; name: string; from: string; to: string }[] }[]
+    criteria: { added: string[]; removed: string[]; reworded: { id: string; from: string; to: string }[] }; skills: { stage: string; id: string; name: string; from: string; to: string }[]
+    /** Stages kept in their place whose part, brief or tier changed. */ stageEdits: { stage: string; field: 'part' | 'brief' | 'tier'; from: string; to: string }[] }[]
 }
 export type TemplateLaunchInput = { requestId: string; version: number; projectId: string; tool: string; model?: string; provider?: string; trust: boolean; yolo: boolean; pullLatest?: 'yes' | 'no'; autoReport: boolean; automation: boolean; balanceBelow?: number; /** Who does each tier's stages, as the crew editor shows it. Absent takes the saved crew. */ crew?: { light: GafferCrewTier; standard: GafferCrewTier; heavy: GafferCrewTier }; skippedSkills?: string[]; confirmed: true }
 const templatePath = (id: string) => `/api/v2/gaffer/templates/${encodeURIComponent(id)}`

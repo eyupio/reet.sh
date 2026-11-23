@@ -1,10 +1,25 @@
 // What a template's pages say, kept as plain functions so the wording can be tested without a page.
 import type { GafferCrewTier, TemplateDiff, TemplateSkillGap } from '../api'
-import { stageLabel } from '../gafferOutcome'
+import { stageLabel, tierLabel } from '../gafferOutcome'
 
 const short = (revision: string) => revision.slice(0, 8)
 const quoted = (text: string) => `“${text}”`
-const list = (kinds: string[]) => kinds.map(stageLabel).join(', ') || 'none'
+// The server names a stage of a part as "code: API".
+const stageName = (label: string) => { const [kind, ...part] = label.split(': '); return [stageLabel(kind), ...part].join(': ') }
+const list = (kinds: string[]) => kinds.map(stageName).join(', ') || 'none'
+/** A stage as the server's diff names it: the kind, with its part when it has one. */
+export const diffStage = (stage: { kind: string; part?: string }) => (stage.part ? `${stage.kind}: ${stage.part}` : stage.kind)
+/** The line said for a pipeline that changed in a way no other line describes. */
+export const OTHER_CHANGE = 'Something else in this pipeline changed.'
+
+function editLine(e: TemplateDiff['pipelines'][number]['stageEdits'][number]): string {
+  const stage = stageName(e.stage)
+  if (e.field === 'tier') return `${stage} tier changed from ${tierLabel(e.from)} to ${tierLabel(e.to)}.`
+  // Worded as the criterion lines are: the quoted text ends the line.
+  if (!e.from) return `${stage} ${e.field} added: ${quoted(e.to)}`
+  if (!e.to) return `${stage} ${e.field} removed: ${quoted(e.from)}`
+  return `${stage} ${e.field} changed: ${quoted(e.from)} to ${quoted(e.to)}`
+}
 
 /** The version to show changes since: the one last used, unless that is the one about to be used, or nothing was used yet. */
 export const changesSince = (lastUsed: number | undefined, version: number): number => (lastUsed && lastUsed !== version ? lastUsed : 0)
@@ -32,12 +47,14 @@ export function diffLines(diff: TemplateDiff): { general: string[]; pipelines: {
     const lines: string[] = []
     if (p.promptChanged) lines.push('The prompt changed.')
     if (p.autoMergeChanged) lines.push('The merge setting changed.')
-    if (p.stagesChanged) lines.push(`Stages were ${list(p.stagesBefore)}; now ${list(p.stagesAfter)}.`)
+    if (p.stagesChanged && list(p.stagesBefore) !== list(p.stagesAfter)) lines.push(`Stages were ${list(p.stagesBefore)}; now ${list(p.stagesAfter)}.`)
+    lines.push(...p.stageEdits.map(editLine))
     for (const text of p.criteria.added) lines.push(`Criterion added: ${quoted(text)}`)
     for (const text of p.criteria.removed) lines.push(`Criterion removed: ${quoted(text)}`)
     for (const one of p.criteria.reworded) lines.push(`Criterion reworded: ${quoted(one.from)} to ${quoted(one.to)}`)
-    for (const s of p.skills) lines.push(!s.from ? `${quoted(s.name)} added to ${stageLabel(s.stage)} at revision ${short(s.to)}.` : !s.to ? `${quoted(s.name)} removed from ${stageLabel(s.stage)}.` : `${quoted(s.name)} in ${stageLabel(s.stage)} moved from revision ${short(s.from)} to ${short(s.to)}.`)
-    return { title: p.title, lines }
+    for (const s of p.skills) lines.push(!s.from ? `${quoted(s.name)} added to ${stageName(s.stage)} at revision ${short(s.to)}.` : !s.to ? `${quoted(s.name)} removed from ${stageName(s.stage)}.` : `${quoted(s.name)} in ${stageName(s.stage)} moved from revision ${short(s.from)} to ${short(s.to)}.`)
+    // A pipeline marked changed never shows its title with nothing under it.
+    return { title: p.title, lines: lines.length ? lines : [OTHER_CHANGE] }
   })
   return { general, pipelines }
 }
@@ -57,11 +74,17 @@ export function conflictWords(code: string, said: string, latest = 0, deleting =
 export const mergeWords = (autoMerge: boolean): string => (autoMerge ? 'Merges by itself once checks pass.' : 'Stops at Ready to merge.')
 /** The review limits every session of a run from the template gets. */
 export const limitsWords = (c: { maxReviews: number; hours: number }): string => `Up to ${c.maxReviews} ${c.maxReviews === 1 ? 'review' : 'reviews'} and ${c.hours} ${c.hours === 1 ? 'hour' : 'hours'} for each session.`
-/** The merge part of a start's access paragraph: which of the template's pipelines merge by themselves. */
-export function mergeAccessWords(auto: string[], total: number, yoloHolds: boolean): string {
-  if (!auto.length) return 'Gaffer cannot merge, run commands or answer approvals. Every pipeline stops at Ready to merge and waits for you.'
-  const who = auto.length === total ? `${total === 1 ? 'This pipeline merges' : 'Every pipeline merges'} by itself once checks pass.` : `${auto.map(quoted).join(', ')} ${auto.length === 1 ? 'merges' : 'merge'} by itself once checks pass. The others stop at Ready to merge and wait for you.`
-  return `Gaffer cannot run commands or answer approvals. ${who}${yoloHolds ? ' On YOLO they still stop at Ready to merge until you confirm on the Factory page that they may merge by itself.' : ''}`
+/** The line beside Start naming the template's pipelines that merge by themselves; empty when none does. */
+export function mergeLine(auto: string[], yoloHolds: boolean): string {
+  if (!auto.length) return ''
+  const names = auto.length === 1 ? quoted(auto[0]) : `${auto.slice(0, -1).map(quoted).join(', ')} and ${quoted(auto.at(-1)!)}`
+  return `${names} ${auto.length === 1 ? 'merges by itself' : 'merge by themselves'} once checks pass.${yoloHolds ? ' On YOLO they still stop at Ready to merge until you confirm on the Factory page that they may merge by themselves.' : ''}`
+}
+
+/** One line for a pipeline of a template: its title, stages, criteria and how it ends. */
+export function pipelineLine(p: { title: string; autoMerge: boolean; stages: { kind: string }[]; criteria: unknown[] }): string {
+  const criteria = `${p.criteria.length} ${p.criteria.length === 1 ? 'criterion' : 'criteria'}`
+  return [p.title, list(p.stages.map(stage => stage.kind)), criteria, p.autoMerge ? 'merges by itself' : 'stops at Ready to merge'].join(' · ')
 }
 
 /** Whether the server would save this outcome as a template: it has started, and every pipeline finished, or had its delivery accepted and did not then fail. */

@@ -5,7 +5,7 @@ import ts from 'typescript'
 
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 const compiled = ts.transpileModule(readFileSync(new URL('./templates.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-  .replace("from '../gafferOutcome'", `from '${asURL('export const stageLabel = kind => kind[0].toUpperCase() + kind.slice(1)')}'`)
+  .replace("from '../gafferOutcome'", `from '${asURL('export const stageLabel = kind => kind[0].toUpperCase() + kind.slice(1); export const tierLabel = tier => tier[0].toUpperCase() + tier.slice(1)')}'`)
 const t = await import(asURL(compiled))
 
 test('changes are shown since the version last used, and never for a first use', () => {
@@ -38,10 +38,10 @@ test('a difference reads as plain lines, and a pipeline that is the same says no
     pipelines: [
       { title: 'Export API', change: 'changed', promptChanged: true, autoMergeChanged: false, stagesChanged: true, stagesBefore: ['code', 'review'], stagesAfter: ['code', 'review', 'test'],
         criteria: { added: ['It is fast.'], removed: ['It is slow.'], reworded: [{ id: 'c1', from: 'Exports CSV.', to: 'Downloads as CSV.' }] },
-        skills: [{ stage: 'code', id: 'a', name: 'Go tests', from: 'abcdef012345', to: '123456abcdef' }, { stage: 'test', id: 'b', name: 'Lint', from: '', to: 'ffff0000aaaa' }, { stage: 'review', id: 'c', name: 'Docs', from: 'eeee1111bbbb', to: '' }] },
-      { title: 'Importer', change: 'added', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [] },
-      { title: 'Old', change: 'removed', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [] },
-      { title: 'Same', change: 'same', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [] },
+        skills: [{ stage: 'code', id: 'a', name: 'Go tests', from: 'abcdef012345', to: '123456abcdef' }, { stage: 'test', id: 'b', name: 'Lint', from: '', to: 'ffff0000aaaa' }, { stage: 'review', id: 'c', name: 'Docs', from: 'eeee1111bbbb', to: '' }], stageEdits: [] },
+      { title: 'Importer', stageEdits: [], change: 'added', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [] },
+      { title: 'Old', stageEdits: [], change: 'removed', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [] },
+      { title: 'Same', stageEdits: [], change: 'same', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [] },
     ],
   })
   assert.deepEqual(lines.general, ['The name changed.'])
@@ -52,6 +52,26 @@ test('a difference reads as plain lines, and a pipeline that is the same says no
     '“Go tests” in Code moved from revision abcdef01 to 123456ab.', '“Lint” added to Test at revision ffff0000.', '“Docs” removed from Review.',
   ])
   assert.deepEqual(lines.pipelines[1].lines, ['Added.'])
+})
+
+test('a stage whose tier, brief or part changed is named, a layout that only changed there has no stage list, and a change nothing describes still says so', () => {
+  const p = (extra) => ({ title: 'Export API', change: 'changed', promptChanged: false, autoMergeChanged: false, stagesChanged: false, stagesBefore: [], stagesAfter: [], criteria: { added: [], removed: [], reworded: [] }, skills: [], stageEdits: [], ...extra })
+  const lines = t.diffLines({ from: 1, to: 2, changed: true, nameChanged: false, descriptionChanged: false, objectiveChanged: false, limitsChanged: false, pipelines: [
+    p({ stagesChanged: true, stagesBefore: ['code: Endpoint', 'review'], stagesAfter: ['code: API', 'review'], stageEdits: [
+      { stage: 'code', field: 'part', from: 'Endpoint', to: 'API' }, { stage: 'code: API', field: 'brief', from: 'Write it.', to: '' },
+      { stage: 'review', field: 'tier', from: 'standard', to: 'heavy' }, { stage: 'review', field: 'brief', from: '', to: 'Read it all.' }, { stage: 'review', field: 'brief', from: 'a', to: 'b' }] }),
+    p({ title: 'Same layout', stagesChanged: true, stagesBefore: ['code', 'review'], stagesAfter: ['code', 'review'], stageEdits: [{ stage: 'review', field: 'tier', from: 'standard', to: 'heavy' }] }),
+    p({ title: 'Quiet' }),
+  ] })
+  assert.deepEqual(lines.pipelines[0].lines, [
+    'Stages were Code: Endpoint, Review; now Code: API, Review.', 'Code part changed: “Endpoint” to “API”', 'Code: API brief removed: “Write it.”',
+    'Review tier changed from Standard to Heavy.', 'Review brief added: “Read it all.”', 'Review brief changed: “a” to “b”',
+  ])
+  assert.deepEqual(lines.pipelines[1].lines, ['Review tier changed from Standard to Heavy.'])
+  assert.deepEqual(lines.pipelines[2].lines, [t.OTHER_CHANGE])
+  assert.equal(t.OTHER_CHANGE, 'Something else in this pipeline changed.')
+  assert.equal(t.diffStage({ kind: 'code', part: 'API' }), 'code: API')
+  assert.equal(t.diffStage({ kind: 'review' }), 'review')
 })
 
 test('a changed template says which version was saved elsewhere and which this saves, other refusals in the server’s words', () => {
@@ -68,10 +88,17 @@ test('what a template does at the end, and for how long, is said plainly', () =>
   assert.equal(t.limitsWords({ maxReviews: 1, hours: 1 }), 'Up to 1 review and 1 hour for each session.')
 })
 
-test('the access paragraph says which pipelines merge by themselves', () => {
-  assert.match(t.mergeAccessWords([], 2, false), /^Gaffer cannot merge, run commands or answer approvals\. Every pipeline stops at Ready to merge/)
-  assert.equal(t.mergeAccessWords(['Export API'], 2, false), 'Gaffer cannot run commands or answer approvals. “Export API” merges by itself once checks pass. The others stop at Ready to merge and wait for you.')
-  assert.match(t.mergeAccessWords(['A', 'B'], 2, true), /^Gaffer cannot run commands or answer approvals\. Every pipeline merges by itself once checks pass\. On YOLO they still stop/)
+test('the line beside Start names the pipelines that merge by themselves, and is empty when none does', () => {
+  assert.equal(t.mergeLine([], false), '')
+  assert.equal(t.mergeLine(['Export API'], false), '“Export API” merges by itself once checks pass.')
+  assert.equal(t.mergeLine(['A', 'B', 'C'], false), '“A”, “B” and “C” merge by themselves once checks pass.')
+  assert.match(t.mergeLine(['A', 'B'], true), /^“A” and “B” merge by themselves once checks pass\. On YOLO they still stop at Ready to merge/)
+})
+
+test('a pipeline reads as one line: title, stages, criteria and how it ends', () => {
+  assert.equal(t.pipelineLine({ title: 'Export API', autoMerge: false, stages: [{ kind: 'code' }, { kind: 'review' }, { kind: 'test' }], criteria: [1, 2] }), 'Export API · Code, Review, Test · 2 criteria · stops at Ready to merge')
+  assert.equal(t.pipelineLine({ title: 'Button', autoMerge: true, stages: [{ kind: 'code' }], criteria: [1] }), 'Button · Code · 1 criterion · merges by itself')
+  assert.equal(t.pipelineLine({ title: 'Docs', autoMerge: false, stages: [{ kind: 'code' }], criteria: [] }), 'Docs · Code · 0 criteria · stops at Ready to merge')
 })
 
 test('an outcome is offered as a template only where the server would keep it', () => {

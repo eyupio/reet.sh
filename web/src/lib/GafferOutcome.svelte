@@ -29,7 +29,7 @@
   import TemplatePlan from './factory/TemplatePlan.svelte'
   import Templates from './factory/Templates.svelte'
   import { attemptIds, mayHaveArrived } from './factory/delivery'
-  import { changesSince, changesWords, conflictWords, mergeAccessWords, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
+  import { changesSince, changesWords, conflictWords, mergeLine, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { reveal } from './dialogShell'
   import { inWords, launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
@@ -51,20 +51,25 @@
   // Starting from a template: its plan is read only, and everything that belongs to a launch is chosen here. The skills
   // the person agreed to start without are exactly the gaps they were shown.
   let template = $state<{ id: string; version: number } | null>(untrack(() => initialTemplate ?? null))
-  let tpl = $state<Template | null>(null), tplDiff = $state<TemplateDiff | null>(null), tplReading = $state(false), tplError = $state(''), skipOk = $state(false), picking = $state(false)
+  let tpl = $state<Template | null>(null), tplDiff = $state<TemplateDiff | null>(null), tplReading = $state(false), tplError = $state(''), skipOk = $state(false), picking = $state(false), pickingId = $state('')
   const launchIds = attemptIds()
   const gaps = $derived(tpl?.skillGaps ?? [])
+  // Only the newest read is shown: the version list stays usable while one is read, so the focus stays on it.
+  let reads = 0
   async function readTemplate(id: string, version = 0) {
+    const asked = ++reads
     tplReading = true; tplError = ''
     try {
       const next = await getGafferTemplate(id, version, life.signal)
       // Compared from the version last used, or the oldest kept when that one has gone: the server chooses.
-      tplDiff = changesSince(next.lastUsedVersion, next.version) ? await diffGafferTemplate(id, 0, next.version, life.signal).catch(() => null) : null
+      const diff = changesSince(next.lastUsedVersion, next.version) ? await diffGafferTemplate(id, 0, next.version, life.signal).catch(() => null) : null
+      if (asked !== reads) return
+      tplDiff = diff
       tpl = next; template = { id, version: next.version }; skipOk = false
       sessions = next.content.pipelines.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: orderStages([...new Set(item.stages.map(stage => stage.kind))]), criteria: item.criteria.map(one => one.text), ...planRatings(item.stages) }))
       step = 'plan'
-    } catch (e) { if (!life.signal.aborted) tplError = e instanceof ApiError && e.status === 404 ? 'That template or version is not kept any more.' : e instanceof Error ? e.message : 'The template could not be read.' }
-    finally { tplReading = false }
+    } catch (e) { if (!life.signal.aborted && asked === reads) tplError = e instanceof ApiError && e.status === 404 ? 'That template or version is not kept any more.' : e instanceof Error ? e.message : 'The template could not be read.' }
+    finally { if (asked === reads) tplReading = false }
   }
   function leaveTemplate() { template = null; tpl = null; tplDiff = null; tplError = ''; sessions = []; skipOk = false; startError = ''; step = 'objective' }
   let loading = $state(true), loadError = $state('')
@@ -352,6 +357,8 @@
   const launchesInWorktree = $derived(!!project?.isRepo && !!machine?.capabilities?.worktree)
   const latestChoice = $derived<LatestChoice>(latestOverride === null ? (startsFromLatest(project, { pullLatestByDefault: accountLatest }) ? 'github' : 'machine') : latestOverride ? 'github' : 'machine')
   const yoloWhy = $derived(yoloGates.find(gate => !gate.ok)?.detail ?? '')
+  // The template's pipelines that merge by themselves, named beside Start rather than in the access paragraph.
+  const merging = $derived(template && tpl ? mergeLine(tpl.content.pipelines.filter(item => item.autoMerge).map(item => item.title), yolo && !yoloWhy) : '')
   $effect(() => { if (yoloWhy) yolo = false })
   $effect(() => { void projectId; latestOverride = null })
 
@@ -536,7 +543,7 @@
     </ol>
     {#if step === 'objective'}
       <p>Describe the result you want. Gaffer can draft the plan for your approval. Once you start it, track the work in Factory.</p>
-      <p><button class="link" type="button" onclick={() => (picking = true)}>Start from a template</button></p>
+      <p><button class="link" type="button" onclick={() => { pickingId = ''; picking = true }}>Start from a template</button></p>
       {#if loading}<p role="status">Reading your projects…</p>
       {:else if loadError}<p class="warning" role="alert">{loadError}</p>
       {:else}
@@ -571,21 +578,22 @@
       {:else}
         <p><strong>{tpl.content.name}</strong>, version {tpl.version}{tpl.versions.length > 1 ? ` of ${tpl.latest}` : ''}. The plan is as you saved it. Choose where it runs, then start.</p>
         <p class="objective"><span class="eyebrow">Outcome</span>{tpl.content.objective}</p>
-        {#if tpl.versions.length > 1}<label>Template version<select aria-label="Template version" value={tpl.version} disabled={busy || tplReading} onchange={event => void readTemplate(tpl!.id, Number(event.currentTarget.value))}>
+        {#if tpl.versions.length > 1}<label>Template version<select aria-label="Template version" value={tpl.version} disabled={busy} onchange={event => void readTemplate(tpl!.id, Number(event.currentTarget.value))}>
           {#each [...tpl.versions].reverse() as n (n)}<option value={n}>Version {n}{n === tpl.latest ? ' (latest)' : ''}{n === tpl.lastUsedVersion ? ' (last used)' : ''}</option>{/each}
         </select></label>{/if}
         {#if tplError}<p class="warning" role="alert">{tplError}</p>{/if}
-        {#if tplDiff}{@const said = changesWords(tplDiff, tpl.lastUsedVersion)}<TemplateChanges diff={tplDiff} title={said.title} note={said.note}/>{/if}
-        <TemplatePlan content={tpl.content} gaps={gaps}/>
+        {#if tplDiff}{@const said = changesWords(tplDiff, tpl.lastUsedVersion)}<TemplateChanges diff={tplDiff} title={said.title} note={said.note} oncompare={() => { pickingId = tpl!.id; picking = true }}/>{/if}
+        <TemplatePlan content={tpl.content} {gaps} diff={tplDiff} lines idPrefix={`${formId}-`}/>
+        {#if gaps.length}<label class="trust consent"><input type="checkbox" bind:checked={skipOk} disabled={busy} aria-describedby={gaps.map(gap => `${formId}-gap-${gap.key}`).join(' ')}/><span><strong>Start without these skills.</strong> {gaps.length === 1 ? 'The skill' : `The ${gaps.length} skills`} marked in the plan above {gaps.length === 1 ? 'is' : 'are'} left out of {gaps.length === 1 ? 'its stage' : 'their stages'}. Nothing else changes.</span></label>{/if}
         {@render where()}
         {@render savedCrewBlock()}
         {@render crewDetails()}
         {@render readinessPanel()}
         {@render launchChoices()}
-        {#if gaps.length}<label class="trust"><input type="checkbox" bind:checked={skipOk} disabled={busy}/><span><strong>Start without these skills.</strong> {gaps.length === 1 ? 'The skill' : `The ${gaps.length} skills`} marked in the plan {gaps.length === 1 ? 'is' : 'are'} left out of {gaps.length === 1 ? 'its stage' : 'their stages'}. Nothing else changes.</span></label>{/if}
+        {#if merging}<p class="merging" id={`${formId}-merging`}>{merging}</p>{/if}
         <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
         {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
-        <div class="actions"><button class="btn primary" type="button" disabled={busy || tplReading || !!approveBlocker} aria-describedby={approveBlocker ? `${formId}-blocker` : undefined} onclick={() => void startFromTemplate()}>{busy ? 'Starting…' : `Start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'} from this template`}</button><button class="btn quiet" type="button" disabled={busy} onclick={leaveTemplate}>Back</button></div>
+        <div class="actions"><button class="btn primary" type="button" disabled={busy || tplReading || !!approveBlocker} aria-describedby={[merging ? `${formId}-merging` : '', approveBlocker ? `${formId}-blocker` : ''].filter(Boolean).join(' ') || undefined} onclick={() => void startFromTemplate()}>{busy ? 'Starting…' : `Start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'} from this template`}</button><button class="btn quiet" type="button" disabled={busy} onclick={leaveTemplate}>Back</button></div>
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
@@ -668,7 +676,7 @@
     {/if}
   </div>
 </WorkspaceDialog>
-{#if picking}<Templates {timeZone} {dateFormat} onuse={(id, version) => { picking = false; void readTemplate(id, version) }} onclose={() => (picking = false)}/>{/if}
+{#if picking}<Templates openId={pickingId} {timeZone} {dateFormat} onuse={(id, version) => { picking = false; pickingId = ''; void readTemplate(id, version) }} onclose={() => { picking = false; pickingId = '' }}/>{/if}
 {#if yoloOpen && machine}<YoloDialog gates={yoloGates} tool={tool} structured machine={machine.host} enabling oncancel={() => { yoloOpen = false }} onstart={() => { if (yoloCanStart(yoloGates)) yolo = true; yoloOpen = false }}/>{/if}
 {#if declining}<ConfirmDialog title="Decline this proposal?" body="Nothing has started. This plan will not be approved or started, and stays here so you can tell Gaffer what you want instead or go back to the outcome." confirmLabel="Decline proposal" oncancel={() => declining = false} onconfirm={() => { declined = true; declining = false }}/>{/if}
 
@@ -739,7 +747,7 @@
 {/snippet}
 <!-- How the work is run: access, limits, approvals, decisions, reporting, merge and trust. -->
 {#snippet launchChoices()}
-      <div class="access" aria-label="Outcome access review"><p>{template ? 'Starting' : 'Approving'} has the controller start {sessions.length === 1 ? 'this pipeline' : `these ${sessions.length} pipelines`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. {template ? mergeAccessWords(tpl?.content.pipelines.filter(item => item.autoMerge).map(item => item.title) ?? [], sessions.length, yolo && !yoloWhy) : 'Gaffer cannot merge, run commands or answer approvals.'}</p></div>
+      <div class="access" aria-label="Outcome access review"><p>{template ? 'Starting' : 'Approving'} has the controller start {sessions.length === 1 ? 'this pipeline' : `these ${sessions.length} pipelines`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. {merging ? 'Gaffer cannot run commands or answer approvals.' : 'Gaffer cannot merge, run commands or answer approvals.'}</p></div>
       {#if !template}<details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
       </details>{/if}
@@ -857,7 +865,7 @@
   .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}
   .choice{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;justify-self:start}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{background:var(--tint);color:var(--ink)}.choice label.off{cursor:not-allowed;opacity:.6}.choice input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--accent)}
   .hint.warn{color:var(--warn)}
-  .result-line{font-weight:600}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
+  .result-line{font-weight:600}.merging{margin:0;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
   .outcome-images{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}.outcome-images li{padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem;overflow-wrap:anywhere}.results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}
   button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

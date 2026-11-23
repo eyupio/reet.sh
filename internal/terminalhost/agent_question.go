@@ -32,6 +32,8 @@ var (
 type screenLine struct {
 	col  int
 	text string
+	// framed is set when the line starts inside a box's left border.
+	framed bool
 }
 
 func isBorder(r rune) bool { return r >= 0x2500 && r <= 0x257f || r == '|' }
@@ -52,7 +54,9 @@ func cleanLine(raw string) screenLine {
 	}
 	s := strings.TrimRightFunc(b.String(), func(r rune) bool { return isBorder(r) || unicode.IsSpace(r) })
 	rest := strings.TrimLeftFunc(s, func(r rune) bool { return isBorder(r) || unicode.IsSpace(r) })
-	return screenLine{col: utf8.RuneCountInString(s) - utf8.RuneCountInString(rest), text: rest}
+	lead := strings.TrimLeftFunc(s, unicode.IsSpace)
+	framed := lead != "" && isBorder([]rune(lead)[0])
+	return screenLine{col: utf8.RuneCountInString(s) - utf8.RuneCountInString(rest), text: rest, framed: framed}
 }
 
 // normalise collapses runs of white space, so a redraw that pads lines or
@@ -68,8 +72,9 @@ func capRunes(s string, max int) string {
 }
 
 // questionOnScreen reads the question an agent is waiting on from its screen:
-// the line a matcher recognises as the question (joined with the next when it
-// wraps), and the numbered options under it with the one selected. It is nil
+// the dialog's text (dialogText), and the numbered options under it with the
+// one selected. The question sentence is the line a matcher recognises (joined
+// with the next when it wraps). It is nil
 // unless the screen is a dialog AwaitingAnswer knows, of an agent whose
 // dialogs are parsed, and it reads cleanly: one block of options numbered 1
 // to n (n at most 9) with exactly one selected.
@@ -78,9 +83,15 @@ func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion
 		return nil
 	}
 	var lines []screenLine
+	// tops holds, by the index of the line under it, the column of each box's
+	// top border: where a bordered dialog starts.
+	tops := map[int]int{}
 	for _, raw := range strings.Split(promptTail(screen), "\n") {
-		if l := cleanLine(raw); l.text != "" {
+		l := cleanLine(raw)
+		if l.text != "" {
 			lines = append(lines, l)
+		} else if at := strings.IndexRune(raw, '╭'); at >= 0 {
+			tops[len(lines)] = utf8.RuneCountInString(raw[:at])
 		}
 	}
 	// The question is the last line a matcher knows that has an option under it.
@@ -106,7 +117,9 @@ func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion
 	first := asked + 1
 	if !strings.HasSuffix(q.Question, "?") && first < len(lines) && !optionLine.MatchString(lines[first].text) && strings.HasSuffix(lines[first].text, "?") {
 		q.Question += " " + lines[first].text
+		first++
 	}
+	below := first
 	for first < len(lines) && !optionLine.MatchString(lines[first].text) {
 		first++
 	}
@@ -139,26 +152,66 @@ func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion
 	if len(q.Options) == 0 || selected != 1 {
 		return nil
 	}
-	q.Question = capRunes(normalise(q.Question), terminalproto.MaxTerminalQuestionRunes)
+	sentence := normalise(q.Question)
 	sum := sha256.New()
-	sum.Write([]byte(pane + "\x00" + q.Question))
+	sum.Write([]byte(pane + "\x00" + sentence))
 	for i := range q.Options {
 		q.Options[i].Label = capRunes(normalise(q.Options[i].Label), terminalproto.MaxTerminalOptionRunes)
 		// The selection is left out: moving it does not change the question,
 		// and the keys are worked out from a fresh read anyway.
 		sum.Write([]byte("\x00" + strconv.Itoa(q.Options[i].Index) + "\x1f" + q.Options[i].Label))
 	}
-	// So is what the question is about: the lines above the options, such as
-	// the command an approval would run. They are hashed here and never sent,
-	// so "Yes" to one command is never sent to another.
+	// So is what the question is about: every line above the options, such as
+	// the command an approval would run, so "Yes" to one command is never sent
+	// to another. These are hashed in full even when the text sent is cut.
 	for _, l := range lines[:first] {
 		sum.Write([]byte("\x00" + normalise(l.text)))
 	}
 	q.Fingerprint = hex.EncodeToString(sum.Sum(nil))
+	// The subject: a bordered dialog starts at the last box top left of the
+	// question; Codex draws its subject between the question and the options.
+	// A Claude dialog whose top is not on the screen began above it: its
+	// framed lines that are on the screen are kept.
+	start, found := asked, false
+	for k := asked; k >= 0 && !found; k-- {
+		if col, ok := tops[k]; ok && col < lines[asked].col {
+			start, found = k, true
+		}
+	}
+	for !found && lines[asked].framed && start > 0 && lines[start-1].framed {
+		start--
+	}
+	var subject []string
+	for _, l := range append(append([]screenLine{}, lines[start:asked]...), lines[below:first]...) {
+		subject = append(subject, normalise(l.text))
+	}
+	q.Question, q.Truncated = dialogText(subject, sentence)
+	q.Truncated = q.Truncated || tool == "claude" && !found
 	if !q.Valid() {
 		return nil
 	}
 	return q
+}
+
+// dialogText joins a dialog's subject lines and its question sentence with
+// newlines, within the question cap. What does not fit is dropped from the
+// top, a whole line at a time; a sentence that alone is too long keeps its
+// end. truncated says something was dropped.
+func dialogText(subject []string, sentence string) (text string, truncated bool) {
+	max := terminalproto.MaxTerminalQuestionRunes
+	if utf8.RuneCountInString(sentence) > max {
+		r := []rune(sentence)
+		return "…" + string(r[len(r)-max+1:]), true
+	}
+	text, used := sentence, utf8.RuneCountInString(sentence)
+	for i := len(subject) - 1; i >= 0; i-- {
+		n := utf8.RuneCountInString(subject[i]) + 1
+		if used+n > max {
+			return text, true
+		}
+		text, used = subject[i]+"\n"+text, used+n
+	}
+	return text, false
 }
 
 // answerKeys are the tmux keys that choose option on q: arrow keys from the

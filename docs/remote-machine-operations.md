@@ -234,12 +234,22 @@ read only when the window's activity says it may have changed, at most every two
 
 There is one bounded exception, for a controller that negotiated `terminal-question-v1`. When the screen is a Claude
 Code or Codex dialog the patterns matched, and it reads cleanly (one block of 1 to 9 numbered options with one
-selected), the connector sends the question (up to 500 characters) and the options (up to 9, each up to 200
-characters), with control, format, bidi and zero-width characters and box borders removed, and a fingerprint. Nothing
-else on the screen is sent. The machine keeps them in memory, never in its registry, and the controller keeps them in
-memory only: never in its database and never in its logs, so they are gone after a restart until the machine sends
-them again. The fingerprint is a SHA-256 of the pane, the question, the options and the dialog lines above the
-options (such as the command an approval would run); those lines are hashed on the machine and never sent.
+selected), the connector sends:
+
+- `question`: the dialog's own text, one screen line per line, joined by newlines: its subject lines (the command or
+  file it asks about, a plan's heading and steps) followed by the question sentence. At most 500 characters in all.
+  When it does not fit, whole lines are dropped from the top, so what is kept is the end nearest the options.
+- `truncated`: set when lines were dropped, or when a Claude dialog began above the visible screen (its top border is
+  not on it), so the person knows the rest is in the terminal. Nothing is cut without it.
+- `options`: up to 9 numbered options, each up to 200 characters, and which one is selected.
+- `fingerprint`: a SHA-256 of the pane, the question sentence, the options and every dialog line above the options,
+  in full even when `question` was cut.
+
+Control, format, bidi and zero-width characters and box borders are removed first; a newline in `question` is the only
+control character the controller accepts. Nothing else on the screen is sent: not the conversation above the dialog,
+not the lines under the options. The machine keeps the question in memory, never in its registry, and the controller
+keeps it in memory only: never in its database and never in its logs, so it is gone after a restart until the
+machine sends it again.
 
 An answer from the web (`POST /api/v2/terminal/sessions/{id}/answer` with the fingerprint and an option number) is
 terminal input, with the same rules as typing: the owner's signed-in browser, never a viewer or an API token. The

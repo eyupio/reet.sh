@@ -1,6 +1,8 @@
 package terminalhost
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -188,7 +190,7 @@ var claudeHostile = `
 ╭──────────────────────────────────────────────────────────────╮
 │ Bash command                                                 │
 │                                                              │
-│   ./install.sh                                               │
+│   ` + "\x1b[2J./install.sh \u202e--force\u202c" + `                          │
 │                                                              │
 │ Do you want to ` + "\u2066proceed\u2069?\u200d" + `                                      │
 │ ❯ 1. ` + hostileOption + `
@@ -207,19 +209,24 @@ func optionLabels(q *terminalproto.TerminalQuestion) []string {
 func TestQuestionOnScreenReadsEachAgentsDialog(t *testing.T) {
 	for name, tc := range map[string]struct {
 		tool, screen, question string
+		truncated              bool
 		options                []string
 		selected               int
 	}{
-		"a claude command approval": {"claude", claudeCommandPrompt, "Do you want to proceed?",
+		"a claude command approval": {"claude", claudeCommandPrompt, "Bash command\ngo test ./...\nRun the test suite\nDo you want to proceed?", false,
 			[]string{"Yes", "Yes, and don't ask again for go test commands", "No, and tell Claude what to do differently (esc)"}, 1},
-		"a claude plan approval": {"claude", claudePlanPrompt, "Would you like to proceed?",
+		"a claude plan approval": {"claude", claudePlanPrompt, "Ready to code?\nHere is Claude's plan:\n1. Parse the question\n2. Send it to the controller\nWould you like to proceed?", false,
 			[]string{"Yes, and auto-accept edits", "Yes, and manually approve edits", "No, keep planning"}, 1},
-		"a codex approval": {"codex", codexCommandPrompt, "Would you like to run the following command?",
+		"a codex approval": {"codex", codexCommandPrompt, "$ make migrate\nWould you like to run the following command?", false,
 			[]string{"Yes, proceed", "Yes, and don't ask again for this command", "No, and tell Codex what to do differently"}, 1},
-		"a wrapped long option": {"claude", claudeWrappedOption, "Do you want to proceed?",
+		"a wrapped long option": {"claude", claudeWrappedOption, "Bash command\nrm -rf build && make\nDo you want to proceed?", false,
 			[]string{"Yes", "Yes, and don't ask again for rm commands in /home/me/projects/a-folder-with-a-long-name", "No, and tell Claude what to do differently (esc)"}, 1},
-		"the selection moved": {"claude", strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  3. No", "❯ 3. No", 1), "Do you want to proceed?",
+		"the selection moved": {"claude", strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  3. No", "❯ 3. No", 1), "Bash command\ngo test ./...\nRun the test suite\nDo you want to proceed?", false,
 			[]string{"Yes", "Yes, and don't ask again for go test commands", "No, and tell Claude what to do differently (esc)"}, 3},
+		// Without its border the start of a Claude dialog cannot be told, so
+		// the card says the rest is on the terminal.
+		"a claude dialog without a border": {"claude", claudeBorderless, "Do you want to proceed?", true,
+			[]string{"Yes", "No"}, 1},
 	} {
 		q := questionOnScreen(tc.tool, "%3", tc.screen)
 		if q == nil {
@@ -229,8 +236,8 @@ func TestQuestionOnScreenReadsEachAgentsDialog(t *testing.T) {
 		if !q.Valid() {
 			t.Errorf("%s: the question read is not valid on the wire: %+v", name, q)
 		}
-		if q.Question != tc.question {
-			t.Errorf("%s: question %q, want %q", name, q.Question, tc.question)
+		if q.Question != tc.question || q.Truncated != tc.truncated {
+			t.Errorf("%s: question %q truncated %v, want %q truncated %v", name, q.Question, q.Truncated, tc.question, tc.truncated)
 		}
 		if got := optionLabels(q); strings.Join(got, "|") != strings.Join(tc.options, "|") {
 			t.Errorf("%s: options %q, want %q", name, got, tc.options)
@@ -240,6 +247,55 @@ func TestQuestionOnScreenReadsEachAgentsDialog(t *testing.T) {
 				t.Errorf("%s: option %d is %+v, want index %d selected %v", name, i, o, i+1, i+1 == tc.selected)
 			}
 		}
+	}
+}
+
+const claudeBorderless = `
+ Bash command
+
+   make deploy
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+`
+
+// longPlan is a plan approval whose plan has the given steps, each the given
+// words long.
+func longPlan(steps, words int) string {
+	var b strings.Builder
+	b.WriteString("╭────────────────────────────────────╮\n│ Ready to code?                     │\n│ Here is Claude's plan:             │\n")
+	for i := 1; i <= steps; i++ {
+		b.WriteString("│  " + strconv.Itoa(i) + ". Step" + strings.Repeat(" word", words) + "\n")
+	}
+	b.WriteString("│ Would you like to proceed?         │\n│ ❯ 1. Yes                           │\n│   2. No, keep planning             │\n╰────────────────────────────────────╯\n")
+	return b.String()
+}
+
+// A dialog whose text does not all fit, or began above the screen, is sent
+// from the end nearest the options, cut at a line, and marked truncated.
+func TestQuestionOnScreenMarksALongPlanTruncated(t *testing.T) {
+	for name, screen := range map[string]string{
+		"a plan longer than the screen":        longPlan(20, 1),
+		"a plan longer than the character cap": longPlan(4, 30),
+	} {
+		q := questionOnScreen("claude", "%3", screen)
+		if q == nil || !q.Valid() {
+			t.Fatalf("%s: %+v", name, q)
+		}
+		if !q.Truncated {
+			t.Errorf("%s: not marked truncated: %q", name, q.Question)
+		}
+		lines := strings.Split(q.Question, "\n")
+		if lines[len(lines)-1] != "Would you like to proceed?" || !regexp.MustCompile(`^\d+\. Step( word)+$`).MatchString(lines[0]) {
+			t.Errorf("%s: not cut at a line, from the end: %q", name, q.Question)
+		}
+		if n := len([]rune(q.Question)); n > terminalproto.MaxTerminalQuestionRunes {
+			t.Errorf("%s: %d runes", name, n)
+		}
+	}
+	if q := questionOnScreen("claude", "%3", longPlan(2, 1)); q == nil || q.Truncated || !strings.HasPrefix(q.Question, "Ready to code?\n") {
+		t.Errorf("a short plan was cut: %+v", q)
 	}
 }
 
@@ -253,7 +309,7 @@ func TestQuestionOnScreenCleansHostileText(t *testing.T) {
 	if !q.Valid() {
 		t.Fatalf("not valid on the wire: %+v", q)
 	}
-	if q.Question != "Do you want to proceed?" {
+	if q.Question != "Bash command\n[2J./install.sh --force\nDo you want to proceed?" || q.Truncated {
 		t.Errorf("question %q", q.Question)
 	}
 	label := q.Options[0].Label
@@ -264,8 +320,9 @@ func TestQuestionOnScreenCleansHostileText(t *testing.T) {
 		t.Errorf("a long label was not cut to the cap with a mark: %d runes, %q", n, label)
 	}
 	long := strings.Replace(claudeCommandPrompt, "Do you want to proceed?", "Do you want to "+strings.Repeat("really ", 100)+"proceed?", 1)
-	if q := questionOnScreen("claude", "%3", long); q == nil || len([]rune(q.Question)) != terminalproto.MaxTerminalQuestionRunes {
-		t.Errorf("a long question was not cut to the cap: %+v", q)
+	q = questionOnScreen("claude", "%3", long)
+	if q == nil || len([]rune(q.Question)) != terminalproto.MaxTerminalQuestionRunes || !q.Truncated || !strings.HasPrefix(q.Question, "…") || !strings.HasSuffix(q.Question, "really proceed?") {
+		t.Errorf("a long question was not cut to the cap from its end: %+v", q)
 	}
 }
 

@@ -16,11 +16,16 @@ import (
 // agent's session, on this machine, and says whether it is waiting for an
 // answer. The text is matched and dropped: it is never stored, logged or sent,
 // with one bounded exception. For a dialog a rule matched, and only for Claude
-// Code and Codex, the question (up to 500 characters) and up to 9 numbered
-// options (each up to 200 characters) are sent to the controller
-// (agent_question.go), which keeps them in memory only and never writes them
-// to its database or its logs. The machine keeps them in memory too, never in
-// its registry.
+// Code and Codex, the machine sends the controller the dialog's own text and
+// its options (agent_question.go): the dialog's subject lines (the command,
+// the file, the plan's heading and steps) and its question sentence, one line
+// each, up to 500 characters in all, kept from the end nearest the options
+// and marked truncated when some did not fit or the dialog began above the
+// screen; and up to 9 numbered options of up to 200 characters each. Control,
+// format, bidi and zero-width characters and box borders are removed first.
+// Nothing else on the screen is sent. The controller keeps them in memory only
+// and never writes them to its database or its logs; the machine keeps them in
+// memory too, never in its registry.
 //
 // The rules are deliberately narrow. Each looks only at the last lines of the
 // screen, where an agent draws the question it is waiting on, and needs the

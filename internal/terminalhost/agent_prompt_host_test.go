@@ -274,7 +274,7 @@ func TestAQuestionOnScreenIsListedUntilItGoes(t *testing.T) {
 	id, tty := agentSession(t, m, 57, "claude")
 	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
 	q := questionOf(t, m, id)
-	if q == nil || q.Question != "Do you want to proceed?" || len(q.Options) != 3 {
+	if q == nil || q.Question != "Bash command\ngo test ./...\nRun the test suite\nDo you want to proceed?" || len(q.Options) != 3 {
 		t.Fatalf("question not listed: %+v", q)
 	}
 	registry, err := os.ReadFile(m.registryPath())

@@ -611,3 +611,55 @@ func TestASkillsChangedRefusalCarriesTheCurrentGaps(t *testing.T) {
 		t.Fatalf("skills changed: %#v", err)
 	}
 }
+
+// A stage whose tier, brief or part changed is named with what it was and is,
+// so a pipeline marked changed always has something to say.
+func TestTheDiffNamesAStageWhoseTierBriefOrPartChanged(t *testing.T) {
+	stage := func(kind, part, brief, tier string) store.GafferTemplateStage {
+		return store.GafferTemplateStage{Kind: kind, Part: part, Brief: brief, Tier: tier}
+	}
+	a := store.GafferTemplateContent{Pipelines: []store.GafferTemplatePipeline{{Title: "Export API",
+		Stages: []store.GafferTemplateStage{stage("code", "Endpoint", "Write the endpoint.", "standard"), stage("review", "", "", "standard")}}}}
+	b := copyContent(t, a)
+	b.Pipelines[0].Stages[0] = stage("code", "API", "", "standard")
+	b.Pipelines[0].Stages[1].Tier = "heavy"
+	p := diffTemplates(a, b).Pipelines[0]
+	want := []TemplateStageEdit{
+		{Stage: "code", Field: "part", From: "Endpoint", To: "API"},
+		{Stage: "code: API", Field: "brief", From: "Write the endpoint.", To: ""},
+		{Stage: "review", Field: "tier", From: "standard", To: "heavy"},
+	}
+	if p.Change != "changed" || !p.StagesChanged || len(p.StageEdits) != len(want) {
+		t.Fatalf("diff: %+v", p)
+	}
+	for n := range want {
+		if p.StageEdits[n] != want[n] {
+			t.Fatalf("edit %d: %+v, want %+v", n, p.StageEdits[n], want[n])
+		}
+	}
+	// A stage of another kind in its place is a new layout, said by the stage lists, not an edit.
+	c := copyContent(t, a)
+	c.Pipelines[0].Stages[1] = stage("test", "", "", "light")
+	if p := diffTemplates(a, c).Pipelines[0]; len(p.StageEdits) != 0 || !p.StagesChanged {
+		t.Fatalf("another kind: %+v", p)
+	}
+	if p := diffTemplates(a, copyContent(t, a)).Pipelines[0]; p.Change != "same" || p.StageEdits == nil || len(p.StageEdits) != 0 {
+		t.Fatalf("same: %+v", p)
+	}
+}
+
+// A refusal names the pipeline that did not finish well, so the person knows which.
+func TestANotSuccessfulRefusalNamesThePipeline(t *testing.T) {
+	r := outcomeFixture(t)
+	o := finishedOutcome(t, r)
+	if _, err := r.st.UpdateGafferOutcomeFor(r.p.UserID, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+		o.Sessions[1].DeliveryAccepted = false
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export"})
+	if conflictCode(err) != "template_not_successful" || !strings.Contains(err.Error(), "“"+o.Sessions[1].Title+"” did not finish well") {
+		t.Fatalf("refusal: %v", err)
+	}
+}

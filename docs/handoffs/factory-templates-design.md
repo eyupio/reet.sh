@@ -50,7 +50,7 @@ exactly as before; one with an id and version but no name says only the version.
 - **Saved from a successful plan.** The outcome must be the account's own, not `starting`, have at least one pipeline,
   and every pipeline must be successful: it has stages and is `done`, or its delivery in hand was accepted
   (`deliveryAccepted`) and it has not since `failed`, been `unfollowed` or been `cancelled`. Otherwise **409
-  `template_not_successful`**. A plan of more than five pipelines cannot be
+  `template_not_successful`**, whose message names the first pipeline that did not finish well. A plan of more than five pipelines cannot be
   started again and is refused (422).
 - **What is copied.** The objective, review limits, and per pipeline the title, prompt, merge setting (`autoMerge`), the
   stage layout (kind, part, brief, tier and its reason), the current criteria text and each stage's skill ids and
@@ -147,12 +147,16 @@ the run and saved back reads as reworded, not as removed and added.
     "promptChanged": true, "autoMergeChanged": false, "stagesChanged": true,
     "stagesBefore": ["code", "review"], "stagesAfter": ["code", "review", "test"],
     "criteria": {"added": ["…"], "removed": ["…"], "reworded": [{"id": "…", "from": "…", "to": "…"}]},
-    "skills": [{"stage": "code", "id": "library:…", "name": "Go tests", "from": "rev1", "to": "rev2"}]}]
+    "skills": [{"stage": "code", "id": "library:…", "name": "Go tests", "from": "rev1", "to": "rev2"}],
+    "stageEdits": [{"stage": "review", "field": "tier", "from": "standard", "to": "heavy"}]}]
 }
 ```
 
 `change` is `added`, `removed`, `changed` or `same`. Pipelines are matched by title, stages by kind and part. A skill
-`from` or `to` is empty where the stage did not have it. `stagesChanged` covers the kind, part, brief and tier.
+`from` or `to` is empty where the stage did not have it. `stagesChanged` covers the kind, part, brief and tier. `stageEdits` names each stage kept in its place
+(the same kind at the same position) whose `part`, `brief` or `tier` changed, with what it was and is; `stage` is the
+kind, with the new part for a brief or a tier. A stage of another kind in its place is said by `stagesBefore` and
+`stagesAfter` instead.
 `orderChanged` says the pipelines both versions have run in another order. Titles, prompts, parts, briefs and tier
 reasons are stored trimmed, so spaces alone never read as a change.
 

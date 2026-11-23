@@ -127,12 +127,14 @@ func successfulPipeline(p store.GafferOutcomeSession) bool {
 // templateFromOutcome copies what is reusable from a successful outcome.
 func templateFromOutcome(o store.GafferOutcome) (store.GafferTemplateContent, error) {
 	c := store.GafferTemplateContent{Objective: o.Objective, MaxReviews: o.MaxReviews, Hours: o.Hours}
-	ok := o.State != "starting" && len(o.Sessions) > 0
-	for _, p := range o.Sessions {
-		ok = ok && successfulPipeline(p)
+	const rule = "Only a plan whose every pipeline finished, or had its delivery accepted, can be saved as a template."
+	if o.State == "starting" || len(o.Sessions) == 0 {
+		return c, templateConflict("template_not_successful", rule)
 	}
-	if !ok {
-		return c, templateConflict("template_not_successful", "Only a plan whose every pipeline finished, or had its delivery accepted, can be saved as a template.")
+	for _, p := range o.Sessions {
+		if !successfulPipeline(p) {
+			return c, templateConflict("template_not_successful", "“"+p.Title+"” did not finish well, so this plan cannot be saved. "+rule)
+		}
 	}
 	if len(o.Sessions) > MaxOutcomeSessions {
 		return c, invalid("outcomeId", "A template starts at most "+strconv.Itoa(MaxOutcomeSessions)+" pipelines, and this outcome has "+strconv.Itoa(len(o.Sessions))+".")
@@ -595,6 +597,16 @@ type TemplatePipelineDiff struct {
 	StagesAfter      []string             `json:"stagesAfter"`
 	Criteria         TemplateCriteriaDiff `json:"criteria"`
 	Skills           []TemplateSkillDiff  `json:"skills"`
+	StageEdits       []TemplateStageEdit  `json:"stageEdits"`
+}
+
+// TemplateStageEdit is a stage kept in its place whose part, brief or tier
+// changed. Stage is the kind, with the new part for a brief or tier.
+type TemplateStageEdit struct {
+	Stage string `json:"stage"`
+	Field string `json:"field"`
+	From  string `json:"from"`
+	To    string `json:"to"`
 }
 
 type TemplateDiff struct {
@@ -670,7 +682,7 @@ func diffTemplates(a, b store.GafferTemplateContent) TemplateDiff {
 
 func diffPipeline(a, b store.GafferTemplatePipeline) TemplatePipelineDiff {
 	d := TemplatePipelineDiff{Title: b.Title, PromptChanged: a.Prompt != b.Prompt, AutoMergeChanged: a.AutoMerge != b.AutoMerge, StagesBefore: []string{}, StagesAfter: []string{},
-		Criteria: TemplateCriteriaDiff{Added: []string{}, Removed: []string{}, Reworded: []TemplateCriterionRedo{}}, Skills: []TemplateSkillDiff{}}
+		Criteria: TemplateCriteriaDiff{Added: []string{}, Removed: []string{}, Reworded: []TemplateCriterionRedo{}}, Skills: []TemplateSkillDiff{}, StageEdits: []TemplateStageEdit{}}
 	if len(a.Stages) != len(b.Stages) {
 		d.StagesChanged = true
 	}
@@ -681,6 +693,13 @@ func diffPipeline(a, b store.GafferTemplatePipeline) TemplatePipelineDiff {
 		if i < len(b.Stages) {
 			other := b.Stages[i]
 			d.StagesChanged = d.StagesChanged || st.Kind != other.Kind || st.Part != other.Part || st.Brief != other.Brief || st.Tier != other.Tier
+			if st.Kind == other.Kind {
+				for _, e := range []TemplateStageEdit{{other.Kind, "part", st.Part, other.Part}, {stageLabel(other), "brief", st.Brief, other.Brief}, {stageLabel(other), "tier", st.Tier, other.Tier}} {
+					if e.From != e.To {
+						d.StageEdits = append(d.StageEdits, e)
+					}
+				}
+			}
 		}
 	}
 	stagesB := map[string]store.GafferTemplateStage{}

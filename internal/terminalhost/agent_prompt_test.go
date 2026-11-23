@@ -492,3 +492,18 @@ func TestQuestionOnScreenDropsARepeatedQuestion(t *testing.T) {
 		}
 	}
 }
+
+// Everything the fingerprint covers is hashed whole, before any cap: two
+// dialogs whose first option differs only past the 200 characters sent are
+// two questions.
+func TestQuestionFingerprintCoversWholeOptions(t *testing.T) {
+	long := strings.Repeat("and more ", 30)
+	a := questionOnScreen("claude", "%3", strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "❯ 1. Yes "+long+"then stop", 1))
+	b := questionOnScreen("claude", "%3", strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "❯ 1. Yes "+long+"then wipe the disk", 1))
+	if a == nil || b == nil || !a.Options[0].Truncated || a.Options[0].Label != b.Options[0].Label {
+		t.Fatalf("the labels sent should be the same cut text: %+v %+v", a, b)
+	}
+	if a.Fingerprint == b.Fingerprint {
+		t.Fatal("options that differ past the cap share a fingerprint")
+	}
+}

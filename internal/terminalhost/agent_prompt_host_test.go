@@ -430,3 +430,32 @@ func TestAnswerQuestionRefusesADeadPane(t *testing.T) {
 		t.Fatalf("keys were sent to a dead pane: %q", *sent)
 	}
 }
+
+// An answer prepared for one dialog is refused on another whose option
+// differs only past the characters the controller was sent.
+func TestAnswerQuestionRefusesAnOptionChangedPastTheCap(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 62, "claude")
+	// The agent wraps the long option onto lines of its own, under its label.
+	long := strings.Repeat("│        and more and more and more and more and more\n", 6)
+	draw(t, m, id, tty, withLongFirstOption(long+"│        then stop\n"), "then stop")
+	q := questionOf(t, m, id)
+	if q == nil || !q.Options[0].Truncated {
+		t.Fatalf("no question with a cut option: %+v", q)
+	}
+	sent := sentKeys(m)
+	draw(t, m, id, tty, withLongFirstOption(long+"│        then wipe\n"), "then wipe")
+	if err := m.AnswerQuestion(context.Background(), id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("answered %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("keys were sent: %q", *sent)
+	}
+}
+
+// withLongFirstOption is the command approval with lines added under its
+// first option, as the agent wraps a long one.
+func withLongFirstOption(more string) string {
+	first := "│ ❯ 1. Yes                                                     │\n"
+	return strings.Replace(claudeCommandPrompt, first, first+more, 1)
+}

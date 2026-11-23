@@ -248,7 +248,8 @@ agent's input box, a shell prompt or any other text under them, are not a questi
 - `options`: up to 9 numbered options, each up to 200 characters, and which one is selected. An option whose label
   was cut to fit carries `truncated`, so it is never shown as if it were whole.
 - `fingerprint`: a SHA-256 of the pane, the question sentence, the options and the dialog's own lines above the
-  options (from its box's top, or for Codex from its question), in full even when `question` was cut. A status line
+  options (from its box's top, or for Codex from its question), all in full, before any cap, even when `question` or
+  an option's label was cut: options that differ only past their 200 characters are different questions. A status line
   ticking above the dialog does not change it. For a Claude dialog drawn without a box, whose start cannot be told,
   every line above the options is hashed instead, so a change there refuses an answer rather than risk one. When the
   agent draws the same dialog again after it was answered, it gets a new fingerprint and can be answered again.

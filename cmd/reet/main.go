@@ -166,7 +166,8 @@ Configuration (environment variables):
   REET_CONTACT_EMAIL  Optional admin address shown for account/reset requests
   REET_TRUSTED_PROXIES  Reverse proxies (IPs or CIDR ranges, comma-separated) whose
                       X-Forwarded-For names the visitor for sign-in limits (default none).
-                      List only a proxy that overwrites or appends that header.
+                      List only the proxy's own address, and only a proxy that overwrites
+                      or appends that header.
   REET_MAIL_OUTBOX_DIR  Local dev only: write emails here instead of sending
   REET_TOPICS     off to disable topic seeding
   REET_REFRESH    off to disable background metadata refresh

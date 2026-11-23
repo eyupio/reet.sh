@@ -19,6 +19,17 @@ func TestParseTrustedProxies(t *testing.T) {
 	if want := "10.0.0.0/8 192.168.1.7/32 ::1/128 fd00::/8 172.16.0.1/32"; strings.Join(names, " ") != want {
 		t.Fatalf("parsed %v, want %s", names, want)
 	}
+	// A range written in IPv4-mapped form matches plain IPv4 peers.
+	if got, err := ParseTrustedProxies("::ffff:10.0.0.0/104"); err != nil || len(got) != 1 || got[0].String() != "10.0.0.0/8" {
+		t.Fatalf("an IPv4-mapped range: %v %v", got, err)
+	}
+	// A range that trusts every address would let every visitor choose their
+	// own, as would a mapped range reaching past the IPv4 addresses.
+	for _, bad := range []string{"0.0.0.0/0", "::/0", "::ffff:0.0.0.0/96", "::ffff:0:0/80"} {
+		if _, err := ParseTrustedProxies("10.0.0.1, " + bad); err == nil || !strings.Contains(err.Error(), bad) {
+			t.Fatalf("%q: error %v does not refuse and name the entry", bad, err)
+		}
+	}
 	if got, err := ParseTrustedProxies("  "); err != nil || len(got) != 0 {
 		t.Fatalf("empty setting: %v %v", got, err)
 	}

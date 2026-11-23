@@ -215,6 +215,16 @@ func ParseTrustedProxies(v string) ([]netip.Prefix, error) {
 			continue
 		}
 		if p, err := netip.ParsePrefix(entry); err == nil {
+			// Peers are compared as plain IPv4, so a mapped range is too.
+			if p.Addr().Is4In6() {
+				if p.Bits() < 96 {
+					return nil, fmt.Errorf("REET_TRUSTED_PROXIES: %q reaches past the IPv4-mapped addresses; write the IPv4 range instead", entry)
+				}
+				p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+			}
+			if p.Bits() == 0 {
+				return nil, fmt.Errorf("REET_TRUSTED_PROXIES: %q trusts every address, so every visitor could choose their own; list only your proxy's address", entry)
+			}
 			out = append(out, p.Masked())
 			continue
 		}

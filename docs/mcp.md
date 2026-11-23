@@ -27,6 +27,13 @@ have the proxy set `X-Forwarded-For`: in Caddy's `reverse_proxy` block,
 overwrites or appends that header: a listed proxy that passes it through lets
 visitors choose their own address. Empty, the header is ignored.
 
+List only the proxy's own address, not a whole private range. With Docker's
+default port publishing, direct connections arrive from the bridge gateway (for
+example `172.17.0.1`), so listing `172.16.0.0/12` while the controller's port is
+published lets anyone who connects directly choose their own address: bind the
+controller to loopback or do not publish its port. A visitor whose own address
+is inside a listed range can also choose their address.
+
 No Node process or separate MCP service is needed for the hosted connection.
 The optional [stdio bridge](https://github.com/eyupio/reet.sh/blob/main/mcp/README.md) is available for subprocess-only
 clients. OAuth and managed MCP credentials require `REET_AUTH=accounts`.

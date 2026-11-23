@@ -234,7 +234,10 @@ type Capabilities struct {
 	// DeskShell is sent only when desk-shell-v1 was negotiated; the machine
 	// then reports each running session's live folder.
 	DeskShell bool `json:"deskShell,omitempty"`
-	Inspect   bool `json:"inspect,omitempty"`
+	// TerminalQuestion is sent only when terminal-question-v1 was negotiated;
+	// the machine then reports a terminal agent's question and takes answers.
+	TerminalQuestion bool `json:"terminalQuestion,omitempty"`
+	Inspect          bool `json:"inspect,omitempty"`
 	// Attention is sent only when attention-v1 was negotiated.
 	Attention       bool `json:"attention,omitempty"`
 	TerminalControl bool `json:"terminalControl,omitempty"`
@@ -307,6 +310,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.DeskShell {
 		features = append(features, DeskShellFeature)
+	}
+	if c.TerminalQuestion {
+		features = append(features, TerminalQuestionFeature)
 	}
 	if c.RepoCloneRemove {
 		features = append(features, RepoCloneRemoveFeature)
@@ -416,6 +422,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.DeskShell && !SupportsDeskShell(features) {
 		return ErrInvalid
 	}
+	if c.TerminalQuestion && !SupportsTerminalQuestion(features) {
+		return ErrInvalid
+	}
 	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
 		return ErrInvalid
 	}
@@ -432,7 +441,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	acpExtras := c.ACPHistory || c.ACPImages || c.ACPLongPrompt || c.ACPApproval || c.ACPQuestions ||
 		c.ACPModel || c.ACPLiveControls || c.ACPAgentMode || c.ACPAgentOptions || c.ACPAgentReattach
-	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.DeskShell || c.Attention
+	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.DeskShell || c.Attention || c.TerminalQuestion
 	acpRule := acpExtras && !c.ACP
 	acpTerminalRule := needsTerminalForACP && !c.TerminalControl
 	if acpRule || acpTerminalRule {
@@ -773,6 +782,12 @@ const (
 	// says which field and why. It is sent only to a controller that negotiated
 	// acp-question-v1.
 	QuestionInvalid ResultCode = "question_invalid"
+	// QuestionChanged refuses a terminal answer whose question is no longer
+	// on the screen, and AlreadyAnswered one the machine already chose an
+	// option for. Both are sent only in answer to a terminal_answer, which
+	// only a terminal-question-v1 controller sends.
+	QuestionChanged ResultCode = "question_changed"
+	AlreadyAnswered ResultCode = "already_answered"
 )
 
 // ConflictStarting is the one detail a conflict result may carry: the session
@@ -782,7 +797,7 @@ const (
 const ConflictStarting = "starting"
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired || c == QuestionInvalid
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired || c == QuestionInvalid || c == QuestionChanged || c == AlreadyAnswered
 }
 
 type Result struct {
@@ -848,6 +863,11 @@ type SessionChanged struct {
 	// is set only on a connection that negotiated desk-shell-v1, which
 	// ForFeatures enforces, for the same reason as SessionSnapshot.Dir.
 	Dir string `json:"dir,omitempty"`
+	// TerminalQuestion is the question a terminal agent is waiting on, as the
+	// machine read it from the screen; absent means none. It is set only on a
+	// connection that negotiated terminal-question-v1, which ForFeatures
+	// enforces.
+	TerminalQuestion *TerminalQuestion `json:"terminalQuestion,omitempty"`
 }
 
 func (SessionChanged) kind() string { return "session_changed" }
@@ -858,6 +878,9 @@ func (s SessionChanged) valid() bool {
 		return false
 	}
 	if s.Base != nil && !(s.WorktreePath != "" && s.Base.Valid()) {
+		return false
+	}
+	if s.TerminalQuestion != nil && !s.TerminalQuestion.Valid() {
 		return false
 	}
 	validTimes := validAttentionTime(s.ActivityAt) && validAttentionTime(s.BellAt)
@@ -884,7 +907,7 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "native_view" || kind == "native_view_result" || kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event" || kind == "acp_control" || kind == "acp_control_result" || kind == "acp_preview" || kind == "acp_preview_result"
+	session := kind == "native_view" || kind == "native_view_result" || kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event" || kind == "acp_control" || kind == "acp_control_result" || kind == "acp_preview" || kind == "acp_preview_result" || kind == "terminal_answer"
 	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
 	requiresSession := session && !ValidID(m.SessionID)
 	straySession := !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID))
@@ -1059,6 +1082,8 @@ func Decode(data []byte) (Message, error) {
 		b = &ACPQuestionAnswer{}
 	case "acp_event":
 		b = &ACPEvent{}
+	case "terminal_answer":
+		b = &TerminalAnswer{}
 	default:
 		return Message{}, ErrInvalid
 	}

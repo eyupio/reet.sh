@@ -195,6 +195,10 @@ type Capabilities struct {
 	// live controls: the connector may report a provider setting and take a
 	// provider on a structured Cline create.
 	ACPProvider bool `json:"acpProvider,omitempty"`
+	// ACPCommands is set on a connection that negotiated acp-commands-v1 and
+	// live controls: the "commands" control then reads the agent's slash
+	// commands.
+	ACPCommands bool `json:"acpCommands,omitempty"`
 	// ACPAgentMode is set on a connection that negotiated acp-agent-mode-v1.
 	ACPAgentMode bool `json:"acpAgentMode,omitempty"`
 	// ACPAgentOptions is set on a connection that negotiated
@@ -262,6 +266,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.ACPProvider {
 		features = append(features, ACPProviderFeature)
+	}
+	if c.ACPCommands {
+		features = append(features, ACPCommandsFeature)
 	}
 	if c.ACPLiveControls {
 		features = append(features, ACPLiveControlsFeature)
@@ -345,6 +352,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	validProvider := SupportsACPProvider(features) && c.ACPLiveControls
 	if c.ACPProvider && !validProvider {
+		return ErrInvalid
+	}
+	if c.ACPCommands && !(SupportsACPCommands(features) && c.ACPLiveControls) {
 		return ErrInvalid
 	}
 	if c.ACPLiveControls && !SupportsACPLiveControls(features) {

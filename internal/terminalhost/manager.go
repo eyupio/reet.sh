@@ -86,11 +86,15 @@ type Manager struct {
 	// promptEvery and promptAgain replace promptReadEvery and promptReadAgain
 	// when set, so a test need not wait out the real gaps.
 	promptEvery, promptAgain time.Duration
-	// answered holds, per agent session, the fingerprint of the question an
-	// option was last chosen for, until that question leaves the screen.
-	answered map[string]string
-	// sendKeys replaces tmux send-keys for an answer when set; only tests set it.
+	// answered holds, per agent session, the question an option was last
+	// chosen for, until that question leaves the screen or is drawn anew;
+	// rounds counts the times a session's same question was asked again.
+	answered map[string]answeredQuestion
+	rounds   map[string]int
+	// sendKeys replaces tmux send-keys for an answer when set, and paneDead
+	// the check that the pane's process is still there; only tests set them.
 	sendKeys func(ctx context.Context, pane string, keys []string) error
+	paneDead func(ctx context.Context, pane string) (bool, error)
 	// liveDir is each session's live working folder as the last sweep read
 	// it, kept in memory only: the registry's strict reader on an older reet
 	// would refuse a new field. List reports it as ManagedSession.LiveDir.
@@ -594,6 +598,7 @@ func (m *Manager) cleanupClosedSessions(r *hostRegistry) {
 		_ = m.removeUploads(id)
 		delete(m.prompts, id)
 		delete(m.answered, id)
+		delete(m.rounds, id)
 	}
 }
 

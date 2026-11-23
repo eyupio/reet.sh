@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,16 @@ import (
 // Nothing else on the screen is sent. The controller keeps them in memory only
 // and never writes them to its database or its logs; the machine keeps them in
 // memory too, never in its registry.
+//
+// A dialog counts only when it reads as one the agent drew: the agent's own
+// selection mark, its options inside its box, and nothing under them but the
+// box's bottom and the agent's key hints, so the words of a dialog printed by
+// a command, with the agent's input box or a prompt under them, are no
+// question. What this cannot tell apart is a command that prints a complete
+// fake dialog, with the agent's glyphs and hints, as the very last thing on
+// the screen, while the agent shows nothing under it. Then that text is sent
+// as a question, and an answer sends arrow keys and Enter to whatever reads
+// the terminal: the agent, if it is waiting for input, or the command.
 //
 // The rules are deliberately narrow. Each looks only at the last lines of the
 // screen, where an agent draws the question it is waiting on, and needs the
@@ -201,14 +212,43 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 		return false, false
 	}
 	waiting := AwaitingAnswer(s.Tool, string(data))
-	question := questionOnScreen(s.Tool, s.PaneID, string(data))
-	m.prompts[id] = promptWatch{activity: activity, settled: settled, at: now, waiting: waiting, question: question}
-	if question == nil || m.answered[id] != question.Fingerprint {
-		// The answered question is gone: the same question asked again later
-		// can be answered again.
-		delete(m.answered, id)
+	question := questionOnScreen(s.Tool, m.questionKey(id, s.PaneID), string(data))
+	if a, ok := m.answered[id]; ok {
+		switch {
+		case question == nil || question.Fingerprint != a.fingerprint:
+			// The answered question is gone: the same question asked again
+			// later can be answered again.
+			delete(m.answered, id)
+		case activity > a.at:
+			// The agent drew after the second it was answered in, and the
+			// same question is on the screen: it asks it anew. A new round
+			// gives it a new fingerprint, so it is listed and answered again.
+			if m.rounds == nil {
+				m.rounds = map[string]int{}
+			}
+			m.rounds[id]++
+			delete(m.answered, id)
+			question = questionOnScreen(s.Tool, m.questionKey(id, s.PaneID), string(data))
+		}
 	}
+	m.prompts[id] = promptWatch{activity: activity, settled: settled, at: now, waiting: waiting, question: question}
 	return waiting && !watch.waiting, fingerprintOf(question) != fingerprintOf(watch.question)
+}
+
+// questionKey names a session's pane in its question's fingerprint, with the
+// round when the same question was asked again after an answer.
+func (m *Manager) questionKey(id, pane string) string {
+	if n := m.rounds[id]; n > 0 {
+		return pane + "\x00" + strconv.Itoa(n)
+	}
+	return pane
+}
+
+// answeredQuestion is the question an option was last chosen for, and the
+// second, in tmux's window activity clock, it was chosen in.
+type answeredQuestion struct {
+	fingerprint string
+	at          int64
 }
 
 func fingerprintOf(q *terminalproto.TerminalQuestion) string {
@@ -245,17 +285,28 @@ func (m *Manager) AnswerQuestion(ctx context.Context, id, fingerprint string, op
 	if !ok || s.State != terminalproto.Running {
 		return ErrSessionMissing
 	}
-	if m.answered[id] == fingerprint {
+	if m.answered[id].fingerprint == fingerprint {
 		return ErrAlreadyAnswered
 	}
 	if !paneID.MatchString(s.PaneID) {
+		return ErrQuestionChanged
+	}
+	dead := m.paneDead
+	if dead == nil {
+		dead = func(ctx context.Context, pane string) (bool, error) {
+			out, err := m.command(ctx, 64, "display-message", "-p", "-t", pane, "#{pane_dead}")
+			return strings.TrimSpace(string(out)) == "1", err
+		}
+	}
+	// A pane whose process ended still shows its last screen; it takes no answer.
+	if gone, err := dead(ctx, s.PaneID); err != nil || gone {
 		return ErrQuestionChanged
 	}
 	data, err := m.command(ctx, promptScreenBytes, "capture-pane", "-p", "-t", s.PaneID)
 	if err != nil {
 		return err
 	}
-	q := questionOnScreen(s.Tool, s.PaneID, string(data))
+	q := questionOnScreen(s.Tool, m.questionKey(id, s.PaneID), string(data))
 	if q == nil || q.Fingerprint != fingerprint {
 		return ErrQuestionChanged
 	}
@@ -270,12 +321,15 @@ func (m *Manager) AnswerQuestion(ctx context.Context, id, fingerprint string, op
 			return err
 		}
 	}
+	// The read above and these keys are two tmux calls a few milliseconds
+	// apart. Someone typing in the terminal in that gap can move the
+	// selection, and the arrows then count from where it was read.
 	if err := send(ctx, s.PaneID, keys); err != nil {
 		return err
 	}
 	if m.answered == nil {
-		m.answered = map[string]string{}
+		m.answered = map[string]answeredQuestion{}
 	}
-	m.answered[id] = fingerprint
+	m.answered[id] = answeredQuestion{fingerprint: fingerprint, at: time.Now().Unix()}
 	return nil
 }

@@ -291,3 +291,26 @@ func TestAnswerTerminalQuestionNeedsTheFeature(t *testing.T) {
 		t.Fatal("an answer reached a machine without the feature")
 	}
 }
+
+// A question the agent asks again after an answer comes from the machine
+// under a new fingerprint: it is listed again and its answer reaches the
+// machine.
+func TestAnswerTerminalQuestionAskedAgain(t *testing.T) {
+	m := questionFixture(t, true)
+	session := m.session(t)
+	first, again := strings.Repeat("1", 64), strings.Repeat("2", 64)
+	m.report(t, session, waitingQuestion(first))
+	if err := m.b.AnswerTerminalQuestion(t.Context(), m.uid, session, first, 1); err != nil {
+		t.Fatal(err)
+	}
+	m.report(t, session, waitingQuestion(again))
+	if q := m.listed(t, session); q == nil || q.Fingerprint != again {
+		t.Fatalf("the question asked again is not listed: %+v", q)
+	}
+	if err := m.b.AnswerTerminalQuestion(t.Context(), m.uid, session, again, 1); err != nil {
+		t.Fatal(err)
+	}
+	if m.sent() != 2 {
+		t.Fatalf("sent %+v", m.answers)
+	}
+}

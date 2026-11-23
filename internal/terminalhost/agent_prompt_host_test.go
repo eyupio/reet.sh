@@ -368,3 +368,65 @@ func TestAnswerQuestionRefusesAChangedScreen(t *testing.T) {
 		t.Fatalf("keys were sent: %q", *sent)
 	}
 }
+
+// An agent that asks the same question again after it was answered is asking
+// anew: the question is listed again, under a new fingerprint, and can be
+// answered again, even when no look saw the screen without it in between.
+// A repeat of one answer still sends its keys once.
+func TestTheSameQuestionAskedAgainCanBeAnsweredAgain(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 60, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	first := questionOf(t, m, id)
+	if first == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	ctx := context.Background()
+	if err := m.AnswerQuestion(ctx, id, first.Fingerprint, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Still on screen in the second it was answered: the same question.
+	if q := questionOf(t, m, id); q == nil || q.Fingerprint != first.Fingerprint {
+		t.Fatalf("the answered question changed before the agent drew anything: %+v", q)
+	}
+	answered := time.Now().Unix()
+	for time.Now().Unix() <= answered {
+		time.Sleep(20 * time.Millisecond)
+	}
+	// The agent drew the same dialog again; only its output above changed.
+	draw(t, m, id, tty, strings.Replace(claudeCommandPrompt, "tests now", "tests again", 1), "tests again")
+	again := questionOf(t, m, id)
+	if again == nil || again.Fingerprint == first.Fingerprint {
+		t.Fatalf("the question asked again is not listed as a new one: %+v", again)
+	}
+	if err := m.AnswerQuestion(ctx, id, again.Fingerprint, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AnswerQuestion(ctx, id, again.Fingerprint, 2); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a repeat answered %v", err)
+	}
+	if len(*sent) != 2 || !strings.HasSuffix((*sent)[1], " Down Enter") {
+		t.Fatalf("sent %q", *sent)
+	}
+}
+
+// A pane whose process has gone takes no keys: the answer is refused as a
+// changed question and nothing is sent.
+func TestAnswerQuestionRefusesADeadPane(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 61, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	q := questionOf(t, m, id)
+	if q == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	m.paneDead = func(context.Context, string) (bool, error) { return true, nil }
+	if err := m.AnswerQuestion(context.Background(), id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("a dead pane answered %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("keys were sent to a dead pane: %q", *sent)
+	}
+}

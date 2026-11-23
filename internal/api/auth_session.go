@@ -1,9 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
@@ -132,10 +135,95 @@ func (s *server) newSession(w http.ResponseWriter, r *http.Request, user store.U
 	return user, nil
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
+// clientIP is the address a request came from. X-Forwarded-For is read only
+// when the peer is a trusted proxy: walking it from the right, entries that
+// are trusted proxies are skipped and the first other address is the client.
+// An entry that is not an address stops the walk at the last one reached, as
+// anything to its left was written by someone the proxies did not vouch for.
+func (s *server) clientIP(r *http.Request) string {
+	addr, ok := parseIP(r.RemoteAddr)
+	if !ok {
 		return r.RemoteAddr
 	}
-	return host
+	if !s.trustedProxy(addr) {
+		return addr.String()
+	}
+	lines := r.Header.Values("X-Forwarded-For")
+	for i := len(lines) - 1; i >= 0; i-- {
+		entries := strings.Split(lines[i], ",")
+		for j := len(entries) - 1; j >= 0; j-- {
+			next, ok := parseIP(entries[j])
+			if !ok {
+				return addr.String()
+			}
+			addr = next
+			if !s.trustedProxy(addr) {
+				return addr.String()
+			}
+		}
+	}
+	return addr.String()
+}
+
+func (s *server) trustedProxy(addr netip.Addr) bool {
+	for _, p := range s.trustedProxies {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseIP reads an address with or without brackets, port and zone, with an
+// IPv4-mapped IPv6 address read as the IPv4 address it carries.
+func parseIP(v string) (netip.Addr, bool) {
+	v = strings.TrimSpace(v)
+	if host, _, err := net.SplitHostPort(v); err == nil {
+		v = host
+	} else if strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]") {
+		v = v[1 : len(v)-1]
+	}
+	addr, err := netip.ParseAddr(v)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return addr.WithZone("").Unmap(), true
+}
+
+// addrKey is the part of an address a limiter counts: an IPv4 address whole,
+// an IPv6 address by its /64, as one subscriber is usually given a whole /64.
+func addrKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || addr.Is4() {
+		return ip
+	}
+	return netip.PrefixFrom(addr, 64).Masked().String()
+}
+
+// clientKey is the limiter key for the address a request came from.
+func (s *server) clientKey(r *http.Request) string {
+	return addrKey(s.clientIP(r))
+}
+
+// ParseTrustedProxies reads REET_TRUSTED_PROXIES: addresses and CIDR ranges,
+// separated by commas.
+func ParseTrustedProxies(v string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, entry := range strings.Split(v, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(entry); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil || addr.Zone() != "" {
+			return nil, fmt.Errorf("REET_TRUSTED_PROXIES: %q is not an IP address or CIDR range", entry)
+		}
+		addr = addr.Unmap()
+		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return out, nil
 }

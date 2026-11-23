@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/netip"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/agentupdate"
@@ -24,6 +25,12 @@ type Option func(*server)
 
 // WithRemoteTerminals opts into remote shells. Health remains independent.
 func WithRemoteTerminals(enabled bool) Option { return func(s *server) { s.remoteTerminals = enabled } }
+
+// WithTrustedProxies names the reverse proxies whose X-Forwarded-For header
+// is believed for the client's address; see ParseTrustedProxies.
+func WithTrustedProxies(proxies []netip.Prefix) Option {
+	return func(s *server) { s.trustedProxies = proxies }
+}
 
 // WithPublicURL sets the canonical origin used by MCP OAuth discovery behind a proxy.
 func WithPublicURL(origin string) Option {

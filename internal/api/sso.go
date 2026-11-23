@@ -210,7 +210,7 @@ func (s *server) ssoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssoNoStore(w)
-	key := "sso-start:" + clientIP(r)
+	key := "sso-start:" + s.clientKey(r)
 	if !s.ssoLimiter.Take(key) {
 		s.ssoFail(w, r, "/", "rate_limited")
 		return
@@ -477,7 +477,7 @@ func (s *server) ssoBackchannelLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssoNoStore(w)
-	key := "sso-logout:" + clientIP(r)
+	key := "sso-logout:" + s.clientKey(r)
 	if !s.logoutLimiter.Take(key) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many logout requests")

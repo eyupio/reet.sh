@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -57,6 +58,8 @@ type server struct {
 	addrLimiter    *auth.Limiter // failed password sign-ins per address seen; generous, as a proxy is one address
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
+	// trustedProxies are the peers whose X-Forwarded-For names the client.
+	trustedProxies []netip.Prefix
 	publicURL      string
 	defaultUser    store.User
 	queue          chan ref.Ref

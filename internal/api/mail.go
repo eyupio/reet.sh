@@ -346,7 +346,7 @@ func (s *server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "enter a valid email address")
 		return
 	}
-	if !s.limiter.Take("forgot:"+email, "forgot-ip:"+clientIP(r)) {
+	if !s.limiter.Take("forgot:"+email, "forgot-ip:"+s.clientKey(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
@@ -381,7 +381,7 @@ func (s *server) resetPassword(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if !s.limiter.Take("reset-ip:" + clientIP(r)) {
+	if !s.limiter.Take("reset-ip:" + s.clientKey(r)) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return

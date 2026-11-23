@@ -164,7 +164,7 @@ func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "password is too long")
 		return
 	}
-	if !s.limiter.Take("signup:all", "signup-ip:"+clientIP(r), "email:"+email) {
+	if !s.limiter.Take("signup:all", "signup-ip:"+s.clientKey(r), "email:"+email) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
 		return
@@ -218,7 +218,7 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 	// The address the server sees is charged for failed attempts only: the
 	// attempt is recorded now and taken back when the password is right, so
 	// people behind one proxy do not use up each other's allowance.
-	ipKey := "ip:" + clientIP(r)
+	ipKey := "ip:" + s.clientKey(r)
 	allowed := s.addrLimiter.Take(ipKey) && s.limiter.Take("email:"+email)
 	if !allowed {
 		w.Header().Set("Retry-After", "60")

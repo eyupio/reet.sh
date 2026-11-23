@@ -498,14 +498,14 @@ try {
  }
 
  // A chat whose turn ended with work it started still running is not finished. Every surface says so in one vocabulary
- // ("Working in the background", or "In background" where room is short) with a hollow ring where working has a solid
- // dot: the list row (one line on a phone, the title still readable), the tab, the Overview and the chat's status line,
- // which keeps its "you can send" detail on a phone. Nothing calls the person until the work ends.
+ // ("In background" in a row, tab or pane; "Working in the background" where a sentence fits) with a hollow ring where
+ // working has a solid dot: the list row (one line on a phone, the title still readable), the tab, the Overview and the
+ // chat's status line. Nothing calls the person until the work ends.
  if (run('a turn that left work running')) {
   const after = process.env.REET_BACKGROUND_SHOTS
   const held = session('sb','a1','Run the test suite',MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_held00000000000000000001',projectId:'p1',attention:'working',attentionSource:'chat',chatStatus:'background',changedSinceSeen:true})
   const events = [{seq:1,kind:'user',text:'run the whole suite'},{seq:2,kind:'tool',toolCallId:'c1',title:'npm test',toolKind:'execute',status:'in_progress'},{seq:3,kind:'status',state:'idle',background:1}]
-  const sentence = 'Turn ended; work it started is still running. You can send the next instruction.'
+  const sentence = 'Turn ended; work it started is still running.'
   for (const [width,height,theme,touch] of [[1280,900,'light',false],[390,844,'dark',true]]) {
    const phone = width <= 650
    const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),{...session('sw','a1','Plain working chat',3*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'working',attentionSource:'chat'})},held],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
@@ -521,15 +521,8 @@ try {
    await expect(plain.locator('.dot')).toBeVisible()
    const word = row.locator('.word')
    await expect(word).toHaveAttribute('title', sentence)
-   await expect(word.locator('.vh')).toHaveText(`Working in the background. ${sentence}`)
-   if (phone) {
-    await expect(word.locator('.short')).toBeVisible()
-    await expect(word.locator('.short')).toHaveText('In background')
-    await expect(word.locator('.long')).toBeHidden()
-   } else {
-    await expect(word.locator('.long')).toHaveText('Working in the background')
-    await expect(word.locator('.short')).toBeHidden()
-   }
+   await expect(word.locator('.vh')).toHaveText(`. ${sentence}`)
+   await expect(word).toContainText('In background')
    // One line, nothing cut from the word, and the title still readable beside it.
    const box = await word.evaluate(el => ({h:el.getBoundingClientRect().height, cut:el.scrollWidth > el.clientWidth + 1}))
    expect(box.h, `word on one line at ${width}px`).toBeLessThan(30)
@@ -550,18 +543,26 @@ try {
     await row.evaluate(el => el.scrollIntoView({block:'center'}))
     await row.screenshot({path:`${after}/row-${theme}-${width}.png`})
    }
+   // Home's Continue working row says it the same way, with the ring.
+   await page.goto(`${base}/`)
+   await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Continue working',exact:true}).click()
+   const flight = page.getByRole('region',{name:'Continue working',exact:true}).locator('li[data-status]').filter({hasText:'Run the test suite'})
+   await expect(flight.locator('.status-ring')).toBeVisible()
+   await expect(flight.locator('.dot')).toHaveCount(0)
+   await expect(flight.locator('.word')).toHaveText('In background')
+   if (after) await flight.locator('xpath=ancestor::div[contains(@class,"group")][1]').screenshot({path:`${after}/home-${theme}-${width}.png`})
    await page.goto(`${base}/sessions?agent=a1&session=sb`)
    await page.waitForFunction(() => window.__chatStream)
    await page.evaluate(events => window.__chatStream.start(...events), events)
    const status = page.locator('.conversation-status')
    await expect(status.locator('.label')).toHaveText('Turn ended · 1 background task running')
    await expect(status).toHaveAttribute('data-phase','background')
-   // The ring, not the turn's spinner; the person may write, and the line says so on a phone too.
+   // The ring, not the turn's spinner.
    await expect(status.locator('.indicator .status-ring')).toBeVisible()
    await expect(status.locator('.indicator.spinning')).toHaveCount(0)
-   await expect(status.locator('.detail')).toBeVisible()
-   await expect(status.locator('.detail')).toHaveText('You can send your next instruction.')
-   expect(await status.locator('.indicator .status-ring').evaluate(el => { const a = getComputedStyle(el); return parseFloat(a.animationDuration) || 0 }), 'the ring breathes no faster than every 3 s').not.toBeLessThan(3)
+   // The label and the ring say it once: no second sentence, and no "1 active" beside "1 background task running".
+   await expect(status.locator('.detail')).toHaveCount(0)
+   await expect(status.locator('.counts')).not.toContainText('active')
    await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
    expect(await noSideScroll(page), `no sideways scroll at ${width}px`).toBe(true)
    if (after) await status.screenshot({path:`${after}/chat-${theme}-${width}.png`})
@@ -588,6 +589,7 @@ try {
     await expect(now.first()).toHaveText('Working in the background')
     await expect(now.first()).toHaveAttribute('data-held','')
     if (after) await page.getByRole('complementary',{name:'Session context'}).screenshot({path:`${after}/overview-${theme}-${width}.png`})
+    if (after) await page.getByRole('complementary',{name:'Session context'}).locator('.gaffer-progress').first().screenshot({path:`${after}/gaffer-card-${theme}-${width}.png`})
    } else expect(phone, 'the Overview shows on a desktop').toBe(true)
    await page.evaluate(() => { window.__chatStream.emit('chat',{seq:4,kind:'tool',toolCallId:'c1',status:'completed'}); window.__chatStream.emit('chat',{seq:5,kind:'status',state:'idle'}) })
    await expect(status.locator('.label')).toHaveText('Turn finished')

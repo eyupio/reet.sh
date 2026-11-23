@@ -6,7 +6,7 @@ const A = 'connector-live000000000001', S = 'session-live0000000000001', root = 
 const now = Date.now()
 const session = { id: S, agentId: A, title: 'Live controls', state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'opencode', model: 'provider/one', effort: 'low', yolo: false, projectId: null, dir: '/tmp', structured: true }
 const machine = { agentId: A, host: 'live-machine', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', acp: true, acpModel: true, acpLiveControls: true, tools: ['opencode'] } }
-let queue = [], changes = [], serial = 0, commandsAnswer = { commands: [] }, skillsAnswer = { skills: [], machineSeen: now - 60_000, host: 'live-machine' }
+let queue = [], changes = [], serial = 0, commandsAnswer = { commands: [] }, skillsAnswer = { skills: [], machineSeen: now - 60_000, host: 'live-machine' }, skillsGate = Promise.resolve(), skillsFail = false, skillReads = 0, nativeOn = true
 let controls = { working: true, waiting: false, compacting: false, configuring: false, steering: true, model: 'provider/one', options: [{ id: 'model', category: 'model', current: 'provider/one', values: ['provider/one', 'provider/two'] }, { id: 'effort', category: 'thought_level', current: 'low', values: ['low', 'high'] }] }
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { page, context, errors } = await openWorkspace(browser, {
@@ -14,8 +14,8 @@ const { page, context, errors } = await openWorkspace(browser, {
  routes: {
   '/api/v2/terminal/sessions': { sessions: [session] },
   [`${root}/commands`]: () => commandsAnswer,
-  [`/api/v2/terminal/sessions/${S}/skills`]: () => skillsAnswer,
-  [`/api/v2/terminal/sessions/${S}/native-view`]: { available: true },
+  [`/api/v2/terminal/sessions/${S}/skills`]: async () => { skillReads++; await skillsGate; return skillsFail ? { status: 500, json: { error: 'Skills could not be read just now.' } } : skillsAnswer },
+  [`/api/v2/terminal/sessions/${S}/native-view`]: () => ({ available: nativeOn }),
   [`${root}/controls`]: req => {
    if (req.method() === 'POST') { const in_ = req.postDataJSON(); changes.push(in_); controls.options.find(o => o.id === in_.configId).current = in_.value; if (in_.configId === 'model') controls.model = in_.value }
    return { controls }
@@ -205,6 +205,54 @@ try {
   await expect(picker.getByText(/^Commands from/)).toHaveCount(0)
   await shot(`commands-old-machine-${label}`)
   await page.keyboard.press('Escape')
+ }
+
+ // Review fixes: the list is read again when a slash message is sent, a late answer never lands under a later message, the
+ // commands stay listed when the skills read fails, and Open terminal says why when the session has no native view.
+ for (const [width, theme] of [[1360, 'light'], [390, 'dark']]) {
+  const label = `${width}-${theme}`
+  const composer = page.getByRole('textbox', { name: 'Message OpenCode', exact: true })
+  skillsAnswer = { ...skillsAnswer, skills: skillRows }
+  // The agent announced after the first read: the empty list is not trusted when a slash message goes out, and a command
+  // announced later is not called unlisted.
+  commandsAnswer = { commands: [] }
+  await openIdle(width, theme)
+  commandsAnswer = { commands: announced }
+  await sendDraft(composer, '/compact now')
+  await expect(unlisted).toBeVisible()
+  commandsAnswer = { commands: [...announced, { name: 'compact', description: 'Compact the thread', hint: '' }] }
+  await sendDraft(composer, '/compact now')
+  await expect.poll(() => sentTexts.at(-1)).toBe('/compact now')
+  await expect(unlisted).toHaveCount(0)
+  // A slow answer for /foo does not put its line under the message sent after it.
+  commandsAnswer = { commands: announced }
+  await openIdle(width, theme)
+  let release
+  skillsGate = new Promise(resolve => { release = resolve })
+  const reads = skillReads
+  await sendDraft(composer, '/foo bar')
+  await expect.poll(() => skillReads).toBe(reads + 1)
+  await sendDraft(composer, 'hello')
+  await expect.poll(() => sentTexts.at(-1)).toBe('hello')
+  release(); skillsGate = Promise.resolve()
+  await page.waitForTimeout(500)
+  await expect(unlisted).toHaveCount(0)
+  // The skills read fails: the agent's commands are still listed and can be picked.
+  skillsFail = true
+  await skillsButton.click()
+  await expect(picker.getByRole('alert')).toContainText('Skills could not be read just now.')
+  await expect(picker.getByText('Commands from OpenCode', { exact: true })).toBeVisible()
+  await shot(`commands-skills-failed-${label}`)
+  await picker.getByRole('option', { name: /\/review/ }).click()
+  await expect(composer).toHaveValue('/review ')
+  skillsFail = false
+  // No shared terminal view: the header switch's own reason shows instead of nothing.
+  machine.capabilities.nativeView = false; nativeOn = false
+  await openIdle(width, theme)
+  await sendDraft(composer, '/compact')
+  await unlisted.getByRole('button', { name: 'Open terminal', exact: true }).click()
+  await expect(page.getByText(/no shared native terminal/).first()).toBeVisible()
+  machine.capabilities.nativeView = true; nativeOn = true
  }
  expect(errors).toEqual([])
  console.log('Live controls and durable queue UI passed.')

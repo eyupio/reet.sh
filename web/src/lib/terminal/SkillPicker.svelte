@@ -90,6 +90,7 @@
       event.preventDefault()
       ;(event.target as HTMLElement).click()
     }
+    // Enter in the filter picks the first row, which is the agent's own first command: its commands lead the sheet.
     else if (event.key === 'Enter' && event.target === input) {
       event.preventDefault()
       const first = rows().find(el => el.getAttribute('aria-disabled') !== 'true')
@@ -113,6 +114,23 @@
         <SkillInstallPanel skill={keeping} host={data?.host ?? ''} agentId={data?.agentId ?? ''} onclose={closedKeep} />
       {:else}
       <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
+      <!-- The agent's own commands do not wait on the skills read, so they stay when it is slow or fails. -->
+      <div class="all" bind:this={list}>
+      {#if commandGroup}
+        <div class="group">
+          <div class="heading" id={`${id}-commands`}>{commandGroup.label}</div>
+          <div class="list single" role="listbox" aria-labelledby={`${id}-commands`}>
+            {#each commandGroup.commands as c (c.name)}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <div class="option" id={`${id}-c-${c.name}`} role="option" tabindex="-1" aria-selected="false" onclick={() => onpickcommand?.(c)}>
+                <span class="name">/{c.name}</span>
+                {#if c.description}<span class="description isolate">{c.description}</span>{/if}
+                {#if c.hint}<span class="meta isolate">{c.hint}</span>{/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
       {#if loading}
         <p class="note" role="status">Reading skills…</p>
       {:else if error}
@@ -121,22 +139,7 @@
           <button type="button" class="retry" onclick={onretry}>Retry</button>
         </div>
       {:else if data}
-        <div class="groups" bind:this={list}>
-          {#if commandGroup}
-            <div class="group">
-              <div class="heading" id={`${id}-commands`}>{commandGroup.label}</div>
-              <div class="list single" role="listbox" aria-labelledby={`${id}-commands`}>
-                {#each commandGroup.commands as c (c.name)}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div class="option" id={`${id}-c-${c.name}`} role="option" tabindex="-1" aria-selected="false" onclick={() => onpickcommand?.(c)}>
-                    <span class="name">/{c.name}</span>
-                    {#if c.description}<span class="description">{c.description}</span>{/if}
-                    {#if c.hint}<span class="meta">{c.hint}</span>{/if}
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
+        <div class="groups">
           {#each groups as g (g.key)}
             <div class="group">
               <div class="heading" id={`${id}-${g.key}`}>{g.label}</div>
@@ -178,6 +181,7 @@
           <p class="seen">{seenLine(data.machineSeen, data.host, now)}</p>
         {/if}
       {/if}
+      </div>
       {/if}
     </div>
   </div>
@@ -194,7 +198,7 @@
   .close svg { width: 20px; height: 20px; }
   .body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px; }
   .filter { width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
-  .groups { display: flex; flex-direction: column; gap: 8px; }
+  .all, .groups { display: flex; flex-direction: column; gap: 8px; }
   .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--muted); }
   .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
@@ -205,6 +209,7 @@
   .option[aria-disabled='true'] { cursor: default; opacity: 0.6; }
   .option[aria-disabled='true']:hover { background: none; }
   .name { font-weight: 600; }
+  .isolate { unicode-bidi: isolate; }
   .description { font-size: 14px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 14px; color: var(--muted); }
   .reason { font-weight: 600; }

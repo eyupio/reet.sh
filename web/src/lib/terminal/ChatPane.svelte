@@ -255,7 +255,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   catch { if (!life.signal.aborted) { commands = []; commandsNote = '' } }
  }
  // Set after a send whose first word the agent did not list; cleared by the next send or any edit of the draft.
- let unlisted = $state('')
+ let unlisted = $state(''), noteSeq = 0 // noteSeq moves on every send and edit, so a late answer never lands under a later message
  async function loadSkills() {
   skillsLife?.abort()
   const life = skillsLife = new AbortController()
@@ -324,7 +324,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   const input = event.currentTarget as HTMLTextAreaElement
   const value = input.value
   const query = slashQuery(value)
-  unlisted = ''
+  unlisted = ''; noteSeq++
   if (query !== null) {
    promptMenu = null
    if (!slashDismissed) openSkills(query)
@@ -490,6 +490,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
   unlisted = ''
+  const seq = ++noteSeq
   if (!liveControls && (working || queued.length)) { queueCurrent(text); return }
   const sendingImages = images.slice()
   const ok = await deliver(text, sendingImages)
@@ -497,15 +498,18 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   const sent = new Set(sendingImages.map(image => image.id))
   held.keep(sendingImages)
   draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true
-  void noteUnlisted(text)
+  void noteUnlisted(text, seq)
   await scrollToEnd()
  }
  /** A sent message that starts with a command the agent did not list: say so, once the skills are known. It never blocks. */
- async function noteUnlisted(text: string) {
-  if (!unknownCommand(text, commands, skillData?.skills ?? [])) return
+ async function noteUnlisted(text: string, seq: number) {
+  if (!text.startsWith('/')) return
+  // The agent may have announced since the last read, so read again before deciding.
+  await loadCommands()
+  if (seq !== noteSeq || !unknownCommand(text, commands, skillData?.skills ?? [])) return
   let skills = skillData?.skills
   if (!skills) { try { skills = (await getSessionSkills(session.id, AbortSignal.timeout(5000))).skills } catch { skills = [] } }
-  if (!draft) unlisted = unknownCommand(text, commands, skills) ?? ''
+  if (seq === noteSeq) unlisted = unknownCommand(text, commands, skills) ?? ''
  }
  /** Put what is in the composer at the end of the queue, pictures and all. */
  function queueCurrent(text: string) {

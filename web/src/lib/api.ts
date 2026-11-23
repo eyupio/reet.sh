@@ -413,13 +413,21 @@ export type TemplateDiff = {
     /** Stages kept in their place whose part, brief or tier changed. */ stageEdits: { stage: string; field: 'part' | 'brief' | 'tier'; from: string; to: string }[] }[]
 }
 export type TemplateLaunchInput = { requestId: string; version: number; projectId: string; tool: string; model?: string; provider?: string; trust: boolean; yolo: boolean; pullLatest?: 'yes' | 'no'; autoReport: boolean; automation: boolean; balanceBelow?: number; /** Who does each tier's stages, as the crew editor shows it. Absent takes the saved crew. */ crew?: { light: GafferCrewTier; standard: GafferCrewTier; heavy: GafferCrewTier }; skippedSkills?: string[]; confirmed: true }
+/** The server leaves out a pipeline's criteria and a stage's skills when there are none; every reader expects a list. */
+export function wholeTemplate(template: Template): Template {
+  for (const pipeline of template.content?.pipelines ?? []) {
+    pipeline.criteria ??= []
+    for (const stage of pipeline.stages ??= []) stage.skills ??= []
+  }
+  return template
+}
 const templatePath = (id: string) => `/api/v2/gaffer/templates/${encodeURIComponent(id)}`
 export async function listGafferTemplates(signal?: AbortSignal): Promise<TemplateSummary[]> { return (await (await req('/api/v2/gaffer/templates', { signal, cache: 'no-store' })).json()).templates }
 /** The latest version, or the one asked for. */
-export async function getGafferTemplate(id: string, version = 0, signal?: AbortSignal): Promise<Template> { return (await req(version ? `${templatePath(id)}/versions/${version}` : templatePath(id), { signal, cache: 'no-store' })).json() }
-export async function saveGafferTemplate(input: { requestId: string; outcomeId: string; name: string; description?: string; templateId?: string; baseVersion?: number }, signal?: AbortSignal): Promise<Template> { return (await req('/api/v2/gaffer/templates', { method: 'POST', body: json(input), signal })).json() }
+export async function getGafferTemplate(id: string, version = 0, signal?: AbortSignal): Promise<Template> { return wholeTemplate(await (await req(version ? `${templatePath(id)}/versions/${version}` : templatePath(id), { signal, cache: 'no-store' })).json()) }
+export async function saveGafferTemplate(input: { requestId: string; outcomeId: string; name: string; description?: string; templateId?: string; baseVersion?: number }, signal?: AbortSignal): Promise<Template> { return wholeTemplate(await (await req('/api/v2/gaffer/templates', { method: 'POST', body: json(input), signal })).json()) }
 /** A new version of the template: its content, with whatever the person changed. */
-export async function editGafferTemplate(id: string, input: { requestId: string; baseVersion: number; content: TemplateContent }, signal?: AbortSignal): Promise<Template> { return (await req(templatePath(id), { method: 'PUT', body: json(input), signal })).json() }
+export async function editGafferTemplate(id: string, input: { requestId: string; baseVersion: number; content: TemplateContent }, signal?: AbortSignal): Promise<Template> { return wholeTemplate(await (await req(templatePath(id), { method: 'PUT', body: json(input), signal })).json()) }
 /** `from` 0 is the version last used (or, when that is no longer kept, the oldest kept); `to` 0 is the latest. */
 export async function diffGafferTemplate(id: string, from: number, to: number, signal?: AbortSignal): Promise<TemplateDiff> { return (await req(`${templatePath(id)}/diff?${new URLSearchParams({ ...(from ? { from: String(from) } : {}), ...(to ? { to: String(to) } : {}) })}`, { signal, cache: 'no-store' })).json() }
 export async function launchGafferTemplate(id: string, input: TemplateLaunchInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${templatePath(id)}/launch`, { method: 'POST', body: json(input), signal })).json() }

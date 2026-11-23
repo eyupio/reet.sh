@@ -256,3 +256,37 @@ test('the boot script reads the key applyTheme writes', () => {
   const html = readFileSync(join(web, 'index.html'), 'utf8')
   assert.match(html, /localStorage\.getItem\('reet-theme'\)/)
 })
+
+// A status pill's text is its status colour with a fifth of ink mixed in (the recipe in app.css), on its own 13% wash over
+// the page, a card or a raised card. Every status reaches AA in both palettes.
+test('status pill text meets AA on its wash in both palettes', () => {
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
+  const mix = (a, b, share) => '#' + hex(a).map((v, i) => Math.round(v * share + hex(b)[i] * (1 - share)).toString(16).padStart(2, '0')).join('')
+  assert.match(css, /--status-text: color-mix\(in srgb, var\(--status\) 80%, var\(--ink\)\)/)
+  for (const p of PALETTES) {
+    const t = TOKENS[p]
+    for (const name of ['--status-working', '--status-waiting', '--status-starting', '--status-finished', '--status-failed', '--status-ended', '--status-quiet']) {
+      const text = mix(t[name], t['--ink'], 0.8)
+      for (const ground of ['--card', '--bg', '--card-raised']) {
+        const wash = mix(t[name], t[ground], 0.13)
+        assert.ok(contrast(text, wash) >= 4.5, `${p}: ${name} pill text ${text} on its wash ${wash} over ${ground} is ${contrast(text, wash).toFixed(2)}`)
+      }
+    }
+  }
+})
+
+// A tinted Sessions row (5% of its status over the card) carries the status pill and, for held work, the hollow ring:
+// the pill's text keeps AA on its wash over that tint, and the ring keeps 3:1 against the row.
+test('a tinted row keeps its pill text at AA and its ring at 3:1', () => {
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
+  const mix = (a, b, share) => '#' + hex(a).map((v, i) => Math.round(v * share + hex(b)[i] * (1 - share)).toString(16).padStart(2, '0')).join('')
+  for (const p of PALETTES) {
+    const t = TOKENS[p]
+    for (const name of ['--status-working', '--status-waiting', '--status-starting', '--status-failed']) {
+      const row = mix(t[name], t['--card'], 0.05)
+      const text = mix(t[name], t['--ink'], 0.8), wash = mix(t[name], row, 0.13)
+      assert.ok(contrast(text, wash) >= 4.5, `${p}: ${name} pill text ${text} on ${wash} over the tinted row is ${contrast(text, wash).toFixed(2)}`)
+      assert.ok(contrast(t[name], row) >= 3, `${p}: ${name} ring on the tinted row ${row} is ${contrast(t[name], row).toFixed(2)}`)
+    }
+  }
+})

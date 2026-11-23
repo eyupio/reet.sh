@@ -1008,7 +1008,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {/if}
   {/each}
  </div>
- <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} plan={planView} planNow={planClock} {...progressState} />
+ <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} plan={planView} planNow={planClock} heldSince={session.heldSince} {...progressState} />
  {#if ended && !reattaching}
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}

@@ -517,6 +517,14 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 	}
 	delete(s.chatJobs, c.ID)
 	s.mu.Unlock()
+	if handover != "" && s.stageWorkRunning(job.uid, c.ID) {
+		// Ending the stage would end its session and the work with it. The
+		// work's end is new progress, so Gaffer reviews the stage again then.
+		if g, err := s.store.GafferGoalFor(job.uid, c.ID); err == nil && g.State == "active" {
+			_ = s.store.ObserveGafferGoal(g, "active", workerBackgroundNote, time.Now().Add(heldGoalRecheck).UnixMilli())
+		}
+		handover = ""
+	}
 	if handover != "" {
 		s.stageHandedOver(job.uid, c.ID, handover, "gaffer")
 	}

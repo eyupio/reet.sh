@@ -9,7 +9,7 @@ const attention = `data:text/javascript;base64,${Buffer.from(compileTs(readFileS
 const time = `data:text/javascript;base64,${Buffer.from(compileTs(readFileSync(new URL('./time.ts', import.meta.url), 'utf8'))).toString('base64')}`
 const compiled = compileTs(source).replace("from './attention'", `from '${attention}'`).replace("from './time'", `from '${time}'`)
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
+const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, needingIds, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -504,4 +504,24 @@ test('a session needs the person as the bell counts it: a plain finish is not co
     session('r', 'a1', 'exited', { attention: 'finished', changedSinceSeen: true, ...tree('r') }),
   ], NOW)
   assert.deepEqual([...h.needingIds(cards)].sort(), ['r', 'w', 'x'])
+})
+
+test('a chat whose ended turn left work running reads as working in the background, and nobody is called for it', () => {
+  const held = session('bg', 'a1', 'running', { structured: true, attention: 'working', attentionSource: 'chat', chatStatus: 'background', changedSinceSeen: true })
+  assert.deepEqual(stateWord(held), { word: 'Working in the background', source: 'from the chat', tone: 'good' })
+  assert.equal(stateWord({ ...held, chatStatus: 'working' }).word, 'Working')
+  assert.deepEqual(needsYou([held], NOW), [])
+  assert.equal(attentionCount(needsYou([held], NOW)), 0)
+})
+
+test('a chat reet stopped waiting on reads Stopped waiting, says the work may still run, and asks no worktree review', () => {
+  const stopped = session('sw', 'a1', 'running', { structured: true, attention: 'finished', attentionSource: 'chat', chatStatus: 'unwatched', changedSinceSeen: true, updatedAt: NOW - MIN, worktreePath: '/w/x' })
+  assert.deepEqual(stateWord(stopped), { word: 'Stopped waiting', source: 'from the chat', tone: 'warn' })
+  const [card] = needsYou([stopped], NOW)
+  assert.equal(card.label, 'Stopped waiting')
+  assert.equal(card.kind, 'stopped')
+  assert.equal(card.worktreeTarget, null)
+  // It is listed with what waits for the person, not set aside as a plain finish.
+  assert.deepEqual([...needingIds([card])], ['sw'])
+  assert.equal(stateWord({ ...stopped, attention: 'quiet', changedSinceSeen: false }).word, 'Stopped waiting')
 })

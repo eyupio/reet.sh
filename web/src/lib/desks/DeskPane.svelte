@@ -4,7 +4,7 @@
   import type { ConnectionState } from '../terminal/connection'
   import { hasHiddenChars, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, sessionHref, stripHiddenChars, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { projectColourHex, type ProjectColour } from '../projectColour'
-  import { sessionStatus, statusLabel } from '../sessionStatus'
+  import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, statusLabel, stoppedWaiting } from '../sessionStatus'
   import { middleEllipsis } from '../sessions/middleEllipsis'
   import DeskMenu from './DeskMenu.svelte'
   import { agentName, dirLabel, isRunning, paneCard, paneNote, paneState, startupInput, type PaneActionKind, type PaneFailure, type PaneState } from './paneState'
@@ -118,7 +118,9 @@
   const note = $derived(paneNote(pane, shown, machine ? { deskShell } : undefined))
   const status = $derived(session && mounted ? sessionStatus(session) : undefined)
   const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', agentLost: 'Lost', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', projectsUnread: 'Not continued', empty: 'Not started' }
-  const word = $derived(shown === 'live' && status && !(status === 'working' && !session?.tool) ? statusLabel(status) : WORDS[shown])
+  const held = $derived(!!session && shown === 'live' && heldWork(session))
+  const stopped = $derived(!!session && shown === 'live' && stoppedWaiting(session))
+  const word = $derived(shown === 'live' && status && !(status === 'working' && !session?.tool) ? statusLabel(status, held, stopped) : WORDS[shown])
   const tone = $derived(shown === 'lost' || shown === 'agentLost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'folderUnavailable' || shown === 'limit' || shown === 'projectsUnread' ? 'warn' : shown === 'live' ? 'good' : '')
 
   // Rename in place, from the menu or the terminal's own Manage menu.
@@ -185,7 +187,7 @@
     {/if}
     {#if host && !phone}<span class="host">{host}</span>{/if}
     {#if folder}<span class="dir" title={folder}>{middleEllipsis(dirLabel(folder), 48)}</span>{/if}
-    <span class="st">{#if receiving}<span class="rcv">Receiving</span>{/if}<span class={`word ${tone}`} data-status={status}>{word}</span>
+    <span class="st">{#if receiving}<span class="rcv">Receiving</span>{/if}<span class={`word ${tone}`} data-status={status} data-held={held ? '' : undefined}>{#if held}<span class="status-ring" aria-hidden="true"></span>{/if}{word}{#if held}<span class="vh">. {HELD_SENTENCE}</span>{:else if stopped}<span class="vh">. {STOPPED_LINE}</span>{/if}</span>
       <button type="button" class="more" aria-label={`Actions for ${name}`} aria-haspopup="menu" aria-expanded={!!menu} onclick={openMenu}>⋮</button>
     </span>
   </header>
@@ -285,6 +287,10 @@
   .st { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: none; }
   .word.good { color: var(--good); } .word.bad { color: var(--bad); } .word.warn { color: var(--warn); }
   .word[data-status='waiting'] { color: var(--status-waiting); }
+  /* A live session's word is said in its status colour, as every status pill is. */
+  .word[data-status] { color: var(--status-text); }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .word .status-ring { margin-right: 5px; vertical-align: -1px; }
   .rcv { color: var(--warn); font-weight: 600; margin-right: 6px; }
   .more { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; }
   .more:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }

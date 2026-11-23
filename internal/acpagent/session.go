@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -174,9 +175,24 @@ type Session struct {
 	mode         string
 	tools        map[string]string
 	toolStart    map[string]time.Time
-	done         chan struct{}
-	doneOnce     sync.Once
-	retired      bool
+	// held is the tool calls a turn ended with still running. They stay out of
+	// toolStart, so a later turn's Stop and silence checks see only that
+	// turn's own tools.
+	held      map[string]heldTool
+	heldTimer *time.Timer
+	// statusMu orders a held count reported between turns before the next
+	// turn's working status. It is not held for other statuses, so a Stop is
+	// never kept waiting behind a slow delivery. lastStatus and reported are
+	// what the controller last heard.
+	statusMu   sync.Mutex
+	lastStatus string
+	reported   int
+	// unwatched is set when held calls were given up on at the limit; the next
+	// idle status says so, so the controller does not call the turn finished.
+	unwatched bool
+	done      chan struct{}
+	doneOnce  sync.Once
+	retired   bool
 
 	turnMu          sync.Mutex
 	working         bool
@@ -274,7 +290,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	_ = stdoutWriter.Close()
 	s := &Session{opts: opts, binary: binary, native: native, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
-		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
+		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, held: map[string]heldTool{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})
 	go func() {
@@ -527,10 +543,34 @@ func (s *Session) ImagesSupported() bool {
 var cancelGrace = 30 * time.Second
 
 func (s *Session) emit(event Event) {
+	if event.Kind == "status" && event.State == "working" {
+		// A held count reported between turns must reach the controller before
+		// the next turn's working status, never after it.
+		s.statusMu.Lock()
+		defer s.statusMu.Unlock()
+	}
+	s.emitLocked(event)
+}
+
+// emitLocked sends an event; a working status's caller, and reportHeld, hold statusMu.
+func (s *Session) emitLocked(event Event) {
 	s.mu.Lock()
 	now := time.Now()
 	s.lastEvent = now
 	closed := s.closed
+	if event.Kind == "status" && event.State == "idle" {
+		// Every idle status says what is still held, so none of them can read
+		// as the held work having ended.
+		event.Background = s.heldCountLocked()
+		s.reported = event.Background
+		if s.unwatched {
+			event.Code = terminalproto.ACPCodeUnwatched
+			s.unwatched = false
+		}
+	}
+	if event.Kind == "status" {
+		s.lastStatus = event.State
+	}
 	s.mu.Unlock()
 	if closed || s.opts.OnEvent == nil {
 		return
@@ -769,6 +809,7 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 	case "tool_call", "tool_call_update":
 		s.markProgress()
 		durationMs := int64(0)
+		heldDone := false
 		if u.ToolCallID != "" {
 			now := time.Now()
 			s.mu.Lock()
@@ -779,8 +820,14 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 				status = s.tools[u.ToolCallID]
 			}
 			final := status == "completed" || status == "failed" || status == "cancelled"
-			if !started && !final {
+			heldCall, held := s.held[u.ToolCallID]
+			if !started && !final && !held {
 				s.toolStart[u.ToolCallID] = now
+			}
+			if final && held {
+				delete(s.held, u.ToolCallID)
+				heldDone = true
+				start, started = heldCall.start, true
 			}
 			if final {
 				if started {
@@ -814,6 +861,9 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 			pictures = append(pictures, Preview{Path: target})
 		}
 		s.emitPreviews("", u.ToolCallID, pictures)
+		if heldDone {
+			s.reportHeld()
+		}
 	case "agent_thought_chunk":
 		text := contentText(u.Content)
 		if text != "" {
@@ -1534,6 +1584,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.turnSeq++
 	seq := s.turnSeq
 	s.turnStart = time.Now()
+	s.mu.Lock()
+	// A new message is the person carrying on: an earlier give-up is said in the transcript.
+	s.unwatched = false
+	s.mu.Unlock()
 	s.warned = false
 	s.mu.Lock()
 	s.lastEvent = s.turnStart
@@ -1564,6 +1618,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		s.compacting = false
 		s.mu.Unlock()
 		s.turnMu.Unlock()
+		// A held call that finished between the turn's idle and now could not
+		// be reported while the turn still ran.
+		s.reportHeld()
 	}()
 	var nativePromptDone func(error)
 	if s.native != nil && s.native.ready.Load() {
@@ -1729,11 +1786,126 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 			// prompt; the notice comes first so the chat never reads as done.
 			s.emit(Event{Kind: "notice", Text: emptyTurnNotice(s.opts.Agent), Bad: true})
 		}
+		s.holdOpenTools()
 		s.emit(Event{Kind: "status", State: "idle"})
 	default:
+		s.holdOpenTools()
 		s.emit(Event{Kind: "status", State: "idle", Detail: result.StopReason})
 	}
 	return nil
+}
+
+// holdOpenTools moves the tool calls the ended turn left running into the held
+// set. The agent never said they finished, so the chat must not read as done
+// while they may still produce work.
+func (s *Session) holdOpenTools() {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	for id, start := range s.toolStart {
+		if _, ok := s.held[id]; !ok {
+			s.held[id] = heldTool{start: start, at: now}
+		}
+	}
+	s.toolStart = map[string]time.Time{}
+	s.armHoldLocked(now)
+}
+
+// armHoldLocked schedules the release of the oldest held tool call at its limit.
+func (s *Session) armHoldLocked(now time.Time) {
+	if s.heldTimer != nil {
+		s.heldTimer.Stop()
+		s.heldTimer = nil
+	}
+	oldest := time.Time{}
+	for _, call := range s.held {
+		if oldest.IsZero() || call.at.Before(oldest) {
+			oldest = call.at
+		}
+	}
+	if oldest.IsZero() {
+		return
+	}
+	s.heldTimer = time.AfterFunc(max(0, oldest.Add(s.opts.backgroundHold()).Sub(now)), s.releaseExpiredHold)
+}
+
+// releaseExpiredHold stops waiting for held tool calls past the limit: an agent
+// that never reports a task's end must not keep the chat, or a pipeline, waiting.
+func (s *Session) releaseExpiredHold() {
+	now := time.Now()
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	dropped := 0
+	for id, call := range s.held {
+		if now.Sub(call.at) >= s.opts.backgroundHold() {
+			delete(s.held, id)
+			dropped++
+		}
+	}
+	if dropped > 0 {
+		s.unwatched = true
+	}
+	s.armHoldLocked(now)
+	s.mu.Unlock()
+	if dropped == 0 {
+		// Nothing to drop, but a count the controller heard may still be stale.
+		s.reportHeld()
+		return
+	}
+	s.emit(Event{Kind: "notice", Text: unwatchedNotice(s.opts.Agent.displayName(), dropped, s.opts.backgroundHold())})
+	s.reportHeld()
+}
+
+// unwatchedNotice says that reet stopped waiting for work it was never told had
+// finished, and that the work may still be running on this machine.
+func unwatchedNotice(agent string, dropped int, hold time.Duration) string {
+	machine, err := os.Hostname()
+	if err != nil || strings.TrimSpace(machine) == "" {
+		machine = "this machine"
+	}
+	minutes := int(hold.Round(time.Minute) / time.Minute)
+	after := strconv.Itoa(minutes) + " minutes"
+	switch {
+	case minutes < 1:
+		after = "less than a minute"
+	case minutes == 1:
+		after = "a minute"
+	}
+	if dropped == 1 {
+		return agent + " never said whether its background task finished. After " + after + " reet stopped waiting; it may still be running on " + machine + "."
+	}
+	return agent + " never said whether its " + strconv.Itoa(dropped) + " background tasks finished. After " + after + " reet stopped waiting; they may still be running on " + machine + "."
+}
+
+// reportHeld tells the controller how much held work is left when that has
+// changed, and only while the last status it heard is idle: a running turn
+// reports it when it ends, and a stop or failure must not read as finished.
+func (s *Session) reportHeld() {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	if s.Working() {
+		return
+	}
+	s.mu.Lock()
+	stale := s.lastStatus == "idle" && s.heldCountLocked() != s.reported
+	s.mu.Unlock()
+	if stale {
+		s.emitLocked(Event{Kind: "status", State: "idle"})
+	}
+}
+
+// heldTool is a call the ended turn left running: when it started, and when it was held.
+type heldTool struct{ start, at time.Time }
+
+// heldCountLocked is the held count within the protocol's bound.
+func (s *Session) heldCountLocked() int {
+	return min(len(s.held), terminalproto.MaxACPBackground)
 }
 
 func safeRPCText(s string) string {
@@ -1851,6 +2023,10 @@ func (s *Session) ended() {
 			pending = append(pending, id)
 		}
 		s.pending = map[string]*pendingPermission{}
+		s.held = map[string]heldTool{}
+		if s.heldTimer != nil {
+			s.heldTimer.Stop()
+		}
 		s.mu.Unlock()
 		questionIDs := s.dropQuestionsAfterExit()
 		// This last state is delivered after closed is set: the connector still

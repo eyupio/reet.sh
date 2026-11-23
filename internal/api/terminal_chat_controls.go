@@ -37,3 +37,31 @@ func (s *server) terminalChatControls(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, answer)
 }
+
+// chatCommands is the slash command list a chat's agent last announced.
+// Commands is never null. Code and Error say why a machine cannot read them,
+// with the same code style the controls refusal uses.
+type chatCommands struct {
+	Commands []terminalproto.ACPCommand `json:"commands"`
+	Code     string                     `json:"code,omitempty"`
+	Error    string                     `json:"error,omitempty"`
+}
+
+func (s *server) terminalChatCommands(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.terminalChatTarget(w, r); !ok {
+		return
+	}
+	answer, err := s.terminals.ChatControl(r.Context(), s.uid(r), r.PathValue("id"), terminalproto.ACPControl{Action: "commands"})
+	out := chatCommands{Commands: []terminalproto.ACPCommand{}}
+	if errors.Is(err, terminalbroker.ErrChatCommandsUnsupported) {
+		out.Code, out.Error = "chat_commands_unsupported", err.Error()
+		writeJSON(w, 200, out)
+		return
+	}
+	if err != nil {
+		s.terminalChatError(w, err)
+		return
+	}
+	out.Commands = append(out.Commands, answer.Commands...)
+	writeJSON(w, 200, out)
+}

@@ -227,6 +227,14 @@ The runtime controls endpoint is `GET /api/v2/terminal/sessions/{id}/chat/contro
 `{"action":"set","configId":"effort","value":"high"}` using an ID and value reported by that exact session.
 Only model and thought-level selectors are accepted. Static installation descriptors do not authorise a runtime switch.
 
+`GET /api/v2/terminal/sessions/{id}/chat/commands` reads the slash commands the chat's agent last announced
+(`available_commands_update`), as `{"commands":[{"name":"review","description":"…","hint":"…"}]}`. Each announcement replaces
+the list and an empty one clears it; the machine keeps it in memory only. The agent's text is untrusted and bounded: at most 64
+commands, a name of 1 to 64 letters, digits, `:`, `_` or `-` (no leading slash; the first of two equal names wins), a
+description of at most 300 bytes and a hint of at most 120. An entry outside those bounds is dropped, not the whole list. The
+machine and the controller both need `acp-commands-v1`; for an older machine the read answers an empty list with
+`"code":"chat_commands_unsupported"` and a sentence to show.
+
 
 ## Images returned by an agent
 

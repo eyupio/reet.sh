@@ -414,33 +414,36 @@ revisions. **What is not kept:** the machine, project or folder, agents, models 
 images, notes, decisions, reports and usage. You choose those when you use it.
 
 **The Templates page.** **Templates** at the top of the Factory page lists them with their description, latest
-version, how many pipelines, when they last changed and at which version you last used them. Open one to read its plan
+version, how many pipelines, when they last changed, and when and at which version you last used them. Open one to read its plan
 (read only), its versions, and to compare any two versions. From there you can **Use** a version, **Rename or change
-the description** (this saves a new version with the same plan), or **Delete template…**. Deleting removes the template
-and all its versions; outcomes already started from it keep their own inputs and are not touched. To change the plan
+the description** (this saves a new version with the same plan, even when one of its skills is no longer approved), or
+**Delete template…**. Deleting removes the template and all its versions; a single version cannot be deleted; outcomes already started from it keep their own inputs and are not touched. To change the plan
 itself, start from the template, adjust it, and save the finished run as a new version. An account keeps twenty
 templates, and twenty versions of each: saving another version drops the oldest.
 
 **Using one.** **Use** opens New Factory outcome on its plan step. You can also reach it from the first step with
 **Start from a template**; what you typed there is kept. The plan is shown read only. Everything that belongs to a
-start is chosen now: the project (which decides the machine), the agent and model, YOLO, decisions, reports, trust and
-whether to pull the latest code. Each stage runs on its tier's agent from the crew saved in Gaffer settings at the
-moment you start, else the outcome's agent. Launch readiness is shown and holds the start as it does for any plan.
-Starting does not ask Gaffer to plan anything.
+start is chosen now: the project (which decides the machine), the agent, model and effort, the crew, YOLO, decisions,
+reports, trust and whether to pull the latest code. The crew starts from the one saved in Gaffer settings and **Choose
+who does what** changes it for this start, as for any plan; each stage runs on its tier's agent from it. Launch
+readiness is shown and holds the start as it does for any plan, and its **Choose who does what** opens the crew on the
+tier to change. Starting does not ask Gaffer to plan anything.
 
 **Changes since you last used it.** When the version you are about to use differs from the one you last used, the
 plan step shows what changed first, above the plan: pipelines added, removed or changed, a changed prompt, stages
-before and after, criteria added, removed or reworded, and skills moved to another revision. A template you have not
-used yet shows nothing. The **Template version** list lets you start an older version instead.
+before and after, criteria added, removed or reworded, skills moved to another revision, and pipelines put in another
+order. If the version you last used is no longer kept, the changes start at the oldest version kept and say that older
+ones are not shown. A template you have not used yet shows nothing. The **Template version** list lets you start an older version instead.
 
 **Skills.** A template keeps the revision of each skill it was approved with, and never swaps in another. If a skill is
 no longer approved at that revision, because a newer revision is approved or because it was archived, removed or
 switched off, the stage says so and the start waits until you tick **Start without these skills**. Only those skills
-are left out. If the approved skills change while you are looking, reet reads them again and asks again; your other
-choices stay.
+are left out. If the approved skills change while you are looking, the refusal brings the current list and reet asks
+again; your other choices stay.
 
-**On the run.** An outcome started from a template says **From template {name}, version {n}** under its title, and
-links to the template. If the template has since been deleted, or that version is no longer kept, it says so. Editing
+**On the run.** An outcome started from a template says **From template {name}, version {n}** under its title, with the
+name the template had when the run started, and links to the template. If the template has since been deleted, or that
+version is no longer kept, it says so and keeps the name. Editing
 or deleting a template never changes a run that has started.
 
 ## From an AI client

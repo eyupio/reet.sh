@@ -4,7 +4,7 @@ import {openWorkspace} from './helpers/workspace.mjs'
 
 // Private Factory templates: saving a finished outcome's plan, the list and a template's page, using one (the changes
 // since the last use, an older version, skills that are no longer approved), what the launch sends, and the line on a
-// run that says where it came from. The API is answered with fixtures that follow docs/handoffs/factory-templates-design.md.
+// run that says where it came from, and the crew chosen for a start. The API is answered with fixtures that follow docs/handoffs/factory-templates-design.md.
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173',shots=process.env.REET_UI_SCREENSHOTS||'/tmp/reet-factory-templates'
 await mkdir(shots,{recursive:true})
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
@@ -13,6 +13,8 @@ const provider={id:pid,revision:1,name:'Workshop Gaffer',kind:'openai_compatible
 const st=(kind,state,extra={})=>({kind,tool:'claude',model:'',state,requestId:'r',...extra})
 const project=(id,name,dir,position)=>({id,host:'a1',machine:'workshop',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position,version:1,createdAt:now,updatedAt:now})
 const machines=[{agentId:'a1',host:'workshop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'test',terminalEnabled:true,terminalControl:true,readiness:'ready',launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,inspect:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:[]}]}}]
+// The same machine while it also has Codex, for a saved crew that later cannot start.
+const withCodex=[{...machines[0],capabilities:{...machines[0].capabilities,acpAgents:[...machines[0].capabilities.acpAgents,{tool:'codex',adapter:'codex-acp',state:'available',options:[]}]}}]
 const GAP={pipeline:0,stage:0,id:'library:go-tests',name:'Go tests',revision:'rev1aaaa1111',status:'changed',key:'0:0:library:go-tests'}
 const GAP2={pipeline:1,stage:0,id:'builtin:lint',name:'Lint',revision:'rev9zzzz9999',status:'unavailable',key:'1:0:builtin:lint'}
 const skill=rev=>({id:'library:go-tests',name:'Go tests',source:'personal',revision:rev})
@@ -25,18 +27,20 @@ const contents={
 }
 contents[2]={...contents[1],pipelines:[{...contents[1].pipelines[0],criteria:[{id:'c1',text:'The export downloads as a CSV file.'}]},contents[1].pipelines[1]]}
 contents[3]={...contents[2],pipelines:[{...contents[2].pipelines[0],criteria:[...contents[2].pipelines[0].criteria,{id:'c2',text:'Totals match the ledger.'}],stages:[stage('code','standard',[skill('rev2bbbb2222')]),stage('review','heavy'),stage('test','standard')]},contents[2].pipelines[1]]}
-const diffOf=(from,to)=>from===to?{from,to,changed:false,nameChanged:false,descriptionChanged:false,objectiveChanged:false,limitsChanged:false,pipelines:[]}:{from,to,changed:true,nameChanged:false,descriptionChanged:false,objectiveChanged:false,limitsChanged:false,pipelines:[
+const diffOf=(from,to)=>from===to?{from,to,changed:false,nameChanged:false,descriptionChanged:false,objectiveChanged:false,limitsChanged:false,orderChanged:false,olderNotShown:false,pipelines:[]}:{from,to,changed:true,nameChanged:false,descriptionChanged:false,objectiveChanged:false,limitsChanged:false,orderChanged:false,olderNotShown:false,pipelines:[
   {title:'Export API',change:'changed',promptChanged:false,autoMergeChanged:false,stagesChanged:from<3&&to>=3,stagesBefore:['code','review'],stagesAfter:['code','review','test'],criteria:{added:from<3&&to>=3?['Totals match the ledger.']:[],removed:[],reworded:from<2&&to>=2?[{id:'c1',from:'The export downloads as CSV.',to:'The export downloads as a CSV file.'}]:[]},skills:from<3&&to>=3?[{stage:'code',id:'library:go-tests',name:'Go tests',from:'rev1aaaa1111',to:'rev2bbbb2222'}]:[]},
   {title:'Billing button',change:'same',promptChanged:false,autoMergeChanged:false,stagesChanged:false,stagesBefore:[],stagesAfter:[],criteria:{added:[],removed:[],reworded:[]},skills:[]}]}
 
 function fixture(over={}){
-  const box={versions:over.versions??3,lastUsed:'lastUsed' in over?over.lastUsed:2,gaps:over.gaps??[],none:!!over.none,saves:[],edits:[],deletes:[],launches:[],diffs:[],reads:[],saveFail:'',editFail:'',deleteFail:'',launchFail:'',gapsAfter:null,fail502:0,name:'CSV export',description:contents[1].description,listed:true}
+  // `older` is a template whose last used version, 1, is no longer kept; `crew` is the saved crew; `codex` puts Codex on the machine until `codexGone`.
+  const box={versions:over.versions??3,lastUsed:over.older?1:'lastUsed' in over?over.lastUsed:2,lastUsedAt:now-2*86400000,older:!!over.older,crew:over.crew??null,codex:!!over.codex,codexGone:false,gaps:over.gaps??[],none:!!over.none,saves:[],edits:[],deletes:[],launches:[],diffs:[],reads:[],saveFail:'',editFail:'',deleteFail:'',launchFail:'',gapsAfter:null,fail502:0,name:'CSV export',description:contents[1].description,listed:true}
   const content=v=>({...contents[Math.min(v,3)],name:box.name,description:box.description})
-  const view=(v=box.versions)=>({id:tid,version:v,latest:box.versions,versions:Array.from({length:box.versions},(_,n)=>n+1),requestId:'r'.repeat(32),outcomeId:oid,createdAt:now-86400000*3,...(box.lastUsed?{lastUsedVersion:box.lastUsed}:{}),content:content(v),skillGaps:box.gaps})
-  const summary=()=>({id:tid,version:box.versions,name:box.name,description:box.description,pipelines:2,createdAt:now-86400000*3,updatedAt:now-3600000,...(box.lastUsed?{lastUsedVersion:box.lastUsed}:{})})
+  const view=(v=box.versions)=>({id:tid,version:v,latest:box.versions,versions:Array.from({length:box.versions},(_,n)=>n+1).filter(n=>!box.older||n>1),requestId:'r'.repeat(32),outcomeId:oid,createdAt:now-86400000*3,...(box.lastUsed?{lastUsedVersion:box.lastUsed,lastUsedAt:box.lastUsedAt}:{lastUsedAt:0}),content:content(v),skillGaps:box.gaps})
+  const summary=()=>({id:tid,version:box.versions,name:box.name,description:box.description,pipelines:2,createdAt:now-86400000*3,updatedAt:now-3600000,...(box.lastUsed?{lastUsedVersion:box.lastUsed,lastUsedAt:box.lastUsedAt}:{lastUsedAt:0})})
   const done=(key,title)=>({key,title,prompt:'p',state:'done',note:'Finished.',sessionId:'s-'+key,conversationId:key.repeat(32).slice(0,32),sessionState:'ended',updatedAt:now-3600000,stage:1,stages:[st('code','done'),st('review','done')],criteria:[{id:'c1',text:'The export downloads as CSV.',revision:1}],criteriaRevision:1,reviewRevision:1,deliveryAccepted:true})
   const mk=(id,extra={})=>({id,revision:3,objective:'Ship CSV export for billing.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'billing',dir:'/work/billing',tool:'claude',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now-3600000,sessions:[done('a','Export API')],...extra})
-  const outcomes=[mk(oid),mk('1'.repeat(32),{objective:'Ship CSV export, second run.',templateId:tid,templateVersion:2,sessions:[done('b','Export API')]}),mk('2'.repeat(32),{objective:'Ship CSV export, third run.',templateId:gone,templateVersion:1,sessions:[done('c','Export API')]}),mk('3'.repeat(32),{objective:'Ship CSV export, fourth run.',templateId:dropped,templateVersion:1,sessions:[done('d','Export API')]})]
+  // Runs record the template's name at their start; the fifth is older and recorded none.
+  const outcomes=[mk(oid),mk('1'.repeat(32),{objective:'Ship CSV export, second run.',templateId:tid,templateVersion:2,templateName:'CSV export',sessions:[done('b','Export API')]}),mk('2'.repeat(32),{objective:'Ship CSV export, third run.',templateId:gone,templateVersion:1,templateName:'Old CSV export',sessions:[done('c','Export API')]}),mk('3'.repeat(32),{objective:'Ship CSV export, fourth run.',templateId:dropped,templateVersion:1,templateName:'Older export',sessions:[done('d','Export API')]}),mk('4'.repeat(32),{objective:'Ship CSV export, fifth run.',templateId:gone,templateVersion:1,sessions:[done('e','Export API')]})]
   const err=(status,code,error)=>({status,json:{error,code}})
   const body=r=>r.postDataJSON()
   const routes={
@@ -47,7 +51,8 @@ function fixture(over={}){
     [`/api/v2/gaffer/outcomes/${started}`]:()=>({...mk(started),sessions:[{key:'a',title:'Export API',prompt:'p',state:'following',note:'The code stage is under way.',updatedAt:now}]}),
     '/api/v2/terminal/status':{configured:true,available:true,reason:''},
     '/api/v2/terminal/sessions':{sessions:[]},
-    '/api/v2/terminal/machines':{machines},
+    '/api/v2/terminal/machines':()=>({machines:box.codex&&!box.codexGone?withCodex:machines}),
+    ...(box.crew?{'/api/v2/gaffer/crew':{crew:box.crew,saved:true,tiers:['light','standard','heavy'],defaults:{}}}:{}),
     '/api/v2/projects':{projects:[]},
     '/api/v2/folder-projects':{projects:[project('p1','billing','/work/billing',0)],savedWaiting:0},
     '/api/v2/settings/yolo':{allowed:false},
@@ -78,10 +83,11 @@ function fixture(over={}){
       }
       box.reads.push('latest');return view()
     },
-    [`/api/v2/gaffer/templates/${tid}/diff`]:r=>{const q=new URL(r.url()).searchParams;box.diffs.push(`${q.get('from')}-${q.get('to')}`);return diffOf(+q.get('from'),+q.get('to'))},
+    // No `from` is the version last used, or the oldest kept when that one has gone.
+    [`/api/v2/gaffer/templates/${tid}/diff`]:r=>{const q=new URL(r.url()).searchParams;box.diffs.push(`${q.get('from')??'last'}-${q.get('to')}`);const from=q.get('from')?+q.get('from'):box.older?2:box.lastUsed;return{...diffOf(from,+q.get('to')),olderNotShown:!q.get('from')&&box.older}},
     [`/api/v2/gaffer/templates/${tid}/launch`]:r=>{
       const b=body(r);box.launches.push(b)
-      if(box.launchFail==='skills'){box.launchFail='';box.gaps=box.gapsAfter;return err(409,'template_skills_changed','The approved skills changed.')}
+      if(box.launchFail==='skills'){box.launchFail='';box.gaps=box.gapsAfter;return{status:409,json:{error:'The approved skills changed.',code:'template_skills_changed',gaps:box.gapsAfter}}}
       if(box.fail502>0){box.fail502--;return{status:502,json:{error:'502 Bad Gateway'}}}
       return{status:201,json:{...mk(started),state:'starting',templateId:tid,templateVersion:b.version,sessions:[{key:'a',title:'Export API',prompt:'p',state:'starting',note:'Starting.',updatedAt:now}]}}
     },
@@ -186,7 +192,7 @@ try{
         const row=dialog.getByRole('listitem').filter({hasText:'CSV export'})
         await expect(row).toContainText('Billing export: the API, the button and the tests.')
         await expect(row).toContainText('Version 3 · 2 pipelines · changed')
-        await expect(row).toContainText('Last used at version 2')
+        await expect(row).toContainText(/Last used .+ \(version 2\)/)
         await shot(page,'list',width,theme)
         if(!wide)await targets(page)
         await row.getByRole('button',{name:'CSV export',exact:true}).click()
@@ -266,7 +272,7 @@ try{
         await dialog.getByRole('button',{name:'Use CSV export',exact:true}).click()
         const outcome=outcomeDialog(page)
         await expect(outcome.getByRole('region',{name:'Changed since version 2, the one you last used'})).toContainText('Stages were Code, Review; now Code, Review, Test.')
-        expect(f.box.diffs).toEqual(['2-3'])
+        expect(f.box.diffs).toEqual(['last-3'])
         // Above the plan.
         const order=await outcome.evaluate(el=>{const a=el.querySelector('[aria-label^="Changed since"]'),b=el.querySelector('[aria-label="The plan"]');return !!(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)})
         expect(order).toBe(true)
@@ -280,6 +286,9 @@ try{
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=el.scrollHeight});await shot(page,'use-latest-end',width,theme)
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         if(!wide)await targets(page)
+        // The crew is chosen here as for any plan: the editor and the effort are there.
+        await expect(outcome.locator('details.crew summary')).toContainText('Choose who does what')
+        await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toBeVisible()
         await outcome.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
         await outcome.getByRole('checkbox',{name:/Have Gaffer report across this outcome/}).check()
         const start=outcome.getByRole('button',{name:'Start 2 pipelines from this template',exact:true})
@@ -288,7 +297,7 @@ try{
         await expect.poll(()=>f.box.launches.length).toBe(1)
         const sent=f.box.launches[0]
         expect(sent.requestId).toMatch(/^[0-9a-f]{32}$/)
-        expect(sent).toEqual({requestId:sent.requestId,version:3,projectId:'p1',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:true,automation:true,balanceBelow:20,confirmed:true})
+        expect(sent).toEqual({requestId:sent.requestId,version:3,projectId:'p1',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:true,automation:true,balanceBelow:20,crew:{light:{tool:'claude'},standard:{tool:'claude'},heavy:{tool:'claude'}},confirmed:true})
         // The plan is the template's: no objective, sessions or limits travel with the launch, and the approval route was not used.
         await expect(outcome.getByRole('status').filter({hasText:/Starting|under way|started/}).first()).toBeVisible()
         await noOverflow(page);await dialogFits(page)
@@ -307,7 +316,7 @@ try{
         await expect(outcome.getByRole('list',{name:'Criteria of Export API'})).toContainText('The export downloads as CSV.')
         await expect(outcome.getByRole('list',{name:'Stages of Export API'})).not.toContainText('Test')
         await expect(outcome.getByRole('region',{name:/^Changed since version 2/})).toBeVisible()
-        expect(f.box.diffs.at(-1)).toBe('2-1')
+        expect(f.box.diffs.at(-1)).toBe('last-1')
         await shot(page,'use-older',width,theme)
         // Choosing the version last used says nothing changed, so nothing is drawn.
         await outcome.getByRole('combobox',{name:'Template version',exact:true}).selectOption('2')
@@ -359,6 +368,7 @@ try{
         await outcome.getByRole('checkbox',{name:/Start without these skills/}).check()
         await expect(start).toBeEnabled()
         f.box.launchFail='skills'
+        const reads=f.box.reads.length
         await start.click()
         // The other choices are kept, the list is the new one, and the person has to agree again.
         await expect(outcome.getByRole('alert')).toContainText('The approved skills changed while you were looking.')
@@ -366,6 +376,8 @@ try{
         await expect(outcome.getByRole('radio',{name:'Gaffer decides',exact:true})).toBeChecked()
         await expect(outcome.getByRole('checkbox',{name:/Start without these skills/})).not.toBeChecked()
         await expect(start).toBeDisabled()
+        // The refusal carried the gaps as they are now, so the template was not read again.
+        expect(f.box.reads.length).toBe(reads)
         await shot(page,'skills-changed',width,theme)
         await outcome.getByRole('checkbox',{name:/Start without these skills/}).check()
         await start.click()
@@ -403,8 +415,11 @@ try{
         await expect(templatesDialog(page).getByRole('heading',{name:'CSV export',level:3})).toBeVisible()
         await page.keyboard.press('Escape')
         await page.goto(`${base}/factory?pipeline=${'2'.repeat(32)}.c`)
-        await expect(page.getByText('From a template that has since been deleted, version 1.')).toBeVisible()
+        // The name the run recorded at its start outlives the template.
+        await expect(page.getByText('From template Old CSV export, version 1. That template has since been deleted.')).toBeVisible()
         await shot(page,'run-template-deleted',width,theme)
+        await page.goto(`${base}/factory?pipeline=${'4'.repeat(32)}.e`)
+        await expect(page.getByText('From a template that has since been deleted, version 1.')).toBeVisible()
         await page.goto(`${base}/factory?pipeline=${'3'.repeat(32)}.d`)
         await expect(page.getByText('From template Older export, version 1, which is no longer kept.')).toBeVisible()
         await page.goto(FINISHED)
@@ -412,8 +427,54 @@ try{
         await noOverflow(page)
       }finally{await w.context.close()}
     }
+    // 9. The crew is the person's for this start, as for any plan: a tier that cannot start is fixed from the readiness
+    // panel with Choose who does what, and the launch sends the crew that is shown.
+    {
+      const {f,w,page}=await open(width,theme,{codex:true,crew:{light:{},standard:{},heavy:{tool:'codex',model:'gpt-x'}}})
+      try{
+        const dialog=await openTemplates(page)
+        await dialog.getByRole('button',{name:'Use CSV export',exact:true}).click()
+        const outcome=outcomeDialog(page),causes=outcome.locator('section.readiness li')
+        const start=outcome.getByRole('button',{name:'Start 2 pipelines from this template',exact:true})
+        await expect(outcome.getByText('Launch readiness on workshop.')).toBeVisible()
+        await expect(start).toBeEnabled()
+        // Codex leaves the machine; the plan step reads the machines again when it is entered.
+        f.box.codexGone=true
+        await outcome.getByRole('button',{name:'Back',exact:true}).click()
+        await outcome.getByRole('button',{name:'Start from a template',exact:true}).click()
+        await page.getByRole('dialog',{name:'Templates',exact:true}).getByRole('button',{name:'Use CSV export',exact:true}).click()
+        await expect(causes.first()).toHaveText(/^✕ Cannot start · Heavy crew, used by Review\. Codex is not on workshop now\. Choose who does what\s?for the Heavy crew$/)
+        await expect(start).toBeDisabled()
+        await shot(page,'crew-blocked',width,theme)
+        await causes.first().getByRole('button',{name:'Choose who does what for the Heavy crew',exact:true}).click()
+        await expect(outcome.locator('details.crew')).toHaveAttribute('open','')
+        const heavy=outcome.getByRole('combobox',{name:'Heavy agent',exact:true})
+        await expect(heavy).toBeFocused()
+        await heavy.selectOption('claude')
+        await expect(start).toBeEnabled()
+        await shot(page,'crew-fixed',width,theme)
+        await start.click()
+        await expect.poll(()=>f.box.launches.length).toBe(1)
+        expect(f.box.launches[0].crew).toEqual({light:{tool:'claude'},standard:{tool:'claude'},heavy:{tool:'claude'}})
+        await noOverflow(page);await dialogFits(page)
+      }finally{await w.context.close()}
+    }
+    // 10. The version last used is no longer kept: the changes start at the oldest kept, and say older ones are not shown.
+    {
+      const {f,w,page}=await open(width,theme,{older:true})
+      try{
+        const dialog=await openTemplates(page)
+        await dialog.getByRole('button',{name:'Use CSV export',exact:true}).click()
+        const outcome=outcomeDialog(page)
+        const changes=outcome.getByRole('region',{name:'Changed since version 2, the oldest kept'})
+        await expect(changes).toContainText('Version 1, the one you last used, is no longer kept, so changes before version 2 are not shown.')
+        await expect(changes).toContainText('Stages were Code, Review; now Code, Review, Test.')
+        expect(f.box.diffs).toEqual(['last-3'])
+        await shot(page,'use-older-dropped',width,theme)
+      }finally{await w.context.close()}
+    }
   }
-  // 9. Keyboard: the Templates button, a template and Use are all reached with Tab, and Escape puts the focus back.
+  // 11. Keyboard: the Templates button, a template and Use are all reached with Tab, and Escape puts the focus back.
   {
     const {w,page}=await open(1280,'light')
     try{
@@ -431,7 +492,7 @@ try{
       await tabTo(page,'Start 2 pipelines from this template',160)
     }finally{await w.context.close()}
   }
-  // 10. A phone: the templates, a template's page and the launch fit the width, with 44 px targets and no sideways scroll.
+  // 12. A phone: the templates, a template's page and the launch fit the width, with 44 px targets and no sideways scroll.
   {
     const {w,page}=await open(390,'light',{gaps:[GAP]})
     try{
@@ -448,5 +509,5 @@ try{
       await targets(page)
     }finally{await w.context.close()}
   }
-  console.log('Factory templates: save from a finished outcome, the list and a template’s page, rename and delete, use with the changes since the last use, an older version, skill gaps, the launch request, and the run’s template line pass.')
+  console.log('Factory templates: save from a finished outcome, the list and a template’s page, rename and delete, use with the changes since the last use, an older version, skill gaps, the launch request and its crew, and the run’s template line pass.')
 }finally{await browser.close()}

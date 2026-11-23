@@ -8,7 +8,7 @@
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { GROUP_CHOICES, needingIds, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
   import { offDesks, type DeskRef } from '../home/deskSessions'
-  import { sessionStatus } from '../sessionStatus'
+  import { HELD_SENTENCE, heldWork, sessionStatus, statusLabel } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
   import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
@@ -310,14 +310,15 @@
               {#each g.sessions as s (s.id)}
                 {@const word = stateWord(s)}
                 {@const colour = colourOf(s)}
-                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
+                {@const held = heldWork(s)}
+                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} data-held={held ? '' : undefined} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
-                    {#if sessionStatus(s) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
+                    {#if sessionStatus(s) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                     <span class="main">
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>
                     </span>
-                    <span class="word" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
+                    <span class="word" title={held ? HELD_SENTENCE : word.source}>{#if held}<span class="long" aria-hidden="true">{word.word}</span><span class="short" aria-hidden="true">{statusLabel('working', true)}</span><span class="vh">{word.word}. {HELD_SENTENCE}</span>{:else}{word.word}{/if}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
                   {#if places.get(s.id)}
@@ -452,13 +453,14 @@
   .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px 6px 14px; color: var(--ink); text-decoration: none; }
   .open:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status); }
+  .word .short { display: none; }
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
   .badge { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 17px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .meta { font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .word { flex: none; max-width: 34%; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 1px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .word { flex: none; max-width: 34%; font-size: 14px; font-weight: 600; color: var(--status-text); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 1px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .session-row[data-status='waiting'], .session-row[data-status='working'], .session-row[data-status='starting'], .session-row[data-status='failed'] { background: color-mix(in srgb, var(--status) 5%, transparent); box-shadow: inset 3px 0 var(--status); }
   .session-row[data-status='waiting'] .title, .session-row[data-status='working'] .title, .session-row[data-status='failed'] .title { color: var(--status); }
   .age { flex: none; min-width: 28px; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -502,8 +504,11 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sessions-page { gap: 12px; }
     .filter-grid { grid-template-columns: minmax(0, 1fr); }
-    /* A long word ("Working in the background") wraps rather than losing its end on a phone. */
-    .word { max-width: 45%; font-size: 14px; line-height: 1.3; white-space: normal; text-align: center; }
+    .word { font-size: 14px; }
+    /* A held session says "In background" here; the full sentence is in its title and read out. */
+    .word .long { display: none; }
+    .word .short { display: inline; }
+    .session-row[data-held] .word { max-width: none; }
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }

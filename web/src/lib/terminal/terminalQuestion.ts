@@ -27,10 +27,6 @@ type Dialog = { question: string; truncated?: boolean; options: Opt[] }
 export const fitsHome = (q: Dialog): boolean => q.options.length <= 3 && !q.truncated && !q.options.some(o => o.truncated)
 /** The question sentence itself: the dialog's last line. */
 export const questionSentence = (q: Pick<Dialog, 'question'>): string => q.question.split('\n').at(-1) ?? ''
-/** A dialog that offers a yes-style and a no-style option is an approval, as Home chips and counts its other approvals. */
-export const isApproval = (q: Pick<Dialog, 'options'>): boolean =>
-  q.options.some(o => /^\s*(yes|allow|approve)\b/i.test(o.label)) && q.options.some(o => /^\s*(no|deny|reject)\b/i.test(o.label))
-
 /** One option as its button reads: the dialog's own number, then its words. */
 export function optionText(option: { index: number; label: string }): string { return `${option.index}. ${option.label}` }
 

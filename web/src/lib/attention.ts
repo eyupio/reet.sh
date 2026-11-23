@@ -24,3 +24,8 @@ export function attentionRuleOf(s: Pick<TerminalSession, 'attention' | 'changedS
   }
   return null
 }
+
+/** A dialog that offers a yes-style and a no-style option is an approval, as Home chips and counts its other approvals. */
+export const isApproval = (q: Pick<NonNullable<TerminalSession['terminalQuestion']>, 'options'>): boolean =>
+  q.options.some(o => /^\s*(yes|allow|approve)\b/i.test(o.label)) && q.options.some(o => /^\s*(no|deny|reject)\b/i.test(o.label))
+

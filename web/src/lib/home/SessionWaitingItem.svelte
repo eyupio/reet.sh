@@ -3,6 +3,7 @@
   import type { NeedCard } from '../home'
   import Approval from '../shell/Approval.svelte'
   import TerminalQuestionCard from '../terminal/TerminalQuestionCard.svelte'
+  import { fitsHome, questionSentence } from '../terminal/terminalQuestion'
   import { worktreeStatus } from '../terminal/api'
   import type { GoalNeed } from './homeWaiting'
 
@@ -63,7 +64,8 @@
   {:else}
   {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />
   {/if}
-  {#if card.terminal}<TerminalQuestionCard session={{ id: card.sessionId, tool: card.tool }} question={card.terminal} title={card.title} machine={card.where} href={card.href} onreread={onanswered} />
+  {#if card.terminal && fitsHome(card.terminal)}<TerminalQuestionCard bare session={{ id: card.sessionId, tool: card.tool }} question={card.terminal} title={card.title} machine={card.where} href={card.href} onreread={onanswered} />
+  {:else if card.terminal}<p class="said clamp">{questionSentence(card.terminal)}</p>
   {:else if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
   {:else if !card.approval}<p class="said">{card.label} · {card.age}</p>{/if}
   {#if card.reasons.includes('gaffer')}<p class="note">Gaffer’s goal also needs you</p>{/if}
@@ -78,7 +80,7 @@
 {#if layout === 'row'}
   <div class="holder" bind:clientWidth={holderWidth}>
     {#if wide}
-      <article class="row" class:asks={!!card.terminal}>
+      <article class="row" class:asks={!!card.terminal && fitsHome(card.terminal)}>
         <span class="chipcell"><span class="chip {tone}">{chip}</span></span>
         <div class="text">
           <div class="what"><h3 class="title">{card.title}</h3>{" "}<span class="where">· Session{where ? ` · ${where}` : ''}</span></div>
@@ -128,6 +130,7 @@
   .where,.note{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere}
   .said{min-width:0;margin:0;color:var(--ink);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere;white-space:pre-wrap;max-height:6.5em;overflow:hidden}
   .said .more{color:var(--muted)}
+  .said.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;max-height:none}
   .buttons{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
   .buttons .btn{min-height:44px;text-decoration:none}
 </style>

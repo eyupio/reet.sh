@@ -255,11 +255,18 @@ test('a waiting chat card carries its earliest approval, and a terminal card car
 })
 
 test('a terminal dialog is carried on its card as a question, seen or not', () => {
-  const dialog = { question: 'Run it?', options: [{ index: 1, label: 'Yes' }, { index: 2, label: 'No' }], fingerprint: 'f1' }
+  const dialog = { question: 'Which database?', options: [{ index: 1, label: 'Postgres' }, { index: 2, label: 'SQLite' }], fingerprint: 'f1' }
   const cards = needsYou([session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: false, terminalQuestion: dialog }), session('t2', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: false })], NOW)
   assert.deepEqual(cards.map(c => c.sessionId), ['t1'])
   assert.deepEqual(cards[0].terminal, dialog)
   assert.deepEqual(cards[0].reasons, ['question'])
+})
+
+test('a terminal dialog with a yes and a no is an approval card, like the other approvals', () => {
+  const dialog = { question: 'Run it?', options: [{ index: 1, label: 'Yes' }, { index: 2, label: 'No, and tell Claude what to do differently (esc)' }], fingerprint: 'f1' }
+  const [card] = needsYou([session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: true, terminalQuestion: dialog })], NOW)
+  assert.deepEqual(card.reasons, ['approval'])
+  assert.deepEqual(card.terminal, dialog)
 })
 
 test('a waiting chat with a question is labelled as one and carries its preview, an approval wins when both wait', () => {

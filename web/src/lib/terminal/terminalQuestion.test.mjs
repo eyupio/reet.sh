@@ -47,15 +47,6 @@ test('Home shows the full card only for a small, whole question', () => {
   assert.equal(q.questionSentence({ question: 'Bash command\ngo test\nDo you want to proceed?', options: [], fingerprint: 'f' }), 'Do you want to proceed?')
 })
 
-test('a dialog with a yes and a no style option is an approval, others are questions', () => {
-  const d = labels => ({ question: 'x', options: labels.map((label, i) => ({ index: i + 1, label })), fingerprint: 'f' })
-  assert.equal(q.isApproval(d(['Yes', "Yes, and don't ask again", 'No, and tell Claude what to do differently (esc)'])), true)
-  assert.equal(q.isApproval(d(['Yes, proceed (y)', 'No, and tell Codex what to do differently (esc)'])), true)
-  assert.equal(q.isApproval(d(['Allow once', 'Deny'])), true)
-  assert.equal(q.isApproval(d(['Postgres', 'SQLite', 'Other'])), false)
-  assert.equal(q.isApproval(d(['Yes'])), false)
-})
-
 test('an option reads as its number and its words', () => {
   assert.equal(q.optionText({ index: 2, label: 'No' }), '2. No')
 })

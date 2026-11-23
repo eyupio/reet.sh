@@ -1,6 +1,6 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
 import type { GafferGoalOverview, SyncState } from './api'
-import { ATTENTION_WINDOW_MS, attentionRuleOf, isBlocked } from './attention'
+import { ATTENTION_WINDOW_MS, attentionRuleOf, isApproval, isBlocked } from './attention'
 import { agoLabel } from './time'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
@@ -341,7 +341,7 @@ export function needsYou(
       const asking = !s.pendingPermission?.permissionId && !!s.pendingQuestion?.questionId
       out.push({
         kind: 'waiting',
-        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId || s.terminalQuestion?.fingerprint ? ['question' as const] : [])],
+        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId ? ['question' as const] : []), ...(s.terminalQuestion?.fingerprint ? [isApproval(s.terminalQuestion) ? 'approval' as const : 'question' as const] : [])],
         label: asking ? 'Question for you' : 'Waiting for you',
         tone: 'warn',
         sessionId: s.id,

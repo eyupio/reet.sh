@@ -13,6 +13,7 @@ type liveChatControls interface {
 	Controls() terminalproto.ACPControls
 	SetOption(context.Context, string, string) error
 	Steer(context.Context, string, []acpagent.Attachment) (string, error)
+	Commands() []terminalproto.ACPCommand
 }
 
 func (h *chatHost) control(ctx context.Context, session string, in terminalproto.ACPControl) (terminalproto.ACPControlResult, error) {
@@ -33,6 +34,12 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 	answer := terminalproto.ACPControlResult{}
 	var err error
 	switch in.Action {
+	case "commands":
+		// Alone, without the controls snapshot: a full model catalogue and a
+		// full command list together would not fit one frame.
+		answer.Controls.Options = []terminalproto.ACPSetting{}
+		answer.Commands = controls.Commands()
+		return answer, nil
 	case "get":
 	case "set":
 		wasWorking := process.Working()

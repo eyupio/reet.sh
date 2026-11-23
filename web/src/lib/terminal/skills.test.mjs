@@ -149,3 +149,10 @@ test('chatCommands reads the list and the old-machine answer, keeping only text'
   fetchReplying(200, { commands: [{ name: 5, description: null }, 'x'] })
   assert.deepEqual((await api.chatCommands('s1')).commands, [{ name: '', description: '', hint: '' }])
 })
+
+test('chatCommands drops control characters and folds line breaks in description and hint, keeping other text', async () => {
+  fetchReplying(200, { commands: [{ name: 'x', description: 'a\nb\r\nc\td\u0000e\u001bf\u0085g\u007fh', hint: 'br‮anch\n' }] })
+  const [c] = (await api.chatCommands('s1')).commands
+  assert.equal(c.description, 'a b c d' + 'efgh'.split('').join(''))
+  assert.equal(c.hint, 'br‮anch', 'a bidi override is left to the row, which isolates it')
+})

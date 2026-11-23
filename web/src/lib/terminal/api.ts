@@ -676,7 +676,9 @@ export async function chatUsage(id: string, signal?: AbortSignal): Promise<ChatU
 export async function chatCommands(id: string, signal?: AbortSignal): Promise<{ commands: ChatCommand[]; unsupported: string }> {
  const body = await (await terminalRequest(`${chatURL(id)}/commands`, { signal })).json()
  const text = (v: unknown) => typeof v === 'string' ? v : ''
- const commands = (Array.isArray(body?.commands) ? body.commands : []).filter((c: unknown) => c && typeof c === 'object').map((c: Record<string, unknown>) => ({ name: text(c.name), description: text(c.description), hint: text(c.hint) }))
+ // The agent's description and hint: one line, no control characters. A bidi override is left to the row's CSS isolation.
+ const line = (v: unknown) => text(v).replace(/[\r\n\t]+/g, ' ').replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim()
+ const commands = (Array.isArray(body?.commands) ? body.commands : []).filter((c: unknown) => c && typeof c === 'object').map((c: Record<string, unknown>) => ({ name: text(c.name), description: line(c.description), hint: line(c.hint) }))
  return { commands, unsupported: body?.code ? text(body.error) || 'Update reet on this machine to see the agent\'s commands.' : '' }
 }
 export async function chatSetting(id: string, configId: string, value: string): Promise<ChatControlAnswer> {

@@ -4633,3 +4633,26 @@ and **Planning board** views. Checked against a production build in `home-waitin
 ![Home, 390 dark](images/ui/home-rework-390-dark.png)
 
 The Factory page's five captures above were retaken in the same pass, now that its reserved strip is gone.
+
+## A turn that ends with work still running (23 November 2026)
+
+When a chat's turn ends while tool calls it started are still running (the agent never reported them finished), the
+chat is not called finished. The machine holds those calls, reports how many on its idle status
+(`acp-background-v1`), and the controller records the chat as `background`: its attention stays `working`, so no card,
+bell, push or "Ready to review" is raised. The list says **Working in the background**; the chat's status line says
+**Turn ended · N background tasks running** with its spinner, and the person can still write. When the last held call
+reports its end the chat is finished from that moment. The machine stops waiting after 30 minutes
+(`terminalproto.BackgroundHoldLimit`, also used when a controller restarts) and says so in the chat. Gaffer treats a
+stage whose agent still holds work as busy and does not review or hand it over; moving the pipeline on stays the
+person's call, and the stage's record says the work stops when its session ends. A new message does not drop the hold.
+
+Terminals, agents that close every tool call before their turn ends, and machines or controllers without
+`acp-background-v1` behave exactly as before. Which agents leave work running at the end of a turn has not been
+checked against a real agent; the evidence is the agent's own unfinished tool calls and nothing else.
+
+- `web/tests/sessions.e2e.mjs`, section "a turn that left work running": at 1280 light and 390 dark (touch), twice the
+  pixel density, the row's word, the chat's status line and its `data-phase`, no Stop button, no sideways scroll, and
+  the line reading "Turn finished" once the work ends. On a phone the row's word wraps to two lines rather than losing
+  its end; the title gives way.
+- Looked at, by eye: the row and the status line in both captures.
+

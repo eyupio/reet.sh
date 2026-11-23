@@ -7,6 +7,7 @@ Design: [spec](../superpowers/specs/2026-11-07-attention-contract-design.md) · 
 - **Blocked:** a session with `attention === 'waiting'` counts while it holds an approval or question (`pendingPermission.permissionId` or `pendingQuestion.questionId`), seen or not. It leaves when answered, dismissed or ended.
 - **Bell with nothing to answer** (a terminal bell, a chat rebuilt after a controller restart): counts only while unseen. Opening it still clears it.
 - **Failed / finished:** only while unseen (`changedSinceSeen`) and updated within 24 hours (`ATTENTION_WINDOW_MS`).
+- **Turn ended, work still running:** a chat whose turn ended while tool calls it started were never reported finished keeps `attention === 'working'` with `chatStatus === 'background'`. It is not finished: no card, bell, push or "Ready to review" until that work ends, when it becomes finished at that moment. The machine holds it for at most 30 minutes (`terminalproto.BackgroundHoldLimit`), says so in the chat when it stops waiting, and Gaffer does not review or hand over a stage while it holds. It needs `acp-background-v1` on both sides. Terminals, and agents that report no unfinished tool calls at the end of a turn, behave exactly as before.
 
 ## Identity, Gaffer fold and refresh
 

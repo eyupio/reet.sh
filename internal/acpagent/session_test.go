@@ -2576,7 +2576,9 @@ func TestBackgroundHoldEndsAtItsLimit(t *testing.T) {
 		t.Fatalf("notice = %q, want %q", notice.Text, want)
 	}
 	// The idle that follows says reet stopped waiting, so the turn is not called finished.
-	waitEvent(t, got, func(e Event) bool { return e.Kind == "status" && e.State == "idle" && e.Code == terminalproto.ACPCodeUnwatched && e.Background == 0 })
+	waitEvent(t, got, func(e Event) bool {
+		return e.Kind == "status" && e.State == "idle" && e.Code == terminalproto.ACPCodeUnwatched && e.Background == 0
+	})
 	waitUntil(t, func() bool { return idleAfterNotice(got) })
 	if c := session.Controls(); c.Background != 0 {
 		t.Fatalf("controls still hold %d after the limit", c.Background)

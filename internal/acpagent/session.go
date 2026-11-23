@@ -189,9 +189,9 @@ type Session struct {
 	// unwatched is set when held calls were given up on at the limit; the next
 	// idle status says so, so the controller does not call the turn finished.
 	unwatched bool
-	done       chan struct{}
-	doneOnce   sync.Once
-	retired    bool
+	done      chan struct{}
+	doneOnce  sync.Once
+	retired   bool
 
 	turnMu          sync.Mutex
 	working         bool

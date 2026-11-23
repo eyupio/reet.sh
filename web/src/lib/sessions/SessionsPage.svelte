@@ -318,7 +318,7 @@
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>
                     </span>
-                    <span class="word" title={held ? HELD_SENTENCE : word.source}>{#if held}<span class="long" aria-hidden="true">{word.word}</span><span class="short" aria-hidden="true">{statusLabel('working', true)}</span><span class="vh">{word.word}. {HELD_SENTENCE}</span>{:else}{word.word}{/if}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
+                    <span class="word" title={held ? HELD_SENTENCE : word.source}>{#if held}{statusLabel('working', true)}<span class="vh">. {HELD_SENTENCE}</span>{:else}{word.word}{/if}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
                   {#if places.get(s.id)}
@@ -453,7 +453,7 @@
   .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px 6px 14px; color: var(--ink); text-decoration: none; }
   .open:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status); }
-  .word .short { display: none; }
+  .status-ring { --ring: 9px; }
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
@@ -505,9 +505,6 @@
     .sessions-page { gap: 12px; }
     .filter-grid { grid-template-columns: minmax(0, 1fr); }
     .word { font-size: 14px; }
-    /* A held session says "In background" here; the full sentence is in its title and read out. */
-    .word .long { display: none; }
-    .word .short { display: inline; }
     .session-row[data-held] .word { max-width: none; }
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */

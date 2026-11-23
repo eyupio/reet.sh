@@ -51,7 +51,7 @@ export function heldWork(session: Pick<TerminalSession, 'attention' | 'attention
 }
 
 /** The full sentence a held session's short label stands for, for a tooltip and assistive technology. */
-export const HELD_SENTENCE = 'Turn ended; work it started is still running. You can send the next instruction.'
+export const HELD_SENTENCE = 'Turn ended; work it started is still running.'
 
 /** A compact name for the colour family, where a row has no room for stateWord's full sentence ("Waiting for you"). */
 export function statusLabel(status: SessionStatus, held = false): string {

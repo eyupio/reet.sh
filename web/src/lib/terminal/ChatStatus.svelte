@@ -13,10 +13,10 @@
   const problem = $derived(view.phase === 'error' || view.phase === 'reconnecting')
   const catchingUp = $derived(!ended && (chat.connection === 'connecting' || (!replayed && chat.connection !== 'reconnecting')))
   const label = $derived(catchingUp ? `Catching up with ${agent}` : view.label)
-  const detail = $derived(catchingUp ? 'Loading conversation…' : view.target || (view.active ? 'You can queue your next instruction.' : ''))
+  const detail = $derived(catchingUp ? 'Loading conversation…' : view.target || (view.active && !held ? 'You can queue your next instruction.' : ''))
 </script>
 
-<div class="conversation-status" class:attention class:problem class:held data-phase={view.phase} data-status={held ? 'working' : undefined} aria-label="Conversation status">
+<div class="conversation-status" class:attention class:problem data-phase={view.phase} data-status={held ? 'working' : undefined} aria-label="Conversation status">
   <span class="indicator" class:spinning={(view.active && !held) || catchingUp} aria-hidden="true">
     {#if held && !catchingUp}<span class="status-ring"></span>
     {:else if view.active || catchingUp}<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="2" opacity=".18"/><path d="M10 3a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -26,7 +26,7 @@
   {#if detail}<span class="detail" title={detail}>{detail}</span>{/if}
   {#if !catchingUp && view.recent.length}
     <span class="counts" aria-label={`${view.partial || problem ? 'Last known loaded' : 'This turn’s'} tool results`} title={view.partial ? 'Counts cover only the loaded part of this turn.' : problem ? 'Last known tool results; live progress may be unavailable.' : 'Reported tool results this turn.'}>
-      {#if problem}Last seen: {/if}{view.completed} done{#if view.running && !problem}{' · '}{view.running} active{/if}{#if view.failed}<span class="failed">{' · '}{view.failed} failed</span>{/if}
+      {#if problem}Last seen: {/if}{view.completed} done{#if view.running && !problem && !held}{' · '}{view.running} active{/if}{#if view.failed}<span class="failed">{' · '}{view.failed} failed</span>{/if}
     </span>
   {/if}
   {#if usage}
@@ -62,11 +62,7 @@
   .usage.low .usage-meter > span { background: var(--warn); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @keyframes status-spin { to { transform: rotate(360deg); } }
-  @container chat-status (max-width: 620px) { .detail { display: none; } .held .detail { display: block; flex: 1 1 100%; padding-left: 24px; white-space: normal; } }
-  .conversation-status.held { flex-wrap: wrap; }
-  /* Held work breathes slowly, never faster than every 3 s, and stands still for reduced motion. */
-  .held .status-ring { animation: held-breathe 3.2s ease-in-out infinite; }
-  @keyframes held-breathe { 50% { opacity: 0.45; } }
+  @container chat-status (max-width: 620px) { .detail { display: none; } }
   @container chat-status (max-width: 420px) { .usage-meter { display: none; } }
   /* On a desktop the floating Ask Gaffer circle sits over this line's right-hand end, above the composer. Keep the
      figures out from under it; the circle is not shown beside a docked details panel, on a phone or on a touch tablet. */
@@ -76,5 +72,5 @@
   /* On a phone, an approval or a question is already said twice above this line: by the pane's status line and by the
      card that asks. A third time costs a row of the conversation, so this line waits until the answer is given. */
   @media (max-width: 650px) { .conversation-status.attention { display: none; } }
-  @media (prefers-reduced-motion: reduce) { .spinning svg, .held .status-ring { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .spinning svg { animation: none; } }
 </style>

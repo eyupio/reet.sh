@@ -66,6 +66,8 @@ export type NeedCard = {
   approval?: { permissionId: string; title: string; command: string; path: string; truncated: boolean; queued: number }
   /** The earliest unanswered typed question: shown as a preview, answered in the chat where its whole card is. */
   question?: { questionId: string; message: string; truncated: boolean; queued: number }
+  /** The dialog a terminal agent waits on: answered from the card with its own options. */
+  terminal?: NonNullable<TerminalSession['terminalQuestion']>
 }
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
@@ -337,7 +339,7 @@ export function needsYou(
       const asking = !s.pendingPermission?.permissionId && !!s.pendingQuestion?.questionId
       out.push({
         kind: 'waiting',
-        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId ? ['question' as const] : [])],
+        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId || s.terminalQuestion?.fingerprint ? ['question' as const] : [])],
         label: asking ? 'Question for you' : 'Waiting for you',
         tone: 'warn',
         sessionId: s.id,
@@ -351,6 +353,7 @@ export function needsYou(
         worktreeTarget: null,
         ...(s.pendingPermission?.permissionId ? { approval: approvalOf(s.pendingPermission) } : {}),
         ...(s.pendingQuestion?.questionId ? { question: questionOf(s.pendingQuestion) } : {}),
+        ...(s.terminalQuestion?.fingerprint ? { terminal: s.terminalQuestion } : {}),
       })
       continue
     }

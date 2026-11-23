@@ -25,6 +25,14 @@ test('hasPending needs a non-empty permission or question id', () => {
   assert.equal(hasPending(s({ pendingQuestion: question })), true)
 })
 
+test('a terminal dialog holds a waiting session blocked after it has been seen', () => {
+  const dialog = { question: 'Run it?', options: [{ index: 1, label: 'Yes' }], fingerprint: 'f1' }
+  assert.equal(hasPending(s({ terminalQuestion: dialog })), true)
+  assert.equal(hasPending(s({ terminalQuestion: { ...dialog, fingerprint: '' } })), false)
+  assert.equal(isBlocked(s({ attention: 'waiting', terminalQuestion: dialog })), true)
+  assert.equal(isBlocked(s({ attention: 'working', terminalQuestion: dialog })), false)
+})
+
 test('isBlocked: waiting and unseen is blocked', () => {
   assert.equal(isBlocked(s({ attention: 'waiting', changedSinceSeen: true })), true)
 })

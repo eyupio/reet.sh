@@ -4640,38 +4640,45 @@ When a chat's turn ends while tool calls it started are still running (the agent
 chat is not called finished. The machine holds those calls and reports how many on its idle status
 (`acp-background-v1`), and only while the last status it sent is idle: a held call that finishes after a stopped or
 failed turn sends nothing, so that turn is never reopened, and a count is never sent in the middle of a new turn. The
-controller records the chat as `background` only after a turn that was running; its attention stays `working`, so no
-card, bell, push or "Ready to review" is raised. When the last held call reports its end the chat is finished from that
-moment. The machine stops waiting after 30 minutes (`terminalproto.BackgroundHoldLimit`) and says so in the chat; the
-controller keeps its own bound of the same length, so a chat whose machine falls silent is finished too, and the stored
-status changes with it.
+controller records the chat as `background` only after a turn that was running, stores when the hold began
+(`heldSince`), and keeps its attention `working`, so no card, bell, push or "Ready to review" is raised. When the last
+held call reports its end the chat is finished from that moment.
 
-One vocabulary, on every surface: **Working in the background** where there is room (the Sessions list, the session
-header, the Overview's "Right now", the Factory's "Doing now"), **In background** where room is short (a phone's list
-row, the tabs, the workspace list, a Desk pane, the resume list), with the full sentence "Turn ended; work it started is
-still running. You can send the next instruction." in the row's tooltip and read out. The mark is a hollow ring
-(`.status-ring`) where working has a solid dot, in the working colour. The chat's status line says **Turn ended · N
-background tasks running** with the ring instead of the turn's spinner (it breathes every 3.2 s, and stands still for
-reduced motion), keeps "You can send your next instruction." on a phone, and does not count the held calls as stopped
-in its summary. Status pill text in the light theme mixes a fifth of ink into the status colour, so every status pill
-reaches 4.5:1 on its own wash; dark is unchanged.
+**Stopped waiting is not a finish.** The machine stops waiting after 30 minutes (`terminalproto.BackgroundHoldLimit`):
+the chat says "{Agent} never said whether its background task finished. After 30 minutes reet stopped waiting; it may
+still be running on {machine}." (the plural names the count) and the idle status that follows carries the code
+`unwatched`. The controller keeps its own bound of the same length for a machine that falls silent, and writes its own
+transcript line when it fires. Either way the chat is stored as `unwatched`, which survives a restart: it reads
+**Stopped waiting** (with "Work it started may still be running." where a sentence fits, and the machine's name in the
+Overview), draws no settled tick, is listed with what needs the person (its own card, not "Ready to review", with no
+worktree check), the push says "Stopped waiting for its background work; it may still be running.", and Gaffer asks the
+person to look rather than reviewing it as a clean finish. An older controller never sees the code, like the count.
 
-Gaffer treats a stage whose agent holds work as busy: it does not review it, a review that ends in a hand-over while the
-work runs (an instruction it relayed may have started that turn) does not hand the stage over and says so, and Gaffer
-never moves a pipeline on for the person while the work runs. Moving on stays the person's call; its confirmation and
-the stage's record say the work stops when the session ends.
+One vocabulary: **In background** in lists, tabs, panes and the resume list; **Working in the background** where a
+sentence fits (the session header, the Overview's "Right now"). Every surface gives a screen reader the full sentence
+once ("Turn ended; work it started is still running."). The mark is a static hollow ring (`.status-ring`) in the
+working colour, at the size of the dot it replaces. The chat's line says **Turn ended 12 min ago · 1 background task
+running** with the ring instead of the turn's spinner, keeps "You can send your next instruction." at every width
+(wrapping to a second row on a phone rather than dropping it), and hides its step counter while work is held. Gaffer's
+card leads with the count. The Overview says "Turn ended 12 min ago; work still running." The Factory's "Doing now"
+says "Working in the background · stops waiting in 10 min", and both move-on confirmations open with "{Agent} still has
+work running (turn ended 12 min ago); moving on stops it." Moving on stays the person's call; Gaffer itself never
+reviews, hands over or moves on a stage while the work runs. Status pill text mixes a fifth of ink into its status
+colour and reaches AA on its wash in both themes, also over a tinted row, where the ring keeps 3:1; the Desk pane's word
+uses the same text colour and keeps AA on a tinted pane. On a phone every row's word gets the same room (39%), enough
+for "In background", so a held row's title gives up no more than a waiting row's.
 
-Not held in this slice: turns an agent runs on its own outside a prompt (the OpenCode terminal view), which keep their
-earlier behaviour. Terminals, agents that close every tool call before their turn ends, and machines or controllers
-without `acp-background-v1` behave exactly as before. Which agents leave work running at the end of a turn has not been
-checked against a real agent; the evidence is the agent's own unfinished tool calls and nothing else. Follow-up: a
-control to stop background tasks.
+Not held in this slice: turns an agent runs on its own outside a prompt (the OpenCode terminal view). Terminals, agents
+that close every tool call before their turn ends, and machines or controllers without `acp-background-v1` behave
+exactly as before. Which agents leave work running at the end of a turn has not been checked against a real agent; the
+evidence is the agent's own unfinished tool calls and nothing else. Not in this slice: a control to stop background work.
 
-- `web/tests/sessions.e2e.mjs`, "a turn that left work running", at 1280 light and 390 dark (touch), twice the pixel
-  density: the row's word, ring and `data-held`, the phone's "In background" on one line with the title readable, the
-  neighbouring rows (with "last known") unchanged, the tooltip and read-out sentence, the chat's ring, detail and slow
-  breathing, the header pill, the workspace list, the tab and the Overview, and "Turn finished" once the work ends.
-  `desks.e2e.mjs` checks a held Desk pane; `gaffer-factory.e2e.mjs` the Factory's "Doing now" and the move-on
-  confirmation. The light pill contrast is computed in `web/src/lib/theme.test.mjs`.
-- Looked at, by eye: the Sessions group and row, the chat line, the tab, the Overview, a Desk pane, the Factory stage
-  line and the move-on confirmation.
+- `web/tests/sessions.e2e.mjs`, "a turn that left work running", at 1280 light and 390 dark, twice the pixel density:
+  the row's word, ring, tooltip and read-out sentence, the phone title against a waiting row's, the neighbouring rows,
+  Home's row, the chat line with its time, sentence and no counter, the header, the tab, the workspace list, the
+  Overview, Gaffer's card title uncut, and the stopped-waiting row, bell item and chat line. `desks.e2e.mjs` checks a
+  held Desk pane on a tinted header, with the word's contrast computed from the resolved colours; `gaffer-factory.e2e.mjs`
+  the Factory's "Doing now" and the move-on confirmation's first sentence. The pill and ring pairs are computed in
+  `web/src/lib/theme.test.mjs`.
+- Looked at, by eye: every capture of that pass (Sessions group, row, Home row, chat, Overview, Gaffer card, tab, Desk
+  pane, Factory stage line, move-on confirmation, and the stopped-waiting row, bell item and chat line).

@@ -64,6 +64,18 @@ Choose **Start an agent**, pick a project and a machine, then an agent. Choose *
 
 A started terminal means the program started; it does not prove the tool is signed in or making progress. If the session needs attention, use the reason shown in the UI and check the tool on the machine.
 
+### Your first session
+
+Once your first machine is connected and you have no sessions yet, Home shows **Your first session**. It is optional: Factory, Sessions, terminals and **Start an agent session** stay where they are. **Not now** puts it away in that browser, and **Show the first-session guide** on Home brings it back until you have had a first reply through it. **Done** after a reply is for good.
+
+1. **Agents on the machine.** Only agents that run as a chat on that machine are offered, because reet can see when their turn ends. Each is one line: a ✓ and who it is signed in as on that machine, in the same words the Factory uses before it approves a run. A line says more only when something is wrong, such as no sign-in or a model list reet could not read. Agents that only run in a terminal are named in one quiet line; start them from **Start an agent session**.
+2. **One question that changes nothing.** The guide suggests asking the agent to say which folder it is in and list what it can see, and to change, create or delete nothing. It starts a normal agent session without YOLO, in the machine’s home folder or in a project folder you pick from the ones you already have. The session is named **First look**. An agent that asks you to trust its folder shows the same tick box as **Start an agent session**, naming the folder.
+3. **The reply.** When the agent has answered, the guide says it was asked to change nothing and ran without YOLO, and gets out of the way. **Read the reply** opens the session. If the reply takes over a minute the guide says so and points to the session. If the session ended first, it says so, shows the exit code when there is one, and you can **Try again** or ask another ready agent instead.
+4. **Signed out?** That is not an error. The guide shows the agent’s own line, such as “No Claude Code sign-in was found on studio”, and says to sign in in that agent’s own program on the machine; **Open terminal** is the way to do that. If another installed agent is ready, **Use … instead** switches to it. While a sign-in is missing, reet asks the machine again every 15 seconds, and **Check again** asks at once, so the guide moves on when the sign-in is there. With nothing missing it stops asking.
+5. **Use reet on your phone.** Open this controller’s address in your phone’s browser, sign in, and use the browser’s **Add to Home Screen**. To be told when a session needs you, turn on notifications on the phone; see [notifications on a device](push-notifications.md), which needs accounts and https. On a phone the guide offers only the notifications link.
+
+Someone who already has sessions never sees the guide.
+
 ## Where to go next
 
 <div class="grid cards" markdown>

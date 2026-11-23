@@ -227,6 +227,31 @@ try{
   }finally{await y.context.close()}
  }
 
+ // An answer still on its way when a different question arrives is dropped: the new question keeps its options and is not called answered.
+ {
+  let release;const gate=new Promise(r=>{release=r})
+  const w=await open('claude',{where:'home',hold:gate,answer:()=>({json:{answered:true}})})
+  try{
+   await opt(w,1).click()
+   await expect.poll(()=>w.box.posts.length).toBe(1)
+   w.box.sessions=[{...w.box.sessions[0],terminalQuestion:{fingerprint:'fp-next',question:'Edit file\nsrc/app.ts\nDo you want to make this edit?',options:[option(1,'Yes',{selected:true}),option(2,'No')]}}]
+   await w.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+   await expect(w.card).toContainText('Do you want to make this edit?')
+   release()
+   await w.page.waitForTimeout(500)
+   await expect(w.card.locator('.options button')).toHaveCount(2)
+   for(const b of await w.card.locator('.options button').all())await expect(b).toBeEnabled()
+   await expect(w.card).not.toContainText('Answered')
+   await expect(w.card.getByRole('heading',{name:'Claude Code is asking'})).toBeVisible()
+   expect(w.box.posts).toHaveLength(1)
+   // The new question can be answered in its own right.
+   await opt(w,2).click()
+   await expect.poll(()=>w.box.posts.length).toBe(2)
+   expect(w.box.posts[1]).toEqual({fingerprint:'fp-next',option:2})
+   errorsOf(w)
+  }finally{await w.context.close()}
+ }
+
  // A cut option cannot be read whole, so it takes the second tap as well.
  {
   const w=await open('cut',{answer:()=>({json:{answered:true}})})

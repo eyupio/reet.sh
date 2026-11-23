@@ -31,6 +31,7 @@
   const where = $derived(`${title ? ` in ${title}` : ''}${machine ? ` on ${machine}` : ''}`)
   // A list read hands over a new object each time: only a different fingerprint is a different question.
   const fingerprint = $derived(question.fingerprint)
+  const sessionId = $derived(session.id)
 
   let pressed = $state<number | null>(null)
   let outcome = $state<AnswerOutcome | null>(null)
@@ -47,7 +48,7 @@
 
   // A different question starts clean; the sentence about a change stays over the new one, once.
   $effect(() => {
-    void fingerprint
+    void fingerprint; void sessionId
     untrack(() => {
       pressed = null; sending = false; confirming = null
       if (keepOutcome) keepOutcome = false; else outcome = null
@@ -84,7 +85,14 @@
     pressed = index
     outcome = { say: 'Sending your answer…', tone: 'note', waitingForWords: false, done: false, locked: false, reread: false }
     void look()
-    const next = outcomeOf(await answerTerminalQuestion(session.id, fingerprint, index), label, { agent: name, machine })
+    const asked = { id: sessionId, fingerprint }
+    const next = outcomeOf(await answerTerminalQuestion(asked.id, asked.fingerprint, index), label, { agent: name, machine })
+    // The question may have changed while the answer was on its way: what came back is about the old one. The session list
+    // did change if it went through, so that is still said; nothing else about it is shown on the new question.
+    if (asked.id !== sessionId || asked.fingerprint !== fingerprint) {
+      if (next.done) { signalAttentionChanged(); await onreread?.() }
+      return
+    }
     outcome = next; pressed = null; sending = false
     void look()
     if (next.done) signalAttentionChanged()

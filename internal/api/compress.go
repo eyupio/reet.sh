@@ -16,7 +16,13 @@ import (
 // kilobyte the gzip header and the CPU cost more than the bytes saved.
 const gzipMinBytes = 1024
 
-var gzipWriters = sync.Pool{New: func() any { return gzip.NewWriter(nil) }}
+// gzipWriters holds compressors at the fastest level. The point of the
+// compression is the bytes it saves on the wire; BestSpeed gives most of that
+// for a fraction of the CPU the default level spends on the request path.
+var gzipWriters = sync.Pool{New: func() any {
+	w, _ := gzip.NewWriterLevel(nil, gzip.BestSpeed)
+	return w
+}}
 
 // compressJSON marks the response of a request that accepts gzip, so
 // writeJSON can compress a large body. Nothing else is touched: the mark

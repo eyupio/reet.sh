@@ -4637,22 +4637,41 @@ The Factory page's five captures above were retaken in the same pass, now that i
 ## A turn that ends with work still running (23 November 2026)
 
 When a chat's turn ends while tool calls it started are still running (the agent never reported them finished), the
-chat is not called finished. The machine holds those calls, reports how many on its idle status
-(`acp-background-v1`), and the controller records the chat as `background`: its attention stays `working`, so no card,
-bell, push or "Ready to review" is raised. The list says **Working in the background**; the chat's status line says
-**Turn ended · N background tasks running** with its spinner, and the person can still write. When the last held call
-reports its end the chat is finished from that moment. The machine stops waiting after 30 minutes
-(`terminalproto.BackgroundHoldLimit`, also used when a controller restarts) and says so in the chat. Gaffer treats a
-stage whose agent still holds work as busy and does not review or hand it over; moving the pipeline on stays the
-person's call, and the stage's record says the work stops when its session ends. A new message does not drop the hold.
+chat is not called finished. The machine holds those calls and reports how many on its idle status
+(`acp-background-v1`), and only while the last status it sent is idle: a held call that finishes after a stopped or
+failed turn sends nothing, so that turn is never reopened, and a count is never sent in the middle of a new turn. The
+controller records the chat as `background` only after a turn that was running; its attention stays `working`, so no
+card, bell, push or "Ready to review" is raised. When the last held call reports its end the chat is finished from that
+moment. The machine stops waiting after 30 minutes (`terminalproto.BackgroundHoldLimit`) and says so in the chat; the
+controller keeps its own bound of the same length, so a chat whose machine falls silent is finished too, and the stored
+status changes with it.
 
-Terminals, agents that close every tool call before their turn ends, and machines or controllers without
-`acp-background-v1` behave exactly as before. Which agents leave work running at the end of a turn has not been
-checked against a real agent; the evidence is the agent's own unfinished tool calls and nothing else.
+One vocabulary, on every surface: **Working in the background** where there is room (the Sessions list, the session
+header, the Overview's "Right now", the Factory's "Doing now"), **In background** where room is short (a phone's list
+row, the tabs, the workspace list, a Desk pane, the resume list), with the full sentence "Turn ended; work it started is
+still running. You can send the next instruction." in the row's tooltip and read out. The mark is a hollow ring
+(`.status-ring`) where working has a solid dot, in the working colour. The chat's status line says **Turn ended · N
+background tasks running** with the ring instead of the turn's spinner (it breathes every 3.2 s, and stands still for
+reduced motion), keeps "You can send your next instruction." on a phone, and does not count the held calls as stopped
+in its summary. Status pill text in the light theme mixes a fifth of ink into the status colour, so every status pill
+reaches 4.5:1 on its own wash; dark is unchanged.
 
-- `web/tests/sessions.e2e.mjs`, section "a turn that left work running": at 1280 light and 390 dark (touch), twice the
-  pixel density, the row's word, the chat's status line and its `data-phase`, no Stop button, no sideways scroll, and
-  the line reading "Turn finished" once the work ends. On a phone the row's word wraps to two lines rather than losing
-  its end; the title gives way.
-- Looked at, by eye: the row and the status line in both captures.
+Gaffer treats a stage whose agent holds work as busy: it does not review it, a review that ends in a hand-over while the
+work runs (an instruction it relayed may have started that turn) does not hand the stage over and says so, and Gaffer
+never moves a pipeline on for the person while the work runs. Moving on stays the person's call; its confirmation and
+the stage's record say the work stops when the session ends.
 
+Not held in this slice: turns an agent runs on its own outside a prompt (the OpenCode terminal view), which keep their
+earlier behaviour. Terminals, agents that close every tool call before their turn ends, and machines or controllers
+without `acp-background-v1` behave exactly as before. Which agents leave work running at the end of a turn has not been
+checked against a real agent; the evidence is the agent's own unfinished tool calls and nothing else. Follow-up: a
+control to stop background tasks.
+
+- `web/tests/sessions.e2e.mjs`, "a turn that left work running", at 1280 light and 390 dark (touch), twice the pixel
+  density: the row's word, ring and `data-held`, the phone's "In background" on one line with the title readable, the
+  neighbouring rows (with "last known") unchanged, the tooltip and read-out sentence, the chat's ring, detail and slow
+  breathing, the header pill, the workspace list, the tab and the Overview, and "Turn finished" once the work ends.
+  `desks.e2e.mjs` checks a held Desk pane; `gaffer-factory.e2e.mjs` the Factory's "Doing now" and the move-on
+  confirmation. The light pill contrast is computed in `web/src/lib/theme.test.mjs`.
+- Looked at, by eye: the Sessions group and row, the chat line, the tab, the Overview, a Desk pane, the Factory stage
+  line and the move-on confirmation.

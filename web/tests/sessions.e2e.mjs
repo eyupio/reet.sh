@@ -134,7 +134,7 @@ async function open(options={}) {
  return {...opened, box}
 }
 const rows = page => page.locator('main .session-row')
-const filters = page => page.locator('main details.filters')
+const filters = page => page.locator('main .filters-panel')
 const titles = async page => (await rows(page).locator('.title').allInnerTexts()).map(t => t.trim())
 const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
 
@@ -284,7 +284,7 @@ try {
  if (run('filters combine')) {
   const {context,page,errors} = await open()
   await page.goto(`${base}/sessions?view=list`)
-  await page.getByText('Filters',{exact:true}).click()
+  await page.getByRole('button',{name:/Filters & sort/}).click()
   await filters(page).getByLabel('State',{exact:true}).selectOption('running')
   await expect.poll(() => titles(page)).toEqual(['Review code','Add browse-v1 protocol','Refactor the store layer','Speed up the runner pool'])
   await filters(page).getByLabel('Agent',{exact:true}).selectOption('claude')
@@ -297,7 +297,7 @@ try {
   await filters(page).getByLabel('YOLO only',{exact:true}).uncheck()
   await filters(page).getByLabel('Worktree only',{exact:true}).check()
   await expect.poll(() => titles(page)).toEqual(['Add browse-v1 protocol','Refactor the store layer'])
-  await expect(page.locator('summary').filter({hasText:'Filters'})).toContainText('4 on')
+  await expect(page.getByRole('button',{name:/Filters & sort/})).toContainText('4')
   await page.getByRole('button',{name:'Clear filters'}).click()
   await expect(rows(page)).toHaveCount(6)
   // Sort: newest change, name, or the custom order the sessions panel saved in this browser.
@@ -488,7 +488,7 @@ try {
   expect(await strip('Docs pass')).toBe('rgb(217, 87, 87)')
   expect(await strip('Review code')).toBe('rgb(161, 126, 209)')
   expect(await strip('Shell')).toBe('rgba(0, 0, 0, 0)')
-  await page.getByText('Filters',{exact:true}).click()
+  await page.getByRole('button',{name:/Filters & sort/}).click()
   await filters(page).getByLabel('Colour',{exact:true}).selectOption('red')
   await expect.poll(() => titles(page)).toEqual(['Docs pass'])
   await filters(page).getByLabel('Colour',{exact:true}).selectOption('none')
@@ -701,7 +701,7 @@ try {
   await expect(page.getByText('Checking…',{exact:true})).toBeHidden()
   expect(Math.abs(await rowTop() - before), 'rows still after checking').toBeLessThanOrEqual(1)
   // Needs you: nothing raises it yet, and the page says so.
-  await page.getByText('Filters',{exact:true}).click()
+  await page.getByRole('button',{name:/Filters & sort/}).click()
   await filters(page).getByLabel('State',{exact:true}).selectOption('needs')
   await expect(page.getByText('Nothing marks a session as needing you yet, so none is listed here.',{exact:true})).toBeVisible()
   expect(errors).toEqual([])

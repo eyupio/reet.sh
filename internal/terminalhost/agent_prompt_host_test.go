@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -235,5 +236,135 @@ func TestAScreenIsNotReadAgainInsideTheGap(t *testing.T) {
 	}
 	if !m.prompts[id].at.Equal(watch.at) {
 		t.Fatal("the screen was read inside the gap")
+	}
+}
+
+// questionOf reconciles once and returns the question the session lists.
+func questionOf(t *testing.T, m *Manager, id string) *terminalproto.TerminalQuestion {
+	t.Helper()
+	bellOf(t, m, id)
+	list, err := m.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		if s.ID == id {
+			return s.Question
+		}
+	}
+	t.Fatal("session not listed")
+	return nil
+}
+
+// sentKeys replaces send-keys with a recorder: each call is the pane and the
+// keys, joined by spaces.
+func sentKeys(m *Manager) *[]string {
+	var sent []string
+	m.sendKeys = func(_ context.Context, pane string, keys []string) error {
+		sent = append(sent, pane+" "+strings.Join(keys, " "))
+		return nil
+	}
+	return &sent
+}
+
+// The question on an agent's screen is listed with the session, in memory
+// only, and goes when the dialog does.
+func TestAQuestionOnScreenIsListedUntilItGoes(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 57, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	q := questionOf(t, m, id)
+	if q == nil || q.Question != "Do you want to proceed?" || len(q.Options) != 3 {
+		t.Fatalf("question not listed: %+v", q)
+	}
+	registry, err := os.ReadFile(m.registryPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(registry), "proceed") || strings.Contains(string(registry), q.Fingerprint) {
+		t.Fatal("the question reached the registry")
+	}
+	changed := m.Changed()
+	draw(t, m, id, tty, claudeWorking, "Running tests")
+	if q := questionOf(t, m, id); q != nil {
+		t.Fatalf("an answered question is still listed: %+v", q)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("the question going was not signalled")
+	}
+}
+
+// An answer is checked against a fresh read of the screen and sends only the
+// keys the machine works out, once.
+func TestAnswerQuestionSendsTheKeysOnce(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 58, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	q := questionOf(t, m, id)
+	if q == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	ctx := context.Background()
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 3); err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.List(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatal(err, list)
+	}
+	pane := list[0].PaneID
+	if len(*sent) != 1 || (*sent)[0] != pane+" Down Down Enter" {
+		t.Fatalf("sent %q", *sent)
+	}
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 3); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a repeat answered %v", err)
+	}
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a second answer to the same question answered %v", err)
+	}
+	if len(*sent) != 1 {
+		t.Fatalf("keys were sent twice: %q", *sent)
+	}
+	// The agent asks the same question again later: it can be answered again.
+	draw(t, m, id, tty, claudeWorking, "Running tests")
+	questionOf(t, m, id)
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	questionOf(t, m, id)
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(*sent) != 2 || (*sent)[1] != pane+" Enter" {
+		t.Fatalf("sent %q", *sent)
+	}
+}
+
+// A screen that no longer shows the question refuses the answer and sends
+// nothing, even before the sweep has noticed.
+func TestAnswerQuestionRefusesAChangedScreen(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 59, "codex")
+	draw(t, m, id, tty, codexCommandPrompt, "make migrate")
+	q := questionOf(t, m, id)
+	if q == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	ctx := context.Background()
+	draw(t, m, id, tty, strings.Replace(codexCommandPrompt, "make migrate", "make drop-db", 1), "make drop-db")
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("a changed question answered %v", err)
+	}
+	draw(t, m, id, tty, codexWorking, "Working")
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("a gone question answered %v", err)
+	}
+	if err := m.AnswerQuestion(ctx, testSessionID(99), q.Fingerprint, 1); !errors.Is(err, ErrSessionMissing) {
+		t.Fatalf("an unknown session answered %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("keys were sent: %q", *sent)
 	}
 }

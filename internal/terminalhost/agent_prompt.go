@@ -2,16 +2,25 @@ package terminalhost
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // An agent in a terminal that stops to ask before it runs a command or edits
 // a file does not always ring the terminal bell, so the session looked the
 // same as one still working. The host therefore reads the visible screen of an
-// agent's session, on this machine, and says only whether it is waiting for an
-// answer. The text is matched and dropped: it is never stored, logged or sent.
+// agent's session, on this machine, and says whether it is waiting for an
+// answer. The text is matched and dropped: it is never stored, logged or sent,
+// with one bounded exception. For a dialog a rule matched, and only for Claude
+// Code and Codex, the question (up to 500 characters) and up to 9 numbered
+// options (each up to 200 characters) are sent to the controller
+// (agent_question.go), which keeps them in memory only and never writes them
+// to its database or its logs. The machine keeps them in memory too, never in
+// its registry.
 //
 // The rules are deliberately narrow. Each looks only at the last lines of the
 // screen, where an agent draws the question it is waiting on, and needs the
@@ -119,7 +128,18 @@ type promptWatch struct {
 	at time.Time
 	// waiting is whether that screen showed a question.
 	waiting bool
+	// question is the question read from that screen, when it read cleanly.
+	question *terminalproto.TerminalQuestion
 }
+
+var (
+	// ErrQuestionChanged refuses an answer whose question is no longer the
+	// one on the screen.
+	ErrQuestionChanged = errors.New("the question on the terminal changed")
+	// ErrAlreadyAnswered refuses a second answer to a question an option was
+	// already chosen for.
+	ErrAlreadyAnswered = errors.New("the question on the terminal was already answered")
+)
 
 const (
 	// promptReadEvery is the least time between two reads of a screen that
@@ -136,10 +156,11 @@ const (
 // agent with rules was started in, only while the window's activity says the
 // screen may have changed since it was last read, and at most every
 // promptReadEvery while it keeps changing. The screen text does not leave
-// this function.
-func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession, rows []paneWindow) bool {
+// this function, except a question read from a dialog (questionOnScreen),
+// which is kept for List; news says it changed.
+func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession, rows []paneWindow) (asked, news bool) {
 	if !ReadsPrompts(s.Tool) || !paneID.MatchString(s.PaneID) {
-		return false
+		return false, false
 	}
 	var activity int64
 	for _, p := range rows {
@@ -161,9 +182,9 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 	switch {
 	case !seen:
 	case !changed && watch.settled:
-		return false
+		return false, false
 	case changed && now.Sub(watch.at) < every, now.Sub(watch.at) < again:
-		return false
+		return false, false
 	}
 	// tmux counts activity in whole seconds, so more can still be drawn in the
 	// second the last output fell in. The screen is settled only once it has
@@ -172,9 +193,84 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 	data, err := m.command(ctx, promptScreenBytes, "capture-pane", "-p", "-t", s.PaneID)
 	if err != nil {
 		// A screen that cannot be read says nothing; the next change is read.
-		return false
+		return false, false
 	}
 	waiting := AwaitingAnswer(s.Tool, string(data))
-	m.prompts[id] = promptWatch{activity: activity, settled: settled, at: now, waiting: waiting}
-	return waiting && !watch.waiting
+	question := questionOnScreen(s.Tool, s.PaneID, string(data))
+	m.prompts[id] = promptWatch{activity: activity, settled: settled, at: now, waiting: waiting, question: question}
+	if question == nil || m.answered[id] != question.Fingerprint {
+		// The answered question is gone: the same question asked again later
+		// can be answered again.
+		delete(m.answered, id)
+	}
+	return waiting && !watch.waiting, fingerprintOf(question) != fingerprintOf(watch.question)
+}
+
+func fingerprintOf(q *terminalproto.TerminalQuestion) string {
+	if q == nil {
+		return ""
+	}
+	return q.Fingerprint
+}
+
+// AnswerQuestion chooses option on the question an agent's session is waiting
+// on, if the screen still shows the question with this fingerprint. It reads
+// the screen again, works out the keys itself (answerKeys) and sends them to
+// the session's pane; nothing the caller sends reaches the terminal. A
+// question is answered once: a repeat is ErrAlreadyAnswered and sends nothing.
+func (m *Manager) AnswerQuestion(ctx context.Context, id, fingerprint string, option int) error {
+	if !terminalproto.ValidID(id) || !terminalproto.ValidFingerprint(fingerprint) || option < 1 || option > terminalproto.MaxTerminalOptions {
+		return terminalproto.ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.allowed(); err != nil {
+		return err
+	}
+	lock, err := m.registryLock(ctx)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	r, err := m.loadRegistry()
+	if err != nil {
+		return err
+	}
+	s, ok := r.Sessions[id]
+	if !ok || s.State != terminalproto.Running {
+		return ErrSessionMissing
+	}
+	if m.answered[id] == fingerprint {
+		return ErrAlreadyAnswered
+	}
+	if !paneID.MatchString(s.PaneID) {
+		return ErrQuestionChanged
+	}
+	data, err := m.command(ctx, promptScreenBytes, "capture-pane", "-p", "-t", s.PaneID)
+	if err != nil {
+		return err
+	}
+	q := questionOnScreen(s.Tool, s.PaneID, string(data))
+	if q == nil || q.Fingerprint != fingerprint {
+		return ErrQuestionChanged
+	}
+	keys, ok := answerKeys(q, option)
+	if !ok {
+		return terminalproto.ErrInvalid
+	}
+	send := m.sendKeys
+	if send == nil {
+		send = func(ctx context.Context, pane string, keys []string) error {
+			_, err := m.command(ctx, 0, append([]string{"send-keys", "-t", pane}, keys...)...)
+			return err
+		}
+	}
+	if err := send(ctx, s.PaneID, keys); err != nil {
+		return err
+	}
+	if m.answered == nil {
+		m.answered = map[string]string{}
+	}
+	m.answered[id] = fingerprint
+	return nil
 }

@@ -86,6 +86,11 @@ type Manager struct {
 	// promptEvery and promptAgain replace promptReadEvery and promptReadAgain
 	// when set, so a test need not wait out the real gaps.
 	promptEvery, promptAgain time.Duration
+	// answered holds, per agent session, the fingerprint of the question an
+	// option was last chosen for, until that question leaves the screen.
+	answered map[string]string
+	// sendKeys replaces tmux send-keys for an answer when set; only tests set it.
+	sendKeys func(ctx context.Context, pane string, keys []string) error
 	// liveDir is each session's live working folder as the last sweep read
 	// it, kept in memory only: the registry's strict reader on an older reet
 	// would refuse a new field. List reports it as ManagedSession.LiveDir.
@@ -545,6 +550,9 @@ func (m *Manager) List(ctx context.Context) ([]ManagedSession, error) {
 	out := make([]ManagedSession, 0, len(r.Sessions))
 	for id, s := range r.Sessions {
 		s.LiveDir = m.liveDir[id]
+		if s.State == terminalproto.Running {
+			s.Question = m.prompts[id].question
+		}
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -585,6 +593,7 @@ func (m *Manager) cleanupClosedSessions(r *hostRegistry) {
 		}
 		_ = m.removeUploads(id)
 		delete(m.prompts, id)
+		delete(m.answered, id)
 	}
 }
 
@@ -603,7 +612,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	// shell is still there is read once more. A failed read never fails the
 	// sweep.
 	dirsChanged := m.noteLiveDirsLocked(ctx, r)
-	changed := false
+	changed, questionsChanged := false, false
 	var listing map[string][]paneWindow
 	for id, s := range r.Sessions {
 		if !s.State.ReservesQuota() {
@@ -665,8 +674,11 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 				}
 				// An agent that stops to ask does not always ring the bell. A
 				// question newly on its screen counts as one; a bell that
-				// already rang says as much, so the screen is not read then.
-				if !belled && m.askedOnScreen(ctx, id, s, rows) {
+				// already rang says as much. The screen is read either way,
+				// for the question it shows.
+				asked, news := m.askedOnScreen(ctx, id, s, rows)
+				questionsChanged = questionsChanged || news
+				if !belled && asked {
 					if at := time.Now().UnixMilli(); at > s.BellAt {
 						s.BellAt = at
 					}
@@ -701,7 +713,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 		if err := m.saveRegistry(*r); err != nil {
 			return err
 		}
-	} else if dirsChanged {
+	} else if dirsChanged || questionsChanged {
 		m.signalLocked()
 	}
 	m.cleanupClosedSessions(r)

@@ -111,6 +111,7 @@ type AgentConfig struct {
 	inspect            bool
 	shellDir           bool
 	deskShell          bool
+	terminalQuestion   bool
 	attention          bool
 	progress           bool
 	OnConnection       func(bool)
@@ -1040,6 +1041,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.inspect = terminalproto.SupportsInspect(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.deskShell = terminalproto.SupportsDeskShell(advertised)
+	cfg.terminalQuestion = terminalproto.SupportsTerminalQuestion(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 	cfg.progress = terminalproto.SupportsProgress(advertised)
 }
@@ -1193,6 +1195,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.deskShell {
 		features = append(features, terminalproto.DeskShellFeature)
+	}
+	if cfg.terminalQuestion {
+		features = append(features, terminalproto.TerminalQuestionFeature)
 	}
 	if cfg.attention {
 		features = append(features, terminalproto.AttentionFeature)
@@ -1422,11 +1427,15 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ShellDir:     cfg.shellDir && control && enabled,
 		// The live folder is read for every running session, as attention
 		// is, so it follows terminal control alone.
-		DeskShell:   cfg.deskShell && control,
-		Attention:   cfg.attention && control,
-		Branches:    cfg.branches && worktree && enabled,
-		BranchPrune: cfg.branchPrune && worktree && enabled,
-		BranchSync:  cfg.branchSync && worktree && enabled,
+		DeskShell: cfg.deskShell && control,
+		// The question is read with attention, for every running session;
+		// whether an answer may be typed is the machine's terminal switch,
+		// checked per answer.
+		TerminalQuestion: cfg.terminalQuestion && control,
+		Attention:        cfg.attention && control,
+		Branches:         cfg.branches && worktree && enabled,
+		BranchPrune:      cfg.branchPrune && worktree && enabled,
+		BranchSync:       cfg.branchSync && worktree && enabled,
 		// Fetching a worktree's base is part of making one, so it follows
 		// Worktree, not enabled: a machine that makes worktrees fetches them.
 		BaseFresh: cfg.baseFresh && worktree,

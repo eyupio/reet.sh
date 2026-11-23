@@ -245,7 +245,8 @@ agent's input box, a shell prompt or any other text under them, are not a questi
   When it does not fit, whole lines are dropped from the top, so what is kept is the end nearest the options.
 - `truncated`: set when lines were dropped, or when a Claude dialog began above the visible screen (its top border is
   not on it), so the person knows the rest is in the terminal. Nothing is cut without it.
-- `options`: up to 9 numbered options, each up to 200 characters, and which one is selected.
+- `options`: up to 9 numbered options, each up to 200 characters, and which one is selected. An option whose label
+  was cut to fit carries `truncated`, so it is never shown as if it were whole.
 - `fingerprint`: a SHA-256 of the pane, the question sentence, the options and the dialog's own lines above the
   options (from its box's top, or for Codex from its question), in full even when `question` was cut. A status line
   ticking above the dialog does not change it. For a Claude dialog drawn without a box, whose start cannot be told,

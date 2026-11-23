@@ -205,7 +205,9 @@ func questionOnScreen(tool, key, screen string) *terminalproto.TerminalQuestion 
 	sum := sha256.New()
 	sum.Write([]byte(key + "\x00" + sentence))
 	for i := range q.Options {
-		q.Options[i].Label = capRunes(normalise(q.Options[i].Label), terminalproto.MaxTerminalOptionRunes)
+		whole := normalise(q.Options[i].Label)
+		q.Options[i].Label = capRunes(whole, terminalproto.MaxTerminalOptionRunes)
+		q.Options[i].Truncated = q.Options[i].Label != whole
 		// The selection is left out: moving it does not change the question,
 		// and the keys are worked out from a fresh read anyway.
 		sum.Write([]byte("\x00" + strconv.Itoa(q.Options[i].Index) + "\x1f" + q.Options[i].Label))
@@ -229,8 +231,9 @@ func questionOnScreen(tool, key, screen string) *terminalproto.TerminalQuestion 
 	q.Fingerprint = hex.EncodeToString(sum.Sum(nil))
 	var subject []string
 	for _, l := range append(append([]screenLine{}, lines[start:asked]...), lines[below:first]...) {
-		if l.text != "" {
-			subject = append(subject, normalise(l.text))
+		// A box headed with its own question shows the question once.
+		if text := normalise(l.text); text != "" && text != sentence {
+			subject = append(subject, text)
 		}
 	}
 	q.Question, q.Truncated = dialogText(subject, sentence)

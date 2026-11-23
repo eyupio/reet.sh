@@ -11,7 +11,7 @@ func sampleTerminalQuestion() *TerminalQuestion {
 		Question: "Do you want to proceed?",
 		Options: []TerminalOption{
 			{Index: 1, Label: "Yes", Selected: true},
-			{Index: 2, Label: "No, and tell Claude what to do differently (esc)"},
+			{Index: 2, Label: "No, and tell Claude what to do differently (esc)", Truncated: true},
 		},
 		Fingerprint: strings.Repeat("ab", 32),
 	}
@@ -45,6 +45,9 @@ func TestTerminalQuestionOnlyWhenNegotiated(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := decoded.Body.(*SessionChanged).TerminalQuestion
+	if got != nil && (got.Options[0].Truncated || !got.Options[1].Truncated) {
+		t.Fatalf("the options' cut marks did not survive the round trip: %+v", got.Options)
+	}
 	if got == nil || got.Question != "Bash command\ngo test ./...\nDo you want to proceed?" || !got.Truncated || len(got.Options) != 2 || !got.Options[0].Selected || got.Fingerprint != strings.Repeat("ab", 32) {
 		t.Fatalf("round trip lost the question: %+v", got)
 	}
@@ -78,6 +81,7 @@ func TestTerminalQuestionValidation(t *testing.T) {
 		"a tab":                     {func(q *TerminalQuestion) { q.Question = "a\tb" }, false},
 		"a newline in an option":    {func(q *TerminalQuestion) { q.Options[0].Label = "Yes\nNo" }, false},
 		"a line separator":          {func(q *TerminalQuestion) { q.Question = "a\u2028b" }, false},
+		"an option marked cut":      {func(q *TerminalQuestion) { q.Options[1].Truncated = true }, true},
 		"marked truncated":          {func(q *TerminalQuestion) { q.Truncated = true }, true},
 		"a control character":       {func(q *TerminalQuestion) { q.Question = "Do\x1b[2J you" }, false},
 		"a bidi override":           {func(q *TerminalQuestion) { q.Options[0].Label = "Yes\u202e" }, false},

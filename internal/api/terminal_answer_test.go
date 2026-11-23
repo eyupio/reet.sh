@@ -28,7 +28,7 @@ func answerFixture(t *testing.T, offer bool) (*launchAPI, string, string) {
 
 func apiQuestion(fp string) *terminalproto.TerminalQuestion {
 	return &terminalproto.TerminalQuestion{Question: "Bash command\ngo test ./...\nDo you want to proceed?", Truncated: true, Fingerprint: fp,
-		Options: []terminalproto.TerminalOption{{Index: 1, Label: "Yes", Selected: true}, {Index: 2, Label: "No"}}}
+		Options: []terminalproto.TerminalOption{{Index: 1, Label: "Yes", Selected: true}, {Index: 2, Label: "No, and", Truncated: true}}}
 }
 
 // ask has the machine report q for the session, and waits until the session
@@ -82,6 +82,9 @@ func TestTerminalAnswerRoute(t *testing.T) {
 	q, ok := session["terminalQuestion"].(map[string]any)
 	if !ok || q["question"] != "Bash command\ngo test ./...\nDo you want to proceed?" || q["truncated"] != true || q["fingerprint"] != fp || len(q["options"].([]any)) != 2 {
 		t.Fatalf("listed: %s", raw)
+	}
+	if opt := q["options"].([]any)[1].(map[string]any); opt["truncated"] != true || q["options"].([]any)[0].(map[string]any)["truncated"] != nil {
+		t.Fatalf("option cut marks: %s", raw)
 	}
 	code, out, raw := f.do(t, f.cookie, "POST", path, map[string]any{"fingerprint": fp, "option": 2})
 	if code != 200 || out["answered"] != true || out["alreadyAnswered"] == true {

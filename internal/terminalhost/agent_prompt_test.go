@@ -319,6 +319,9 @@ func TestQuestionOnScreenCleansHostileText(t *testing.T) {
 	if n := len([]rune(label)); n != terminalproto.MaxTerminalOptionRunes || !strings.HasSuffix(label, "…") {
 		t.Errorf("a long label was not cut to the cap with a mark: %d runes, %q", n, label)
 	}
+	if len([]rune(hostileOption)) < 300 || !q.Options[0].Truncated || q.Options[1].Truncated {
+		t.Errorf("a cut label is not marked, or a whole one is: %+v", q.Options)
+	}
 	long := strings.Replace(claudeCommandPrompt, "Do you want to proceed?", "Do you want to "+strings.Repeat("really ", 100)+"proceed?", 1)
 	q = questionOnScreen("claude", "%3", long)
 	if q == nil || len([]rune(q.Question)) != terminalproto.MaxTerminalQuestionRunes || !q.Truncated || !strings.HasPrefix(q.Question, "…") || !strings.HasSuffix(q.Question, "really proceed?") {
@@ -473,5 +476,19 @@ func TestQuestionOnScreenRefusesPrintedDialogs(t *testing.T) {
 	footed := strings.Replace(claudeBorderless, "   2. No\n", "   2. No\n\n Esc to cancel · Tab to amend\n", 1)
 	if q := questionOnScreen("claude", "%3", footed); q == nil {
 		t.Error("claude's own footer hid the dialog")
+	}
+}
+
+// A dialog that heads its box with its own question shows the question once.
+func TestQuestionOnScreenDropsARepeatedQuestion(t *testing.T) {
+	headed := strings.Replace(claudeCommandPrompt, "│ Bash command                                                 │", "│ Do you want to proceed?                                      │\n│ Bash command                                                 │", 1)
+	q := questionOnScreen("claude", "%3", headed)
+	if q == nil || q.Question != "Bash command\ngo test ./...\nRun the test suite\nDo you want to proceed?" {
+		t.Fatalf("%+v", q)
+	}
+	for _, o := range questionOnScreen("claude", "%3", claudeCommandPrompt).Options {
+		if o.Truncated {
+			t.Fatalf("a whole option is marked cut: %+v", o)
+		}
 	}
 }

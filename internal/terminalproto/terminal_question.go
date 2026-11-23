@@ -27,11 +27,13 @@ func SupportsTerminalQuestion(features string) bool {
 }
 
 // TerminalOption is one numbered answer as the agent draws it. Index is the
-// number on screen, 1 to 9; Selected marks the one the agent's cursor is on.
+// number on screen, 1 to 9; Selected marks the one the agent's cursor is on;
+// Truncated says Label is not the whole of what the agent drew.
 type TerminalOption struct {
-	Index    int    `json:"index"`
-	Label    string `json:"label"`
-	Selected bool   `json:"selected,omitempty"`
+	Index     int    `json:"index"`
+	Label     string `json:"label"`
+	Selected  bool   `json:"selected,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // TerminalQuestion is the dialog an agent is waiting on. Question is the

@@ -779,7 +779,8 @@
   @media (pointer: coarse) {
     .close-panel, .head-more { width: 44px; height: 44px; }
     .add { height: 44px; }
-    .card { padding-right: 96px; }
+    .card { padding-right: 56px; }
+    .item:has(.start) .card { padding-right: 96px; }
     /* The card already keeps its content clear of the two buttons, so the top row needs no room of its own. */
     .top { padding-right: 0; }
     .more, .start { opacity: 1; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
@@ -848,6 +849,8 @@
     .rail.sessions h2 { font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
     .rail.sessions .add { height: 44px; padding: 0 14px; border-color: var(--line-strong); border-radius: 8px; font-size: 15px; }
   }
+  /* The narrowest screens: a project's meta wraps to a second line rather than cutting machine and branch to fragments. */
+  @media (max-width: 374px) { .meta { flex-wrap: wrap; row-gap: 0; } .wt { margin-left: 0; } }
   /* Inside the workspace navigation panel the rail is a section, not a column: the panel owns the width and the scroll,
      and folding it hides the list while the heading, Add and the fold button stay. */
   .rail.embedded { border-right: 0; align-self: auto; }

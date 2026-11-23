@@ -36,6 +36,37 @@ fewest attempts first, so one-attempt flood keys go before a key holding real fa
   controller's port does the same. The docs say to list only the proxy itself.
 - The Caddy and nginx lines in the docs were not run against a real proxy.
 - Limits are lost on restart, as before. `REET_TOKEN` guesses are still not limited.
+## SESSIONS-PAGE-AUDIT: quiet rows and one state vocabulary (22 November 2026)
+
+An Impeccable audit, critique, distill and polish pass over `/sessions`, weighted to phone widths. The session list is
+quieter and its state reading is consistent with the rest of the app.
+
+**What changed.**
+
+- **Rows.** `web/src/lib/sessions/SessionsPage.svelte`: the bordered state pill is plain coloured text on the tinted row,
+  and the row's redundant inset status stripe is gone (the identity strip stays). The light status colours now pass
+  contrast on that tint. State also has a shape, not only a hue: waiting is a ring, failed a square, ended and quiet
+  hollow, finished its tick, working filled.
+- **Phone.** The state word is visually hidden below 650 px (assistive tech still reads it); a long title wraps to two
+  lines instead of truncating. The filter panel sits beside Group by as a funnel button with an active count, saving a
+  row at every width, and checkboxes are 24 px.
+- **Project cards.** `web/src/lib/home/ProjectRail.svelte`: touch cards reserve room for the actions actually present,
+  and their meta wraps below 375 px instead of cutting machine and branch to fragments.
+- **Vocabulary.** Group by **Attention** is now **Priority** (`web/src/lib/home.ts`, and the same choice on Home), which
+  matches its triage order and stops clashing with the **Needs you** filter. `docs/control-centre.md` follows.
+- **Pills elsewhere.** A `--status-ink` token (`web/src/app.css`) darkens the hue used for text on the 13% status wash in
+  the light theme; Bell, SessionBoard, SessionHoverCard and OverviewTab use it. Dots, ticks and edges keep `--status`.
+
+**Tests.** axe-core (WCAG 2.0/2.1/2.2 A and AA) reports no violations at 320, 390, 768 and 1440 px in both themes, with
+no horizontal scroll; the Impeccable detector is clean on the changed components; Home's board pills also pass axe in
+both themes. `npm run check` passes (118 test files, 0 Svelte errors or warnings). Against `vite preview` the suites
+`sessions.e2e`, `sessions-phone.e2e` and `terminal-focus.e2e` pass. `go vet ./...` is clean. The full `go test -race
+./...` run hit the existing `internal/store` `TestAnOlderDatabaseGainsThePromptColumn` timeout under parallel load; that
+test passes alone (`go test -race ./internal/store -run '^TestAnOlderDatabaseGainsThePromptColumn$'`), and no Go file
+changed here.
+
+**Not done.** No Home end-to-end run for the board pill (computed colour and axe on Home cover it); long titles are
+capped at two lines on phones.
 
 ## TERMINAL-QUESTION-1: a terminal agent's dialog shown and answered from reet (23 November 2026)
 

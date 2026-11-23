@@ -39,8 +39,9 @@ export function gafferSummary(chat: ChatState, dir = '', replayed = true, ended 
   if (!chat.items.length || (!session && promptAt < 0 && !chat.truncated)) return null
   const items = session ? chat.items : chat.items.slice(promptAt + 1)
   const tools = items.filter((item): item is Extract<ChatItem, { kind: 'tool' }> => item.kind === 'tool' && item.toolKind !== 'think')
-  // A turn that ended holding work: its unfinished calls are still running, not stopped.
-  const held = chat.status.state === 'idle' && (chat.status.background ?? 0) > 0
+  // A turn that ended holding work, or whose held work reet stopped waiting for: its unfinished calls may still be
+  // running, so they are not counted as stopped.
+  const held = chat.status.state === 'idle' && ((chat.status.background ?? 0) > 0 || chat.status.code === 'unwatched')
   const running = (status: string) => held && (status === 'in_progress' || status === 'pending')
   const completed = tools.filter(item => item.status === 'completed').length
   const failed = tools.filter(item => item.status === 'failed').length

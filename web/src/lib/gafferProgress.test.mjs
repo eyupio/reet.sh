@@ -329,6 +329,8 @@ test('a turn that ended with work still running does not count that work as stop
   assert.equal(summary.stopped, 0)
   assert.deepEqual(summary.attention, [])
   assert.deepEqual(summary.commands.map(c => c.status), ['in_progress'])
+  // Nor once reet stopped waiting for it: it may still be running.
+  assert.equal(gafferSummary(state(prompt, tool('run', 'in_progress', { toolKind: 'execute' }), { kind: 'status', state: 'idle', code: 'unwatched' })).stopped, 0)
   // Once the turn is not holding work, an unfinished call is a stopped one again.
   const ended = state(prompt, tool('run', 'in_progress', { toolKind: 'execute' }), { kind: 'status', state: 'cancelled' })
   assert.equal(gafferSummary(ended).stopped, 1)

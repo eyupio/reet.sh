@@ -213,8 +213,10 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
       const settled = status.state !== 'working' && status.state !== 'starting' ? settleThoughts(state.items) : state.items
       if (!stopped) return settled === state.items ? { ...next, status } : { ...next, status, items: settled }
       const cancelled = cancelPending(settled, status.state === 'ended' ? 'ended' : status.state)
-      // Tools still running after the turn ended are not stopped: the machine says they run on.
-      return { ...next, status, items: status.background > 0 ? cancelled : stopTools(cancelled) }
+      // Tools still running after the turn ended are not stopped: the machine says they run on, or reet stopped
+      // waiting for them and they may still be running.
+      const runOn = status.background > 0 || status.code === 'unwatched'
+      return { ...next, status, items: runOn ? cancelled : stopTools(cancelled) }
     }
     case 'permission': {
       if (!event.permissionId) return next

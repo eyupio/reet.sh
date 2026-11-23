@@ -3,7 +3,7 @@ import type { CloneStatus } from '../githubRepo'
 import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
-import type { SessionSkills } from './skills'
+import type { ChatCommand, SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
 import type { UsageAnswer } from '../usage'
 import type { ChatUsage } from '../chatUsage'
@@ -671,6 +671,13 @@ export async function chatControls(id: string, signal?: AbortSignal): Promise<Ch
 /** What this chat's agent has reported using, from the controller's own record: no machine is asked. */
 export async function chatUsage(id: string, signal?: AbortSignal): Promise<ChatUsage> {
  return (await terminalRequest(`${chatURL(id)}/usage`, { signal })).json()
+}
+/** The agent's slash commands for Chat. `unsupported` is the server's sentence when the machine is too old to report them. */
+export async function chatCommands(id: string, signal?: AbortSignal): Promise<{ commands: ChatCommand[]; unsupported: string }> {
+ const body = await (await terminalRequest(`${chatURL(id)}/commands`, { signal })).json()
+ const text = (v: unknown) => typeof v === 'string' ? v : ''
+ const commands = (Array.isArray(body?.commands) ? body.commands : []).filter((c: unknown) => c && typeof c === 'object').map((c: Record<string, unknown>) => ({ name: text(c.name), description: text(c.description), hint: text(c.hint) }))
+ return { commands, unsupported: body?.code ? text(body.error) || 'Update reet on this machine to see the agent\'s commands.' : '' }
 }
 export async function chatSetting(id: string, configId: string, value: string): Promise<ChatControlAnswer> {
  return (await terminalRequest(`${chatURL(id)}/controls`, { method: 'POST', body: JSON.stringify({ action: 'set', configId, value }) })).json()

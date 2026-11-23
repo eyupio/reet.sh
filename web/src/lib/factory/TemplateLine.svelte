@@ -1,10 +1,11 @@
 <script lang="ts">
   // Says which template and version an outcome was started from. The outcome keeps everything it ran on, so the template
-  // may since have been deleted, or the version dropped; the line says so instead of linking to nothing.
+  // may since have been deleted, or the version dropped; the line says so instead of linking to nothing. The name is
+  // the one the outcome recorded at its launch, else the template's as read now (older outcomes recorded none).
   import { onMount } from 'svelte'
   import { ApiError, getGafferTemplate } from '../api'
 
-  let { id, version, onopen }: { id: string; version: number; onopen: (id: string) => void } = $props()
+  let { id, version, name: recorded = '', onopen }: { id: string; version: number; name?: string; onopen: (id: string) => void } = $props()
   // Not read yet, read and kept, the template there but that version not kept, the template gone, or unreadable.
   let seen = $state<{ state: 'reading' | 'kept' | 'dropped' | 'deleted' | 'unknown'; name: string }>({ state: 'reading', name: '' })
   const life = new AbortController()
@@ -18,9 +19,9 @@
 </script>
 
 {#if seen.state !== 'reading'}<p class="from">
-  {#if seen.state === 'deleted'}From a template that has since been deleted, version {version}.
-  {:else if seen.state === 'unknown'}From a template, version {version}.
-  {:else}From template <button class="inline" type="button" onclick={() => onopen(id)}>{seen.name}</button>, version {version}{seen.state === 'dropped' ? ', which is no longer kept' : ''}.{/if}
+  {#if seen.state === 'deleted'}{#if recorded}From template {recorded}, version {version}. That template has since been deleted.{:else}From a template that has since been deleted, version {version}.{/if}
+  {:else if seen.state === 'unknown'}{recorded ? `From template ${recorded}, version ${version}.` : `From a template, version ${version}.`}
+  {:else}From template <button class="inline" type="button" onclick={() => onopen(id)}>{recorded || seen.name}</button>, version {version}{seen.state === 'dropped' ? ', which is no longer kept' : ''}.{/if}
 </p>{/if}
 
 <style>

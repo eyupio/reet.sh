@@ -96,7 +96,7 @@
       <div class="head">
         <h3 tabindex="-1" bind:this={heading}>{one.content.name}</h3>
         {#if one.content.description}<p class="description">{one.content.description}</p>{/if}
-        <p class="meta">Version {one.version}{one.version !== one.latest ? ` (the latest is ${one.latest})` : ''} · {one.content.pipelines.length} {one.content.pipelines.length === 1 ? 'pipeline' : 'pipelines'} · saved {when(one.createdAt)} · {usedWords(one.lastUsedVersion)}</p>
+        <p class="meta">Version {one.version}{one.version !== one.latest ? ` (the latest is ${one.latest})` : ''} · {one.content.pipelines.length} {one.content.pipelines.length === 1 ? 'pipeline' : 'pipelines'} · saved {when(one.createdAt)} · {usedWords(one.lastUsedVersion, one.lastUsedAt, when)}</p>
       </div>
       {#if one.versions.length > 1}<div class="field"><label for={`${uid}-version`}>Version</label>
         <select id={`${uid}-version`} value={one.version} onchange={event => void open(one.id, Number(event.currentTarget.value))}>{#each [...one.versions].reverse() as n (n)}<option value={n}>Version {n}{n === one.latest ? ' (latest)' : ''}{n === one.lastUsedVersion ? ' (last used)' : ''}</option>{/each}</select></div>{/if}
@@ -135,7 +135,7 @@
           <div class="what">
             <button class="open" type="button" onclick={() => void open(item.id)}>{item.name}</button>
             {#if item.description}<p class="description">{item.description}</p>{/if}
-            <p class="meta">Version {item.version} · {item.pipelines} {item.pipelines === 1 ? 'pipeline' : 'pipelines'} · changed {when(item.updatedAt)} · {usedWords(item.lastUsedVersion)}</p>
+            <p class="meta">Version {item.version} · {item.pipelines} {item.pipelines === 1 ? 'pipeline' : 'pipelines'} · changed {when(item.updatedAt)} · {usedWords(item.lastUsedVersion, item.lastUsedAt, when)}</p>
           </div>
           <button class="btn primary" type="button" aria-label={`Use ${item.name}`} onclick={() => onuse(item.id, item.version)}>Use</button>
         </li>{/each}

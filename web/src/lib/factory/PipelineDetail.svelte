@@ -230,7 +230,7 @@
       <p class="eyebrow">{objective} · pipeline {item.index} of {item.of}</p>
       <div class="name"><h2 id={`${uid}-title`} tabindex="-1">{piece.title}</h2><span class="chip {tone}">{item.chip}</span></div>
       <p class="meta">{record.projectName || 'Project'} · started {helpers.when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {helpers.when(record.archivedAt)}{/if}</p>
-      {#if record.templateId && record.templateVersion}{#key record.templateId + record.templateVersion}<TemplateLine id={record.templateId} version={record.templateVersion} onopen={actions.openTemplate}/>{/key}{/if}
+      {#if record.templateId && record.templateVersion}{#key record.templateId + record.templateVersion}<TemplateLine id={record.templateId} version={record.templateVersion} name={record.templateName} onopen={actions.openTemplate}/>{/key}{/if}
     </div>
     <div class="head-actions">
       {#if piece.sessionId && piece.sessionState !== 'gone'}<a class="btn quiet" href={helpers.sessionHref(record, piece.sessionId)}>{alive ? 'Open session' : 'Read the ended session'}</a>{/if}

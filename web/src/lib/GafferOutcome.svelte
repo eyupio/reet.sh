@@ -29,7 +29,7 @@
   import TemplatePlan from './factory/TemplatePlan.svelte'
   import Templates from './factory/Templates.svelte'
   import { attemptIds, mayHaveArrived } from './factory/delivery'
-  import { changesSince, conflictWords, skippedKeys } from './factory/templates'
+  import { changesSince, changesWords, conflictWords, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { inWords, launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
@@ -57,8 +57,8 @@
     tplReading = true; tplError = ''
     try {
       const next = await getGafferTemplate(id, version, life.signal)
-      const base = changesSince(next.lastUsedVersion, next.version)
-      tplDiff = base ? await diffGafferTemplate(id, base, next.version, life.signal).catch(() => null) : null
+      // Compared from the version last used, or the oldest kept when that one has gone: the server chooses.
+      tplDiff = changesSince(next.lastUsedVersion, next.version) ? await diffGafferTemplate(id, 0, next.version, life.signal).catch(() => null) : null
       tpl = next; template = { id, version: next.version }; skipOk = false
       sessions = next.content.pipelines.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: orderStages([...new Set(item.stages.map(stage => stage.kind))]), criteria: item.criteria.map(one => one.text), ...planRatings(item.stages) }))
       step = 'plan'
@@ -497,7 +497,9 @@
     if (busy || approveBlocker || !provider || !project || !tool || !one || (gaps.length && !skipOk)) return
     busy = true; startError = ''
     const skipped = skippedKeys(gaps)
-    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
+    // The crew is sent tier by tier exactly as the readiness above reads it, so what is shown is what starts.
+    const crewChosen = { light: tierCrew(sentFor('light')), standard: tierCrew(sentFor('standard')), heavy: tierCrew(sentFor('heavy')) }
+    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), crew: crewChosen, confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
     try {
       record = await launchGafferTemplate(one.id, { ...body, requestId: launchIds.idFor(JSON.stringify(body)) }, life.signal)
       launchIds.clear(); step = 'results'; watch(record.id); await onstarted()
@@ -505,8 +507,12 @@
       if (life.signal.aborted) return
       const code = e instanceof ApiError ? e.code : ''
       if (!mayHaveArrived(e)) launchIds.clear()
-      // The skills changed since they were shown: read them again and keep every other choice.
-      if (code === 'template_skills_changed') { await readTemplate(one.id, one.version); startError = 'The approved skills changed while you were looking. The list below is the current one. Check it and start again.' }
+      // The skills changed since they were shown: the refusal carries them as they are now. Every other choice stays.
+      if (code === 'template_skills_changed') {
+        const now = refusedGaps(e instanceof ApiError ? e.body : undefined)
+        if (now && tpl) { tpl = { ...tpl, skillGaps: now }; skipOk = false } else await readTemplate(one.id, one.version)
+        startError = 'The approved skills changed while you were looking. The list below is the current one. Check it and start again.'
+      }
       else startError = e instanceof Error && e.message ? conflictWords(code, e.message) + (mayHaveArrived(e) ? ' It may not have arrived. Trying again is safe: it starts once.' : '') : 'The outcome was not started. Nothing was started.'
     } finally { busy = false }
   }
@@ -566,13 +572,13 @@
           {#each [...tpl.versions].reverse() as n (n)}<option value={n}>Version {n}{n === tpl.latest ? ' (latest)' : ''}{n === tpl.lastUsedVersion ? ' (last used)' : ''}</option>{/each}
         </select></label>{/if}
         {#if tplError}<p class="warning" role="alert">{tplError}</p>{/if}
-        {#if tplDiff}<TemplateChanges diff={tplDiff} title={`Changed since version ${tplDiff.from}, the one you last used`}/>{/if}
+        {#if tplDiff}{@const said = changesWords(tplDiff, tpl.lastUsedVersion)}<TemplateChanges diff={tplDiff} title={said.title} note={said.note}/>{/if}
         <TemplatePlan content={tpl.content} gaps={gaps}/>
         {#if gaps.length}<label class="trust"><input type="checkbox" bind:checked={skipOk} disabled={busy}/><span><strong>Start without these skills.</strong> {gaps.length === 1 ? 'The skill' : `The ${gaps.length} skills`} marked above {gaps.length === 1 ? 'is' : 'are'} left out of {gaps.length === 1 ? 'its stage' : 'their stages'}. Nothing else changes.</span></label>{/if}
         <p class="hint">Choose where it runs. The project decides the machine.</p>
         {@render where()}
         {@render savedCrewBlock()}
-        {#if anyBackup}{@render balanceField()}{/if}
+        {@render crewDetails()}
         {@render readinessPanel()}
         {@render launchChoices()}
         <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
@@ -664,7 +670,7 @@
 {#if yoloOpen && machine}<YoloDialog gates={yoloGates} tool={tool} structured machine={machine.host} enabling oncancel={() => { yoloOpen = false }} onstart={() => { if (yoloCanStart(yoloGates)) yolo = true; yoloOpen = false }}/>{/if}
 {#if declining}<ConfirmDialog title="Decline this proposal?" body="Nothing has started. This plan will not be approved or started, and stays here so you can tell Gaffer what you want instead or go back to the outcome." confirmLabel="Decline proposal" oncancel={() => declining = false} onconfirm={() => { declined = true; declining = false }}/>{/if}
 
-<!-- Where the work runs and which agent starts it. A template's launch has no effort or session count, and no repository to clone first. -->
+<!-- Where the work runs and which agent starts it. A template's launch has no session count, and no repository to clone first. -->
 {#snippet where()}
           <div class="pair">
             <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning || cloning}>
@@ -681,10 +687,10 @@
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
             <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool}/></label>
-            {#if !template}<label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2}>
+            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2}>
               {#each efforts(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : efforts(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
             </select></label>
-            <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
+            {#if !template}<label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
             </select></label>{/if}
             {#if sourceShown}<div class="source-field"><ClineSourceSelect label="Source" value={chosenSource} saved={savedSource} offered={sourceOffered} note={startSource.note} disabled={planning} onchange={pickSource} onsaved={next => savedSource = next} /></div>{/if}
@@ -696,7 +702,7 @@
             </div>
           {/if}
 {/snippet}
-<!-- What the person saved in Gaffer settings: a template launch takes each stage's agent from it. -->
+<!-- What the person saved in Gaffer settings: the crew editor starts from it. -->
 {#snippet savedCrewBlock()}
           {#if crewRead !== 'reading'}
             <section class="saved-crew" aria-label="Your Gaffer settings">
@@ -708,7 +714,7 @@
                     <dd><span class="saved-part">Agent</span> {chatToolName(row.tool)}<span class="saved-sep" aria-hidden="true">·</span><span class="saved-part">Model</span> {row.model || 'Agent’s default model'}</dd>
                   </div>{/each}
                 </dl>
-                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. {template ? 'A template starts each stage on its tier’s saved agent, the crew as it is saved when you start. A saved agent this machine cannot run falls back to the outcome’s own agent.' : 'The crew below starts from these; a saved agent this machine cannot run falls back to the outcome’s own agent. You can change them for this outcome below.'}</p>
+                <p class="hint">The agent and model saved for each tier in <a href="/account/gaffer">Gaffer settings</a>. The crew below starts from these; a saved agent this machine cannot run falls back to the outcome’s own agent. You can change them for this outcome below.</p>
                 {#if unavailableCrew.length}<p class="hint" role="status">{unavailableCrew.map(item => `${item.label} uses the outcome’s agent because ${chatToolName(item.tool)} is unavailable on this machine.`).join(' ')}</p>{/if}
               {:else if crewRead === 'failed'}
                 <p class="hint">Your Gaffer settings could not be read. Each stage will use the agent and model you choose below. <a href="/account/gaffer">Open Gaffer settings</a>.</p>
@@ -718,14 +724,14 @@
             </section>
           {/if}
 {/snippet}
-<!-- What each stage would run on, before the person starts. A blocker here holds the start, for a template as for a plan. -->
+<!-- What each stage would run on, before the person starts. A blocker here holds the start, for a template as for a plan, and opens the crew editor. -->
 {#snippet readinessPanel()}
       {#if launch.ready + launch.look + launch.blocked + launch.reading}<section class="readiness" aria-label="Launch readiness">
         <p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
         {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.level}>
           <span class="mark" aria-hidden="true">{cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
           <span class="text"><strong>{cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. {cause.text}</span>
-          {#if cause.level !== 'note' && !cause.machine}{#if template}{#if cause.level === 'blocked'}<a class="btn" href="/account/gaffer">Open Gaffer settings</a>{/if}{:else}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}{/if}
+          {#if cause.level !== 'note' && !cause.machine}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
         </li>{/each}</ul>{/if}
       </section>{/if}
 {/snippet}

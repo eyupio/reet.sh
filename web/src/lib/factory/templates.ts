@@ -1,5 +1,5 @@
 // What a template's pages say, kept as plain functions so the wording can be tested without a page.
-import type { TemplateDiff, TemplateSkillGap } from '../api'
+import type { GafferCrewTier, TemplateDiff, TemplateSkillGap } from '../api'
 import { stageLabel } from '../gafferOutcome'
 
 const short = (revision: string) => revision.slice(0, 8)
@@ -24,6 +24,7 @@ export function diffLines(diff: TemplateDiff): { general: string[]; pipelines: {
   const general = [
     ...(diff.nameChanged ? ['The name changed.'] : []), ...(diff.descriptionChanged ? ['The description changed.'] : []),
     ...(diff.objectiveChanged ? ['The objective changed.'] : []), ...(diff.limitsChanged ? ['The review limits changed.'] : []),
+    ...(diff.orderChanged ? ['The pipelines run in another order.'] : []),
   ]
   const pipelines = diff.pipelines.filter(p => p.change !== 'same').map(p => {
     if (p.change === 'added') return { title: p.title, lines: ['Added.'] }
@@ -48,4 +49,22 @@ export function conflictWords(code: string, said: string): string {
   return said
 }
 
-export const usedWords = (lastUsed: number | undefined): string => (lastUsed ? `Last used at version ${lastUsed}` : 'Not used yet')
+export const usedWords = (lastUsed: number | undefined, at: number | undefined, when: (at: number) => string): string =>
+  !lastUsed ? 'Not used yet' : at ? `Last used ${when(at)} (version ${lastUsed})` : `Last used at version ${lastUsed}`
+
+/** The heading of the changes shown before a start, and a note when the version last used is no longer kept. */
+export function changesWords(diff: Pick<TemplateDiff, 'from' | 'olderNotShown'>, lastUsed: number | undefined): { title: string; note: string } {
+  if (!diff.olderNotShown) return { title: `Changed since version ${diff.from}, the one you last used`, note: '' }
+  return { title: `Changed since version ${diff.from}, the oldest kept`, note: `Version ${lastUsed}, the one you last used, is no longer kept, so changes before version ${diff.from} are not shown.` }
+}
+
+/** The gaps a template_skills_changed refusal carries, or null when it carries none and the template must be read again. */
+export function refusedGaps(body: { gaps?: unknown } | undefined): TemplateSkillGap[] | null {
+  return Array.isArray(body?.gaps) ? (body.gaps as TemplateSkillGap[]) : null
+}
+
+/** One tier of the crew a launch sends: what a stage on that tier is sent with, without the stage's own fields. */
+export function tierCrew(stage: GafferCrewTier & { kind: string }): GafferCrewTier {
+  const { tool, model, effort, provider, backup, moreBackups } = stage
+  return { tool, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(provider ? { provider } : {}), ...(backup ? { backup } : {}), ...(moreBackups ? { moreBackups } : {}) }
+}

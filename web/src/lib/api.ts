@@ -158,13 +158,16 @@ export class ApiError extends Error {
   field: string
   /** The skills a refusal names, when the server gave them (for example a Delete refused with 'no-copy' or 'written'). */
   names: string[]
-  constructor(message: string, status: number, code = '', field = '', names: string[] = []) {
+  /** The whole refusal as the server sent it, for a refusal that carries more than a sentence. */
+  body: Record<string, unknown>
+  constructor(message: string, status: number, code = '', field = '', names: string[] = [], body: Record<string, unknown> = {}) {
     super(message)
     this.field = field
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.names = names
+    this.body = body
   }
 }
 
@@ -232,9 +235,10 @@ async function req(path: string, init: RequestInit = {}, quiet = false): Promise
     let code = ''
     let field = ''
     let names: string[] = []
+    let body: Record<string, unknown> = {}
     try {
-      const body = await res.json()
-      msg = body.error ?? msg
+      body = await res.json()
+      msg = (body.error as string | undefined) ?? msg
       if (typeof body.code === 'string') code = body.code
       if (typeof body.field === 'string') field = body.field
       if (Array.isArray(body.names)) names = body.names.filter((n: unknown): n is string => typeof n === 'string')
@@ -242,7 +246,7 @@ async function req(path: string, init: RequestInit = {}, quiet = false): Promise
     } catch {
       /* keep status text */
     }
-    throw new ApiError(msg, res.status, code, field, names)
+    throw new ApiError(msg, res.status, code, field, names, body && typeof body === 'object' ? body : {})
   }
   return res
 }
@@ -321,7 +325,7 @@ export type GafferOutcomeStage = { kind: string; /** For one part of a split sta
 export type GafferOutcomeReport = { text: string; at: number; model: string; inputTokens: number; outputTokens: number; usageReported: boolean; auto?: boolean; proposals?: { title: string; prompt: string; stages?: string[]; why?: string }[] }
 export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'advancing' | 'delivery_review' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number; stages?: GafferOutcomeStage[]; /** The acceptance criteria the person agreed. A pipeline with none is not delivery-reviewed. */ criteria?: { id: string; text: string; revision: number }[]; criteriaRevision?: number; reviewRevision?: number; /** The recorded delivery decisions, newest last. */ deliveries?: DeliveryDecision[]; deliveryAccepted?: boolean; stage?: number; workDir?: string; autoMerge?: boolean; yoloMergeOk?: boolean; mergeApproved?: boolean; /** For a pipeline with no stages: what its session was read back to be running, against the outcome's own agent and model. */ applied?: { tool: string; model?: string; appliedTool?: string; appliedModel?: string; appliedEffort?: string; appliedAt?: number; choiceCheck?: string; choiceNote?: string }; /** Whether the session in hand is still there. Absent from a controller that does not say. */ sessionState?: 'running' | 'ended' | 'gone'; /** Gaffer conversations of sessions this pipeline has left behind. */ retired?: string[] }
 /** An approved plan the controller starts and follows. `state` is "starting" while it still has sessions to start. */
-export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; provider?: string; trust?: boolean; yolo?: boolean; pullLatest?: 'yes' | 'no'; autoReport?: boolean; providerId: string; /** The uploaded machine paths the person attached to the outcome. Older outcomes have none. */ images?: string[]; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; /** The share of a plan, in percent, under which a stage of this outcome starts on its backup. Absent is reet's default. */ balanceBelow?: number; /** Gaffer takes this outcome's decisions when a stage stops. Never a merge or an agent's approval. */ automation?: boolean; /** What Gaffer decided for the person and why, newest last. */ decisions?: GafferOutcomeDecision[]; archivedAt?: number; /** The private template this outcome was started from, and its version. Absent for any other outcome. */ templateId?: string; templateVersion?: number; createdAt: number; updatedAt: number }
+export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; provider?: string; trust?: boolean; yolo?: boolean; pullLatest?: 'yes' | 'no'; autoReport?: boolean; providerId: string; /** The uploaded machine paths the person attached to the outcome. Older outcomes have none. */ images?: string[]; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; /** The share of a plan, in percent, under which a stage of this outcome starts on its backup. Absent is reet's default. */ balanceBelow?: number; /** Gaffer takes this outcome's decisions when a stage stops. Never a merge or an agent's approval. */ automation?: boolean; /** What Gaffer decided for the person and why, newest last. */ decisions?: GafferOutcomeDecision[]; archivedAt?: number; /** The private template this outcome was started from, its version, and its name then. Absent for any other outcome; older ones have no name. */ templateId?: string; templateVersion?: number; templateName?: string; createdAt: number; updatedAt: number }
 /** One decision Gaffer took on an outcome whose decisions it was given. `failed` is a stop it could not decide, left with the person. */
 export type GafferOutcomeDecision = { at: number; key: string; title: string; stage: string; about: string; choice?: string; why: string; text?: string; failed?: boolean; model?: string }
 export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; provider?: string; trust: boolean; yolo?: boolean; /** For the first worktree of each pipeline: 'yes' starts from GitHub's latest commit for the base, 'no' from this machine's copy; absent uses the project's setting, then the account's. */ pullLatest?: 'yes' | 'no'; autoReport?: boolean; /** Gaffer takes the decisions when a stage stops. */ automation?: boolean; /** The share of a plan, in percent, under which a stage starts on its backup. */ balanceBelow?: number; autoMerge: boolean; /** The uploaded machine paths attached to the outcome. */ images?: string[]; sessions: { title: string; prompt: string; criteria?: string[]; stages?: { kind: string; tool: string; model: string; effort?: string; provider?: string; tier?: string; tierWhy?: string; backup?: GafferStageAgent; moreBackups?: GafferStageAgent[]; part?: string; brief?: string }[] }[]; maxReviews: number; hours: number; confirmed: true }
@@ -396,16 +400,18 @@ export type TemplateSkill = { id: string; name: string; source: string; revision
 export type TemplateStage = { kind: string; part?: string; brief?: string; tier: string; tierWhy?: string; skills: TemplateSkill[] }
 export type TemplatePipeline = { title: string; prompt: string; autoMerge: boolean; stages: TemplateStage[]; criteria: { id: string; text: string }[] }
 export type TemplateContent = { name: string; description: string; objective: string; maxReviews: number; hours: number; pipelines: TemplatePipeline[] }
-export type TemplateSummary = { id: string; version: number; name: string; description: string; pipelines: number; createdAt: number; updatedAt: number; lastUsedVersion?: number }
+export type TemplateSummary = { id: string; version: number; name: string; description: string; pipelines: number; createdAt: number; updatedAt: number; lastUsedVersion?: number; /** When the newest outcome started from it was made; 0 when none is kept. */ lastUsedAt?: number }
 /** A skill the template names that is no longer approved at its revision. `key` is what a launch sends to start without it. */
 export type TemplateSkillGap = { pipeline: number; stage: number; id: string; name: string; revision: string; status: 'changed' | 'unavailable'; key: string }
-export type Template = { id: string; version: number; latest: number; versions: number[]; requestId: string; outcomeId: string; createdAt: number; lastUsedVersion?: number; content: TemplateContent; skillGaps?: TemplateSkillGap[] }
+export type Template = { id: string; version: number; latest: number; versions: number[]; requestId: string; outcomeId: string; createdAt: number; lastUsedVersion?: number; lastUsedAt?: number; content: TemplateContent; skillGaps?: TemplateSkillGap[] }
 export type TemplateDiff = {
   from: number; to: number; changed: boolean; nameChanged: boolean; descriptionChanged: boolean; objectiveChanged: boolean; limitsChanged: boolean
+  /** The pipelines both versions have run in another order. */ orderChanged?: boolean
+  /** The version last used is no longer kept, so `from` is the oldest kept and older changes are not shown. */ olderNotShown?: boolean
   pipelines: { title: string; change: 'added' | 'removed' | 'changed' | 'same'; promptChanged: boolean; autoMergeChanged: boolean; stagesChanged: boolean; stagesBefore: string[]; stagesAfter: string[]
     criteria: { added: string[]; removed: string[]; reworded: { id: string; from: string; to: string }[] }; skills: { stage: string; id: string; name: string; from: string; to: string }[] }[]
 }
-export type TemplateLaunchInput = { requestId: string; version: number; projectId: string; tool: string; model?: string; provider?: string; trust: boolean; yolo: boolean; pullLatest?: 'yes' | 'no'; autoReport: boolean; automation: boolean; balanceBelow?: number; skippedSkills?: string[]; confirmed: true }
+export type TemplateLaunchInput = { requestId: string; version: number; projectId: string; tool: string; model?: string; provider?: string; trust: boolean; yolo: boolean; pullLatest?: 'yes' | 'no'; autoReport: boolean; automation: boolean; balanceBelow?: number; /** Who does each tier's stages, as the crew editor shows it. Absent takes the saved crew. */ crew?: { light: GafferCrewTier; standard: GafferCrewTier; heavy: GafferCrewTier }; skippedSkills?: string[]; confirmed: true }
 const templatePath = (id: string) => `/api/v2/gaffer/templates/${encodeURIComponent(id)}`
 export async function listGafferTemplates(signal?: AbortSignal): Promise<TemplateSummary[]> { return (await (await req('/api/v2/gaffer/templates', { signal, cache: 'no-store' })).json()).templates }
 /** The latest version, or the one asked for. */
@@ -413,7 +419,8 @@ export async function getGafferTemplate(id: string, version = 0, signal?: AbortS
 export async function saveGafferTemplate(input: { requestId: string; outcomeId: string; name: string; description?: string; templateId?: string; baseVersion?: number }, signal?: AbortSignal): Promise<Template> { return (await req('/api/v2/gaffer/templates', { method: 'POST', body: json(input), signal })).json() }
 /** A new version of the template: its content, with whatever the person changed. */
 export async function editGafferTemplate(id: string, input: { requestId: string; baseVersion: number; content: TemplateContent }, signal?: AbortSignal): Promise<Template> { return (await req(templatePath(id), { method: 'PUT', body: json(input), signal })).json() }
-export async function diffGafferTemplate(id: string, from: number, to: number, signal?: AbortSignal): Promise<TemplateDiff> { return (await req(`${templatePath(id)}/diff?from=${from}&to=${to}`, { signal, cache: 'no-store' })).json() }
+/** `from` 0 is the version last used (or, when that is no longer kept, the oldest kept); `to` 0 is the latest. */
+export async function diffGafferTemplate(id: string, from: number, to: number, signal?: AbortSignal): Promise<TemplateDiff> { return (await req(`${templatePath(id)}/diff?${new URLSearchParams({ ...(from ? { from: String(from) } : {}), ...(to ? { to: String(to) } : {}) })}`, { signal, cache: 'no-store' })).json() }
 export async function launchGafferTemplate(id: string, input: TemplateLaunchInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${templatePath(id)}/launch`, { method: 'POST', body: json(input), signal })).json() }
 /** Removes the template and every version; `latest` is the newest version the person saw. Outcomes already started are untouched. */
 export async function deleteGafferTemplate(id: string, latest: number, signal?: AbortSignal): Promise<void> { await req(`${templatePath(id)}?version=${latest}`, { method: 'DELETE', signal }) }

@@ -19,8 +19,10 @@ test('newer than last used means the latest is past the last used version', () =
   assert.equal(t.newerThanLastUsed({ latest: 3, lastUsedVersion: 2 }), true)
   assert.equal(t.newerThanLastUsed({ latest: 3, lastUsedVersion: 3 }), false)
   assert.equal(t.newerThanLastUsed({ latest: 3 }), false)
-  assert.equal(t.usedWords(2), 'Last used at version 2')
-  assert.equal(t.usedWords(undefined), 'Not used yet')
+  const when = at => `at ${at}`
+  assert.equal(t.usedWords(2, 1795, when), 'Last used at 1795 (version 2)')
+  assert.equal(t.usedWords(2, 0, when), 'Last used at version 2')
+  assert.equal(t.usedWords(undefined, 0, when), 'Not used yet')
 })
 
 test('skipped skills are exactly the keys of the gaps shown', () => {
@@ -55,4 +57,28 @@ test('a difference reads as plain lines, and a pipeline that is the same says no
 test('a changed template is said in the person’s words, other refusals in the server’s', () => {
   assert.match(t.conflictWords('template_changed', 'x'), /another tab/)
   assert.equal(t.conflictWords('template_limit', 'You already have 20 templates.'), 'You already have 20 templates.')
+})
+
+test('pipelines put in another order say so', () => {
+  const lines = t.diffLines({ from: 1, to: 2, changed: true, nameChanged: false, descriptionChanged: false, objectiveChanged: false, limitsChanged: false, orderChanged: true, pipelines: [] })
+  assert.deepEqual(lines.general, ['The pipelines run in another order.'])
+})
+
+test('changes are titled from the version last used, or the oldest kept when that one is gone', () => {
+  assert.deepEqual(t.changesWords({ from: 2, to: 3, olderNotShown: false }, 2), { title: 'Changed since version 2, the one you last used', note: '' })
+  assert.deepEqual(t.changesWords({ from: 4, to: 23, olderNotShown: true }, 1), { title: 'Changed since version 4, the oldest kept', note: 'Version 1, the one you last used, is no longer kept, so changes before version 4 are not shown.' })
+})
+
+test('a skills refusal gives its gaps when the server sent them, and nothing otherwise', () => {
+  const gap = { pipeline: 0, stage: 1, id: 'library:a', name: 'A', revision: 'r1', status: 'unavailable', key: '0:1:library:a' }
+  assert.deepEqual(t.refusedGaps({ code: 'template_skills_changed', gaps: [gap] }), [gap])
+  assert.deepEqual(t.refusedGaps({ code: 'template_skills_changed', gaps: [] }), [])
+  assert.equal(t.refusedGaps({ code: 'template_skills_changed' }), null)
+  assert.equal(t.refusedGaps(undefined), null)
+})
+
+test('a tier of the launch crew is the stage entry without its stage fields', () => {
+  assert.deepEqual(t.tierCrew({ kind: 'code', tier: 'heavy', tool: 'claude', model: 'm', effort: 'high', backup: { tool: 'codex' }, moreBackups: [{ tool: 'opencode' }] }),
+    { tool: 'claude', model: 'm', effort: 'high', backup: { tool: 'codex' }, moreBackups: [{ tool: 'opencode' }] })
+  assert.deepEqual(t.tierCrew({ kind: 'code', tool: 'cline', provider: 'own' }), { tool: 'cline', provider: 'own' })
 })

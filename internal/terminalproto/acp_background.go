@@ -14,6 +14,11 @@ const ACPBackgroundFeature = "acp-background-v1"
 // session, or a pipeline waiting on it, for good.
 const BackgroundHoldLimit = 30 * time.Minute
 
+// ACPCodeUnwatched marks an idle status after which reet stopped waiting for
+// work the agent never said had finished: it may still be running. Sent only
+// with acp-background-v1, like the count.
+const ACPCodeUnwatched = "unwatched"
+
 // MaxACPBackground bounds the count a machine may report.
 const MaxACPBackground = 1000
 

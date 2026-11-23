@@ -14,7 +14,7 @@ func TestBackgroundCountFollowsTheNegotiatedFeature(t *testing.T) {
 	for _, background := range []bool{true, false} {
 		h, proc, out := toolDetailHost(t, true)
 		h.link.background = background
-		proc.onEvent(acpagent.Event{Kind: "status", State: "idle", Background: 2})
+		proc.onEvent(acpagent.Event{Kind: "status", State: "idle", Background: 2, Code: terminalproto.ACPCodeUnwatched})
 		var seen *terminalproto.ACPEvent
 		out.mu.Lock()
 		for _, m := range out.msgs {
@@ -33,6 +33,9 @@ func TestBackgroundCountFollowsTheNegotiatedFeature(t *testing.T) {
 		}
 		if seen.Background != want {
 			t.Fatalf("background=%v: sent count %d, want %d", background, seen.Background, want)
+		}
+		if wantCode := map[bool]string{true: terminalproto.ACPCodeUnwatched, false: ""}[background]; seen.Code != wantCode {
+			t.Fatalf("background=%v: sent code %q, want %q", background, seen.Code, wantCode)
 		}
 	}
 }

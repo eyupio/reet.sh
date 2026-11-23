@@ -75,3 +75,17 @@ func TestACPBackgroundFeatureNamed(t *testing.T) {
 		t.Fatal("feature name or hold limit changed")
 	}
 }
+
+func TestACPUnwatchedCodeOnlyOnIdleStatus(t *testing.T) {
+	if !(ACPEvent{Kind: "status", State: "idle", Code: ACPCodeUnwatched}).valid() {
+		t.Fatal("an idle status that stopped waiting was refused")
+	}
+	for _, e := range []ACPEvent{{Kind: "status", State: "working", Code: ACPCodeUnwatched}, {Kind: "notice", Text: "x", Code: ACPCodeUnwatched}} {
+		if e.valid() {
+			t.Fatalf("accepted %+v", e)
+		}
+	}
+	if _, err := Decode(encodedStatus(t, ACPEvent{Kind: "status", State: "idle", Code: ACPCodeUnwatched})); err != nil {
+		t.Fatal(err)
+	}
+}

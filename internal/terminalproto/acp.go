@@ -301,6 +301,9 @@ func (e ACPEvent) valid() bool {
 	if !validBackground(e.Background) || e.Background > 0 && (e.Kind != "status" || e.State != "idle") {
 		return false
 	}
+	if e.Code == ACPCodeUnwatched && (e.Kind != "status" || e.State != "idle") {
+		return false
+	}
 	if e.Code != "" && e.Kind != "status" {
 		return false
 	}
@@ -557,7 +560,7 @@ func validACPEventCode(kind, code string) bool {
 	if code == "" {
 		return true
 	}
-	return kind == "status" && code == "login"
+	return kind == "status" && (code == "login" || code == ACPCodeUnwatched)
 }
 
 func validLocations(paths []string) bool {

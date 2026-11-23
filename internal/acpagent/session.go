@@ -186,6 +186,9 @@ type Session struct {
 	statusMu   sync.Mutex
 	lastStatus string
 	reported   int
+	// unwatched is set when held calls were given up on at the limit; the next
+	// idle status says so, so the controller does not call the turn finished.
+	unwatched bool
 	done       chan struct{}
 	doneOnce   sync.Once
 	retired    bool
@@ -559,6 +562,10 @@ func (s *Session) emitLocked(event Event) {
 		// as the held work having ended.
 		event.Background = s.heldCountLocked()
 		s.reported = event.Background
+		if s.unwatched {
+			event.Code = terminalproto.ACPCodeUnwatched
+			s.unwatched = false
+		}
 	}
 	if event.Kind == "status" {
 		s.lastStatus = event.State
@@ -1563,6 +1570,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.turnSeq++
 	seq := s.turnSeq
 	s.turnStart = time.Now()
+	s.mu.Lock()
+	// A new message is the person carrying on: an earlier give-up is said in the transcript.
+	s.unwatched = false
+	s.mu.Unlock()
 	s.warned = false
 	s.mu.Lock()
 	s.lastEvent = s.turnStart
@@ -1823,6 +1834,9 @@ func (s *Session) releaseExpiredHold() {
 			dropped++
 		}
 	}
+	if dropped > 0 {
+		s.unwatched = true
+	}
 	s.armHoldLocked(now)
 	s.mu.Unlock()
 	if dropped == 0 {
@@ -1830,12 +1844,29 @@ func (s *Session) releaseExpiredHold() {
 		s.reportHeld()
 		return
 	}
-	tasks := strconv.Itoa(dropped) + " background tasks"
-	if dropped == 1 {
-		tasks = "a background task"
-	}
-	s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " never said whether " + tasks + " finished, so this chat no longer waits for them."})
+	s.emit(Event{Kind: "notice", Text: unwatchedNotice(s.opts.Agent.displayName(), dropped, s.opts.backgroundHold())})
 	s.reportHeld()
+}
+
+// unwatchedNotice says that reet stopped waiting for work it was never told had
+// finished, and that the work may still be running on this machine.
+func unwatchedNotice(agent string, dropped int, hold time.Duration) string {
+	machine, err := os.Hostname()
+	if err != nil || strings.TrimSpace(machine) == "" {
+		machine = "this machine"
+	}
+	minutes := int(hold.Round(time.Minute) / time.Minute)
+	after := strconv.Itoa(minutes) + " minutes"
+	switch {
+	case minutes < 1:
+		after = "less than a minute"
+	case minutes == 1:
+		after = "a minute"
+	}
+	if dropped == 1 {
+		return agent + " never said whether its background task finished. After " + after + " reet stopped waiting; it may still be running on " + machine + "."
+	}
+	return agent + " never said whether its " + strconv.Itoa(dropped) + " background tasks finished. After " + after + " reet stopped waiting; they may still be running on " + machine + "."
 }
 
 // reportHeld tells the controller how much held work is left when that has

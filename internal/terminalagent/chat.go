@@ -358,7 +358,7 @@ func (s *chatSupervisor) flush(h *chatHost) {
 			event = withoutToolDetails(event)
 		}
 		if !h.link.background {
-			event.Background = 0
+			event = withoutBackground(event)
 		}
 		err := h.link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 			Generation: h.link.generation, Body: &event})
@@ -1149,7 +1149,7 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		wire = withoutToolDetails(wire)
 	}
 	if !link.background {
-		wire.Background = 0
+		wire = withoutBackground(wire)
 	}
 	if err := link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 		Generation: link.generation, Body: &wire}); err != nil {
@@ -1378,6 +1378,15 @@ func chatEventBytes(event terminalproto.ACPEvent) int {
 		len(event.Title) + len(event.ToolKind) + len(event.Status) + len(event.State) + len(event.Text) +
 		len(event.Command) + len(event.Path) + len(event.Diff) + len(event.Reason) + len(event.Detail) +
 		len(strings.Join(event.Locations, "")) + 48 // the numeric detail fields and their JSON separators
+}
+
+// withoutBackground is the status an older controller can decode: no held count and no stopped-waiting code.
+func withoutBackground(event terminalproto.ACPEvent) terminalproto.ACPEvent {
+	event.Background = 0
+	if event.Code == terminalproto.ACPCodeUnwatched {
+		event.Code = ""
+	}
+	return event
 }
 
 // withoutToolDetails is the plain tool event an older controller can decode: its strict decoder rejects unknown fields.

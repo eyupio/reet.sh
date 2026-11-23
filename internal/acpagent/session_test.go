@@ -2571,9 +2571,12 @@ func TestBackgroundHoldEndsAtItsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	notice := waitEvent(t, got, func(e Event) bool { return e.Kind == "notice" && strings.Contains(e.Text, "background") })
-	if !strings.Contains(notice.Text, "never said") {
-		t.Fatalf("notice = %q", notice.Text)
+	host, _ := os.Hostname()
+	if want := "OpenCode never said whether its background task finished. After less than a minute reet stopped waiting; it may still be running on " + host + "."; notice.Text != want {
+		t.Fatalf("notice = %q, want %q", notice.Text, want)
 	}
+	// The idle that follows says reet stopped waiting, so the turn is not called finished.
+	waitEvent(t, got, func(e Event) bool { return e.Kind == "status" && e.State == "idle" && e.Code == terminalproto.ACPCodeUnwatched && e.Background == 0 })
 	waitUntil(t, func() bool { return idleAfterNotice(got) })
 	if c := session.Controls(); c.Background != 0 {
 		t.Fatalf("controls still hold %d after the limit", c.Background)
@@ -2778,4 +2781,37 @@ func TestHeldToolKeepsItsDurationWhenItFinishes(t *testing.T) {
 		}
 	}
 	t.Fatal("the held tool's completion lost its duration")
+}
+
+func TestUnwatchedNoticeNamesTheLimitAndThePlural(t *testing.T) {
+	host, _ := os.Hostname()
+	if got := unwatchedNotice("Claude Code", 2, 30*time.Minute); got != "Claude Code never said whether its 2 background tasks finished. After 30 minutes reet stopped waiting; they may still be running on "+host+"." {
+		t.Fatalf("plural notice %q", got)
+	}
+}
+
+func TestAGiveUpDuringATurnIsSaidAtItsEnd(t *testing.T) {
+	s, got := heldSession(t)
+	s.opts.BackgroundHold = time.Millisecond
+	s.working = true
+	toolUpdate(s, "bg", "in_progress")
+	endTurn(s)
+	s.turnMu.Lock()
+	s.working = true
+	s.turnMu.Unlock()
+	s.emit(Event{Kind: "status", State: "working"})
+	time.Sleep(5 * time.Millisecond)
+	s.releaseExpiredHold()
+	endTurn(s)
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	last := Event{}
+	for _, event := range got.all {
+		if event.Kind == "status" && event.State == "idle" {
+			last = event
+		}
+	}
+	if last.Code != terminalproto.ACPCodeUnwatched || last.Background != 0 {
+		t.Fatalf("the turn's end hid the give-up: %+v", last)
+	}
 }

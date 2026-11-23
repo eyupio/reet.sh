@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { sessionStatus, stateStatus, statusLabel, needStatus } = await import(`data:text/javascript;base64,${Buffer.from(compile('./sessionStatus.ts')).toString('base64')}`)
+const await_module = await import(`data:text/javascript;base64,${Buffer.from(compile('./sessionStatus.ts')).toString('base64')}`)
+const { sessionStatus, stateStatus, statusLabel, needStatus } = await_module
 
 const session = (over = {}) => ({ state: 'running', exitCode: null, attention: undefined, attentionSource: undefined, ...over })
 
@@ -47,4 +48,16 @@ test('stateStatus is the lifecycle-only form', () => {
   assert.equal(stateStatus('creating'), 'starting')
   assert.equal(stateStatus('running'), 'working')
   assert.equal(stateStatus('lost'), 'failed')
+})
+
+test('a chat whose turn ended with work still running keeps the working colour, with its own held label', () => {
+  const { heldWork } = await_module
+  const held = session({ attention: 'working', attentionSource: 'chat', chatStatus: 'background' })
+  assert.equal(sessionStatus(held), 'working')
+  assert.equal(heldWork(held), true)
+  assert.equal(heldWork(session({ attention: 'working', attentionSource: 'chat', chatStatus: 'working' })), false)
+  assert.equal(heldWork(session({ attention: 'quiet', attentionSource: 'chat', chatStatus: 'background' })), false)
+  assert.equal(statusLabel('working', true), 'In background')
+  assert.equal(statusLabel('working'), 'Working')
+  assert.equal(statusLabel('waiting', true), 'Waiting')
 })

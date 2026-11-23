@@ -1107,6 +1107,17 @@ try {
   await expect.poll(() => sockets.get('sess-c').input).toContain('\x03')
   console.log("ok - a pane's failure leaves its neighbours live")
 
+  // ── a pane whose agent ended its turn with work still running ──
+  reset()
+  sessions = sessions.map(x => x.id === 'sess-a' ? { ...x, tool: 'claude', attention: 'working', attentionSource: 'chat', chatStatus: 'background' } : x)
+  await openSplit()
+  await expect(pane('pane-a')).toHaveAttribute('data-state', 'live')
+  await expect(pane('pane-a').locator('.word')).toHaveText('In background')
+  await expect(pane('pane-a').locator('.word')).toHaveAttribute('data-held', '')
+  await expect(pane('pane-a').locator('.word .status-ring')).toBeVisible()
+  if (process.env.REET_BACKGROUND_SHOTS) { await mkdir(process.env.REET_BACKGROUND_SHOTS, { recursive: true }); await pane('pane-a').locator('header').screenshot({ path: `${process.env.REET_BACKGROUND_SHOTS}/desk-pane.png` }) }
+  console.log('ok - a held pane says In background with the hollow ring')
+
   // ── theatre leaves the tab bar and panes ──
   reset()
   await openSplit()

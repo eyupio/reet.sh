@@ -317,3 +317,14 @@ test('a turn that ended with work still running says so and keeps the spinner', 
   assert.equal(view.phase, 'idle')
   assert.equal(view.label, 'Turn finished')
 })
+
+test('a turn that ended with work still running does not count that work as stopped', () => {
+  const held = state(prompt, tool('run', 'in_progress', { toolKind: 'execute', command: 'npm test' }), tool('done', 'completed'), { kind: 'status', state: 'idle', background: 1 })
+  const summary = gafferSummary(held)
+  assert.equal(summary.stopped, 0)
+  assert.deepEqual(summary.attention, [])
+  assert.deepEqual(summary.commands.map(c => c.status), ['in_progress'])
+  // Once the turn is not holding work, an unfinished call is a stopped one again.
+  const ended = state(prompt, tool('run', 'in_progress', { toolKind: 'execute' }), { kind: 'status', state: 'cancelled' })
+  assert.equal(gafferSummary(ended).stopped, 1)
+})

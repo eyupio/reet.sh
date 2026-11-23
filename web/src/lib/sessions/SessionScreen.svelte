@@ -9,7 +9,7 @@
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
-  import { sessionStatus } from '../sessionStatus'
+  import { heldWork, sessionStatus } from '../sessionStatus'
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, switchModeState, switchWhy, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
@@ -416,7 +416,7 @@
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
-      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else if statusKind === 'working' && heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}

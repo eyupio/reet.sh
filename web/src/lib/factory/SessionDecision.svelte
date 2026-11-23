@@ -4,7 +4,7 @@
   // dialogs (a merge, a new budget, stopping the outcome) go to the pipeline's card there.
   import { onMount } from 'svelte'
   import { controlGafferGoal, getGafferGoal, listGafferGoals, listGafferOutcomes, moveGafferPipelineOn, recoverGafferPipeline, retryGafferPipeline, tellGafferPipelineAgent, type GafferGoalOverview, type GafferOutcome, type GafferOutcomeSession } from '../api'
-  import { MAX_STAGE_DECISIONS, deliveryHref, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
+  import { HELD_STOPS, MAX_STAGE_DECISIONS, deliveryHref, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import Decision from './Decision.svelte'
   import PipelineNote from './PipelineNote.svelte'
@@ -105,7 +105,7 @@
     onstarted={async () => { replacing = false; bad = false; notice = 'Gaffer is continuing this stage with the model you chose.'; signalAttentionChanged(); await load() }}/>
 {/if}
 {#if notice}<p class="session-decision-note" class:bad role={bad ? 'alert' : 'status'}>{notice}</p>{/if}
-{#if moving && waiting}<ConfirmDialog title={`Move “${waiting.piece.title}” on?`} body="This closes the stage in hand as it stands and starts the next stage in a session of its own. Gaffer’s review of this stage is not waited for." confirmLabel="Move on" onconfirm={() => void moveOn()} oncancel={() => moving = false}/>{/if}
+{#if moving && waiting}<ConfirmDialog title={`Move “${waiting.piece.title}” on?`} body={`This closes the stage in hand as it stands and starts the next stage in a session of its own. Gaffer’s review of this stage is not waited for.${waiting.piece.stages?.[waiting.piece.stage ?? 0]?.agentState === 'background' ? ` ${HELD_STOPS}` : ''}`} confirmLabel="Move on" onconfirm={() => void moveOn()} oncancel={() => moving = false}/>{/if}
 {#if telling && waiting}<PipelineNote title={`Tell the agent of “${waiting.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = false} onconfirm={text => void tell(text)}/>{/if}
 
 <style>

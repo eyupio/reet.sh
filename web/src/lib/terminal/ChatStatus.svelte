@@ -8,15 +8,18 @@
   let { chat, dir = '', agent = 'Agent', usage = null, plan = [], planNow = Date.now(), replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null; plan?: PlanEntry[]; planNow?: number } = $props()
   const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
   const attention = $derived(view.phase === 'approval' || view.phase === 'question')
+  // The turn has ended: a spinner means the agent's turn, so held work gets the hollow ring instead.
+  const held = $derived(view.phase === 'background')
   const problem = $derived(view.phase === 'error' || view.phase === 'reconnecting')
   const catchingUp = $derived(!ended && (chat.connection === 'connecting' || (!replayed && chat.connection !== 'reconnecting')))
   const label = $derived(catchingUp ? `Catching up with ${agent}` : view.label)
   const detail = $derived(catchingUp ? 'Loading conversation…' : view.target || (view.active ? 'You can queue your next instruction.' : ''))
 </script>
 
-<div class="conversation-status" class:attention class:problem data-phase={view.phase} aria-label="Conversation status">
-  <span class="indicator" class:spinning={view.active || catchingUp} aria-hidden="true">
-    {#if view.active || catchingUp}<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="2" opacity=".18"/><path d="M10 3a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+<div class="conversation-status" class:attention class:problem class:held data-phase={view.phase} data-status={held ? 'working' : undefined} aria-label="Conversation status">
+  <span class="indicator" class:spinning={(view.active && !held) || catchingUp} aria-hidden="true">
+    {#if held && !catchingUp}<span class="status-ring"></span>
+    {:else if view.active || catchingUp}<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="2" opacity=".18"/><path d="M10 3a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     {:else if attention || problem}!{:else if view.phase === 'idle'}✓{:else}<span class="dot"></span>{/if}
   </span>
   <strong class="label" role="status" aria-live="polite" aria-atomic="true">{label}</strong>
@@ -59,7 +62,11 @@
   .usage.low .usage-meter > span { background: var(--warn); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @keyframes status-spin { to { transform: rotate(360deg); } }
-  @container chat-status (max-width: 620px) { .detail { display: none; } }
+  @container chat-status (max-width: 620px) { .detail { display: none; } .held .detail { display: block; flex: 1 1 100%; padding-left: 24px; white-space: normal; } }
+  .conversation-status.held { flex-wrap: wrap; }
+  /* Held work breathes slowly, never faster than every 3 s, and stands still for reduced motion. */
+  .held .status-ring { animation: held-breathe 3.2s ease-in-out infinite; }
+  @keyframes held-breathe { 50% { opacity: 0.45; } }
   @container chat-status (max-width: 420px) { .usage-meter { display: none; } }
   /* On a desktop the floating Ask Gaffer circle sits over this line's right-hand end, above the composer. Keep the
      figures out from under it; the circle is not shown beside a docked details panel, on a phone or on a touch tablet. */
@@ -69,5 +76,5 @@
   /* On a phone, an approval or a question is already said twice above this line: by the pane's status line and by the
      card that asks. A third time costs a row of the conversation, so this line waits until the answer is given. */
   @media (max-width: 650px) { .conversation-status.attention { display: none; } }
-  @media (prefers-reduced-motion: reduce) { .spinning svg { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .spinning svg, .held .status-ring { animation: none; } }
 </style>

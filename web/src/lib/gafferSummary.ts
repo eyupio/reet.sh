@@ -39,9 +39,12 @@ export function gafferSummary(chat: ChatState, dir = '', replayed = true, ended 
   if (!chat.items.length || (!session && promptAt < 0 && !chat.truncated)) return null
   const items = session ? chat.items : chat.items.slice(promptAt + 1)
   const tools = items.filter((item): item is Extract<ChatItem, { kind: 'tool' }> => item.kind === 'tool' && item.toolKind !== 'think')
+  // A turn that ended holding work: its unfinished calls are still running, not stopped.
+  const held = chat.status.state === 'idle' && (chat.status.background ?? 0) > 0
+  const running = (status: string) => held && (status === 'in_progress' || status === 'pending')
   const completed = tools.filter(item => item.status === 'completed').length
   const failed = tools.filter(item => item.status === 'failed').length
-  const stopped = tools.filter(item => !['completed', 'failed'].includes(item.status)).length
+  const stopped = tools.filter(item => !['completed', 'failed'].includes(item.status) && !running(item.status)).length
   const files = new Set<string>()
   for (const tool of tools) {
     if (tool.status !== 'completed' || !['edit', 'delete', 'move'].includes(tool.toolKind)) continue
@@ -57,7 +60,7 @@ export function gafferSummary(chat: ChatState, dir = '', replayed = true, ended 
   if (stopped) attention.push(`${stopped} tool call${stopped === 1 ? '' : 's'} ended without a completed result.`)
   return {
     scope: session ? 'session' : 'turn', handover, completed, failed, stopped, files: [...files],
-    commands: tools.filter(tool => tool.toolKind === 'execute').map(tool => ({ key: tool.key, target: toolTarget(tool, dir), status: ['completed', 'failed'].includes(tool.status) ? tool.status : 'cancelled' })),
+    commands: tools.filter(tool => tool.toolKind === 'execute').map(tool => ({ key: tool.key, target: toolTarget(tool, dir), status: ['completed', 'failed'].includes(tool.status) || running(tool.status) ? tool.status : 'cancelled' })),
     attention, partial: chat.truncated,
     next: session ? 'Review the handover and any snags. Start a new session to carry on.'
       : attention.length ? 'Review the snags and partial work, then send your next instruction.'

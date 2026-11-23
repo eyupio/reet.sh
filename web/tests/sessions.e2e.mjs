@@ -497,28 +497,98 @@ try {
   await context.close()
  }
 
- // A chat whose turn ended with work it started still running is not finished: the row says it works in the background,
- // nothing calls the person, and the chat's status line counts the running tasks until they end.
+ // A chat whose turn ended with work it started still running is not finished. Every surface says so in one vocabulary
+ // ("Working in the background", or "In background" where room is short) with a hollow ring where working has a solid
+ // dot: the list row (one line on a phone, the title still readable), the tab, the Overview and the chat's status line,
+ // which keeps its "you can send" detail on a phone. Nothing calls the person until the work ends.
  if (run('a turn that left work running')) {
-  const held = session('sb','a1','Run the test suite',MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_held00000000000000000001',attention:'working',attentionSource:'chat',chatStatus:'background',changedSinceSeen:true})
+  const after = process.env.REET_BACKGROUND_SHOTS
+  const held = session('sb','a1','Run the test suite',MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_held00000000000000000001',projectId:'p1',attention:'working',attentionSource:'chat',chatStatus:'background',changedSinceSeen:true})
   const events = [{seq:1,kind:'user',text:'run the whole suite'},{seq:2,kind:'tool',toolCallId:'c1',title:'npm test',toolKind:'execute',status:'in_progress'},{seq:3,kind:'status',state:'idle',background:1}]
+  const sentence = 'Turn ended; work it started is still running. You can send the next instruction.'
   for (const [width,height,theme,touch] of [[1280,900,'light',false],[390,844,'dark',true]]) {
-   const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),held],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
+   const phone = width <= 650
+   const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),{...session('sw','a1','Plain working chat',3*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'working',attentionSource:'chat'})},held],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
    await page.goto(`${base}/sessions?view=list`)
    const row = rows(page).filter({hasText:'Run the test suite'})
-   await expect(row.locator('.word')).toHaveText('Working in the background')
-   // Centred, so a phone's fixed tab bar does not cover the row in the capture.
-   if (shots) {await mkdir(shots,{recursive:true});await row.evaluate(el => el.scrollIntoView({block:'center'}));await row.screenshot({path:`${shots}/background-row-${theme}-${width}.png`})}
+   const plain = rows(page).filter({hasText:'Plain working chat'})
+   await expect(row).toHaveAttribute('data-held','')
+   await expect(row).toHaveAttribute('data-status','working')
+   await expect(plain).not.toHaveAttribute('data-held','')
+   // The mark: a hollow ring here, the solid dot on the plain working row.
+   await expect(row.locator('.status-ring')).toBeVisible()
+   await expect(row.locator('.dot')).toHaveCount(0)
+   await expect(plain.locator('.dot')).toBeVisible()
+   const word = row.locator('.word')
+   await expect(word).toHaveAttribute('title', sentence)
+   await expect(word.locator('.vh')).toHaveText(`Working in the background. ${sentence}`)
+   if (phone) {
+    await expect(word.locator('.short')).toBeVisible()
+    await expect(word.locator('.short')).toHaveText('In background')
+    await expect(word.locator('.long')).toBeHidden()
+   } else {
+    await expect(word.locator('.long')).toHaveText('Working in the background')
+    await expect(word.locator('.short')).toBeHidden()
+   }
+   // One line, nothing cut from the word, and the title still readable beside it.
+   const box = await word.evaluate(el => ({h:el.getBoundingClientRect().height, cut:el.scrollWidth > el.clientWidth + 1}))
+   expect(box.h, `word on one line at ${width}px`).toBeLessThan(30)
+   expect(box.cut, `word not cut at ${width}px`).toBe(false)
+   const room = await row.evaluate(el => [el.querySelector('.title').clientWidth, el.querySelector('.title').scrollWidth, el.querySelector('.word').getBoundingClientRect().width])
+   // The title keeps most of its width beside the short word, so it stays readable on a phone.
+   expect(room[0], `title readable at ${width}px (word ${room[2]} px)`).toBeGreaterThanOrEqual(0.8 * room[1])
+   // The neighbouring rows keep the one-line word they have on main, "last known" included.
+   const known = rows(page).filter({hasText:'Review code'}).locator('.word')
+   await expect(known).toContainText('last known')
+   expect(await known.evaluate(el => [getComputedStyle(el).whiteSpace, el.getBoundingClientRect().height < 30])).toEqual(['nowrap', true])
+   expect(await noSideScroll(page), `no sideways scroll at ${width}px`).toBe(true)
+   if (after) {
+    await mkdir(after,{recursive:true})
+    const group = page.locator('main .group').filter({hasText:'Run the test suite'})
+    await group.evaluate(el => el.scrollIntoView({block:'center'}))
+    await group.screenshot({path:`${after}/group-${theme}-${width}.png`})
+    await row.evaluate(el => el.scrollIntoView({block:'center'}))
+    await row.screenshot({path:`${after}/row-${theme}-${width}.png`})
+   }
    await page.goto(`${base}/sessions?agent=a1&session=sb`)
    await page.waitForFunction(() => window.__chatStream)
    await page.evaluate(events => window.__chatStream.start(...events), events)
    const status = page.locator('.conversation-status')
    await expect(status.locator('.label')).toHaveText('Turn ended · 1 background task running')
    await expect(status).toHaveAttribute('data-phase','background')
-   // The running tool is not marked stopped, and the person can still write.
+   // The ring, not the turn's spinner; the person may write, and the line says so on a phone too.
+   await expect(status.locator('.indicator .status-ring')).toBeVisible()
+   await expect(status.locator('.indicator.spinning')).toHaveCount(0)
+   await expect(status.locator('.detail')).toBeVisible()
+   await expect(status.locator('.detail')).toHaveText('You can send your next instruction.')
+   expect(await status.locator('.indicator .status-ring').evaluate(el => { const a = getComputedStyle(el); return parseFloat(a.animationDuration) || 0 }), 'the ring breathes no faster than every 3 s').not.toBeLessThan(3)
    await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
    expect(await noSideScroll(page), `no sideways scroll at ${width}px`).toBe(true)
-   if (shots) await status.screenshot({path:`${shots}/background-chat-${theme}-${width}.png`})
+   if (after) await status.screenshot({path:`${after}/chat-${theme}-${width}.png`})
+   // The tab says the same, in its short label, with the full sentence read out.
+   const tab = page.getByRole('navigation',{name:'Open sessions'}).locator('li').filter({hasText:'Run the test suite'})
+   if (await tab.count()) {
+    await expect(tab).toHaveAttribute('data-held','')
+    await expect(tab.locator('.state')).toHaveText('In background')
+    await expect(tab.locator('.vh')).toContainText(sentence)
+    if (after) await tab.screenshot({path:`${after}/tab-${theme}-${width}.png`})
+   } else expect(phone, 'the tabs show on a desktop').toBe(true)
+   // The Overview's "Right now" agrees with the list.
+   // The session header's pill and the workspace list say it too, with the ring.
+   await expect(page.locator('.session-screen .pill')).toContainText('Working in the background')
+   await expect(page.locator('.session-screen .pill .status-ring')).toBeVisible()
+   if (!phone) {
+    const side = page.getByRole('navigation',{name:'Terminal sessions'}).locator('button.session-row').filter({hasText:'Run the test suite'})
+    await expect(side).toContainText('In background')
+    await expect(side.locator('.status-ring')).toBeVisible()
+    await page.getByRole('button',{name:'Session details panel',exact:true}).click()
+   }
+   const now = page.getByRole('complementary',{name:'Session context'}).locator('.eyebrow .state')
+   if (await now.count() && await now.first().isVisible()) {
+    await expect(now.first()).toHaveText('Working in the background')
+    await expect(now.first()).toHaveAttribute('data-held','')
+    if (after) await page.getByRole('complementary',{name:'Session context'}).screenshot({path:`${after}/overview-${theme}-${width}.png`})
+   } else expect(phone, 'the Overview shows on a desktop').toBe(true)
    await page.evaluate(() => { window.__chatStream.emit('chat',{seq:4,kind:'tool',toolCallId:'c1',status:'completed'}); window.__chatStream.emit('chat',{seq:5,kind:'status',state:'idle'}) })
    await expect(status.locator('.label')).toHaveText('Turn finished')
    expect(errors).toEqual([])

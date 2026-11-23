@@ -44,9 +44,19 @@ export function needStatus(kind: 'waiting' | 'failed' | 'review' | 'finished'): 
   return 'finished'
 }
 
+/** A chat whose turn ended while work it started still runs. It keeps the working colour; surfaces draw a hollow ring for
+ *  it where working has a solid dot, and say so in words. */
+export function heldWork(session: Pick<TerminalSession, 'attention' | 'attentionSource' | 'chatStatus'>): boolean {
+  return session.attention === 'working' && session.attentionSource === 'chat' && session.chatStatus === 'background'
+}
+
+/** The full sentence a held session's short label stands for, for a tooltip and assistive technology. */
+export const HELD_SENTENCE = 'Turn ended; work it started is still running. You can send the next instruction.'
+
 /** A compact name for the colour family, where a row has no room for stateWord's full sentence ("Waiting for you"). */
-export function statusLabel(status: SessionStatus): string {
-  return status === 'working' ? 'Working'
+export function statusLabel(status: SessionStatus, held = false): string {
+  return status === 'working' && held ? 'In background'
+    : status === 'working' ? 'Working'
     : status === 'waiting' ? 'Waiting'
     : status === 'starting' ? 'Starting'
     : status === 'ending' ? 'Ending'

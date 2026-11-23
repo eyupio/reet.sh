@@ -57,7 +57,7 @@ func (s *Service) withAgentUsage(uid int64, o store.GafferOutcome) store.GafferO
 			// What the session last reported doing, so the page can tell a
 			// busy agent from one that has gone quiet.
 			if row, err := s.store.TerminalSessionFor(uid, piece.SessionID); err == nil {
-				piece.Stages[at].AgentState, piece.Stages[at].AgentActiveAt = row.ChatStatus, row.ActivityAt
+				piece.Stages[at].AgentState, piece.Stages[at].AgentActiveAt, piece.Stages[at].AgentHeldSince = row.ChatStatus, row.ActivityAt, row.HeldSince
 				// Once the stage's choice has been read back from the machine,
 				// the session's row holds what it is confirmed to be on, and a
 				// later change in the session's own chat is recorded there. The

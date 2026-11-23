@@ -1,6 +1,7 @@
 package terminalbroker
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -74,7 +75,7 @@ func TestRestoredBackgroundHoldEndsAtTheLimitAndIsStored(t *testing.T) {
 		want string
 	}{
 		"recent": {time.Minute, "background"},
-		"stale":  {terminalproto.BackgroundHoldLimit + time.Minute, "finished"},
+		"stale":  {terminalproto.BackgroundHoldLimit + time.Minute, "unwatched"},
 	} {
 		s := chatSession(t, b, uid, agent)
 		at := time.Now().Add(-c.age).UnixMilli()
@@ -90,7 +91,7 @@ func TestRestoredBackgroundHoldEndsAtTheLimitAndIsStored(t *testing.T) {
 		want := at + terminalproto.BackgroundHoldLimit.Milliseconds()
 		waitStored(t, func() bool {
 			row, _ := b.st.TerminalSessionFor(uid, s.ID)
-			return row.ChatStatus == c.want && (c.want != "finished" || row.CompletedAt == want)
+			return row.ChatStatus == c.want && (c.want != "unwatched" || row.CompletedAt == want)
 		}, name)
 	}
 }
@@ -117,7 +118,7 @@ func TestALiveBackgroundHoldEndsAtTheBrokersOwnLimit(t *testing.T) {
 	// No further word from the machine.
 	waitStored(t, func() bool {
 		row, _ := b.st.TerminalSessionFor(uid, s.ID)
-		return row.ChatStatus == "finished" && row.CompletedAt > 0
+		return row.ChatStatus == "unwatched" && row.CompletedAt > 0
 	}, "live hold")
 }
 
@@ -137,5 +138,81 @@ func TestAFailedOrStoppedTurnIsNotReopenedByAHeldCount(t *testing.T) {
 		if got, at := state(); got != before || at != completed {
 			t.Fatalf("%s: a held count turned %q into %q", end, before, got)
 		}
+	}
+}
+
+func TestAHoldTheMachineGaveUpOnIsStoppedWaitingNotFinished(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "working"})
+	before := time.Now().UnixMilli()
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle", Background: 2})
+	row, _ := b.st.TerminalSessionFor(uid, s.ID)
+	if row.HeldSince < before {
+		t.Fatalf("held since %d, want the hold's start", row.HeldSince)
+	}
+	// One task was given up on; another still runs, then ends.
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle", Background: 1, Code: terminalproto.ACPCodeUnwatched})
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	row, _ = b.st.TerminalSessionFor(uid, s.ID)
+	if row.ChatStatus != "unwatched" || row.CompletedAt == 0 || row.HeldSince != 0 {
+		t.Fatalf("stored %q completed %d held %d, want stopped waiting", row.ChatStatus, row.CompletedAt, row.HeldSince)
+	}
+	b.ApplyChatAttention(uid, &row)
+	if row.Attention != "finished" || row.ChatStatus != "unwatched" {
+		t.Fatalf("attention %q chat %q", row.Attention, row.ChatStatus)
+	}
+	// A new message starts afresh: its own clean end is finished.
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "user", Text: "carry on"})
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	if row, _ = b.st.TerminalSessionFor(uid, s.ID); row.ChatStatus != "finished" {
+		t.Fatalf("the next turn read %q", row.ChatStatus)
+	}
+}
+
+func TestTheBrokersOwnLimitStopsWaitingAndSaysSo(t *testing.T) {
+	old := backgroundHold
+	backgroundHold = 50 * time.Millisecond
+	t.Cleanup(func() { backgroundHold = old })
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "working"})
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle", Background: 1})
+	waitStored(t, func() bool {
+		row, _ := b.st.TerminalSessionFor(uid, s.ID)
+		return row.ChatStatus == "unwatched"
+	}, "broker limit")
+	snapshot, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	cancel()
+	for _, event := range snapshot {
+		if event.Kind == "notice" && strings.Contains(event.Text, "reet stopped waiting; it may still be running on") {
+			return
+		}
+	}
+	t.Fatalf("no transcript line for the controller's own limit: %+v", snapshot)
+}
+
+func TestARestoredHoldKeepsItsStartAndAStoppedWaitStays(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	start := time.Now().Add(-5 * time.Minute).UnixMilli()
+	if err := b.st.SetTerminalChatStateFor(uid, s.ID, time.Now().UnixMilli(), 0, "background", 0, start); err != nil {
+		t.Fatal(err)
+	}
+	b.closeChat(uid, s.ID)
+	row, _ := b.st.TerminalSessionFor(uid, s.ID)
+	b.ApplyChatAttention(uid, &row)
+	if row.HeldSince != start || row.ChatStatus != "background" {
+		t.Fatalf("restored hold since %d (%q), want %d", row.HeldSince, row.ChatStatus, start)
+	}
+	other := chatSession(t, b, uid, agent)
+	if err := b.st.SetTerminalChatStateFor(uid, other.ID, start, 0, "unwatched", start, 0); err != nil {
+		t.Fatal(err)
+	}
+	b.closeChat(uid, other.ID)
+	row, _ = b.st.TerminalSessionFor(uid, other.ID)
+	b.ApplyChatAttention(uid, &row)
+	if row.ChatStatus != "unwatched" || row.Attention != "finished" {
+		t.Fatalf("restored stopped wait read %q %q", row.ChatStatus, row.Attention)
 	}
 }

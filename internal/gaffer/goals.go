@@ -290,6 +290,8 @@ const goalNoStepNote = "Gaffer reviewed this and chose no next step, so it has s
 const (
 	workerWaitingNote = "The working model needs your input or approval. Gaffer cannot answer for you, and carries on once you have."
 	heldGoalRecheck   = 15 * time.Second
+	// workerUnwatchedNote is a goal whose working model's held work reet stopped waiting for.
+	workerUnwatchedNote = "reet stopped waiting for work the working model's turn left running, and it may still be running. Read the end of its session, then resume the goal or move the work on."
 	// workerBackgroundNote is a goal waiting for work the working model's ended turn left running.
 	workerBackgroundNote = "The working model's turn ended, but work it started is still running. Gaffer waits for it to finish before reviewing."
 )
@@ -481,6 +483,11 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 	row, err := s.store.TerminalSessionFor(g.OwnerID, g.SessionID)
 	if err != nil || row.State != terminalproto.Running {
 		observe("needs_user", "The working session has ended or is unavailable. Review its outcome before choosing further work.", time.Minute)
+		return
+	}
+	if row.ChatStatus == "unwatched" && row.CompletedAt > max(g.LastReviewedAt, g.ResumedAt) {
+		// Not a clean finish: work the turn started may still be running.
+		observe("needs_user", workerUnwatchedNote, time.Minute)
 		return
 	}
 	workerStatus, statusErr := s.store.GafferWorkerStatusFor(g.OwnerID, g.SessionID)

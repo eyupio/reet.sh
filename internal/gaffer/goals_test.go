@@ -756,3 +756,26 @@ func TestGoalWaitsForTheWorkersBackgroundWork(t *testing.T) {
 		t.Fatalf("the work's end was not reviewed: %+v calls=%d", g, calls.Load())
 	}
 }
+
+// reet stopping waiting for the worker's held work is not a clean finish: the
+// goal needs the person to look, and no review is spent on it.
+func TestAStoppedWaitNeedsALookNotAReview(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := advancingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 4)
+	workerProgress(t, st, g, 1)
+	now := time.Now().UnixMilli()
+	if err := st.SetTerminalChatAttentionFor(p.UserID, g.SessionID, now, 0, "unwatched", now); err != nil {
+		t.Fatal(err)
+	}
+	g = dueGoal(t, st, g)
+	s.reviewDueGoals(context.Background())
+	row, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if calls.Load() != 0 || row.State != "needs_user" || row.Note != workerUnwatchedNote {
+		t.Fatalf("stopped wait: calls=%d %q %q", calls.Load(), row.State, row.Note)
+	}
+}

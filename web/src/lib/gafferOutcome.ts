@@ -560,7 +560,7 @@ export function ago(at: number | undefined, now: number): string {
 export function agentActivity(stage: { agentState?: string; agentActiveAt?: number } | undefined, now: number): { text: string; quiet: boolean } {
   if (!stage?.agentState && !stage?.agentActiveAt) return { text: '', quiet: false }
   const since = ago(stage.agentActiveAt, now), minutes = stage.agentActiveAt ? Math.floor((now - stage.agentActiveAt) / 60000) : 0
-  const names: Record<string, string> = { working: 'Working', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled' }
+  const names: Record<string, string> = { working: 'Working', background: 'Working in the background', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled' }
   const name = names[stage.agentState ?? ''] ?? 'Not reported'
   return { text: since ? `${name} · last active ${since} ago` : name, quiet: stage.agentState === 'idle' || (stage.agentState === 'working' && minutes >= 15) }
 }

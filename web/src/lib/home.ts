@@ -181,13 +181,15 @@ export function sessionOwners(sessions: TerminalSession[], projects: Pick<Folder
 
 const machineName = (agentId: string, machines: Pick<MachineHealth, 'agentId' | 'host'>[]): string => machines.find(m => m.agentId === agentId)?.host || agentId
 
-export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 'attention' | 'attentionSource'>): { word: string; source: string; tone: Tone } {
+export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 'attention' | 'attentionSource' | 'chatStatus'>): { word: string; source: string; tone: Tone } {
   const fromState = "from the session's state"
   const fromActivity = session.attentionSource === 'chat' ? 'from the chat' : 'from terminal activity'
   switch (session.attention) {
     case 'waiting':
       return { word: 'Waiting for you', source: fromActivity, tone: 'warn' }
     case 'working':
+      // The turn is over but work it started still runs: not finished, and nobody is called for it yet.
+      if (session.attentionSource === 'chat' && session.chatStatus === 'background') return { word: 'Working in the background', source: 'from the chat', tone: 'good' }
       return { word: 'Working', source: fromActivity, tone: 'good' }
     case 'quiet':
       // A quiet chat is a finished turn in a session kept open for the next instruction, so every surface calls it

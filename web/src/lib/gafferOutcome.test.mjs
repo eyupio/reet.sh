@@ -348,6 +348,7 @@ test('a stage the person moved on is marked, and the agent line says how long it
   assert.deepEqual(o.agentActivity({ agentState: 'working', agentActiveAt: now - 2 * 60_000 }, now), { text: 'Working · last active 2 min ago', quiet: false })
   assert.deepEqual(o.agentActivity({ agentState: 'working', agentActiveAt: now - 20 * 60_000 }, now), { text: 'Working · last active 20 min ago', quiet: true })
   assert.deepEqual(o.agentActivity({ agentState: 'idle', agentActiveAt: now - 60_000 }, now), { text: 'Idle · last active 1 min ago', quiet: true })
+  assert.deepEqual(o.agentActivity({ agentState: 'background', agentActiveAt: now - 60_000 }, now), { text: 'Working in the background · last active 1 min ago', quiet: false })
   assert.deepEqual(o.agentActivity(undefined, now), { text: '', quiet: false })
 })
 

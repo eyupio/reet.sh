@@ -77,7 +77,7 @@ async function open(options={}) {
  }
  // The wide fixture keeps room for the docked details panel and Gaffer's saved
  // corner. Explicit tablet/phone widths below still exercise the drawer layout.
- const opened = await openWorkspace(browser, {width:options.width ?? 1536, height:options.height ?? 900, touch:options.touch, sessionFocus:options.sessionFocus === 'default' ? undefined : options.sessionFocus ?? (options.touch ? false : undefined), theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
+ const opened = await openWorkspace(browser, {width:options.width ?? 1536, height:options.height ?? 900, touch:options.touch, sessionFocus:options.sessionFocus === 'default' ? undefined : options.sessionFocus ?? (options.touch ? false : undefined), theme:options.theme ?? 'light', scale:options.scale, routes, sync:options.sync ?? sync()})
  // These legacy context tests explicitly keep Details open; the unset default
  // and saved-preference behavior are exercised by calm-session.e2e.mjs.
  await opened.page.addInitScript(() => {
@@ -495,6 +495,35 @@ try {
   await expect.poll(() => titles(page)).toEqual(['Shell'])
   expect(errors).toEqual([])
   await context.close()
+ }
+
+ // A chat whose turn ended with work it started still running is not finished: the row says it works in the background,
+ // nothing calls the person, and the chat's status line counts the running tasks until they end.
+ if (run('a turn that left work running')) {
+  const held = session('sb','a1','Run the test suite',MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_held00000000000000000001',attention:'working',attentionSource:'chat',chatStatus:'background',changedSinceSeen:true})
+  const events = [{seq:1,kind:'user',text:'run the whole suite'},{seq:2,kind:'tool',toolCallId:'c1',title:'npm test',toolKind:'execute',status:'in_progress'},{seq:3,kind:'status',state:'idle',background:1}]
+  for (const [width,height,theme,touch] of [[1280,900,'light',false],[390,844,'dark',true]]) {
+   const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),held],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
+   await page.goto(`${base}/sessions?view=list`)
+   const row = rows(page).filter({hasText:'Run the test suite'})
+   await expect(row.locator('.word')).toHaveText('Working in the background')
+   // Centred, so a phone's fixed tab bar does not cover the row in the capture.
+   if (shots) {await mkdir(shots,{recursive:true});await row.evaluate(el => el.scrollIntoView({block:'center'}));await row.screenshot({path:`${shots}/background-row-${theme}-${width}.png`})}
+   await page.goto(`${base}/sessions?agent=a1&session=sb`)
+   await page.waitForFunction(() => window.__chatStream)
+   await page.evaluate(events => window.__chatStream.start(...events), events)
+   const status = page.locator('.conversation-status')
+   await expect(status.locator('.label')).toHaveText('Turn ended · 1 background task running')
+   await expect(status).toHaveAttribute('data-phase','background')
+   // The running tool is not marked stopped, and the person can still write.
+   await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
+   expect(await noSideScroll(page), `no sideways scroll at ${width}px`).toBe(true)
+   if (shots) await status.screenshot({path:`${shots}/background-chat-${theme}-${width}.png`})
+   await page.evaluate(() => { window.__chatStream.emit('chat',{seq:4,kind:'tool',toolCallId:'c1',status:'completed'}); window.__chatStream.emit('chat',{seq:5,kind:'status',state:'idle'}) })
+   await expect(status.locator('.label')).toHaveText('Turn finished')
+   expect(errors).toEqual([])
+   await context.close()
+  }
  }
 
  // Saved commands from the header, with no session needed (owner ruling): open, add one, close; focus goes back.

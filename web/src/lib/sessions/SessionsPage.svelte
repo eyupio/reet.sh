@@ -502,7 +502,8 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sessions-page { gap: 12px; }
     .filter-grid { grid-template-columns: minmax(0, 1fr); }
-    .word { font-size: 14px; }
+    /* A long word ("Working in the background") wraps rather than losing its end on a phone. */
+    .word { max-width: 45%; font-size: 14px; line-height: 1.3; white-space: normal; text-align: center; }
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }

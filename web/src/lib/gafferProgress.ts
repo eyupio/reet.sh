@@ -1,7 +1,7 @@
 import { isWorking, pendingPermissions, pendingQuestions, toolState, toolTarget, type ChatItem, type ChatState } from './chat'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
-export type GafferPhase = 'starting' | 'planning' | 'reading' | 'searching' | 'editing' | 'running' | 'fetching' | 'working' | 'responding' | 'approval' | 'question' | 'waiting' | 'connecting' | 'reconnecting' | 'error' | 'cancelled' | 'ended' | 'idle'
+export type GafferPhase = 'background' | 'starting' | 'planning' | 'reading' | 'searching' | 'editing' | 'running' | 'fetching' | 'working' | 'responding' | 'approval' | 'question' | 'waiting' | 'connecting' | 'reconnecting' | 'error' | 'cancelled' | 'ended' | 'idle'
 // Shared with Overview so replay and in-place reconnection have the same meaning in both views.
 export type ChatProgressState = { replayed: boolean; ended: boolean; sessionFailed: boolean; reattaching: boolean }
 export type GafferProgress = {
@@ -48,6 +48,8 @@ export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended
   if (approval) return result('approval', 'Waiting for your approval', approval.command || approval.path || approval.title)
   const question = pendingQuestions(chat)[0]
   if (question) return result('question', 'Waiting for your answer', question.question.message)
+  const held = chat.status.state === 'idle' ? chat.status.background ?? 0 : 0
+  if (held > 0) return result('background', `Turn ended · ${held} background ${held === 1 ? 'task' : 'tasks'} running`, 'You can send your next instruction.', true)
   if (!isWorking(chat)) return result('idle', start >= 0 ? 'Turn finished' : 'Ready for a job', 'Ready for your next instruction.')
   if (chat.status.state === 'starting') return result('starting', named('Getting {agent} ready', agent), '', true)
   if (chat.status.state === 'waiting') return result('waiting', named('Waiting for {agent}', agent), chat.status.detail || 'No new activity has been reported.')
@@ -62,6 +64,7 @@ export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended
 
 // Gaffer directs and encourages; the named agent does the work. These are personality, never claims about tools or results.
 const quotes: Record<GafferPhase, readonly string[]> = {
+  background: ['Turn’s done, {agent}, but summat’s still ticking over. No calling it finished yet.', 'Something’s still running, {agent}. I’ll keep one eye on it and one on the biscuits.', "Not clocking off yet, {agent}. There’s work still going round the back."],
   starting: ['Reet, {agent}. Kettle on. Big ideas. Unreasonably confident eyebrow.', 'Ey up, {agent}. Hard hats on. Metaphorical ones; mind the ceiling.', 'Right, {agent}. You bring the brains. I’ve brought a very official nod.', 'Boots on, {agent}. My motivational biscuit isn’t going to eat itself.', "Reet, {agent}. Fresh brief, clean boots, suspiciously empty biscuit tin.", "Clocking in, {agent}. My cap has passed its annual leadership inspection.", "Ready when you are, {agent}. I’ve sharpened my pencil and my opinions."],
   planning: ['Measure twice, {agent}. Interpretive dance once. Then a plan.', 'Have a think, {agent}. I’ll do my thoughtful eyebrow.', 'Steady, {agent}. A cunning plan beats a panicked spreadsheet.', 'Work out the next step, {agent}. My serious face doesn’t do crystal balls.', "Think it through, {agent}. “We’ll cross that bridge” is how I ended up in a beck.", "A proper plan, {agent}. Back of a biscuit packet is acceptable. Biscuit first, obviously.", "Take your time, {agent}. I once rushed a brew. Still in therapy.", "Before we start, {agent}: do we know where we’re going, or are we following my eyebrow?"],
   reading: ['Read the small print, {agent}. That’s where the plot twists live rent-free.', 'Have a proper look, {agent}. I’ve put my serious face on. Same face, different eyebrow.', 'Mind the footnotes, {agent}. Tiny writing, massive opinions.', 'Get to know the place, {agent}. No rearranging the furniture before we’ve found the door.', "Read on, {agent}. I’ve got my glasses on. They’re mostly for authority.", "Get the context, {agent}. Last time I skipped a page, I assembled a wardrobe with a sunroof.", "Quiet in the reading room, {agent}. Even my biscuit is on silent.", "Have a look, {agent}. The comments might explain it. Or start an argument."],

@@ -505,3 +505,11 @@ test('a session needs the person as the bell counts it: a plain finish is not co
   ], NOW)
   assert.deepEqual([...h.needingIds(cards)].sort(), ['r', 'w', 'x'])
 })
+
+test('a chat whose ended turn left work running reads as working in the background, and nobody is called for it', () => {
+  const held = session('bg', 'a1', 'running', { structured: true, attention: 'working', attentionSource: 'chat', chatStatus: 'background', changedSinceSeen: true })
+  assert.deepEqual(stateWord(held), { word: 'Working in the background', source: 'from the chat', tone: 'good' })
+  assert.equal(stateWord({ ...held, chatStatus: 'working' }).word, 'Working')
+  assert.deepEqual(needsYou([held], NOW), [])
+  assert.equal(attentionCount(needsYou([held], NOW)), 0)
+})

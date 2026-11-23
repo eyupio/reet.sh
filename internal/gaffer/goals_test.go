@@ -18,12 +18,14 @@ import (
 type goalWorker struct {
 	fakeWorker
 	working atomic.Bool
-	accept  bool
+	// background is how many tool calls the worker's ended turn left running.
+	background atomic.Int32
+	accept     bool
 }
 
 func (f *goalWorker) ChatControl(context.Context, int64, string, terminalproto.ACPControl) (terminalproto.ACPControlResult, error) {
 	f.probes.Add(1)
-	return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: f.working.Load(), Waiting: f.waiting.Load()}}, nil
+	return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: f.working.Load(), Waiting: f.waiting.Load(), Background: int(f.background.Load())}}, nil
 }
 func (f *goalWorker) EnqueueChat(uid int64, session, id, text string, images []string) error {
 	if err := f.fakeWorker.EnqueueChat(uid, session, id, text, images); err != nil {
@@ -726,5 +728,31 @@ func TestAHeldGoalWhoseSessionEndedStaysWithThePerson(t *testing.T) {
 	s.reviewDueGoals(context.Background())
 	if paused, _ := st.GafferGoalFor(p.UserID, g.ConversationID); paused.State != "paused" || paused.WaitingOnWorker || calls.Load() != 0 {
 		t.Fatalf("paused: %+v", paused)
+	}
+}
+
+// A turn that ended with work still running is not reviewed, and so not handed
+// over, until that work ends: Gaffer waits for it and says so.
+func TestGoalWaitsForTheWorkersBackgroundWork(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := advancingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 4)
+	workerProgress(t, st, g, 1)
+	worker.background.Store(2)
+	g = dueGoal(t, st, g)
+	s.reviewDueGoals(context.Background())
+	row, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if calls.Load() != 0 || row.State != "active" || row.Note != workerBackgroundNote {
+		t.Fatalf("background work was reviewed: calls=%d %+v", calls.Load(), row)
+	}
+	worker.background.Store(0)
+	g = dueGoal(t, st, g)
+	s.reviewDueGoals(context.Background())
+	if g = finishReview(t, s, g); g.UsedReviews != 1 || calls.Load() != 2 {
+		t.Fatalf("the work's end was not reviewed: %+v calls=%d", g, calls.Load())
 	}
 }

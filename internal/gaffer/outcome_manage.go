@@ -509,6 +509,11 @@ func (s *Service) movePipelineOn(uid int64, conversation, note, by string) error
 		return invalid("advance", "That pipeline has no stage in hand to move on from.")
 	}
 	summary := "The person moved this pipeline on from this stage."
+	if c, err := s.conversation(uid, conversation); err == nil && by != "auto" {
+		if row, err := s.store.TerminalSessionFor(uid, c.SessionID); err == nil && row.ChatStatus == "background" {
+			summary += " Work its agent had left still running stops when its session ends."
+		}
+	}
 	if note = strings.TrimSpace(note); by == "auto" {
 		// The person gave Gaffer the decisions; the note is Gaffer's reason.
 		summary = "Gaffer moved this pipeline on from this stage for the person, who gave it this outcome’s decisions. Its reason: " + clipBytes(note, 600)

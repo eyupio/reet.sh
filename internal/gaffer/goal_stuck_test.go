@@ -93,6 +93,14 @@ func TestAnIdleWorkingModelWithNothingQueuedBringsTheGoalBackToThePerson(t *test
 		t.Fatalf("a working model was called idle: %+v", row)
 	}
 	worker.working.Store(false)
+	// Nor is one whose ended turn left work running.
+	worker.background.Store(1)
+	g = dueGoal(t, st, g)
+	s.reviewDueGoals(context.Background())
+	if row, _ := st.GafferGoalFor(p.UserID, g.ConversationID); row.State != "active" {
+		t.Fatalf("a model with background work was called idle: %+v", row)
+	}
+	worker.background.Store(0)
 	g = dueGoal(t, st, g)
 	s.reviewDueGoals(context.Background())
 	row, _ := st.GafferGoalFor(p.UserID, g.ConversationID)

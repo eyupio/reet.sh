@@ -1555,3 +1555,25 @@ func TestAHandoverMayCarryAWholePlan(t *testing.T) {
 		t.Fatal("a question to the person is still limited to 2,000 bytes")
 	}
 }
+
+// Moving a pipeline on stays the person's call while the stage's agent still
+// has work running, and the stage's record says that work stops with it.
+func TestMovingOnWithBackgroundWorkSaysTheWorkStops(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if err := r.st.SetTerminalChatAttentionFor(r.p.UserID, code.SessionID, time.Now().UnixMilli(), 0, "background", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key, ""); err != nil {
+		t.Fatal(err)
+	}
+	next := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.Stage == 1 })
+	if summary := next.Stages[0].Summary; !strings.Contains(summary, "The person moved this pipeline on") || !strings.Contains(summary, "still running") {
+		t.Fatalf("moved on with work running: %q", summary)
+	}
+}

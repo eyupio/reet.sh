@@ -174,11 +174,17 @@ type Session struct {
 	mode         string
 	tools        map[string]string
 	toolStart    map[string]time.Time
-	// held is the tool calls a turn ended with still running, and when that
-	// turn ended. They stay out of toolStart, so a later turn's Stop and
-	// silence checks see only that turn's own tools.
-	held      map[string]time.Time
+	// held is the tool calls a turn ended with still running. They stay out of
+	// toolStart, so a later turn's Stop and silence checks see only that
+	// turn's own tools.
+	held      map[string]heldTool
 	heldTimer *time.Timer
+	// statusMu orders status events: a held count reported between turns
+	// must not land after a new turn's working status, nor after a stop or
+	// failure. lastStatus and reported are what the controller last heard.
+	statusMu   sync.Mutex
+	lastStatus string
+	reported   int
 	done      chan struct{}
 	doneOnce  sync.Once
 	retired   bool
@@ -279,7 +285,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	_ = stdoutWriter.Close()
 	s := &Session{opts: opts, binary: binary, native: native, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
-		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, held: map[string]time.Time{},
+		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, held: map[string]heldTool{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})
 	go func() {
@@ -532,6 +538,15 @@ func (s *Session) ImagesSupported() bool {
 var cancelGrace = 30 * time.Second
 
 func (s *Session) emit(event Event) {
+	if event.Kind == "status" {
+		s.statusMu.Lock()
+		defer s.statusMu.Unlock()
+	}
+	s.emitLocked(event)
+}
+
+// emitLocked sends an event; a status event's caller holds statusMu.
+func (s *Session) emitLocked(event Event) {
 	s.mu.Lock()
 	now := time.Now()
 	s.lastEvent = now
@@ -539,7 +554,11 @@ func (s *Session) emit(event Event) {
 	if event.Kind == "status" && event.State == "idle" {
 		// Every idle status says what is still held, so none of them can read
 		// as the held work having ended.
-		event.Background = len(s.held)
+		event.Background = s.heldCountLocked()
+		s.reported = event.Background
+	}
+	if event.Kind == "status" {
+		s.lastStatus = event.State
 	}
 	s.mu.Unlock()
 	if closed || s.opts.OnEvent == nil {
@@ -777,13 +796,14 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 				status = s.tools[u.ToolCallID]
 			}
 			final := status == "completed" || status == "failed" || status == "cancelled"
-			_, held := s.held[u.ToolCallID]
+			heldCall, held := s.held[u.ToolCallID]
 			if !started && !final && !held {
 				s.toolStart[u.ToolCallID] = now
 			}
 			if final && held {
 				delete(s.held, u.ToolCallID)
 				heldDone = true
+				start, started = heldCall.start, true
 			}
 			if final {
 				if started {
@@ -1570,6 +1590,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		s.compacting = false
 		s.mu.Unlock()
 		s.turnMu.Unlock()
+		// A held call that finished between the turn's idle and now could not
+		// be reported while the turn still ran.
+		s.reportHeld()
 	}()
 	var nativePromptDone func(error)
 	if s.native != nil && s.native.ready.Load() {
@@ -1754,9 +1777,9 @@ func (s *Session) holdOpenTools() {
 	if s.closed {
 		return
 	}
-	for id := range s.toolStart {
+	for id, start := range s.toolStart {
 		if _, ok := s.held[id]; !ok {
-			s.held[id] = now
+			s.held[id] = heldTool{start: start, at: now}
 		}
 	}
 	s.toolStart = map[string]time.Time{}
@@ -1770,9 +1793,9 @@ func (s *Session) armHoldLocked(now time.Time) {
 		s.heldTimer = nil
 	}
 	oldest := time.Time{}
-	for _, at := range s.held {
-		if oldest.IsZero() || at.Before(oldest) {
-			oldest = at
+	for _, call := range s.held {
+		if oldest.IsZero() || call.at.Before(oldest) {
+			oldest = call.at
 		}
 	}
 	if oldest.IsZero() {
@@ -1791,8 +1814,8 @@ func (s *Session) releaseExpiredHold() {
 		return
 	}
 	dropped := 0
-	for id, at := range s.held {
-		if now.Sub(at) >= s.opts.backgroundHold() {
+	for id, call := range s.held {
+		if now.Sub(call.at) >= s.opts.backgroundHold() {
 			delete(s.held, id)
 			dropped++
 		}
@@ -1800,6 +1823,8 @@ func (s *Session) releaseExpiredHold() {
 	s.armHoldLocked(now)
 	s.mu.Unlock()
 	if dropped == 0 {
+		// Nothing to drop, but a count the controller heard may still be stale.
+		s.reportHeld()
 		return
 	}
 	tasks := strconv.Itoa(dropped) + " background tasks"
@@ -1810,13 +1835,29 @@ func (s *Session) releaseExpiredHold() {
 	s.reportHeld()
 }
 
-// reportHeld tells the controller how much held work is left, between turns
-// only: a running turn reports it when it ends.
+// reportHeld tells the controller how much held work is left when that has
+// changed, and only while the last status it heard is idle: a running turn
+// reports it when it ends, and a stop or failure must not read as finished.
 func (s *Session) reportHeld() {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
 	if s.Working() {
 		return
 	}
-	s.emit(Event{Kind: "status", State: "idle"})
+	s.mu.Lock()
+	stale := s.lastStatus == "idle" && s.heldCountLocked() != s.reported
+	s.mu.Unlock()
+	if stale {
+		s.emitLocked(Event{Kind: "status", State: "idle"})
+	}
+}
+
+// heldTool is a call the ended turn left running: when it started, and when it was held.
+type heldTool struct{ start, at time.Time }
+
+// heldCountLocked is the held count within the protocol's bound.
+func (s *Session) heldCountLocked() int {
+	return min(len(s.held), terminalproto.MaxACPBackground)
 }
 
 func safeRPCText(s string) string {
@@ -1934,7 +1975,7 @@ func (s *Session) ended() {
 			pending = append(pending, id)
 		}
 		s.pending = map[string]*pendingPermission{}
-		s.held = map[string]time.Time{}
+		s.held = map[string]heldTool{}
 		if s.heldTimer != nil {
 			s.heldTimer.Stop()
 		}

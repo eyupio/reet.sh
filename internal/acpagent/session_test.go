@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func fakeACP(t *testing.T, scenario, version string) string {
@@ -644,8 +646,17 @@ func TestFakeACP(t *testing.T) {
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
 				promptID = nil
 				if text == "leave-then-finish" {
-					time.Sleep(150 * time.Millisecond)
-					update(session, "tool_call_update", map[string]any{"toolCallId": "call_bg", "status": "completed"})
+					// The held call ends once the test says so, by a file in
+					// the chat's folder, not after a guessed pause.
+					go func(session string) {
+						for {
+							if _, err := os.Stat("finish-held"); err == nil {
+								break
+							}
+							time.Sleep(5 * time.Millisecond)
+						}
+						update(session, "tool_call_update", map[string]any{"toolCallId": "call_bg", "status": "completed"})
+					}(session)
 				}
 			case "quiet-command", "quiet-command-then-hang":
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "wait for checks", "kind": "execute", "status": "in_progress"})
@@ -2486,12 +2497,25 @@ func TestTurnEndWithOpenToolReportsBackgroundWork(t *testing.T) {
 	if err := session.Prompt(t.Context(), "leave-then-finish"); err != nil {
 		t.Fatal(err)
 	}
-	idle, ok := lastIdle(got)
-	if !ok || idle.Background != 1 {
-		t.Fatalf("the turn's end did not count the running tool (the thought is not work): %+v", idle)
+	got.mu.Lock()
+	counted := false
+	for _, event := range got.all {
+		if event.Kind == "status" && event.State == "idle" && event.Background == 1 {
+			counted = true
+		}
+		if event.Kind == "status" && event.State == "idle" && event.Background > 1 {
+			t.Errorf("the thought was counted as work: %+v", event)
+		}
+	}
+	got.mu.Unlock()
+	if !counted {
+		t.Fatal("the turn's end did not count the running tool")
 	}
 	if c := session.Controls(); c.Background != 1 || c.Working {
 		t.Fatalf("controls = %+v, want one held tool and no turn", c)
+	}
+	if err := os.WriteFile(filepath.Join(opts.Dir, "finish-held"), nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	waitUntil(t, func() bool { return idleAfterTool(got) })
 	if c := session.Controls(); c.Background != 0 {
@@ -2586,4 +2610,172 @@ func TestEndedSessionHoldsNoBackgroundWork(t *testing.T) {
 	if c := session.Controls(); c.Background != 0 {
 		t.Fatalf("an ended chat still holds %d", c.Background)
 	}
+}
+
+// heldSession is a session with no agent process, for the held-work bookkeeping alone.
+func heldSession(t *testing.T) (*Session, *events) {
+	t.Helper()
+	got := &events{wait: make(chan Event, 2048)}
+	s := &Session{tools: map[string]string{}, toolStart: map[string]time.Time{}, held: map[string]heldTool{},
+		pending: map[string]*pendingPermission{}, calls: map[int64]rpcCall{}, done: make(chan struct{})}
+	s.opts.OnEvent = got.add
+	return s, got
+}
+
+func toolUpdate(s *Session, id, status string) {
+	raw, _ := json.Marshal(map[string]any{"sessionId": "x", "update": map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": id, "status": status}})
+	s.handleUpdate(raw)
+}
+
+// endTurn plays a prompt's normal end: open tools are held, idle is sent, and the turn is let go.
+func endTurn(s *Session) {
+	s.holdOpenTools()
+	s.emit(Event{Kind: "status", State: "idle"})
+	s.turnMu.Lock()
+	s.working = false
+	s.turnMu.Unlock()
+	s.reportHeld()
+}
+
+func idles(got *events) []int {
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	var counts []int
+	for _, event := range got.all {
+		if event.Kind == "status" && event.State == "idle" {
+			counts = append(counts, event.Background)
+		}
+	}
+	return counts
+}
+
+func TestHeldToolFinishingBeforeTheTurnLetsGoIsReported(t *testing.T) {
+	s, got := heldSession(t)
+	s.working = true
+	toolUpdate(s, "bg", "in_progress")
+	s.holdOpenTools()
+	s.emit(Event{Kind: "status", State: "idle"})
+	toolUpdate(s, "bg", "completed") // the turn has not let go yet
+	s.turnMu.Lock()
+	s.working = false
+	s.turnMu.Unlock()
+	s.reportHeld()
+	if counts := idles(got); len(counts) != 2 || counts[0] != 1 || counts[1] != 0 {
+		t.Fatalf("idle counts %v, want [1 0]", counts)
+	}
+}
+
+func TestHeldToolFinishingAfterAFailedTurnSendsNoIdle(t *testing.T) {
+	for _, state := range []string{"error", "cancelled"} {
+		s, got := heldSession(t)
+		s.working = true
+		toolUpdate(s, "a", "in_progress")
+		toolUpdate(s, "b", "in_progress")
+		endTurn(s)
+		s.turnMu.Lock()
+		s.working = true
+		s.turnMu.Unlock()
+		s.emit(Event{Kind: "status", State: "working"})
+		s.emit(Event{Kind: "status", State: state})
+		s.turnMu.Lock()
+		s.working = false
+		s.turnMu.Unlock()
+		s.reportHeld()
+		toolUpdate(s, "a", "completed")
+		toolUpdate(s, "b", "completed")
+		s.releaseExpiredHold()
+		if counts := idles(got); len(counts) != 1 || counts[0] != 2 {
+			t.Fatalf("%s: idle counts %v, want only the first turn's [2]", state, counts)
+		}
+	}
+}
+
+func TestHeldCountIsNotReportedDuringATurn(t *testing.T) {
+	s, got := heldSession(t)
+	s.working = true
+	toolUpdate(s, "bg", "in_progress")
+	endTurn(s)
+	s.turnMu.Lock()
+	s.working = true
+	s.turnMu.Unlock()
+	s.emit(Event{Kind: "status", State: "working"})
+	toolUpdate(s, "bg", "completed")
+	s.reportHeld()
+	if counts := idles(got); len(counts) != 1 {
+		t.Fatalf("an idle was sent inside a running turn: %v", counts)
+	}
+}
+
+// A held count reported between turns and a new turn's working status are
+// ordered: whichever is sent first, the working status is never followed by
+// that stray idle.
+func TestHeldReportAndANewTurnNeverInterleave(t *testing.T) {
+	for range 200 {
+		s, got := heldSession(t)
+		s.working = true
+		toolUpdate(s, "bg", "in_progress")
+		endTurn(s)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); toolUpdate(s, "bg", "completed") }()
+		go func() {
+			defer wg.Done()
+			s.turnMu.Lock()
+			s.working = true
+			s.turnMu.Unlock()
+			s.emit(Event{Kind: "status", State: "working"})
+		}()
+		wg.Wait()
+		got.mu.Lock()
+		last := got.all[len(got.all)-1]
+		got.mu.Unlock()
+		if last.Kind != "status" || last.State != "working" {
+			// The completion's own tool event may come last; the status order is what matters.
+			got.mu.Lock()
+			seenWorking := false
+			for _, event := range got.all {
+				if event.Kind == "status" && event.State == "working" {
+					seenWorking = true
+				} else if seenWorking && event.Kind == "status" && event.State == "idle" {
+					got.mu.Unlock()
+					t.Fatal("an idle arrived after the new turn's working status")
+				}
+			}
+			got.mu.Unlock()
+		}
+	}
+}
+
+func TestHeldCountStaysWithinTheProtocolBound(t *testing.T) {
+	s, got := heldSession(t)
+	s.working = true
+	for i := range terminalproto.MaxACPBackground + 5 {
+		toolUpdate(s, "t"+strconv.Itoa(i), "in_progress")
+	}
+	endTurn(s)
+	if counts := idles(got); len(counts) != 1 || counts[0] != terminalproto.MaxACPBackground {
+		t.Fatalf("idle counts %v", counts)
+	}
+	if c := s.Controls(); !c.Valid() || c.Background != terminalproto.MaxACPBackground {
+		t.Fatalf("controls %d valid %v", c.Background, c.Valid())
+	}
+}
+
+func TestHeldToolKeepsItsDurationWhenItFinishes(t *testing.T) {
+	s, got := heldSession(t)
+	s.working = true
+	toolUpdate(s, "bg", "in_progress")
+	s.mu.Lock()
+	s.toolStart["bg"] = time.Now().Add(-2 * time.Second)
+	s.mu.Unlock()
+	endTurn(s)
+	toolUpdate(s, "bg", "completed")
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "tool" && event.Status == "completed" && event.DurationMs >= 2000 {
+			return
+		}
+	}
+	t.Fatal("the held tool's completion lost its duration")
 }

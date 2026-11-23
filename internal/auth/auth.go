@@ -102,10 +102,35 @@ type Limiter struct {
 	max    int
 	window time.Duration
 	hits   map[string][]time.Time
+	// maxKeys bounds the map: keys are strings an attacker chooses, such as
+	// emails that do not exist, and an hour-long window would otherwise keep
+	// every one of them.
+	maxKeys int
 }
 
+// maxLimiterKeys is how many keys one limiter holds at once.
+const maxLimiterKeys = 100_000
+
 func NewLimiter(max int, window time.Duration) *Limiter {
-	return &Limiter{max: max, window: window, hits: map[string][]time.Time{}}
+	return &Limiter{max: max, window: window, hits: map[string][]time.Time{}, maxKeys: maxLimiterKeys}
+}
+
+// recordLocked records one attempt for key. A new key past the bound drops
+// the key whose last attempt is oldest, the one least likely to be under
+// attack now, rather than refusing everyone once the map is full.
+func (l *Limiter) recordLocked(key string, now time.Time) {
+	if _, ok := l.hits[key]; !ok && len(l.hits) >= l.maxKeys {
+		var stale string
+		var staleAt time.Time
+		found := false
+		for k, times := range l.hits {
+			if last := times[len(times)-1]; !found || last.Before(staleAt) {
+				stale, staleAt, found = k, last, true
+			}
+		}
+		delete(l.hits, stale)
+	}
+	l.hits[key] = append(l.hits[key], now)
 }
 
 func (l *Limiter) pruneLocked(now time.Time) {
@@ -154,7 +179,7 @@ func (l *Limiter) Hit(keys ...string) {
 	now := time.Now()
 	l.pruneLocked(now)
 	for _, key := range keys {
-		l.hits[key] = append(l.hits[key], now)
+		l.recordLocked(key, now)
 	}
 }
 
@@ -172,9 +197,25 @@ func (l *Limiter) Take(keys ...string) bool {
 		}
 	}
 	for _, key := range keys {
-		l.hits[key] = append(l.hits[key], now)
+		l.recordLocked(key, now)
 	}
 	return true
+}
+
+// Wait reports how long until every full key has room for another attempt:
+// until the oldest attempt of the fullest key leaves the window.
+func (l *Limiter) Wait(keys ...string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	l.pruneLocked(now)
+	var wait time.Duration
+	for _, key := range keys {
+		if times := l.hits[key]; len(times) >= l.max {
+			wait = max(wait, times[len(times)-l.max].Add(l.window).Sub(now))
+		}
+	}
+	return wait
 }
 
 // Forgive takes back the newest attempt recorded for key, for an attempt

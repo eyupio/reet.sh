@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -86,5 +87,45 @@ func TestLimiterTakeChecksAndRecordsTogether(t *testing.T) {
 	}
 	if n != 5 {
 		t.Fatalf("%d attempts were taken at once, want 5", n)
+	}
+}
+
+// Keys are strings an attacker chooses, so the map holds a bounded number
+// of them: past the bound the key whose last attempt is oldest is dropped.
+func TestLimiterHoldsABoundedNumberOfKeys(t *testing.T) {
+	l := NewLimiter(5, time.Hour)
+	l.maxKeys = 3
+	for _, key := range []string{"a", "b", "c"} {
+		l.Take(key)
+		time.Sleep(time.Millisecond)
+	}
+	l.Take("a") // "a" is now the freshest
+	time.Sleep(time.Millisecond)
+	for i := 0; i < 50; i++ {
+		l.Take(fmt.Sprintf("spray-%d", i))
+		l.Hit(fmt.Sprintf("hit-%d", i))
+	}
+	if n := l.Len(); n != 3 {
+		t.Fatalf("the limiter holds %d keys, want at most 3", n)
+	}
+	// An existing key at the bound still counts without dropping another.
+	l = NewLimiter(2, time.Hour)
+	l.maxKeys = 2
+	l.Take("x")
+	l.Take("y")
+	if !l.Take("x") || l.Take("x") || l.Len() != 2 {
+		t.Fatalf("an existing key at the bound: len %d", l.Len())
+	}
+}
+
+func TestLimiterWaitIsUntilTheOldestAttemptLeavesTheWindow(t *testing.T) {
+	l := NewLimiter(2, time.Hour)
+	if w := l.Wait("k"); w != 0 {
+		t.Fatalf("wait for an unused key = %v", w)
+	}
+	l.Take("k")
+	l.Take("k")
+	if w := l.Wait("k", "other"); w <= 59*time.Minute || w > time.Hour {
+		t.Fatalf("wait for a full key = %v", w)
 	}
 }

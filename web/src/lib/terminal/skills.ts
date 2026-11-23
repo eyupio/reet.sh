@@ -67,3 +67,14 @@ export function unknownCommand(draft: string, commands: ChatCommand[], skills: S
   const token = `/${name}`
   return commands.some(c => c.name === name) || skills.some(s => s.invocation.trim().split(/\s/)[0] === token) ? null : name
 }
+
+/** True once whitespace follows the command name, so the name is finished and not half typed. */
+export function nameClosed(draft: string): boolean {
+  return /^\/[A-Za-z0-9:_-]+\s/.test(draft.trimStart())
+}
+
+/** The line about a command the agent did not list: while it is typed, or what became of the message sent with it. */
+export function unlistedLine(agent: string, name: string, kind: 'typing' | 'sent' | 'queued'): string {
+  if (kind === 'typing') return `${agent} did not list /${name} for Chat. It may only work in its terminal.`
+  return `${kind === 'sent' ? 'Sent to' : 'Queued for'} ${agent} as text. It did not list /${name} for Chat; to run it as a command, use its terminal.`
+}

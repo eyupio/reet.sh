@@ -156,3 +156,17 @@ test('chatCommands drops control characters and folds line breaks in description
   assert.equal(c.description, 'a b c d' + 'efgh'.split('').join(''))
   assert.equal(c.hint, 'br‮anch', 'a bidi override is left to the row, which isolates it')
 })
+
+test('unlistedLine says what happened to the message, or what is about to', () => {
+  assert.equal(s.unlistedLine('Codex', 'compact', 'typing'), 'Codex did not list /compact for Chat. It may only work in its terminal.')
+  assert.equal(s.unlistedLine('Codex', 'compact', 'sent'), 'Sent to Codex as text. It did not list /compact for Chat; to run it as a command, use its terminal.')
+  assert.equal(s.unlistedLine('Codex', 'compact', 'queued'), 'Queued for Codex as text. It did not list /compact for Chat; to run it as a command, use its terminal.')
+})
+
+test('nameClosed is true once whitespace follows the command name', () => {
+  assert.equal(s.nameClosed('/compact now'), true)
+  assert.equal(s.nameClosed('/compact '), true)
+  assert.equal(s.nameClosed('/compact'), false)
+  assert.equal(s.nameClosed('/etc/hosts now'), false)
+  assert.equal(s.nameClosed('compact now'), false)
+})

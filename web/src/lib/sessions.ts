@@ -263,6 +263,14 @@ export function switchWhy(state: { why: string }, switchingTo: string | undefine
   return actionBusy ? 'Another action on this session is running.' : ''
 }
 
+/** How a chat reaches its terminal, decided once for the header's Terminal button and for Chat's own link: show the shared native
+ *  view, restart the session in the agent's terminal (the header's confirm), or neither, with the reason to give. */
+export function terminalWay(native: { available: boolean; pending: boolean; reason: string }, state: { to: 'terminal' | 'chat'; enabled: boolean }, chatView: boolean): { way: 'open' | 'restart' | 'none'; reason: string } {
+  if (native.available) return { way: 'open', reason: '' }
+  if (chatView && !native.pending && state.enabled && state.to === 'terminal') return { way: 'restart', reason: '' }
+  return { way: 'none', reason: native.pending ? 'Checking this running agent’s terminal support…' : native.reason || 'This session has no shared native terminal.' }
+}
+
 /** The context panel's changed files (R19): the first twenty paths the worktree status lists, the total, and how many more. */
 export function changedList(status: { changed: number; paths: string[] }): { shown: string[]; total: number; more: number } {
   const shown = (status.paths ?? []).slice(0, 20)

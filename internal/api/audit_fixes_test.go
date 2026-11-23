@@ -167,6 +167,10 @@ func TestSignInFailuresHaveAnHourlyCapPerAccount(t *testing.T) {
 	if n, err := strconv.Atoi(after); err != nil || n < 3590 || n > 3600 {
 		t.Fatalf("Retry-After past the account cap = %q", after)
 	}
+	// The wait is over a minute, so the answer does not promise one.
+	if !strings.Contains(body, "too many attempts, try again later") {
+		t.Fatalf("the refusal past the account cap reads %s", body)
+	}
 	// Refused attempts are not charged: the fresh address kept its budget.
 	if n := s.addrLimiter.Len() + s.limiter.Len(); n != 1+1 {
 		t.Fatalf("refused attempts left %d address and pair keys, want only the failure's two", n)
@@ -190,7 +194,7 @@ func TestSignInLimitsAnswerTheSameForAnEmailWithNoAccount(t *testing.T) {
 		code, body, after := signInFrom(t, srv, "203.0.113.1", email, "wrong")
 		replies = append(replies, fmt.Sprint(code, " ", after, " ", body))
 	}
-	if replies[0] != replies[1] || !strings.HasPrefix(replies[0], "429 60 ") {
+	if replies[0] != replies[1] || !strings.HasPrefix(replies[0], "429 60 ") || !strings.Contains(replies[0], "try again later") {
 		t.Fatalf("limited replies differ or are not 429: %q", replies)
 	}
 }

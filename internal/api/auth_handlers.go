@@ -235,10 +235,12 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 	for i, k := range keys {
 		if !k.l.Take(k.key) {
 			forgive(i)
-			// The wait says how long, but not which of the keys was full.
+			// The wait tells a per-minute limit (60) from the account's hourly
+			// cap (more), but not which per-minute key, and is the same whether
+			// or not the account exists. The message holds for either wait.
 			wait := max(int(math.Ceil(k.l.Wait(k.key).Seconds())), 60)
 			w.Header().Set("Retry-After", strconv.Itoa(wait))
-			writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a minute")
+			writeErr(w, http.StatusTooManyRequests, "too many attempts, try again later")
 			return
 		}
 	}

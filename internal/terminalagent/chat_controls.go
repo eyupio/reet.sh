@@ -13,6 +13,7 @@ type liveChatControls interface {
 	Controls() terminalproto.ACPControls
 	SetOption(context.Context, string, string) error
 	Steer(context.Context, string, []acpagent.Attachment) (string, error)
+	Commands() []terminalproto.ACPCommand
 }
 
 func (h *chatHost) control(ctx context.Context, session string, in terminalproto.ACPControl) (terminalproto.ACPControlResult, error) {
@@ -33,6 +34,12 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 	answer := terminalproto.ACPControlResult{}
 	var err error
 	switch in.Action {
+	case "commands":
+		// Alone, without the controls snapshot: a full model catalogue and a
+		// full command list together would not fit one frame.
+		answer.Controls.Options = []terminalproto.ACPSetting{}
+		answer.Commands = controls.Commands()
+		return answer, nil
 	case "get":
 	case "set":
 		wasWorking := process.Working()
@@ -98,10 +105,14 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 // that negotiated acp-model-catalogue-v1 reads the whole model list; an older
 // one keeps the 16 values its decoder and frame budget were sized for. A
 // controller that did not negotiate acp-provider-v1 never sees the provider
-// setting. The session keeps every value and setting either way, so a
+// setting, and one without acp-background-v1 never sees the background count.
+// The session keeps every value and setting either way, so a
 // reconnect with the feature gets the full snapshot without asking the agent
 // again.
 func (h *chatHost) forConnection(state terminalproto.ACPControls) terminalproto.ACPControls {
+	if !h.link.background {
+		state.Background = 0
+	}
 	if h.link.catalogue && h.link.provider {
 		return state
 	}

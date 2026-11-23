@@ -1,5 +1,119 @@
 # Reet central-control implementation handoff
 
+## SKILL-BUDDY-FOLD-2: skill suggestions stay folded in Chat (23 November 2026)
+
+Follow-up to **PHONE-SKILL-BUDDY-1**: the folded header was still a card above the composer, kept **Pause** beside it,
+and a desktop opened the panel in full.
+
+**What changed.** `web/src/lib/terminal/ChatPane.svelte` passes `compact` to `SkillBuddy` on every screen and no longer
+tracks `PHONE_SCREEN`. `web/src/lib/SkillBuddy.svelte` gains a folded state: no card, no second row, a 14px muted
+label, the first suggestion's name, and **See skills** beside it. **Pause** and the generic "Suggested from the task
+and stage" line appear only when the panel is open or paused. The folded strip keeps the 14px floor that
+`web/src/lib/typeScale.test.mjs` enforces.
+
+**Unchanged.** A Factory stage's per-stage suggestions in `PipelineDetail.svelte` stay open; the native terminal's
+**Suggested skills** dialog is unchanged; **See skills** gives the same panel as before.
+
+**Tests.** `web/tests/calm-session.e2e.mjs`, `web/tests/chat.e2e.mjs` (which already covered the folded phone strip),
+`web/tests/skill-buddy.e2e.mjs`, `npm test`, `npx svelte-check` and `npm run build` pass; screenshots at 1440 and 390
+in both themes show the one-line strip.
+
+**Docs.** `docs/skill-buddy.md` and `CHANGELOG.md` say the panel folds in Chat.
+
+**PR.** [#906](https://github.com/eyupio/reet.sh/pull/906) opened against `main` from `reet/fold-skill-suggestions`.
+
+## DESK-OWN-TAB-1: a desk opens in a tab of its own (23 November 2026)
+
+A small desktop-only affordance, no data-model or autosave change. Reet has no app-level tab that can hold a desk: the
+top bar is fixed navigation, and a desk's own tabs hold panes. What reet does have is one desk per browser window, and
+its tests already call the browser window "a tab for a desk" (`web/tests/desks.e2e.mjs`). So "its own tab" is the
+desk's own browser tab: `/desks/<id>` opened with an ordinary link in a new tab, which leaves the current window's
+desk and its unsaved edits alone.
+
+**Where.** The switch-desk dropdown in `web/src/lib/desks/DeskScreen.svelte` gains **Move to its own tab** after All
+desks and New desk. It opens a second list of the account's non-template desks; the desk already in this window is
+disabled, every other desk is a `menuitem` link to `/desks/<id>` (`target="_blank"`, `rel="noopener noreferrer"`). The
+Desks list's per-card menu in `DeskList.svelte` gains the same item. Both use `DeskMenu`, so first-item focus, arrows,
+Home/End, Escape and focus return are the existing behaviour, and the links keep the menu's existing styling.
+
+**Persistence.** Nothing new is stored. Each browser tab is already its own desk: its address is the desk, and its
+chosen desk tab stays in `sessionStorage['reet-desk-tab:<deskId>']`. A reload restores both windows as they were. The
+existing `localStorage['reet.desks.last.<userId>']` follows the newly opened desk, as it does for any desk open.
+
+**Trade-offs.** The switcher is a switch list, not ownership, so the desk is not removed from it. "Already in its own
+tab" can only be known for the current window; another browser tab on the same desk cannot be detected without a new
+registry, so it is not attempted. Templates are left out, as in the switcher.
+
+**Tests.** `web/tests/desks.e2e.mjs` covers the item in both menus, the keyboard path, the disabled current desk, the
+link's address and new-tab attributes, and a real second window that opens the desk and keeps it across a reload.
+`npm run check`, `npm run build`, `desks.e2e.mjs` and `desks-phone.e2e.mjs` pass.
+## CHAT-COMMANDS-1: an agent's slash commands in Chat (23 November 2026)
+
+The second "Agent behaviour" item of the roadmap's reliability workstream.
+
+**Path.** ACP's `available_commands_update` used to be dropped. The connector now keeps the last announced list on the
+chat session, in memory only (`internal/acpagent`); an empty or malformed announcement clears it. It is carried by a new
+negotiated feature, `acp-commands-v1`, and a control action `"commands"` (`internal/terminalproto/acp_commands.go`),
+kept out of the regular controls poll. `GET /api/v2/terminal/sessions/{id}/chat/commands` answers
+`{"commands":[{name,description,hint}]}`; a machine without the feature answers 200 with an empty list, `code`
+`chat_commands_unsupported` and a sentence. Nothing is stored: agents announce again on load.
+
+**Limits on the agent's text.** At most 64 commands; names 1 to 64 characters of `[A-Za-z0-9:_-]`, first of two equal
+names wins; description 300 bytes, hint 120; the encoded list fits 48 KiB. An invalid entry is dropped, not the list.
+The connector trims and the decoder validates again. The web client drops control characters and the rows isolate
+text direction; nothing is rendered as HTML.
+
+**Web.** `web/src/lib/terminal/skills.ts` holds the rules (`groupCommands`, `withoutAnnounced`, `unknownCommand`,
+`unlistedLine`, `nameClosed`); `SkillPicker.svelte` shows the group first, also while skills load or fail, and a skill
+that is also a command appears once. `ChatPane.svelte` reads the list when the chat opens, when the sheet opens and
+before judging a `/` message. The unlisted-command line shows while typing (after the name is closed by a space, or
+600 ms) and after sending says "Sent to …" or "Queued for … as text"; it never blocks Send. The way to the terminal
+is one decision, `terminalWay` in `sessions.ts`: open the native view, "Restart in terminal…", or no control with the
+header switch's reason.
+
+**Not done, and not known.**
+- Nothing was run against a real agent: which commands each agent announces, and when, is not known. The rule assumes
+  that a command an agent did not announce may need its terminal; reet has no list of terminal-only commands.
+- Matching is case-sensitive, so `/Review` warns when `/review` was announced.
+- Commands can be inserted only while the agent is idle, as with skills.
+- At small heights the queue card still clips its Remove button, as before; the new line adds height there.
+
+## HELD-WORK-1: a turn that ends with work still running is not a finish (23 November 2026)
+
+The first "Agent behaviour" item of the roadmap's reliability workstream.
+
+**What it is.** Over ACP an agent can end a turn while tool calls it started (a subagent, a background command) are
+still open. Those sessions used to read as finished. The connector now keeps the open calls as a held set and puts
+their count on the idle status (`internal/acpagent/session.go`); the feature is `acp-background-v1`
+(`internal/terminalproto/acp_background.go`), and both the count and the give-up code are stripped for a peer without
+it, so an older machine or controller behaves as before.
+
+**States.** The broker stores chat status `background` (attention: working) while the count is above zero, with
+`held_since` for when the turn ended. A held call that completes, fails or is cancelled leaves the set; at zero the
+session finishes as usual, and a failed turn stays failed. A new message from the person clears the hold.
+
+**Giving up.** Nothing is waited on for ever. After `BackgroundHoldLimit` (30 minutes) the connector sends an idle
+status with the code `unwatched` and a transcript notice naming the agent, the count and the machine; the broker has
+its own 30-minute bound for a machine that goes silent and writes its own line. Either ends as chat status
+`unwatched`, never `finished`; it survives a restore, the push says "Stopped waiting for its background work; it may
+still be running.", and it gets its own card kind in the bell and Waiting for you.
+
+**Gaffer.** A stage in `background` is not reviewed as finished; its line says when waiting stops. A stored
+`unwatched` newer than the last review or resume puts the goal in needs-you with a note to read the session, and no
+review is spent. Both move-on confirmations open with the warning that moving on stops the work.
+
+**Web.** `web/src/lib/sessionStatus.ts` holds the words (`heldWork`, `HELD_SENTENCE`, `statusLabel(status, held)`);
+lists say "In background" with a static ring (`.status-ring`), sentences use the long form, and every surface reads
+the full sentence once to a screen reader. `docs/ui-verification.md` and `docs/handoffs/attention-contract.md`
+describe the state.
+
+**Not done, and not known.**
+- Nothing was run against a real agent or machine: which agents leave tool calls open at the end of a turn is not
+  known, so the state may never appear for some of them, or appear for a call an agent simply forgot to close.
+- There is no control to stop the background work; moving a stage on, or ending the session, is the only way.
+- Permissions asked by a held tool after the turn ended are not handled specially.
+- On a phone row "Stopped waiting" is cut short, as "Waiting for you" is.
+- The connector's notice names the machine by hostname; the controller's own line uses the name shown in reet.
 ## FACTORY-TEMPLATES-6: private, versioned Factory templates (23 November 2026)
 
 Stage 6 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract is

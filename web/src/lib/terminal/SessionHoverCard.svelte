@@ -56,7 +56,7 @@
   .swatch { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--card-colour); }
   .swatch.empty { display: none; }
   header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; }
-  .state { flex: none; font-size: 0.875rem; padding: 1px 6px; border: 1px solid var(--status-edge); border-radius: 6px; color: var(--status); background: var(--status-wash); font-weight: 600; }
+  .state { flex: none; font-size: 0.875rem; padding: 1px 6px; border: 1px solid var(--status-edge); border-radius: 6px; color: var(--status-text); background: var(--status-wash); font-weight: 600; }
   .where { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   code { font-family: var(--mono); font-size: 0.875rem; }
   .age { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }

@@ -92,12 +92,14 @@ type ACPControls struct {
 	Steering    bool         `json:"steering"`
 	Model       string       `json:"model"`
 	Options     []ACPSetting `json:"options"`
+	// Background is the ended turn's work still running (acp-background-v1 only).
+	Background int `json:"background,omitempty"`
 }
 
 func (s ACPControls) Valid() bool {
 	tooMany := len(s.Options) > 3
 	invalidModel := s.Model != "" && !ValidModel(s.Model)
-	if tooMany || invalidModel {
+	if tooMany || invalidModel || !validBackground(s.Background) {
 		return false
 	}
 	ids, categories := map[string]bool{}, map[string]bool{}
@@ -142,7 +144,7 @@ type ACPControl struct {
 func (ACPControl) kind() string { return "acp_control" }
 func (c ACPControl) valid() bool {
 	switch c.Action {
-	case "get":
+	case "get", "commands":
 		return c.ConfigID == "" && c.Value == "" && c.Text == "" && len(c.Images) == 0
 	case "set":
 		return validAgentOptionToken(c.ConfigID) && c.Value != "" && ValidModel(c.Value) && c.Text == "" && len(c.Images) == 0
@@ -156,9 +158,12 @@ type ACPControlResult struct {
 	Error    string      `json:"error,omitempty"`
 	Controls ACPControls `json:"controls"`
 	Outcome  string      `json:"outcome,omitempty"`
+	// Commands answers the "commands" action only, so a result to any other
+	// action encodes exactly as it did before acp-commands-v1.
+	Commands []ACPCommand `json:"commands,omitempty"`
 }
 
 func (ACPControlResult) kind() string { return "acp_control_result" }
 func (r ACPControlResult) valid() bool {
-	return validChatText(r.Error, 500) && r.Controls.Valid() && slices.Contains([]string{"", "injected", "promptRequired", "rejected", "unknown"}, r.Outcome)
+	return validChatText(r.Error, 500) && r.Controls.Valid() && slices.Contains([]string{"", "injected", "promptRequired", "rejected", "unknown"}, r.Outcome) && ValidACPCommands(r.Commands)
 }

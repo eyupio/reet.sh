@@ -207,13 +207,15 @@
   const waiting = $derived(new Set(tabs.filter(t => panesOf(t).some(p => { const s = p.session ? sessionById.get(p.session) : undefined; return !!s && sessionStatus(s) === 'waiting' })).map(t => t.id)))
   const hosts = $derived(new Set(tabs.flatMap(t => Object.values(t.panes).map(p => p.host)).filter(Boolean)))
   const others = $derived(desks.filter(d => !d.template && d.id !== id))
+  // Every desk the switcher's Move to its own tab can open, the one already in this window included so it can be shown off.
+  const switchDesks = $derived(desks.filter(d => !d.template))
   // A template opened by its address is shown, but nothing on it starts a shell.
   const template = $derived(!!desk?.template)
   const saveWord = $derived(saveState === 'saving' ? 'Saving…' : saveState === 'unsaved' ? 'Not saved yet' : saveState === 'refused' ? 'last change not saved' : 'saved')
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
   // Menus in the header: the switcher (the desk's name) and the desk menu (⋮).
-  let menu = $state<{ kind: 'switch' | 'desk' | 'layout' | 'add'; x: number; y: number; opener: HTMLElement } | null>(null)
+  let menu = $state<{ kind: 'switch' | 'desk' | 'layout' | 'add'; list?: 'ownTab'; x: number; y: number; opener: HTMLElement } | null>(null)
   function openMenu(kind: 'switch' | 'desk' | 'layout', event: MouseEvent) {
     const opener = event.currentTarget as HTMLElement, box = opener.getBoundingClientRect()
     menu = { kind, opener, x: kind === 'switch' ? box.left : box.right - 220, y: box.bottom + 4 }
@@ -1025,7 +1027,17 @@
   {/if}
 </section>
 
-{#if menu?.kind === 'switch' && desk}
+{#if menu?.kind === 'switch' && desk && menu.list === 'ownTab'}
+  <DeskMenu x={menu.x} y={menu.y} label="Move to its own tab" opener={menu.opener} onclose={closeMenu}>
+    {#each switchDesks as d (d.id)}
+      {#if d.id === desk.id}
+        <button type="button" role="menuitem" disabled title="This desk already has this tab.">{d.name}</button>
+      {:else}
+        <a role="menuitem" href={`/desks/${encodeURIComponent(d.id)}`} target="_blank" rel="noopener noreferrer" onclick={() => closeMenu(false)}><span class="swatch" style={`--swatch:${projectColourHex(d.colour)}`}></span>{d.name}</a>
+      {/if}
+    {/each}
+  </DeskMenu>
+{:else if menu?.kind === 'switch' && desk}
   <DeskMenu x={menu.x} y={menu.y} label="Switch desk" opener={menu.opener} onclose={closeMenu}>
     {#each others as d (d.id)}
       <button type="button" role="menuitem" onclick={() => { closeMenu(false); onopen(d.id) }}><span class="swatch" style={`--swatch:${projectColourHex(d.colour)}`}></span>{d.name}</button>
@@ -1033,6 +1045,8 @@
     {#if others.length}<hr />{/if}
     <button type="button" role="menuitem" onclick={() => { closeMenu(false); onlist() }}>All desks</button>
     <button type="button" role="menuitem" onclick={() => { closeMenu(false); onnew() }}>New desk</button>
+    <hr />
+    <button type="button" role="menuitem" aria-haspopup="menu" title="Open a desk in a tab of its own" onclick={() => { if (menu) menu = { ...menu, list: 'ownTab' } }}>Move to its own tab</button>
   </DeskMenu>
 {:else if menu?.kind === 'add' && desk}
   <DeskMenu x={menu.x} y={menu.y} label="New tab" opener={menu.opener} onclose={closeMenu}>

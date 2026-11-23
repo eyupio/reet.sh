@@ -104,3 +104,69 @@ test('addSessionSkill', async () => {
   assert.equal(err.status, 422)
   assert.equal(api.cancelSessionSkillInstall, undefined)
 })
+
+const cmd = (name, over) => ({ name, description: `${name} things`, hint: '', ...over })
+
+test('groupCommands lists the agent first group, filters by name or description, and drops repeats', () => {
+  const list = [cmd('review', { hint: 'branch' }), cmd('init', { description: 'Create a PLAN file' }), cmd('review')]
+  const all = s.groupCommands(list, '', 'Codex')
+  assert.equal(all.label, 'Commands from Codex')
+  assert.deepEqual(all.commands.map(c => c.name), ['review', 'init'])
+  assert.deepEqual(s.groupCommands(list, 'REV', 'Codex').commands.map(c => c.name), ['review'])
+  assert.deepEqual(s.groupCommands(list, 'plan', 'Codex').commands.map(c => c.name), ['init'])
+  assert.equal(s.groupCommands(list, 'zzz', 'Codex'), null)
+  assert.equal(s.groupCommands([], '', 'Codex'), null)
+})
+
+test('withoutAnnounced hides a skill whose invocation is an announced command', () => {
+  const list = [skill('review', { invocation: '/review' }), skill('pdf', { invocation: 'Use the pdf skill.' }), skill('plain', { invocation: '/plain' })]
+  assert.deepEqual(s.withoutAnnounced(list, [cmd('review')]).map(k => k.id), ['pdf', 'plain'])
+  assert.equal(s.withoutAnnounced(list, []), list)
+})
+
+test('unknownCommand warns only for an unlisted slash command when the agent announced some', () => {
+  const known = [cmd('review')]
+  const skills = [skill('deploy', { invocation: '/deploy now' })]
+  assert.equal(s.unknownCommand('/compact', known, skills), 'compact')
+  assert.equal(s.unknownCommand('/compact the thread', known, skills), 'compact')
+  assert.equal(s.unknownCommand('/ns:do_it-2', known, skills), 'ns:do_it-2')
+  assert.equal(s.unknownCommand('/review main', known, skills), null)
+  assert.equal(s.unknownCommand('/deploy', known, skills), null)
+  assert.equal(s.unknownCommand('/etc/hosts', known, skills), null)
+  assert.equal(s.unknownCommand('/etc/hosts please', known, skills), null)
+  assert.equal(s.unknownCommand('fix /compact', known, skills), null)
+  assert.equal(s.unknownCommand('/', known, skills), null)
+  assert.equal(s.unknownCommand('/compact', [], skills), null, 'nothing announced, nothing to compare with')
+})
+
+test('chatCommands reads the list and the old-machine answer, keeping only text', async () => {
+  const calls = fetchReplying(200, { commands: [{ name: 'review', description: 'Review changes', hint: 'branch' }] })
+  assert.deepEqual(await api.chatCommands('s/1'), { commands: [{ name: 'review', description: 'Review changes', hint: 'branch' }], unsupported: '' })
+  assert.equal(calls[0].url, '/api/v2/terminal/sessions/s%2F1/chat/commands')
+  const old = 'Update reet on this machine to see the agent\'s commands.'
+  fetchReplying(200, { commands: [], code: 'chat_commands_unsupported', error: old })
+  assert.deepEqual(await api.chatCommands('s1'), { commands: [], unsupported: old })
+  fetchReplying(200, { commands: [{ name: 5, description: null }, 'x'] })
+  assert.deepEqual((await api.chatCommands('s1')).commands, [{ name: '', description: '', hint: '' }])
+})
+
+test('chatCommands drops control characters and folds line breaks in description and hint, keeping other text', async () => {
+  fetchReplying(200, { commands: [{ name: 'x', description: 'a\nb\r\nc\td\u0000e\u001bf\u0085g\u007fh', hint: 'br‮anch\n' }] })
+  const [c] = (await api.chatCommands('s1')).commands
+  assert.equal(c.description, 'a b c d' + 'efgh'.split('').join(''))
+  assert.equal(c.hint, 'br‮anch', 'a bidi override is left to the row, which isolates it')
+})
+
+test('unlistedLine says what happened to the message, or what is about to', () => {
+  assert.equal(s.unlistedLine('Codex', 'compact', 'typing'), 'Codex did not list /compact for Chat. It may only work in its terminal.')
+  assert.equal(s.unlistedLine('Codex', 'compact', 'sent'), 'Sent to Codex as text. It did not list /compact for Chat; to run it as a command, use its terminal.')
+  assert.equal(s.unlistedLine('Codex', 'compact', 'queued'), 'Queued for Codex as text. It did not list /compact for Chat; to run it as a command, use its terminal.')
+})
+
+test('nameClosed is true once whitespace follows the command name', () => {
+  assert.equal(s.nameClosed('/compact now'), true)
+  assert.equal(s.nameClosed('/compact '), true)
+  assert.equal(s.nameClosed('/compact'), false)
+  assert.equal(s.nameClosed('/etc/hosts now'), false)
+  assert.equal(s.nameClosed('compact now'), false)
+})

@@ -368,6 +368,9 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		if !acp(terminalproto.ACPLiveControlsFeature) {
 			return terminalproto.ErrInvalid
 		}
+		if b.Action == "commands" && !has(terminalproto.ACPCommandsFeature) {
+			return terminalproto.ErrInvalid
+		}
 		if len(b.Images) > 0 && !has(terminalproto.ACPImageFeature) {
 			return terminalproto.ErrInvalid
 		}

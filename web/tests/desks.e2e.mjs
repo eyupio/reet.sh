@@ -387,6 +387,44 @@ try {
   await expect(page.getByRole('link', { name: 'zoomies dev' })).toBeVisible()
   console.log('ok - opens the last desk')
 
+  // ── moves a desk to a tab of its own ──
+  reset()
+  await page.goto(`${base}/desks/desk-prod`)
+  await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
+  await page.getByRole('button', { name: 'prod deploy, switch desk' }).click()
+  const ownItem = page.getByRole('menu', { name: 'Switch desk' }).getByRole('menuitem', { name: 'Move to its own tab' })
+  await expect(ownItem).toBeVisible()
+  // The keyboard reaches it like any other item, and Enter opens its list.
+  await ownItem.focus()
+  await page.keyboard.press('Enter')
+  const ownMenu = page.getByRole('menu', { name: 'Move to its own tab' })
+  await expect(ownMenu.getByRole('menuitem', { name: 'prod deploy' })).toBeDisabled()
+  const ownTab = ownMenu.getByRole('menuitem', { name: 'zoomies dev' })
+  await expect(ownTab).toHaveAttribute('href', '/desks/desk-dev')
+  await expect(ownTab).toHaveAttribute('target', '_blank')
+  await expect(ownTab).toHaveAttribute('rel', 'noopener noreferrer')
+  await page.keyboard.press('Escape')
+  await expect(ownMenu).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'prod deploy, switch desk' })).toBeFocused()
+  // The list's card menu offers the same; choosing it opens the desk in its own browser tab, and a reload keeps it there.
+  await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+  await page.goto(`${base}/desks`)
+  const card = page.locator('.card').filter({ hasText: 'zoomies dev' })
+  await card.getByRole('button', { name: 'Actions for zoomies dev' }).click()
+  const cardItem = page.getByRole('menu', { name: 'Actions for zoomies dev' }).getByRole('menuitem', { name: 'Move to its own tab' })
+  await expect(cardItem).toHaveAttribute('href', '/desks/desk-dev')
+  const spawned = context.waitForEvent('page')
+  await cardItem.click()
+  const ownWindow = await spawned
+  await ownWindow.route('**/api/**', api)
+  await ownWindow.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+  await ownWindow.reload()
+  await expect(ownWindow.getByRole('heading', { name: 'zoomies dev', level: 1 })).toBeVisible()
+  await ownWindow.reload()
+  await expect(ownWindow.getByRole('heading', { name: 'zoomies dev', level: 1 })).toBeVisible()
+  await ownWindow.close()
+  console.log('ok - moves a desk to a tab of its own')
+
   // ── renames a tab with F2 and saves once ──
   reset()
   await openDesk()
@@ -1106,6 +1144,33 @@ try {
   await page.getByRole('button', { name: 'Interrupt shell' }).click()
   await expect.poll(() => sockets.get('sess-c').input).toContain('\x03')
   console.log("ok - a pane's failure leaves its neighbours live")
+
+  // ── a pane whose agent ended its turn with work still running ──
+  reset()
+  sessions = sessions.map(x => x.id === 'sess-a' ? { ...x, tool: 'claude', attention: 'working', attentionSource: 'chat', chatStatus: 'background' } : x)
+  await openSplit()
+  await expect(pane('pane-a')).toHaveAttribute('data-state', 'live')
+  await expect(pane('pane-a').locator('.word')).toHaveText(/^In background\./)
+  await expect(pane('pane-a').locator('.word')).toHaveAttribute('data-held', '')
+  await expect(pane('pane-a').locator('.word .status-ring')).toBeVisible()
+  await expect(pane('pane-a').locator('.word .vh')).toHaveText('. Turn ended; work it started is still running.')
+  // The word is in the status text colour and keeps AA on the pane's tinted header (pane-a is red).
+  const pair = await pane('pane-a').locator('.word').evaluate(el => {
+    const parse = c => { const n = c.match(/[\d.]+/g).map(Number); return c.startsWith('color(') ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] ?? 1] : [n[0], n[1], n[2], n[3] ?? 1] }
+    let bg = [0, 0, 0, 0]
+    for (let node = el; node && bg[3] < 1; node = node.parentElement) {
+      const c = parse(getComputedStyle(node).backgroundColor)
+      if (c[3] === 0) continue
+      const a = bg[3] + c[3] * (1 - bg[3])
+      bg = [0, 1, 2].map(i => (bg[i] * bg[3] + c[i] * c[3] * (1 - bg[3])) / a).concat(a)
+    }
+    return [parse(getComputedStyle(el).color), bg]
+  })
+  const lum = c => { const [r, g, b] = c.slice(0, 3).map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }); return 0.2126 * r + 0.7152 * g + 0.0722 * b }
+  const [hi, lo] = [lum(pair[0]), lum(pair[1])].sort((a, b) => b - a)
+  expect((hi + 0.05) / (lo + 0.05), `held word on the tinted pane header: ${JSON.stringify(pair)}`).toBeGreaterThanOrEqual(4.5)
+  if (process.env.REET_BACKGROUND_SHOTS) { await mkdir(process.env.REET_BACKGROUND_SHOTS, { recursive: true }); await pane('pane-a').locator('header').screenshot({ path: `${process.env.REET_BACKGROUND_SHOTS}/desk-pane.png` }) }
+  console.log('ok - a held pane says In background with the hollow ring')
 
   // ── theatre leaves the tab bar and panes ──
   reset()

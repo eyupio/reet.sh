@@ -17,6 +17,8 @@ export type ChatEvent = {
   toolKind?: string
   status?: string
   state?: string
+  /** On an idle status: how many tool calls the ended turn left running. */
+  background?: number
   text?: string
   command?: string
   path?: string
@@ -61,7 +63,7 @@ export type ChatItem =
 
 export type ChatState = {
   items: ChatItem[]
-  status: { state: string; detail: string; code: string }
+  status: { state: string; detail: string; code: string; background?: number }
   lastSeq: number
   truncated: boolean
   connection: 'connecting' | 'open' | 'reconnecting'
@@ -205,12 +207,16 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
     case 'notice':
       return { ...next, items: [...state.items, { kind: 'notice', key: `n${event.seq}`, text: event.text ?? '', bad: event.bad }] }
     case 'status': {
-      const status = { state: event.state ?? '', detail: event.detail ?? '', code: event.code ?? '' }
+      const status = { state: event.state ?? '', detail: event.detail ?? '', code: event.code ?? '', background: event.background ?? 0 }
       const stopped = status.state === 'cancelled' || status.state === 'idle' || status.state === 'error' || status.state === 'ended'
       // Thinking belongs to the working phase: once the turn waits, finishes or stops, the thought is finished.
       const settled = status.state !== 'working' && status.state !== 'starting' ? settleThoughts(state.items) : state.items
       if (!stopped) return settled === state.items ? { ...next, status } : { ...next, status, items: settled }
-      return { ...next, status, items: stopTools(cancelPending(settled, status.state === 'ended' ? 'ended' : status.state)) }
+      const cancelled = cancelPending(settled, status.state === 'ended' ? 'ended' : status.state)
+      // Tools still running after the turn ended are not stopped: the machine says they run on, or reet stopped
+      // waiting for them and they may still be running.
+      const runOn = status.background > 0 || status.code === 'unwatched'
+      return { ...next, status, items: runOn ? cancelled : stopTools(cancelled) }
     }
     case 'permission': {
       if (!event.permissionId) return next

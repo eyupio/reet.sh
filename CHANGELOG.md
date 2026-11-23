@@ -5,6 +5,26 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Skill suggestions stay out of the way in Chat**: **Skills for this task** now opens as one quiet line above the
+  message box on every screen size, naming the task and the first suggestion with **See skills** to open the rest.
+  **Pause** appears once the suggestions are open. A Factory stage's suggestions are unchanged and stay open beside
+  its plan.
+- **A desk can open in a tab of its own**: **Move to its own tab** in the desk switcher opens another desk in a new
+  browser tab, leaving the desk you are on where it is; the desk already in this window is switched off. The same item
+  is on each desk card's menu on the Desks list. Reet keeps one desk to a window, so each tab keeps its own address and
+  its own chosen desk tab, and both come back as they were after a reload. Nothing new is stored.
+- **An agent's slash commands in Chat**: when an agent announces its commands, the Skills sheet in Chat
+  lists them first as "Commands from {agent}", each with its argument and description; picking one adds it to
+  your message and sends nothing. If you type a `/name` the agent did not list, a line under the message says it may
+  only work in the agent's terminal, with the way there; the message still sends, and the line then says it went as
+  text. Needs a machine and a controller on this version; an older machine shows a line asking to update reet on it.
+- **A turn that ends with work still running no longer reads as finished**: when an agent ends its turn while a
+  subagent or background command it started is still open, the session says "In background" (in Chat: when the turn
+  ended, how many tasks are running, and that you can send your next instruction) instead of "Finished", and it does
+  not ring the finish alert. If the agent never says the work ended, reet stops waiting after 30 minutes and says
+  "Stopped waiting", with a note that the work may still be running on the machine. In the Factory, a stage in this
+  state says when it stops waiting, Gaffer does not review it as finished, and moving it on warns first that this
+  stops the work. Needs a machine and a controller on this version; with an older one, sessions read as before.
 - **Private Factory templates**: a finished outcome whose every pipeline finished, or had its delivery accepted, can
   be saved as a template with **Save as template…**. A template keeps the plan (each pipeline's prompt, stages and
   tiers, criteria, merge setting and the approved skill revisions) and never the machine, folder, agents, models or

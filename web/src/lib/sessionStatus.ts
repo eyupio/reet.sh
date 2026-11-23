@@ -38,15 +38,50 @@ export function stateStatus(state: SessionState): SessionStatus {
 
 /** The colour family for a Needs you card: a question or approval is waiting, a broken session has failed, and a
  *  finished turn (with or without a worktree to review) is finished. */
-export function needStatus(kind: 'waiting' | 'failed' | 'review' | 'finished'): SessionStatus {
+export function needStatus(kind: 'waiting' | 'failed' | 'review' | 'finished' | 'stopped'): SessionStatus {
   if (kind === 'waiting') return 'waiting'
   if (kind === 'failed') return 'failed'
   return 'finished'
 }
 
+/** A chat whose turn ended while work it started still runs. It keeps the working colour; surfaces draw a hollow ring for
+ *  it where working has a solid dot, and say so in words. */
+export function heldWork(session: Pick<TerminalSession, 'attention' | 'attentionSource' | 'chatStatus'>): boolean {
+  return session.attention === 'working' && session.attentionSource === 'chat' && session.chatStatus === 'background'
+}
+
+/** How long reet waits for work a turn left running before it stops waiting (terminalproto.BackgroundHoldLimit). */
+export const BACKGROUND_HOLD_MS = 30 * 60_000
+
+/** A chat whose held work reet stopped waiting for: it is not a clean finish, and the work may still be running. */
+export function stoppedWaiting(session: Pick<TerminalSession, 'attention' | 'attentionSource' | 'chatStatus'>): boolean {
+  return (session.attention === 'finished' || session.attention === 'quiet') && session.attentionSource === 'chat' && session.chatStatus === 'unwatched'
+}
+
+/** "Turn ended 12 min ago", from when the hold began; bare when that is not known. */
+export function turnEndedAgo(heldSince: number | undefined, now: number): string {
+  if (!heldSince) return 'Turn ended'
+  const minutes = Math.floor(Math.max(0, now - heldSince) / 60_000)
+  return minutes < 1 ? 'Turn ended just now' : `Turn ended ${minutes} min ago`
+}
+
+/** "stops waiting in 10 min": when reet gives up on held work that began at heldSince. */
+export function stopsWaitingIn(heldSince: number, now: number): string {
+  const minutes = Math.floor((heldSince + BACKGROUND_HOLD_MS - now) / 60_000)
+  return minutes < 1 ? 'stops waiting soon' : `stops waiting in ${minutes} min`
+}
+
+/** The line a stopped wait carries where a sentence fits. */
+export const STOPPED_LINE = 'Work it started may still be running.'
+
+/** The full sentence a held session's short label stands for, for a tooltip and assistive technology. */
+export const HELD_SENTENCE = 'Turn ended; work it started is still running.'
+
 /** A compact name for the colour family, where a row has no room for stateWord's full sentence ("Waiting for you"). */
-export function statusLabel(status: SessionStatus): string {
-  return status === 'working' ? 'Working'
+export function statusLabel(status: SessionStatus, held = false, stopped = false): string {
+  return status === 'working' && held === true ? 'In background'
+    : stopped === true ? 'Stopped waiting'
+    : status === 'working' ? 'Working'
     : status === 'waiting' ? 'Waiting'
     : status === 'starting' ? 'Starting'
     : status === 'ending' ? 'Ending'

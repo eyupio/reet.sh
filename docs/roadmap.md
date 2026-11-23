@@ -21,8 +21,10 @@ priority order within each group):
   - A machine-local lock that refuses every controller-initiated launch and attach until the owner lifts it.
 - **Agent behaviour.**
   - Terminal "waiting" detection for Cline, Antigravity and Copilot, with the question and its options, not only a yes/no.
-  - A turn that ends while a subagent or background command is still running should not read as finished.
-  - Show an agent's slash commands in Chat (`available_commands_update`), and say when a command needs the terminal.
+  - A turn that ends while a subagent or background command is still running should not read as finished. Built for
+    ACP chats; not yet checked against real agents.
+  - Show an agent's slash commands in Chat (`available_commands_update`), and say when a command needs the terminal. Built;
+    not yet checked against real agents.
   - Show the full Claude Code plan at its approval dialog, and make the Codex queue visible, with answer keys re-checked
     against the current attachment before they are written.
   - An Antigravity chat read from the conversation ledger the agent writes, so a turn cannot go silent. Staged; the plan is in

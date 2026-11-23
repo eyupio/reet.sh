@@ -16,7 +16,7 @@ const home = asURL(compile('./home.ts').replace("from './attention'", `from '${a
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, deskPlaces, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
+const { sessionColourOf, deskPlaces, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy, terminalWay } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -346,4 +346,15 @@ test('canReattachChat only for a lost or exited OpenCode chat on a ready machine
   assert.equal(canReattachChat(cline, { ready: true, capabilities: { ...clineCapabilities, acpAgents: [{ ...clineCapabilities.acpAgents[0], reattach: undefined }] } }), false)
   assert.equal(canReattachChat({ ...cline, acpSessionId: '' }, { ready: true, capabilities: clineCapabilities }), false)
   assert.equal(canReattachChat({ ...cline, state: 'ended' }, { ready: true, capabilities: clineCapabilities }), false)
+})
+
+test('terminalWay: open the native view, restart in the terminal, or none with the header switch\'s reason', () => {
+  const to = (enabled, dest = 'terminal') => ({ to: dest, enabled, why: '' })
+  assert.deepEqual(terminalWay({ available: true, pending: false, reason: '' }, to(false), true), { way: 'open', reason: '' })
+  assert.deepEqual(terminalWay({ available: false, pending: false, reason: 'No native view.' }, to(true), true), { way: 'restart', reason: '' })
+  assert.deepEqual(terminalWay({ available: false, pending: false, reason: 'No native view.' }, to(false), true), { way: 'none', reason: 'No native view.' })
+  assert.deepEqual(terminalWay({ available: false, pending: false, reason: '' }, to(false), true), { way: 'none', reason: 'This session has no shared native terminal.' })
+  assert.deepEqual(terminalWay({ available: false, pending: true, reason: '' }, to(true), true), { way: 'none', reason: 'Checking this running agent’s terminal support…' })
+  assert.equal(terminalWay({ available: false, pending: false, reason: 'x' }, to(true, 'chat'), true).way, 'none')
+  assert.equal(terminalWay({ available: false, pending: false, reason: 'x' }, to(true), false).way, 'none', 'a session with no chat view has nothing to restart')
 })

@@ -21,6 +21,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat/usage", s.terminal(s.terminalChatUsage))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat/controls", s.terminal(s.terminalChatControls))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/controls", s.terminal(s.terminalChatControls))
+	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat/commands", s.terminal(s.terminalChatCommands))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat", s.terminal(s.terminalChat))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/prompt", s.terminal(s.terminalChatPrompt))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/model", s.terminal(s.terminalChatModel))

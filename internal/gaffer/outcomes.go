@@ -69,6 +69,9 @@ type OutcomeSession struct {
 	// no field for them. A pipeline with criteria stops for the person's
 	// delivery review before it merges or finishes.
 	Criteria []string `json:"criteria,omitempty"`
+	// CriteriaIDs are a template's ids for Criteria, so a criterion keeps its
+	// identity from the template through the run and back into a new version.
+	CriteriaIDs []string `json:"-"`
 }
 
 type OutcomePlan struct {

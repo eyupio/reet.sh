@@ -714,6 +714,31 @@ func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
 	return out, rows.Err()
 }
 
+// RetiredGafferOutcomes lists every account's outcomes, not archived, with a
+// pipeline that has left sessions behind and is followed, waits for the
+// person or is done: a session it left may still run.
+func (s *Store) RetiredGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE COALESCE(json_extract(data,'$.archivedAt'),0)=0 AND EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN ('following','delivery_review','ready_to_merge','done') AND json_array_length(value,'$.retired')>0) ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // AutomatedGafferOutcomes lists the outcomes whose owner gave Gaffer the
 // decisions, and that are neither stopped nor archived.
 func (s *Store) AutomatedGafferOutcomes() ([]GafferOutcome, error) {

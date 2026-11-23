@@ -885,6 +885,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 		return
 	}
 	s.releaseGoneSessions()
+	s.endLeftBehind()
 	s.rebalanceStopped(ctx)
 	s.autoReports(ctx)
 	s.autoDecisions(ctx)
@@ -1352,6 +1353,22 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, PullLatest: o.PullLatest, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt, Images: append([]string(nil), o.Images...)}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
+	// A launch recorded before it was sent that never reached the machine
+	// (the controller stopped first), or that the machine refused, has
+	// nothing to take up, and holds back neither the merge gate nor
+	// balancing. The record is hidden from an account that may not start
+	// sessions, so it is read only while this one may.
+	if item.UnsureRequest != "" && item.SessionID == "" {
+		if _, err := s.chatPrincipal(uid); err == nil && !s.launchSent(uid, o.AgentID, item.UnsureRequest) {
+			if _, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, item.State, item.Note, &wrote, func(row *store.GafferOutcomeSession) { row.UnsureRequest = "" })); err != nil {
+				return false
+			}
+			if !wrote {
+				return true
+			}
+			item.UnsureRequest = ""
+		}
+	}
 	// droppedEffort is whether the stage in hand starts without an effort its
 	// agent was found not to offer.
 	droppedEffort := false
@@ -1441,7 +1458,13 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	}
 	sessionID := item.SessionID
 	if sessionID == "" {
-		if _, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Starting the session…", &wrote, nil)); err != nil {
+		// The request is recorded before it is sent: a lost answer or a restart
+		// then takes this request up instead of starting a second session.
+		inFlight := item.UnsureRequest
+		if inFlight == "" {
+			inFlight = launch.RequestID
+		}
+		if _, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Starting the session…", &wrote, func(row *store.GafferOutcomeSession) { row.UnsureRequest = inFlight })); err != nil {
 			return false
 		}
 		if !wrote {
@@ -1455,43 +1478,66 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return false
 		}
 		// ask makes one launch request. unknown says the answer tells nothing
-		// about whether a session started: the machine did not answer in time
-		// (late), or could not be reached at all.
-		ask := func(request string) (id, dir string, err error, unknown, late bool) {
+		// about whether a session started: the request reached the machine and
+		// no answer came back.
+		ask := func(request string) (id, dir string, err error, unknown bool) {
 			in := launch
 			in.RequestID = request
 			startCtx, cancel := context.WithTimeout(ctx, outcomeStartWait)
 			defer cancel()
 			id, dir, err = starter.StartOutcomeSession(startCtx, uid, in)
 			if err == nil {
-				return id, dir, nil, false, false
+				return id, dir, nil, false
 			}
-			unreachable := errors.Is(err, ErrLaunchUnknown)
-			late = !unreachable && startCtx.Err() == context.DeadlineExceeded
-			return id, dir, err, unreachable || late, late
+			unknown = errors.Is(err, ErrLaunchUnknown) || startCtx.Err() != nil
+			return id, dir, err, unknown && s.launchSent(uid, o.AgentID, request)
 		}
 		var started, workDir string
 		var err error
-		unsure, unknown, late := item.UnsureRequest, false, false
+		unsure, unknown := item.UnsureRequest, false
+		// launchedYolo is the approval mode the session in hand was started on.
+		launchedYolo := launch.Yolo
 		if unsure == launch.RequestID {
 			unsure = ""
 		}
 		if unsure != "" {
-			// An earlier launch was not answered in time and may have started
-			// its session all the same. Its request is asked again first: a
-			// session it started is taken up, and only a launch that is known
-			// to have failed is asked for afresh. A machine that cannot be
-			// reached now is not that knowledge, so the request is kept.
-			started, workDir, err, unknown, late = ask(unsure)
+			// An earlier launch was not answered and may have started its
+			// session all the same. Its request is asked again first: a session
+			// it started is taken up. A machine that cannot be reached now says
+			// nothing about it, so the request is kept.
+			started, workDir, err, unknown = ask(unsure)
 			if ctx.Err() != nil {
 				return false
 			}
 			if err != nil && !unknown {
-				unsure = ""
+				// A request asked again with anything changed since (the person
+				// put the outcome on YOLO, say) is refused whether or not it
+				// started a session, so its record decides, not the refusal.
+				if op, opErr := s.store.TerminalOperationFor(uid, o.AgentID, "create", unsure); opErr == nil && op.State != "failed" {
+					held, heldErr := s.store.TerminalSessionFor(uid, op.SessionID)
+					switch {
+					case heldErr == nil && s.sessionRunning(uid, held.ID):
+						started, workDir, err, launchedYolo = held.ID, held.WorktreePath, nil, held.Yolo
+						if workDir == "" {
+							workDir = held.Dir
+						}
+					case heldErr != nil || !held.State.Closed():
+						unknown = true
+					}
+				} else if opErr != nil && !errors.Is(opErr, store.ErrRemoteNotFound) {
+					unknown = true
+				}
+			}
+			if err != nil && !unknown {
+				// That launch is known not to have started. The pipeline goes
+				// round again with nothing in flight, so the merge gate and
+				// balancing it was spared are run before anything new is sent.
+				_, stepErr := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Starting the session…", &wrote, func(row *store.GafferOutcomeSession) { row.UnsureRequest = "" }))
+				return stepErr == nil
 			}
 		}
 		if unsure == "" {
-			started, workDir, err, unknown, late = ask(launch.RequestID)
+			started, workDir, err, unknown = ask(launch.RequestID)
 			// A start refused because the agent did not confirm the chosen
 			// effort started nothing and sent no prompt. It is asked for once
 			// more without the effort, on the agent's default, under a request
@@ -1504,12 +1550,10 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			if err != nil && !unknown && staged && (launch.Effort != "" || droppedEffort) && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
 				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Kind, launch, fresh, "refused") {
 					launch.RequestID, launch.Effort = fresh, ""
-					started, workDir, err, unknown, late = ask(launch.RequestID)
+					started, workDir, err, unknown = ask(launch.RequestID)
 				}
 			}
-			// Only a launch that ran out of time may have started something: a
-			// machine that could not be reached was never asked.
-			if late {
+			if unknown {
 				unsure = launch.RequestID
 			}
 		}
@@ -1523,15 +1567,33 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			if staged && item.Stage > 0 {
 				state, note = "unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400)
 			}
+			asked := "The session"
+			if staged && item.Stage > 0 {
+				asked = "The " + item.Stages[item.Stage].Kind + " stage"
+			}
 			switch {
-			case late:
-				note = "The machine did not answer in time, so reet cannot tell whether the session started. Try again: a session that did start is taken up, not started twice."
+			case unsure == launch.RequestID:
+				note = asked + " was asked for, and reet cannot tell whether it started: " + clipBytes(err.Error(), 300) + " Try again once the machine can be reached: a session that did start is taken up, not started twice."
 			case unsure != "":
-				note = "Not started: " + clipBytes(err.Error(), 300) + " An earlier launch was not answered, so reet still cannot tell whether its session started. Try again once the machine can be reached: that session is taken up if it is there."
+				note = asked + " was not asked for again: " + clipBytes(err.Error(), 300) + " reet cannot tell whether an earlier launch started it. Try again once the machine can be reached: a session that did start is taken up."
 			}
 			after, stepErr := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, &wrote, func(row *store.GafferOutcomeSession) { row.UnsureRequest = unsure }))
 			if stepErr == nil && wrote {
 				s.auditPipeline(after, item.Key)
+			}
+			if stepErr == nil && !wrote && unsure == "" {
+				// Stopped by the person meanwhile: the launch is still known to
+				// have started nothing, so Try again does not take it for one
+				// that may have.
+				_, stepErr = s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
+					for i := range o.Sessions {
+						if row := &o.Sessions[i]; row.Key == item.Key && row.SessionID == "" && row.UnsureRequest == launch.RequestID {
+							row.UnsureRequest = ""
+							return true
+						}
+					}
+					return false
+				})
 			}
 			return stepErr == nil
 		}
@@ -1579,7 +1641,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return false
 		}
-		if (kept || left) && yoloNow != launch.Yolo {
+		if (kept || left) && yoloNow != launchedYolo {
 			s.mu.Lock()
 			setter, _ := s.starter.(SessionYolo)
 			s.mu.Unlock()
@@ -1692,6 +1754,30 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return false
 		case <-time.After(outcomeFollowEvery):
 		}
+	}
+}
+
+// launchSent reports whether a launch request may have started a session.
+// The starter records a create under its request before it sends it, so a
+// request with no such record was never sent, and one recorded as refused
+// started nothing. A record that cannot be read may have.
+func (s *Service) launchSent(uid int64, agent, request string) bool {
+	op, err := s.store.TerminalOperationFor(uid, agent, "create", request)
+	if errors.Is(err, store.ErrRemoteNotFound) {
+		return false
+	}
+	return err != nil || op.State != "failed"
+}
+
+// endUnansweredLaunch ends the session a launch that was not answered
+// started, once its pipeline has given that launch up: nothing would take
+// the session up or follow it.
+func (s *Service) endUnansweredLaunch(o store.GafferOutcome, key, request, reason string) {
+	if request == "" {
+		return
+	}
+	if op, err := s.store.TerminalOperationFor(o.OwnerID, o.AgentID, "create", request); err == nil && op.State != "failed" {
+		s.endFinishedSession(context.Background(), o, key, op.SessionID, reason)
 	}
 }
 

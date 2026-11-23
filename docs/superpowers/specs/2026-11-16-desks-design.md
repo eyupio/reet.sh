@@ -5,15 +5,15 @@
 ## Intent and why
 
 The owner runs several terminals at once for one job (for example a deploy: pull in one folder, logs in
-another, a database shell on a second machine) and today does it in Ovis, outside reet. In reet each
+another, a database shell on a second machine) and today does it in another tool, outside reet. In reet each
 terminal is a separate session, tabs are forgotten on reload, only one terminal is on screen at a time
 (two with Terminal beside), and a shell lost to a reboot comes back, by hand, in the folder it was
 started in with the machine's shared history.
 
 The owner wants that working set to be a thing in reet: named, saved, reopened later on any browser, with
-every tab back in its folder with its own command history, shown side by side when wanted. Ovis
-(github.com/devswha/ovis, read at v0.5.4) is the reference, to be improved upon: it has no tab colours, no
-per-tab history, and its reconnect replays a raw 128 KiB tail of output.
+every tab back in its folder with its own command history, shown side by side when wanted. That
+tool is the reference, to be improved upon: it has no tab colours, no per-tab history, and its reconnect replays a
+raw 128 KiB tail of output.
 
 **The name is Desk.** "Project" is a folder project, "workspace" is the Sessions screen, "Workbench" is
 taken. The owner chose Desk.
@@ -116,7 +116,7 @@ characters; colours are from the palette; a session id appears in at most one pa
 desks. `schema` is 1; a controller that reads a higher schema neither shows nor overwrites the desk.
 
 Geometry is computed top-down from ratios only, never read back from terminal sizes (the feedback loop
-Ovis hit). A preset is a function that builds a tree from the tab's panes in order; it is not a second
+the reference tool hit). A preset is a function that builds a tree from the tab's panes in order; it is not a second
 model. Closing a pane gives its space to its sibling.
 
 A pane's name defaults to the session's title, and its folder's last element when the title is the

@@ -6,7 +6,7 @@
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
  import { alreadyThere } from '../sessions/fixDelivery'
- import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, chatCommands, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, getProfile, listModelFavourites, saveProfile, setModelFavouriteDefault } from '../api'
  import { creditGuidance, sourceChoices, sourceLabel } from '../clineSource'
  import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
@@ -36,7 +36,7 @@ import { chatControls, chatSetting, chatEnqueue, chatUsage, type ChatControls } 
 import { chatUsageView, type ChatUsage } from '../chatUsage'
 import { planEntries, type MachineAccounts } from '../agentAccounts'
 import { machinePlans, PLAN_REFRESH } from '../planLimits'
-import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
+import { applyInvocation, slashQuery, unknownCommand, type ChatCommand, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES } from './upload'
@@ -45,13 +45,15 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  import { loadModels, pollPlans } from './chatLoaders'
  import { PHONE_SCREEN } from './sizing'
 
- let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
   agentModes?: string[]
   /** Opens the start-a-new-agent-session form for this chat's machine; the ended notice offers it beside the reason. */
   onnewchat?: (opener: HTMLElement) => void
+  /** Opens this session's terminal, the way the session header does; the unlisted-command line offers it. */
+  onterminal?: () => void
   /** True while the workspace cannot start another session (no ready machine, or the account is at its limit). */
   newChatOff?: boolean
   /** Loads this exact conversation through the workspace's existing continuation operation. */
@@ -244,6 +246,16 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
  let composerInput: HTMLTextAreaElement | undefined = $state()
  let skillsOpen = $state(false), skillData = $state<SessionSkills | null>(null), skillsLoading = $state(false), skillsError = $state(''), skillQuery = $state('')
  let skillsLife: AbortController | undefined, slashDismissed = false
+ // The agent's own slash commands, read when the chat opens and when the sheet opens. A failed read shows nothing.
+ let commands = $state<ChatCommand[]>([]), commandsNote = $state(''), commandsLife: AbortController | undefined
+ async function loadCommands() {
+  commandsLife?.abort()
+  const life = commandsLife = new AbortController()
+  try { const answer = await chatCommands(session.id, life.signal); if (!life.signal.aborted) { commands = answer.commands; commandsNote = answer.unsupported } }
+  catch { if (!life.signal.aborted) { commands = []; commandsNote = '' } }
+ }
+ // Set after a send whose first word the agent did not list; cleared by the next send or any edit of the draft.
+ let unlisted = $state('')
  async function loadSkills() {
   skillsLife?.abort()
   const life = skillsLife = new AbortController()
@@ -255,7 +267,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
  function openSkills(query = '') {
   if (skillsOff || skillsOpen) return
   skillQuery = query; skillsOpen = true
-  void loadSkills()
+  void loadSkills(); void loadCommands()
  }
  async function closeSkills(dismissed = true) {
   skillsLife?.abort(); skillsLife = undefined
@@ -312,6 +324,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   const input = event.currentTarget as HTMLTextAreaElement
   const value = input.value
   const query = slashQuery(value)
+  unlisted = ''
   if (query !== null) {
    promptMenu = null
    if (!slashDismissed) openSkills(query)
@@ -322,9 +335,9 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   if (!trigger) { promptSuppressed = false; promptMenu = null; return }
   if (!promptSuppressed) openPromptMenu(trigger)
  }
- function pickSkill(skill: SessionSkill) {
+ function insertInvocation(invocation: string) {
   if (skillsOff) { feedback = ended ? `${skillsOff} Nothing was inserted.` : chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
-  const result = applyInvocation(draft, skill.invocation, MAX_CHAT_BYTES)
+  const result = applyInvocation(draft, invocation, MAX_CHAT_BYTES)
   if ('error' in result) { feedback = result.error; void closeSkills(); return }
   feedback = ''; draft = result.draft
   void closeSkills(false)
@@ -476,13 +489,23 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
+  unlisted = ''
   if (!liveControls && (working || queued.length)) { queueCurrent(text); return }
   const sendingImages = images.slice()
   const ok = await deliver(text, sendingImages)
   if (!ok) return
   const sent = new Set(sendingImages.map(image => image.id))
   held.keep(sendingImages)
-  draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
+  draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true
+  void noteUnlisted(text)
+  await scrollToEnd()
+ }
+ /** A sent message that starts with a command the agent did not list: say so, once the skills are known. It never blocks. */
+ async function noteUnlisted(text: string) {
+  if (!unknownCommand(text, commands, skillData?.skills ?? [])) return
+  let skills = skillData?.skills
+  if (!skills) { try { skills = (await getSessionSkills(session.id, AbortSignal.timeout(5000))).skills } catch { skills = [] } }
+  if (!draft) unlisted = unknownCommand(text, commands, skills) ?? ''
  }
  /** Put what is in the composer at the end of the queue, pictures and all. */
  function queueCurrent(text: string) {
@@ -694,7 +717,8 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   phoneQuery.addEventListener('change', syncPhone)
   const stream = createChatStream({ url: chatURL(session.id), chat: () => chat, setChat: next => { chat = next }, setReplayed: value => { replayed = value }, changed: () => { void scrollToEnd() } })
   stream.start()
-  return () => { phoneQuery.removeEventListener('change', syncPhone); skillsLife?.abort(); stream.stop() }
+  void loadCommands()
+  return () => { phoneQuery.removeEventListener('change', syncPhone); skillsLife?.abort(); commandsLife?.abort(); stream.stop() }
  })
  onDestroy(() => { awaiting.clear(); held.releaseAll(images, queued) })
 </script>
@@ -1009,6 +1033,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
     </ul>
    {/if}
    {#if dictating || dictationProblemText}<p class="notice" class:bad={!dictating} role="status">{#if dictating}{dictationInterim ? `${dictationInterim}…` : 'Listening.'} Your browser sends the audio to its own speech service, not to reet.{:else}{dictationProblemText}{/if}</p>{/if}
+   {#if unlisted}<p class="notice unlisted" role="status">{toolName} did not list /{unlisted} for Chat. It may only work in its terminal.{#if onterminal} <button type="button" class="link" onclick={onterminal}>Open terminal</button>{/if}</p>{/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
@@ -1063,7 +1088,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
       other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
       onpick={value => { selectedModel = value; modelOpen = false; void changeModel() }} onclose={() => modelOpen = false} />
     {/if}
-    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} {commands} {commandsNote} onpickcommand={command => insertInvocation(`/${command.name} `)} onrefresh={() => void loadSkills()} onpick={skill => insertInvocation(skill.invocation)} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
     {#if promptPickerOpen}<PromptPicker opener={promptButton ?? null} sheet={touchModels} context={promptContext} limit={MAX_CHAT_BYTES} oninsert={usePromptFromPicker} onclose={() => { promptPickerOpen = false; void tick().then(() => composerInput?.focus()) }} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
@@ -1133,6 +1158,9 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
  .notice { margin: 2px 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); border-radius: 0 8px 8px 0; background: var(--bg-sunk); color: var(--ink-soft); font-size: 14px; }
+ .notice .link { display: inline; padding: 0 4px; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+ @media (pointer: coarse) { .notice .link { display: inline-flex; align-items: center; min-height: 44px; } }
+ .notice .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  .notice.bad { border-left-color: var(--bad); color: var(--bad); }
  /* A tool: one line at rest, with the detail folded under it. */
  .tool { margin: 1px 0; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--card); overflow: hidden; }

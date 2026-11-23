@@ -295,6 +295,12 @@
     const record = JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))
     try { localStorage.setItem(contextKey, record); localStorage.setItem('reet.workspace.context', record) } catch { /* optional browser preference */ }
   }
+  // Chat's "Open terminal": the header switch's own click, so a session with no shared native view asks to restart in the terminal the same way.
+  export function showTerminal() {
+    if (nativeAvailable) onview?.('terminal')
+    else if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null)
+    else notice = { text: nativePending ? 'Checking this running agent’s terminal support…' : nativeReason || 'This session has no shared native terminal.' }
+  }
   // The workspace toolbar calls this through its bound component instance.
   export function toggleContext() {
     // A terminal opened beside the session takes the panel's place; Details has nothing to toggle until it closes.

@@ -2,19 +2,23 @@
   import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
   import SkillInstallPanel from './SkillInstallPanel.svelte'
-  import { groupSkills, keepable, seenLine, type SessionSkill, type SessionSkills } from './skills'
+  import { groupCommands, groupSkills, keepable, seenLine, withoutAnnounced, type ChatCommand, type SessionSkill, type SessionSkills } from './skills'
 
   // The per-session skill picker: a modal sheet listing the skills a session could use, grouped by where they live.
   // Names and descriptions are untrusted text from a machine and are only ever rendered as text.
   // Arrow keys, Home and End move through the rows, Enter picks one, Escape closes; the caller gives focus back.
-  let { data, loading, error, tool, initialQuery = '', sessionId, onpick, onclose, onretry, onrefresh }: {
+  let { data, loading, error, tool, initialQuery = '', sessionId, commands = [], commandsNote = '', onpick, onpickcommand, onclose, onretry, onrefresh }: {
     data: SessionSkills | null
     loading: boolean
     error: string
     tool: string
     initialQuery?: string
     sessionId: string
+    /** What the agent announced for Chat, and the server's sentence when the machine is too old to say. */
+    commands?: ChatCommand[]
+    commandsNote?: string
     onpick: (skill: SessionSkill) => void
+    onpickcommand?: (command: ChatCommand) => void
     onclose: () => void
     onretry: () => void
     onrefresh: () => void
@@ -27,10 +31,12 @@
   let dialog = $state<HTMLDialogElement>(), list = $state<HTMLDivElement>(), input = $state<HTMLInputElement>()
   const now = Date.now()
 
-  const groups = $derived(data ? groupSkills(data.skills, query, tool) : [])
+  const shownSkills = $derived(data ? withoutAnnounced(data.skills, commands) : [])
+  const groups = $derived(data ? groupSkills(shownSkills, query, tool) : [])
+  const commandGroup = $derived(groupCommands(commands, query, tool))
   const unknownMachine = $derived(!!data && data.host === '')
-  const empty = $derived(!!data && data.skills.length === 0)
-  const noMatch = $derived(!!data && !empty && groups.length === 0)
+  const empty = $derived(!!data && data.skills.length === 0 && commands.length === 0)
+  const noMatch = $derived(!!data && !empty && groups.length === 0 && !commandGroup)
   const hasAction = (s: SessionSkill) => keepable(s)
   const anyNew = $derived(groups.some(g => g.key === 'new'))
   // Consecutive rows without an action stay together; a row with an action stands alone.
@@ -116,6 +122,21 @@
         </div>
       {:else if data}
         <div class="groups" bind:this={list}>
+          {#if commandGroup}
+            <div class="group">
+              <div class="heading" id={`${id}-commands`}>{commandGroup.label}</div>
+              <div class="list single" role="listbox" aria-labelledby={`${id}-commands`}>
+                {#each commandGroup.commands as c (c.name)}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <div class="option" id={`${id}-c-${c.name}`} role="option" tabindex="-1" aria-selected="false" onclick={() => onpickcommand?.(c)}>
+                    <span class="name">/{c.name}</span>
+                    {#if c.description}<span class="description">{c.description}</span>{/if}
+                    {#if c.hint}<span class="meta">{c.hint}</span>{/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
           {#each groups as g (g.key)}
             <div class="group">
               <div class="heading" id={`${id}-${g.key}`}>{g.label}</div>
@@ -149,6 +170,7 @@
         </div>
         {#if anyNew}<p class="note"><a class="review" href="/skills?review=new" target="_blank" rel="noopener">Review new skills on the Skills page</a></p>{/if}
         {#if kept}<p class="note" role="status">{kept}</p>{/if}
+        {#if commandsNote}<p class="note" role="status">{commandsNote}</p>{/if}
         {#if noMatch}<p class="note" role="status">No skills match.</p>{/if}
         {#if unknownMachine}<p class="note" role="status">This session's machine is not known to reet, so its skills cannot be listed.</p>
         {:else}

@@ -9,7 +9,7 @@ const q = await import(asURL(compile('./terminalQuestion.ts')))
 const api = await import(asURL(compile('./api.ts').replace("from '../projects'", `from '${asURL('export {}')}'`)))
 
 test('a label that grants standing permission is spotted, whatever its case', () => {
-  for (const label of ["Yes, and don't ask again for npm run", 'Yes, don’t ask again', 'ALWAYS allow', 'Allow for this session', 'Yes, allow all edits during this session'])
+  for (const label of ["Yes, and don't ask again for npm run", 'Yes, don’t ask again', 'ALWAYS allow', 'Allow for this session', 'Yes, allow all edits during this session', 'Yes, auto-accept edits', 'Yes, AUTO ACCEPT edits'])
     assert.equal(q.standingPermission(label), true, label)
   for (const label of ['Yes', 'No', 'Yes, proceed', 'No, and tell Claude what to do differently', 'Approve once'])
     assert.equal(q.standingPermission(label), false, label)
@@ -19,17 +19,26 @@ test('an option reads as its number and its words', () => {
   assert.equal(q.optionText({ index: 2, label: 'No' }), '2. No')
 })
 
-test('each result maps to what the card does', () => {
-  assert.deepEqual(q.outcomeOf({ kind: 'answered' }, 'Yes'), { say: 'Answered: Yes', done: true, locked: true, reread: false })
+test('each result maps to what the card does, in the card’s own words', () => {
+  assert.deepEqual(q.outcomeOf({ kind: 'answered' }, 'Yes'), { say: 'Answered: Yes', tone: 'done', done: true, locked: true, reread: false })
   assert.deepEqual(q.outcomeOf({ kind: 'alreadyAnswered' }, 'Yes'), q.outcomeOf({ kind: 'answered' }, 'Yes'))
-  assert.deepEqual(q.outcomeOf({ kind: 'changed', sentence: 'It changed.' }, 'Yes'), { say: 'It changed.', done: false, locked: false, reread: true })
-  assert.deepEqual(q.outcomeOf({ kind: 'updateRequired', sentence: 'Update reet.' }, 'Yes'), { say: 'Update reet.', done: false, locked: true, reread: false })
-  assert.equal(q.outcomeOf({ kind: 'readOnly', sentence: 'x' }, 'Yes').locked, true)
-  for (const kind of ['busy', 'offline', 'failed']) {
-    const out = q.outcomeOf({ kind, sentence: 'Said so.' }, 'Yes')
-    assert.deepEqual(out, { say: 'Said so.', done: false, locked: false, reread: false }, kind)
-    assert.ok(q.outcomeOf({ kind }, 'Yes').say.length > 0, `${kind} has a fallback sentence`)
-  }
+  assert.deepEqual(q.outcomeOf({ kind: 'changed', sentence: 'It changed.' }, 'Yes'), { say: 'It changed.', tone: 'note', done: false, locked: false, reread: true })
+  assert.deepEqual(q.outcomeOf({ kind: 'updateRequired', sentence: 'Update reet.' }, 'Yes'), { say: 'Update reet.', tone: 'note', done: false, locked: true, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'readOnly', sentence: 'terminal access denied' }, 'Yes'), { say: 'Your account can look but not answer.', tone: 'note', done: false, locked: true, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'busy', sentence: 'x' }, 'Yes'), { say: 'Another answer is on its way. Wait a moment.', tone: 'note', done: false, locked: false, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'offline', sentence: 'terminal machine is reconnecting; retry after it reconnects' }, 'Yes'), { say: 'The machine is not connected. Try again when it is back.', tone: 'error', done: false, locked: false, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'noReply' }, 'Yes'), { say: 'No reply yet. Check the terminal before answering again.', tone: 'error', done: false, locked: false, reread: false })
+  // Fallbacks when the server said nothing.
+  assert.match(q.outcomeOf({ kind: 'changed' }, 'Yes').say, /changed/)
+  assert.match(q.outcomeOf({ kind: 'updateRequired' }, 'Yes').say, /Update reet/)
+})
+
+test('a failure adds the server’s sentence only when it is a full sentence', () => {
+  assert.equal(q.outcomeOf({ kind: 'failed', sentence: 'that reet session is not available' }, 'Yes').say, 'The answer could not be sent.')
+  assert.equal(q.outcomeOf({ kind: 'failed' }, 'Yes').say, 'The answer could not be sent.')
+  assert.equal(q.outcomeOf({ kind: 'failed', sentence: 'The session is gone.' }, 'Yes').say, 'The answer could not be sent. The session is gone.')
+  assert.equal(q.fullSentence('terminal machine is reconnecting; retry after it reconnects'), false)
+  assert.equal(q.fullSentence('Look again.'), true)
 })
 
 function reply(status, body) {
@@ -53,4 +62,6 @@ test('answerTerminalQuestion posts the fingerprint and option, and maps every re
   }
   globalThis.fetch = async () => { throw new TypeError('offline') }
   assert.equal((await api.answerTerminalQuestion('s1', 'f', 1)).kind, 'failed')
+  globalThis.fetch = async () => { throw new DOMException('timed out', 'TimeoutError') }
+  assert.equal((await api.answerTerminalQuestion('s1', 'f', 1)).kind, 'noReply')
 })

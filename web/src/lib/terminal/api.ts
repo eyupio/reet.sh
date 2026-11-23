@@ -27,7 +27,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalQuestion = { question: string; truncated?: boolean; options: { index: number; label: string; selected?: boolean }[]; fingerprint: string }
-export type TerminalAnswerResult = { kind: 'answered' | 'alreadyAnswered' | 'changed' | 'updateRequired' | 'busy' | 'readOnly' | 'offline' | 'failed'; sentence?: string }
+export type TerminalAnswerResult = { kind: 'answered' | 'alreadyAnswered' | 'changed' | 'updateRequired' | 'busy' | 'readOnly' | 'offline' | 'noReply' | 'failed'; sentence?: string }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string;
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
@@ -263,7 +263,7 @@ export async function answerTerminalQuestion(id: string, fingerprint: string, op
     const done = await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ fingerprint, option }), signal: AbortSignal.timeout(20000) })).json()
     return { kind: done?.alreadyAnswered ? 'alreadyAnswered' : 'answered' }
   } catch (error) {
-    if (!(error instanceof TerminalError)) return { kind: 'failed', sentence: 'The answer was not sent. Try again.' }
+    if (!(error instanceof TerminalError)) return { kind: (error as Error)?.name === 'TimeoutError' ? 'noReply' : 'failed' }
     const sentence = error.message
     if (error.status === 409) return { kind: error.code === 'question_changed' ? 'changed' : error.code === 'update_required' ? 'updateRequired' : error.code === 'answer_busy' ? 'busy' : 'failed', sentence }
     return { kind: error.status === 403 ? 'readOnly' : error.status === 503 ? 'offline' : 'failed', sentence }

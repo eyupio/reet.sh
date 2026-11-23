@@ -63,7 +63,7 @@
   {:else}
   {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />
   {/if}
-  {#if card.terminal}<TerminalQuestionCard session={{ id: card.sessionId, tool: card.tool }} question={card.terminal} href={card.href} onreread={onanswered} />
+  {#if card.terminal}<TerminalQuestionCard session={{ id: card.sessionId, tool: card.tool }} question={card.terminal} title={card.title} machine={card.where} href={card.href} onreread={onanswered} />
   {:else if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
   {:else if !card.approval}<p class="said">{card.label} · {card.age}</p>{/if}
   {#if card.reasons.includes('gaffer')}<p class="note">Gaffer’s goal also needs you</p>{/if}
@@ -78,7 +78,7 @@
 {#if layout === 'row'}
   <div class="holder" bind:clientWidth={holderWidth}>
     {#if wide}
-      <article class="row">
+      <article class="row" class:asks={!!card.terminal}>
         <span class="chipcell"><span class="chip {tone}">{chip}</span></span>
         <div class="text">
           <div class="what"><h3 class="title">{card.title}</h3>{" "}<span class="where">· Session{where ? ` · ${where}` : ''}</span></div>
@@ -108,12 +108,15 @@
   .item{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0;box-sizing:border-box;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;text-align:left}
   .holder{container-type:inline-size;min-width:0}
   .row{display:grid;grid-template-columns:var(--col-chip,124px) minmax(0,1fr) var(--col-stages,180px) var(--col-actions,248px);grid-template-areas:'chip text stages actions';column-gap:16px;align-items:start;min-width:0;box-sizing:border-box;padding:14px 16px;color:var(--ink);text-align:left}
+  /* A terminal dialog has no stages to show: its text takes that column too. */
+  .row.asks{grid-template-areas:'chip text text actions'}
   .chipcell{grid-area:chip;align-self:start}
   .text{grid-area:text;display:grid;gap:4px;min-width:0}
   .row .buttons{grid-area:actions}
   .buttons.end{justify-content:flex-end;align-items:flex-start}
   @container (max-width:899px){
     .row{grid-template-columns:var(--col-chip,124px) minmax(0,1fr) var(--col-actions,248px);grid-template-areas:'chip text actions'}
+    .row.asks{grid-template-areas:'chip text actions'}
   }
   .line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
   .chip{flex:none;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:0.875rem;font-weight:600;white-space:nowrap}

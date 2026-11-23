@@ -20,12 +20,13 @@ const sessionOf=(key,extra={})=>({id:`q-${key}-session0001`,agentId:'a1',title:f
 const machine={agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude','codex']}}
 
 // `box.answer` is the server's reply to the next answer; `box.sessions` is what the list says now.
-async function open(key,{width=1280,theme='light',where='screen',answer,hold}={}){
+async function open(key,{width=1280,theme='light',where='screen',height,answer,hold}={}){
  const box={sessions:[sessionOf(key)],posts:[],reads:0,answer:answer||((r,b)=>{b.sessions=[{...b.sessions[0],terminalQuestion:undefined,attention:'working',changedSinceSeen:false}];return{json:{answered:true}}})}
  const id=box.sessions[0].id
- const w=await openWorkspace(browser,{width,height:where==='home'?1100:900,touch:width<700,theme,scale:2,sessionFocus:false,routes:{
+ const w=await openWorkspace(browser,{width,height:height||(where==='home'?1100:900),touch:width<700,theme,scale:2,sessionFocus:false,routes:{
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/machines':{machines:[machine]},
+  '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{agentId:'a1',host:'studio',state:'connected',connection:{connected:true,reportFresh:true,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
   '/api/v2/terminal/sessions':()=>{box.reads++;return{sessions:box.sessions}},
   [`/api/v2/terminal/sessions/${id}/seen`]:{},
   [`/api/v2/terminal/sessions/${id}/skills`]:{skills:[],host:'studio',machineSeen:now},
@@ -36,13 +37,13 @@ async function open(key,{width=1280,theme='light',where='screen',answer,hold}={}
  await w.page.goto(where==='home'?`${base}/`:`${base}/sessions?agent=a1&session=${id}`)
  const card=w.page.locator('[data-terminal-question]')
  await expect(card).toHaveCount(1)
- return{...w,box,id,card}
+ return{...w,box,id,card,where}
 }
 const noSideways=page=>expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1&&[...document.querySelectorAll('[data-terminal-question]')].every(c=>c.scrollWidth<=c.clientWidth+1))).toBe(true)
 const text=o=>`${o.index}. ${o.label}`
 async function looks(w,key,tag){
  const q=fixtures[key].question,name=fixtures[key].tool==='codex'?'Codex':'Claude Code'
- const group=w.page.getByRole('group',{name:`${name} is asking`})
+ const group=w.page.getByRole('group',{name:`${name} is asking in ${fixtures[key].title} on studio`})
  await expect(group).toBeVisible()
  // Every line of the question, as text and in order; markup in it is shown, never run.
  const lines=q.question.split('\n')
@@ -52,15 +53,28 @@ async function looks(w,key,tag){
  expect(await group.locator('.line').first().evaluate(e=>getComputedStyle(e).unicodeBidi)).toBe('isolate')
  if(lines.length>1)expect(await group.locator('.line').first().evaluate(e=>getComputedStyle(e).fontFamily)).toContain('Plex Mono')
  // The options, in the dialog's order, equal in weight; the terminal's default marked.
- const buttons=group.getByRole('button')
+ const buttons=group.locator('.options button')
  await expect(buttons).toHaveCount(q.options.length)
  for(const [i,o] of q.options.entries()){
   await expect(buttons.nth(i)).toContainText(text(o))
   await expect(buttons.nth(i)).not.toHaveClass(/primary/)
-  await expect(buttons.nth(i)).toContainText(o.selected?'Default':text(o))
+  if(o.selected)await expect(buttons.nth(i)).toContainText('· terminal’s default')
+  expect(await buttons.nth(i).locator('.default').count()).toBe(o.selected?1:0)
  }
- await expect(group.getByText('Default',{exact:true})).toHaveCount(q.options.filter(o=>o.selected).length)
- await expect(group.getByText('Part of this is only in the terminal.')).toHaveCount(q.truncated?1:0)
+ // Only a terminal default is marked, in plain muted text: no border, no pill.
+ for(const d of await group.locator('.default').all())expect(await d.evaluate(e=>getComputedStyle(e).borderTopWidth)).toBe('0px')
+ // An option that keeps applying says so under its label.
+ const standing=q.options.filter(o=>/don['’]t ask again|always|for this session|all edits|auto[- ]accept/i.test(o.label)).length
+ await expect(group.getByText('Keeps applying after this answer.')).toHaveCount(standing)
+ // A cut question leads its note with the "!" mark, in ink, and says to read the terminal first.
+ const note=group.locator('.more')
+ await expect(note).toHaveCount(q.truncated?1:0)
+ if(q.truncated){
+  await expect(note).toContainText('Part of this is only in the terminal. Read it there before answering.')
+  await expect(note.locator('.mark')).toHaveText('!')
+  expect(await note.evaluate(e=>getComputedStyle(e).color)).toBe(await group.locator('.line').last().evaluate(e=>getComputedStyle(e).color))
+  await expect(w.page.getByRole(w.where==='home'?'link':'button',{name:w.where==='home'?'Open the terminal':'Go to the terminal'})).toBeVisible()
+ }
  await noSideways(w.page)
  if(w.page.viewportSize().width<700)for(const b of await buttons.all())expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(44)
  await group.screenshot({path:`${shots}/${tag}.png`})
@@ -87,6 +101,9 @@ try{
    await expect(item).toContainText('Question')
    if(fixtures[key].question.truncated)await expect(item.getByRole('link',{name:'Open the terminal'})).toHaveAttribute('href',`/sessions?agent=a1&session=${h.id}`)
    await looks(h,key,`${key}-home-${width}-${theme}`)
+   // The whole item: which session and which machine, before a tap.
+   await expect(item).toContainText('studio')
+   await item.screenshot({path:`${shots}/${key}-home-item-${width}-${theme}.png`})
    errorsOf(h)
   }finally{await h.context.close()}
  }
@@ -101,14 +118,21 @@ try{
    await expect(second).not.toHaveClass(/primary/)
    await w.page.keyboard.press('1');await w.page.keyboard.press('Enter')
    expect(w.box.posts).toEqual([])
-   await second.dblclick()
+   // A second tap lands on a disabled button and sends nothing; on Home that is the check, on the screen the focus is.
+   if(where==='home')await second.dblclick();else await second.click()
    await expect(w.card.getByRole('button')).toHaveCount(3)
    for(const b of await w.card.getByRole('button').all())await expect(b).toBeDisabled()
    await expect(second).toHaveAttribute('aria-busy','true')
+   // Focus waits on the result line while it goes, not on the page.
+   if(where==='screen')await expect(w.card.locator('.result')).toBeFocused()
+   await expect(w.card.locator('.result')).toHaveText('Sending your answer…')
    await expect.poll(()=>w.box.posts.length).toBe(1)
    release()
    await expect(w.card.getByRole('status').filter({hasText:'Answered:'})).toHaveText(/Answered: Yes, and don't ask again for npm run commands/)
    await expect(w.card.getByRole('button')).toHaveCount(0)
+   if(where==='screen')await expect(w.card.locator('.result')).toBeFocused()
+   await expect(w.card.getByRole('heading',{name:'Claude Code was asked'})).toBeVisible()
+   await expect(w.card.locator('.result .mark')).toHaveCount(0)
    await w.card.screenshot({path:`${shots}/result-answered-${where}.png`})
    expect(w.box.posts).toEqual([{fingerprint:'fp-claude',option:2}])
    // Until a read says otherwise the card keeps saying so; the next read removes the question, and the card with it.
@@ -142,27 +166,65 @@ try{
    await expect(w.card.getByRole('button')).toHaveCount(2)
    for(const b of await w.card.getByRole('button').all())await expect(b).toBeEnabled()
    expect(w.box.posts).toHaveLength(1)
+   // A change is a plain fact, not an error; focus is on that sentence, and Enter does not answer the new question.
+   await expect(w.card.locator('.result .mark')).toHaveCount(0)
+   await expect(w.card.locator('.result')).toBeFocused()
+   await w.page.keyboard.press('Enter');await w.page.keyboard.press('Space')
+   await w.page.waitForTimeout(300)
+   expect(w.box.posts).toHaveLength(1)
    await w.card.screenshot({path:`${shots}/result-changed.png`})
   }finally{await w.context.close()}
  }
 
- // Refusals: the sentence by the buttons. Update required and read-only keep them disabled; busy, offline and others re-enable them.
- for(const [name,status,json,locked] of [
-  ['update-required',409,{error:'Update reet on this machine to answer from here.',code:'update_required'},true],
-  ['read-only',403,{error:'terminal access denied'},true],
-  ['offline',503,{error:'terminal machine is reconnecting; retry after it reconnects'},false],
-  ['busy',409,{error:'An answer is already on its way.',code:'answer_busy'},false],
-  ['failed',404,{error:'that reet session is not available'},false],
+ // Refusals: the card's own sentence by the buttons. Update required and read-only keep them disabled; busy, offline and others re-enable them. Only real errors lead with "!".
+ for(const [name,status,json,locked,say,error] of [
+  ['update-required',409,{error:'Update reet on this machine to answer from here.',code:'update_required'},true,'Update reet on this machine to answer from here.',false],
+  ['read-only',403,{error:'terminal access denied'},true,'Your account can look but not answer.',false],
+  ['offline',503,{error:'terminal machine is reconnecting; retry after it reconnects'},false,'The machine is not connected. Try again when it is back.',true],
+  ['busy',409,{error:'An answer is already on its way.',code:'answer_busy'},false,'Another answer is on its way. Wait a moment.',false],
+  ['failed',404,{error:'that reet session is not available'},false,'The answer could not be sent.',true],
  ]){
   const w=await open('plan',{width:name==='offline'?390:1280,theme:name==='offline'?'dark':'light',answer:()=>({status,json})})
   try{
    await w.card.getByRole('button',{name:/^3\. No, keep planning/}).click()
-   await expect(w.card.getByRole('status').filter({hasText:/\S/}).last()).toContainText(name==='read-only'?'can look at sessions but not answer them':json.error)
-   for(const b of await w.card.getByRole('button').all())locked?await expect(b).toBeDisabled():await expect(b).toBeEnabled()
+   await expect(w.card.locator('.result')).toHaveText(error?`!${say}`:say)
+   await expect(w.card.locator('.result')).toBeFocused()
+   await expect(w.card).not.toContainText('wire')
+   await expect(w.card.locator('.result .mark')).toHaveCount(error?1:0)
+   for(const b of await w.card.locator('.options button').all())locked?await expect(b).toBeDisabled():await expect(b).toBeEnabled()
    await expect(w.card).not.toContainText('Answered')
    await expect(w.card).toHaveCount(1)
    await w.card.screenshot({path:`${shots}/result-${name}.png`})
    await noSideways(w.page)
+   errorsOf(w)
+  }finally{await w.context.close()}
+ }
+
+ // A long question on a short phone: the text scrolls inside its own 30% and the last option can still be reached.
+ {
+  const w=await open('long',{width:390,height:560,theme:'light'})
+  try{
+   const said=w.card.locator('.subjects'),last=w.card.locator('.options button').last()
+   expect((await said.boundingBox()).height).toBeLessThanOrEqual(560*0.3+1)
+   // The question sentence is outside that scroller, so it is always in view with it.
+   await expect(w.card.locator('.said > .line')).toHaveText('Proceed with all of it?')
+   await w.page.screenshot({path:`${shots}/long-screen-390x560-top-light.png`})
+   await last.scrollIntoViewIfNeeded()
+   const box=await last.boundingBox()
+   expect(box.y).toBeGreaterThanOrEqual(0);expect(box.y+box.height).toBeLessThanOrEqual(561)
+   await noSideways(w.page)
+   await w.page.screenshot({path:`${shots}/long-screen-390x560-light.png`})
+   errorsOf(w)
+  }finally{await w.context.close()}
+ }
+
+ // The same case at the narrowest width the app supports (320px, as 200% zoom on a phone leaves it): the card fits, nothing runs off sideways.
+ {
+  const w=await open('long',{width:320,height:560,theme:'dark'})
+  try{
+   const b=await w.card.boundingBox()
+   expect(b.x+b.width).toBeLessThanOrEqual(321)
+   expect(await w.card.evaluate(e=>e.scrollWidth<=e.clientWidth+1&&[...e.querySelectorAll('.option,.line,.more')].every(c=>c.getBoundingClientRect().right<=e.getBoundingClientRect().right+1))).toBe(true)
    errorsOf(w)
   }finally{await w.context.close()}
  }

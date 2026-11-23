@@ -48,7 +48,9 @@ func TestAnInstructionThatIsNeverDeliveredBringsTheGoalBackToThePerson(t *testin
 		t.Fatalf("a busy model's queue was not waited for: %+v", row)
 	}
 	// The model is idle and the instruction is still queued: nothing more will happen by waiting.
+	// Work its last turn left running is no reason: the queue does not wait for it.
 	worker.working.Store(false)
+	worker.background.Store(1)
 	reviews := calls.Load()
 	g = dueGoal(t, st, g)
 	s.reviewDueGoals(context.Background())

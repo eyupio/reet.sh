@@ -509,7 +509,7 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 				case ok && controls.Waiting:
 					hold()
 					return
-				case ok && (controls.Working || controls.Background > 0 || controls.Configuring || controls.Compacting):
+				case ok && (controls.Working || controls.Configuring || controls.Compacting):
 				case ok:
 					observe("needs_user", "Gaffer’s instruction has waited "+minutes(waited)+" without reaching the working model, which is not busy. Check its session; the instruction is still queued. Resume the goal to try again.", time.Minute)
 					return

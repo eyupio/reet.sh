@@ -509,10 +509,12 @@ func (s *Service) movePipelineOn(uid int64, conversation, note, by string) error
 		return invalid("advance", "That pipeline has no stage in hand to move on from.")
 	}
 	summary := "The person moved this pipeline on from this stage."
-	if c, err := s.conversation(uid, conversation); err == nil && by != "auto" {
-		if row, err := s.store.TerminalSessionFor(uid, c.SessionID); err == nil && row.ChatStatus == "background" {
-			summary += " Work its agent had left still running stops when its session ends."
+	if s.stageWorkRunning(uid, conversation) {
+		if by == "auto" {
+			// Only the person may stop work that is still running.
+			return invalid("advance", "The stage's agent still has work running. Gaffer moves the pipeline on once it has finished.")
 		}
+		summary += " Work its agent had left still running stops when its session ends."
 	}
 	if note = strings.TrimSpace(note); by == "auto" {
 		// The person gave Gaffer the decisions; the note is Gaffer's reason.
@@ -779,4 +781,15 @@ func askedEffort(stage store.GafferOutcomeStage) string {
 		return stage.EffortNotOffered
 	}
 	return stage.Effort
+}
+
+// stageWorkRunning reports whether the session that conversation follows ended
+// its turn with work still running.
+func (s *Service) stageWorkRunning(uid int64, conversation string) bool {
+	c, err := s.conversation(uid, conversation)
+	if err != nil {
+		return false
+	}
+	row, err := s.store.TerminalSessionFor(uid, c.SessionID)
+	return err == nil && row.ChatStatus == "background"
 }

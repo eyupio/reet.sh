@@ -1577,3 +1577,83 @@ func TestMovingOnWithBackgroundWorkSaysTheWorkStops(t *testing.T) {
 		t.Fatalf("moved on with work running: %q", summary)
 	}
 }
+
+// A review that ends in a hand-over while the stage's agent has work running
+// (an instruction it relayed started a turn that left work going) does not end
+// the stage: that would end the session and the work. It waits, and says so.
+func TestAReviewDoesNotHandOverAStageWhoseWorkStillRuns(t *testing.T) {
+	r := outcomeFixture(t)
+	var mu sync.Mutex
+	reviews := 0
+	var held func()
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		_, _ = io.ReadAll(req.Body)
+		mu.Lock()
+		reviews++
+		hold := held
+		mu.Unlock()
+		if hold != nil {
+			hold()
+		}
+		call, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "h1", "type": "function", "function": map[string]any{"name": "hand_over", "arguments": `{"summary":"Endpoint and tests are in."}`}}}}, "finish_reason": "tool_calls"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", call)
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	mu.Lock()
+	held = func() { _ = r.st.SetTerminalChatAttentionFor(r.p.UserID, code.SessionID, time.Now().UnixMilli(), 0, "background", 0) }
+	mu.Unlock()
+	if err := r.st.AppendTerminalChatEventFor(r.p.UserID, code.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"agent","text":"Implemented the endpoint; tests pass."}`)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		g, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
+		mu.Lock()
+		done := reviews > 0
+		mu.Unlock()
+		if done && err == nil && g.ActiveTurnID == "" && g.Note == workerBackgroundNote {
+			break
+		}
+		if err == nil && g.State == "active" && g.ActiveTurnID == "" && !done {
+			_ = r.st.ObserveGafferGoal(g, "active", "", 0)
+		}
+		r.s.wakeGoals()
+		time.Sleep(50 * time.Millisecond)
+	}
+	g, _ := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
+	if g.Note != workerBackgroundNote || g.State != "active" {
+		t.Fatalf("goal after the review: %q %q", g.State, g.Note)
+	}
+	o, _ := r.st.GafferOutcomeFor(r.p.UserID, created.ID)
+	for _, piece := range o.Sessions {
+		if piece.Key == code.Key && (piece.Stage != 0 || piece.Stages[0].State == "done") {
+			t.Fatalf("the stage was handed over with its work running: %+v", piece)
+		}
+	}
+}
+
+// Gaffer moving a pipeline on for the person, given the outcome's decisions,
+// never stops work the stage's agent still has running: only the person may.
+func TestGafferDoesNotMoveOnAStageWhoseWorkStillRuns(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if err := r.st.SetTerminalChatAttentionFor(r.p.UserID, code.SessionID, time.Now().UnixMilli(), 0, "background", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.s.movePipelineOn(r.p.UserID, code.ConversationID, "The decisions say carry on.", "auto"); err == nil || !strings.Contains(err.Error(), "still has work running") {
+		t.Fatalf("auto move-on with work running: %v", err)
+	}
+	if piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.Key == code.Key }); piece.Stage != 0 || piece.Stages[0].State == "done" {
+		t.Fatalf("moved on: %+v", piece)
+	}
+}

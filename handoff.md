@@ -1,5 +1,31 @@
 # Reet central-control implementation handoff
 
+## DESK-OWN-TAB-1: a desk opens in a tab of its own (23 November 2026)
+
+A small desktop-only affordance, no data-model or autosave change. Reet has no app-level tab that can hold a desk: the
+top bar is fixed navigation, and a desk's own tabs hold panes. What reet does have is one desk per browser window, and
+its tests already call the browser window "a tab for a desk" (`web/tests/desks.e2e.mjs`). So "its own tab" is the
+desk's own browser tab: `/desks/<id>` opened with an ordinary link in a new tab, which leaves the current window's
+desk and its unsaved edits alone.
+
+**Where.** The switch-desk dropdown in `web/src/lib/desks/DeskScreen.svelte` gains **Move to its own tab** after All
+desks and New desk. It opens a second list of the account's non-template desks; the desk already in this window is
+disabled, every other desk is a `menuitem` link to `/desks/<id>` (`target="_blank"`, `rel="noopener noreferrer"`). The
+Desks list's per-card menu in `DeskList.svelte` gains the same item. Both use `DeskMenu`, so first-item focus, arrows,
+Home/End, Escape and focus return are the existing behaviour, and the links keep the menu's existing styling.
+
+**Persistence.** Nothing new is stored. Each browser tab is already its own desk: its address is the desk, and its
+chosen desk tab stays in `sessionStorage['reet-desk-tab:<deskId>']`. A reload restores both windows as they were. The
+existing `localStorage['reet.desks.last.<userId>']` follows the newly opened desk, as it does for any desk open.
+
+**Trade-offs.** The switcher is a switch list, not ownership, so the desk is not removed from it. "Already in its own
+tab" can only be known for the current window; another browser tab on the same desk cannot be detected without a new
+registry, so it is not attempted. Templates are left out, as in the switcher.
+
+**Tests.** `web/tests/desks.e2e.mjs` covers the item in both menus, the keyboard path, the disabled current desk, the
+link's address and new-tab attributes, and a real second window that opens the desk and keeps it across a reload.
+`npm run check`, `npm run build`, `desks.e2e.mjs` and `desks-phone.e2e.mjs` pass.
+
 ## FACTORY-TEMPLATES-6: private, versioned Factory templates (23 November 2026)
 
 Stage 6 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract is

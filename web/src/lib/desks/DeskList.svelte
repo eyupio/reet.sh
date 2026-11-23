@@ -133,6 +133,7 @@
     <button type="button" role="menuitem" onclick={() => { const id = d.id; closeMenu(false); onopen(id) }}>Open</button>
     <button type="button" role="menuitem" onclick={() => then('rename')}>Rename</button>
     <button type="button" role="menuitem" onclick={() => then('duplicate')}>Duplicate</button>
+    <a role="menuitem" href={`/desks/${encodeURIComponent(d.id)}`} target="_blank" rel="noopener noreferrer" onclick={() => closeMenu(false)}>Move to its own tab</a>
     <button type="button" role="menuitem" onclick={() => then('template')}>Save as template</button>
     <button type="button" role="menuitem" class="danger" onclick={() => then('delete')}>Delete</button>
   </DeskMenu>

@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A desk can open in a tab of its own**: **Move to its own tab** in the desk switcher opens another desk in a new
+  browser tab, leaving the desk you are on where it is; the desk already in this window is switched off. The same item
+  is on each desk card's menu on the Desks list. Reet keeps one desk to a window, so each tab keeps its own address and
+  its own chosen desk tab, and both come back as they were after a reload. Nothing new is stored.
 - **An agent's slash commands in Chat**: when an agent announces its commands, the Skills sheet in Chat
   lists them first as "Commands from {agent}", each with its argument and description; picking one adds it to
   your message and sends nothing. If you type a `/name` the agent did not list, a line under the message says it may

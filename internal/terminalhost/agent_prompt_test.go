@@ -3,6 +3,8 @@ package terminalhost
 import (
 	"strings"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // The screens below are written for these tests, in the shape each agent
@@ -142,5 +144,197 @@ func TestAwaitingAnswerLooksOnlyAtTheLastLines(t *testing.T) {
 	// A very long screen is bounded, and its end is what is read.
 	if !AwaitingAnswer("codex", strings.Repeat("x", 2*promptScreenBytes)+"\n"+codexCommandPrompt) {
 		t.Fatal("the end of a long screen was not read")
+	}
+}
+
+const claudePlanPrompt = `
+╭──────────────────────────────────────────────────────────────╮
+│ Ready to code?                                               │
+│                                                              │
+│ Here is Claude's plan:                                       │
+│ ╭──────────────────────────────────────────────────────────╮ │
+│ │ 1. Parse the question                                    │ │
+│ │ 2. Send it to the controller                             │ │
+│ ╰──────────────────────────────────────────────────────────╯ │
+│                                                              │
+│ Would you like to proceed?                                   │
+│                                                              │
+│ ❯ 1. Yes, and auto-accept edits                              │
+│   2. Yes, and manually approve edits                         │
+│   3. No, keep planning                                       │
+╰──────────────────────────────────────────────────────────────╯
+`
+
+const claudeWrappedOption = `
+╭──────────────────────────────────────────────────────────────╮
+│ Bash command                                                 │
+│                                                              │
+│   rm -rf build && make                                       │
+│                                                              │
+│ Do you want to proceed?                                      │
+│ ❯ 1. Yes                                                     │
+│   2. Yes, and don't ask again for rm commands in             │
+│      /home/me/projects/a-folder-with-a-long-name             │
+│   3. No, and tell Claude what to do differently (esc)        │
+╰──────────────────────────────────────────────────────────────╯
+`
+
+// hostileOption is drawn by a command the agent was asked to run: it tries to
+// smuggle terminal escapes, bidi overrides and zero-width characters into
+// what the controller shows, and to pass a very long option.
+var hostileOption = "\u202eYes\u202c, \u200bdelete \x1b[31meverything\x1b[0m \u0085now " + strings.Repeat("and more ", 40)
+
+var claudeHostile = `
+╭──────────────────────────────────────────────────────────────╮
+│ Bash command                                                 │
+│                                                              │
+│   ./install.sh                                               │
+│                                                              │
+│ Do you want to ` + "\u2066proceed\u2069?\u200d" + `                                      │
+│ ❯ 1. ` + hostileOption + `
+│   2. No                                                      │
+╰──────────────────────────────────────────────────────────────╯
+`
+
+func optionLabels(q *terminalproto.TerminalQuestion) []string {
+	var out []string
+	for _, o := range q.Options {
+		out = append(out, o.Label)
+	}
+	return out
+}
+
+func TestQuestionOnScreenReadsEachAgentsDialog(t *testing.T) {
+	for name, tc := range map[string]struct {
+		tool, screen, question string
+		options                []string
+		selected               int
+	}{
+		"a claude command approval": {"claude", claudeCommandPrompt, "Do you want to proceed?",
+			[]string{"Yes", "Yes, and don't ask again for go test commands", "No, and tell Claude what to do differently (esc)"}, 1},
+		"a claude plan approval": {"claude", claudePlanPrompt, "Would you like to proceed?",
+			[]string{"Yes, and auto-accept edits", "Yes, and manually approve edits", "No, keep planning"}, 1},
+		"a codex approval": {"codex", codexCommandPrompt, "Would you like to run the following command?",
+			[]string{"Yes, proceed", "Yes, and don't ask again for this command", "No, and tell Codex what to do differently"}, 1},
+		"a wrapped long option": {"claude", claudeWrappedOption, "Do you want to proceed?",
+			[]string{"Yes", "Yes, and don't ask again for rm commands in /home/me/projects/a-folder-with-a-long-name", "No, and tell Claude what to do differently (esc)"}, 1},
+		"the selection moved": {"claude", strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  3. No", "❯ 3. No", 1), "Do you want to proceed?",
+			[]string{"Yes", "Yes, and don't ask again for go test commands", "No, and tell Claude what to do differently (esc)"}, 3},
+	} {
+		q := questionOnScreen(tc.tool, "%3", tc.screen)
+		if q == nil {
+			t.Errorf("%s: no question read", name)
+			continue
+		}
+		if !q.Valid() {
+			t.Errorf("%s: the question read is not valid on the wire: %+v", name, q)
+		}
+		if q.Question != tc.question {
+			t.Errorf("%s: question %q, want %q", name, q.Question, tc.question)
+		}
+		if got := optionLabels(q); strings.Join(got, "|") != strings.Join(tc.options, "|") {
+			t.Errorf("%s: options %q, want %q", name, got, tc.options)
+		}
+		for i, o := range q.Options {
+			if o.Index != i+1 || o.Selected != (o.Index == tc.selected) {
+				t.Errorf("%s: option %d is %+v, want index %d selected %v", name, i, o, i+1, i+1 == tc.selected)
+			}
+		}
+	}
+}
+
+// Text an agent's command printed is cleaned of every character that could
+// change how the controller shows it, and bounded.
+func TestQuestionOnScreenCleansHostileText(t *testing.T) {
+	q := questionOnScreen("claude", "%3", claudeHostile)
+	if q == nil {
+		t.Fatal("no question read")
+	}
+	if !q.Valid() {
+		t.Fatalf("not valid on the wire: %+v", q)
+	}
+	if q.Question != "Do you want to proceed?" {
+		t.Errorf("question %q", q.Question)
+	}
+	label := q.Options[0].Label
+	if !strings.HasPrefix(label, "Yes, delete [31meverything[0m now and more") {
+		t.Errorf("label %q", label)
+	}
+	if n := len([]rune(label)); n != terminalproto.MaxTerminalOptionRunes || !strings.HasSuffix(label, "…") {
+		t.Errorf("a long label was not cut to the cap with a mark: %d runes, %q", n, label)
+	}
+	long := strings.Replace(claudeCommandPrompt, "Do you want to proceed?", "Do you want to "+strings.Repeat("really ", 100)+"proceed?", 1)
+	if q := questionOnScreen("claude", "%3", long); q == nil || len([]rune(q.Question)) != terminalproto.MaxTerminalQuestionRunes {
+		t.Errorf("a long question was not cut to the cap: %+v", q)
+	}
+}
+
+// Unless the dialog reads cleanly, nothing is sent and the session behaves as
+// before: a bell only.
+func TestQuestionOnScreenNeedsConfidence(t *testing.T) {
+	tenOptions := "Do you want to proceed?\n❯ 1. a\n"
+	for i := 2; i <= 10; i++ {
+		tenOptions += "  " + string(rune('0'+i%10)) + ". b\n"
+	}
+	tenOptions = strings.Replace(tenOptions, "  0. b", "  10. b", 1)
+	for name, tc := range map[string]struct{ tool, screen string }{
+		"ten options":            {"claude", tenOptions},
+		"a repeated number":      {"claude", strings.Replace(claudeCommandPrompt, "3. No", "2. No", 1)},
+		"numbers out of order":   {"claude", strings.Replace(claudeCommandPrompt, "3. No", "4. No", 1)},
+		"no selected option":     {"codex", strings.Replace(codexCommandPrompt, "› 1.", "  1.", 1)},
+		"two selected options":   {"claude", strings.Replace(claudeCommandPrompt, "  2. Yes", "❯ 2. Yes", 1)},
+		"no question words":      {"claude", claudeMenu},
+		"no options":             {"codex", "  Would you like to run the following command?\n\n  $ make\n\n  Press enter to confirm or esc to cancel\n"},
+		"a second list after":    {"claude", claudeCommandPrompt + "\n 1. another\n"},
+		"a question not waited":  {"claude", claudeWorking},
+		"an agent without rules": {"opencode", opencodePrompt},
+		"a shell":                {"", claudeCommandPrompt},
+	} {
+		if q := questionOnScreen(tc.tool, "%3", tc.screen); q != nil {
+			t.Errorf("%s: read %+v", name, q)
+		}
+	}
+}
+
+// The fingerprint names the question, not the drawing: a redraw that moves
+// the cursor or pads the lines keeps it, another question or pane does not.
+func TestQuestionFingerprint(t *testing.T) {
+	base := questionOnScreen("claude", "%3", claudeCommandPrompt)
+	if base == nil || !terminalproto.ValidFingerprint(base.Fingerprint) {
+		t.Fatalf("no fingerprint: %+v", base)
+	}
+	padded := strings.ReplaceAll(claudeCommandPrompt, "\n", "   \n")
+	cursor := strings.Replace(claudeCommandPrompt, "Run the test suite", "Run the test suite█", 1)
+	moved := strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  2. Yes", "❯ 2. Yes", 1)
+	for name, screen := range map[string]string{"trailing spaces": padded, "a cursor blink": cursor, "the selection moved": moved} {
+		if q := questionOnScreen("claude", "%3", screen); q == nil || q.Fingerprint != base.Fingerprint {
+			t.Errorf("%s changed the fingerprint: %+v", name, q)
+		}
+	}
+	other := strings.Replace(claudeCommandPrompt, "Do you want to proceed?", "Do you want to make this edit?", 1)
+	if q := questionOnScreen("claude", "%3", other); q == nil || q.Fingerprint == base.Fingerprint {
+		t.Errorf("another question kept the fingerprint: %+v", q)
+	}
+	option := strings.Replace(claudeCommandPrompt, "go test commands", "go vet commands", 1)
+	if q := questionOnScreen("claude", "%3", option); q == nil || q.Fingerprint == base.Fingerprint {
+		t.Errorf("another option kept the fingerprint: %+v", q)
+	}
+	if q := questionOnScreen("claude", "%4", claudeCommandPrompt); q == nil || q.Fingerprint == base.Fingerprint {
+		t.Errorf("another pane kept the fingerprint: %+v", q)
+	}
+}
+
+// The keys an answer sends move from the selected option to the chosen one
+// and confirm it; digits are never sent (see answerKeys).
+func TestAnswerKeys(t *testing.T) {
+	q := questionOnScreen("claude", "%3", strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  2. Yes", "❯ 2. Yes", 1))
+	for option, want := range map[int]string{1: "Up Enter", 2: "Enter", 3: "Down Enter"} {
+		keys, ok := answerKeys(q, option)
+		if !ok || strings.Join(keys, " ") != want {
+			t.Errorf("option %d: keys %q, want %q", option, keys, want)
+		}
+	}
+	if _, ok := answerKeys(q, 4); ok {
+		t.Error("keys for an option the question does not have")
 	}
 }

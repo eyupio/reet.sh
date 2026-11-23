@@ -370,3 +370,41 @@ func (s *Session) Steer(ctx context.Context, text string, images []Attachment) (
 	}
 	return "unknown", nil
 }
+
+// readCommands keeps the valid entries of an available_commands_update, first
+// name wins, within the wire limits. The agent's text is untrusted: a bad
+// entry is dropped rather than the whole list.
+func readCommands(raw json.RawMessage) []terminalproto.ACPCommand {
+	var entries []json.RawMessage
+	_ = json.Unmarshal(raw, &entries)
+	out := []terminalproto.ACPCommand{}
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		var c struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Input       struct {
+				Hint string `json:"hint"`
+			} `json:"input"`
+		}
+		if json.Unmarshal(entry, &c) != nil || len(out) == terminalproto.MaxACPCommands {
+			continue
+		}
+		command := terminalproto.ACPCommand{Name: c.Name, Description: c.Description, Hint: c.Input.Hint}
+		if command.Valid() && !seen[command.Name] {
+			seen[command.Name] = true
+			out = append(out, command)
+		}
+	}
+	for !terminalproto.ValidACPCommands(out) {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+// Commands is the slash command list the agent last announced, never nil.
+func (s *Session) Commands() []terminalproto.ACPCommand {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]terminalproto.ACPCommand{}, s.commands...)
+}

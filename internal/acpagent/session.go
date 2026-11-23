@@ -155,6 +155,7 @@ type Session struct {
 	configMu     sync.Mutex
 	steerMu      sync.Mutex
 	settings     []terminalproto.ACPSetting
+	commands     []terminalproto.ACPCommand
 	previewText  map[string]string
 	previewTools map[string]previewTarget
 	steering     bool
@@ -724,6 +725,19 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 		if json.Unmarshal(raw, &envelope) == nil {
 			s.updateSettings(envelope.Update)
 		}
+	case "available_commands_update":
+		// Each announcement replaces the list; agents repeat it on load and
+		// some at every turn.
+		var envelope struct {
+			Update struct {
+				Commands json.RawMessage `json:"availableCommands"`
+			} `json:"update"`
+		}
+		_ = json.Unmarshal(raw, &envelope)
+		commands := readCommands(envelope.Update.Commands)
+		s.mu.Lock()
+		s.commands = commands
+		s.mu.Unlock()
 	case "usage_update":
 		if usage := contextUsage(raw); usage != nil {
 			s.emit(Event{Kind: "usage", Usage: usage})

@@ -340,17 +340,30 @@
   // The desks too: a waiting session on a desk is marked with it and opens on it. Until they are read none is marked.
   let attentionGeneration = 0, lastOutcomes: GafferOutcome[] = [], lastGoals: GafferGoalOverview[] | undefined, lastDesks: DeskSummary[] | undefined, lastNewSkills: NewSkill[] = []
   const readDeskPanes = deskPaneReader(getDesk)
-  async function loadAttention() {
+  // The Factory reads outcomes and goals every 5 seconds and hands them here, so while its reads are recent the bell's
+  // poll does not read them again. A paused Factory (a dialog open) stops handing them over and the poll reads its own;
+  // a load after an answer always reads, as the Factory's own read of it may not have landed yet. A Factory read that
+  // started before the bell's own last read of them may hold an item answered since, so it is not taken.
+  let factoryReadAt = 0, ownReadAt = 0
+  function factoryRead(outcomes: GafferOutcome[], goals: GafferGoalOverview[], startedAt: number) {
+    if (startedAt < ownReadAt) return
+    lastOutcomes = outcomes; lastGoals = goals; factoryReadAt = startedAt
+  }
+  async function loadAttention(poll = false) {
     if (!authenticated || needsAuth || !sessionsAccess || isHome) return
-    const mine = ++attentionGeneration
+    const mine = ++attentionGeneration, startedAt = Date.now()
+    const fromFactory = poll && isFactory && startedAt - factoryReadAt < 15000
     try {
       // A background read: like the terminal reads, it does not drive the progress bar.
-      const [read, outcomes, goals, desks, fresh] = await Promise.allSettled([terminalSessions(), listGafferOutcomes(undefined, true), listGafferGoals(undefined, true), listDesks(), loadNewSkills()])
+      const [read, outcomes, goals, desks, fresh] = await Promise.allSettled([terminalSessions(),
+        fromFactory ? Promise.resolve(lastOutcomes) : listGafferOutcomes(undefined, true),
+        fromFactory ? Promise.resolve({ goals: lastGoals }) : listGafferGoals(undefined, true), listDesks(), loadNewSkills()])
       if (mine !== attentionGeneration) return
       if (read.status === 'rejected') return
       const sessions = read.value
       if (outcomes.status === 'fulfilled') lastOutcomes = outcomes.value
       if (goals.status === 'fulfilled') lastGoals = goals.value.goals
+      if (!fromFactory && outcomes.status === 'fulfilled' && goals.status === 'fulfilled') ownReadAt = Math.max(ownReadAt, startedAt)
       if (desks.status === 'fulfilled') lastDesks = desks.value
       if (fresh.status === 'fulfilled') lastNewSkills = fresh.value
       let projects: FolderProject[] = []
@@ -397,7 +410,7 @@
     const signedOut = () => fail(new UnauthorizedError())
     window.addEventListener('reet-signed-out', signedOut)
     const notifications = setInterval(() => { if (authenticated) void loadNotificationCount() }, 60000)
-    const attentionPoll = setInterval(() => { if (authenticated && document.visibilityState === 'visible') void loadAttention() }, 15000)
+    const attentionPoll = setInterval(() => { if (authenticated && document.visibilityState === 'visible') void loadAttention(true) }, 15000)
     const offAttention = onAttentionChanged(() => { void loadAttention() })
     return () => { offAttention(); clearInterval(notifications); clearInterval(attentionPoll); window.removeEventListener('reet-shelf-changed', changed); window.removeEventListener('reet-signed-out', signedOut) }
   })
@@ -735,7 +748,7 @@
     {#await pages.Factory()}
       <RouteSkeleton variant="cards" />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} onsignedout={fail} />
+      <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} onsignedout={fail} onread={factoryRead} />
     {:catch}
       <PageLoadError />
     {/await}

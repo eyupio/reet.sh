@@ -5,6 +5,15 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory reads are compressed, and the Factory page reads once**: JSON answers of 1 KiB or more are gzipped for
+  browsers that accept it, so a Factory of 30 pipelines is read as about 92 KB, not 353 KB, for a few milliseconds
+  more on the controller. On the Factory page the bell now uses the page's own reads, so outcomes are read 12 times a
+  minute, not 16; there the bell can show a newly waiting pipeline a few seconds later than before.
+- **A launch survives a lost connection**: when a machine's answer to a launch is lost, or the controller restarts
+  while one is in flight, the pipeline now says it cannot tell whether the session started, and **Try again** takes up
+  the session that did start and never starts a second one. A merge launch in flight at a restart is no longer
+  forgotten. A stage that stopped with its plan low is run on its backup even when its old session could not be ended
+  at first, and a session left behind by a backup switch or a send-back is ended once its machine can be reached.
 - **A first session, guided**: after your first machine connects, Home offers **Your first session**. It lists the
   agents on that machine that run as a chat, each with its sign-in in the same words the Factory uses, and offers one
   read-only question to ask, without YOLO. It waits for the answer and links to it. An agent that is signed out is

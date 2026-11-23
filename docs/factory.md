@@ -402,11 +402,11 @@ outcome** says which.
 A template is a plan you saved from a finished outcome, so the next outcome that needs the same shape does not start
 from nothing. Templates are private to your account. They are not shared and have no MCP tool.
 
-**Saving.** On a finished outcome, choose **Save as template…** in the bar at the foot of the pipeline. Give it a name
+**Saving.** On a finished outcome whose every pipeline is done, or had its delivery accepted and did not then fail, choose **Save as template…** in the bar at the foot of the pipeline. Give it a name
 and, if you like, a description. It is kept only when every pipeline of the outcome is done or has its delivery
 accepted; otherwise reet says which one is not. Where you already have templates, **Save as** also offers **A new
 version of** one of them, saved on the version you were shown. If someone, or another tab, saved a newer version
-first, reet says so and reads it again; what you typed stays.
+first, reet says which version that was and which one this now saves; what you typed stays, and choosing another template to follow fills only the fields you have not typed in.
 
 **What is kept.** The objective and review limits, and for each pipeline its title, prompt, merge setting, stages
 (with their tiers and the reason for them) and criteria, and the skills each stage was approved with, at their
@@ -428,6 +428,8 @@ reports, trust and whether to pull the latest code. The crew starts from the one
 who does what** changes it for this start, as for any plan; each stage runs on its tier's agent from it. Launch
 readiness is shown and holds the start as it does for any plan, and its **Choose who does what** opens the crew on the
 tier to change. Starting does not ask Gaffer to plan anything.
+
+**What a start will do.** The plan shows, for each pipeline, whether it merges by itself once checks pass or stops at Ready to merge (the setting it was saved with), and the review limits once above the pipelines. The start's access paragraph says which pipelines merge by themselves. On YOLO a pipeline still stops at Ready to merge until you confirm on the Factory page that it may merge by itself.
 
 **Changes since you last used it.** When the version you are about to use differs from the one you last used, the
 plan step shows what changed first, above the plan: pipelines added, removed or changed, a changed prompt, stages

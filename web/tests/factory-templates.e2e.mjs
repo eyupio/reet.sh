@@ -23,7 +23,7 @@ const stage=(kind,tier,skills=[])=>({kind,tier,skills})
 const contents={
   1:{name:'CSV export',description:'Billing export: the API, the button and the tests.',objective:'Ship CSV export for billing.',maxReviews:8,hours:24,pipelines:[
     {title:'Export API',prompt:'Build the CSV export endpoint. Raise a pull request. Do not merge.',autoMerge:false,criteria:[{id:'c1',text:'The export downloads as CSV.'}],stages:[stage('code','standard',[skill('rev1aaaa1111')]),stage('review','heavy')]},
-    {title:'Billing button',prompt:'Add the export button to the billing page.',autoMerge:false,criteria:[],stages:[stage('code','standard',[{id:'builtin:lint',name:'Lint',source:'built-in',revision:'rev9zzzz9999'}])]}]},
+    {title:'Billing button',prompt:'Add the export button to the billing page.',autoMerge:true,criteria:[],stages:[stage('code','standard',[{id:'builtin:lint',name:'Lint',source:'built-in',revision:'rev9zzzz9999'}])]}]},
 }
 contents[2]={...contents[1],pipelines:[{...contents[1].pipelines[0],criteria:[{id:'c1',text:'The export downloads as a CSV file.'}]},contents[1].pipelines[1]]}
 contents[3]={...contents[2],pipelines:[{...contents[2].pipelines[0],criteria:[...contents[2].pipelines[0].criteria,{id:'c2',text:'Totals match the ledger.'}],stages:[stage('code','standard',[skill('rev2bbbb2222')]),stage('review','heavy'),stage('test','standard')]},contents[2].pipelines[1]]}
@@ -40,7 +40,7 @@ function fixture(over={}){
   const done=(key,title)=>({key,title,prompt:'p',state:'done',note:'Finished.',sessionId:'s-'+key,conversationId:key.repeat(32).slice(0,32),sessionState:'ended',updatedAt:now-3600000,stage:1,stages:[st('code','done'),st('review','done')],criteria:[{id:'c1',text:'The export downloads as CSV.',revision:1}],criteriaRevision:1,reviewRevision:1,deliveryAccepted:true})
   const mk=(id,extra={})=>({id,revision:3,objective:'Ship CSV export for billing.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'billing',dir:'/work/billing',tool:'claude',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now-3600000,sessions:[done('a','Export API')],...extra})
   // Runs record the template's name at their start; the fifth is older and recorded none.
-  const outcomes=[mk(oid),mk('1'.repeat(32),{objective:'Ship CSV export, second run.',templateId:tid,templateVersion:2,templateName:'CSV export',sessions:[done('b','Export API')]}),mk('2'.repeat(32),{objective:'Ship CSV export, third run.',templateId:gone,templateVersion:1,templateName:'Old CSV export',sessions:[done('c','Export API')]}),mk('3'.repeat(32),{objective:'Ship CSV export, fourth run.',templateId:dropped,templateVersion:1,templateName:'Older export',sessions:[done('d','Export API')]}),mk('4'.repeat(32),{objective:'Ship CSV export, fifth run.',templateId:gone,templateVersion:1,sessions:[done('e','Export API')]})]
+  const outcomes=[mk(oid),mk('1'.repeat(32),{objective:'Ship CSV export, second run.',templateId:tid,templateVersion:2,templateName:'CSV export',sessions:[done('b','Export API')]}),mk('2'.repeat(32),{objective:'Ship CSV export, third run.',templateId:gone,templateVersion:1,templateName:'Old CSV export',sessions:[done('c','Export API')]}),mk('3'.repeat(32),{objective:'Ship CSV export, fourth run.',templateId:dropped,templateVersion:1,templateName:'Older export',sessions:[done('d','Export API')]}),mk('4'.repeat(32),{objective:'Ship CSV export, fifth run.',templateId:gone,templateVersion:1,sessions:[done('e','Export API')]}),mk('5'.repeat(32),{objective:'Ship CSV export, sixth run.',sessions:[done('f','Export API'),{...done('g','Billing button'),state:'failed',deliveryAccepted:false}]})]
   const err=(status,code,error)=>({status,json:{error,code}})
   const body=r=>r.postDataJSON()
   const routes={
@@ -105,12 +105,16 @@ const open=async(width,theme,over={},extra={})=>{
 }
 const noOverflow=async page=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true)
 // The dialog's own content must not scroll sideways either.
-const dialogFits=async page=>expect(await page.locator('dialog[open] [data-shell-body]').last().evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+const dialogFits=async page=>{expect(await page.locator('dialog[open] [data-shell-body]').last().evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);expect(await page.locator('dialog[open]').last().evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=document.documentElement.clientWidth})).toBe(true)}
+// The dialog's frame must not have been scrolled: its title and Close stay in view.
+const titleInView=async dialog=>expect(await dialog.evaluate(el=>{const h=el.querySelector('header'),r=h.getBoundingClientRect(),d=el.getBoundingClientRect();return el.scrollTop===0&&r.top>=d.top-1&&r.bottom<=innerHeight&&r.top>=0})).toBe(true)
 // Every control in the open dialog is at least 44 px tall on a phone.
 async function targets(page){
   const small=await page.evaluate(()=>[...document.querySelectorAll('dialog[open]:last-of-type :is(button,select,input:not([type=checkbox]):not([type=radio]),textarea,summary,a[href])')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden'&&!(el.matches('a')&&getComputedStyle(el).display==='inline')&&!el.closest('details:not([open]) > :not(summary)')}).map(el=>({name:(el.getAttribute('aria-label')||el.textContent||el.tagName).trim().slice(0,40),h:Math.round(el.getBoundingClientRect().height)})).filter(item=>item.h<44))
   expect(small).toEqual([])
 }
+// Scrolls the open dialog's own body so a part of it is at the top, for a capture.
+const scrollTo=async(page,selector)=>page.locator('dialog[open]').last().locator('[data-shell-body]').evaluate((body,sel)=>{const t=body.querySelector(sel);body.scrollTop+=t.getBoundingClientRect().top-body.getBoundingClientRect().top-8},selector)
 const shot=async(page,name,width,theme)=>{await page.mouse.move(0,0);await page.screenshot({path:`${shots}/${name}-${width}-${theme}.png`})}
 const focused=page=>page.evaluate(()=>{const el=document.activeElement;return el?(el.getAttribute('aria-label')||el.textContent||el.tagName).trim().replace(/\s+/g,' '):''})
 async function tabTo(page,name,max=60){
@@ -168,13 +172,22 @@ try{
         // As the next version of a template that is there: the base is the version shown, and a newer one saved meanwhile is said plainly.
         await page.getByRole('button',{name:'Save as template…',exact:true}).click()
         const again=page.getByRole('dialog',{name:'Save as template',exact:true})
+        // Choosing a template to follow fills only what has not been typed in.
+        await again.getByRole('textbox',{name:/^Description/}).fill('Typed first.')
         await again.getByRole('combobox',{name:'Save as',exact:true}).selectOption(tid)
         await expect(again.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('CSV export')
+        await expect(again.getByRole('textbox',{name:/^Description/})).toHaveValue('Typed first.')
+        await again.getByRole('combobox',{name:'Save as',exact:true}).selectOption('')
+        await expect(again.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('Ship CSV export for billing')
+        await again.getByRole('textbox',{name:'Name',exact:true}).fill('Mine')
+        await again.getByRole('combobox',{name:'Save as',exact:true}).selectOption(tid)
+        await expect(again.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('Mine')
+        await again.getByRole('textbox',{name:'Name',exact:true}).fill('CSV export')
         await expect(again.getByRole('button',{name:'Save as version 4',exact:true})).toBeVisible()
         await shot(page,'save-as-version',width,theme)
         f.box.saveFail='changed'
         await again.getByRole('button',{name:'Save as version 4',exact:true}).click()
-        await expect(again.getByRole('status')).toContainText('Someone, or another tab, saved a newer version')
+        await expect(again.getByRole('status')).toContainText('Version 4 was saved elsewhere. This now saves as version 5.')
         await expect(again.getByRole('button',{name:'Save as version 5',exact:true})).toBeVisible()
         await shot(page,'save-changed',width,theme)
         await again.getByRole('button',{name:'Save as version 5',exact:true}).click()
@@ -197,6 +210,11 @@ try{
         if(!wide)await targets(page)
         await row.getByRole('button',{name:'CSV export',exact:true}).click()
         await expect(dialog.getByRole('heading',{name:'CSV export',level:3})).toBeFocused()
+        // The name is said once: the dialog is titled Templates, and the page is headed by the template.
+        await expect(dialog.getByRole('heading',{name:'CSV export'})).toHaveCount(1)
+        await expect(dialog.getByText('Up to 8 reviews and 24 hours for each session.')).toBeVisible()
+        await expect(dialog.getByRole('list',{name:'The plan'}).getByRole('listitem').filter({hasText:'Export API'}).first()).toContainText('Stops at Ready to merge.')
+        await expect(dialog.getByRole('list',{name:'The plan'}).getByRole('listitem').filter({hasText:'Billing button'}).first()).toContainText('Merges by itself once checks pass.')
         await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Code')
         await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Standard')
         await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Skill Go tests · revision rev2bbbb')
@@ -207,6 +225,8 @@ try{
         await expect(dialog.getByRole('textbox',{name:/Pipeline 1/})).toHaveCount(0)
         await expect(dialog).toContainText('To change the plan, start from it, adjust, and save the finished run as a new version.')
         await shot(page,'template-page',width,theme)
+        await scrollTo(page,'.limits');await shot(page,'template-page-plan',width,theme)
+        await dialog.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         if(!wide)await targets(page)
         // Any two versions can be compared.
         await expect(dialog.getByRole('region',{name:'Compare versions'})).toContainText('Version 2 to version 3')
@@ -218,10 +238,18 @@ try{
         await expect(dialog.getByRole('region',{name:'Version 1 to version 3'})).toContainText('Criterion reworded: “The export downloads as CSV.” to “The export downloads as a CSV file.”')
         await dialog.getByRole('combobox',{name:'To',exact:true}).selectOption('1')
         await expect(dialog.getByText('Choose two different versions.')).toBeVisible()
+        await scrollTo(page,'section.compare');await shot(page,'compare-same',width,theme)
         await dialog.getByRole('combobox',{name:'From',exact:true}).selectOption('2');await dialog.getByRole('combobox',{name:'To',exact:true}).selectOption('3')
-        await shot(page,'compare',width,theme)
+        await scrollTo(page,'section.compare');await shot(page,'compare',width,theme)
+        await dialog.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         // An older version is read as it was, and says it is not the latest.
+        // Changing the version leaves the focus on the list of versions, and says so in the page's one status line.
+        const statuses=await dialog.locator('[role=status]').count()
+        await dialog.getByRole('combobox',{name:'Version',exact:true}).focus()
         await dialog.getByRole('combobox',{name:'Version',exact:true}).selectOption('1')
+        await expect(dialog.getByRole('status').filter({hasText:'Showing version 1'})).toHaveCount(1)
+        await expect(dialog.getByRole('combobox',{name:'Version',exact:true})).toBeFocused()
+        expect(await dialog.locator('[role=status]').count()).toBe(statuses)
         await expect(dialog.getByText('Version 1 (the latest is 3)')).toBeVisible()
         await expect(dialog.getByRole('button',{name:'Use version 1',exact:true})).toBeVisible()
         await expect(dialog.getByRole('button',{name:'Rename or change the description',exact:true})).toHaveCount(0)
@@ -233,11 +261,16 @@ try{
         f.box.editFail='changed'
         await dialog.getByRole('textbox',{name:'Name',exact:true}).fill('Renamed export')
         await dialog.getByRole('button',{name:'Save as version 4',exact:true}).click()
-        await expect(dialog.getByRole('alert')).toContainText('Someone, or another tab, saved a newer version')
+        await expect(dialog.getByRole('alert')).toContainText('Version 4 was saved elsewhere. This now saves as version 5.')
         // What was typed stays, and the base is now the newer version.
         await expect(dialog.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('Renamed export')
         await dialog.getByRole('button',{name:'Save as version 5',exact:true}).click()
-        await expect(templatesDialog(page).getByRole('status').filter({hasText:'Saved as version 5.'})).toBeVisible()
+        const saved=templatesDialog(page).getByRole('status').filter({hasText:'Saved as version 5.'})
+        await expect(saved).toBeVisible()
+        // The form is gone, so the focus is on the notice, which is in view inside the dialog with its title.
+        await expect(saved).toBeFocused()
+        expect(await saved.evaluate(el=>{const r=el.getBoundingClientRect(),b=el.closest('[data-shell-body]').getBoundingClientRect();return r.top>=b.top&&r.bottom<=b.bottom})).toBe(true)
+        await titleInView(page.locator('dialog[open]').last())
         await expect(dialog.getByRole('heading',{name:'Renamed export',level:3})).toBeVisible()
         expect(f.box.edits.map(e=>e.baseVersion)).toEqual([3,4])
         expect(f.box.edits[1].requestId).toMatch(/^[0-9a-f]{32}$/)
@@ -253,7 +286,7 @@ try{
         await expect(ask).toContainText('5 versions')
         await page.waitForTimeout(500);await shot(page,'delete-confirm',width,theme)
         await ask.getByRole('button',{name:'Delete template',exact:true}).click()
-        await expect(dialog.getByRole('alert')).toContainText('Someone, or another tab, saved a newer version')
+        await expect(dialog.getByRole('status').filter({hasText:'Version 6 was saved elsewhere, so nothing was deleted.'})).toBeVisible()
         await dialog.getByRole('button',{name:'Delete template…',exact:true}).click()
         await page.getByRole('dialog',{name:/^Delete “/}).getByRole('button',{name:'Delete template',exact:true}).click()
         await expect.poll(()=>f.box.deletes.length).toBe(2)
@@ -278,11 +311,20 @@ try{
         expect(order).toBe(true)
         await expect(outcome.getByRole('list',{name:'Stages of Export API'})).toContainText('Test')
         await expect(outcome.getByRole('textbox',{name:/Pipeline 1/})).toHaveCount(0)
+        // The objective is labelled as on any plan, the limits are said once, and each pipeline says what it does at the end.
+        await expect(outcome.locator('.objective')).toContainText('Outcome')
+        await expect(outcome.getByText('Up to 8 reviews and 24 hours for each session.')).toHaveCount(1)
+        await expect(outcome.getByRole('list',{name:'The plan'}).getByRole('listitem').filter({hasText:'Billing button'}).first()).toContainText('Merges by itself once checks pass.')
+        await expect(outcome.locator('.access')).toContainText('Gaffer cannot run commands or answer approvals. “Billing button” merges by itself once checks pass. The others stop at Ready to merge and wait for you.')
+        await expect(outcome.locator('.access')).not.toContainText('Gaffer cannot merge')
         await expect(outcome.getByRole('button',{name:'Decline proposal',exact:true})).toHaveCount(0)
         await expect(outcome.getByText('Launch readiness on workshop.')).toBeVisible()
         await expect(outcome.getByRole('combobox',{name:'Project',exact:true})).toHaveValue('p1')
         await expect(outcome.getByRole('option',{name:'A repository from GitHub…'})).toHaveCount(0)
         await shot(page,'use-latest',width,theme)
+        await scrollTo(page,'.limits');await shot(page,'use-latest-plan-merge-limits',width,theme)
+        await scrollTo(page,'.access');await shot(page,'use-latest-access',width,theme)
+        await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=el.scrollHeight});await shot(page,'use-latest-end',width,theme)
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         if(!wide)await targets(page)
@@ -315,7 +357,7 @@ try{
         await expect(outcome.getByRole('combobox',{name:'Template version',exact:true})).toHaveValue('1')
         await expect(outcome.getByRole('list',{name:'Criteria of Export API'})).toContainText('The export downloads as CSV.')
         await expect(outcome.getByRole('list',{name:'Stages of Export API'})).not.toContainText('Test')
-        await expect(outcome.getByRole('region',{name:/^Changed since version 2/})).toBeVisible()
+        await expect(outcome.getByRole('region',{name:'Differs from version 2, the one you last used'})).toBeVisible()
         expect(f.box.diffs.at(-1)).toBe('last-1')
         await shot(page,'use-older',width,theme)
         // Choosing the version last used says nothing changed, so nothing is drawn.
@@ -362,8 +404,13 @@ try{
         const start=outcome.getByRole('button',{name:'Start 2 pipelines from this template',exact:true})
         await expect(start).toBeDisabled()
         await expect(outcome.getByText('Tick “Start without these skills” to go on, or choose another version.')).toBeVisible()
+        // The tick box sits just above the line that asks for it, and Start.
+        const near=await outcome.evaluate(el=>{const m=[...el.querySelectorAll('label.trust')].find(l=>/Start without these skills/.test(l.textContent)).getBoundingClientRect(),n=el.querySelector('.status').getBoundingClientRect();return {gap:n.top-m.bottom}})
+        expect(near.gap).toBeGreaterThanOrEqual(0);expect(near.gap).toBeLessThan(40)
         await outcome.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
         await shot(page,'skill-gap',width,theme)
+        await scrollTo(page,'.gap');await shot(page,'skill-gap-marks',width,theme)
+        await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=el.scrollHeight});await shot(page,'skill-gap-end',width,theme)
         await outcome.getByRole('checkbox',{name:/Start without these skills/}).check()
         await expect(start).toBeEnabled()
@@ -371,7 +418,7 @@ try{
         const reads=f.box.reads.length
         await start.click()
         // The other choices are kept, the list is the new one, and the person has to agree again.
-        await expect(outcome.getByRole('alert')).toContainText('The approved skills changed while you were looking.')
+        await expect(outcome.getByRole('alert')).toContainText('The approved skills changed while you were looking. The plan above now shows the current list.')
         await expect(outcome.getByRole('list',{name:'Stages of Billing button'})).toContainText('“Lint” is not available now (archived, removed or switched off), so the stage starts without it.')
         await expect(outcome.getByRole('radio',{name:'Gaffer decides',exact:true})).toBeChecked()
         await expect(outcome.getByRole('checkbox',{name:/Start without these skills/})).not.toBeChecked()
@@ -409,21 +456,27 @@ try{
       try{
         await page.goto(`${base}/factory?pipeline=${'1'.repeat(32)}.b`)
         const line=page.getByText(/^From template/).first()
-        await expect(line).toContainText('From template CSV export, version 2.')
+        await expect(line).toContainText('From template “CSV export”, version 2.')
         await shot(page,'run-from-template',width,theme)
         await line.getByRole('button',{name:'CSV export',exact:true}).click()
         await expect(templatesDialog(page).getByRole('heading',{name:'CSV export',level:3})).toBeVisible()
         await page.keyboard.press('Escape')
         await page.goto(`${base}/factory?pipeline=${'2'.repeat(32)}.c`)
         // The name the run recorded at its start outlives the template.
-        await expect(page.getByText('From template Old CSV export, version 1. That template has since been deleted.')).toBeVisible()
+        await expect(page.getByText('From template “Old CSV export”, version 1. That template has since been deleted.')).toBeVisible()
         await shot(page,'run-template-deleted',width,theme)
         await page.goto(`${base}/factory?pipeline=${'4'.repeat(32)}.e`)
         await expect(page.getByText('From a template that has since been deleted, version 1.')).toBeVisible()
         await page.goto(`${base}/factory?pipeline=${'3'.repeat(32)}.d`)
-        await expect(page.getByText('From template Older export, version 1, which is no longer kept.')).toBeVisible()
+        await expect(page.getByText('From template “Older export”, version 1, which is no longer kept.')).toBeVisible()
         await page.goto(FINISHED)
         await expect(page.getByText(/^From template/)).toHaveCount(0)
+        // A finished outcome the server would refuse (a pipeline failed) is not offered as a template; one it would keep is.
+        await expect(page.getByRole('button',{name:'Save as template…',exact:true})).toBeVisible()
+        await page.goto(`${base}/factory?pipeline=${'5'.repeat(32)}.f`)
+        await expect(page.getByRole('heading',{name:'Export API',level:2,exact:true})).toBeVisible()
+        await expect(page.getByRole('button',{name:'Archive outcome',exact:true})).toBeVisible()
+        await expect(page.getByRole('button',{name:'Save as template…',exact:true})).toHaveCount(0)
         await noOverflow(page)
       }finally{await w.context.close()}
     }
@@ -449,8 +502,11 @@ try{
         await shot(page,'crew-blocked',width,theme)
         await causes.first().getByRole('button',{name:'Choose who does what for the Heavy crew',exact:true}).click()
         await expect(outcome.locator('details.crew')).toHaveAttribute('open','')
+        await titleInView(page.locator('dialog[open]').last())
         const heavy=outcome.getByRole('combobox',{name:'Heavy agent',exact:true})
         await expect(heavy).toBeFocused()
+        await titleInView(page.locator('dialog[open]').last())
+        await shot(page,'crew-title-in-view',width,theme)
         await heavy.selectOption('claude')
         await expect(start).toBeEnabled()
         await shot(page,'crew-fixed',width,theme)
@@ -493,9 +549,19 @@ try{
       await tabTo(page,'Start 2 pipelines from this template',160)
     }finally{await w.context.close()}
   }
-  // 12. A phone: the templates, a template's page and the launch fit the width, with 44 px targets and no sideways scroll.
+  // 11b. A template named on the address opens on it, and the address is cleared once the template is used.
   {
-    const {w,page}=await open(390,'light',{gaps:[GAP]})
+    const {w,page}=await open(1280,'light')
+    try{
+      await page.goto(`${base}/factory?template=${tid}`)
+      await page.getByRole('dialog',{name:'Templates',exact:true}).getByRole('button',{name:'Use version 3',exact:true}).click()
+      await expect(outcomeDialog(page)).toBeVisible()
+      expect(page.url()).not.toContain('template=')
+    }finally{await w.context.close()}
+  }
+  // 12. A phone (390 and 360 wide): the templates, a template's page and the launch fit the width, with 44 px targets and no sideways scroll.
+  for(const phone of [390,360]){
+    const {w,page}=await open(phone,'light',{gaps:[GAP]})
     try{
       const dialog=await openTemplates(page)
       await noOverflow(page);await dialogFits(page);await targets(page)

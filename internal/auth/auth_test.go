@@ -134,3 +134,65 @@ func TestLimiterWaitIsUntilTheOldestAttemptLeavesTheWindow(t *testing.T) {
 		t.Fatalf("wait for a full key = %v", w)
 	}
 }
+
+// A flood of new keys at the bound walks the whole map only now and then,
+// not on every attempt, and does not push out a key with many attempts.
+func TestLimiterTakeDoesNotWalkEveryKey(t *testing.T) {
+	l := NewLimiter(200, time.Hour)
+	for i := 0; i < 100; i++ {
+		l.Take("victim")
+	}
+	l.scans = 0
+	for i := 0; i < 2*maxLimiterKeys; i++ {
+		if !l.Take(fmt.Sprintf("flood-%d", i)) {
+			t.Fatalf("a new key was refused at %d", i)
+		}
+	}
+	if l.scans > 20 {
+		t.Fatalf("%d attempts walked the whole map %d times", 2*maxLimiterKeys, l.scans)
+	}
+	if n := l.Len(); n > maxLimiterKeys {
+		t.Fatalf("the limiter holds %d keys, over the bound", n)
+	}
+	for i := 0; i < 100; i++ {
+		if !l.Take("victim") {
+			t.Fatalf("the victim's key was dropped and refilled: refused after %d more", i)
+		}
+	}
+	if l.Take("victim") {
+		t.Fatal("the flood reset the victim's count")
+	}
+}
+
+// Attempts taken and given back at once leave the count where it started.
+func TestLimiterTakeAndForgiveAtOnce(t *testing.T) {
+	l := NewLimiter(1000, time.Minute)
+	l.Take("k")
+	done := make(chan struct{})
+	for i := 0; i < 50; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for j := 0; j < 20; j++ {
+				if l.Take("k", "other") {
+					l.Wait("k")
+					l.Forgive("k")
+					l.Forgive("other")
+				}
+			}
+		}()
+	}
+	for i := 0; i < 50; i++ {
+		<-done
+	}
+	if n := l.Len(); n != 1 {
+		t.Fatalf("keys after taking and giving back = %d, want 1", n)
+	}
+	for i := 1; i < 1000; i++ {
+		if !l.Take("k") {
+			t.Fatalf("the count drifted: refused at %d", i)
+		}
+	}
+	if l.Take("k") {
+		t.Fatal("the count drifted: over the limit")
+	}
+}

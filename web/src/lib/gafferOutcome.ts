@@ -557,15 +557,27 @@ export function ago(at: number | undefined, now: number): string {
 
 /** What the stage in hand's agent last reported doing, and for how long it has been quiet. `quiet` marks an agent that
  *  says it is working but has shown nothing for a quarter of an hour, or that is idle. */
-/** What a move-on confirmation adds when the stage's agent ended its turn with work still running. */
-export const HELD_STOPS = 'Its agent still has work running, and ending the stage stops it.'
+/** What a move-on confirmation says first when the stage's agent ended its turn with work still running. */
+export function heldStops(agent: string, heldSince: number | undefined, now: number): string {
+  const minutes = heldSince ? Math.floor(Math.max(0, now - heldSince) / 60_000) : -1
+  const ended = minutes < 0 ? '' : minutes < 1 ? ' (turn ended just now)' : ` (turn ended ${minutes} min ago)`
+  return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} still has work running${ended}; moving on stops it.`
+}
 
-export function agentActivity(stage: { agentState?: string; agentActiveAt?: number } | undefined, now: number): { text: string; quiet: boolean } {
+// How long reet waits for held work before it stops waiting: terminalproto.BackgroundHoldLimit, as in sessionStatus.ts.
+const HOLD_MS = 30 * 60_000
+
+export function agentActivity(stage: { agentState?: string; agentActiveAt?: number; agentHeldSince?: number } | undefined, now: number): { text: string; quiet: boolean } {
   if (!stage?.agentState && !stage?.agentActiveAt) return { text: '', quiet: false }
   const since = ago(stage.agentActiveAt, now), minutes = stage.agentActiveAt ? Math.floor((now - stage.agentActiveAt) / 60000) : 0
-  const names: Record<string, string> = { working: 'Working', background: 'Working in the background', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled' }
+  const names: Record<string, string> = { working: 'Working', background: 'Working in the background', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled', unwatched: 'Stopped waiting' }
   const name = names[stage.agentState ?? ''] ?? 'Not reported'
-  // Held work is never called quiet: its last activity is the turn's end, and the machine stops holding at 30 minutes.
+  // Held work says when reet stops waiting for it rather than going quiet; a stopped wait needs a look.
+  if (stage.agentState === 'background') {
+    const left = Math.floor(((stage.agentHeldSince || stage.agentActiveAt || now - HOLD_MS) + HOLD_MS - now) / 60_000)
+    return { text: `${name} · ${left < 1 ? 'stops waiting soon' : `stops waiting in ${left} min`}`, quiet: false }
+  }
+  if (stage.agentState === 'unwatched') return { text: `${name} · work may still be running`, quiet: true }
   return { text: since ? `${name} · last active ${since} ago` : name, quiet: stage.agentState === 'idle' || (stage.agentState === 'working' && minutes >= 15) }
 }
 

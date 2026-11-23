@@ -8,7 +8,7 @@
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { GROUP_CHOICES, needingIds, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
   import { offDesks, type DeskRef } from '../home/deskSessions'
-  import { HELD_SENTENCE, heldWork, sessionStatus, statusLabel } from '../sessionStatus'
+  import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, statusLabel, stoppedWaiting } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
   import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
@@ -313,12 +313,12 @@
                 {@const held = heldWork(s)}
                 <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} data-held={held ? '' : undefined} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
-                    {#if sessionStatus(s) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
+                    {#if sessionStatus(s) === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                     <span class="main">
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>
                     </span>
-                    <span class="word" title={held ? HELD_SENTENCE : word.source}>{#if held}{statusLabel('working', true)}<span class="vh">. {HELD_SENTENCE}</span>{:else}{word.word}{/if}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
+                    <span class="word" title={held ? HELD_SENTENCE : stoppedWaiting(s) ? STOPPED_LINE : word.source}>{#if held}{statusLabel('working', true)}<span class="vh">. {HELD_SENTENCE}</span>{:else}{word.word}{#if stoppedWaiting(s)}<span class="vh">. {STOPPED_LINE}</span>{/if}{/if}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
                   {#if places.get(s.id)}
@@ -505,7 +505,9 @@
     .sessions-page { gap: 12px; }
     .filter-grid { grid-template-columns: minmax(0, 1fr); }
     .word { font-size: 14px; }
-    .session-row[data-held] .word { max-width: none; }
+    /* Every row's word gets the same room, enough for "In background", so a held row's title gives up no more than a
+       waiting row's. */
+    .word { max-width: 39%; }
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }

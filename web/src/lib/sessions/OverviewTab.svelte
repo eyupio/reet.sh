@@ -1,6 +1,6 @@
 <script lang="ts">
   import { stateWord, type FleetCard } from '../home'
-  import { heldWork, sessionStatus } from '../sessionStatus'
+  import { heldWork, sessionStatus, stoppedWaiting, turnEndedAgo } from '../sessionStatus'
   import { pendingPermissions, pendingQuestions, toolLabel, type ChatState } from '../chat'
   import { decisionsLine } from '../sessions'
   import type { TerminalSession } from '../terminal/api'
@@ -36,14 +36,17 @@
   const chatAttention = $derived(chat?.connection === 'open' ? ({ working: 'working', waiting: 'waiting', starting: 'starting', idle: 'quiet', error: 'failed', ended: 'finished', cancelled: 'quiet' } as const)[chat.status.state as 'working' | 'waiting' | 'starting' | 'idle' | 'error' | 'ended' | 'cancelled'] : undefined)
   // A turn that ended holding work reads as working in the background, as the session list says.
   const chatHeld = $derived(chat?.connection === 'open' && chat.status.state === 'idle' && (chat.status.background ?? 0) > 0)
-  const shownSession = $derived(chatAttention ? { ...session, attention: chatHeld ? 'working' as const : chatAttention, attentionSource: 'chat' as const, chatStatus: chatHeld ? 'background' : session.chatStatus } : session)
+  const shownSession = $derived(chatAttention ? { ...session, attention: chatHeld ? 'working' as const : chatAttention, attentionSource: 'chat' as const, chatStatus: chatHeld ? 'background' : chat?.status.code === 'unwatched' ? 'unwatched' : session.chatStatus } : session)
   const sessionState = $derived(stateWord(shownSession))
   const activity = $derived(chatInsight(chat))
   const attention = $derived(chat && chat.connection === 'open' ? pendingQuestions(chat)[0]?.question.message || pendingPermissions(chat)[0]?.title || (chat.status.state === 'waiting' ? 'The agent is waiting for your answer.' : '') : session.pendingQuestion?.message || session.pendingPermission?.title || (session.attention === 'waiting' ? 'The agent is waiting for your answer.' : ''))
   const branch = $derived(workspace?.branch || session.worktreeBranch || '')
   // The overview never changes height when the agent moves on: each of these fills a slot of fixed size (one line, or a box that scrolls), so the sections after them stay where they are.
   const headline = $derived(attention ? 'Your input is needed' : activity.active[0] ? activity.active[0].title || toolLabel(activity.active[0].toolKind) : session.attention === 'working' ? 'The agent is working' : 'Session at a glance')
-  const subline = $derived(`${chat?.connection === 'reconnecting' ? 'Showing the last known activity' : sessionState.source}. Last activity ${elapsedWord(session.activityAt, now)}.`)
+  const sourceSentence = $derived(chat?.connection === 'reconnecting' ? 'Showing the last known activity' : sessionState.source.charAt(0).toUpperCase() + sessionState.source.slice(1))
+  const subline = $derived(heldWork(shownSession) ? `${turnEndedAgo(session.heldSince, now)}; work still running.`
+    : stoppedWaiting(shownSession) ? `Stopped waiting; work may still be running on ${host}.`
+    : `${sourceSentence}. Last activity ${elapsedWord(session.activityAt, now)}.`)
   const validStart = $derived(Number.isFinite(session.createdAt) && session.createdAt > 0)
   const startedIso = $derived(validStart ? new Date(session.createdAt).toISOString() : undefined)
   const startedFull = $derived(validStart ? new Date(session.createdAt).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' }) : undefined)

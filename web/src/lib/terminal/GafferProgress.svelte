@@ -185,7 +185,7 @@
       <strong>{view.label}</strong>
     </div>
     <p class="mini-quote" title={miniQuote} aria-live={clickAside ? 'polite' : 'off'}><span aria-hidden="true">“</span>{miniQuote}<span aria-hidden="true">”</span></p>
-    {#if summary}<span class="mini-count" class:snag={summary.failed || summary.stopped} title="Recorded tool results">{summary.completed} done{#if summary.failed} · {summary.failed} failed{/if}{#if summary.stopped} · {summary.stopped} unfinished{/if}</span>{/if}
+    {#if summary && view.phase !== 'background'}<span class="mini-count" class:snag={summary.failed || summary.stopped} title="Recorded tool results">{summary.completed} done{#if summary.failed} · {summary.failed} failed{/if}{#if summary.stopped} · {summary.stopped} unfinished{/if}</span>{/if}
     <button type="button" class="quiet fold" aria-label="Expand Gaffer’s card" aria-expanded="false" title="Show the full card" onclick={() => foldChoice = false}>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
     </button>

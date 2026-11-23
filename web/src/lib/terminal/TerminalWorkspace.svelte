@@ -28,7 +28,7 @@
   import SessionTabs from '../sessions/SessionTabs.svelte'
   import WorkspaceSkeleton from './WorkspaceSkeleton.svelte'
   import PanelResizer from '../shell/PanelResizer.svelte'
-  import { heldWork, sessionStatus, statusLabel } from '../sessionStatus'
+  import { HELD_SENTENCE, heldWork, sessionStatus, statusLabel, stoppedWaiting } from '../sessionStatus'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
   import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -743,7 +743,7 @@
           {#if resumeSessions.length}
             <div class="ended-resume" aria-label="Running sessions">
               <h3>{title}</h3>
-              <ul>{#each resumeSessions.slice(0,8) as {item,status} (item.id)}<li><button type="button" data-status={status} data-held={heldWork(item)?'':undefined} onclick={()=>chooseSession(item)}>{#if heldWork(item)}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="ended-dot" aria-hidden="true"></span>{/if}<span class="ended-copy"><span class="ended-name">{item.title}</span><small>{machines.find(m=>m.agentId===item.agentId)?.host||'Unavailable machine'} · {status==='waiting'?'Needs you':statusLabel(status,heldWork(item))}</small></span></button></li>{/each}</ul>
+              <ul>{#each resumeSessions.slice(0,8) as {item,status} (item.id)}<li><button type="button" data-status={status} data-held={heldWork(item)?'':undefined} onclick={()=>chooseSession(item)}>{#if heldWork(item)}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="ended-dot" aria-hidden="true"></span>{/if}<span class="ended-copy"><span class="ended-name">{item.title}</span><small>{machines.find(m=>m.agentId===item.agentId)?.host||'Unavailable machine'} · {status==='waiting'?'Needs you':statusLabel(status,heldWork(item),stoppedWaiting(item))}{#if heldWork(item)}<span class="vh">. {HELD_SENTENCE}</span>{/if}</small></span></button></li>{/each}</ul>
               {#if resumeSessions.length>8}<p class="ended-more">{resumeSessions.length-8} more in the sessions panel.</p>{/if}
             </div>
           {/if}

@@ -1,30 +1,34 @@
 <script lang="ts">
   import type { ChatState } from '../chat'
-  import { gafferProgress, type ChatProgressState } from '../gafferProgress'
+  import { chatLine, gafferProgress, type ChatProgressState } from '../gafferProgress'
   import type { ChatUsageView } from '../chatUsage'
   import type { PlanEntry } from '../agentAccounts'
   import PlanMeters from '../PlanMeters.svelte'
 
-  let { chat, dir = '', agent = 'Agent', usage = null, plan = [], planNow = Date.now(), replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null; plan?: PlanEntry[]; planNow?: number } = $props()
+  let { chat, dir = '', agent = 'Agent', usage = null, plan = [], planNow = Date.now(), replayed, ended, sessionFailed, reattaching, heldSince = 0 }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null; plan?: PlanEntry[]; planNow?: number; heldSince?: number } = $props()
   const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
   const attention = $derived(view.phase === 'approval' || view.phase === 'question')
   // The turn has ended: a spinner means the agent's turn, so held work gets the hollow ring instead.
   const held = $derived(view.phase === 'background')
   const problem = $derived(view.phase === 'error' || view.phase === 'reconnecting')
   const catchingUp = $derived(!ended && (chat.connection === 'connecting' || (!replayed && chat.connection !== 'reconnecting')))
-  const label = $derived(catchingUp ? `Catching up with ${agent}` : view.label)
+  // How long ago the held turn ended, read again each half minute so the minutes move without animating anything.
+  let clock = $state(Date.now())
+  $effect(() => { if (!held) return; const timer = setInterval(() => clock = Date.now(), 30_000); return () => clearInterval(timer) })
+  const stopped = $derived(chat.status.state === 'idle' && chat.status.code === 'unwatched')
+  const label = $derived(catchingUp ? `Catching up with ${agent}` : chatLine(view, heldSince || undefined, clock))
   const detail = $derived(catchingUp ? 'Loading conversation…' : view.target || (view.active && !held ? 'You can queue your next instruction.' : ''))
 </script>
 
-<div class="conversation-status" class:attention class:problem data-phase={view.phase} data-status={held ? 'working' : undefined} aria-label="Conversation status">
+<div class="conversation-status" class:attention class:problem class:held data-phase={view.phase} data-status={held ? 'working' : undefined} aria-label="Conversation status">
   <span class="indicator" class:spinning={(view.active && !held) || catchingUp} aria-hidden="true">
     {#if held && !catchingUp}<span class="status-ring"></span>
     {:else if view.active || catchingUp}<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="2" opacity=".18"/><path d="M10 3a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    {:else if attention || problem}!{:else if view.phase === 'idle'}✓{:else}<span class="dot"></span>{/if}
+    {:else if attention || problem}!{:else if view.phase === 'idle' && !stopped}✓{:else}<span class="dot"></span>{/if}
   </span>
   <strong class="label" role="status" aria-live="polite" aria-atomic="true">{label}</strong>
   {#if detail}<span class="detail" title={detail}>{detail}</span>{/if}
-  {#if !catchingUp && view.recent.length}
+  {#if !catchingUp && view.recent.length && !held}
     <span class="counts" aria-label={`${view.partial || problem ? 'Last known loaded' : 'This turn’s'} tool results`} title={view.partial ? 'Counts cover only the loaded part of this turn.' : problem ? 'Last known tool results; live progress may be unavailable.' : 'Reported tool results this turn.'}>
       {#if problem}Last seen: {/if}{view.completed} done{#if view.running && !problem && !held}{' · '}{view.running} active{/if}{#if view.failed}<span class="failed">{' · '}{view.failed} failed</span>{/if}
     </span>
@@ -62,7 +66,9 @@
   .usage.low .usage-meter > span { background: var(--warn); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @keyframes status-spin { to { transform: rotate(360deg); } }
-  @container chat-status (max-width: 620px) { .detail { display: none; } }
+  /* The detail gives way on a narrow line, except while work is held: then it is how the person knows they may type. */
+  @container chat-status (max-width: 620px) { .detail { display: none; } .held .detail { display: inline; flex: 1 1 auto; } }
+  .conversation-status.held { flex-wrap: wrap; }
   @container chat-status (max-width: 420px) { .usage-meter { display: none; } }
   /* On a desktop the floating Ask Gaffer circle sits over this line's right-hand end, above the composer. Keep the
      figures out from under it; the circle is not shown beside a docked details panel, on a phone or on a touch tablet. */

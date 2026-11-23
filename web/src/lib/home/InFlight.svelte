@@ -3,7 +3,7 @@
   import { toolName } from '../agentLaunch'
   import { sessionHref, type MachineHealth, type TerminalMachine } from '../terminal/api'
   import { GROUP_CHOICES, shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
-  import { heldWork, sessionStatus, statusLabel } from '../sessionStatus'
+  import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, statusLabel, stoppedWaiting } from '../sessionStatus'
   import SessionActions from '../sessions/SessionActions.svelte'
   import { FACTORY_SESSION_END_DEFAULT, factoryBadge, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   import SessionHoverCard from '../terminal/SessionHoverCard.svelte'
@@ -104,13 +104,13 @@
                 <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}
                   oncontextmenu={(event) => { hideCard(); void actions?.openMenu(event, s) }}
                   onkeydown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { hideCard(); void actions?.openMenu(event, s) } }}>
-                  {#if status === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
+                  {#if status === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                   <span class="main">
                     <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}{#if factory.get(s.id)}{' '}<span class="badge factory" title={`Part of a Factory pipeline: ${factory.get(s.id)!.pipeline}`}>{factoryBadge(factory.get(s.id)!)}</span>{/if}</span>
                     <span class="where">{owner?.name || hostOf(s.agentId)}<span class="mobile-age"> · {shortAge(Math.max(0, now - s.updatedAt))} ago</span></span>
                   </span>
                   <span class="state">
-                    <span class="word">{held ? statusLabel('working', true) : word.word}{status === 'finished' && s.changedSinceSeen ? ' · not seen yet' : ''}{lastKnown(s) ? ' · last known' : ''}</span>
+                    <span class="word">{held ? statusLabel('working', true) : word.word}{#if held}<span class="vh">. {HELD_SENTENCE}</span>{:else if stoppedWaiting(s)}<span class="vh">. {STOPPED_LINE}</span>{/if}{status === 'finished' && s.changedSinceSeen ? ' · not seen yet' : ''}{lastKnown(s) ? ' · last known' : ''}</span>
                     <span class="source">{word.source}</span>
                   </span>
                   <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>

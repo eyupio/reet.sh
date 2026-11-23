@@ -80,7 +80,7 @@ try {
     // …and the second is back in its code stage, which an earlier pass moved on from.
     Object.assign(outcomes[0].sessions[1],{stage:2,stages:line(2,true),note:'The code stage is under way.'})
     // The button pipeline's agent ended its turn with work still running.
-    Object.assign(outcomes[0].sessions[1].stages[2],{startedAt:now-30*60000,agentState:'background',agentActiveAt:now-20*60000})
+    Object.assign(outcomes[0].sessions[1].stages[2],{startedAt:now-30*60000,agentState:'background',agentActiveAt:now-20*60000,agentHeldSince:now-20*60000})
     const w=await openWorkspace(browser,{width,height:width<500?844:1100,theme,touch:width<1000,terminalMachines:machines,routes:routesFor(box)})
     watch(w,box)
     try {
@@ -373,14 +373,15 @@ try {
       expect(box.reviews).toEqual([{revision:6}])
       // The stage in hand's agent line names held work, and does not call it quiet.
       const held=reported.getByRole('region',{name:'Code stage',exact:true})
-      await expect(held).toContainText('Working in the background · last active 20 min ago')
+      await expect(held).toContainText(/Working in the background · stops waiting in (9|10) min/)
       if(process.env.REET_BACKGROUND_SHOTS){await mkdir(process.env.REET_BACKGROUND_SHOTS,{recursive:true});await held.screenshot({path:`${process.env.REET_BACKGROUND_SHOTS}/factory-stage-${theme}-${width}.png`})}
       // The person runs the line: they can move a pipeline on from the stage in hand without waiting for Gaffer…
       await bar.getByRole('button',{name:'Move to next stage',exact:true}).click()
       const move=page.getByRole('dialog',{name:/^Move “Export button” on to (review|test|pr)\?$/})
       await expect(move).toContainText('This is your call');await expect(move).toContainText('Nothing is merged by this.')
       // Its agent still has work running: the confirmation says moving on stops it.
-      await expect(move).toContainText('Its agent still has work running, and ending the stage stops it.')
+      // …and that is its first sentence, naming the agent and when its turn ended.
+      expect((await move.locator('p').first().textContent()).trim()).toMatch(/^Codex still has work running \(turn ended 2\d min ago\); moving on stops it\. This is your call/)
       if(process.env.REET_BACKGROUND_SHOTS){await mkdir(process.env.REET_BACKGROUND_SHOTS,{recursive:true});await move.screenshot({path:`${process.env.REET_BACKGROUND_SHOTS}/move-on-${theme}-${width}.png`})}
       // The move names the stage the person was shown, so a pipeline that left it meanwhile is not moved again.
       const seen=kinds[outcomes[0].sessions[1].stage]

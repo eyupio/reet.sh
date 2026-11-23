@@ -1,3 +1,4 @@
+import { STOPPED_LINE, turnEndedAgo } from './sessionStatus'
 import { isWorking, pendingPermissions, pendingQuestions, toolState, toolTarget, type ChatItem, type ChatState } from './chat'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
@@ -49,7 +50,8 @@ export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended
   const question = pendingQuestions(chat)[0]
   if (question) return result('question', 'Waiting for your answer', question.question.message)
   const held = chat.status.state === 'idle' ? chat.status.background ?? 0 : 0
-  if (held > 0) return result('background', `Turn ended · ${held} background ${held === 1 ? 'task' : 'tasks'} running`, '', true)
+  if (held > 0) return result('background', `${held} background ${held === 1 ? 'task' : 'tasks'} running`, 'You can send your next instruction.', true)
+  if (chat.status.state === 'idle' && chat.status.code === 'unwatched') return result('idle', 'Stopped waiting', STOPPED_LINE)
   if (!isWorking(chat)) return result('idle', start >= 0 ? 'Turn finished' : 'Ready for a job', 'Ready for your next instruction.')
   if (chat.status.state === 'starting') return result('starting', named('Getting {agent} ready', agent), '', true)
   if (chat.status.state === 'waiting') return result('waiting', named('Waiting for {agent}', agent), chat.status.detail || 'No new activity has been reported.')
@@ -99,3 +101,8 @@ export function observedTime(seconds: number): string {
 }
 
 export function recentToolState(tool: Tool): string { return toolState(tool.status).word }
+
+/** The chat's status line: a held turn says when it ended before the count of what still runs. */
+export function chatLine(view: Pick<GafferProgress, 'phase' | 'label'>, heldSince?: number, now = Date.now()): string {
+  return view.phase === 'background' ? `${turnEndedAgo(heldSince, now)} · ${view.label}` : view.label
+}

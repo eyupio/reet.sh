@@ -503,12 +503,15 @@ try {
  // chat's status line. Nothing calls the person until the work ends.
  if (run('a turn that left work running')) {
   const after = process.env.REET_BACKGROUND_SHOTS
-  const held = session('sb','a1','Run the test suite',MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_held00000000000000000001',projectId:'p1',attention:'working',attentionSource:'chat',chatStatus:'background',changedSinceSeen:true})
+  const held = session('sb','a1','Run the test suite',MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_held00000000000000000001',projectId:'p1',attention:'working',attentionSource:'chat',chatStatus:'background',heldSince:Date.now()-12*MIN,changedSinceSeen:true})
+  // A waiting row whose title is as long, to compare the room a phone leaves each title; and a chat reet stopped waiting on.
+  const asking = session('sq','a1','Run the test suitx',2*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'waiting',attentionSource:'chat',changedSinceSeen:true,bellAt:Date.now()-2*MIN})
+  const stopped = session('su','a1','Watch the deploy',4*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'finished',attentionSource:'chat',chatStatus:'unwatched',completedAt:Date.now()-4*MIN,changedSinceSeen:true})
   const events = [{seq:1,kind:'user',text:'run the whole suite'},{seq:2,kind:'tool',toolCallId:'c1',title:'npm test',toolKind:'execute',status:'in_progress'},{seq:3,kind:'status',state:'idle',background:1}]
   const sentence = 'Turn ended; work it started is still running.'
   for (const [width,height,theme,touch] of [[1280,900,'light',false],[390,844,'dark',true]]) {
    const phone = width <= 650
-   const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),{...session('sw','a1','Plain working chat',3*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'working',attentionSource:'chat'})},held],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
+   const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),{...session('sw','a1','Plain working chat',3*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'working',attentionSource:'chat'})},held,asking,stopped],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
    await page.goto(`${base}/sessions?view=list`)
    const row = rows(page).filter({hasText:'Run the test suite'})
    const plain = rows(page).filter({hasText:'Plain working chat'})
@@ -528,8 +531,23 @@ try {
    expect(box.h, `word on one line at ${width}px`).toBeLessThan(30)
    expect(box.cut, `word not cut at ${width}px`).toBe(false)
    const room = await row.evaluate(el => [el.querySelector('.title').clientWidth, el.querySelector('.title').scrollWidth, el.querySelector('.word').getBoundingClientRect().width])
-   // The title keeps most of its width beside the short word, so it stays readable on a phone.
+   // The title keeps most of its width beside the short word, so it stays readable on a phone, and no less than a
+   // "Waiting for you" row leaves its title of the same length.
    expect(room[0], `title readable at ${width}px (word ${room[2]} px)`).toBeGreaterThanOrEqual(0.8 * room[1])
+   const waitingTitle = await rows(page).filter({hasText:'Run the test suitx'}).locator('.title').evaluate(el => el.clientWidth)
+   expect(room[0], `a held row's title against a waiting row's at ${width}px`).toBeGreaterThanOrEqual(waitingTitle)
+   // A chat reet stopped waiting on: its own word, no settled tick, and the line that the work may still run.
+   const gaveUp = rows(page).filter({hasText:'Watch the deploy'})
+   await expect(gaveUp.locator('.word')).toContainText('Stopped waiting')
+   await expect(gaveUp.locator('.word')).toHaveAttribute('title','Work it started may still be running.')
+   await expect(gaveUp.locator('.status-tick')).toHaveCount(0)
+   if (after) { await mkdir(after,{recursive:true}); await gaveUp.evaluate(el => el.scrollIntoView({block:'center'})); await gaveUp.screenshot({path:`${after}/stopped-row-${theme}-${width}.png`}) }
+   // The bell says so too, not "Finished".
+   await page.getByRole('button',{name:/^Needs you: \d+$/}).click()
+   const bellItem = page.getByRole('region',{name:'Needs you',exact:true}).locator('li').filter({hasText:'Watch the deploy'})
+   await expect(bellItem.locator('.kind')).toContainText('Stopped waiting')
+   if (after) await bellItem.screenshot({path:`${after}/stopped-bell-${theme}-${width}.png`})
+   await page.keyboard.press('Escape')
    // The neighbouring rows keep the one-line word they have on main, "last known" included.
    const known = rows(page).filter({hasText:'Review code'}).locator('.word')
    await expect(known).toContainText('last known')
@@ -549,20 +567,22 @@ try {
    const flight = page.getByRole('region',{name:'Continue working',exact:true}).locator('li[data-status]').filter({hasText:'Run the test suite'})
    await expect(flight.locator('.status-ring')).toBeVisible()
    await expect(flight.locator('.dot')).toHaveCount(0)
-   await expect(flight.locator('.word')).toHaveText('In background')
+   await expect(flight.locator('.word')).toContainText('In background')
+   await expect(flight.locator('.word .vh')).toHaveText(`. ${sentence}`)
    if (after) await flight.locator('xpath=ancestor::div[contains(@class,"group")][1]').screenshot({path:`${after}/home-${theme}-${width}.png`})
    await page.goto(`${base}/sessions?agent=a1&session=sb`)
    await page.waitForFunction(() => window.__chatStream)
    await page.evaluate(events => window.__chatStream.start(...events), events)
    const status = page.locator('.conversation-status')
-   await expect(status.locator('.label')).toHaveText('Turn ended · 1 background task running')
+   await expect(status.locator('.label')).toHaveText('Turn ended 12 min ago · 1 background task running')
    await expect(status).toHaveAttribute('data-phase','background')
    // The ring, not the turn's spinner.
    await expect(status.locator('.indicator .status-ring')).toBeVisible()
    await expect(status.locator('.indicator.spinning')).toHaveCount(0)
-   // The label and the ring say it once: no second sentence, and no "1 active" beside "1 background task running".
-   await expect(status.locator('.detail')).toHaveCount(0)
-   await expect(status.locator('.counts')).not.toContainText('active')
+   // The line says the person may type, at every width, and no step counter can be read as background tasks done.
+   await expect(status.locator('.detail')).toBeVisible()
+   await expect(status.locator('.detail')).toHaveText('You can send your next instruction.')
+   await expect(status.locator('.counts')).toHaveCount(0)
    await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0)
    expect(await noSideScroll(page), `no sideways scroll at ${width}px`).toBe(true)
    if (after) await status.screenshot({path:`${after}/chat-${theme}-${width}.png`})
@@ -588,11 +608,22 @@ try {
    if (await now.count() && await now.first().isVisible()) {
     await expect(now.first()).toHaveText('Working in the background')
     await expect(now.first()).toHaveAttribute('data-held','')
+    await expect(page.getByRole('complementary',{name:'Session context'})).toContainText('Turn ended 12 min ago; work still running.')
+    // Gaffer's card leads with the count, and does not cut it.
+    const cardTitle = page.getByRole('complementary',{name:'Session context'}).locator('.gaffer-progress strong').first()
+    await expect(cardTitle).toHaveText('1 background task running')
+    expect(await cardTitle.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'the card title is not cut').toBe(true)
     if (after) await page.getByRole('complementary',{name:'Session context'}).screenshot({path:`${after}/overview-${theme}-${width}.png`})
     if (after) await page.getByRole('complementary',{name:'Session context'}).locator('.gaffer-progress').first().screenshot({path:`${after}/gaffer-card-${theme}-${width}.png`})
    } else expect(phone, 'the Overview shows on a desktop').toBe(true)
    await page.evaluate(() => { window.__chatStream.emit('chat',{seq:4,kind:'tool',toolCallId:'c1',status:'completed'}); window.__chatStream.emit('chat',{seq:5,kind:'status',state:'idle'}) })
    await expect(status.locator('.label')).toHaveText('Turn finished')
+   // Had reet stopped waiting instead, the line says so, with no settled tick.
+   await page.evaluate(() => { window.__chatStream.emit('chat',{seq:6,kind:'user',text:'again'}); window.__chatStream.emit('chat',{seq:7,kind:'status',state:'idle',code:'unwatched'}) })
+   await expect(status.locator('.label')).toHaveText('Stopped waiting')
+   await expect(status.locator('.detail')).toHaveText('Work it started may still be running.')
+   await expect(status.locator('.indicator')).not.toContainText('✓')
+   if (after) await status.screenshot({path:`${after}/stopped-chat-${theme}-${width}.png`})
    expect(errors).toEqual([])
    await context.close()
   }

@@ -61,3 +61,17 @@ test('a chat whose turn ended with work still running keeps the working colour, 
   assert.equal(statusLabel('working'), 'Working')
   assert.equal(statusLabel('waiting', true), 'Waiting')
 })
+
+test('reet stopping waiting reads as its own outcome, with how long ago the turn ended and when the wait stops', () => {
+  const { stoppedWaiting, turnEndedAgo, stopsWaitingIn } = await_module
+  assert.equal(stoppedWaiting(session({ attention: 'finished', attentionSource: 'chat', chatStatus: 'unwatched' })), true)
+  assert.equal(stoppedWaiting(session({ attention: 'quiet', attentionSource: 'chat', chatStatus: 'unwatched' })), true)
+  assert.equal(stoppedWaiting(session({ attention: 'finished', attentionSource: 'chat', chatStatus: 'finished' })), false)
+  assert.equal(statusLabel('finished', false, true), 'Stopped waiting')
+  const now = 10_000_000
+  assert.equal(turnEndedAgo(now - 12 * 60_000, now), 'Turn ended 12 min ago')
+  assert.equal(turnEndedAgo(now - 59_000, now), 'Turn ended just now')
+  assert.equal(turnEndedAgo(undefined, now), 'Turn ended')
+  assert.equal(stopsWaitingIn(now - 20 * 60_000, now), 'stops waiting in 10 min')
+  assert.equal(stopsWaitingIn(now - 29.5 * 60_000, now), 'stops waiting soon')
+})

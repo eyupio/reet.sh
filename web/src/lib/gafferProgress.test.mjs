@@ -8,8 +8,8 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const source = compile('./gafferProgress.ts').replace("from './chat'", `from '${asURL(compile('./chat.ts'))}'`)
-const { gafferProgress, gafferQuote, observedTime } = await import(asURL(source))
+const source = compile('./gafferProgress.ts').replace("from './chat'", `from '${asURL(compile('./chat.ts'))}'`).replace("from './sessionStatus'", `from '${asURL(compile('./sessionStatus.ts'))}'`)
+const { gafferProgress, gafferQuote, observedTime, chatLine } = await import(asURL(source))
 const summarySource = compile('./gafferSummary.ts').replace("from './chat'", `from '${asURL(compile('./chat.ts'))}'`)
 const { gafferSummary } = await import(asURL(summarySource))
 const state = (...events) => events.reduce((chat, event, i) => applyChatEvent(chat, { seq: i + 1, ...event }), { ...initialChat(), connection: 'open' })
@@ -306,11 +306,16 @@ test('a turn that ended with work still running says so and keeps the spinner', 
   chat = applyChatEvent(chat, { seq: 3, kind: 'status', state: 'idle', background: 1 })
   let view = gafferProgress(chat)
   assert.equal(view.phase, 'background')
-  assert.equal(view.label, 'Turn ended · 1 background task running')
+  // The count leads, so a narrow title never cuts it; the chat line adds when the turn ended.
+  assert.equal(view.label, '1 background task running')
+  assert.equal(view.target, 'You can send your next instruction.')
+  assert.equal(chatLine(view), 'Turn ended · 1 background task running')
+  assert.equal(chatLine(view, 1_000_000 - 12 * 60_000, 1_000_000), 'Turn ended 12 min ago · 1 background task running')
+  assert.equal(chatLine(view, 1_000_000 - 20_000, 1_000_000), 'Turn ended just now · 1 background task running')
   assert.equal(view.active, true)
   assert.equal(chat.items.find(item => item.toolCallId === 'c1').status, 'in_progress', 'a held tool is not marked stopped')
   chat = applyChatEvent(chat, { seq: 4, kind: 'status', state: 'idle', background: 3 })
-  assert.equal(gafferProgress(chat).label, 'Turn ended · 3 background tasks running')
+  assert.equal(gafferProgress(chat).label, '3 background tasks running')
   chat = applyChatEvent(chat, { seq: 5, kind: 'tool', toolCallId: 'c1', status: 'completed' })
   chat = applyChatEvent(chat, { seq: 6, kind: 'status', state: 'idle' })
   view = gafferProgress(chat)
@@ -327,4 +332,14 @@ test('a turn that ended with work still running does not count that work as stop
   // Once the turn is not holding work, an unfinished call is a stopped one again.
   const ended = state(prompt, tool('run', 'in_progress', { toolKind: 'execute' }), { kind: 'status', state: 'cancelled' })
   assert.equal(gafferSummary(ended).stopped, 1)
+})
+
+test('a turn reet stopped waiting on says so, not that it finished', () => {
+  let chat = { ...initialChat(), connection: 'open' }
+  chat = applyChatEvent(chat, { seq: 1, kind: 'user', text: 'run the tests' })
+  chat = applyChatEvent(chat, { seq: 2, kind: 'status', state: 'idle', code: 'unwatched' })
+  const view = gafferProgress(chat)
+  assert.equal(view.label, 'Stopped waiting')
+  assert.equal(view.target, 'Work it started may still be running.')
+  assert.equal(chatLine(view), 'Stopped waiting')
 })

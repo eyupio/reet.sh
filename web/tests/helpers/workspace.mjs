@@ -71,6 +71,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})
   // A chat whose agent has reported no usage: the status line then shows nothing. A test that wants figures answers the route itself.
   if(/^\/api\/v2\/terminal\/sessions\/[^/]+\/chat\/usage$/.test(path))return json({reported:false,inputTokens:0,outputTokens:0,cachedTokens:0,contextUsed:0,contextSize:0,updatedAt:0})
+  // The agent's slash commands: none announced unless a test answers the route itself.
+  if(/^\/api\/v2\/terminal\/sessions\/[^/]+\/chat\/commands$/.test(path))return json({commands:[]})
   if(path==='/api/v2/session-backlog')return json({drafts:[]})
   // The Usage page's read: nothing counted yet, and no agents listed. A test that wants figures answers the route itself.
   if(path==='/api/v2/skill-buddy/recommendations')return json({skills:[],stage:'',editable:true,scope:'fixture'})

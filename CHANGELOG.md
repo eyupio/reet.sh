@@ -9,6 +9,11 @@ this file existed releases were described on their GitHub release pages.
   browser tab, leaving the desk you are on where it is; the desk already in this window is switched off. The same item
   is on each desk card's menu on the Desks list. Reet keeps one desk to a window, so each tab keeps its own address and
   its own chosen desk tab, and both come back as they were after a reload. Nothing new is stored.
+- **An agent's slash commands in Chat**: when an agent announces its commands, the Skills sheet in Chat
+  lists them first as "Commands from {agent}", each with its argument and description; picking one adds it to
+  your message and sends nothing. If you type a `/name` the agent did not list, a line under the message says it may
+  only work in the agent's terminal, with the way there; the message still sends, and the line then says it went as
+  text. Needs a machine and a controller on this version; an older machine shows a line asking to update reet on it.
 - **A turn that ends with work still running no longer reads as finished**: when an agent ends its turn while a
   subagent or background command it started is still open, the session says "In background" (in Chat: when the turn
   ended, how many tasks are running, and that you can send your next instruction) instead of "Finished", and it does

@@ -25,6 +25,36 @@ registry, so it is not attempted. Templates are left out, as in the switcher.
 **Tests.** `web/tests/desks.e2e.mjs` covers the item in both menus, the keyboard path, the disabled current desk, the
 link's address and new-tab attributes, and a real second window that opens the desk and keeps it across a reload.
 `npm run check`, `npm run build`, `desks.e2e.mjs` and `desks-phone.e2e.mjs` pass.
+## CHAT-COMMANDS-1: an agent's slash commands in Chat (23 November 2026)
+
+The second "Agent behaviour" item of the roadmap's reliability workstream.
+
+**Path.** ACP's `available_commands_update` used to be dropped. The connector now keeps the last announced list on the
+chat session, in memory only (`internal/acpagent`); an empty or malformed announcement clears it. It is carried by a new
+negotiated feature, `acp-commands-v1`, and a control action `"commands"` (`internal/terminalproto/acp_commands.go`),
+kept out of the regular controls poll. `GET /api/v2/terminal/sessions/{id}/chat/commands` answers
+`{"commands":[{name,description,hint}]}`; a machine without the feature answers 200 with an empty list, `code`
+`chat_commands_unsupported` and a sentence. Nothing is stored: agents announce again on load.
+
+**Limits on the agent's text.** At most 64 commands; names 1 to 64 characters of `[A-Za-z0-9:_-]`, first of two equal
+names wins; description 300 bytes, hint 120; the encoded list fits 48 KiB. An invalid entry is dropped, not the list.
+The connector trims and the decoder validates again. The web client drops control characters and the rows isolate
+text direction; nothing is rendered as HTML.
+
+**Web.** `web/src/lib/terminal/skills.ts` holds the rules (`groupCommands`, `withoutAnnounced`, `unknownCommand`,
+`unlistedLine`, `nameClosed`); `SkillPicker.svelte` shows the group first, also while skills load or fail, and a skill
+that is also a command appears once. `ChatPane.svelte` reads the list when the chat opens, when the sheet opens and
+before judging a `/` message. The unlisted-command line shows while typing (after the name is closed by a space, or
+600 ms) and after sending says "Sent to …" or "Queued for … as text"; it never blocks Send. The way to the terminal
+is one decision, `terminalWay` in `sessions.ts`: open the native view, "Restart in terminal…", or no control with the
+header switch's reason.
+
+**Not done, and not known.**
+- Nothing was run against a real agent: which commands each agent announces, and when, is not known. The rule assumes
+  that a command an agent did not announce may need its terminal; reet has no list of terminal-only commands.
+- Matching is case-sensitive, so `/Review` warns when `/review` was announced.
+- Commands can be inserted only while the agent is idle, as with skills.
+- At small heights the queue card still clips its Remove button, as before; the new line adds height there.
 
 ## HELD-WORK-1: a turn that ends with work still running is not a finish (23 November 2026)
 

@@ -113,3 +113,34 @@ func TestProviderRequiresTheNegotiatedCapability(t *testing.T) {
 		})
 	}
 }
+
+// The commands control reaches only a machine that negotiated acp-commands-v1;
+// an older one is refused here with a plain sentence, and nothing is sent.
+func TestCommandsRequireTheNegotiatedCapability(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "commands"}[supported], func(t *testing.T) {
+			asked := 0
+			b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls, c.ACPCommands = true, supported }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+				if c, ok := m.Body.(*terminalproto.ACPControl); ok && c.Action == "commands" {
+					asked++
+					return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}, Commands: []terminalproto.ACPCommand{{Name: "review", Description: "Review changes"}}}, true
+				}
+				return nil, true
+			})
+			s := chatSession(t, b, uid, agent)
+			answer, err := b.ChatControl(t.Context(), uid, s.ID, terminalproto.ACPControl{Action: "commands"})
+			if !supported {
+				if !errors.Is(err, ErrChatCommandsUnsupported) || asked != 0 {
+					t.Fatalf("a machine without acp-commands-v1 was asked: %v %d", err, asked)
+				}
+				return
+			}
+			if err != nil || len(answer.Commands) != 1 || answer.Commands[0].Name != "review" {
+				t.Fatalf("commands = %+v %v", answer, err)
+			}
+			if _, err := b.ChatControl(t.Context(), uid+1, s.ID, terminalproto.ACPControl{Action: "commands"}); err == nil {
+				t.Fatal("another account read the commands")
+			}
+		})
+	}
+}

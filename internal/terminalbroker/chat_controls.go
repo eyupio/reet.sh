@@ -8,6 +8,8 @@ import (
 
 var ErrLiveControlsUnsupported = errors.New("Update reet on this machine to use live chat controls.")
 
+var ErrChatCommandsUnsupported = errors.New("Update reet on this machine to see the agent's commands.")
+
 // ChatControl uses session runtime capabilities, never static option guesses.
 // Uncertain steering results are returned unchanged for queue reconciliation.
 func (b *Broker) ChatControl(ctx context.Context, uid int64, session string, in terminalproto.ACPControl) (terminalproto.ACPControlResult, error) {
@@ -27,6 +29,9 @@ func (b *Broker) ChatControl(ctx context.Context, uid int64, session string, in 
 	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
 	if err != nil || caps.Generation != p.Generation {
 		return terminalproto.ACPControlResult{}, ErrOffline
+	}
+	if in.Action == "commands" && !caps.Capabilities.ACPCommands {
+		return terminalproto.ACPControlResult{}, ErrChatCommandsUnsupported
 	}
 	if _, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !caps.Capabilities.ACPLiveControls {
 		return terminalproto.ACPControlResult{}, ErrLiveControlsUnsupported

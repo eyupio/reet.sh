@@ -8,6 +8,8 @@ export const DEVELOPER_URL = 'https://eyup.io'
 /** Where the code and its documentation live. Public pages link to them so help and the licence are one click away. */
 export const REPO_URL = 'https://github.com/eyupio/reet.sh'
 export const DOCS_URL = `https://reet.sh/documentation/`
+/** The quick start's guide to the first session. */
+export const FIRST_SESSION_DOC_URL = `https://reet.sh/quick-start/#your-first-session`
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
 /** Which agents reet can read a plan for, and how. */
 export const AGENT_ACCOUNTS_DOC_URL = `${REPO_URL}/blob/main/docs/agent-accounts.md`

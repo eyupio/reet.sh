@@ -1,5 +1,36 @@
 # Reet central-control implementation handoff
 
+## FIRST-USEFUL-RUN-5: a guided first session on Home (22 November 2026)
+
+Stage 5 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). Web UI and docs only; no Go, no API.
+
+**What it is.** `web/src/lib/home/FirstRun.svelte` (pure logic in `home/firstRun.ts`) shows **Your first session** on
+Home once a machine is connected and every session so far is one the guide started. It lists the agents that run as a
+chat on that machine (`structuredAgent`), each with its sign-in line from `launchReadiness`, the same sentences as the
+Factory plan step; a model line shows only when the list could not be read. A ready agent that needs no folder trust
+is preselected; one that needs it names the folder in its tick box. Agents that only run in a terminal get one line
+pointing at **Start an agent session**. One read-only question is started through `createTerminal`, without YOLO, in a
+chosen project folder or the home folder, with a reused request id so asking twice starts one session.
+
+**States.** Asking (with a slower-than-usual line after a minute), answered ("It was asked to change nothing and ran
+without YOLO": what is known, not a claim that nothing changed), ended before an answer (with the exit code when it is
+not zero and the other agent offered), signed out (the machine's sign-ins are read again every 15 s only while one is
+missing; **Open terminal** is the main action), no agent installed, no chat agent, machine not ready. **Not now** and
+**Done** are remembered per person in the browser; after **Not now** a **Show the first-session guide** link stays on
+Home. While the guide shows, the workbench's **Start an agent session** is drawn plain so there is one filled button.
+
+**Design passes.** Audit 16/20, then distill, polish and a critique (26/40) whose findings are what the last round
+fixed: only chat agents are offered, the success line says only what is known, every stuck state has a way to act.
+
+**Known gaps.**
+- The answer's text is not shown in the guide; it links to the session. An answer can take up to 15 s to register.
+- A reply is read from session state; nothing ran against a real agent.
+- The help link's address (`FIRST_SESSION_DOC_URL`) is derived from the docs site's address and was not loaded.
+- **Open terminal** in the signed-out state starts a session, after which the guide no longer shows.
+- The guide speaks plainly, not in the brand's voice.
+
+**Tests.** `home/firstRun.test.mjs`; `web/tests/first-session.e2e.mjs` covers every state at desktop and phone widths.
+
 ## FACTORY-LAUNCH-READINESS-3: launch readiness before approval, and a usage limit explained (22 November 2026)
 
 Stage 3 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). It is in the web UI only: no Go, no

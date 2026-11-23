@@ -118,6 +118,8 @@
         <SkillInstallPanel skill={keeping} host={data?.host ?? ''} agentId={data?.agentId ?? ''} onclose={closedKeep} />
       {:else}
       <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label={filterWords} placeholder={filterWords} autocomplete="off" spellcheck="false" />
+      {#if commandGroup}<p class="note">Adds it to your message. Nothing is sent.</p>{/if}
+      {#if commandsNote}<p class="note" role="status">{commandsNote}</p>{/if}
       <!-- The agent's own commands do not wait on the skills read, so they stay when it is slow or fails. -->
       <div class="all" bind:this={list}>
       {#if commandGroup}
@@ -183,7 +185,6 @@
           <p class="seen">{seenLine(data.machineSeen, data.host, now)}</p>
         {/if}
       {/if}
-      {#if commandsNote}<p class="note" role="status">{commandsNote}</p>{/if}
       </div>
       {/if}
     </div>

@@ -115,14 +115,14 @@ try {
  machine.capabilities.nativeView = true
  const sentTexts = []
  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith(`${root}/queue`)) sentTexts.push(request.postDataJSON().text) })
- const skillsButton = page.locator('.composer').getByRole('button', { name: 'Skills', exact: true })
+ const skillsButton = page.locator('.composer').getByRole('button', { name: /^(Skills|Commands and skills)$/ })
  const picker = page.getByRole('dialog', { name: /^(Skills|Commands and skills)$/ })
  const unlisted = page.locator('.notice.unlisted')
  // A lone `/word` opens the Skills sheet as the person types; Escape puts it away before Send, as a person would.
  async function sendDraft(composer, text) {
   await composer.fill(text)
   if (await picker.isVisible()) await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: /^(Send|Queue)$/ }).click()
  }
  async function openIdle(width, theme) {
   await page.setViewportSize({ width, height: 900 })
@@ -140,8 +140,16 @@ try {
   commandsAnswer = { commands: announced }; skillsAnswer = { ...skillsAnswer, skills: skillRows }
   await openIdle(width, theme)
   const composer = page.getByRole('textbox', { name: 'Message OpenCode', exact: true })
+  // The button that opens the sheet carries the sheet's name, and the composer still fits.
+  await expect(skillsButton).toHaveText('+ Commands and skills')
+  await expect(skillsButton).toHaveAccessibleName('Commands and skills')
+  const tools = await page.locator('.composer-tools').boundingBox()
+  expect(tools.x + tools.width).toBeLessThanOrEqual(width)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  if (width < 500) await page.locator('.composer-bar').screenshot({ path: `${shots ?? '/tmp'}/composer-button-${label}.png` }).catch(() => {})
   await skillsButton.click()
   await expect(picker.getByText('Commands from OpenCode', { exact: true })).toBeVisible()
+  await expect(picker.getByText('Adds it to your message. Nothing is sent.')).toBeVisible()
   const options = picker.getByRole('option')
   // The commands group comes first; a skill invoked the same way is shown once, in the commands group.
   await expect(options.first()).toContainText('/review')
@@ -175,13 +183,42 @@ try {
   const status = page.locator('[data-unlisted-status]')
   await expect(status).toHaveCount(1)
   await expect(status).toHaveText('')
+  // Typing: the line shows once the name is followed by a space, sends nothing, never blocks Send, and goes with the match.
+  const typingLine = 'OpenCode did not list /compact for Chat. It may only work in its terminal.'
+  const sentBefore = sentTexts.length
+  await composer.fill('/compact now')
+  await expect(unlisted).toContainText(typingLine)
+  await expect(status).toHaveText(typingLine)
+  await expect(page.getByRole('button', { name: /^(Send|Queue)$/ })).toBeEnabled()
+  expect(sentTexts.length).toBe(sentBefore)
+  await shot(`typing-${label}`)
+  await composer.fill('/review now')
+  await expect(unlisted).toHaveCount(0)
+  // A half-typed name opens the sheet, and no line shows while it is open; after Escape and a short pause it does.
+  await composer.fill('/comp')
+  await expect(picker).toBeVisible()
+  await page.waitForTimeout(900)
+  await expect(unlisted).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(unlisted).toContainText('did not list /comp for Chat')
+  await composer.fill('')
+  await expect(unlisted).toHaveCount(0)
   // A command the agent did not list is still sent, with one line beside the composer that goes on the next edit.
   await sendDraft(composer, '/compact the thread')
   await expect.poll(() => sentTexts.at(-1)).toBe('/compact the thread')
-  await expect(unlisted).toHaveText(/OpenCode did not list \/compact for Chat\. It may only work in its terminal\./)
+  const sentLine = 'Sent to OpenCode as text. It did not list /compact for Chat; to run it as a command, use its terminal.'
+  await expect(unlisted).toContainText(sentLine)
   await expect(unlisted.getByRole('button', { name: 'Open terminal', exact: true })).toBeVisible()
-  await expect(status).toHaveText('OpenCode did not list /compact for Chat. It may only work in its terminal.')
+  await expect(status).toHaveText(sentLine)
   await shot(`unlisted-${label}`)
+  await composer.fill('x')
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 2, kind: 'status', state: 'working' }))
+  await sendDraft(composer, '/compact now')
+  await expect(unlisted).toContainText('Queued for OpenCode as text. It did not list /compact for Chat; to run it as a command, use its terminal.')
+  await shot(`queued-${label}`)
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 3, kind: 'status', state: 'idle' }))
+  await sendDraft(composer, '/compact the thread')
+  await expect(unlisted).toContainText(sentLine)
   // A short phone with the warning up: the line, the message box and Send can all be reached by scrolling.
   if (width < 500) {
    await page.setViewportSize({ width: 390, height: 560 })
@@ -277,6 +314,10 @@ try {
   await skillsButton.click()
   await expect(picker.getByText('Reading skills…')).toBeVisible()
   await expect(picker.getByText('Update reet on this machine to see the agent’s commands.')).toBeVisible()
+  const noteBox = await picker.getByText('Update reet on this machine to see the agent’s commands.').boundingBox()
+  const filterBox = await picker.getByRole('searchbox').boundingBox(), readingBox = await picker.getByText('Reading skills…').boundingBox()
+  expect(noteBox.y).toBeGreaterThan(filterBox.y + filterBox.height - 1)
+  expect(noteBox.y).toBeLessThan(readingBox.y)
   await shot(`commands-old-machine-loading-${label}`)
   hold(); skillsGate = Promise.resolve()
   await page.keyboard.press('Escape')
@@ -301,12 +342,20 @@ try {
   await page.evaluate(() => { document.documentElement.style.fontSize = '' })
   await page.keyboard.press('Escape')
   commandsAnswer = { commands: announced }
-  // No shared terminal view: the header switch's own reason shows instead of nothing.
+  // No shared terminal view and no restart path: no control, and the sentence ends with the header's reason.
   machine.capabilities.nativeView = false; nativeOn = false
   await openIdle(width, theme)
-  await sendDraft(composer, '/compact')
-  await unlisted.getByRole('button', { name: 'Open terminal', exact: true }).click()
-  await expect(page.getByText(/no shared native terminal/).first()).toBeVisible()
+  await sendDraft(composer, '/compact now')
+  await expect(unlisted).toContainText('use its terminal. This running agent has no shared native terminal.')
+  await expect(unlisted.getByRole('button')).toHaveCount(0)
+  // A restart path: the control says so and opens the header's confirm.
+  machine.capabilities.sessionMode = true; machine.capabilities.acpHistory = true; session.acpSessionId = 'ses_fixture00000000000000001'
+  await openIdle(width, theme)
+  await sendDraft(composer, '/compact now')
+  await unlisted.getByRole('button', { name: 'Restart in terminal…', exact: true }).click()
+  await expect(page.getByRole('alertdialog', { name: /^Switch to the/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  delete machine.capabilities.sessionMode; delete machine.capabilities.acpHistory; delete session.acpSessionId
   machine.capabilities.nativeView = true; nativeOn = true
  }
  expect(errors).toEqual([])

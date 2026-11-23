@@ -36,7 +36,7 @@ import { chatControls, chatSetting, chatEnqueue, chatUsage, type ChatControls } 
 import { chatUsageView, type ChatUsage } from '../chatUsage'
 import { planEntries, type MachineAccounts } from '../agentAccounts'
 import { machinePlans, PLAN_REFRESH } from '../planLimits'
-import { applyInvocation, slashQuery, unknownCommand, type ChatCommand, type SessionSkill, type SessionSkills } from './skills'
+import { applyInvocation, slashQuery, unknownCommand, nameClosed, unlistedLine, type ChatCommand, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES } from './upload'
@@ -45,7 +45,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  import { loadModels, pollPlans } from './chatLoaders'
  import { PHONE_SCREEN } from './sizing'
 
- let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, terminal, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -54,6 +54,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   onnewchat?: (opener: HTMLElement) => void
   /** Opens this session's terminal, the way the session header does; the unlisted-command line offers it. */
   onterminal?: () => void
+  /** How this session reaches its terminal (the header's decision): the native view, a restart, or nothing with the reason. */
+  terminal?: { way: 'open' | 'restart' | 'none'; reason: string }
   /** True while the workspace cannot start another session (no ready machine, or the account is at its limit). */
   newChatOff?: boolean
   /** Loads this exact conversation through the workspace's existing continuation operation. */
@@ -254,9 +256,29 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   try { const answer = await chatCommands(session.id, life.signal); if (!life.signal.aborted) { commands = answer.commands; commandsNote = answer.unsupported } }
   catch { if (!life.signal.aborted) { commands = []; commandsNote = '' } }
  }
- // Set after a send whose first word the agent did not list; cleared by the next send or any edit of the draft.
- let unlisted = $state(''), noteSeq = 0 // noteSeq moves on every send and edit, so a late answer never lands under a later message
- const unlistedSentence = $derived(`${toolName} did not list /${unlisted} for Chat. It may only work in its terminal.`)
+ // The button and the sheet it opens share one name: the agent's commands are in it when it announced any.
+ const sheetName = $derived(commands.length ? 'Commands and skills' : 'Skills')
+ // The skills the person could mean by a slash word, read once for the unlisted-command line (the sheet reads its own).
+ let knownSkills = $state<SessionSkill[] | null>(null), knownRead: Promise<void> | undefined
+ function ensureSkills(): Promise<void> {
+  knownRead ??= getSessionSkills(session.id, AbortSignal.timeout(5000)).then(data => { knownSkills = data.skills }, () => { knownSkills = [] })
+  return knownRead
+ }
+ // The line about a slash command the agent did not list. Typed: once the name is followed by a space, or after a pause, and
+ // never while the sheet is open. Sent: what became of the message. noteSeq moves on every send and edit, so a late answer
+ // never lands under a later message.
+ let typingName = $state(''), sentNote = $state<{ name: string; kind: 'sent' | 'queued' } | null>(null), noteSeq = 0
+ const unlistedText = $derived(sentNote ? unlistedLine(toolName, sentNote.name, sentNote.kind) : typingName ? unlistedLine(toolName, typingName, 'typing') : '')
+ const unlisted = $derived(unlistedText ? unlistedText + (terminal?.way === 'none' && terminal.reason ? ` ${terminal.reason}` : '') : '')
+ $effect(() => {
+  const text = draft, open = skillsOpen, skills = knownSkills, known = commands
+  const name = open ? null : unknownCommand(text, known, skills ?? [])
+  if (!name) { typingName = ''; return }
+  if (!skills) { void ensureSkills(); return }
+  if (nameClosed(text)) { typingName = name; return }
+  const timer = setTimeout(() => { typingName = name }, 600)
+  return () => clearTimeout(timer)
+ })
  async function loadSkills() {
   skillsLife?.abort()
   const life = skillsLife = new AbortController()
@@ -325,7 +347,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   const input = event.currentTarget as HTMLTextAreaElement
   const value = input.value
   const query = slashQuery(value)
-  unlisted = ''; noteSeq++
+  sentNote = null; noteSeq++
   if (query !== null) {
    promptMenu = null
    if (!slashDismissed) openSkills(query)
@@ -490,27 +512,26 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
-  unlisted = ''
+  sentNote = null
   const seq = ++noteSeq
-  if (!liveControls && (working || queued.length)) { queueCurrent(text); return }
+  const kind = working || queued.length ? 'queued' : 'sent'
+  if (!liveControls && (working || queued.length)) { queueCurrent(text); void noteUnlisted(text, seq, kind); return }
   const sendingImages = images.slice()
   const ok = await deliver(text, sendingImages)
   if (!ok) return
   const sent = new Set(sendingImages.map(image => image.id))
   held.keep(sendingImages)
   draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true
-  void noteUnlisted(text, seq)
+  void noteUnlisted(text, seq, kind)
   await scrollToEnd()
  }
- /** A sent message that starts with a command the agent did not list: say so, once the skills are known. It never blocks. */
- async function noteUnlisted(text: string, seq: number) {
+ /** A sent message that starts with a command the agent did not list: say what became of it, once the skills are known. It never blocks. */
+ async function noteUnlisted(text: string, seq: number, kind: 'sent' | 'queued') {
   if (!text.startsWith('/')) return
   // The agent may have announced since the last read, so read again before deciding.
-  await loadCommands()
-  if (seq !== noteSeq || !unknownCommand(text, commands, skillData?.skills ?? [])) return
-  let skills = skillData?.skills
-  if (!skills) { try { skills = (await getSessionSkills(session.id, AbortSignal.timeout(5000))).skills } catch { skills = [] } }
-  if (seq === noteSeq) unlisted = unknownCommand(text, commands, skills) ?? ''
+  await Promise.all([loadCommands(), ensureSkills()])
+  const name = seq === noteSeq ? unknownCommand(text, commands, knownSkills ?? []) : null
+  if (name) sentNote = { name, kind }
  }
  /** Put what is in the composer at the end of the queue, pictures and all. */
  function queueCurrent(text: string) {
@@ -1038,9 +1059,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
     </ul>
    {/if}
    {#if dictating || dictationProblemText}<p class="notice" class:bad={!dictating} role="status">{#if dictating}{dictationInterim ? `${dictationInterim}…` : 'Listening.'} Your browser sends the audio to its own speech service, not to reet.{:else}{dictationProblemText}{/if}</p>{/if}
-   <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
-   <p class="vh" role="status" data-unlisted-status>{unlisted ? unlistedSentence : ''}</p>
-   {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlistedSentence}</span>{#if onterminal} <button type="button" class="link" onclick={onterminal}>Open terminal</button>{/if}</p>{/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
@@ -1051,10 +1069,13 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
      <button type="button" class="btn primary send" disabled={reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
+   <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
+   <p class="vh" role="status" data-unlisted-status>{unlisted}</p>
+   {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlisted}</span>{#if onterminal && terminal && terminal.way !== 'none'} <button type="button" class="link" onclick={onterminal}>{terminal.way === 'restart' ? 'Restart in terminal…' : 'Open terminal'}</button>{/if}</p>{/if}
    <div class="composer-bar">
     <div class="composer-tools">
      <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title="Insert one of your saved prompts · or type \ in the message" disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
-     <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
+     <button type="button" class="skills-btn" aria-label={sheetName} aria-haspopup="dialog" title={skillsOff || (commands.length ? 'Insert a command or skill into your message' : 'Insert a skill into your message')} disabled={!!skillsOff} onclick={() => openSkills()}>+ {sheetName}</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
      <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>

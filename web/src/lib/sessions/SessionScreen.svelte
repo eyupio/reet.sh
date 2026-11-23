@@ -11,7 +11,7 @@
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, switchModeState, switchWhy, worktreeTargetOf } from '../sessions'
+  import { headerMeta, offlineSentence, switchModeState, switchWhy, terminalWay, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
@@ -295,11 +295,13 @@
     const record = JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))
     try { localStorage.setItem(contextKey, record); localStorage.setItem('reet.workspace.context', record) } catch { /* optional browser preference */ }
   }
-  // Chat's "Open terminal": the header switch's own click, so a session with no shared native view asks to restart in the terminal the same way.
+  // How Chat reaches its terminal: the header's own decision, which Chat's link reads and uses.
+  const terminalHow = $derived(terminalWay({ available: nativeAvailable, pending: nativePending, reason: nativeReason }, switchState, chatView))
+  export function getTerminalWay() { return terminalHow }
   export function showTerminal() {
-    if (nativeAvailable) onview?.('terminal')
-    else if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null)
-    else notice = { text: nativePending ? 'Checking this running agent’s terminal support…' : nativeReason || 'This session has no shared native terminal.' }
+    if (terminalHow.way === 'open') onview?.('terminal')
+    else if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null)
+    else notice = { text: terminalHow.reason }
   }
   // The workspace toolbar calls this through its bound component instance.
   export function toggleContext() {
@@ -424,7 +426,7 @@
       </div>
       <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
-        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
+        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}
         {#if (terminalShowing || focusOn) && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
         <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}

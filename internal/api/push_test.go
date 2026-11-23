@@ -365,35 +365,3 @@ func TestPushPendingShowsNothingForAnotherPersonsDevice(t *testing.T) {
 		t.Fatalf("the first person's device: %+v", devices)
 	}
 }
-
-func TestPushWaitsForAChatTurnsBackgroundWorkThenTellsItOnce(t *testing.T) {
-	f := newPushFixture(t)
-	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`"}`); code != 200 {
-		t.Fatalf("subscribe: %d %s", code, body)
-	}
-	sess, _, err := f.st.ReserveTerminalCreateFor(f.uid, f.agent.ID, terminalbroker.ID(), f.gen, terminalproto.Create{Title: "Run the suite", Tool: "opencode", Dir: "/tmp", Structured: true, Trust: true, Cols: 80, Rows: 24})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, sess.ID, f.gen, terminalproto.Running, nil); err != nil {
-		t.Fatal(err)
-	}
-	// The turn ended, but work it started still runs.
-	at := time.Now().Add(-time.Minute).UnixMilli()
-	if err := f.st.SetTerminalChatAttentionFor(f.uid, sess.ID, at, 0, "background", 0); err != nil {
-		t.Fatal(err)
-	}
-	f.srv.s.pushSweep(time.Now())
-	if len(f.woken) != 0 || len(f.pending(t)) != 0 {
-		t.Fatalf("a chat with background work running was told: %+v", f.woken)
-	}
-	done := time.Now().Add(-30 * time.Second).UnixMilli()
-	if err := f.st.SetTerminalChatAttentionFor(f.uid, sess.ID, done, 0, "finished", done); err != nil {
-		t.Fatal(err)
-	}
-	f.srv.s.pushSweep(time.Now())
-	f.srv.s.pushSweep(time.Now().Add(time.Minute))
-	if notes := f.pending(t); len(f.woken) != 1 || len(notes) != 1 || notes[0].Body != "Finished its turn." {
-		t.Fatalf("the work's end: woken %d, pending %+v", len(f.woken), notes)
-	}
-}

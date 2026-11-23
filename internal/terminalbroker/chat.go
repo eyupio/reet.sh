@@ -154,6 +154,10 @@ type chatLog struct {
 	updatedAt   int64
 	completedAt int64
 	lastState   string
+	// backgroundAt is when the chat began holding work its ended turn left
+	// running; heldTimer ends that hold at the limit if no word comes.
+	backgroundAt int64
+	heldTimer    *time.Timer
 	// trims counts ring evictions since the last persisted transcript trim.
 	trims int
 	// writes buffers transcript rows for one batched commit; writeTimer bounds
@@ -239,9 +243,13 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			l.questions = nil
 			l.waitingAt = 0
 			active := l.lastState == "working" || l.lastState == "waiting" || l.lastState == "background"
-			if event.Background > 0 {
+			if event.Background > 0 && (wasRunning || active) {
 				// The turn is over but work it started still runs: not finished,
-				// so no bell, card or push until that work ends.
+				// so no bell, card or push until that work ends. A stopped or
+				// failed turn is never reopened by such a count.
+				if l.lastState != "background" {
+					l.backgroundAt = nowMs
+				}
 				l.lastState = "background"
 				l.completedAt = 0
 			} else if wasRunning || active {
@@ -744,6 +752,13 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 		return nil
 	}
 	l := b.chatLog(uid, s.ID)
+	restoredHold := false
+	defer func() {
+		// The broker's own bound, which also ends a hold restored past it.
+		if restoredHold {
+			b.holdBackground(uid, s.ID, l)
+		}
+	}()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.seq == 0 {
@@ -770,12 +785,8 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 		} else if s.ChatStatus == "background" {
 			l.updatedAt = s.ActivityAt
 			l.lastState = "background"
-			if time.Since(time.UnixMilli(s.ActivityAt)) >= terminalproto.BackgroundHoldLimit {
-				// The machine stops waiting at the limit too; a restart that
-				// missed its word must not hold the chat any longer.
-				l.lastState = "finished"
-				l.completedAt = s.ActivityAt
-			}
+			l.backgroundAt = s.ActivityAt
+			restoredHold = true
 		} else if s.ChatStatus == "working" {
 			l.lastState = "working"
 			l.running = true
@@ -828,12 +839,58 @@ func (b *Broker) restoreAgentChats(uid int64, agent string) {
 	}
 }
 
+// backgroundHold is the broker's own bound on a held chat. A variable so tests can shorten it.
+var backgroundHold = terminalproto.BackgroundHoldLimit
+
+// holdBackground ends a held chat at the limit even when no word comes from
+// the machine: a lost connection must not leave it working in the background
+// for good. A hold already past the limit ends now, and is stored.
+func (b *Broker) holdBackground(uid int64, session string, l *chatLog) {
+	l.mu.Lock()
+	if l.lastState != "background" || l.heldTimer != nil {
+		l.mu.Unlock()
+		return
+	}
+	at := l.backgroundAt
+	wait := time.Until(time.UnixMilli(at).Add(backgroundHold))
+	l.heldTimer = time.AfterFunc(max(0, wait), func() {
+		l.mu.Lock()
+		l.heldTimer = nil
+		expired := l.lastState == "background" && l.backgroundAt == at
+		if expired {
+			l.lastState = "finished"
+			l.completedAt = time.UnixMilli(at).Add(backgroundHold).UnixMilli()
+		}
+		l.mu.Unlock()
+		if expired {
+			b.saveChatAttention(uid, session, l)
+		} else {
+			// A later hold began while this one waited.
+			b.holdBackground(uid, session, l)
+		}
+	})
+	l.mu.Unlock()
+}
+
+// saveChatAttention stores what the chat log says about the chat's attention.
+func (b *Broker) saveChatAttention(uid int64, session string, l *chatLog) {
+	if b.st == nil {
+		return
+	}
+	l.mu.Lock()
+	actAt, waitAt := l.updatedAt, l.waitingAt
+	st, compAt := l.lastState, l.completedAt
+	l.mu.Unlock()
+	_ = b.st.SetTerminalChatAttentionFor(uid, session, actAt, waitAt, st, compAt)
+}
+
 func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPEvent) {
 	b.mu.Lock()
 	l := b.chats[chatKey{uid, session}]
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
+		b.holdBackground(uid, session, l)
 		attentionKind := event.Kind == "status" || event.Kind == "permission" ||
 			event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" ||
 			event.Kind == "question" || event.Kind == "question_resolved" ||

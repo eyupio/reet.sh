@@ -80,6 +80,8 @@ type GafferOutcomeStage struct {
 	// reported doing and when it was last active. Live only, never saved.
 	AgentState    string `json:"agentState,omitempty"`
 	AgentActiveAt int64  `json:"agentActiveAt,omitempty"`
+	// AgentHeldSince is when that session began holding work its ended turn left running.
+	AgentHeldSince int64 `json:"agentHeldSince,omitempty"`
 	// SentBack is why the person sent the pipeline back to this stage, told
 	// to the agent that does it again.
 	SentBack       string `json:"sentBack,omitempty"`

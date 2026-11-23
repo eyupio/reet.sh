@@ -25,7 +25,7 @@
   const hasQuestion = $derived(!!card.question || card.reasons.includes('question'))
   const hasApproval = $derived(!!card.approval || card.reasons.includes('approval'))
   const asking = $derived(!!card.question && !card.approval)
-  const chip = $derived(goal ? 'Gaffer' : card.kind === 'failed' ? 'Failed' : card.kind === 'review' ? 'To review' : card.kind === 'finished' ? 'Finished' : hasApproval ? 'Approval' : hasQuestion ? 'Question' : 'Waiting')
+  const chip = $derived(goal ? 'Gaffer' : card.kind === 'failed' ? 'Failed' : card.kind === 'review' ? 'To review' : card.kind === 'finished' ? 'Finished' : card.kind === 'stopped' ? 'Stopped waiting' : hasApproval ? 'Approval' : hasQuestion ? 'Question' : 'Waiting')
   // Only the kinds that ask something of the person use the accent tone.
   const tone = $derived(card.kind === 'failed' ? 'bad' : goal || hasApproval || hasQuestion ? 'you' : 'plain')
 

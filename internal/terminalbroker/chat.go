@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -154,6 +155,13 @@ type chatLog struct {
 	updatedAt   int64
 	completedAt int64
 	lastState   string
+	// backgroundAt is when the chat began holding work its ended turn left
+	// running; heldTimer ends that hold at the limit if no word comes.
+	backgroundAt int64
+	heldTimer    *time.Timer
+	// gaveUp is set when reet stopped waiting for some held work: the hold then
+	// ends as "unwatched", never as finished, since that work may still run.
+	gaveUp bool
 	// trims counts ring evictions since the last persisted transcript trim.
 	trims int
 	// writes buffers transcript rows for one batched commit; writeTimer bounds
@@ -213,6 +221,7 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		l.completedAt = 0
 		l.running = true
 		l.lastState = "working"
+		l.gaveUp = false
 	case "status":
 		switch event.State {
 		case "starting":
@@ -238,13 +247,30 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			l.queue = nil
 			l.questions = nil
 			l.waitingAt = 0
-			active := l.lastState == "working" || l.lastState == "waiting"
-			if wasRunning || active {
+			active := l.lastState == "working" || l.lastState == "waiting" || l.lastState == "background"
+			if event.Code == terminalproto.ACPCodeUnwatched && (wasRunning || active) {
+				l.gaveUp = true
+			}
+			if event.Background > 0 && (wasRunning || active) {
+				// The turn is over but work it started still runs: not finished,
+				// so no bell, card or push until that work ends. A stopped or
+				// failed turn is never reopened by such a count.
+				if l.lastState != "background" {
+					l.backgroundAt = nowMs
+				}
+				l.lastState = "background"
+				l.completedAt = 0
+			} else if wasRunning || active {
 				l.lastState = "finished"
+				if l.gaveUp {
+					// reet stopped waiting for work it was never told had ended.
+					l.lastState = "unwatched"
+				}
+				l.gaveUp = false
 				if l.completedAt == 0 {
 					l.completedAt = nowMs
 				}
-			} else if l.lastState == "finished" {
+			} else if l.lastState == "finished" || l.lastState == "unwatched" {
 				// preserve existing completion
 			} else if l.lastState == "" || l.lastState == "starting" {
 				l.lastState = "quiet"
@@ -570,6 +596,14 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 		}
 		return
 	}
+	if l.lastState == "background" && s.State == terminalproto.Running {
+		s.Attention = "working"
+		s.ChatStatus, s.HeldSince = "background", l.backgroundAt
+		if l.updatedAt > s.ActivityAt {
+			s.ActivityAt = l.updatedAt
+		}
+		return
+	}
 	if l.lastState == "failed" {
 		s.Attention = "failed"
 		at := l.completedAt
@@ -580,7 +614,9 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 		s.ChangedSinceSeen = at > s.SeenAt
 		return
 	}
-	if l.lastState == "finished" {
+	if l.lastState == "finished" || l.lastState == "unwatched" {
+		// Stopped waiting reads as a finish that needs a look; its chat status says which.
+		s.ChatStatus = l.lastState
 		at := l.completedAt
 		if at == 0 {
 			at = s.UpdatedAt
@@ -668,6 +704,10 @@ func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, 
 func (l *chatLog) close() {
 	l.mu.Lock()
 	l.closing = true
+	if l.heldTimer != nil {
+		l.heldTimer.Stop()
+		l.heldTimer = nil
+	}
 	batch, trimSeq := l.takeWritesLocked()
 	for id, ch := range l.subs {
 		delete(l.subs, id)
@@ -732,6 +772,13 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 		return nil
 	}
 	l := b.chatLog(uid, s.ID)
+	restoredHold := false
+	defer func() {
+		// The broker's own bound, which also ends a hold restored past it.
+		if restoredHold {
+			b.holdBackground(uid, s.ID, l)
+		}
+	}()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.seq == 0 {
@@ -745,8 +792,8 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 			if s.BellAt > l.updatedAt {
 				l.updatedAt = s.BellAt
 			}
-		} else if s.ChatStatus == "finished" {
-			l.lastState = "finished"
+		} else if s.ChatStatus == "finished" || s.ChatStatus == "unwatched" {
+			l.lastState = s.ChatStatus
 			l.completedAt = s.CompletedAt
 			l.updatedAt = s.CompletedAt
 			l.running = false
@@ -755,6 +802,14 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 			l.completedAt = s.CompletedAt
 			l.updatedAt = s.CompletedAt
 			l.running = false
+		} else if s.ChatStatus == "background" {
+			l.updatedAt = s.ActivityAt
+			l.lastState = "background"
+			l.backgroundAt = s.HeldSince
+			if l.backgroundAt == 0 {
+				l.backgroundAt = s.ActivityAt
+			}
+			restoredHold = true
 		} else if s.ChatStatus == "working" {
 			l.lastState = "working"
 			l.running = true
@@ -782,7 +837,7 @@ func (b *Broker) restoreSwitchedChat(uid int64, s store.TerminalSession) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	emptyRing := l.seq == 0 && l.lastState == ""
-	finished := s.ChatStatus == "finished" || s.ChatStatus == "failed"
+	finished := s.ChatStatus == "finished" || s.ChatStatus == "failed" || s.ChatStatus == "unwatched"
 	if emptyRing && finished {
 		l.lastState = s.ChatStatus
 		l.completedAt = s.CompletedAt
@@ -807,22 +862,109 @@ func (b *Broker) restoreAgentChats(uid int64, agent string) {
 	}
 }
 
+// backgroundHold is the broker's own bound on a held chat. A variable so tests can shorten it.
+var backgroundHold = terminalproto.BackgroundHoldLimit
+
+// holdBackground ends a held chat at the limit even when no word comes from
+// the machine: a lost connection must not leave it working in the background
+// for good. A hold already past the limit ends now, and is stored.
+func (b *Broker) holdBackground(uid int64, session string, l *chatLog) {
+	l.mu.Lock()
+	if l.lastState != "background" || l.heldTimer != nil {
+		l.mu.Unlock()
+		return
+	}
+	at := l.backgroundAt
+	wait := time.Until(time.UnixMilli(at).Add(backgroundHold))
+	l.heldTimer = time.AfterFunc(max(0, wait), func() {
+		l.mu.Lock()
+		l.heldTimer = nil
+		if l.closing {
+			// A closed log was replaced or ended; its state is no longer the chat's.
+			l.mu.Unlock()
+			return
+		}
+		expired := l.lastState == "background" && l.backgroundAt == at
+		if expired {
+			// The hold ended when the bound passed, which a restart may only notice later.
+			l.completedAt = time.UnixMilli(at).Add(backgroundHold).UnixMilli()
+		}
+		l.mu.Unlock()
+		if expired {
+			// The machine said nothing, so the transcript says why the chat stopped waiting, and
+			// ends on a status that says so: the open chat and a replay read it, not only the list.
+			if row, err := b.st.TerminalSessionFor(uid, session); err == nil {
+				l.publish(terminalproto.ACPEvent{Kind: "notice", Text: unwatchedNotice(terminalproto.ToolName(row.Tool), b.machineName(uid, row.AgentID))})
+			}
+			l.publish(terminalproto.ACPEvent{Kind: "status", State: "idle", Code: terminalproto.ACPCodeUnwatched})
+			b.saveChatAttention(uid, session, l)
+		} else {
+			// A later hold began while this one waited.
+			b.holdBackground(uid, session, l)
+		}
+	})
+	l.mu.Unlock()
+}
+
+// saveChatAttention stores what the chat log says about the chat's attention.
+// A closed log is no longer the chat's, so it stores nothing.
+func (b *Broker) saveChatAttention(uid int64, session string, l *chatLog) {
+	if b.st == nil {
+		return
+	}
+	l.mu.Lock()
+	if l.closing {
+		l.mu.Unlock()
+		return
+	}
+	actAt, waitAt := l.updatedAt, l.waitingAt
+	st, compAt, held := l.lastState, l.completedAt, l.heldSinceLocked()
+	l.mu.Unlock()
+	_ = b.st.SetTerminalChatStateFor(uid, session, actAt, waitAt, st, compAt, held)
+}
+
+// heldSinceLocked is when the chat began holding work, while it holds any.
+func (l *chatLog) heldSinceLocked() int64 {
+	if l.lastState == "background" {
+		return l.backgroundAt
+	}
+	return 0
+}
+
+// machineName is how the person knows the machine a session runs on.
+func (b *Broker) machineName(uid int64, agentID string) string {
+	if agents, err := b.st.SyncAgentsFor(uid); err == nil {
+		for _, a := range agents {
+			if a.ID == agentID && a.Host != "" {
+				return a.Host
+			}
+		}
+	}
+	return "its machine"
+}
+
+// unwatchedNotice is the controller's word when its own bound ends a hold the machine never ended.
+func unwatchedNotice(agent, machine string) string {
+	if agent == "" {
+		agent = "The agent"
+	}
+	after := strconv.Itoa(int(terminalproto.BackgroundHoldLimit/time.Minute)) + " minutes"
+	return agent + " never said whether its background work finished, and its machine went quiet. After " + after + " reet stopped waiting; it may still be running on " + machine + "."
+}
+
 func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPEvent) {
 	b.mu.Lock()
 	l := b.chats[chatKey{uid, session}]
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
+		b.holdBackground(uid, session, l)
 		attentionKind := event.Kind == "status" || event.Kind == "permission" ||
 			event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" ||
 			event.Kind == "question" || event.Kind == "question_resolved" ||
 			event.Kind == "question_cancelled" || event.Kind == "user"
 		if b.st != nil && attentionKind {
-			l.mu.Lock()
-			actAt, waitAt := l.updatedAt, l.waitingAt
-			st, compAt := l.lastState, l.completedAt
-			l.mu.Unlock()
-			_ = b.st.SetTerminalChatAttentionFor(uid, session, actAt, waitAt, st, compAt)
+			b.saveChatAttention(uid, session, l)
 		}
 	}
 	resolved := event.Kind == "permission_resolved" && event.Allow != nil

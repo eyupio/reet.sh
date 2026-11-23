@@ -35,7 +35,7 @@ export function gafferGesture(phase: GafferPhase): GafferReaction {
     case 'planning': return 'ponder'
     case 'reading': case 'searching': case 'fetching': return 'scan'
     case 'editing': return 'scribble'
-    case 'running': case 'connecting': case 'reconnecting': return 'watch'
+    case 'running': case 'background': case 'connecting': case 'reconnecting': return 'watch'
     case 'approval': case 'question': return 'listen'
     case 'error': case 'cancelled': return 'shake'
     case 'ended': case 'idle': return 'tip-cap'

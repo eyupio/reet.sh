@@ -414,6 +414,7 @@ func (s *server) routes() http.Handler {
 	s.registerProfileRoutes(mux)
 	s.registerGafferRoutes(mux)
 	s.registerGafferOutcomeRoutes(mux)
+	s.registerGafferTemplateRoutes(mux)
 	s.registerGafferToolRoutes(mux)
 	s.registerGafferChatRoutes(mux)
 	s.registerModelFavouriteRoutes(mux)

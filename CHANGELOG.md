@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A first session, guided**: after your first machine connects, Home offers **Your first session**. It lists the
+  agents on that machine that run as a chat, each with its sign-in in the same words the Factory uses, and offers one
+  read-only question to ask, without YOLO. It waits for the answer and links to it. An agent that is signed out is
+  shown as waiting, not as an error, with a terminal on that machine one press away; the guide looks again by itself.
+  Factory, Sessions and starting a session stay where they were. **Not now** puts the guide away, and **Show the
+  first-session guide** brings it back until you have had a first answer. The quick start describes it, with the
+  steps for using reet on your phone.
 - **Launch readiness before you approve a Factory plan**: each stage of the plan, and each part of a split stage, is
   now one line saying the agent, model and effort it will run on and where its agent came from (your saved crew, your
   choice here, or the outcome's agent because no crew is saved or the saved agent is not on the machine). Its backups

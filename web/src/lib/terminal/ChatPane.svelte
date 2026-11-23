@@ -43,7 +43,6 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  import { createChatStream } from './chatStream'
  import { admitImages, createEchoes, createExpiry, createPictureHold, createQueueDrain, echoOf, imagesRefusal, MAX_CHAT_BYTES, messageProblem, previewsFor, QUEUE_NOTES, removePicture, revokePictures, shownAttachments, uploadPictures, type Picture } from './chatAttachments'
  import { loadModels, pollPlans } from './chatLoaders'
- import { PHONE_SCREEN } from './sizing'
 
  let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, terminal, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
@@ -137,8 +136,6 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  }
  let modelMachine = $state<MachineModels | null>(null), modelNote = $state('')
  let modelOpen = $state(false), modelButton = $state<HTMLButtonElement>(), touchModels = $state(false)
-// Skills take the whole screen above the composer on a phone, so they start collapsed there.
-let phone = $state(matchMedia(PHONE_SCREEN).matches)
  let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
  let defaultSource = $state(''), sourceBusy = $state(false)
  const currentSource = $derived(liveProvider?.current ?? '')
@@ -739,12 +736,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
 
  onMount(() => {
   touchModels = matchMedia('(pointer: coarse)').matches
-  const phoneQuery = matchMedia(PHONE_SCREEN), syncPhone = () => { phone = phoneQuery.matches }
-  phoneQuery.addEventListener('change', syncPhone)
   const stream = createChatStream({ url: chatURL(session.id), chat: () => chat, setChat: next => { chat = next }, setReplayed: value => { replayed = value }, changed: () => { void scrollToEnd() } })
   stream.start()
   void loadCommands()
-  return () => { phoneQuery.removeEventListener('change', syncPhone); skillsLife?.abort(); commandsLife?.abort(); stream.stop() }
+  return () => { skillsLife?.abort(); commandsLife?.abort(); stream.stop() }
  })
  onDestroy(() => { awaiting.clear(); held.releaseAll(images, queued) })
 </script>
@@ -1013,7 +1008,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
-  <div class="skill-buddy-slot"><SkillBuddy compact={phone} context={{sessionId: session.id, task: draft}} disabled={ended || sending || uploading} oninsert={text => {
+  <div class="skill-buddy-slot"><SkillBuddy compact context={{sessionId: session.id, task: draft}} disabled={ended || sending || uploading} oninsert={text => {
     const next = insertSkillPrompt(draft, text)
     if (new TextEncoder().encode(next.text).length > MAX_CHAT_BYTES) return false
     draft = next.text; void tick().then(() => composerInput?.focus()); return true

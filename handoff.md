@@ -1,5 +1,27 @@
 # Reet central-control implementation handoff
 
+## SKILL-BUDDY-FOLD-2: skill suggestions stay folded in Chat (23 November 2026)
+
+Follow-up to **PHONE-SKILL-BUDDY-1**: the folded header was still a card above the composer, kept **Pause** beside it,
+and a desktop opened the panel in full.
+
+**What changed.** `web/src/lib/terminal/ChatPane.svelte` passes `compact` to `SkillBuddy` on every screen and no longer
+tracks `PHONE_SCREEN`. `web/src/lib/SkillBuddy.svelte` gains a folded state: no card, no second row, a 14px muted
+label, the first suggestion's name, and **See skills** beside it. **Pause** and the generic "Suggested from the task
+and stage" line appear only when the panel is open or paused. The folded strip keeps the 14px floor that
+`web/src/lib/typeScale.test.mjs` enforces.
+
+**Unchanged.** A Factory stage's per-stage suggestions in `PipelineDetail.svelte` stay open; the native terminal's
+**Suggested skills** dialog is unchanged; **See skills** gives the same panel as before.
+
+**Tests.** `web/tests/calm-session.e2e.mjs`, `web/tests/chat.e2e.mjs` (which already covered the folded phone strip),
+`web/tests/skill-buddy.e2e.mjs`, `npm test`, `npx svelte-check` and `npm run build` pass; screenshots at 1440 and 390
+in both themes show the one-line strip.
+
+**Docs.** `docs/skill-buddy.md` and `CHANGELOG.md` say the panel folds in Chat.
+
+**PR.** Opened against `main` from `reet/fold-skill-suggestions`.
+
 ## DESK-OWN-TAB-1: a desk opens in a tab of its own (23 November 2026)
 
 A small desktop-only affordance, no data-model or autosave change. Reet has no app-level tab that can hold a desk: the

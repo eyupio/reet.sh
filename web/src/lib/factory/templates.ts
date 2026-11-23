@@ -42,18 +42,42 @@ export function diffLines(diff: TemplateDiff): { general: string[]; pipelines: {
   return { general, pipelines }
 }
 
-/** What a refusal of a template write means for the person; where the server's own sentence says it best, that is kept. */
-export function conflictWords(code: string, said: string): string {
-  if (code === 'template_changed') return 'Someone, or another tab, saved a newer version of this template. It has been read again, so look at it and try again.'
+/** What a refusal of a template write means for the person; where the server's own sentence says it best, that is kept.
+ *  `latest` is the version read again after a template_changed refusal, so the words can say which one was saved elsewhere. */
+export function conflictWords(code: string, said: string, latest = 0, deleting = false): string {
+  if (code === 'template_changed') {
+    if (!latest) return 'Another tab or session saved a newer version of this template. Nothing was changed. Try again.'
+    return deleting ? `Version ${latest} was saved elsewhere, so nothing was deleted. Delete again if you still want to.` : `Version ${latest} was saved elsewhere. This now saves as version ${latest + 1}.`
+  }
   if (code === 'template_request_reused') return 'That request was already used for something else. Try again.'
   return said
+}
+
+/** What a template's pipeline does at the end: the setting it was saved with. */
+export const mergeWords = (autoMerge: boolean): string => (autoMerge ? 'Merges by itself once checks pass.' : 'Stops at Ready to merge.')
+/** The review limits every session of a run from the template gets. */
+export const limitsWords = (c: { maxReviews: number; hours: number }): string => `Up to ${c.maxReviews} ${c.maxReviews === 1 ? 'review' : 'reviews'} and ${c.hours} ${c.hours === 1 ? 'hour' : 'hours'} for each session.`
+/** The merge part of a start's access paragraph: which of the template's pipelines merge by themselves. */
+export function mergeAccessWords(auto: string[], total: number, yoloHolds: boolean): string {
+  if (!auto.length) return 'Gaffer cannot merge, run commands or answer approvals. Every pipeline stops at Ready to merge and waits for you.'
+  const who = auto.length === total ? `${total === 1 ? 'This pipeline merges' : 'Every pipeline merges'} by itself once checks pass.` : `${auto.map(quoted).join(', ')} ${auto.length === 1 ? 'merges' : 'merge'} by itself once checks pass. The others stop at Ready to merge and wait for you.`
+  return `Gaffer cannot run commands or answer approvals. ${who}${yoloHolds ? ' On YOLO they still stop at Ready to merge until you confirm on the Factory page that they may merge by itself.' : ''}`
+}
+
+/** Whether the server would save this outcome as a template: it has started, and every pipeline finished, or had its delivery accepted and did not then fail. */
+export function canSaveAsTemplate(o: { state: string; sessions: { state: string; stages?: unknown[]; deliveryAccepted?: boolean }[] }): boolean {
+  return o.state !== 'starting' && o.sessions.length > 0 && o.sessions.every(p => {
+    const ended = p.state === 'failed' || p.state === 'unfollowed' || p.state === 'cancelled'
+    return (p.stages?.length ?? 0) > 0 && (p.state === 'done' || (!!p.deliveryAccepted && !ended))
+  })
 }
 
 export const usedWords = (lastUsed: number | undefined, at: number | undefined, when: (at: number) => string): string =>
   !lastUsed ? 'Not used yet' : at ? `Last used ${when(at)} (version ${lastUsed})` : `Last used at version ${lastUsed}`
 
-/** The heading of the changes shown before a start, and a note when the version last used is no longer kept. */
-export function changesWords(diff: Pick<TemplateDiff, 'from' | 'olderNotShown'>, lastUsed: number | undefined): { title: string; note: string } {
+/** The heading of the changes shown before a start: since the version last used, or how an older one differs from it. A note when the version last used is no longer kept. */
+export function changesWords(diff: Pick<TemplateDiff, 'from' | 'to' | 'olderNotShown'>, lastUsed: number | undefined): { title: string; note: string } {
+  if (diff.to < diff.from) return { title: `Differs from version ${diff.from}, the one you last used`, note: '' }
   if (!diff.olderNotShown) return { title: `Changed since version ${diff.from}, the one you last used`, note: '' }
   return { title: `Changed since version ${diff.from}, the oldest kept`, note: `Version ${lastUsed}, the one you last used, is no longer kept, so changes before version ${diff.from} are not shown.` }
 }

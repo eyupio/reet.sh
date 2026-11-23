@@ -54,9 +54,34 @@ test('a difference reads as plain lines, and a pipeline that is the same says no
   assert.deepEqual(lines.pipelines[1].lines, ['Added.'])
 })
 
-test('a changed template is said in the person’s words, other refusals in the server’s', () => {
-  assert.match(t.conflictWords('template_changed', 'x'), /another tab/)
+test('a changed template says which version was saved elsewhere and which this saves, other refusals in the server’s words', () => {
+  assert.equal(t.conflictWords('template_changed', 'x', 4), 'Version 4 was saved elsewhere. This now saves as version 5.')
+  assert.equal(t.conflictWords('template_changed', 'x', 4, true), 'Version 4 was saved elsewhere, so nothing was deleted. Delete again if you still want to.')
+  assert.match(t.conflictWords('template_changed', 'x'), /another tab/i)
   assert.equal(t.conflictWords('template_limit', 'You already have 20 templates.'), 'You already have 20 templates.')
+})
+
+test('what a template does at the end, and for how long, is said plainly', () => {
+  assert.equal(t.mergeWords(true), 'Merges by itself once checks pass.')
+  assert.equal(t.mergeWords(false), 'Stops at Ready to merge.')
+  assert.equal(t.limitsWords({ maxReviews: 8, hours: 24 }), 'Up to 8 reviews and 24 hours for each session.')
+  assert.equal(t.limitsWords({ maxReviews: 1, hours: 1 }), 'Up to 1 review and 1 hour for each session.')
+})
+
+test('the access paragraph says which pipelines merge by themselves', () => {
+  assert.match(t.mergeAccessWords([], 2, false), /^Gaffer cannot merge, run commands or answer approvals\. Every pipeline stops at Ready to merge/)
+  assert.equal(t.mergeAccessWords(['Export API'], 2, false), 'Gaffer cannot run commands or answer approvals. “Export API” merges by itself once checks pass. The others stop at Ready to merge and wait for you.')
+  assert.match(t.mergeAccessWords(['A', 'B'], 2, true), /^Gaffer cannot run commands or answer approvals\. Every pipeline merges by itself once checks pass\. On YOLO they still stop/)
+})
+
+test('an outcome is offered as a template only where the server would keep it', () => {
+  const done = { state: 'done', stages: [{}] }
+  assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [done, { state: 'delivery_review', stages: [{}], deliveryAccepted: true }] }), true)
+  assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [done, { state: 'failed', stages: [{}], deliveryAccepted: true }] }), false)
+  assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [done, { state: 'following', stages: [{}] }] }), false)
+  assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [{ state: 'done' }] }), false)
+  assert.equal(t.canSaveAsTemplate({ state: 'starting', sessions: [done] }), false)
+  assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [] }), false)
 })
 
 test('pipelines put in another order say so', () => {
@@ -66,6 +91,7 @@ test('pipelines put in another order say so', () => {
 
 test('changes are titled from the version last used, or the oldest kept when that one is gone', () => {
   assert.deepEqual(t.changesWords({ from: 2, to: 3, olderNotShown: false }, 2), { title: 'Changed since version 2, the one you last used', note: '' })
+  assert.deepEqual(t.changesWords({ from: 2, to: 1, olderNotShown: false }, 2), { title: 'Differs from version 2, the one you last used', note: '' })
   assert.deepEqual(t.changesWords({ from: 4, to: 23, olderNotShown: true }, 1), { title: 'Changed since version 4, the oldest kept', note: 'Version 1, the one you last used, is no longer kept, so changes before version 4 are not shown.' })
 })
 

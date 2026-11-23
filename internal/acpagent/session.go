@@ -179,9 +179,10 @@ type Session struct {
 	// turn's own tools.
 	held      map[string]heldTool
 	heldTimer *time.Timer
-	// statusMu orders status events: a held count reported between turns
-	// must not land after a new turn's working status, nor after a stop or
-	// failure. lastStatus and reported are what the controller last heard.
+	// statusMu orders a held count reported between turns before the next
+	// turn's working status. It is not held for other statuses, so a Stop is
+	// never kept waiting behind a slow delivery. lastStatus and reported are
+	// what the controller last heard.
 	statusMu   sync.Mutex
 	lastStatus string
 	reported   int
@@ -538,14 +539,16 @@ func (s *Session) ImagesSupported() bool {
 var cancelGrace = 30 * time.Second
 
 func (s *Session) emit(event Event) {
-	if event.Kind == "status" {
+	if event.Kind == "status" && event.State == "working" {
+		// A held count reported between turns must reach the controller before
+		// the next turn's working status, never after it.
 		s.statusMu.Lock()
 		defer s.statusMu.Unlock()
 	}
 	s.emitLocked(event)
 }
 
-// emitLocked sends an event; a status event's caller holds statusMu.
+// emitLocked sends an event; a working status's caller, and reportHeld, hold statusMu.
 func (s *Session) emitLocked(event Event) {
 	s.mu.Lock()
 	now := time.Now()

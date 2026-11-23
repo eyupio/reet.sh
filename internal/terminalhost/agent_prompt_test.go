@@ -362,7 +362,8 @@ func TestQuestionFingerprint(t *testing.T) {
 		t.Fatalf("no fingerprint: %+v", base)
 	}
 	padded := strings.ReplaceAll(claudeCommandPrompt, "\n", "   \n")
-	cursor := claudeCommandPrompt + "█\n"
+	// A cursor blinking in the agent's output above the dialog.
+	cursor := strings.Replace(claudeCommandPrompt, "tests now.", "tests now.█", 1)
 	moved := strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  2. Yes", "❯ 2. Yes", 1)
 	for name, screen := range map[string]string{"trailing spaces": padded, "a cursor blink": cursor, "the selection moved": moved} {
 		if q := questionOnScreen("claude", "%3", screen); q == nil || q.Fingerprint != base.Fingerprint {
@@ -376,6 +377,13 @@ func TestQuestionFingerprint(t *testing.T) {
 	option := strings.Replace(claudeCommandPrompt, "go test commands", "go vet commands", 1)
 	if q := questionOnScreen("claude", "%3", option); q == nil || q.Fingerprint == base.Fingerprint {
 		t.Errorf("another option kept the fingerprint: %+v", q)
+	}
+	// A status line ticking above the dialog is not part of it.
+	tick := func(n string) string {
+		return "✻ Working… (" + n + "s · esc to interrupt)\n" + claudeCommandPrompt
+	}
+	if a, b := questionOnScreen("claude", "%3", tick("12")), questionOnScreen("claude", "%3", tick("13")); a == nil || b == nil || a.Fingerprint != b.Fingerprint || a.Fingerprint != base.Fingerprint {
+		t.Errorf("a ticking line above the dialog changed the fingerprint: %+v %+v", a, b)
 	}
 	// The same question about another command is another question.
 	command := strings.Replace(claudeCommandPrompt, "go test ./...", "rm -rf ~/   ", 1)
@@ -403,5 +411,67 @@ func TestAnswerKeys(t *testing.T) {
 	}
 	if _, ok := answerKeys(q, 4); ok {
 		t.Error("keys for an option the question does not have")
+	}
+}
+
+// printedDialog is a dialog's words printed by a command, as tool output,
+// with Claude's own input box under it: the agent is not asking anything.
+const printedDialog = `
+● Here are the notes:
+  Do you want to proceed?
+  ❯ 1. Yes, run it
+    2. No
+
+╭──────────────────────────────────────────────────────────────╮
+│ >                                                            │
+╰──────────────────────────────────────────────────────────────╯
+  ? for shortcuts
+`
+
+const codexPrintedDialog = `
+• Here are the notes:
+  Would you like to run the following command?
+  › 1. Yes, run it
+    2. No
+
+› Ask Codex to do anything
+`
+
+const claudeOptionsOutsideTheBox = `
+╭──────────────────────────────────────────────────────────────╮
+│ Bash command                                                 │
+│   make deploy                                                │
+│ Do you want to proceed?                                      │
+╰──────────────────────────────────────────────────────────────╯
+ ❯ 1. Yes
+   2. No
+`
+
+// Only a dialog the agent drew is a question: nothing but its own footer may
+// follow the options, the selection mark is the agent's own, and a boxed
+// dialog has its options inside the box. Text a command printed is not one,
+// even when it carries every word of a dialog.
+func TestQuestionOnScreenRefusesPrintedDialogs(t *testing.T) {
+	for name, tc := range map[string]struct{ tool, screen string }{
+		"claude: printed above the input box":        {"claude", printedDialog},
+		"claude: printed with an ascii mark":         {"claude", strings.Replace(printedDialog, "  ❯ 1. Yes, run it\n    2. No", "  1. Yes, run it\n  > 2. No", 1)},
+		"codex: printed above the input":             {"codex", codexPrintedDialog},
+		"claude: a shell prompt under the dialog":    {"claude", claudeCommandPrompt + "me@host:~$ \n"},
+		"codex: a shell prompt under the dialog":     {"codex", codexCommandPrompt + "me@host:~$ \n"},
+		"claude: an ascii selection mark":            {"claude", strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "> 1. Yes", 1)},
+		"codex: an ascii selection mark":             {"codex", strings.Replace(codexCommandPrompt, "› 1.", "> 1.", 1)},
+		"codex: claude's selection mark":             {"codex", strings.Replace(codexCommandPrompt, "› 1.", "❯ 1.", 1)},
+		"claude: options outside the dialog's box":   {"claude", claudeOptionsOutsideTheBox},
+		"claude: a box that never closes":            {"claude", strings.TrimSuffix(strings.TrimRight(claudeCommandPrompt, "\n"), strings.Split(strings.TrimRight(claudeCommandPrompt, "\n"), "\n")[len(strings.Split(strings.TrimRight(claudeCommandPrompt, "\n"), "\n"))-1])},
+		"claude: another box opens under the dialog": {"claude", claudeCommandPrompt + claudeIdle},
+	} {
+		if q := questionOnScreen(tc.tool, "%3", tc.screen); q != nil {
+			t.Errorf("%s: read %+v", name, q)
+		}
+	}
+	// The agent's own footer under the options is part of the dialog.
+	footed := strings.Replace(claudeBorderless, "   2. No\n", "   2. No\n\n Esc to cancel · Tab to amend\n", 1)
+	if q := questionOnScreen("claude", "%3", footed); q == nil {
+		t.Error("claude's own footer hid the dialog")
 	}
 }

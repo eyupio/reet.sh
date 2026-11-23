@@ -19,21 +19,32 @@ import (
 
 var (
 	// questionLine is a line a matcher already recognises as the agent's
-	// question; parsedTools are the agents whose dialogs are read this far.
+	// question.
 	questionLine = regexp.MustCompile(`(?i)\bdo you want to\b|\bwould you like to\b|\ballow command\?`)
 	// optionLine is a numbered option once the border is gone: an optional
 	// selection mark, the number, a dot and the label.
-	optionLine  = regexp.MustCompile(`^(?:([❯›>])\s*)?(\d+)\.\s+(\S.*)$`)
-	parsedTools = map[string]bool{"claude": true, "codex": true}
+	optionLine = regexp.MustCompile(`^(?:([❯›>])\s*)?(\d+)\.\s+(\S.*)$`)
+	// selectionMarks are the agents whose dialogs are read this far, each
+	// with the one mark it draws on the selected option. The bell's matcher
+	// (chosenOption) also takes an ASCII ">"; a question card does not.
+	selectionMarks = map[string]string{"claude": "❯", "codex": "›"}
+	// footerLine is a key hint an agent draws under its options: "Esc to
+	// cancel", "Enter to confirm · Tab to amend", "Press enter to confirm or
+	// esc to cancel".
+	footerLine = regexp.MustCompile(`(?i)^(?:press\s+)?(?:esc|enter|tab|shift\+tab|ctrl\+\w)\s+to\s+[a-z ]+(?:\s*[·•|,]?\s*(?:or\s+)?(?:esc|enter|tab|shift\+tab|ctrl\+\w)\s+to\s+[a-z ]+)*$`)
 )
 
 // screenLine is one tail line with its border, control and format characters
-// gone: col is the column its text starts at, text the rest.
+// gone: col is the column its text starts at, text the rest, and border the
+// column of the box border it starts inside, or -1. A line without text is
+// kept only as a box's top (with the column of its corner) or bottom.
 type screenLine struct {
-	col  int
-	text string
-	// framed is set when the line starts inside a box's left border.
-	framed bool
+	col    int
+	text   string
+	border int
+	top    bool
+	topCol int
+	bottom bool
 }
 
 func isBorder(r rune) bool { return r >= 0x2500 && r <= 0x257f || r == '|' }
@@ -54,9 +65,12 @@ func cleanLine(raw string) screenLine {
 	}
 	s := strings.TrimRightFunc(b.String(), func(r rune) bool { return isBorder(r) || unicode.IsSpace(r) })
 	rest := strings.TrimLeftFunc(s, func(r rune) bool { return isBorder(r) || unicode.IsSpace(r) })
+	l := screenLine{col: utf8.RuneCountInString(s) - utf8.RuneCountInString(rest), text: rest, border: -1}
 	lead := strings.TrimLeftFunc(s, unicode.IsSpace)
-	framed := lead != "" && isBorder([]rune(lead)[0])
-	return screenLine{col: utf8.RuneCountInString(s) - utf8.RuneCountInString(rest), text: rest, framed: framed}
+	if lead != "" && isBorder([]rune(lead)[0]) {
+		l.border = utf8.RuneCountInString(s) - utf8.RuneCountInString(lead)
+	}
+	return l
 }
 
 // normalise collapses runs of white space, so a redraw that pads lines or
@@ -74,33 +88,42 @@ func capRunes(s string, max int) string {
 // questionOnScreen reads the question an agent is waiting on from its screen:
 // the dialog's text (dialogText), and the numbered options under it with the
 // one selected. The question sentence is the line a matcher recognises (joined
-// with the next when it wraps). It is nil
-// unless the screen is a dialog AwaitingAnswer knows, of an agent whose
-// dialogs are parsed, and it reads cleanly: one block of options numbered 1
-// to n (n at most 9) with exactly one selected.
-func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion {
-	if !parsedTools[tool] || !AwaitingAnswer(tool, screen) {
+// with the next when it wraps). key names the pane in the fingerprint. It is
+// nil unless the screen is a dialog AwaitingAnswer knows, of an agent whose
+// dialogs are parsed, and it reads as one the agent drew:
+//   - one block of options numbered 1 to n (n at most 9), exactly one of them
+//     selected, with the agent's own selection mark and no other;
+//   - in a boxed dialog, the options inside the question's box, and the box
+//     closed under them;
+//   - under the options nothing but the agent's own key hints: no input box,
+//     prompt or other text, as there would be under a dialog a command printed.
+//
+// A command that prints a whole box with the agent's glyphs and hints as the
+// last thing on the screen still passes; see agent_prompt.go.
+func questionOnScreen(tool, key, screen string) *terminalproto.TerminalQuestion {
+	mark := selectionMarks[tool]
+	if mark == "" || !AwaitingAnswer(tool, screen) {
 		return nil
 	}
 	var lines []screenLine
-	// tops holds, by the index of the line under it, the column of each box's
-	// top border: where a bordered dialog starts.
-	tops := map[int]int{}
 	for _, raw := range strings.Split(promptTail(screen), "\n") {
 		l := cleanLine(raw)
-		if l.text != "" {
-			lines = append(lines, l)
-		} else if at := strings.IndexRune(raw, '╭'); at >= 0 {
-			tops[len(lines)] = utf8.RuneCountInString(raw[:at])
+		switch {
+		case l.text != "":
+		case strings.ContainsRune(raw, '╭'):
+			l.top, l.topCol = true, utf8.RuneCountInString(raw[:strings.IndexRune(raw, '╭')])
+		case strings.ContainsRune(raw, '╰'):
+			l.bottom = true
+		default:
+			// A blank line, inside a box or not, says nothing.
+			continue
 		}
+		lines = append(lines, l)
 	}
 	// The question is the last line a matcher knows that has an option under it.
 	asked := -1
 	for i, l := range lines {
-		if optionLine.MatchString(l.text) {
-			continue
-		}
-		if !questionLine.MatchString(l.text) {
+		if l.text == "" || optionLine.MatchString(l.text) || !questionLine.MatchString(l.text) {
 			continue
 		}
 		for _, later := range lines[i+1:] {
@@ -113,9 +136,10 @@ func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion
 	if asked < 0 {
 		return nil
 	}
+	border := lines[asked].border
 	q := &terminalproto.TerminalQuestion{Question: lines[asked].text}
 	first := asked + 1
-	if !strings.HasSuffix(q.Question, "?") && first < len(lines) && !optionLine.MatchString(lines[first].text) && strings.HasSuffix(lines[first].text, "?") {
+	if !strings.HasSuffix(q.Question, "?") && first < len(lines) && lines[first].text != "" && !optionLine.MatchString(lines[first].text) && strings.HasSuffix(lines[first].text, "?") {
 		q.Question += " " + lines[first].text
 		first++
 	}
@@ -124,66 +148,90 @@ func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion
 		first++
 	}
 	// One block of options: each option line, and under it the lines that
-	// start at or right of its label, which are that label wrapped.
-	labelCol, ended, selected := 0, false, 0
+	// start at or right of its label, which are that label wrapped. Then only
+	// the box's bottom and the agent's key hints.
+	labelCol, ended, closed, selected := 0, false, false, 0
 	for _, l := range lines[first:] {
 		m := optionLine.FindStringSubmatchIndex(l.text)
 		switch {
-		case m != nil && ended:
+		case l.top:
 			return nil
+		case l.bottom:
+			ended, closed = true, true
 		case m != nil:
+			if ended || l.border != border {
+				return nil
+			}
 			n, err := strconv.Atoi(l.text[m[4]:m[5]])
 			if err != nil || n != len(q.Options)+1 || n > terminalproto.MaxTerminalOptions {
 				return nil
 			}
 			o := terminalproto.TerminalOption{Index: n, Label: l.text[m[6]:], Selected: m[2] >= 0}
 			if o.Selected {
+				if l.text[m[2]:m[3]] != mark {
+					return nil
+				}
 				selected++
 			}
 			q.Options = append(q.Options, o)
 			labelCol = l.col + utf8.RuneCountInString(l.text[:m[6]])
-		case !ended && l.col >= labelCol:
+		case !ended && l.col >= labelCol && l.border == border:
 			last := &q.Options[len(q.Options)-1]
 			last.Label += " " + l.text
-		default:
+		case footerLine.MatchString(l.text):
 			ended = true
+		default:
+			return nil
 		}
 	}
-	if len(q.Options) == 0 || selected != 1 {
+	if len(q.Options) == 0 || selected != 1 || border >= 0 && !closed {
 		return nil
 	}
+	// Where the dialog starts: a boxed dialog at its box's top, or, when the
+	// top is above the screen, at the first line of the box that is on it;
+	// Codex at its question, with its subject between question and options.
+	// A Claude dialog without a box has no start that can be told.
+	start, found := asked, false
+	for k := asked; k >= 0 && !found && border >= 0; k-- {
+		if lines[k].top && lines[k].topCol == border {
+			start, found = k+1, true
+		}
+	}
+	for !found && border >= 0 && start > 0 && lines[start-1].text != "" && lines[start-1].border == border {
+		start--
+	}
+	known := found || border >= 0 || tool == "codex"
 	sentence := normalise(q.Question)
 	sum := sha256.New()
-	sum.Write([]byte(pane + "\x00" + sentence))
+	sum.Write([]byte(key + "\x00" + sentence))
 	for i := range q.Options {
 		q.Options[i].Label = capRunes(normalise(q.Options[i].Label), terminalproto.MaxTerminalOptionRunes)
 		// The selection is left out: moving it does not change the question,
 		// and the keys are worked out from a fresh read anyway.
 		sum.Write([]byte("\x00" + strconv.Itoa(q.Options[i].Index) + "\x1f" + q.Options[i].Label))
 	}
-	// So is what the question is about: every line above the options, such as
-	// the command an approval would run, so "Yes" to one command is never sent
-	// to another. These are hashed in full even when the text sent is cut.
-	for _, l := range lines[:first] {
-		sum.Write([]byte("\x00" + normalise(l.text)))
+	// So is what the question is about: the dialog's lines above its options,
+	// such as the command an approval would run, so "Yes" to one command is
+	// never sent to another. They are hashed in full even when the text sent
+	// is cut. Lines above the dialog, such as a ticking status, are not,
+	// except for a dialog whose start cannot be told: then every line above
+	// the options is, and a change there refuses an answer rather than risk
+	// one.
+	hashFrom := start
+	if !known {
+		hashFrom = 0
 	}
-	q.Fingerprint = hex.EncodeToString(sum.Sum(nil))
-	// The subject: a bordered dialog starts at the last box top left of the
-	// question; Codex draws its subject between the question and the options.
-	// A Claude dialog whose top is not on the screen began above it: its
-	// framed lines that are on the screen are kept.
-	start, found := asked, false
-	for k := asked; k >= 0 && !found; k-- {
-		if col, ok := tops[k]; ok && col < lines[asked].col {
-			start, found = k, true
+	for _, l := range lines[hashFrom:first] {
+		if l.text != "" {
+			sum.Write([]byte("\x00" + normalise(l.text)))
 		}
 	}
-	for !found && lines[asked].framed && start > 0 && lines[start-1].framed {
-		start--
-	}
+	q.Fingerprint = hex.EncodeToString(sum.Sum(nil))
 	var subject []string
 	for _, l := range append(append([]screenLine{}, lines[start:asked]...), lines[below:first]...) {
-		subject = append(subject, normalise(l.text))
+		if l.text != "" {
+			subject = append(subject, normalise(l.text))
+		}
 	}
 	q.Question, q.Truncated = dialogText(subject, sentence)
 	q.Truncated = q.Truncated || tool == "claude" && !found

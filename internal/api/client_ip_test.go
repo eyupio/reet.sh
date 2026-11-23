@@ -128,11 +128,24 @@ func TestVisitorsBehindOneProxyKeepTheirOwnAllowance(t *testing.T) {
 			t.Errorf("listed=%v: B limited at reset = %v (%d)", listed, limited, code)
 		}
 
-		// Password sign-in: A's address has used its failures; B signs in.
-		for e.srvr.addrLimiter.Take("ip:" + map[bool]string{true: "203.0.113.1", false: "127.0.0.1"}[listed]) {
+		// Password sign-in: A guesses the owner's password wrong five times;
+		// the owner, B, signs in from another address.
+		for i := 0; i < 5; i++ {
+			e.body(e.client(), "POST", "/api/v2/auth/sign-in", signInBody("owner@example.com", "wrong"), a...)
 		}
 		code, body := e.body(e.client(), "POST", "/api/v2/auth/sign-in", signInBody("owner@example.com", ownerPassword), b...)
 		if limited := code == http.StatusTooManyRequests; limited != shared || (!shared && code != 200) {
+			t.Errorf("listed=%v: B signing in after A's wrong guesses: %d %s", listed, code, body)
+		}
+		if shared {
+			continue
+		}
+
+		// A's address has used all its failures; B still signs in.
+		for e.srvr.addrLimiter.Take("ip:203.0.113.1") {
+		}
+		code, body = e.body(e.client(), "POST", "/api/v2/auth/sign-in", signInBody("owner@example.com", ownerPassword), b...)
+		if code != 200 {
 			t.Errorf("listed=%v: B signing in after A's address was spent: %d %s", listed, code, body)
 		}
 	}

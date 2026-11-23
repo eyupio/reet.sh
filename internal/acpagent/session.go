@@ -185,9 +185,9 @@ type Session struct {
 	statusMu   sync.Mutex
 	lastStatus string
 	reported   int
-	done      chan struct{}
-	doneOnce  sync.Once
-	retired   bool
+	done       chan struct{}
+	doneOnce   sync.Once
+	retired    bool
 
 	turnMu          sync.Mutex
 	working         bool

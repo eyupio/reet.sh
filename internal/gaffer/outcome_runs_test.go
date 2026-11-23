@@ -1605,7 +1605,9 @@ func TestAReviewDoesNotHandOverAStageWhoseWorkStillRuns(t *testing.T) {
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
 	mu.Lock()
-	held = func() { _ = r.st.SetTerminalChatAttentionFor(r.p.UserID, code.SessionID, time.Now().UnixMilli(), 0, "background", 0) }
+	held = func() {
+		_ = r.st.SetTerminalChatAttentionFor(r.p.UserID, code.SessionID, time.Now().UnixMilli(), 0, "background", 0)
+	}
 	mu.Unlock()
 	if err := r.st.AppendTerminalChatEventFor(r.p.UserID, code.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"agent","text":"Implemented the endpoint; tests pass."}`)); err != nil {
 		t.Fatal(err)

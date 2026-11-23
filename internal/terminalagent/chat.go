@@ -1245,7 +1245,9 @@ func settleChatWaitingStatus(cs *chatSession) {
 			next = "working"
 		}
 		settled := &terminalproto.ACPEvent{Kind: "status", State: next}
-		if controls, ok := cs.process.(interface{ Controls() terminalproto.ACPControls }); ok && next == "idle" {
+		if controls, ok := cs.process.(interface {
+			Controls() terminalproto.ACPControls
+		}); ok && next == "idle" {
 			// A reconnect replays this status: it must still say what work runs on.
 			settled.Background = controls.Controls().Background
 		}

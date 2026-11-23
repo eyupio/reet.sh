@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import type { NeedCard } from '../home'
   import Approval from '../shell/Approval.svelte'
+  import TerminalQuestionCard from '../terminal/TerminalQuestionCard.svelte'
   import { worktreeStatus } from '../terminal/api'
   import type { GoalNeed } from './homeWaiting'
 
@@ -62,7 +63,8 @@
   {:else}
   {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />
   {/if}
-  {#if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
+  {#if card.terminal}<TerminalQuestionCard session={{ id: card.sessionId, tool: card.tool }} question={card.terminal} href={card.href} onreread={onanswered} />
+  {:else if card.question}<p class="said">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
   {:else if !card.approval}<p class="said">{card.label} · {card.age}</p>{/if}
   {#if card.reasons.includes('gaffer')}<p class="note">Gaffer’s goal also needs you</p>{/if}
   {/if}

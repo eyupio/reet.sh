@@ -68,6 +68,8 @@ export type NeedCard = {
   question?: { questionId: string; message: string; truncated: boolean; queued: number }
   /** The dialog a terminal agent waits on: answered from the card with its own options. */
   terminal?: NonNullable<TerminalSession['terminalQuestion']>
+  /** The session's agent, named in that dialog's heading. */
+  tool?: string
 }
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
@@ -353,7 +355,7 @@ export function needsYou(
         worktreeTarget: null,
         ...(s.pendingPermission?.permissionId ? { approval: approvalOf(s.pendingPermission) } : {}),
         ...(s.pendingQuestion?.questionId ? { question: questionOf(s.pendingQuestion) } : {}),
-        ...(s.terminalQuestion?.fingerprint ? { terminal: s.terminalQuestion } : {}),
+        ...(s.terminalQuestion?.fingerprint ? { terminal: s.terminalQuestion, ...(s.tool ? { tool: s.tool } : {}) } : {}),
       })
       continue
     }

@@ -20,6 +20,8 @@
   const lines = $derived(question.question.split('\n'))
   const heading = $derived(`${name} is asking`)
   const uid = $props.id()
+  // A list read hands over a new object each time: only a different fingerprint is a different question.
+  const fingerprint = $derived(question.fingerprint)
 
   let pressed = $state<number | null>(null)
   let say = $state('')
@@ -30,7 +32,7 @@
 
   // A different question starts clean; the sentence about a change stays over the new one, once.
   $effect(() => {
-    void question.fingerprint
+    void fingerprint
     untrack(() => {
       pressed = null; done = false; locked = false; sending = false
       if (keepSay) keepSay = false; else say = ''
@@ -40,7 +42,7 @@
   // Said once, politely, when this question first appears: the live region is empty at first and filled a moment later.
   let announced = $state('')
   $effect(() => {
-    void question.fingerprint
+    void fingerprint
     announced = ''
     void tick().then(() => { announced = untrack(() => `${heading}. ${lines.at(-1)}`) })
   })
@@ -50,7 +52,7 @@
     sending = true
     pressed = index
     say = ''
-    const outcome = outcomeOf(await answerTerminalQuestion(session.id, question.fingerprint, index), label)
+    const outcome = outcomeOf(await answerTerminalQuestion(session.id, fingerprint, index), label)
     say = outcome.say; done = outcome.done; locked = outcome.locked; pressed = null; sending = false
     if (outcome.done) signalAttentionChanged()
     if (outcome.reread) keepSay = true
@@ -83,7 +85,7 @@
   h3 { margin: 0; font: 600 14px/1.3 var(--sans); }
   .said { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .line { margin: 0; min-width: 0; font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: isolate; }
-  .subject { font-family: var(--mono, monospace); color: var(--muted); }
+  .subject { font-family: var(--mono, monospace); }
   .more { margin: 0; font-size: 14px; color: var(--muted); }
   .options { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .option { justify-content: space-between; gap: 10px; width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; text-align: left; font: 500 14px/1.35 var(--sans); }

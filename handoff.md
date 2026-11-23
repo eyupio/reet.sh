@@ -20,7 +20,7 @@ in both themes show the one-line strip.
 
 **Docs.** `docs/skill-buddy.md` and `CHANGELOG.md` say the panel folds in Chat.
 
-**PR.** Opened against `main` from `reet/fold-skill-suggestions`.
+**PR.** [#906](https://github.com/eyupio/reet.sh/pull/906) opened against `main` from `reet/fold-skill-suggestions`.
 
 ## DESK-OWN-TAB-1: a desk opens in a tab of its own (23 November 2026)
 

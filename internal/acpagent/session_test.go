@@ -630,6 +630,23 @@ func TestFakeACP(t *testing.T) {
 			case "running-command":
 				// A command is started and never reported finished; the prompt waits for session/cancel.
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "sleep 47", "kind": "execute", "status": "in_progress"})
+			case "background":
+				// A turn that ends with a tool call still running, as an agent
+				// does for work it left going; a thought is never such work.
+				text := ""
+				if len(params.Prompt) > 0 {
+					text = params.Prompt[0].Text
+				}
+				if text == "leave" || text == "leave-then-finish" {
+					update(session, "tool_call", map[string]any{"toolCallId": "call_bg", "title": "npm test", "kind": "execute", "status": "in_progress"})
+					update(session, "agent_thought_chunk", map[string]any{"messageId": "msg_think", "content": map[string]string{"type": "text", "text": "the tests run on"}})
+				}
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+				promptID = nil
+				if text == "leave-then-finish" {
+					time.Sleep(150 * time.Millisecond)
+					update(session, "tool_call_update", map[string]any{"toolCallId": "call_bg", "status": "completed"})
+				}
 			case "quiet-command", "quiet-command-then-hang":
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "wait for checks", "kind": "execute", "status": "in_progress"})
 				time.Sleep(300 * time.Millisecond)
@@ -2414,5 +2431,159 @@ func TestResumeSignalsReadyAfterReplay(t *testing.T) {
 	}
 	if !interrupted || !idle {
 		t.Fatalf("missing post-ready events: %+v", after)
+	}
+}
+
+// waitEvent polls everything recorded so far, since the wait channel drops events once full.
+func waitEvent(t *testing.T, got *events, match func(Event) bool) Event {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got.mu.Lock()
+		for _, event := range got.all {
+			if match(event) {
+				got.mu.Unlock()
+				return event
+			}
+		}
+		got.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the expected event never came")
+	return Event{}
+}
+
+func waitUntil(t *testing.T, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatal("the expected events never came")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func lastIdle(got *events) (Event, bool) {
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for i := len(got.all) - 1; i >= 0; i-- {
+		if event := got.all[i]; event.Kind == "status" && event.State == "idle" {
+			return event, true
+		}
+	}
+	return Event{}, false
+}
+
+func TestTurnEndWithOpenToolReportsBackgroundWork(t *testing.T) {
+	t.Parallel()
+	opts, got := options(t, "background", testVersion)
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(t.Context(), "leave-then-finish"); err != nil {
+		t.Fatal(err)
+	}
+	idle, ok := lastIdle(got)
+	if !ok || idle.Background != 1 {
+		t.Fatalf("the turn's end did not count the running tool (the thought is not work): %+v", idle)
+	}
+	if c := session.Controls(); c.Background != 1 || c.Working {
+		t.Fatalf("controls = %+v, want one held tool and no turn", c)
+	}
+	waitUntil(t, func() bool { return idleAfterTool(got) })
+	if c := session.Controls(); c.Background != 0 {
+		t.Fatalf("controls still hold %d after the tool finished", c.Background)
+	}
+}
+
+// idleAfterTool reports whether an idle status follows the held tool's completion.
+func idleAfterTool(got *events) bool {
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	completed := false
+	for _, event := range got.all {
+		if event.Kind == "tool" && event.ToolCallID == "call_bg" && event.Status == "completed" {
+			completed = true
+		}
+		if completed && event.Kind == "status" && event.State == "idle" && event.Background == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNewTurnKeepsBackgroundHold(t *testing.T) {
+	t.Parallel()
+	opts, got := options(t, "background", testVersion)
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(t.Context(), "leave"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Prompt(t.Context(), "again"); err != nil {
+		t.Fatal(err)
+	}
+	if idle, _ := lastIdle(got); idle.Background != 1 {
+		t.Fatalf("a new message dropped the earlier turn's running work: %+v", idle)
+	}
+}
+
+func TestBackgroundHoldEndsAtItsLimit(t *testing.T) {
+	t.Parallel()
+	opts, got := options(t, "background", testVersion)
+	opts.BackgroundHold = 120 * time.Millisecond
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(t.Context(), "leave"); err != nil {
+		t.Fatal(err)
+	}
+	notice := waitEvent(t, got, func(e Event) bool { return e.Kind == "notice" && strings.Contains(e.Text, "background") })
+	if !strings.Contains(notice.Text, "never said") {
+		t.Fatalf("notice = %q", notice.Text)
+	}
+	waitUntil(t, func() bool { return idleAfterNotice(got) })
+	if c := session.Controls(); c.Background != 0 {
+		t.Fatalf("controls still hold %d after the limit", c.Background)
+	}
+}
+
+func idleAfterNotice(got *events) bool {
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	seen := false
+	for _, event := range got.all {
+		if event.Kind == "notice" && strings.Contains(event.Text, "background") {
+			seen = true
+		}
+		if seen && event.Kind == "status" && event.State == "idle" && event.Background == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEndedSessionHoldsNoBackgroundWork(t *testing.T) {
+	t.Parallel()
+	opts, _ := options(t, "background", testVersion)
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Prompt(t.Context(), "leave"); err != nil {
+		t.Fatal(err)
+	}
+	session.Close()
+	<-session.Done()
+	if c := session.Controls(); c.Background != 0 {
+		t.Fatalf("an ended chat still holds %d", c.Background)
 	}
 }

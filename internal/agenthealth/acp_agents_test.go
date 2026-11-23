@@ -492,3 +492,25 @@ func TestACPProviderCapabilityNeedsLiveControlsAndItsFeature(t *testing.T) {
 		t.Fatal("provider feature survived a reconnect to an older controller")
 	}
 }
+
+func TestACPCommandsCapabilityNeedsLiveControlsAndItsFeature(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
+	negotiateFeatures(&cfg, live)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); !c.ACPLiveControls || c.ACPCommands {
+		t.Fatalf("a peer without the feature was offered commands: %+v", c)
+	}
+	negotiateFeatures(&cfg, live+","+terminalproto.ACPCommandsFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPCommands || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatalf("commands missing or not negotiated: %+v", c)
+	}
+	negotiateFeatures(&cfg, terminalproto.LaunchFeature+","+terminalproto.ACPFeature+","+terminalproto.ACPCommandsFeature)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPCommands {
+		t.Fatal("commands claimed without live controls")
+	}
+	negotiateFeatures(&cfg, live)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPCommands || terminalproto.SupportsACPCommands(terminalFeatures(cfg)) {
+		t.Fatal("commands feature survived a reconnect to an older controller")
+	}
+}

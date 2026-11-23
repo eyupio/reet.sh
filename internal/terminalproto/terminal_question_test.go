@@ -25,7 +25,9 @@ func questionChange(q *TerminalQuestion) Message {
 // A question rides on a session change only to a controller that negotiated
 // terminal-question-v1: an older controller's strict decoder would refuse it.
 func TestTerminalQuestionOnlyWhenNegotiated(t *testing.T) {
-	changed := SessionChanged{State: Running, TerminalQuestion: sampleTerminalQuestion()}
+	asked := sampleTerminalQuestion()
+	asked.Question, asked.Truncated = "Bash command\ngo test ./...\nDo you want to proceed?", true
+	changed := SessionChanged{State: Running, TerminalQuestion: asked}
 	raw, err := json.Marshal(changed.ForFeatures(AttentionFeature))
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +45,7 @@ func TestTerminalQuestionOnlyWhenNegotiated(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := decoded.Body.(*SessionChanged).TerminalQuestion
-	if got == nil || got.Question != "Do you want to proceed?" || len(got.Options) != 2 || !got.Options[0].Selected || got.Fingerprint != strings.Repeat("ab", 32) {
+	if got == nil || got.Question != "Bash command\ngo test ./...\nDo you want to proceed?" || !got.Truncated || len(got.Options) != 2 || !got.Options[0].Selected || got.Fingerprint != strings.Repeat("ab", 32) {
 		t.Fatalf("round trip lost the question: %+v", got)
 	}
 	if !SupportsTerminalQuestion("x,"+TerminalQuestionFeature) || SupportsTerminalQuestion(AttentionFeature) {
@@ -63,24 +65,34 @@ func TestTerminalQuestionValidation(t *testing.T) {
 		edit func(q *TerminalQuestion)
 		ok   bool
 	}{
-		"the sample":            {func(q *TerminalQuestion) {}, true},
-		"a 500 rune question":   {func(q *TerminalQuestion) { q.Question = long(500) }, true},
-		"a 501 rune question":   {func(q *TerminalQuestion) { q.Question = long(501) }, false},
-		"a blank question":      {func(q *TerminalQuestion) { q.Question = "  " }, false},
-		"a control character":   {func(q *TerminalQuestion) { q.Question = "Do\x1b[2J you" }, false},
-		"a bidi override":       {func(q *TerminalQuestion) { q.Options[0].Label = "Yes\u202e" }, false},
-		"a zero width space":    {func(q *TerminalQuestion) { q.Options[0].Label = "Y\u200bes" }, false},
-		"a 200 rune option":     {func(q *TerminalQuestion) { q.Options[0].Label = long(200) }, true},
-		"a 201 rune option":     {func(q *TerminalQuestion) { q.Options[0].Label = long(201) }, false},
-		"a blank option":        {func(q *TerminalQuestion) { q.Options[1].Label = "" }, false},
-		"no options":            {func(q *TerminalQuestion) { q.Options = nil }, false},
-		"nine options":          {func(q *TerminalQuestion) { q.Options = nine }, true},
-		"ten options":           {func(q *TerminalQuestion) { q.Options = ten }, false},
-		"a duplicate number":    {func(q *TerminalQuestion) { q.Options[1].Index = 1 }, false},
-		"a number out of range": {func(q *TerminalQuestion) { q.Options[1].Index = 0 }, false},
-		"two selected":          {func(q *TerminalQuestion) { q.Options[1].Selected = true }, false},
-		"a short fingerprint":   {func(q *TerminalQuestion) { q.Fingerprint = "abcd" }, false},
-		"an upper fingerprint":  {func(q *TerminalQuestion) { q.Fingerprint = strings.Repeat("AB", 32) }, false},
+		"the sample":                {func(q *TerminalQuestion) {}, true},
+		"a 500 rune question":       {func(q *TerminalQuestion) { q.Question = long(500) }, true},
+		"a 501 rune question":       {func(q *TerminalQuestion) { q.Question = long(501) }, false},
+		"a blank question":          {func(q *TerminalQuestion) { q.Question = "  " }, false},
+		"a subject on its own line": {func(q *TerminalQuestion) { q.Question = "Bash command\ngo test ./...\nDo you want to proceed?" }, true},
+		"500 runes with newlines":   {func(q *TerminalQuestion) { q.Question = long(249) + "\n" + long(250) }, true},
+		"501 runes with newlines":   {func(q *TerminalQuestion) { q.Question = long(250) + "\n" + long(250) }, false},
+		"an empty line":             {func(q *TerminalQuestion) { q.Question = "a\n\nb" }, false},
+		"a trailing newline":        {func(q *TerminalQuestion) { q.Question = "a?\n" }, false},
+		"a carriage return":         {func(q *TerminalQuestion) { q.Question = "a\r\nb" }, false},
+		"a tab":                     {func(q *TerminalQuestion) { q.Question = "a\tb" }, false},
+		"a newline in an option":    {func(q *TerminalQuestion) { q.Options[0].Label = "Yes\nNo" }, false},
+		"a line separator":          {func(q *TerminalQuestion) { q.Question = "a\u2028b" }, false},
+		"marked truncated":          {func(q *TerminalQuestion) { q.Truncated = true }, true},
+		"a control character":       {func(q *TerminalQuestion) { q.Question = "Do\x1b[2J you" }, false},
+		"a bidi override":           {func(q *TerminalQuestion) { q.Options[0].Label = "Yes\u202e" }, false},
+		"a zero width space":        {func(q *TerminalQuestion) { q.Options[0].Label = "Y\u200bes" }, false},
+		"a 200 rune option":         {func(q *TerminalQuestion) { q.Options[0].Label = long(200) }, true},
+		"a 201 rune option":         {func(q *TerminalQuestion) { q.Options[0].Label = long(201) }, false},
+		"a blank option":            {func(q *TerminalQuestion) { q.Options[1].Label = "" }, false},
+		"no options":                {func(q *TerminalQuestion) { q.Options = nil }, false},
+		"nine options":              {func(q *TerminalQuestion) { q.Options = nine }, true},
+		"ten options":               {func(q *TerminalQuestion) { q.Options = ten }, false},
+		"a duplicate number":        {func(q *TerminalQuestion) { q.Options[1].Index = 1 }, false},
+		"a number out of range":     {func(q *TerminalQuestion) { q.Options[1].Index = 0 }, false},
+		"two selected":              {func(q *TerminalQuestion) { q.Options[1].Selected = true }, false},
+		"a short fingerprint":       {func(q *TerminalQuestion) { q.Fingerprint = "abcd" }, false},
+		"an upper fingerprint":      {func(q *TerminalQuestion) { q.Fingerprint = strings.Repeat("AB", 32) }, false},
 	} {
 		q := sampleTerminalQuestion()
 		tc.edit(q)

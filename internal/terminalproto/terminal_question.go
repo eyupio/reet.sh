@@ -34,21 +34,32 @@ type TerminalOption struct {
 	Selected bool   `json:"selected,omitempty"`
 }
 
-// TerminalQuestion is the dialog an agent is waiting on. Fingerprint is the
-// SHA-256, in lower-case hex, the machine took of the pane, the question and
-// the options; an answer must name it.
+// TerminalQuestion is the dialog an agent is waiting on. Question is the
+// dialog's own text, one line per screen line: its subject (the command, the
+// file, the plan's heading) and then the question sentence. Truncated says
+// some of the dialog's text is not in Question, because it did not fit or
+// started above the visible screen. Fingerprint is the SHA-256, in lower-case
+// hex, the machine took of the pane and the whole dialog; an answer must name
+// it.
 type TerminalQuestion struct {
 	Question    string           `json:"question"`
+	Truncated   bool             `json:"truncated,omitempty"`
 	Options     []TerminalOption `json:"options"`
 	Fingerprint string           `json:"fingerprint"`
 }
 
-// Valid applies the caps and the plain-text rule: a question, one to nine
-// options numbered 1 to 9 without repeats, at most one selected, and a
-// fingerprint.
+// Valid applies the caps and the plain-text rule: a question of non-blank
+// lines joined by single newlines (the only control character allowed), one
+// to nine options numbered 1 to 9 without repeats, at most one selected, and
+// a fingerprint.
 func (q TerminalQuestion) Valid() bool {
-	if !plainText(q.Question, MaxTerminalQuestionRunes) || strings.TrimSpace(q.Question) == "" {
+	if !plainText(strings.ReplaceAll(q.Question, "\n", " "), MaxTerminalQuestionRunes) {
 		return false
+	}
+	for _, line := range strings.Split(q.Question, "\n") {
+		if strings.TrimSpace(line) == "" {
+			return false
+		}
 	}
 	if len(q.Options) == 0 || len(q.Options) > MaxTerminalOptions || !ValidFingerprint(q.Fingerprint) {
 		return false

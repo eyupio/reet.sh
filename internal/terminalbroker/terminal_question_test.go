@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
@@ -312,5 +313,38 @@ func TestAnswerTerminalQuestionAskedAgain(t *testing.T) {
 	}
 	if m.sent() != 2 {
 		t.Fatalf("sent %+v", m.answers)
+	}
+}
+
+// A session whose agent waits on a terminal question lists as waiting even
+// after the person has seen it, until the question goes; then it follows the
+// stored state again.
+func TestTerminalQuestionKeepsASeenSessionWaiting(t *testing.T) {
+	m := questionFixture(t, true)
+	session := m.session(t)
+	m.report(t, session, waitingQuestion(strings.Repeat("a", 64)))
+	if err := m.b.st.MarkSessionSeenFor(m.uid, session, time.Now().Add(time.Minute).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	row, err := m.b.st.TerminalSessionFor(m.uid, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := row.Attention
+	if stored == "waiting" {
+		t.Fatal("the fixture should be a seen session the store no longer calls waiting")
+	}
+	m.b.ApplyTerminalQuestion(m.uid, &row)
+	if row.TerminalQuestion == nil || row.Attention != "waiting" || row.AttentionSource != "terminal" {
+		t.Fatalf("a seen session with a question is not waiting: %q %q %+v", row.Attention, row.AttentionSource, row.TerminalQuestion)
+	}
+	m.report(t, session, nil)
+	row, err = m.b.st.TerminalSessionFor(m.uid, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.b.ApplyTerminalQuestion(m.uid, &row)
+	if row.TerminalQuestion != nil || row.Attention != stored {
+		t.Fatalf("with the question gone the session is %q, stored %q", row.Attention, stored)
 	}
 }

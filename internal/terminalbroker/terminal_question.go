@@ -44,7 +44,9 @@ func (p *Peer) noteQuestion(session string, state terminalproto.SessionState, q 
 }
 
 // ApplyTerminalQuestion overlays the question a running terminal session's
-// agent is waiting on, as its machine last reported it.
+// agent is waiting on, as its machine last reported it. While it waits the
+// session is waiting, as a chat with a pending question is: having looked at
+// the session does not answer it. Without one the stored state stands.
 func (b *Broker) ApplyTerminalQuestion(uid int64, s *store.TerminalSession) {
 	if s == nil || s.Structured || s.State != terminalproto.Running {
 		return
@@ -65,6 +67,7 @@ func (b *Broker) ApplyTerminalQuestion(uid int64, s *store.TerminalSession) {
 	if q, ok := p.questions[s.ID]; ok {
 		q.Options = append([]terminalproto.TerminalOption(nil), q.Options...)
 		s.TerminalQuestion = &q
+		s.Attention, s.AttentionSource = "waiting", "terminal"
 	}
 }
 

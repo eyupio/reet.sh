@@ -26,7 +26,7 @@ export type SoftwareBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'a
 export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
-export type TerminalQuestion = { question: string; truncated?: boolean; options: { index: number; label: string; selected?: boolean }[]; fingerprint: string }
+export type TerminalQuestion = { question: string; truncated?: boolean; options: { index: number; label: string; selected?: boolean; truncated?: boolean }[]; fingerprint: string }
 export type TerminalAnswerResult = { kind: 'answered' | 'alreadyAnswered' | 'changed' | 'updateRequired' | 'busy' | 'readOnly' | 'offline' | 'noReply' | 'failed'; sentence?: string }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string;
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood

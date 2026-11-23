@@ -8,11 +8,52 @@ const asURL = source => `data:text/javascript;base64,${Buffer.from(source).toStr
 const q = await import(asURL(compile('./terminalQuestion.ts')))
 const api = await import(asURL(compile('./api.ts').replace("from '../projects'", `from '${asURL('export {}')}'`)))
 
-test('a label that grants standing permission is spotted, whatever its case', () => {
-  for (const label of ["Yes, and don't ask again for npm run", 'Yes, don’t ask again', 'ALWAYS allow', 'Allow for this session', 'Yes, allow all edits during this session', 'Yes, auto-accept edits', 'Yes, AUTO ACCEPT edits'])
+test('standing wordings from Claude Code and Codex dialogs are spotted, whatever their case', () => {
+  for (const label of ["Yes, and don't ask again for go test commands", 'Yes, and don’t ask again for npm run commands in /work/site', 'Yes, and do not ask again', 'ALWAYS allow',
+    'Yes, allow for this session', 'Yes, allow all edits during this session', 'Yes, auto-accept edits', 'Yes, AUTO ACCEPT edits', 'Yes, and apply it without asking', 'Yes, every time', 'Yes, to every later command', 'Yes, from now on', 'Yes, and remember this choice', 'Yes, I trust this folder',
+    "Yes, and don't ask again for commands that start with `git status` (p)"])
     assert.equal(q.standingPermission(label), true, label)
-  for (const label of ['Yes', 'No', 'Yes, proceed', 'No, and tell Claude what to do differently', 'Approve once'])
+  for (const label of ['Yes', 'No', 'Proceed', 'Cancel', 'Yes, proceed (y)', 'Yes, manually approve edits', 'No, keep planning', 'No, and tell Claude what to do differently (esc)', 'No, and tell Codex what to do differently (esc)', 'Approve once'])
     assert.equal(q.standingPermission(label), false, label)
+})
+
+test('an option needs a second tap when it grants standing permission or its label was cut', () => {
+  assert.equal(q.needsConfirm({ index: 1, label: 'Yes' }), false)
+  assert.equal(q.needsConfirm({ index: 2, label: "Yes, and don't ask again" }), true)
+  assert.equal(q.needsConfirm({ index: 1, label: 'Yes', truncated: true }), true)
+})
+
+test('the second tap state rule: confirm on the same option sends, anything else starts or cancels', () => {
+  assert.deepEqual(q.nextTap(null, 1, false), { pending: null, send: true })
+  assert.deepEqual(q.nextTap(2, 1, false), { pending: null, send: true })
+  assert.deepEqual(q.nextTap(null, 2, true), { pending: 2, send: false })
+  assert.deepEqual(q.nextTap(2, 2, true), { pending: null, send: true })
+  assert.deepEqual(q.nextTap(2, 3, true), { pending: 3, send: false }, 'another standing option moves the confirm')
+})
+
+test('an option that asks for typed words is recognised, a plain yes never is', () => {
+  for (const label of ['No, and tell Claude what to do differently (esc)', 'No, and tell Codex what to do differently (esc)', 'Type here to tell Claude what to change', 'Explain what you want instead', 'Provide feedback', 'No, give feedback'])
+    assert.equal(q.asksForWords(label), true, label)
+  for (const label of ['Yes', 'No', 'Yes, proceed', 'Yes, and tell me when it is done', 'Cancel', 'Yes, type it'])
+    assert.equal(q.asksForWords(label), false, label)
+})
+
+test('Home shows the full card only for a small, whole question', () => {
+  const o = n => Array.from({ length: n }, (_, i) => ({ index: i + 1, label: `Choice ${i + 1}` }))
+  assert.equal(q.fitsHome({ question: 'Run it?', options: o(3), fingerprint: 'f' }), true)
+  assert.equal(q.fitsHome({ question: 'Run it?', options: o(4), fingerprint: 'f' }), false)
+  assert.equal(q.fitsHome({ question: 'Run it?', options: o(2), truncated: true, fingerprint: 'f' }), false)
+  assert.equal(q.fitsHome({ question: 'Run it?', options: [{ index: 1, label: 'Yes', truncated: true }], fingerprint: 'f' }), false)
+  assert.equal(q.questionSentence({ question: 'Bash command\ngo test\nDo you want to proceed?', options: [], fingerprint: 'f' }), 'Do you want to proceed?')
+})
+
+test('a dialog with a yes and a no style option is an approval, others are questions', () => {
+  const d = labels => ({ question: 'x', options: labels.map((label, i) => ({ index: i + 1, label })), fingerprint: 'f' })
+  assert.equal(q.isApproval(d(['Yes', "Yes, and don't ask again", 'No, and tell Claude what to do differently (esc)'])), true)
+  assert.equal(q.isApproval(d(['Yes, proceed (y)', 'No, and tell Codex what to do differently (esc)'])), true)
+  assert.equal(q.isApproval(d(['Allow once', 'Deny'])), true)
+  assert.equal(q.isApproval(d(['Postgres', 'SQLite', 'Other'])), false)
+  assert.equal(q.isApproval(d(['Yes'])), false)
 })
 
 test('an option reads as its number and its words', () => {
@@ -20,23 +61,31 @@ test('an option reads as its number and its words', () => {
 })
 
 test('each result maps to what the card does, in the card’s own words', () => {
-  assert.deepEqual(q.outcomeOf({ kind: 'answered' }, 'Yes'), { say: 'Answered: Yes', tone: 'done', done: true, locked: true, reread: false })
+  assert.equal(q.outcomeOf({ kind: 'updateRequired', sentence: 'Update reet on this machine to answer from here.' }, 'Yes', { machine: 'studio' }).say, 'Update reet on studio to answer from here.')
+  assert.deepEqual(q.outcomeOf({ kind: 'answered' }, 'Yes'), { say: 'Answered: Yes', tone: 'done', waitingForWords: false, done: true, locked: true, reread: false })
   assert.deepEqual(q.outcomeOf({ kind: 'alreadyAnswered' }, 'Yes'), q.outcomeOf({ kind: 'answered' }, 'Yes'))
-  assert.deepEqual(q.outcomeOf({ kind: 'changed', sentence: 'It changed.' }, 'Yes'), { say: 'It changed.', tone: 'note', done: false, locked: false, reread: true })
-  assert.deepEqual(q.outcomeOf({ kind: 'updateRequired', sentence: 'Update reet.' }, 'Yes'), { say: 'Update reet.', tone: 'note', done: false, locked: true, reread: false })
-  assert.deepEqual(q.outcomeOf({ kind: 'readOnly', sentence: 'terminal access denied' }, 'Yes'), { say: 'Your account can look but not answer.', tone: 'note', done: false, locked: true, reread: false })
-  assert.deepEqual(q.outcomeOf({ kind: 'busy', sentence: 'x' }, 'Yes'), { say: 'Another answer is on its way. Wait a moment.', tone: 'note', done: false, locked: false, reread: false })
-  assert.deepEqual(q.outcomeOf({ kind: 'offline', sentence: 'terminal machine is reconnecting; retry after it reconnects' }, 'Yes'), { say: 'The machine is not connected. Try again when it is back.', tone: 'error', done: false, locked: false, reread: false })
-  assert.deepEqual(q.outcomeOf({ kind: 'noReply' }, 'Yes'), { say: 'No reply yet. Check the terminal before answering again.', tone: 'error', done: false, locked: false, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'changed', sentence: 'It changed.' }, 'Yes'), { say: 'It changed.', tone: 'note', waitingForWords: false, done: false, locked: false, reread: true })
+  assert.deepEqual(q.outcomeOf({ kind: 'updateRequired', sentence: 'Update reet.' }, 'Yes'), { say: 'Update reet on this machine to answer from here.', tone: 'note', waitingForWords: false, done: false, locked: true, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'readOnly', sentence: 'terminal access denied' }, 'Yes'), { say: 'Your account can look but not answer.', tone: 'note', waitingForWords: false, done: false, locked: true, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'busy', sentence: 'x' }, 'Yes'), { say: 'Another answer is on its way. Wait a moment.', tone: 'note', waitingForWords: false, done: false, locked: false, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'offline', sentence: 'terminal machine is reconnecting; retry after it reconnects' }, 'Yes'), { say: 'The machine is not connected. Try again when it is back.', tone: 'error', waitingForWords: false, done: false, locked: false, reread: false })
+  assert.deepEqual(q.outcomeOf({ kind: 'noReply' }, 'Yes'), { say: 'No reply yet. Check the terminal before answering again.', tone: 'error', waitingForWords: false, done: false, locked: false, reread: false })
   // Fallbacks when the server said nothing.
   assert.match(q.outcomeOf({ kind: 'changed' }, 'Yes').say, /changed/)
   assert.match(q.outcomeOf({ kind: 'updateRequired' }, 'Yes').say, /Update reet/)
 })
 
+test('an answer that leaves the agent waiting for words says so', () => {
+  const out = q.outcomeOf({ kind: 'answered' }, 'No, and tell Claude what to do differently (esc)', { agent: 'Claude Code' })
+  assert.equal(out.say, 'Answered: No, and tell Claude what to do differently (esc). Claude Code is waiting for your words in the terminal.')
+  assert.equal(out.waitingForWords, true)
+  assert.equal(q.outcomeOf({ kind: 'answered' }, 'Yes', { agent: 'Claude Code' }).waitingForWords, false)
+})
+
 test('a failure adds the server’s sentence only when it is a full sentence', () => {
-  assert.equal(q.outcomeOf({ kind: 'failed', sentence: 'that reet session is not available' }, 'Yes').say, 'The answer could not be sent.')
-  assert.equal(q.outcomeOf({ kind: 'failed' }, 'Yes').say, 'The answer could not be sent.')
-  assert.equal(q.outcomeOf({ kind: 'failed', sentence: 'The session is gone.' }, 'Yes').say, 'The answer could not be sent. The session is gone.')
+  assert.equal(q.outcomeOf({ kind: 'failed', sentence: 'that reet session is not available' }, 'Yes').say, 'The answer could not be sent. Try again, or answer in the terminal.')
+  assert.equal(q.outcomeOf({ kind: 'failed' }, 'Yes').say, 'The answer could not be sent. Try again, or answer in the terminal.')
+  assert.equal(q.outcomeOf({ kind: 'failed', sentence: 'The session is gone.' }, 'Yes').say, 'The answer could not be sent. The session is gone. Try again, or answer in the terminal.')
   assert.equal(q.fullSentence('terminal machine is reconnecting; retry after it reconnects'), false)
   assert.equal(q.fullSentence('Look again.'), true)
 })

@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A turn that ends with work still running no longer reads as finished**: when an agent ends its turn while a
+  subagent or background command it started is still open, the session says "In background" (in Chat: when the turn
+  ended, how many tasks are running, and that you can send your next instruction) instead of "Finished", and it does
+  not ring the finish alert. If the agent never says the work ended, reet stops waiting after 30 minutes and says
+  "Stopped waiting", with a note that the work may still be running on the machine. In the Factory, a stage in this
+  state says when it stops waiting, Gaffer does not review it as finished, and moving it on warns first that this
+  stops the work. Needs a machine and a controller on this version; with an older one, sessions read as before.
 - **Factory reads are compressed, and the Factory page reads once**: JSON answers of 1 KiB or more are gzipped for
   browsers that accept it, so a Factory of 30 pipelines is read as about 92 KB, not 353 KB, for a few milliseconds
   more on the controller. On the Factory page the bell now uses the page's own reads, so outcomes are read 12 times a

@@ -159,6 +159,12 @@ type OutcomeInput struct {
 	// one answers the outcome it already started instead of starting another.
 	// It is for a client that may not hear back; the browser sends none.
 	RequestID string `json:"-"`
+	// Template is the template version this plan was built from, set only by
+	// a template launch and recorded on the outcome.
+	Template *store.GafferTemplateRef `json:"-"`
+	// Crew, set only by a template launch, is the crew the person chose for
+	// it, in place of the saved one: a template's stages name no agent.
+	Crew *TemplateCrew `json:"-"`
 }
 
 // OutcomeStageInput is one stage of a planned pipeline: what it is and which
@@ -186,6 +192,9 @@ type OutcomeStageInput struct {
 	// together and run in order, each on its own tier's agent.
 	Part  string `json:"part,omitempty"`
 	Brief string `json:"brief,omitempty"`
+	// Skills are the skill guidance a template launch loaded for the stage at
+	// the revision the template names. No request body can set them.
+	Skills []skillbuddy.Skill `json:"-"`
 }
 
 // MaxStageParts is how many parts one stage can be split into, and
@@ -506,6 +515,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
+	if in.Crew != nil {
+		crew.Light, crew.Standard, crew.Heavy = in.Crew.Light, in.Crew.Standard, in.Crew.Heavy
+	}
 	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, crew, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
 		return o, err
@@ -538,6 +550,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 		return o, invalid("pullLatest", "Choose GitHub's latest code, this machine's copy, or the project's default.")
 	}
 	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, PullLatest: in.PullLatest, Images: append([]string(nil), in.Images...), Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	if in.Template != nil {
+		o.TemplateID, o.TemplateVersion, o.TemplateName = in.Template.ID, in.Template.Version, in.Template.Name
+	}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -638,7 +653,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -655,6 +670,11 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			criteria, err := planCriteria(item.Criteria)
 			if err != nil {
 				return nil, err
+			}
+			for k := range criteria {
+				if k < len(item.CriteriaIDs) && store.ValidGafferOutcomeID(item.CriteriaIDs[k]) {
+					criteria[k].ID = item.CriteriaIDs[k]
+				}
 			}
 			if len(criteria) > 0 {
 				piece.Criteria, piece.CriteriaRevision = criteria, 1

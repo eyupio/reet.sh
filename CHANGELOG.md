@@ -12,6 +12,15 @@ this file existed releases were described on their GitHub release pages.
   "Stopped waiting", with a note that the work may still be running on the machine. In the Factory, a stage in this
   state says when it stops waiting, Gaffer does not review it as finished, and moving it on warns first that this
   stops the work. Needs a machine and a controller on this version; with an older one, sessions read as before.
+- **Private Factory templates**: a finished outcome whose every pipeline finished, or had its delivery accepted, can
+  be saved as a template with **Save as template…**. A template keeps the plan (each pipeline's prompt, stages and
+  tiers, criteria, merge setting and the approved skill revisions) and never the machine, folder, agents, models or
+  sign-ins, which you choose each time you use it. Every save is a new version and old versions stay readable, up to 20
+  templates of 20 versions each. **Templates** on the Factory page lists them; **Use** opens the start step with one
+  line per pipeline, what changed since the version you last used, which pipelines merge by themselves, and any skill
+  that is no longer approved, which you must agree to start without. An outcome started from a template says which
+  template and version it came from, and keeps its own inputs when the template later changes or is deleted.
+  Templates are private to your account. Delete confirmations across reet now use the danger colour.
 - **Factory reads are compressed, and the Factory page reads once**: JSON answers of 1 KiB or more are gzipped for
   browsers that accept it, so a Factory of 30 pipelines is read as about 92 KB, not 353 KB, for a few milliseconds
   more on the controller. On the Factory page the bell now uses the page's own reads, so outcomes are read 12 times a

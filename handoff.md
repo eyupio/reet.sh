@@ -36,6 +36,50 @@ describe the state.
 - Permissions asked by a held tool after the turn ended are not handled specially.
 - On a phone row "Stopped waiting" is cut short, as "Waiting for you" is.
 - The connector's notice names the machine by hostname; the controller's own line uses the name shown in reet.
+## FACTORY-TEMPLATES-6: private, versioned Factory templates (23 November 2026)
+
+Stage 6 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract is
+[docs/handoffs/factory-templates-design.md](docs/handoffs/factory-templates-design.md).
+
+**Model.** `gaffer_templates` holds one row per version, keyed on `(id, version)`, with `UNIQUE(user_id, request_id)`;
+a version is never updated. A version holds the name, description, objective, review limits and each pipeline's title,
+prompt, merge setting, criteria `{id, text}` and stages (kind, part, brief, tier and its reason, skills with their
+approved revision). The copy from an outcome is an allow-list, so no machine, project, agent, model, credential,
+session id, image, note, evidence or decision can reach a template. Caps: 20 templates an account, 20 versions kept
+(the oldest drops), 64 KiB a version. An outcome gains `templateId`, `templateVersion` and `templateName`; older
+outcomes have none.
+
+**Rules.** Only the signed-in browser account, through `featureAccess`; another account gets 404; read-only accounts,
+API tokens and MCP are refused; there is no MCP tool. A plan can be saved when the outcome is not starting and every
+pipeline is done, or accepted in delivery review and not failed, unfollowed or cancelled. A save or edit is version
+`base + 1` only when `base` is the latest. A repeated request answers what it made; the same id with different content,
+or reused across save, edit and launch, is 409 `template_request_reused`. Launch builds an ordinary `OutcomeInput` for
+the project chosen then, through `CreateOutcome` and every plan check, with the crew from the launch body or the saved
+crew. A skill is used only at exactly the stored approved revision; anything else is a gap the launch must list in
+`skippedSkills`, or it is 409 `template_skills_changed` with the current gaps. The diff matches pipelines by title,
+stages by kind and part, criteria by id, and names tier, brief and part changes; its default `from` is the version last
+used, or the oldest kept when that one was dropped.
+
+**UI.** `web/src/lib/factory/Templates.svelte` (list and a template's page), `TemplateSave.svelte`, `TemplatePlan.svelte`,
+`TemplateChanges.svelte`, `TemplateLine.svelte`, `templates.ts`, and a template mode of `GafferOutcome.svelte` that
+reuses the plan step's project, crew, readiness and launch controls. The start step shows one line per pipeline, opens
+only those that changed or have a skill gap, marks what changed in the plan, and names beside Start the pipelines that
+merge by themselves. `ConfirmDialog`'s danger button was being painted in the accent colour by a global rule; it now
+uses the danger colour everywhere.
+
+**Reviews.** An independent backend review (seven should-fix findings, all fixed) and four design passes on the
+screens: audit 15/20, distill, polish, critique 26/40, whose findings the last round fixed.
+
+**Known gaps.**
+- Deleting one version is not built; versions leave only through the 20-version limit.
+- Nothing from the last launch is remembered, so each use fills the start form again.
+- Templates cannot be shared between accounts.
+- The launch is tested end to end at the service layer; at the HTTP layer only as refused where remote sessions are off.
+- Two launches at once with one request id can answer 500 for the second, as `CreateOutcome` already did.
+- A plain start with no saved crew reads "0 of N stages ready, N to look at": the shared readiness rule, not templates.
+
+**Tests.** `internal/store/store_gaffer_templates_test.go`, `internal/gaffer/templates_test.go`,
+`internal/api/gaffer_templates_test.go`, `web/src/lib/factory/templates.test.mjs`, `web/tests/factory-templates.e2e.mjs`.
 
 ## FACTORY-RELIABILITY-4: measured Factory refresh, gzip, one poll, and launches that survive a lost connection (22 November 2026)
 

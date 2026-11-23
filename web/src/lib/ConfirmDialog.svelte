@@ -85,7 +85,9 @@
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
   /* Every target at least 44 px, on a desktop pointer too. */
   .actions button { min-height: 44px; }
-  .danger { background: var(--bad); border-color: var(--bad); color: var(--bg); }
+  /* Scoped under .actions so it outranks the global .btn.primary, which otherwise paints it the accent colour. */
+  .actions .danger { background: var(--bad); border-color: var(--bad); color: var(--bg); }
+  .actions .danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 90%, var(--ink)); border-color: var(--bad); }
   .secondary { color: var(--bad); }
   @media (max-width: 560px) {
     .box { padding: 20px; border-radius: 12px; }

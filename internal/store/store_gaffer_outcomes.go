@@ -332,8 +332,15 @@ type GafferOutcome struct {
 	// ArchivedAt is when the person put this finished outcome away; zero means
 	// it is on the Factory floor. The record and its report are kept.
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
-	CreatedAt  int64 `json:"createdAt"`
-	UpdatedAt  int64 `json:"updatedAt"`
+	// TemplateID and TemplateVersion name the template version the outcome was
+	// started from, and TemplateName what it was called then. The outcome holds
+	// its own copy of everything it runs on, so a later change to the template,
+	// or its deletion, changes nothing here.
+	TemplateID      string `json:"templateId,omitempty"`
+	TemplateVersion int    `json:"templateVersion,omitempty"`
+	TemplateName    string `json:"templateName,omitempty"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
 }
 
 // MaxGafferOutcomeDecisions is how many of Gaffer's decisions an outcome keeps.

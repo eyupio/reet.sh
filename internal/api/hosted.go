@@ -332,6 +332,9 @@ func (s *server) hostedDelete(w http.ResponseWriter, r *http.Request) {
 func (s *server) publicHosted(w http.ResponseWriter, r *http.Request) (store.HostedSkill, bool) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if sk, ok := builtinSkill(r.PathValue("username"), r.PathValue("slug")); ok {
+		return sk, true
+	}
 	sk, err := s.st.PublishedHostedSkill(r.PathValue("username"), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)

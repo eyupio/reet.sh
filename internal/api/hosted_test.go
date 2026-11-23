@@ -485,3 +485,19 @@ func TestHostedSkillRowUsesThePublicAddress(t *testing.T) {
 		t.Fatalf("published with a public address: %v", got)
 	}
 }
+
+func TestBuiltinSkillsServedPublicly(t *testing.T) {
+	srv, _ := newAccountsSrvStore(t, "")
+	for _, slug := range []string{"reet-repo-maintenance", "ruthless-ux-ui-designer"} {
+		code, md := do(t, srv, "GET", "/eyupio/"+slug+"/SKILL.md", "")
+		if code != 200 || !strings.Contains(md, "description:") {
+			t.Fatalf("%s SKILL.md: %d", slug, code)
+		}
+		if code, _ := do(t, srv, "GET", "/eyupio/"+slug, ""); code != 200 {
+			t.Fatalf("%s page: %d", slug, code)
+		}
+	}
+	if code, _ := do(t, srv, "GET", "/eyupio/not-a-skill/SKILL.md", ""); code != 404 {
+		t.Fatalf("unknown built-in: %d", code)
+	}
+}

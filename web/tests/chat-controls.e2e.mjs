@@ -10,7 +10,7 @@ let queue = [], changes = [], serial = 0, commandsAnswer = { commands: [] }, ski
 let controls = { working: true, waiting: false, compacting: false, configuring: false, steering: true, model: 'provider/one', options: [{ id: 'model', category: 'model', current: 'provider/one', values: ['provider/one', 'provider/two'] }, { id: 'effort', category: 'thought_level', current: 'low', values: ['low', 'high'] }] }
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { page, context, errors } = await openWorkspace(browser, {
- width: 1360, height: 900, terminalStatus: active, terminalMachines: [machine],
+ width: 1360, height: 900, scale: process.env.REET_UI_SCREENSHOTS ? 2 : undefined, terminalStatus: active, terminalMachines: [machine],
  routes: {
   '/api/v2/terminal/sessions': { sessions: [session] },
   [`${root}/commands`]: () => commandsAnswer,
@@ -116,7 +116,7 @@ try {
  const sentTexts = []
  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith(`${root}/queue`)) sentTexts.push(request.postDataJSON().text) })
  const skillsButton = page.locator('.composer').getByRole('button', { name: 'Skills', exact: true })
- const picker = page.getByRole('dialog', { name: 'Skills', exact: true })
+ const picker = page.getByRole('dialog', { name: /^(Skills|Commands and skills)$/ })
  const unlisted = page.locator('.notice.unlisted')
  // A lone `/word` opens the Skills sheet as the person types; Escape puts it away before Send, as a person would.
  async function sendDraft(composer, text) {
@@ -146,7 +146,11 @@ try {
   // The commands group comes first; a skill invoked the same way is shown once, in the commands group.
   await expect(options.first()).toContainText('/review')
   await expect(options.first()).toContainText('Review changes')
-  await expect(options.first()).toContainText('branch')
+  // The argument hint sits on the name line, muted, and the row reads as one sentence.
+  await expect(options.first().locator('.name')).toHaveText('/review <branch>')
+  await expect(options.first()).toHaveAccessibleName('/review, takes branch. Review changes')
+  await expect(picker.getByRole('heading', { name: 'Commands and skills' })).toBeVisible()
+  await expect(picker.getByRole('searchbox')).toHaveAttribute('placeholder', 'Filter commands and skills')
   await expect(options).toHaveCount(3)
   await expect(picker.getByText('Review a branch as a skill')).toHaveCount(0)
   await expect(picker.getByRole('option', { name: /pdf/ })).toBeVisible()
@@ -154,10 +158,12 @@ try {
   expect(box.height).toBeGreaterThanOrEqual(width < 500 ? 40 : 36)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await shot(`commands-sheet-${label}`)
-  const filter = picker.getByRole('searchbox', { name: 'Filter skills' })
+  const filter = picker.getByRole('searchbox', { name: /^Filter (commands and )?skills$/ })
   await filter.fill('agents.md')
   await expect(options).toHaveCount(1)
   await expect(options.first()).toContainText('/init')
+  await filter.fill('zzzz')
+  await expect(picker.getByText('Nothing matches.')).toBeVisible()
   await filter.fill('rev')
   const before = sentTexts.length
   await filter.press('ArrowDown')
@@ -165,12 +171,28 @@ try {
   await expect(picker).toHaveCount(0)
   await expect(composer).toHaveValue('/review ')
   expect(sentTexts.length).toBe(before)
+  // The status region is in the page before any warning, empty, and carries the sentence once there is one.
+  const status = page.locator('[data-unlisted-status]')
+  await expect(status).toHaveCount(1)
+  await expect(status).toHaveText('')
   // A command the agent did not list is still sent, with one line beside the composer that goes on the next edit.
   await sendDraft(composer, '/compact the thread')
   await expect.poll(() => sentTexts.at(-1)).toBe('/compact the thread')
   await expect(unlisted).toHaveText(/OpenCode did not list \/compact for Chat\. It may only work in its terminal\./)
   await expect(unlisted.getByRole('button', { name: 'Open terminal', exact: true })).toBeVisible()
+  await expect(status).toHaveText('OpenCode did not list /compact for Chat. It may only work in its terminal.')
   await shot(`unlisted-${label}`)
+  // A short phone with the warning up: the line, the message box and Send can all be reached by scrolling.
+  if (width < 500) {
+   await page.setViewportSize({ width: 390, height: 560 })
+   for (const target of [unlisted.getByRole('button', { name: 'Open terminal', exact: true }), composer, page.getByRole('button', { name: 'Send', exact: true })]) {
+    await target.scrollIntoViewIfNeeded()
+    await expect(target).toBeInViewport()
+   }
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+   await shot(`unlisted-390x560`)
+   await page.setViewportSize({ width: 390, height: 900 })
+  }
   await composer.fill('x')
   await expect(unlisted).toHaveCount(0)
   await sendDraft(composer, '/compact')
@@ -178,6 +200,7 @@ try {
   await sendDraft(composer, '/review now')
   await expect.poll(() => sentTexts.at(-1)).toBe('/review now')
   await expect(unlisted).toHaveCount(0)
+  await expect(status).toHaveText('')
   // A path is not a command: it is sent and nothing is said.
   await sendDraft(composer, '/etc/hosts')
   await expect.poll(() => sentTexts.at(-1)).toBe('/etc/hosts')
@@ -246,6 +269,38 @@ try {
   await picker.getByRole('option', { name: /\/review/ }).click()
   await expect(composer).toHaveValue('/review ')
   skillsFail = false
+  // A machine too old to report commands says so while the skills are still loading.
+  commandsAnswer = { commands: [], code: 'chat_commands_unsupported', error: 'Update reet on this machine to see the agent’s commands.' }
+  await openIdle(width, theme)
+  let hold
+  skillsGate = new Promise(resolve => { hold = resolve })
+  await skillsButton.click()
+  await expect(picker.getByText('Reading skills…')).toBeVisible()
+  await expect(picker.getByText('Update reet on this machine to see the agent’s commands.')).toBeVisible()
+  await shot(`commands-old-machine-loading-${label}`)
+  hold(); skillsGate = Promise.resolve()
+  await page.keyboard.press('Escape')
+  // Long text: a 64 character name, a 300 byte description and a long hint stay inside the sheet, also at twice the text size.
+  const longName = 'long-command-name-'.padEnd(64, 'x')
+  const longText = 'Walks the whole repository and explains every change in plain words, '.repeat(5).slice(0, 300)
+  commandsAnswer = { commands: [{ name: longName, description: longText, hint: 'a-very-long-argument-name-that-keeps-going' }, ...announced] }
+  await openIdle(width, theme)
+  await skillsButton.click()
+  const longRow = picker.getByRole('option').first()
+  await expect(longRow).toContainText(`/${longName}`)
+  for (const size of ['100%', '200%']) {
+   await page.evaluate(size => { document.documentElement.style.fontSize = size }, size)
+   expect(await picker.locator('[data-shell-body]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+   const row = await longRow.boundingBox(), card = await picker.locator('[data-shell-card]').boundingBox()
+   expect(row.x + row.width).toBeLessThanOrEqual(card.x + card.width)
+   // The description keeps to two lines.
+   expect(await longRow.locator('.description').evaluate(el => el.clientHeight <= 2.2 * parseFloat(getComputedStyle(el).lineHeight))).toBe(true)
+   if (size === '100%') await shot(`commands-long-text-${label}`)
+  }
+  await page.evaluate(() => { document.documentElement.style.fontSize = '' })
+  await page.keyboard.press('Escape')
+  commandsAnswer = { commands: announced }
   // No shared terminal view: the header switch's own reason shows instead of nothing.
   machine.capabilities.nativeView = false; nativeOn = false
   await openIdle(width, theme)

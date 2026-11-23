@@ -49,6 +49,10 @@
     }
     return out
   }
+  const filterWords = $derived(commands.length ? 'Filter commands and skills' : 'Filter skills')
+  // The hint is the argument the command takes: shown as `<branch>` after the name, and said as "takes branch".
+  const argument = (hint: string) => (/^[<[]/.test(hint) ? hint : `<${hint}>`)
+  const commandLabel = (c: ChatCommand) => `/${c.name}${c.hint ? `, takes ${c.hint}` : ''}${c.description ? `. ${c.description}` : ''}`
   const reason = (s: SessionSkill) => (s.invocation ? '' : `not native to ${tool}`)
 
   onMount(() => {
@@ -104,7 +108,7 @@
   onclick={(event) => { if (event.target === dialog) close() }}>
   <div class="card" data-shell-card>
     <header data-shell-head>
-      <h2 id={`${id}-title`}>Skills</h2>
+      <h2 id={`${id}-title`}>{commands.length ? 'Commands and skills' : 'Skills'}</h2>
       <button type="button" class="close" data-shell-close aria-label="Close" onclick={close}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
@@ -113,19 +117,18 @@
       {#if keeping && !unknownMachine}
         <SkillInstallPanel skill={keeping} host={data?.host ?? ''} agentId={data?.agentId ?? ''} onclose={closedKeep} />
       {:else}
-      <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
+      <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label={filterWords} placeholder={filterWords} autocomplete="off" spellcheck="false" />
       <!-- The agent's own commands do not wait on the skills read, so they stay when it is slow or fails. -->
       <div class="all" bind:this={list}>
       {#if commandGroup}
         <div class="group">
           <div class="heading" id={`${id}-commands`}>{commandGroup.label}</div>
-          <div class="list single" role="listbox" aria-labelledby={`${id}-commands`}>
+          <div class="list" role="listbox" aria-labelledby={`${id}-commands`}>
             {#each commandGroup.commands as c (c.name)}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <div class="option" id={`${id}-c-${c.name}`} role="option" tabindex="-1" aria-selected="false" onclick={() => onpickcommand?.(c)}>
-                <span class="name">/{c.name}</span>
+              <div class="option" role="option" tabindex="-1" aria-selected="false" aria-label={commandLabel(c)} onclick={() => onpickcommand?.(c)}>
+                <span class="name">/{c.name}{#if c.hint}{" "}<span class="arg isolate">{argument(c.hint)}</span>{/if}</span>
                 {#if c.description}<span class="description isolate">{c.description}</span>{/if}
-                {#if c.hint}<span class="meta isolate">{c.hint}</span>{/if}
               </div>
             {/each}
           </div>
@@ -173,14 +176,14 @@
         </div>
         {#if anyNew}<p class="note"><a class="review" href="/skills?review=new" target="_blank" rel="noopener">Review new skills on the Skills page</a></p>{/if}
         {#if kept}<p class="note" role="status">{kept}</p>{/if}
-        {#if commandsNote}<p class="note" role="status">{commandsNote}</p>{/if}
-        {#if noMatch}<p class="note" role="status">No skills match.</p>{/if}
+        {#if noMatch}<p class="note" role="status">{commands.length ? 'Nothing matches.' : 'No skills match.'}</p>{/if}
         {#if unknownMachine}<p class="note" role="status">This session's machine is not known to reet, so its skills cannot be listed.</p>
         {:else}
           {#if empty}<p class="note" role="status">No skills found on {data.host} yet.</p>{/if}
           <p class="seen">{seenLine(data.machineSeen, data.host, now)}</p>
         {/if}
       {/if}
+      {#if commandsNote}<p class="note" role="status">{commandsNote}</p>{/if}
       </div>
       {/if}
     </div>
@@ -205,11 +208,13 @@
   .install { align-self: flex-start; min-height: 44px; margin: 0 0 6px 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   .option { display: flex; flex-direction: column; gap: 2px; min-height: 40px; justify-content: center; padding: 6px 10px; border-radius: 8px; color: var(--ink); cursor: pointer; }
   .option:hover, .option:focus-visible { background: var(--tint); }
+  .option:active:not([aria-disabled='true']) { background: var(--line-soft); }
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .option[aria-disabled='true'] { cursor: default; opacity: 0.6; }
   .option[aria-disabled='true']:hover { background: none; }
   .name { font-weight: 600; }
   .isolate { unicode-bidi: isolate; }
+  .arg { font-weight: 400; color: var(--muted); }
   .description { font-size: 14px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 14px; color: var(--muted); }
   .reason { font-weight: 600; }

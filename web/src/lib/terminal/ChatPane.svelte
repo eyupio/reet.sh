@@ -256,6 +256,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
  }
  // Set after a send whose first word the agent did not list; cleared by the next send or any edit of the draft.
  let unlisted = $state(''), noteSeq = 0 // noteSeq moves on every send and edit, so a late answer never lands under a later message
+ const unlistedSentence = $derived(`${toolName} did not list /${unlisted} for Chat. It may only work in its terminal.`)
  async function loadSkills() {
   skillsLife?.abort()
   const life = skillsLife = new AbortController()
@@ -1037,7 +1038,9 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
     </ul>
    {/if}
    {#if dictating || dictationProblemText}<p class="notice" class:bad={!dictating} role="status">{#if dictating}{dictationInterim ? `${dictationInterim}…` : 'Listening.'} Your browser sends the audio to its own speech service, not to reet.{:else}{dictationProblemText}{/if}</p>{/if}
-   {#if unlisted}<p class="notice unlisted" role="status">{toolName} did not list /{unlisted} for Chat. It may only work in its terminal.{#if onterminal} <button type="button" class="link" onclick={onterminal}>Open terminal</button>{/if}</p>{/if}
+   <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
+   <p class="vh" role="status" data-unlisted-status>{unlisted ? unlistedSentence : ''}</p>
+   {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlistedSentence}</span>{#if onterminal} <button type="button" class="link" onclick={onterminal}>Open terminal</button>{/if}</p>{/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
@@ -1162,6 +1165,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
  .notice { margin: 2px 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); border-radius: 0 8px 8px 0; background: var(--bg-sunk); color: var(--ink-soft); font-size: 14px; }
+ .notice.unlisted { border: 1px solid var(--line-strong); border-radius: 8px; }
  .notice .link { display: inline; padding: 0 4px; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
  @media (pointer: coarse) { .notice .link { display: inline-flex; align-items: center; min-height: 44px; } }
  .notice .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -232,6 +232,22 @@ fixed patterns in the last 16 lines and dropped: it is not stored, logged or sen
 same time a bell would have set. A plain shell, and an agent reet has no patterns for, are never read. The screen is
 read only when the window's activity says it may have changed, at most every two seconds while it keeps changing.
 
+There is one bounded exception, for a controller that negotiated `terminal-question-v1`. When the screen is a Claude
+Code or Codex dialog the patterns matched, and it reads cleanly (one block of 1 to 9 numbered options with one
+selected), the connector sends the question (up to 500 characters) and the options (up to 9, each up to 200
+characters), with control, format, bidi and zero-width characters and box borders removed, and a fingerprint. Nothing
+else on the screen is sent. The machine keeps them in memory, never in its registry, and the controller keeps them in
+memory only: never in its database and never in its logs, so they are gone after a restart until the machine sends
+them again. The fingerprint is a SHA-256 of the pane, the question, the options and the dialog lines above the
+options (such as the command an approval would run); those lines are hashed on the machine and never sent.
+
+An answer from the web (`POST /api/v2/terminal/sessions/{id}/answer` with the fingerprint and an option number) is
+terminal input, with the same rules as typing: the owner's signed-in browser, never a viewer or an API token. The
+machine reads the screen again, and only if the fingerprint still matches does it send keys to that pane: the arrow
+keys from the selected option to the chosen one, then Enter. The browser never sends keys. A question is answered
+once; asking again for the same fingerprint answers "already answered" and sends nothing. The audit log records the
+option number, never the question.
+
 Linux services use journal retention. Rotate macOS service logs and the detached
 fallback's private agent log with the host's log management; restart the agent
 after rotating a fallback log so its file descriptor reopens. Without rotation

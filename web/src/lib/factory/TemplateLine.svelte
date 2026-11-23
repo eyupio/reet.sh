@@ -19,9 +19,9 @@
 </script>
 
 {#if seen.state !== 'reading'}<p class="from">
-  {#if seen.state === 'deleted'}{#if recorded}From template {recorded}, version {version}. That template has since been deleted.{:else}From a template that has since been deleted, version {version}.{/if}
-  {:else if seen.state === 'unknown'}{recorded ? `From template ${recorded}, version ${version}.` : `From a template, version ${version}.`}
-  {:else}From template <button class="inline" type="button" onclick={() => onopen(id)}>{recorded || seen.name}</button>, version {version}{seen.state === 'dropped' ? ', which is no longer kept' : ''}.{/if}
+  {#if seen.state === 'deleted'}{#if recorded}From template “{recorded}”, version {version}. That template has since been deleted.{:else}From a template that has since been deleted, version {version}.{/if}
+  {:else if seen.state === 'unknown'}{recorded ? `From template “${recorded}”, version ${version}.` : `From a template, version ${version}.`}
+  {:else}From template “<button class="inline" type="button" onclick={() => onopen(id)}>{recorded || seen.name}</button>”, version {version}{seen.state === 'dropped' ? ', which is no longer kept' : ''}.{/if}
 </p>{/if}
 
 <style>

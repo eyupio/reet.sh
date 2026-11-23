@@ -704,6 +704,10 @@ func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, 
 func (l *chatLog) close() {
 	l.mu.Lock()
 	l.closing = true
+	if l.heldTimer != nil {
+		l.heldTimer.Stop()
+		l.heldTimer = nil
+	}
 	batch, trimSeq := l.takeWritesLocked()
 	for id, ch := range l.subs {
 		delete(l.subs, id)
@@ -875,18 +879,24 @@ func (b *Broker) holdBackground(uid int64, session string, l *chatLog) {
 	l.heldTimer = time.AfterFunc(max(0, wait), func() {
 		l.mu.Lock()
 		l.heldTimer = nil
+		if l.closing {
+			// A closed log was replaced or ended; its state is no longer the chat's.
+			l.mu.Unlock()
+			return
+		}
 		expired := l.lastState == "background" && l.backgroundAt == at
 		if expired {
-			l.lastState = "unwatched"
-			l.gaveUp = false
+			// The hold ended when the bound passed, which a restart may only notice later.
 			l.completedAt = time.UnixMilli(at).Add(backgroundHold).UnixMilli()
 		}
 		l.mu.Unlock()
 		if expired {
-			// The machine said nothing, so the transcript says why the chat stopped waiting.
+			// The machine said nothing, so the transcript says why the chat stopped waiting, and
+			// ends on a status that says so: the open chat and a replay read it, not only the list.
 			if row, err := b.st.TerminalSessionFor(uid, session); err == nil {
 				l.publish(terminalproto.ACPEvent{Kind: "notice", Text: unwatchedNotice(terminalproto.ToolName(row.Tool), b.machineName(uid, row.AgentID))})
 			}
+			l.publish(terminalproto.ACPEvent{Kind: "status", State: "idle", Code: terminalproto.ACPCodeUnwatched})
 			b.saveChatAttention(uid, session, l)
 		} else {
 			// A later hold began while this one waited.
@@ -897,11 +907,16 @@ func (b *Broker) holdBackground(uid int64, session string, l *chatLog) {
 }
 
 // saveChatAttention stores what the chat log says about the chat's attention.
+// A closed log is no longer the chat's, so it stores nothing.
 func (b *Broker) saveChatAttention(uid int64, session string, l *chatLog) {
 	if b.st == nil {
 		return
 	}
 	l.mu.Lock()
+	if l.closing {
+		l.mu.Unlock()
+		return
+	}
 	actAt, waitAt := l.updatedAt, l.waitingAt
 	st, compAt, held := l.lastState, l.completedAt, l.heldSinceLocked()
 	l.mu.Unlock()

@@ -184,12 +184,55 @@ func TestTheBrokersOwnLimitStopsWaitingAndSaysSo(t *testing.T) {
 	}, "broker limit")
 	snapshot, _, _, cancel := b.SubscribeChat(uid, s.ID)
 	cancel()
+	noticed := false
+	var last terminalproto.ACPEvent
 	for _, event := range snapshot {
 		if event.Kind == "notice" && strings.Contains(event.Text, "reet stopped waiting; it may still be running on") {
-			return
+			noticed = true
+		}
+		if event.Kind == "status" {
+			last = event.ACPEvent
 		}
 	}
-	t.Fatalf("no transcript line for the controller's own limit: %+v", snapshot)
+	if !noticed {
+		t.Fatalf("no transcript line for the controller's own limit: %+v", snapshot)
+	}
+	// The open chat and a replay end on the same word: a status that stopped waiting, holding nothing.
+	if last.State != "idle" || last.Code != terminalproto.ACPCodeUnwatched || last.Background != 0 {
+		t.Fatalf("the transcript's last status is %+v, want idle, unwatched, nothing held", last)
+	}
+	row, _ := b.st.TerminalSessionFor(uid, s.ID)
+	if row.CompletedAt == 0 || row.CompletedAt > time.Now().UnixMilli() {
+		t.Fatalf("completed at %d", row.CompletedAt)
+	}
+}
+
+// A chat log that is closed (a switch to the terminal, the session's end, the
+// broker's shutdown) takes its hold timer with it: the timer never writes over
+// the state of the log that replaced it.
+func TestAClosedChatsHoldTimerLeavesItsReplacementAlone(t *testing.T) {
+	old := backgroundHold
+	backgroundHold = 80 * time.Millisecond
+	t.Cleanup(func() { backgroundHold = old })
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "working"})
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle", Background: 1})
+	b.closeChat(uid, s.ID)
+	// The chat comes back and runs a turn of its own.
+	b.chatLog(uid, s.ID)
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "working"})
+	time.Sleep(3 * backgroundHold)
+	if row, _ := b.st.TerminalSessionFor(uid, s.ID); row.ChatStatus != "working" {
+		t.Fatalf("the closed log's timer wrote %q over the new chat", row.ChatStatus)
+	}
+	snapshot, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	cancel()
+	for _, event := range snapshot {
+		if event.Kind == "notice" || event.Code == terminalproto.ACPCodeUnwatched {
+			t.Fatalf("the closed log's timer wrote into the new chat: %+v", event)
+		}
+	}
 }
 
 func TestARestoredHoldKeepsItsStartAndAStoppedWaitStays(t *testing.T) {

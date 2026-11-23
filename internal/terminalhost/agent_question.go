@@ -148,6 +148,12 @@ func questionOnScreen(tool, pane, screen string) *terminalproto.TerminalQuestion
 		// and the keys are worked out from a fresh read anyway.
 		sum.Write([]byte("\x00" + strconv.Itoa(q.Options[i].Index) + "\x1f" + q.Options[i].Label))
 	}
+	// So is what the question is about: the lines above the options, such as
+	// the command an approval would run. They are hashed here and never sent,
+	// so "Yes" to one command is never sent to another.
+	for _, l := range lines[:first] {
+		sum.Write([]byte("\x00" + normalise(l.text)))
+	}
 	q.Fingerprint = hex.EncodeToString(sum.Sum(nil))
 	if !q.Valid() {
 		return nil

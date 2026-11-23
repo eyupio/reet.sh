@@ -297,14 +297,15 @@ func TestQuestionOnScreenNeedsConfidence(t *testing.T) {
 }
 
 // The fingerprint names the question, not the drawing: a redraw that moves
-// the cursor or pads the lines keeps it, another question or pane does not.
+// the cursor or pads the lines keeps it; another question, option, command
+// or pane does not.
 func TestQuestionFingerprint(t *testing.T) {
 	base := questionOnScreen("claude", "%3", claudeCommandPrompt)
 	if base == nil || !terminalproto.ValidFingerprint(base.Fingerprint) {
 		t.Fatalf("no fingerprint: %+v", base)
 	}
 	padded := strings.ReplaceAll(claudeCommandPrompt, "\n", "   \n")
-	cursor := strings.Replace(claudeCommandPrompt, "Run the test suite", "Run the test suite█", 1)
+	cursor := claudeCommandPrompt + "█\n"
 	moved := strings.Replace(strings.Replace(claudeCommandPrompt, "❯ 1. Yes", "  1. Yes", 1), "  2. Yes", "❯ 2. Yes", 1)
 	for name, screen := range map[string]string{"trailing spaces": padded, "a cursor blink": cursor, "the selection moved": moved} {
 		if q := questionOnScreen("claude", "%3", screen); q == nil || q.Fingerprint != base.Fingerprint {
@@ -318,6 +319,15 @@ func TestQuestionFingerprint(t *testing.T) {
 	option := strings.Replace(claudeCommandPrompt, "go test commands", "go vet commands", 1)
 	if q := questionOnScreen("claude", "%3", option); q == nil || q.Fingerprint == base.Fingerprint {
 		t.Errorf("another option kept the fingerprint: %+v", q)
+	}
+	// The same question about another command is another question.
+	command := strings.Replace(claudeCommandPrompt, "go test ./...", "rm -rf ~/   ", 1)
+	if q := questionOnScreen("claude", "%3", command); q == nil || q.Fingerprint == base.Fingerprint {
+		t.Errorf("another command kept the fingerprint: %+v", q)
+	}
+	codex := questionOnScreen("codex", "%3", codexCommandPrompt)
+	if q := questionOnScreen("codex", "%3", strings.Replace(codexCommandPrompt, "make migrate", "make drop-db", 1)); q == nil || codex == nil || q.Fingerprint == codex.Fingerprint {
+		t.Errorf("another codex command kept the fingerprint: %+v", q)
 	}
 	if q := questionOnScreen("claude", "%4", claudeCommandPrompt); q == nil || q.Fingerprint == base.Fingerprint {
 		t.Errorf("another pane kept the fingerprint: %+v", q)

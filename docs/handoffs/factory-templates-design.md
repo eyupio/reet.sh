@@ -33,14 +33,15 @@ A version's `data` (`store.GafferTemplateContent`):
 | `maxReviews`, `hours` | The outcome's review limits. |
 | `pipelines[]` | 1 to 5: `{title, prompt, autoMerge, stages[], criteria[]}`. |
 | `stages[]` | `{kind, part?, brief?, tier, tierWhy?, skills[]}`. No agent, model, effort, billing source or backup. |
-| `skills[]` | Up to 2 per stage: `{id, name, source, revision}`. The revision the skill was approved at; no instructions. |
+| `skills[]` | Up to 2 per stage, each id once: `{id, name, source, revision}`. The revision the skill was approved at; no instructions. |
 | `criteria[]` | Up to 10: `{id, text}`. `id` is stable across versions of the template. |
 
 Each version also records `requestId`, `outcomeId` (the outcome it was saved from, or empty for an edit) and
 `createdAt`.
 
-An outcome started from a template records `templateId` and `templateVersion` on itself. Outcomes without them behave
-exactly as before.
+An outcome started from a template records `templateId`, `templateVersion` and `templateName` (the template's name at
+the launch) on itself, so a run still names its template after the template is deleted. Outcomes without them behave
+exactly as before; one with an id and version but no name says only the version.
 
 ## Rules
 
@@ -48,7 +49,8 @@ exactly as before.
   found (404), read-only accounts, API tokens and MCP connections are refused (403). There is no MCP tool.
 - **Saved from a successful plan.** The outcome must be the account's own, not `starting`, have at least one pipeline,
   and every pipeline must be successful: it has stages and is `done`, or its delivery in hand was accepted
-  (`deliveryAccepted`). Otherwise **409 `template_not_successful`**. A plan of more than five pipelines cannot be
+  (`deliveryAccepted`) and it has not since `failed`, been `unfollowed` or been `cancelled`. Otherwise **409
+  `template_not_successful`**. A plan of more than five pipelines cannot be
   started again and is refused (422).
 - **What is copied.** The objective, review limits, and per pipeline the title, prompt, merge setting (`autoMerge`), the
   stage layout (kind, part, brief, tier and its reason), the current criteria text and each stage's skill ids and
@@ -60,29 +62,45 @@ exactly as before.
   otherwise **409 `template_changed`**. Two saves on the same version: one wins, the other gets `template_changed`.
 - **Bounded.** 20 templates per account (**409 `template_limit`** for a 21st), 20 versions kept per template (saving
   the 21st drops the oldest; the latest always stays), 64 KiB of JSON per version (**422 `template_too_large`**).
-- **Duplicate requests.** Every write carries `requestId` (32 lowercase hex). The same request again answers the
-  version it made; the same id with a different request is **409 `template_request_reused`**. A launch passes its
-  `requestId` to the outcome, which already answers a repeated create with the outcome it started.
+- **Duplicate requests.** Every write carries `requestId` (32 lowercase hex). The id is looked up first, before the
+  outcome or the latest version is read again, so the same request again answers the version it made even after the
+  outcome or the template has moved on. The same id with a different request is **409 `template_request_reused`**:
+  for a save, another outcome, template, base version, name or description; for an edit, another template, base
+  version or content (criteria compared by text). A launch passes its `requestId` to the outcome, which answers a
+  repeated create with the outcome it started. A launch may not use an id a save or edit used, nor a save or edit an
+  id an outcome has: both are `template_request_reused`. A version dropped by the 20-version limit no longer answers
+  its request.
 - **Resolved at launch.** Launching builds an ordinary `OutcomeInput` from the version for the project the person
-  chooses now, and the machine is that project's. Stages name no agent, so each takes its tier's from the crew saved at
-  that moment, else the outcome agent chosen in the launch. YOLO, trust, pull-latest, automation, auto-report and
+  chooses now, and the machine is that project's. Stages name no agent, so each takes its tier's from the launch's
+  `crew` when it has one, else the crew saved at that moment; a tier with no agent takes the outcome agent chosen in
+  the launch. `crew` is `{light, standard, heavy}`, each `{tool, model?, effort?, provider?, backup?, moreBackups?}`:
+  the agent, model, effort and backups a tier means, exactly as Gaffer settings saves a crew tier and as the outcome
+  dialog's crew editor sets it before a plan is approved. It replaces all three saved tiers, and each stage it reaches
+  is checked as an approved stage is (a reviewed chat agent, a model and effort it accepts, a Cline source, at most
+  three backups). The template still stores no agent. YOLO, trust, pull-latest, automation, auto-report and
   balancing are chosen in the launch, as they are when approving a plan. The plan input otherwise equals the version.
 - **Skills at launch.** Each named skill is loaded for the account now. It is used only when it is still approved
   **at the same revision**; it is never replaced by another revision. A skill that is not is a gap, `changed` (a
   newer revision is the approved one) or `unavailable` (archived, removed, disabled or unreadable). A launch must list
   the gaps it was shown in `skippedSkills` (`"<pipeline index>:<stage index>:<skill id>"`); if the gaps now differ,
-  **409 `template_skills_changed`** with the current gaps. Skipped skills are left out of the stage, nothing else.
+  **409 `template_skills_changed`** with the current gaps in the body as `gaps` (the same objects as `skillGaps`).
+  Skipped skills are left out of the stage, nothing else. A gap never stops a save or an edit: a rename keeps the
+  skills as they are.
 - **Show changes before use.** `lastUsedVersion` is the version of the account's newest outcome started from the
-  template, read from the outcomes kept. The difference route compares any two kept versions.
+  template, read from the outcomes kept, and `lastUsedAt` that outcome's creation time (0 when none). The difference
+  route compares any two kept versions. By default it compares from the version last used; when that version is no
+  longer kept it starts at the oldest kept version and sets `olderNotShown`.
 - **Existing runs keep their inputs.** An outcome copies everything it runs on when it is created. Editing or deleting
   the template later changes nothing in it; it still names the version it came from.
 - **Delete** removes the template and every version; outcomes are untouched. It names the latest version it saw:
-  otherwise `template_changed`.
+  otherwise `template_changed`. A single version cannot be deleted: versions leave only by the 20-version limit,
+  oldest first, so the kept versions are always the newest run of numbers and a comparison never spans a hole.
 
 ## API
 
 All under `/api/v2/gaffer/templates`, JSON, strict bodies, `Cache-Control: no-store`. 404 for an id the account does
-not have; 422 with `field` for invalid input.
+not have; 422 with `field` for invalid input, including a `version`, `from` or `to` that is not a positive whole
+number (`field: "version"`).
 
 | Route | Body | Answer |
 | --- | --- | --- |
@@ -92,7 +110,7 @@ not have; 422 with `field` for invalid input.
 | `GET /templates/{id}/versions/{version}` | — | `Template` for that version |
 | `PUT /templates/{id}` | `{requestId, baseVersion, content}` | 200 `Template` (the new version) |
 | `GET /templates/{id}/diff?from=&to=` | — | `Diff`. `to` defaults to the latest, `from` to `lastUsedVersion`, else `to − 1` |
-| `POST /templates/{id}/launch` | `{requestId, version, projectId, tool, model?, provider?, trust, yolo, pullLatest?, autoReport, automation, balanceBelow?, skippedSkills?, confirmed}` | 201 outcome, as `POST /outcomes` |
+| `POST /templates/{id}/launch` | `{requestId, version, projectId, tool, model?, provider?, trust, yolo, pullLatest?, autoReport, automation, balanceBelow?, crew?, skippedSkills?, confirmed}` | 201 outcome, as `POST /outcomes` |
 | `DELETE /templates/{id}?version=N` | — | 204 |
 
 `content` in a `PUT` is the version's `data` above, checked as a plan approval would check it. A criterion with an
@@ -100,14 +118,14 @@ not have; 422 with `field` for invalid input.
 kind's default. An outcome started from a template keeps the template's criterion ids, so a criterion reworded during
 the run and saved back reads as reworded, not as removed and added.
 
-`Summary`: `{id, version, name, description, pipelines, createdAt, updatedAt, lastUsedVersion}`.
+`Summary`: `{id, version, name, description, pipelines, createdAt, updatedAt, lastUsedVersion, lastUsedAt}`.
 
 `Template`:
 
 ```json
 {
   "id": "…", "version": 3, "latest": 3, "versions": [1, 2, 3], "requestId": "…",
-  "outcomeId": "…", "createdAt": 1795000000000, "lastUsedVersion": 2,
+  "outcomeId": "…", "createdAt": 1795000000000, "lastUsedVersion": 2, "lastUsedAt": 1795100000000,
   "content": {"name": "CSV export", "description": "", "objective": "…", "maxReviews": 8, "hours": 24,
     "pipelines": [{"title": "Export API", "prompt": "…", "autoMerge": false,
       "criteria": [{"id": "…", "text": "The export downloads as CSV."}],
@@ -124,6 +142,7 @@ the run and saved back reads as reworded, not as removed and added.
 {
   "from": 2, "to": 3, "changed": true,
   "nameChanged": false, "descriptionChanged": false, "objectiveChanged": false, "limitsChanged": false,
+  "orderChanged": false, "olderNotShown": false,
   "pipelines": [{"title": "Export API", "change": "changed",
     "promptChanged": true, "autoMergeChanged": false, "stagesChanged": true,
     "stagesBefore": ["code", "review"], "stagesAfter": ["code", "review", "test"],
@@ -134,6 +153,8 @@ the run and saved back reads as reworded, not as removed and added.
 
 `change` is `added`, `removed`, `changed` or `same`. Pipelines are matched by title, stages by kind and part. A skill
 `from` or `to` is empty where the stage did not have it. `stagesChanged` covers the kind, part, brief and tier.
+`orderChanged` says the pipelines both versions have run in another order. Titles, prompts, parts, briefs and tier
+reasons are stored trimmed, so spaces alone never read as a change.
 
 Conflict codes (409, with `code`): `template_not_successful`, `template_changed`, `template_limit`,
 `template_request_reused`, `template_skills_changed`.
@@ -141,4 +162,5 @@ Conflict codes (409, with `code`): `template_not_successful`, `template_changed`
 ## Not built here
 
 The UI (a separate job), an MCP tool (templates are browser-only on purpose), sharing a template with another
-account, and starting a template with a different objective or pipelines without saving a new version first.
+account, starting a template with a different objective or pipelines without saving a new version first, and deleting
+one version (see **Delete**).

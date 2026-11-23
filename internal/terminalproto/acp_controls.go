@@ -92,12 +92,14 @@ type ACPControls struct {
 	Steering    bool         `json:"steering"`
 	Model       string       `json:"model"`
 	Options     []ACPSetting `json:"options"`
+	// Background is the ended turn's work still running (acp-background-v1 only).
+	Background int `json:"background,omitempty"`
 }
 
 func (s ACPControls) Valid() bool {
 	tooMany := len(s.Options) > 3
 	invalidModel := s.Model != "" && !ValidModel(s.Model)
-	if tooMany || invalidModel {
+	if tooMany || invalidModel || !validBackground(s.Background) {
 		return false
 	}
 	ids, categories := map[string]bool{}, map[string]bool{}

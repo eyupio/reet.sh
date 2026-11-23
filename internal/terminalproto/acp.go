@@ -290,11 +290,17 @@ type ACPEvent struct {
 	// Usage is the agent's own token and context report. It is meaningful only
 	// on the usage kind, which carries nothing else.
 	Usage *ACPUsage `json:"usage,omitempty"`
+	// Background is how many tool calls the ended turn left running. It is sent
+	// only with acp-background-v1, and only on an idle status.
+	Background int `json:"background,omitempty"`
 }
 
 func (ACPEvent) kind() string { return "acp_event" }
 
 func (e ACPEvent) valid() bool {
+	if !validBackground(e.Background) || e.Background > 0 && (e.Kind != "status" || e.State != "idle") {
+		return false
+	}
 	if e.Code != "" && e.Kind != "status" {
 		return false
 	}

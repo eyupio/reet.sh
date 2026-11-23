@@ -28,6 +28,8 @@ func Checklist() []ChecklistItem {
 			"REET_OIDC_SCOPES", "REET_OIDC_PASSWORD_LOGIN", "REET_OIDC_AUTO_CREATE", "REET_OIDC_LINK_BY_EMAIL", "REET_OIDC_DEFAULT_ROLE", "REET_OIDC_BUTTON_LABEL",
 			"REET_OIDC_EMAIL_CLAIM", "REET_OIDC_NAME_CLAIM", "REET_OIDC_GROUPS_CLAIM", "REET_OIDC_ADMIN_GROUPS", "REET_OIDC_MEMBER_GROUPS", "REET_OIDC_VIEWER_GROUPS"},
 			"Single sign-on settings. The callback address changes with the controller, so register the new REET_OIDC_REDIRECT_URL with the identity provider."},
+		{[]string{"REET_TRUSTED_PROXIES"},
+			"The reverse proxies whose word on a visitor's address is believed. A new machine usually sits behind a different proxy address; list that one, and only it."},
 		{[]string{"REET_BACKUP_KEY"},
 			"The backup key. The same key opens the copy's stored secrets; with another key they are cleared and listed above."},
 		{[]string{"REET_BACKUP_DIR", "REET_BACKUP_EVERY", "REET_BACKUP_KEEP", "REET_BACKUP_USER_EVERY", "REET_BACKUP_USER_KEEP", "REET_BACKUP_DESTINATION",

@@ -753,8 +753,18 @@ func TestPeerReadyResumesAnInterruptedRemoveOnClose(t *testing.T) {
 		return terminalproto.Result{Code: terminalproto.Unavailable}
 	})
 	f.srv.s.onPeerReady(f.uid, f.agent.ID)
-	if rows, err := f.st.TerminalSessionsFor(f.uid); err != nil || len(rows) != 0 {
-		t.Fatal("the restart replay did not finish the removal", rows, err)
+	// The close observed above may still hold this session's cleanup claim, in which case the replay returns at once and
+	// that cleanup finishes the removal a moment later.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		rows, err := f.st.TerminalSessionsFor(f.uid)
+		if err == nil && len(rows) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the restart replay did not finish the removal", rows, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 1 || len(worktreeEvents(t, f.st, f.uid, "session-remove")) != 1 {
 		t.Fatal("the resumed cleanup was not audited")

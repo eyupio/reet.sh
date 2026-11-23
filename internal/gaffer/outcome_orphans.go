@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -60,7 +61,10 @@ func (s *Service) releaseGoneSessions() {
 			continue
 		}
 		for _, piece := range o.Sessions {
-			if piece.State != "following" || piece.SessionID == "" || !s.sessionGone(o.OwnerID, piece.SessionID) {
+			if piece.State != "following" || piece.SessionID == "" {
+				continue
+			}
+			if !s.sessionGone(o.OwnerID, piece.SessionID) {
 				continue
 			}
 			key, session, conversation := piece.Key, piece.SessionID, piece.ConversationID
@@ -81,6 +85,52 @@ func (s *Service) releaseGoneSessions() {
 			}
 			s.stopPipelineGoal(o.OwnerID, conversation, sessionGoneNote)
 			s.auditPipeline(after, key)
+		}
+	}
+}
+
+// endLeftBehind ends the sessions pipelines have left behind that still run:
+// an exhausted agent replaced by its backup, or a stage sent back, whose
+// machine could not be reached when it was left. The pipeline may have moved
+// on to its review, its merge or its end by the time the machine answers.
+func (s *Service) endLeftBehind() {
+	rows, err := s.store.RetiredGafferOutcomes()
+	if err != nil {
+		return
+	}
+	for _, o := range rows {
+		if _, err := s.chatPrincipal(o.OwnerID); err != nil {
+			continue
+		}
+		for _, piece := range o.Sessions {
+			switch piece.State {
+			case "following", "delivery_review", "ready_to_merge", "done":
+				s.endRetired(o, piece)
+			}
+		}
+	}
+}
+
+// endRetired ends the sessions one pipeline has left behind that still run.
+// A machine that fails to end one is asked again only after endRetryAfter.
+func (s *Service) endRetired(o store.GafferOutcome, piece store.GafferOutcomeSession) {
+	for _, conversation := range piece.Retired {
+		c, err := s.store.GafferConversationFor(o.OwnerID, conversation)
+		if err != nil || c.SessionID == "" || c.SessionID == piece.SessionID {
+			continue
+		}
+		if !s.sessionRunning(o.OwnerID, c.SessionID) {
+			s.endTried.Delete(c.SessionID)
+			continue
+		}
+		if !s.endDue(c.SessionID) {
+			continue
+		}
+		s.endFinishedSession(context.Background(), o, piece.Key, c.SessionID, "Its pipeline had left it behind, and it was still running.")
+		if s.sessionRunning(o.OwnerID, c.SessionID) {
+			s.endFailed(c.SessionID)
+		} else {
+			s.endTried.Delete(c.SessionID)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 # Factory delivery review and follow-up implementation plan
 
-22 November 2026 · Product reference [SoduWork’s requirement and acceptance flow](https://github.com/mdiri-ai/SoduWork/blob/d28cd7eb94454a7ea35dd073ddaacd069229582b/README.md#how-it-works).
+22 November 2026
 
 **Ship Factory delivery review first.** Start with an editable checklist and a human decision tied to the reviewed Git revision. Follow with launch readiness and recovery UX. Use the operational data from those changes to choose the smallest worthwhile performance improvement.
 
@@ -24,7 +24,7 @@ Stage 0 should also triage the reproduced temporary-project ordering test. Give 
 - **Plan and data.** Give checklist items stable IDs and an approved criteria revision. Store evidence against the pipeline, criterion and reviewed commit. Record the actor and time for acceptance or rework. Use trusted GitHub check references and approved artefact links. Label manual reviewer notes distinctly.
 - **Server rules.** Check authorisation and pipeline scope on every review read and write. Validate the observed revision and current Git head before applying a decision, and use an atomic conditional write for the local review state. A later revision presents earlier evidence as historical. Keep delivery acceptance and GitHub merge approval as distinct actions. If a check or commit cannot be verified, display **Unverified**.
 - **Decision card.** Show **Passed**, **Needs work** and **Unverified** with supporting evidence. Put **Accept delivery** and **Send back** alongside the findings. Make the selected commit and changed-head state legible on a phone. Link the Home summary to the exact review.
-- **Tests.** Cover an old outcome, an interrupted request, duplicate submissions, two reviewers acting concurrently, changed criteria, a new commit, missing evidence and access from another project or account. Exercise the Go store/API and the existing Chromium Factory and Home fixtures. [Factory handover](https://github.com/eyupio/reet.sh/blob/89c6ba1a5ed8ec108ebe78e60efc3ca67fe0063e/internal/gaffer/outcome_runs.go#L1078-L1138) · [SoduWork review reference](https://github.com/mdiri-ai/SoduWork/blob/d28cd7eb94454a7ea35dd073ddaacd069229582b/hub-backend/app/services/task_acceptance_review.py#L124-L188)
+- **Tests.** Cover an old outcome, an interrupted request, duplicate submissions, two reviewers acting concurrently, changed criteria, a new commit, missing evidence and access from another project or account. Exercise the Go store/API and the existing Chromium Factory and Home fixtures. [Factory handover](https://github.com/eyupio/reet.sh/blob/89c6ba1a5ed8ec108ebe78e60efc3ca67fe0063e/internal/gaffer/outcome_runs.go#L1078-L1138)
 
 ## Factory crew settings
 

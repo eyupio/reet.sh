@@ -86,7 +86,8 @@ func (s *Service) dropStageEffort(o store.GafferOutcome, key string, at int, kin
 				if row.RequestID == from {
 					row.RequestID = request
 				}
-				row.Stages[at].RequestID = request
+				// Recorded as in flight before it is sent, as every launch is.
+				row.Stages[at].RequestID, row.UnsureRequest = request, request
 			}
 			row.UpdatedAt = time.Now().UnixMilli()
 			dropped = true

@@ -1,5 +1,43 @@
 # Reet central-control implementation handoff
 
+## FACTORY-RELIABILITY-4: measured Factory refresh, gzip, one poll, and launches that survive a lost connection (22 November 2026)
+
+Stage 4 of [the delivery review plan](docs/handoffs/factory-delivery-review.md).
+
+**Measured first.** Two kept measurements, neither a test nor in a workflow: `internal/api/gaffer_factory_baseline_test.go`
+(`REET_FACTORY_BASELINE=1 go test ./internal/api/ -run TestFactoryRefreshBaseline -v -count=1`) and
+`web/tests/factory-refresh-baseline.mjs`. For 6 outcomes × 5 pipelines × 8 stages one outcomes read was 353,372 bytes,
+uncompressed, read 16 times a minute on the Factory page (the page's 5 s poll plus the shell's 15 s attention poll),
+about 6.4 MB a minute in all. Half of each read is stage handover summaries, which only the open pipeline's detail
+draws. Time to a visible decision is bounded by the 5 s poll (median about 1.7 s desktop).
+
+**Performance.** `writeJSON` gzips a body of 1 KiB or more when `compressJSON` marked the response as accepting gzip
+(not HEAD, not an upgrade; never 204, 304, 206 or an already encoded body) and sets `Vary: Accept-Encoding` on every
+JSON body. The marker type overrides nothing that writes, so streams, flushing and hijacking are untouched. The
+outcomes read is 92,490 bytes as sent, for about 6 ms more per read. On `/factory` the shell's poll uses the reads the
+Factory page hands it (with the time each started) and reads outcomes and goals itself only on first load, after an
+answer, or when the page's read is over 15 s old. The two changes were not measured together.
+
+**Reliability.** `internal/gaffer/outcome_disconnect_test.go` exercises a lost machine and a controller restart at
+launch, fallback, approval and handover. What changed in the controller:
+- A launch's request is written to `UnsureRequest` in the same write that marks the pipeline starting and cleared when
+  the answer is known. Whether it was sent, and what became of it, is read from the machine's create record in
+  `terminal_operations` (`launchSent`): none or `failed` means not started; a running session is taken up; anything
+  unreadable stays unknown. So a lost reply or a restart never starts a second session, and a merge launch in flight
+  at a restart is not forgotten.
+- Sending a pipeline back ends the session an unanswered launch started.
+- `rebalanceStopped` marks a stage as moved to its backup in the retry's own write, counts an end as done only when
+  the session no longer runs, and waits 5 minutes (in memory) before asking a machine again.
+- `endLeftBehind` ends retired sessions of pipelines that are following, in delivery review, ready to merge or done.
+
+**Known gaps.**
+- A send-back that lands while a launch is in flight may have its new state overwritten by the old run's failure
+  write; noticed in review, not tested or fixed.
+- Deleting an outcome whose launch is unanswered leaves that session running. A session still being created when its
+  pipeline is sent back is not ended later.
+- No ETag, compact list read or change to poll intervals. The phone chat that stops following a streaming reply (see
+  the long-chat baseline) is not addressed.
+- Nothing ran against a real machine.
 ## FIRST-USEFUL-RUN-5: a guided first session on Home (22 November 2026)
 
 Stage 5 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). Web UI and docs only; no Go, no API.

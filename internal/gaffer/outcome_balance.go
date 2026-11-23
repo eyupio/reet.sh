@@ -304,6 +304,10 @@ func (s *Service) recoverPipelineWorker(uid int64, id, key, session string, revi
 // is never interrupted: only a session that has ended, or whose agent has
 // stopped or failed, is replaced, and only once for a stage.
 func (s *Service) rebalanceStopped(ctx context.Context) {
+	// One pass at a time: a pass asked for while another runs would end the
+	// same session and retry the same stage beside it.
+	s.rebalancing.Lock()
+	defer s.rebalancing.Unlock()
 	rows, err := s.store.BackedGafferOutcomes()
 	if err != nil {
 		return
@@ -321,6 +325,9 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 				continue
 			}
 			running := s.sessionRunning(o.OwnerID, piece.SessionID)
+			if !running {
+				s.endTried.Delete(piece.SessionID)
+			}
 			if running {
 				// Still there: only an agent that has itself stopped or failed counts.
 				g, err := s.store.GafferGoalFor(o.OwnerID, piece.ConversationID)
@@ -345,23 +352,15 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 			if _, err := s.chatPrincipal(o.OwnerID); err != nil {
 				continue
 			}
-			key, at, marked := piece.Key, piece.Stage, false
-			after, err := s.outcomeStep(o.OwnerID, o.ID, func(o *store.GafferOutcome) bool {
-				marked = false
-				for i := range o.Sessions {
-					if row := &o.Sessions[i]; row.Key == key && row.Stage == at && row.State == "following" && at < len(row.Stages) && !row.Stages[at].Rebalanced {
-						row.Stages[at].Rebalanced, marked = true, true
-						return true
-					}
-				}
-				return false
-			})
-			if err != nil || !marked {
-				continue
-			}
+			key, at, session := piece.Key, piece.Stage, piece.SessionID
 			if running {
 				// The session is the pipeline's own in hand, so it is ended here
 				// and not by the helper that only ends sessions nothing uses.
+				// An end that failed is not tried again for a while: each try
+				// can hold up the controller for its whole wait.
+				if !s.endDue(session) {
+					continue
+				}
 				s.mu.Lock()
 				ender, _ := s.starter.(SessionEnder)
 				s.mu.Unlock()
@@ -369,18 +368,49 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 					continue
 				}
 				endCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-				err := ender.EndOutcomeSession(endCtx, o.OwnerID, piece.SessionID)
+				err := ender.EndOutcomeSession(endCtx, o.OwnerID, session)
 				cancel()
-				if err != nil {
+				// An end the machine has yet to carry out is recorded and
+				// answered at once; only a session that still runs after it
+				// counts as one that could not be ended.
+				if err != nil || s.sessionRunning(o.OwnerID, session) {
+					s.endFailed(session)
 					continue
 				}
-				s.leftBehind(o.OwnerID, piece.SessionID)
-				s.audit(o.OwnerID, "gaffer-session-ended", map[string]any{"outcome": o.ID, "pipeline": key, "session": piece.SessionID, "reason": "Its agent stopped with its plan running low, so the stage is run again on its backup."})
+				s.endTried.Delete(session)
+				s.leftBehind(o.OwnerID, session)
+				s.audit(o.OwnerID, "gaffer-session-ended", map[string]any{"outcome": o.ID, "pipeline": key, "session": session, "reason": "Its agent stopped with its plan running low, so the stage is run again on its backup."})
 			}
-			if _, err := s.RetryPipeline(o.OwnerID, o.ID, key, after.Revision); err != nil {
+			// Marked in the same write as the retry, so a stage is marked only
+			// once it is run again, whatever stops the controller in between.
+			current, err := s.store.GafferOutcomeFor(o.OwnerID, o.ID)
+			if err != nil {
+				continue
+			}
+			if _, err := s.retryPipeline(o.OwnerID, o.ID, key, current.Revision, func(row *store.GafferOutcomeSession) bool {
+				if row.State != "following" || row.Stage != at || at >= len(row.Stages) || row.SessionID != session || row.Stages[at].Rebalanced {
+					return false
+				}
+				row.Stages[at].Rebalanced = true
+				return true
+			}); err != nil {
 				continue
 			}
 			s.audit(o.OwnerID, "gaffer-stage-rebalanced", map[string]any{"outcome": o.ID, "pipeline": key, "stage": stage.Kind, "from": stage.Tool, "to": next.Tool, "reason": next.Balanced})
 		}
 	}
 }
+
+// endRetryAfter is how long a session whose end failed is left before the
+// controller asks its machine again.
+var endRetryAfter = 5 * time.Minute
+
+// endDue reports whether a session may be asked to end now: it is not one
+// whose machine failed to end it within endRetryAfter.
+func (s *Service) endDue(session string) bool {
+	at, failed := s.endTried.Load(session)
+	return !failed || time.Since(at.(time.Time)) >= endRetryAfter
+}
+
+// endFailed records that a session's machine could not end it just now.
+func (s *Service) endFailed(session string) { s.endTried.Store(session, time.Now()) }

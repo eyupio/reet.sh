@@ -18,22 +18,23 @@ const withCodex=[{...machines[0],capabilities:{...machines[0].capabilities,acpAg
 const GAP={pipeline:0,stage:0,id:'library:go-tests',name:'Go tests',revision:'rev1aaaa1111',status:'changed',key:'0:0:library:go-tests'}
 const GAP2={pipeline:1,stage:0,id:'builtin:lint',name:'Lint',revision:'rev9zzzz9999',status:'unavailable',key:'1:0:builtin:lint'}
 const skill=rev=>({id:'library:go-tests',name:'Go tests',source:'personal',revision:rev})
-const stage=(kind,tier,skills=[])=>({kind,tier,skills})
-// Three versions of one template: v2 rewords a criterion, v3 adds a test stage, a criterion and a newer skill revision.
+const stage=(kind,tier,skills=[],brief)=>({kind,tier,skills,...(brief?{brief}:{})})
+// Three versions of one template: v2 rewords a criterion, v3 adds a test stage, a criterion and a newer skill revision, and gives review a brief.
 const contents={
   1:{name:'CSV export',description:'Billing export: the API, the button and the tests.',objective:'Ship CSV export for billing.',maxReviews:8,hours:24,pipelines:[
     {title:'Export API',prompt:'Build the CSV export endpoint. Raise a pull request. Do not merge.',autoMerge:false,criteria:[{id:'c1',text:'The export downloads as CSV.'}],stages:[stage('code','standard',[skill('rev1aaaa1111')]),stage('review','heavy')]},
     {title:'Billing button',prompt:'Add the export button to the billing page.',autoMerge:true,criteria:[],stages:[stage('code','standard',[{id:'builtin:lint',name:'Lint',source:'built-in',revision:'rev9zzzz9999'}])]}]},
 }
 contents[2]={...contents[1],pipelines:[{...contents[1].pipelines[0],criteria:[{id:'c1',text:'The export downloads as a CSV file.'}]},contents[1].pipelines[1]]}
-contents[3]={...contents[2],pipelines:[{...contents[2].pipelines[0],criteria:[...contents[2].pipelines[0].criteria,{id:'c2',text:'Totals match the ledger.'}],stages:[stage('code','standard',[skill('rev2bbbb2222')]),stage('review','heavy'),stage('test','standard')]},contents[2].pipelines[1]]}
+contents[3]={...contents[2],pipelines:[{...contents[2].pipelines[0],criteria:[...contents[2].pipelines[0].criteria,{id:'c2',text:'Totals match the ledger.'}],stages:[stage('code','standard',[skill('rev2bbbb2222')]),stage('review','heavy',[],'Read every line of the export.'),stage('test','standard')]},contents[2].pipelines[1]]}
 const diffOf=(from,to)=>from===to?{from,to,changed:false,nameChanged:false,descriptionChanged:false,objectiveChanged:false,limitsChanged:false,orderChanged:false,olderNotShown:false,pipelines:[]}:{from,to,changed:true,nameChanged:false,descriptionChanged:false,objectiveChanged:false,limitsChanged:false,orderChanged:false,olderNotShown:false,pipelines:[
-  {title:'Export API',change:'changed',promptChanged:false,autoMergeChanged:false,stagesChanged:from<3&&to>=3,stagesBefore:['code','review'],stagesAfter:['code','review','test'],criteria:{added:from<3&&to>=3?['Totals match the ledger.']:[],removed:[],reworded:from<2&&to>=2?[{id:'c1',from:'The export downloads as CSV.',to:'The export downloads as a CSV file.'}]:[]},skills:from<3&&to>=3?[{stage:'code',id:'library:go-tests',name:'Go tests',from:'rev1aaaa1111',to:'rev2bbbb2222'}]:[]},
-  {title:'Billing button',change:'same',promptChanged:false,autoMergeChanged:false,stagesChanged:false,stagesBefore:[],stagesAfter:[],criteria:{added:[],removed:[],reworded:[]},skills:[]}]}
+  {title:'Export API',change:'changed',promptChanged:false,autoMergeChanged:false,stagesChanged:from<3&&to>=3,stagesBefore:['code','review'],stagesAfter:['code','review','test'],criteria:{added:from<3&&to>=3?['Totals match the ledger.']:[],removed:[],reworded:from<2&&to>=2?[{id:'c1',from:'The export downloads as CSV.',to:'The export downloads as a CSV file.'}]:from>=2&&to<2?[{id:'c1',from:'The export downloads as a CSV file.',to:'The export downloads as CSV.'}]:[]},skills:from<3&&to>=3?[{stage:'code',id:'library:go-tests',name:'Go tests',from:'rev1aaaa1111',to:'rev2bbbb2222'}]:[],stageEdits:from<3&&to>=3?[{stage:'review',field:'brief',from:'',to:'Read every line of the export.'}]:[]},
+  {title:'Billing button',change:'same',promptChanged:false,autoMergeChanged:false,stagesChanged:false,stagesBefore:[],stagesAfter:[],criteria:{added:[],removed:[],reworded:[]},skills:[],stageEdits:[]}]}
 
 function fixture(over={}){
-  // `older` is a template whose last used version, 1, is no longer kept; `crew` is the saved crew; `codex` puts Codex on the machine until `codexGone`.
-  const box={versions:over.versions??3,lastUsed:over.older?1:'lastUsed' in over?over.lastUsed:2,lastUsedAt:now-2*86400000,older:!!over.older,crew:over.crew??null,codex:!!over.codex,codexGone:false,gaps:over.gaps??[],none:!!over.none,saves:[],edits:[],deletes:[],launches:[],diffs:[],reads:[],saveFail:'',editFail:'',deleteFail:'',launchFail:'',gapsAfter:null,fail502:0,name:'CSV export',description:contents[1].description,listed:true}
+  // `older` is a template whose last used version, 1, is no longer kept; `crew` is the saved crew; `codex` puts Codex on the machine until `codexGone`;
+  // `other` marks Billing button changed in a way the diff does not describe.
+  const box={versions:over.versions??3,lastUsed:over.older?1:'lastUsed' in over?over.lastUsed:2,lastUsedAt:now-2*86400000,older:!!over.older,other:!!over.other,crew:over.crew??null,codex:!!over.codex,codexGone:false,gaps:over.gaps??[],none:!!over.none,saves:[],edits:[],deletes:[],launches:[],diffs:[],reads:[],saveFail:'',editFail:'',deleteFail:'',launchFail:'',gapsAfter:null,fail502:0,name:'CSV export',description:contents[1].description,listed:true}
   const content=v=>({...contents[Math.min(v,3)],name:box.name,description:box.description})
   const view=(v=box.versions)=>({id:tid,version:v,latest:box.versions,versions:Array.from({length:box.versions},(_,n)=>n+1).filter(n=>!box.older||n>1),requestId:'r'.repeat(32),outcomeId:oid,createdAt:now-86400000*3,...(box.lastUsed?{lastUsedVersion:box.lastUsed,lastUsedAt:box.lastUsedAt}:{lastUsedAt:0}),content:content(v),skillGaps:box.gaps})
   const summary=()=>({id:tid,version:box.versions,name:box.name,description:box.description,pipelines:2,createdAt:now-86400000*3,updatedAt:now-3600000,...(box.lastUsed?{lastUsedVersion:box.lastUsed,lastUsedAt:box.lastUsedAt}:{lastUsedAt:0})})
@@ -60,7 +61,8 @@ function fixture(over={}){
       if(r.method()==='POST'){
         const b=body(r);box.saves.push(b)
         if(box.fail502>0){box.fail502--;return{status:502,json:{error:'502 Bad Gateway'}}}
-        if(box.saveFail==='not_successful')return err(409,'template_not_successful','Only a plan that finished well can be saved. “Billing button” has not.')
+        // The outcome changed after the page read it: Export API failed meanwhile, so the page still offered the save.
+        if(box.saveFail==='not_successful')return err(409,'template_not_successful','“Export API” did not finish well, so this plan cannot be saved. Only a plan whose every pipeline finished, or had its delivery accepted, can be saved as a template.')
         if(box.saveFail==='limit')return err(409,'template_limit','This account already has 20 templates. Delete one before saving another.')
         if(box.saveFail==='large')return err(422,'template_too_large','That template is too large to save.')
         if(box.saveFail==='changed'){box.saveFail='';box.versions++;return err(409,'template_changed','That template changed. Reload it before trying again.')}
@@ -84,7 +86,7 @@ function fixture(over={}){
       box.reads.push('latest');return view()
     },
     // No `from` is the version last used, or the oldest kept when that one has gone.
-    [`/api/v2/gaffer/templates/${tid}/diff`]:r=>{const q=new URL(r.url()).searchParams;box.diffs.push(`${q.get('from')??'last'}-${q.get('to')}`);const from=q.get('from')?+q.get('from'):box.older?2:box.lastUsed;return{...diffOf(from,+q.get('to')),olderNotShown:!q.get('from')&&box.older}},
+    [`/api/v2/gaffer/templates/${tid}/diff`]:r=>{const q=new URL(r.url()).searchParams;box.diffs.push(`${q.get('from')??'last'}-${q.get('to')}`);const from=q.get('from')?+q.get('from'):box.older?2:box.lastUsed;const d=diffOf(from,+q.get('to'));if(box.other)d.pipelines[1]={...d.pipelines[1],change:'changed'};return{...d,olderNotShown:!q.get('from')&&box.older}},
     [`/api/v2/gaffer/templates/${tid}/launch`]:r=>{
       const b=body(r);box.launches.push(b)
       if(box.launchFail==='skills'){box.launchFail='';box.gaps=box.gapsAfter;return{status:409,json:{error:'The approved skills changed.',code:'template_skills_changed',gaps:box.gapsAfter}}}
@@ -139,16 +141,17 @@ try{
         const dialog=page.getByRole('dialog',{name:'Save as template',exact:true})
         await expect(dialog).toContainText('Keeps the plan: each pipeline’s prompt, stages and criteria, and the skills approved for it.')
         await expect(dialog).toContainText('It does not keep the machine, folder, agents or sign-ins.')
+        await expect(dialog).toContainText('Templates are private to you.')
         await expect(dialog.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('Ship CSV export for billing')
         await expect(dialog.getByRole('combobox',{name:'Save as',exact:true})).toHaveValue('')
         await shot(page,'save-dialog',width,theme)
         if(!wide)await targets(page)
         await dialog.getByRole('textbox',{name:'Name',exact:true}).fill('CSV export, new')
         await dialog.getByRole('textbox',{name:/^Description/}).fill('The whole billing export.')
-        // A refusal for a plan that did not succeed is shown in the server's words, and what was typed stays.
+        // A refusal for a plan that did not succeed is shown in the server's words, naming the pipeline, with the way on; what was typed stays.
         f.box.saveFail='not_successful'
         await dialog.getByRole('button',{name:'Save template',exact:true}).click()
-        await expect(dialog.getByRole('alert')).toHaveText('Only a plan that finished well can be saved. “Billing button” has not.')
+        await expect(dialog.getByRole('alert')).toHaveText('“Export API” did not finish well, so this plan cannot be saved. Only a plan whose every pipeline finished, or had its delivery accepted, can be saved as a template. Nothing was saved. Close this dialog to go back to the outcome.')
         await expect(dialog.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('CSV export, new')
         await shot(page,'save-refused',width,theme)
         f.box.saveFail='limit'
@@ -163,6 +166,8 @@ try{
         await expect(dialog.getByRole('alert')).toContainText('Trying again is safe')
         await dialog.getByRole('button',{name:'Save template',exact:true}).click()
         await expect(page.getByRole('status').filter({hasText:'Saved as template “CSV export, new”, version 1.'})).toBeVisible()
+        await expect(page.getByRole('status').filter({hasText:'Saved as template'}).getByRole('button',{name:'Open it in Templates',exact:true})).toBeVisible()
+        await shot(page,'saved-notice',width,theme)
         const last=f.box.saves.at(-1),lost=f.box.saves.at(-2)
         expect(last.requestId).toMatch(/^[0-9a-f]{32}$/)
         expect(last.requestId).toBe(lost.requestId)
@@ -188,12 +193,18 @@ try{
         f.box.saveFail='changed'
         await again.getByRole('button',{name:'Save as version 4',exact:true}).click()
         await expect(again.getByRole('status')).toContainText('Version 4 was saved elsewhere. This now saves as version 5.')
+        // Information, not an error: the neutral notice, not the warning colour.
+        await expect(again.getByRole('status')).toHaveClass(/\bnotice\b/)
+        await expect(again.getByRole('status')).not.toHaveClass(/\bwarning\b/)
         await expect(again.getByRole('button',{name:'Save as version 5',exact:true})).toBeVisible()
         await shot(page,'save-changed',width,theme)
         await again.getByRole('button',{name:'Save as version 5',exact:true}).click()
         await expect.poll(()=>f.box.saves.length).toBeGreaterThan(6)
         const sent=f.box.saves.at(-1)
         expect(sent).toMatchObject({outcomeId:oid,templateId:tid,baseVersion:4,name:'CSV export'})
+        // The notice opens the template it names.
+        await page.getByRole('button',{name:'Open it in Templates',exact:true}).click()
+        await expect(templatesDialog(page).getByRole('heading',{name:'CSV export',level:3})).toBeVisible()
         await noOverflow(page)
       }finally{await w.context.close()}
     }
@@ -206,6 +217,7 @@ try{
         await expect(row).toContainText('Billing export: the API, the button and the tests.')
         await expect(row).toContainText('Version 3 · 2 pipelines · changed')
         await expect(row).toContainText(/Last used .+ \(version 2\)/)
+        await expect(row).toContainText('Changed since you last used it (version 2 → 3)')
         await shot(page,'list',width,theme)
         if(!wide)await targets(page)
         await row.getByRole('button',{name:'CSV export',exact:true}).click()
@@ -217,13 +229,15 @@ try{
         await expect(dialog.getByRole('list',{name:'The plan'}).getByRole('listitem').filter({hasText:'Billing button'}).first()).toContainText('Merges by itself once checks pass.')
         await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Code')
         await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Standard')
-        await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Skill Go tests · revision rev2bbbb')
+        await expect(dialog.getByRole('list',{name:'Stages of Export API'})).toContainText('Go tests · revision rev2bbbb')
+        await expect(dialog.getByRole('list',{name:'Stages of Export API'})).not.toContainText('Skill Go tests')
+        await expect(dialog.locator('.head')).toContainText('Changed since you last used it (version 2 → 3)')
         await expect(dialog.getByRole('list',{name:'Criteria of Export API'})).toContainText('The export downloads as a CSV file.')
         await expect(dialog.getByRole('list',{name:'Criteria of Billing button'})).toHaveCount(0)
         await expect(dialog.getByText('No criteria, so this pipeline has no delivery review.')).toBeVisible()
         // The plan is read, not edited.
         await expect(dialog.getByRole('textbox',{name:/Pipeline 1/})).toHaveCount(0)
-        await expect(dialog).toContainText('To change the plan, start from it, adjust, and save the finished run as a new version.')
+        await expect(dialog).toContainText('To change the plan, start from it, adjust, and save the finished outcome as a new version.')
         await shot(page,'template-page',width,theme)
         await scrollTo(page,'.limits');await shot(page,'template-page-plan',width,theme)
         await dialog.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
@@ -233,13 +247,16 @@ try{
         await expect(dialog.getByRole('region',{name:'Version 2 to version 3'})).toContainText('Stages were Code, Review; now Code, Review, Test.')
         await expect(dialog.getByRole('region',{name:'Version 2 to version 3'})).toContainText('Criterion added: “Totals match the ledger.”')
         await expect(dialog.getByRole('region',{name:'Version 2 to version 3'})).toContainText('“Go tests” in Code moved from revision rev1aaaa to rev2bbbb')
+        await expect(dialog.getByRole('region',{name:'Version 2 to version 3'})).toContainText('Review brief added: “Read every line of the export.”')
         await dialog.getByRole('combobox',{name:'From',exact:true}).selectOption('1')
         await expect.poll(()=>f.box.diffs.at(-1)).toBe('1-3')
         await expect(dialog.getByRole('region',{name:'Version 1 to version 3'})).toContainText('Criterion reworded: “The export downloads as CSV.” to “The export downloads as a CSV file.”')
-        await dialog.getByRole('combobox',{name:'To',exact:true}).selectOption('1')
-        await expect(dialog.getByText('Choose two different versions.')).toBeVisible()
-        await scrollTo(page,'section.compare');await shot(page,'compare-same',width,theme)
+        // The same version cannot be picked twice: it is not offered on the other side.
+        await expect(dialog.getByRole('combobox',{name:'To',exact:true}).locator('option[value="1"]')).toHaveJSProperty('disabled',true)
+        await expect(dialog.getByRole('combobox',{name:'From',exact:true}).locator('option[value="3"]')).toHaveJSProperty('disabled',true)
+        await scrollTo(page,'section.compare');await shot(page,'compare-same-not-offered',width,theme)
         await dialog.getByRole('combobox',{name:'From',exact:true}).selectOption('2');await dialog.getByRole('combobox',{name:'To',exact:true}).selectOption('3')
+        await expect.poll(()=>f.box.diffs.at(-1)).toBe('2-3')
         await scrollTo(page,'section.compare');await shot(page,'compare',width,theme)
         await dialog.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         // An older version is read as it was, and says it is not the latest.
@@ -250,10 +267,24 @@ try{
         await expect(dialog.getByRole('status').filter({hasText:'Showing version 1'})).toHaveCount(1)
         await expect(dialog.getByRole('combobox',{name:'Version',exact:true})).toBeFocused()
         expect(await dialog.locator('[role=status]').count()).toBe(statuses)
+        // A version change is not a save: it is said in the meta line, never in the banner for save and delete results.
+        await expect(dialog.locator('.head .meta')).toContainText('Showing version 1')
+        await expect(dialog.locator('p.notice')).toHaveText('')
+        await shot(page,'template-older-version',width,theme)
         await expect(dialog.getByText('Version 1 (the latest is 3)')).toBeVisible()
         await expect(dialog.getByRole('button',{name:'Use version 1',exact:true})).toBeVisible()
         await expect(dialog.getByRole('button',{name:'Rename or change the description',exact:true})).toHaveCount(0)
-        await dialog.getByRole('combobox',{name:'Version',exact:true}).selectOption('3')
+        // With the keyboard, arrows move through the list and only the version chosen with Enter is read; the focus comes back to the list.
+        if(wide){
+          const reads=f.box.reads.length
+          await dialog.getByRole('combobox',{name:'Version',exact:true}).focus()
+          await page.keyboard.press('ArrowUp');await page.keyboard.press('ArrowUp');await page.keyboard.press('ArrowUp')
+          expect(f.box.reads.slice(reads)).toEqual([])
+          await page.keyboard.press('Enter')
+          await expect(dialog.locator('.head .meta')).toContainText('Showing version 3')
+          expect(f.box.reads.slice(reads)).toEqual(['v3'])
+          await expect(dialog.getByRole('combobox',{name:'Version',exact:true})).toBeFocused()
+        }else await dialog.getByRole('combobox',{name:'Version',exact:true}).selectOption('3')
         // Renaming saves the same plan as the next version, with the base version it was shown.
         await dialog.getByRole('button',{name:'Rename or change the description',exact:true}).click()
         await expect(dialog.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('CSV export')
@@ -282,9 +313,12 @@ try{
         f.box.deleteFail='changed'
         await dialog.getByRole('button',{name:'Delete template…',exact:true}).click()
         const ask=page.getByRole('dialog',{name:'Delete “Renamed export”?',exact:true})
-        await expect(ask).toContainText('Runs already started from it keep their own inputs and are not touched.')
+        await expect(ask).toContainText('Outcomes already started from it keep their own inputs and are not touched.')
         await expect(ask).toContainText('5 versions')
         await page.waitForTimeout(500);await shot(page,'delete-confirm',width,theme)
+        // The destructive button wears the danger colour, not the primary accent.
+        const paint=await ask.getByRole('button',{name:'Delete template',exact:true}).evaluate(el=>{const t=document.createElement('i');t.style.color='var(--bad)';el.after(t);const bad=getComputedStyle(t).color;t.remove();return {button:getComputedStyle(el).backgroundColor,bad}})
+        expect(paint.button).toBe(paint.bad)
         await ask.getByRole('button',{name:'Delete template',exact:true}).click()
         await expect(dialog.getByRole('status').filter({hasText:'Version 6 was saved elsewhere, so nothing was deleted.'})).toBeVisible()
         await dialog.getByRole('button',{name:'Delete template…',exact:true}).click()
@@ -292,7 +326,8 @@ try{
         await expect.poll(()=>f.box.deletes.length).toBe(2)
         expect(f.box.deletes.at(-1)).toBe('6')
         await expect(dialog.getByText('No templates yet.')).toBeVisible()
-        await expect(dialog.getByRole('status').filter({hasText:'Deleted “Renamed export”. Runs already started from it were not touched.'})).toBeVisible()
+        await expect(dialog.getByRole('status').filter({hasText:'Deleted “Renamed export”. Outcomes already started from it were not touched.'})).toBeVisible()
+        await expect(dialog).toContainText('Open a finished outcome’s pipeline and choose Save as template… in the bar at the foot of its detail.')
         await shot(page,'empty',width,theme)
         await noOverflow(page);await dialogFits(page)
       }finally{await w.context.close()}
@@ -315,14 +350,30 @@ try{
         await expect(outcome.locator('.objective')).toContainText('Outcome')
         await expect(outcome.getByText('Up to 8 reviews and 24 hours for each session.')).toHaveCount(1)
         await expect(outcome.getByRole('list',{name:'The plan'}).getByRole('listitem').filter({hasText:'Billing button'}).first()).toContainText('Merges by itself once checks pass.')
-        await expect(outcome.locator('.access')).toContainText('Gaffer cannot run commands or answer approvals. “Billing button” merges by itself once checks pass. The others stop at Ready to merge and wait for you.')
+        // Which pipelines merge by themselves is one line beside Start, not part of the grey access paragraph.
+        await expect(outcome.locator('.access')).toContainText('Gaffer cannot run commands or answer approvals.')
         await expect(outcome.locator('.access')).not.toContainText('Gaffer cannot merge')
+        await expect(outcome.locator('.access')).not.toContainText('merges by itself')
+        await expect(outcome.locator('p.merging')).toHaveText('“Billing button” merges by itself once checks pass.')
+        expect((await outcome.getByRole('button',{name:'Start 2 pipelines from this template',exact:true}).getAttribute('aria-describedby')).split(' ')).toContain(await outcome.locator('p.merging').getAttribute('id'))
+        // Each pipeline is one line; the card is open for the one that changed since the version last used.
+        const pipelines=outcome.locator('details.pipeline')
+        await expect(pipelines.nth(0).locator(':scope>summary')).toHaveText('Export API · Code, Review, Test · 2 criteria · stops at Ready to merge')
+        await expect(pipelines.nth(1).locator(':scope>summary')).toHaveText('Billing button · Code · 0 criteria · merges by itself')
+        await expect(pipelines.nth(0)).toHaveAttribute('open','')
+        await expect(pipelines.nth(1)).not.toHaveAttribute('open','')
+        // What changed is marked where it is in the plan, and the panel above still sums it up.
+        await expect(outcome.getByRole('region',{name:'Changed since version 2, the one you last used'})).toContainText('Review brief added: “Read every line of the export.”')
+        await expect(outcome.getByRole('list',{name:'Criteria of Export API'}).getByRole('listitem').filter({hasText:'Totals match the ledger.'})).toContainText('Added')
+        await expect(outcome.getByRole('list',{name:'Criteria of Export API'}).getByRole('listitem').filter({hasText:'The export downloads as a CSV file.'}).locator('.badge')).toHaveCount(0)
+        await expect(outcome.getByRole('list',{name:'Stages of Export API'})).toContainText('Go tests · revision rev2bbbb Revision changed')
         await expect(outcome.getByRole('button',{name:'Decline proposal',exact:true})).toHaveCount(0)
         await expect(outcome.getByText('Launch readiness on workshop.')).toBeVisible()
         await expect(outcome.getByRole('combobox',{name:'Project',exact:true})).toHaveValue('p1')
         await expect(outcome.getByRole('option',{name:'A repository from GitHub…'})).toHaveCount(0)
         await shot(page,'use-latest',width,theme)
         await scrollTo(page,'.limits');await shot(page,'use-latest-plan-merge-limits',width,theme)
+        await scrollTo(page,'.criteria');await shot(page,'use-latest-marks',width,theme)
         await scrollTo(page,'.access');await shot(page,'use-latest-access',width,theme)
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=0})
         await outcome.locator('[data-shell-body]').evaluate(el=>{el.scrollTop=el.scrollHeight});await shot(page,'use-latest-end',width,theme)
@@ -359,11 +410,23 @@ try{
         await expect(outcome.getByRole('list',{name:'Stages of Export API'})).not.toContainText('Test')
         await expect(outcome.getByRole('region',{name:'Differs from version 2, the one you last used'})).toBeVisible()
         expect(f.box.diffs.at(-1)).toBe('last-1')
+        await expect(outcome.getByRole('list',{name:'Criteria of Export API'}).getByRole('listitem').filter({hasText:'The export downloads as CSV.'})).toContainText('Reworded')
         await shot(page,'use-older',width,theme)
         // Choosing the version last used says nothing changed, so nothing is drawn.
         await outcome.getByRole('combobox',{name:'Template version',exact:true}).selectOption('2')
+        await expect.poll(()=>f.box.reads.at(-1)).toBe('v2')
         await expect(outcome.getByRole('region',{name:/^Changed since/})).toHaveCount(0)
-        await outcome.getByRole('combobox',{name:'Template version',exact:true}).selectOption('1')
+        // With the keyboard, arrows move through the list and only the version chosen with Enter is read; the focus comes back to the list.
+        if(width>=1100){
+          const reads=f.box.reads.length
+          await outcome.getByRole('combobox',{name:'Template version',exact:true}).focus()
+          await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown')
+          expect(f.box.reads.slice(reads)).toEqual([])
+          await page.keyboard.press('Enter')
+          await expect(outcome.getByRole('list',{name:'Criteria of Export API'})).toContainText('The export downloads as CSV.')
+          expect(f.box.reads.slice(reads)).toEqual(['v1'])
+          await expect(outcome.getByRole('combobox',{name:'Template version',exact:true})).toBeFocused()
+        }else await outcome.getByRole('combobox',{name:'Template version',exact:true}).selectOption('1')
         await outcome.getByRole('button',{name:'Start 2 pipelines from this template',exact:true}).click()
         await expect.poll(()=>f.box.launches.length).toBe(1)
         expect(f.box.launches[0].version).toBe(1)
@@ -386,6 +449,10 @@ try{
         await expect(outcome.getByText('CSV export',{exact:true}).first()).toBeVisible()
         await expect(outcome.getByRole('region',{name:/^Changed since/})).toHaveCount(0)
         expect(f.box.diffs).toEqual([])
+        // Nothing changed and nothing is missing, so every pipeline is one line, its card closed.
+        await expect(outcome.locator('details.pipeline[open]')).toHaveCount(0)
+        await expect(outcome.locator('details.pipeline')).toHaveCount(2)
+        await expect(outcome.locator('p.merging')).toHaveText('“Billing button” merges by itself once checks pass.')
         await shot(page,'use-first',width,theme)
         // Back returns to the first step with the typed words still there.
         await outcome.getByRole('button',{name:'Back',exact:true}).click()
@@ -404,9 +471,11 @@ try{
         const start=outcome.getByRole('button',{name:'Start 2 pipelines from this template',exact:true})
         await expect(start).toBeDisabled()
         await expect(outcome.getByText('Tick “Start without these skills” to go on, or choose another version.')).toBeVisible()
-        // The tick box sits just above the line that asks for it, and Start.
-        const near=await outcome.evaluate(el=>{const m=[...el.querySelectorAll('label.trust')].find(l=>/Start without these skills/.test(l.textContent)).getBoundingClientRect(),n=el.querySelector('.status').getBoundingClientRect();return {gap:n.top-m.bottom}})
+        // The tick box sits directly under the plan whose gaps it concerns, and is described by them; the line by Start still names it.
+        const near=await outcome.evaluate(el=>{const m=[...el.querySelectorAll('label.trust')].find(l=>/Start without these skills/.test(l.textContent)).getBoundingClientRect(),n=el.querySelector('[aria-label="The plan"]').getBoundingClientRect();return {gap:m.top-n.bottom}})
         expect(near.gap).toBeGreaterThanOrEqual(0);expect(near.gap).toBeLessThan(40)
+        await expect(outcome.getByRole('checkbox',{name:/Start without these skills/})).toHaveAccessibleDescription(/“Go tests” has a newer approved revision\. This template keeps the older one, so the stage starts without it\./)
+        await expect(outcome.locator('.status')).toHaveText('Tick “Start without these skills” to go on, or choose another version.')
         await outcome.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
         await shot(page,'skill-gap',width,theme)
         await scrollTo(page,'.gap');await shot(page,'skill-gap-marks',width,theme)
@@ -420,6 +489,9 @@ try{
         // The other choices are kept, the list is the new one, and the person has to agree again.
         await expect(outcome.getByRole('alert')).toContainText('The approved skills changed while you were looking. The plan above now shows the current list.')
         await expect(outcome.getByRole('list',{name:'Stages of Billing button'})).toContainText('“Lint” is not available now (archived, removed or switched off), so the stage starts without it.')
+        // The pipeline with the new gap opens, and the tick box is described by both gaps.
+        await expect(outcome.locator('details.pipeline').nth(1)).toHaveAttribute('open','')
+        await expect(outcome.getByRole('checkbox',{name:/Start without these skills/})).toHaveAccessibleDescription(/Go tests.+Lint/)
         await expect(outcome.getByRole('radio',{name:'Gaffer decides',exact:true})).toBeChecked()
         await expect(outcome.getByRole('checkbox',{name:/Start without these skills/})).not.toBeChecked()
         await expect(start).toBeDisabled()
@@ -458,6 +530,15 @@ try{
         const line=page.getByText(/^From template/).first()
         await expect(line).toContainText('From template “CSV export”, version 2.')
         await shot(page,'run-from-template',width,theme)
+        // Saving it again follows the template it came from, while that template is kept.
+        await page.getByRole('button',{name:'Save as template…',exact:true}).click()
+        const save=page.getByRole('dialog',{name:'Save as template',exact:true})
+        await expect(save.getByRole('combobox',{name:'Save as',exact:true})).toHaveValue(tid)
+        await expect(save).toContainText('Started from version 2.')
+        await expect(save.getByRole('textbox',{name:'Name',exact:true})).toHaveValue('CSV export')
+        await expect(save.getByRole('button',{name:'Save as version 4',exact:true})).toBeVisible()
+        await shot(page,'save-from-template',width,theme)
+        await save.getByRole('button',{name:'Cancel',exact:true}).click()
         await line.getByRole('button',{name:'CSV export',exact:true}).click()
         await expect(templatesDialog(page).getByRole('heading',{name:'CSV export',level:3})).toBeVisible()
         await page.keyboard.press('Escape')
@@ -574,6 +655,22 @@ try{
       const wide=await page.evaluate(()=>[...document.querySelectorAll('dialog[open]:last-of-type *')].filter(el=>el.getBoundingClientRect().right>document.documentElement.clientWidth+1).length)
       expect(wide).toBe(0)
       await targets(page)
+    }finally{await w.context.close()}
+  }
+  // 13. A pipeline marked changed in a way the diff does not describe still says so, with a way to compare the versions.
+  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+    const {w,page}=await open(width,theme,{other:true})
+    try{
+      const dialog=await openTemplates(page)
+      await dialog.getByRole('button',{name:'Use CSV export',exact:true}).click()
+      const changes=outcomeDialog(page).getByRole('region',{name:'Changed since version 2, the one you last used'})
+      await expect(changes.getByRole('listitem').filter({hasText:'Billing button'})).toHaveText('Billing button · Something else in this pipeline changed. Compare the versions')
+      await expect(outcomeDialog(page).locator('details.pipeline').nth(1)).toHaveAttribute('open','')
+      await shot(page,'changes-other',width,theme)
+      await changes.getByRole('button',{name:'Compare the versions',exact:true}).click()
+      const page2=page.getByRole('dialog',{name:'Templates',exact:true})
+      await expect(page2.getByRole('heading',{name:'CSV export',level:3})).toBeVisible()
+      await expect(page2.getByRole('region',{name:'Compare versions'})).toBeVisible()
     }finally{await w.context.close()}
   }
   console.log('Factory templates: save from a finished outcome, the list and a template’s page, rename and delete, use with the changes since the last use, an older version, skill gaps, the launch request and its crew, and the run’s template line pass.')

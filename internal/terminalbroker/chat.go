@@ -238,8 +238,13 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			l.queue = nil
 			l.questions = nil
 			l.waitingAt = 0
-			active := l.lastState == "working" || l.lastState == "waiting"
-			if wasRunning || active {
+			active := l.lastState == "working" || l.lastState == "waiting" || l.lastState == "background"
+			if event.Background > 0 {
+				// The turn is over but work it started still runs: not finished,
+				// so no bell, card or push until that work ends.
+				l.lastState = "background"
+				l.completedAt = 0
+			} else if wasRunning || active {
 				l.lastState = "finished"
 				if l.completedAt == 0 {
 					l.completedAt = nowMs
@@ -570,6 +575,13 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 		}
 		return
 	}
+	if l.lastState == "background" && s.State == terminalproto.Running {
+		s.Attention = "working"
+		if l.updatedAt > s.ActivityAt {
+			s.ActivityAt = l.updatedAt
+		}
+		return
+	}
 	if l.lastState == "failed" {
 		s.Attention = "failed"
 		at := l.completedAt
@@ -755,6 +767,15 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 			l.completedAt = s.CompletedAt
 			l.updatedAt = s.CompletedAt
 			l.running = false
+		} else if s.ChatStatus == "background" {
+			l.updatedAt = s.ActivityAt
+			l.lastState = "background"
+			if time.Since(time.UnixMilli(s.ActivityAt)) >= terminalproto.BackgroundHoldLimit {
+				// The machine stops waiting at the limit too; a restart that
+				// missed its word must not hold the chat any longer.
+				l.lastState = "finished"
+				l.completedAt = s.ActivityAt
+			}
 		} else if s.ChatStatus == "working" {
 			l.lastState = "working"
 			l.running = true

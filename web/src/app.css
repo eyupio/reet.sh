@@ -12,7 +12,7 @@
   /* Session states, after the long-standing CI status convention: working green, waiting amber, starting orange,
      finished blue, failed red, ended/quiet slate. Kept apart from the warm identity accents above. */
   --status-working: #22c55e; --status-waiting: #fbbf24; --status-starting: #f59e0b; --status-finished: #38bdf8; --status-failed: #f26969; --status-ended: #adb5a6; --status-quiet: #adb5a6;
-  --bg-sunk: #191c18; --dock-bg: #191c18; --faint: #9aa492; --ink-soft: #d4d9cc; --repo-line: #2a5f52; --line-deep: #849175; --line-mid: #424c3b; --scrim: rgb(0 0 0 / 0.62); --status-text-share: 100%;
+  --bg-sunk: #191c18; --dock-bg: #191c18; --faint: #9aa492; --ink-soft: #d4d9cc; --repo-line: #2a5f52; --line-deep: #849175; --line-mid: #424c3b; --scrim: rgb(0 0 0 / 0.62);
   --serif: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -29,7 +29,7 @@
     --ink: #292b25; --muted: #60675a; --accent: #b84216; --accent-text: #b84216; --accent-ink: #ffffff; --tint: #f5e8dd; --accent-wash: #f5e8dd; --shadow-dock: 0 -8px 30px rgb(29 28 26 / 0.08); --heart: #be1f4a;
     --good: #15703b; --warn: #92400e; --info: #1d5f8a; --repo: #0f766e; --bad: #b91c1c;
     --status-working: #15803d; --status-waiting: #a16207; --status-starting: #b45309; --status-finished: #0369a1; --status-failed: #b91c1c; --status-ended: #52525b; --status-quiet: #52525b;
-    --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45); --status-text-share: 80%;
+    --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45);
   }
 }
 :root[data-theme='dark'] {
@@ -40,7 +40,7 @@
   /* Session states, after the long-standing CI status convention: working green, waiting amber, starting orange,
      finished blue, failed red, ended/quiet slate. Kept apart from the warm identity accents above. */
   --status-working: #22c55e; --status-waiting: #fbbf24; --status-starting: #f59e0b; --status-finished: #38bdf8; --status-failed: #f26969; --status-ended: #adb5a6; --status-quiet: #adb5a6;
-  --bg-sunk: #191c18; --dock-bg: #191c18; --faint: #9aa492; --ink-soft: #d4d9cc; --repo-line: #2a5f52; --line-deep: #849175; --line-mid: #424c3b; --scrim: rgb(0 0 0 / 0.62); --status-text-share: 100%;
+  --bg-sunk: #191c18; --dock-bg: #191c18; --faint: #9aa492; --ink-soft: #d4d9cc; --repo-line: #2a5f52; --line-deep: #849175; --line-mid: #424c3b; --scrim: rgb(0 0 0 / 0.62);
 }
 :root[data-theme='light'] {
   color-scheme: light;
@@ -48,7 +48,7 @@
   --ink: #292b25; --muted: #60675a; --accent: #b84216; --accent-text: #b84216; --accent-ink: #ffffff; --tint: #f5e8dd; --accent-wash: #f5e8dd; --shadow-dock: 0 -8px 30px rgb(29 28 26 / 0.08); --heart: #be1f4a;
   --good: #15703b; --warn: #92400e; --info: #1d5f8a; --repo: #0f766e; --bad: #b91c1c;
   --status-working: #15803d; --status-waiting: #a16207; --status-starting: #b45309; --status-finished: #0369a1; --status-failed: #b91c1c; --status-ended: #52525b; --status-quiet: #52525b;
-  --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45); --status-text-share: 80%;
+  --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45);
 }
 *, *::before, *::after { box-sizing: border-box; }
 /* No product copy or chrome is smaller than 14px (0.875rem); labels may be quiet in colour and weight, never in size.
@@ -76,7 +76,7 @@ body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-are
 :where([data-status='failed']) { --status: var(--status-failed); }
 :where([data-status='ended']) { --status: var(--status-ended); }
 :where([data-status='quiet']) { --status: var(--status-quiet); }
-:where([data-status]) { --status-wash: color-mix(in srgb, var(--status) 13%, transparent); --status-edge: color-mix(in srgb, var(--status) 55%, var(--line)); --status-text: color-mix(in srgb, var(--status) var(--status-text-share), var(--ink)); }
+:where([data-status]) { --status-wash: color-mix(in srgb, var(--status) 13%, transparent); --status-edge: color-mix(in srgb, var(--status) 55%, var(--line)); --status-text: color-mix(in srgb, var(--status) 80%, var(--ink)); }
 /* Finished is a tick, not another dot: the turn is complete and settled, wherever a session is listed. Components draw it
    in place of their dot and inherit the same --status colour, so Home, the panel, the tabs and the session header agree. */
 .status-tick {
@@ -85,8 +85,8 @@ body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-are
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6.4 4.6 9 10 2.8' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 /* Working in the background is a hollow ring where working is a solid dot: the turn has ended, work it started runs on.
-   Components draw it in place of their dot, in the same --status colour. */
-.status-ring { display: inline-block; flex: none; width: 10px; height: 10px; box-sizing: border-box; border: 2px solid var(--status); border-radius: 50%; background: transparent; }
+   Components draw it in place of their dot, in the same --status colour, at the dot's own size (--ring). */
+.status-ring { display: inline-block; flex: none; width: var(--ring, 10px); height: var(--ring, 10px); box-sizing: border-box; border: 2px solid var(--status); border-radius: 50%; background: transparent; }
 #app { min-height: 100dvh; display: flex; flex-direction: column; }
 code, kbd { font-family: var(--mono); }
 a { color: var(--accent-text); text-underline-offset: 3px; }

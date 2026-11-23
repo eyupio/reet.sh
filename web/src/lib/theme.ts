@@ -42,8 +42,6 @@ export const TOKENS: Record<Palette, Record<string, string>> = {
     '--line-mid': '#424c3b',
     // Behind a modal dialog, and its shadow. Not a text colour.
     '--scrim': 'rgb(0 0 0 / 0.62)',
-    // How much of a status colour a status pill's text keeps; the rest is ink. Dark keeps the colour as designed.
-    '--status-text-share': '100%',
   },
   light: {
     '--bg': '#f6f5f0',
@@ -81,8 +79,6 @@ export const TOKENS: Record<Palette, Record<string, string>> = {
     '--line-deep': '#7c866f',
     '--line-mid': '#d2d8c8',
     '--scrim': 'rgb(20 18 15 / 0.45)',
-    // Light mixes in a fifth of ink so a pill's text reaches AA on its own wash.
-    '--status-text-share': '80%',
   },
 }
 

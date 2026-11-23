@@ -257,17 +257,17 @@ test('the boot script reads the key applyTheme writes', () => {
   assert.match(html, /localStorage\.getItem\('reet-theme'\)/)
 })
 
-// A status pill's text on its own wash, over the card or the page, as the recipe in app.css mixes them.
-// Dark keeps its designed pills (its failed pill measures 4.07:1 over the card, a known gap left for the dark palette's owner).
-test('status pill text meets AA on its wash in light, and dark is as designed', () => {
+// A status pill's text is its status colour with a fifth of ink mixed in (the recipe in app.css), on its own 13% wash over
+// the page, a card or a raised card. Every status reaches AA in both palettes.
+test('status pill text meets AA on its wash in both palettes', () => {
   const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
   const mix = (a, b, share) => '#' + hex(a).map((v, i) => Math.round(v * share + hex(b)[i] * (1 - share)).toString(16).padStart(2, '0')).join('')
-  assert.equal(TOKENS.dark['--status-text-share'], '100%')
-  for (const p of ['light']) {
-    const t = TOKENS[p], share = parseFloat(t['--status-text-share']) / 100
+  assert.match(css, /--status-text: color-mix\(in srgb, var\(--status\) 80%, var\(--ink\)\)/)
+  for (const p of PALETTES) {
+    const t = TOKENS[p]
     for (const name of ['--status-working', '--status-waiting', '--status-starting', '--status-finished', '--status-failed', '--status-ended', '--status-quiet']) {
-      const text = mix(t[name], t['--ink'], share)
-      for (const ground of ['--card', '--bg']) {
+      const text = mix(t[name], t['--ink'], 0.8)
+      for (const ground of ['--card', '--bg', '--card-raised']) {
         const wash = mix(t[name], t[ground], 0.13)
         assert.ok(contrast(text, wash) >= 4.5, `${p}: ${name} pill text ${text} on its wash ${wash} over ${ground} is ${contrast(text, wash).toFixed(2)}`)
       }

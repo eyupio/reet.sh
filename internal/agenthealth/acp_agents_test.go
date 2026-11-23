@@ -171,6 +171,13 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 	if !c.SessionMode {
 		t.Fatal("session mode not reported with Claude among the launch tools")
 	}
+	if c.SessionModeAgents {
+		t.Fatal("session-mode-agents-v1 reported to a controller that did not advertise it")
+	}
+	negotiateFeatures(&claudeOnly, base+","+terminalproto.ACPAgentsFeature+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature+","+terminalproto.SessionModeAgentsFeature+","+terminalproto.ChatGateFeature)
+	if c := capabilitiesFor(claudeOnly, true, terminalproto.Ready); !c.SessionModeAgents || c.Validate() != nil {
+		t.Fatalf("session-mode-agents-v1 not reported once negotiated: %+v", c)
+	}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -483,5 +490,27 @@ func TestACPProviderCapabilityNeedsLiveControlsAndItsFeature(t *testing.T) {
 	negotiateFeatures(&cfg, live)
 	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPProvider || terminalproto.SupportsACPProvider(terminalFeatures(cfg)) {
 		t.Fatal("provider feature survived a reconnect to an older controller")
+	}
+}
+
+func TestACPCommandsCapabilityNeedsLiveControlsAndItsFeature(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
+	negotiateFeatures(&cfg, live)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); !c.ACPLiveControls || c.ACPCommands {
+		t.Fatalf("a peer without the feature was offered commands: %+v", c)
+	}
+	negotiateFeatures(&cfg, live+","+terminalproto.ACPCommandsFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPCommands || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatalf("commands missing or not negotiated: %+v", c)
+	}
+	negotiateFeatures(&cfg, terminalproto.LaunchFeature+","+terminalproto.ACPFeature+","+terminalproto.ACPCommandsFeature)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPCommands {
+		t.Fatal("commands claimed without live controls")
+	}
+	negotiateFeatures(&cfg, live)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPCommands || terminalproto.SupportsACPCommands(terminalFeatures(cfg)) {
+		t.Fatal("commands feature survived a reconnect to an older controller")
 	}
 }

@@ -21,13 +21,20 @@ Machines, More). It is marked as the current page on `/desks` and on an open des
 - **The list** shows each desk as a card: its name and colour, its tab and pane counts, the machines it spans, and pills
   for shells that need you, live shells and panes to reopen. **New desk** makes an empty desk named "Desk" (then
   "Desk 2", and so on) and opens it. **From a template ▾** lists your templates. Each card's menu has Open, Rename,
-  Duplicate, Save as template, Delete and the colour swatches. With no desks the page says what a desk is and offers
-  New desk. Your templates follow under a **Templates** heading, as cards of the same kind; a template card's name opens
-  the template's own page and its menu has Open, New desk from this template, Rename and Delete.
-- **A desk** has a header: the desk's name, which is the switcher (your other desks, All desks, New desk), a line
-  with its tab and machine counts and the save state, **Reopen all** when it applies, **Layout**, **Type in all
-  panes** and the desk menu (Rename, Duplicate, Save as template, Keys, Delete, and the colour swatches). Below are the
-  tab bar, one terminal toolbar for the focused pane, and the tab's panes.
+  Duplicate, Move to its own tab, Save as template, Delete and the colour swatches. With no desks the page says what a
+  desk is and offers New desk. Your templates follow under a **Templates** heading, as cards of the same kind; a
+  template card's name opens the template's own page and its menu has Open, New desk from this template, Rename and
+  Delete.
+- **A desk** has a header: the desk's name, which is the switcher (your other desks, All desks, New desk, and Move to
+  its own tab), a line with its tab and machine counts and the save state, **Reopen all** when it applies, **Layout**,
+  **Type in all panes** and the desk menu (Rename, Duplicate, Save as template, Keys, Delete, and the colour
+  swatches). Below are the tab bar, one terminal toolbar for the focused pane, and the tab's panes.
+
+**Move to its own tab** opens a desk in a browser tab of its own, leaving the window you are in as it is. Reet keeps one
+desk to a window, so this is how two desks stay open side by side: each tab has its address and its own chosen tab, and
+both come back as they were after a reload. From the switcher the desk already in this window is switched off, since it
+already has this tab; from the list any card can be opened this way. The desk you last opened, which /desks reopens,
+follows the newly opened tab.
 
 Deleting a desk with no running shells asks "Its tabs and panes are removed. Nothing is running in it." A desk with
 running shells asks whether to **End its shells** or **Leave them running in Sessions**, and says what the first means:

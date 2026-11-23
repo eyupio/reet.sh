@@ -314,6 +314,8 @@ func pushBody(kind string) string {
 		return "Finished its turn."
 	case "turn-failed":
 		return "Its turn stopped with a problem."
+	case "turn-unwatched":
+		return "Stopped waiting for its background work; it may still be running."
 	default:
 		return "Finished."
 	}
@@ -333,7 +335,7 @@ func pushMoment(item store.TerminalSession) (kind string, at int64) {
 	}
 	// A chat that finished its turn and waits for the next message is still running, so its attention is "quiet":
 	// the turn's own end is the moment, until the person has looked.
-	turnOver := item.ChatStatus == "finished" || item.ChatStatus == "failed"
+	turnOver := item.ChatStatus == "finished" || item.ChatStatus == "failed" || item.ChatStatus == "unwatched"
 	if done := pushMillis(item.CompletedAt); item.Structured && item.State == terminalproto.Running && turnOver && done > pushMillis(item.SeenAt) {
 		return "turn-" + item.ChatStatus, done
 	}

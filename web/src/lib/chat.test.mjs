@@ -420,3 +420,15 @@ test('unavailable previews stay labelled without accepting a source URL', () => 
  const state=applyChatEvent(initialChat(),event(1,{kind:'preview',preview:{name:'missing.png',reason:'unavailable'}}))
  assert.equal(state.items[0].preview.reason,'unavailable')
 })
+
+test('reet stopping waiting leaves the held tool open, since it may still be running', () => {
+  let state = { ...initialChat(), connection: 'open' }
+  state = applyChatEvent(state, event(1, { kind: 'user', text: 'run the suite' }))
+  state = applyChatEvent(state, event(2, { kind: 'tool', toolCallId: 'c1', title: 'npm test', toolKind: 'execute', status: 'in_progress' }))
+  state = applyChatEvent(state, event(3, { kind: 'status', state: 'idle', background: 1 }))
+  state = applyChatEvent(state, event(4, { kind: 'notice', text: 'reet stopped waiting' }))
+  state = applyChatEvent(state, event(5, { kind: 'status', state: 'idle', code: 'unwatched' }))
+  assert.equal(state.status.code, 'unwatched')
+  assert.equal(state.status.background, 0)
+  assert.equal(state.items.find(item => item.kind === 'tool').status, 'in_progress')
+})

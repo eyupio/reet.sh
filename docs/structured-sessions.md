@@ -227,6 +227,14 @@ The runtime controls endpoint is `GET /api/v2/terminal/sessions/{id}/chat/contro
 `{"action":"set","configId":"effort","value":"high"}` using an ID and value reported by that exact session.
 Only model and thought-level selectors are accepted. Static installation descriptors do not authorise a runtime switch.
 
+`GET /api/v2/terminal/sessions/{id}/chat/commands` reads the slash commands the chat's agent last announced
+(`available_commands_update`), as `{"commands":[{"name":"review","description":"…","hint":"…"}]}`. Each announcement replaces
+the list and an empty one clears it; the machine keeps it in memory only. The agent's text is untrusted and bounded: at most 64
+commands, a name of 1 to 64 letters, digits, `:`, `_` or `-` (no leading slash; the first of two equal names wins), a
+description of at most 300 bytes and a hint of at most 120. An entry outside those bounds is dropped, not the whole list. The
+machine and the controller both need `acp-commands-v1`; for an older machine the read answers an empty list with
+`"code":"chat_commands_unsupported"` and a sentence to show.
+
 
 ## Images returned by an agent
 
@@ -593,7 +601,8 @@ The separate **Restart in another interface** control in Session actions uses th
   `codex resume`, `opencode --session`, `cline --id`, `agy --conversation`).
 - **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
   to finish or answer what it is asking." The controller refuses it too.
-- **`session-mode-v1` machines only.** A connector that did not negotiate it, has no chat history for the agent, or
+- **`session-mode-v1` machines only** (and, for any agent but OpenCode, `session-mode-agents-v1`, which a connector that
+  can open that agent's terminal on a saved conversation negotiates). A connector that did not negotiate it, has no chat history for the agent, or
   cannot launch the agent in a terminal (it is not among its launch tools) is not asked: "Update reet on this
   machine to switch between Gaffer and the agent's TUI." Only a running session can switch. Asking for the mode
   the session is already in changes nothing.

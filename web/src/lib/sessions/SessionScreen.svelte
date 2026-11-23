@@ -9,9 +9,9 @@
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
-  import { sessionStatus } from '../sessionStatus'
+  import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, stoppedWaiting } from '../sessionStatus'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, switchModeState, switchWhy, worktreeTargetOf } from '../sessions'
+  import { headerMeta, offlineSentence, switchModeState, switchWhy, terminalWay, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
@@ -28,6 +28,7 @@
   import PanelResizer from '../shell/PanelResizer.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import SessionViewSwitch from './SessionViewSwitch.svelte'
+  import TerminalQuestionCard from '../terminal/TerminalQuestionCard.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
   import { SWITCH_LIVE_CHAT_HINT } from '../chatAgents'
@@ -295,6 +296,14 @@
     const record = JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))
     try { localStorage.setItem(contextKey, record); localStorage.setItem('reet.workspace.context', record) } catch { /* optional browser preference */ }
   }
+  // How Chat reaches its terminal: the header's own decision, which Chat's link reads and uses.
+  const terminalHow = $derived(terminalWay({ available: nativeAvailable, pending: nativePending, reason: nativeReason }, switchState, chatView))
+  export function getTerminalWay() { return terminalHow }
+  export function showTerminal() {
+    if (terminalHow.way === 'open') onview?.('terminal')
+    else if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null)
+    else notice = { text: terminalHow.reason }
+  }
   // The workspace toolbar calls this through its bound component instance.
   export function toggleContext() {
     // A terminal opened beside the session takes the panel's place; Details has nothing to toggle until it closes.
@@ -355,6 +364,8 @@
     void tick().then(() => actionsButton?.focus())
   }
   function continueSession() { if (!oncontinue) return; leaveActions(); oncontinue() }
+  // Takes the person to the terminal below the card (the plain shell's own input).
+  function focusTerminal() { void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }
   function openTerminal() { if (!onterminal) return; leaveActions(); onterminal() }
   function openSideTerminal() { if (!onside) return; leaveActions(); onside() }
 
@@ -416,9 +427,9 @@
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
-      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished' && !stoppedWaiting(session)}<span class="status-tick" aria-hidden="true"></span>{:else if statusKind === 'working' && heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}{statusKind === 'working' && heldWork(session) ? `. ${HELD_SENTENCE}` : stoppedWaiting(session) ? `. ${STOPPED_LINE}` : ''}</span></span>
       <div class="header-actions">
-        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (chatView && !nativePending && switchState.enabled && switchState.to === 'terminal') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
+        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}
         {#if (terminalShowing || focusOn) && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
         <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}
@@ -511,6 +522,8 @@
     </header>
     <!-- A Factory pipeline's decision is taken where the work is: in the session doing its stage in hand. -->
     <div class="below-head">
+    <!-- A terminal agent's open dialog sits right under the header, above the terminal, so it is the first thing seen. -->
+    {#if session.terminalQuestion && !session.structured}<div class="question"><TerminalQuestionCard {session} question={session.terminalQuestion} title={session.title} machine={host} locked={away ? 'The machine is not connected. Try again when it is back.' : ''} onopen={focusTerminal} onreread={onrefresh} /></div>{/if}
     {#if factory?.key && factory.current}<SessionDecision member={factory} sessionId={session.id}/>{/if}
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -541,7 +554,7 @@
   <WorktreeDialog member={removing} {host} opener={null} onremoved={onrefresh} {onsignedout} onclose={() => (removing = null)} />
 {/if}
 {#if switchAsk}
-  <SwitchModeDialog to={switchAsk.to} agentTui={terminalLabel} machine={host} trust={switchAsk.trust}
+  <SwitchModeDialog to={switchAsk.to} agentTui={terminalLabel} machine={host} trust={switchAsk.trust} sandboxOff={session.tool === 'codex' && !!session.yolo}
     onconfirm={trust => void confirmSwitch(trust)} oncancel={closeSwitch} />
 {/if}
 {#if yoloOpen}
@@ -554,6 +567,11 @@
   .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); }
   .head { grid-column: 1; grid-row: 1; }
   .below-head { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; }
+  .question { padding: 8px 20px 0; }
+  /* A tall dialog never squeezes the terminal out: the holder caps at 40% of the height and scrolls. */
+  .below-head:has(.question) { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
+  /* The long dialog is the thing to read: the holder allows it more of a phone's height. */
+  @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .below-head:has(.question) { max-height: 70dvh; } }
   /* A long Factory decision sits above the conversation. On a phone (or a sideways one) it keeps a bounded height and
      scrolls itself, so its own choices stay reachable instead of being clipped by the fixed-height workspace. */
   @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
@@ -620,6 +638,7 @@
   .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 6px; box-sizing: border-box;
     background: none; border: 0; color: var(--muted); font-size: 14px; font-weight: 400; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
+  .pill .status-ring { --ring: 8px; }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .approvals { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); }

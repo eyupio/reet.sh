@@ -20,6 +20,9 @@ export type Change =
   /** A pane moved to another tab, beside that tab's active pane, in one step: it never leaves one tab without reaching
    *  the other. The tab it leaves goes with it when it was that tab's last pane. */
   | { kind: 'movePaneToTab'; from: string; to: string; pane: string }
+  /** A pane moved into a new tab of its own, in one step. The new tab takes the place of the one it leaves when it was
+   *  that tab's last pane, else sits right after it. */
+  | { kind: 'movePaneToNewTab'; from: string; pane: string; tab: string }
   /** The panes of the other tabs (all of them, or the ones in `from`) brought into `tab` and laid out, in one step. Tabs
    *  are taken whole, in tab order, while their panes fit; a tab that does not fit stays as it is. */
   | { kind: 'gather'; tab: string; name: 'side' | 'stack' | 'grid'; from?: string[] }
@@ -156,6 +159,16 @@ function applyChange(desk: Desk, c: Change): Desk | null {
       const last = leaves(from.root).length <= 1
       const tabs = doc.tabs.flatMap(t => t.id === to.id ? [moved] : t.id === from.id ? (last ? [] : [closePane(t, c.pane)]) : [t])
       return withDoc(tabs, to.id)
+    }
+    case 'movePaneToNewTab': {
+      const at = index(c.from)
+      const from = doc.tabs[at], p = from?.panes[c.pane]
+      if (!from || !p || doc.tabs.length >= MAX_TABS || !c.tab || index(c.tab) >= 0) return null
+      const tab: Tab = { id: c.tab, name: p.name, colour: p.colour, root: { pane: p.id }, zoomed: '', active: p.id, panes: { [p.id]: p } }
+      const before = doc.tabs.slice(0, at), after = doc.tabs.slice(at + 1)
+      // The last pane of a tab takes the tab with it: the new tab stands where it stood.
+      const tabs = leaves(from.root).length <= 1 ? [...before, tab, ...after] : [...before, closePane(from, c.pane), tab, ...after]
+      return withDoc(tabs, tab.id)
     }
     case 'gather': {
       const into = doc.tabs[index(c.tab)]

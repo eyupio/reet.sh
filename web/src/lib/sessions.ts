@@ -247,7 +247,7 @@ export function switchModeState(session: TerminalSession, caps: Capabilities | u
   if (session.state !== 'running') return no('Only a running session can switch.')
   if (to === 'chat' && !session.acpSessionId) return no('This session started in the agent’s TUI, so Gaffer cannot pick up its conversation.')
   // The controller also requires the agent to be one of the machine's launch tools (Capabilities.SessionModeFor); an absent list is unknown.
-  if (caps?.sessionMode !== true || (caps.tools && !caps.tools.includes(session.tool as string)) || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between Gaffer and the agent’s TUI.')
+  if (caps?.sessionMode !== true || (session.tool !== 'opencode' && caps.sessionModeAgents !== true) || (caps.tools && !caps.tools.includes(session.tool as string)) || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between Gaffer and the agent’s TUI.')
   // The agent's resume flag needs the id; the controller refuses with this same sentence (session_mode_no_conversation), and
   // as there, an old machine is named first.
   if (to === 'terminal' && !session.acpSessionId) return no('This session has no saved conversation yet, so it cannot move to the agent’s TUI.')
@@ -261,6 +261,14 @@ export function switchWhy(state: { why: string }, switchingTo: string | undefine
   if (switchingTo) return `Switching to ${switchingTo === 'Gaffer' ? switchingTo : `the ${switchingTo}`}…`
   if (state.why) return state.why
   return actionBusy ? 'Another action on this session is running.' : ''
+}
+
+/** How a chat reaches its terminal, decided once for the header's Terminal button and for Chat's own link: show the shared native
+ *  view, restart the session in the agent's terminal (the header's confirm), or neither, with the reason to give. */
+export function terminalWay(native: { available: boolean; pending: boolean; reason: string }, state: { to: 'terminal' | 'chat'; enabled: boolean }, chatView: boolean): { way: 'open' | 'restart' | 'none'; reason: string } {
+  if (native.available) return { way: 'open', reason: '' }
+  if (chatView && !native.pending && state.enabled && state.to === 'terminal') return { way: 'restart', reason: '' }
+  return { way: 'none', reason: native.pending ? 'Checking this running agent’s terminal support…' : native.reason || 'This session has no shared native terminal.' }
 }
 
 /** The context panel's changed files (R19): the first twenty paths the worktree status lists, the total, and how many more. */

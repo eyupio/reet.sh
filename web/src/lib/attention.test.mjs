@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./attention.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const a = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { ATTENTION_WINDOW_MS, hasPending, isBlocked, attentionRuleOf } = a
+const { ATTENTION_WINDOW_MS, hasPending, isBlocked, attentionRuleOf, isApproval } = a
 
 const NOW = 1_800_000_000_000
 const HOUR = 60 * 60_000
@@ -23,6 +23,14 @@ test('hasPending needs a non-empty permission or question id', () => {
   assert.equal(hasPending(s({ pendingPermission: { permissionId: '' } })), false)
   assert.equal(hasPending(s({ pendingPermission: perm })), true)
   assert.equal(hasPending(s({ pendingQuestion: question })), true)
+})
+
+test('a terminal dialog holds a waiting session blocked after it has been seen', () => {
+  const dialog = { question: 'Run it?', options: [{ index: 1, label: 'Yes' }], fingerprint: 'f1' }
+  assert.equal(hasPending(s({ terminalQuestion: dialog })), true)
+  assert.equal(hasPending(s({ terminalQuestion: { ...dialog, fingerprint: '' } })), false)
+  assert.equal(isBlocked(s({ attention: 'waiting', terminalQuestion: dialog })), true)
+  assert.equal(isBlocked(s({ attention: 'working', terminalQuestion: dialog })), false)
 })
 
 test('isBlocked: waiting and unseen is blocked', () => {
@@ -87,3 +95,13 @@ test('attentionRuleOf: unseen and in the window but working or quiet is nothing'
 test('attentionRuleOf: a failed session that also holds a pending item is still failed', () => {
   assert.equal(attentionRuleOf(s({ attention: 'failed', changedSinceSeen: true, pendingPermission: perm }), NOW), 'failed')
 })
+
+test('a dialog with a yes and a no style option is an approval, others are questions', () => {
+  const d = labels => ({ question: 'x', options: labels.map((label, i) => ({ index: i + 1, label })), fingerprint: 'f' })
+  assert.equal(isApproval(d(['Yes', "Yes, and don't ask again", 'No, and tell Claude what to do differently (esc)'])), true)
+  assert.equal(isApproval(d(['Yes, proceed (y)', 'No, and tell Codex what to do differently (esc)'])), true)
+  assert.equal(isApproval(d(['Allow once', 'Deny'])), true)
+  assert.equal(isApproval(d(['Postgres', 'SQLite', 'Other'])), false)
+  assert.equal(isApproval(d(['Yes'])), false)
+})
+

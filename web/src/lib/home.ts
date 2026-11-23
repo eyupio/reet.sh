@@ -1,6 +1,6 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
 import type { GafferGoalOverview, SyncState } from './api'
-import { ATTENTION_WINDOW_MS, attentionRuleOf, isBlocked } from './attention'
+import { ATTENTION_WINDOW_MS, attentionRuleOf, isApproval, isBlocked } from './attention'
 import { agoLabel } from './time'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
@@ -45,7 +45,7 @@ export type GroupBy = 'project' | 'machine' | 'state' | 'attention'
 /** Every grouping, in the order the choice offers them. */
 export const GROUP_CHOICES: { value: GroupBy; label: string }[] = [{ value: 'attention', label: 'Priority' }, { value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
 export type Group = { key: string; label: string; count: number; sessions: HomeSession[] }
-export type NeedKind = 'waiting' | 'failed' | 'review' | 'finished'
+export type NeedKind = 'waiting' | 'failed' | 'review' | 'finished' | 'stopped'
 /** Why a card needs the person: what the session holds open for them, or how it ended. */
 export type NeedReason = 'approval' | 'question' | 'failed' | 'finished' | 'review' | 'gaffer'
 export type NeedCard = {
@@ -66,6 +66,10 @@ export type NeedCard = {
   approval?: { permissionId: string; title: string; command: string; path: string; truncated: boolean; queued: number }
   /** The earliest unanswered typed question: shown as a preview, answered in the chat where its whole card is. */
   question?: { questionId: string; message: string; truncated: boolean; queued: number }
+  /** The dialog a terminal agent waits on: answered from the card with its own options. */
+  terminal?: NonNullable<TerminalSession['terminalQuestion']>
+  /** The session's agent, named in that dialog's heading. */
+  tool?: string
 }
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
@@ -74,6 +78,9 @@ const LIVE: ReadonlySet<SessionState> = new Set(['creating', 'running', 'end_req
 export const FINISHED_KEPT_MS = ATTENTION_WINDOW_MS
 
 const live = (s: Pick<TerminalSession, 'state'>): boolean => LIVE.has(s.state)
+// reet stopped waiting for work this chat's turn left running (sessionStatus.ts has the same test for components).
+const stoppedWaitingChat = (s: Pick<TerminalSession, 'attention' | 'attentionSource' | 'chatStatus'>): boolean =>
+  (s.attention === 'finished' || s.attention === 'quiet') && s.attentionSource === 'chat' && s.chatStatus === 'unwatched'
 
 const reading = (percent: number | null, text: string) => percent == null ? { percent: null, text: 'No reading' } : { percent, text }
 
@@ -181,15 +188,18 @@ export function sessionOwners(sessions: TerminalSession[], projects: Pick<Folder
 
 const machineName = (agentId: string, machines: Pick<MachineHealth, 'agentId' | 'host'>[]): string => machines.find(m => m.agentId === agentId)?.host || agentId
 
-export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 'attention' | 'attentionSource'>): { word: string; source: string; tone: Tone } {
+export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 'attention' | 'attentionSource' | 'chatStatus'>): { word: string; source: string; tone: Tone } {
   const fromState = "from the session's state"
   const fromActivity = session.attentionSource === 'chat' ? 'from the chat' : 'from terminal activity'
   switch (session.attention) {
     case 'waiting':
       return { word: 'Waiting for you', source: fromActivity, tone: 'warn' }
     case 'working':
+      // The turn is over but work it started still runs: not finished, and nobody is called for it yet.
+      if (session.attentionSource === 'chat' && session.chatStatus === 'background') return { word: 'Working in the background', source: 'from the chat', tone: 'good' }
       return { word: 'Working', source: fromActivity, tone: 'good' }
     case 'quiet':
+      if (stoppedWaitingChat(session)) return { word: 'Stopped waiting', source: 'from the chat', tone: 'warn' }
       // A quiet chat is a finished turn in a session kept open for the next instruction, so every surface calls it
       // Finished; only an idle terminal, where the shell is still sitting there, reads Quiet.
       return session.attentionSource === 'chat'
@@ -198,6 +208,7 @@ export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 
     case 'starting':
       return { word: 'Starting', source: session.attentionSource === 'chat' ? 'from the chat' : fromState, tone: 'muted' }
     case 'finished':
+      if (stoppedWaitingChat(session)) return { word: 'Stopped waiting', source: 'from the chat', tone: 'warn' }
       if (session.attentionSource === 'chat') return { word: 'Finished', source: 'from the chat', tone: 'muted' }
       if (typeof session.exitCode === 'number') return { word: `Exited ${session.exitCode}`, source: 'from the exit code', tone: 'muted' }
       return { word: 'Finished', source: fromState, tone: 'muted' }
@@ -337,7 +348,7 @@ export function needsYou(
       const asking = !s.pendingPermission?.permissionId && !!s.pendingQuestion?.questionId
       out.push({
         kind: 'waiting',
-        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId ? ['question' as const] : [])],
+        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId ? ['question' as const] : []), ...(s.terminalQuestion?.fingerprint ? [isApproval(s.terminalQuestion) ? 'approval' as const : 'question' as const] : [])],
         label: asking ? 'Question for you' : 'Waiting for you',
         tone: 'warn',
         sessionId: s.id,
@@ -351,6 +362,7 @@ export function needsYou(
         worktreeTarget: null,
         ...(s.pendingPermission?.permissionId ? { approval: approvalOf(s.pendingPermission) } : {}),
         ...(s.pendingQuestion?.questionId ? { question: questionOf(s.pendingQuestion) } : {}),
+        ...(s.terminalQuestion?.fingerprint ? { terminal: s.terminalQuestion, ...(s.tool ? { tool: s.tool } : {}) } : {}),
       })
       continue
     }
@@ -373,12 +385,15 @@ export function needsYou(
       })
     } else {
       const at = s.updatedAt
-      const review = !!s.worktreePath
+      // Work reet stopped waiting for may still be running: not a finish to review.
+      const stopped = stoppedWaitingChat(s)
+      const review = !!s.worktreePath && !stopped
       out.push({
-        kind: review ? 'review' : 'finished',
+        // A stopped wait needs a look: it is listed with what waits, unlike a plain finish.
+        kind: stopped ? 'stopped' : review ? 'review' : 'finished',
         reasons: [review ? 'review' : 'finished'],
-        label: review ? 'Ready to review' : 'Finished',
-        tone: review ? 'good' : 'muted',
+        label: stopped ? 'Stopped waiting' : review ? 'Ready to review' : 'Finished',
+        tone: stopped ? 'warn' : review ? 'good' : 'muted',
         sessionId: s.id,
         agentId: s.agentId,
         title: s.title,
@@ -387,7 +402,7 @@ export function needsYou(
         at,
         age: shortAge(Math.max(0, now - at)),
         markSeen: true,
-        worktreeTarget: needWorktreeTarget(s),
+        worktreeTarget: stopped ? null : needWorktreeTarget(s),
       })
     }
   }

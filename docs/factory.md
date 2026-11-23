@@ -30,10 +30,56 @@ To start one, choose **New Factory outcome**:
    Under **Acceptance criteria** you can write what must be true for a pipeline to count as delivered, up to ten
    one-line criteria of up to 240 bytes each. A pipeline with criteria stops for a [delivery review](#delivery-review)
    before it merges or finishes; one without them runs as before.
+   Each stage also says what it will run on, and **Launch readiness** above **Approve and start** sums that up. See
+   [Before you approve](#before-you-approve).
 4. Set the limits, **Approvals**, **Decisions** and the merge, described below, then choose **Approve and start**.
 
 Nothing starts until you approve. After that the controller does the starting and the moving on, so you can close the
 browser.
+
+### Before you approve
+
+When the plan opens, reet reads the machine again and asks it which agents are signed in and how much of each plan is
+left. A machine that cannot answer is a state on the stage, not an error. **Launch readiness on** the machine, at the
+head of the pipelines, counts the stages that are ready and how many have something to look at or cannot start. Under
+the count each cause is said once, with who it affects: **Every stage** for a machine that is not connected, otherwise
+the crews it is on and the stages they do, such as **Heavy and Standard crews, used by Code, Review and Test**. Its word
+is **Cannot start**, **Look at** or **Note**. A tier whose agent is not on the machine says only that: its model, effort,
+sign-in and backups do not matter until that is fixed. A cause on a tier has **Choose who does what**, which opens the
+crew editor and puts you on the first affected tier's agent.
+
+Each stage, and each part of a split stage, is one line: a mark, the agent, model and effort it will run on, and where
+the choice came from. **✓** is ready, and says nothing more; **!** (**Look at**), **✕** (**Cannot start**) and **…**
+(**Reading**) carry their word. The source is your **Saved crew** for that tier, **Your choice** made in this dialog, or
+**Outcome's agent**, which is the outcome's own agent because no crew is saved for the tier or because the saved agent is
+not on this machine. A model or effort you left to the agent reads as a choice: **Agent's default model and effort**.
+Under the line are the backups, folded until you open them:
+
+- **Backups: …**, in the order tried, with what each will do. It **can take over** when balancing can move a stage
+  onto it. Otherwise it **takes over only after a usage limit**, or **balancing will not use it**, and the line says
+  why. Balancing moves a stage to a backup only when the first choice's plan figures are less than six hours old and
+  low, the backup is signed in, and, if it has figures, has more of its plan left. A backup on the same agent shares
+  that agent's plan, so it is not balanced onto. A backup whose own figures are old or absent takes over without a
+  comparison, and is not something to look at. After a usage limit the next backup is tried whatever its sign-in, so one
+  whose agent is not on the machine or is not signed in is still tried and is likely to be refused there; that is
+  something to look at, and the folded line counts it. Backups that fail for the same reason are said together, and a
+  backup on the first choice's own agent is not said again when that agent's missing sign-in already is.
+
+Sign-ins are read from the machine's last answer even when the latest read could not be made; only that read is then
+said to be old. A machine that does not report an agent's sign-in (Cline, for one) is noted and never counted as a
+problem. Things still being read, such as a model list, are shown as being read, not as a problem.
+
+A model that the machine's list does not have, a list read more than a day ago, a model list or effort levels the machine
+could not give, a missing sign-in and sign-ins the machine could not read are each worded differently, with when the
+list was read. A saved effort that the machine does not offer is shown as the saved crew's, with the note that the stage
+starts on the agent's default effort. Where the model or effort was not checked against the machine, a note says so:
+an agent that does not offer the model stops the stage when it starts; otherwise the [Applied line](#the-page) on the
+running stage says what it is running on.
+
+Warnings never stop you. **Approve and start** waits only when a stage's agent is not on the machine now, or the machine
+is not connected, and the reason is beside the button, with the crews to change under **Choose who does what**. When
+the reason clears, the same place says **Nothing is holding the plan now.** While a stage cannot start the machine list
+is read every ten seconds, so Approve clears when the machine comes back.
 
 ## The page
 
@@ -167,6 +213,7 @@ Each tier can have a **Backup**: a second agent, model and effort.
 - When the working model reports that its usage or credits are exhausted, Factory offers the next configured backup
   and continues the same stage in its existing folder and branch. With **Gaffer decides**, Factory makes that switch
   once automatically. **Choose another model** on the card lets you select a different worker for this stage when you want to use a different model or have no backup.
+  See [A worker reached its usage limit](#a-worker-reached-its-usage-limit).
 
 **Save as my crew** keeps the tiers, their backups and the figure for your account. **Your Factory crew** in Gaffer
 settings holds the same, and every later outcome starts from it, including one started over MCP.
@@ -202,6 +249,18 @@ item on a tablet or phone. Nothing happens until you choose.
 - **Try the review again** appears when Gaffer's own review failed.
 - **Give it a new budget** appears when the stage used its reviews or its time.
 - **Run this stage again in a new session** appears when the stage's session was ended.
+
+### A worker reached its usage limit
+
+The pipeline is marked **Usage limit**. It says which agent and model reached its limit on which stage, and which
+agent the backup is. Either button continues the same stage in a new session in the same folder and branch, and the
+pipeline keeps its history. If another model had already taken over on the stage after a usage limit, it says so and
+which agent the stage started on. It says whether no backup is saved for the stage or none is left. The detail adds
+how much of that agent's plan is left and when it resets, when the machine reports it.
+
+The item on Home and in the Factory list has both as buttons, **Continue with the backup** filled and **Choose another
+model…** beside it, so you can act without opening the detail. With no backup left only **Choose another model**
+remains, as the filled button.
 
 The same decisions are in the pipeline's session, under its header, with Gaffer's latest review to read in place and a
 line saying who decides and, when it is not Gaffer, how to hand it the decisions.
@@ -337,6 +396,62 @@ outcome** says which.
   or added to.
 - The controller ends the sessions a pipeline has finished with and keeps their history. Worktrees are not touched,
   and a worktree a pipeline still works in is kept by every kind of cleaning.
+
+## Templates
+
+A template is a plan you saved from a finished outcome, so the next outcome that needs the same shape does not start
+from nothing. Templates are private to your account. They are not shared and have no MCP tool.
+
+**Saving.** On a finished outcome whose every pipeline is done, or had its delivery accepted and did not then fail, choose **Save as template…** in the bar at the foot of the pipeline. Give it a name
+and, if you like, a description. It is kept only when every pipeline of the outcome is done or has its delivery
+accepted; otherwise reet says which one is not, and nothing is saved. Where you already have templates, **Save as** also offers **A new
+version of** one of them, saved on the version you were shown. An outcome started from a template that is still kept
+starts on **A new version of** that template, and says which version it started from. If someone, or another tab, saved a newer version
+first, reet says which version that was and which one this now saves; what you typed stays, and choosing another template to follow fills only the fields you have not typed in.
+
+**What is kept.** The objective and review limits, and for each pipeline its title, prompt, merge setting, stages
+(with their tiers and the reason for them) and criteria, and the skills each stage was approved with, at their
+revisions. **What is not kept:** the machine, project or folder, agents, models and sign-ins, YOLO and folder trust,
+images, notes, decisions, reports and usage. You choose those when you use it.
+
+**The Templates page.** **Templates** at the top of the Factory page lists them with their description, latest
+version, how many pipelines, when they last changed, and when and at which version you last used them. A template whose
+latest version is newer than the one you last used says **Changed since you last used it**, with both versions. The
+notice after saving one links to it. Open one to read its plan
+(read only), its versions, and to compare any two versions. From there you can **Use** a version, **Rename or change
+the description** (this saves a new version with the same plan, even when one of its skills is no longer approved), or
+**Delete template…**. Deleting removes the template and all its versions; a single version cannot be deleted; outcomes already started from it keep their own inputs and are not touched. To change the plan
+itself, start from the template, adjust it, and save the finished outcome as a new version. An account keeps twenty
+templates, and twenty versions of each: saving another version drops the oldest.
+
+**Using one.** **Use** opens New Factory outcome on its plan step. You can also reach it from the first step with
+**Start from a template**; what you typed there is kept. The plan is shown read only. Everything that belongs to a
+start is chosen now: the project (which decides the machine), the agent, model and effort, the crew, YOLO, decisions,
+reports, trust and whether to pull the latest code. The crew starts from the one saved in Gaffer settings and **Choose
+who does what** changes it for this start, as for any plan; each stage runs on its tier's agent from it. Launch
+readiness is shown and holds the start as it does for any plan, and its **Choose who does what** opens the crew on the
+tier to change. Starting does not ask Gaffer to plan anything.
+
+**What a start will do.** Each pipeline shows as one line: its title, stages, how many criteria, and whether it merges by itself once checks pass or stops at Ready to merge (the setting it was saved with). Its full card opens from the line, and is open from the start for a pipeline that changed since the version you last used or has a skill that is no longer approved. The review limits are said once above the pipelines. One line beside the start button names the pipelines that merge by themselves; there is none when no pipeline does. On YOLO a pipeline still stops at Ready to merge until you confirm on the Factory page that it may merge by itself. No choice made in a start is remembered for the next one.
+
+**Changes since you last used it.** When the version you are about to use differs from the one you last used, the
+plan step shows what changed first, above the plan: pipelines added, removed or changed, a changed prompt, stages
+before and after, a stage's tier, brief or part, criteria added, removed or reworded, skills moved to another revision,
+and pipelines put in another order. A pipeline that changed in a way none of these describes says so, with a way to
+compare the versions. In the plan below, the criteria added or reworded and the skills on another revision are marked
+where they are. If the version you last used is no longer kept, the changes start at the oldest version kept and say that older
+ones are not shown. A template you have not used yet shows nothing. The **Template version** list lets you start an older version instead.
+
+**Skills.** A template keeps the revision of each skill it was approved with, and never swaps in another. If a skill is
+no longer approved at that revision, because a newer revision is approved or because it was archived, removed or
+switched off, the stage says so and the start waits until you tick **Start without these skills**, just under the plan. Only those skills
+are left out. If the approved skills change while you are looking, the refusal brings the current list and reet asks
+again; your other choices stay.
+
+**On the outcome.** An outcome started from a template says **From template {name}, version {n}** under its title, with the
+name the template had when the outcome started, and links to the template. If the template has since been deleted, or that
+version is no longer kept, it says so and keeps the name. Editing
+or deleting a template never changes an outcome that has started.
 
 ## From an AI client
 

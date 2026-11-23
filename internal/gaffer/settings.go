@@ -177,7 +177,11 @@ type Service struct {
 	toolHost        atomic.Pointer[ToolHost]
 	outcomeWake     chan struct{}
 	// outcomeRuns holds the outcomes being carried on right now, by ID.
-	outcomeRuns     sync.Map
+	outcomeRuns sync.Map
+	// endTried holds when ending a session last failed, by session ID.
+	endTried sync.Map
+	// rebalancing is held for a pass of rebalanceStopped.
+	rebalancing     sync.Mutex
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter
 	store           *store.Store

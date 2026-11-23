@@ -2946,8 +2946,8 @@ Machines that negotiate `attention-v1` configure tmux (`monitor-activity on`, `m
 immediately when a new bell fires. The controller derives `attention` (`starting`, `working`, `quiet`, `waiting`,
 `finished`, `failed`), `attentionSource` (`terminal`) and `changedSinceSeen` per person (`terminal_session_seen` in SQLite;
 `POST /api/v2/terminal/sessions/{id}/seen`). Structured reet TUI sessions also report `waiting` while a permission is
-pending and `working` while a model turn is in flight. Codex's YOLO preset uses `--ask-for-approval never` so Codex keeps
-its own sandbox.
+pending and `working` while a model turn is in flight. Codex's YOLO preset uses `--ask-for-approval never --sandbox danger-full-access`, so Codex
+loses its own sandbox (changed 22 November 2026; it used to keep it).
 
 On the web, `needsYou` builds cards for `waiting` ("Waiting for you"), `finished` ("Ready to review", querying
 `worktreeStatus` once per `(sessionId, at)` when the session has a worktree) and `failed` ("Exited with an error"), newest
@@ -4633,3 +4633,52 @@ and **Planning board** views. Checked against a production build in `home-waitin
 ![Home, 390 dark](images/ui/home-rework-390-dark.png)
 
 The Factory page's five captures above were retaken in the same pass, now that its reserved strip is gone.
+
+## A turn that ends with work still running (23 November 2026)
+
+When a chat's turn ends while tool calls it started are still running (the agent never reported them finished), the
+chat is not called finished. The machine holds those calls and reports how many on its idle status
+(`acp-background-v1`), and only while the last status it sent is idle: a held call that finishes after a stopped or
+failed turn sends nothing, so that turn is never reopened, and a count is never sent in the middle of a new turn. The
+controller records the chat as `background` only after a turn that was running, stores when the hold began
+(`heldSince`), and keeps its attention `working`, so no card, bell, push or "Ready to review" is raised. When the last
+held call reports its end the chat is finished from that moment.
+
+**Stopped waiting is not a finish.** The machine stops waiting after 30 minutes (`terminalproto.BackgroundHoldLimit`):
+the chat says "{Agent} never said whether its background task finished. After 30 minutes reet stopped waiting; it may
+still be running on {machine}." (the plural names the count) and the idle status that follows carries the code
+`unwatched`. The controller keeps its own bound of the same length for a machine that falls silent, and writes its own
+transcript line when it fires. Either way the chat is stored as `unwatched`, which survives a restart: it reads
+**Stopped waiting** (with "Work it started may still be running." where a sentence fits, and the machine's name in the
+Overview), draws no settled tick, is listed with what needs the person (its own card, not "Ready to review", with no
+worktree check), the push says "Stopped waiting for its background work; it may still be running.", and Gaffer asks the
+person to look rather than reviewing it as a clean finish. An older controller never sees the code, like the count.
+
+One vocabulary: **In background** in lists, tabs, panes and the resume list; **Working in the background** where a
+sentence fits (the session header, the Overview's "Right now"). Every surface gives a screen reader the full sentence
+once ("Turn ended; work it started is still running."). The mark is a static hollow ring (`.status-ring`) in the
+working colour, at the size of the dot it replaces. The chat's line says **Turn ended 12 min ago · 1 background task
+running** with the ring instead of the turn's spinner, keeps "You can send your next instruction." at every width
+(wrapping to a second row on a phone rather than dropping it), and hides its step counter while work is held. Gaffer's
+card leads with the count. The Overview says "Turn ended 12 min ago; work still running." The Factory's "Doing now"
+says "Working in the background · stops waiting in 10 min", and both move-on confirmations open with "{Agent} still has
+work running (turn ended 12 min ago); moving on stops it." Moving on stays the person's call; Gaffer itself never
+reviews, hands over or moves on a stage while the work runs. Status pill text mixes a fifth of ink into its status
+colour and reaches AA on its wash in both themes, also over a tinted row, where the ring keeps 3:1; the Desk pane's word
+uses the same text colour and keeps AA on a tinted pane. On a phone every row's word gets the same room (39%), enough
+for "In background", so a held row's title gives up no more than a waiting row's.
+
+Not held in this slice: turns an agent runs on its own outside a prompt (the OpenCode terminal view). Terminals, agents
+that close every tool call before their turn ends, and machines or controllers without `acp-background-v1` behave
+exactly as before. Which agents leave work running at the end of a turn has not been checked against a real agent; the
+evidence is the agent's own unfinished tool calls and nothing else. Not in this slice: a control to stop background work.
+
+- `web/tests/sessions.e2e.mjs`, "a turn that left work running", at 1280 light and 390 dark, twice the pixel density:
+  the row's word, ring, tooltip and read-out sentence, the phone title against a waiting row's, the neighbouring rows,
+  Home's row, the chat line with its time, sentence and no counter, the header, the tab, the workspace list, the
+  Overview, Gaffer's card title uncut, and the stopped-waiting row, bell item and chat line. `desks.e2e.mjs` checks a
+  held Desk pane on a tinted header, with the word's contrast computed from the resolved colours; `gaffer-factory.e2e.mjs`
+  the Factory's "Doing now" and the move-on confirmation's first sentence. The pill and ring pairs are computed in
+  `web/src/lib/theme.test.mjs`.
+- Looked at, by eye: every capture of that pass (Sessions group, row, Home row, chat, Overview, Gaffer card, tab, Desk
+  pane, Factory stage line, move-on confirmation, and the stopped-waiting row, bell item and chat line).

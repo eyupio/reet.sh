@@ -342,6 +342,10 @@ func (c *agentConn) dispatch(callCtx context.Context, msg terminalproto.Message)
 		return r.handleDetach()
 	case *terminalproto.History, *terminalproto.CommandHistory:
 		return r.handleHistory(op)
+	case *terminalproto.TerminalAnswer:
+		// The machine reads the screen again and works out the keys itself.
+		r.reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		return r.respond(c.m.AnswerQuestion(callCtx, msg.SessionID, op.Fingerprint, op.Option))
 	default:
 		return terminalproto.ErrInvalid
 	}
@@ -362,6 +366,9 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.ACPControl:
 		if !acp(terminalproto.ACPLiveControlsFeature) {
+			return terminalproto.ErrInvalid
+		}
+		if b.Action == "commands" && !has(terminalproto.ACPCommandsFeature) {
 			return terminalproto.ErrInvalid
 		}
 		if len(b.Images) > 0 && !has(terminalproto.ACPImageFeature) {
@@ -412,6 +419,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.SessionMode:
 		if !has(terminalproto.SessionModeFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.TerminalAnswer:
+		if !has(terminalproto.TerminalQuestionFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.ChatReattach:
@@ -725,6 +736,10 @@ func code(err error) terminalproto.ResultCode {
 		return terminalproto.Conflict
 	case errors.Is(err, terminalhost.ErrSessionMissing):
 		return terminalproto.NotFound
+	case errors.Is(err, terminalhost.ErrQuestionChanged):
+		return terminalproto.QuestionChanged
+	case errors.Is(err, terminalhost.ErrAlreadyAnswered):
+		return terminalproto.AlreadyAnswered
 	case errors.Is(err, errAttachmentUnavailable):
 		return terminalproto.Failed
 	default:
@@ -831,19 +846,30 @@ func observeShell(observed map[string]terminalproto.SessionChanged, sentDirs map
 		BellAt:     s.BellAt,
 		ExitStatus: s.ExitCode,
 		Dir:        s.LiveDir,
+		// The question is the whole of it each time: absent means none, so a
+		// question going is news as well.
+		TerminalQuestion: s.Question,
 	}.ForFeatures(features)
 	old, known := observed[s.ID]
 	sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
 	changed := !known || old.State != state.State || !sameCode
 	timesChanged := old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt
 	dirChanged := state.Dir != "" && state.Dir != sentDirs[s.ID]
+	questionChanged := questionFingerprint(old.TerminalQuestion) != questionFingerprint(state.TerminalQuestion)
 	if dirChanged {
 		sentDirs[s.ID] = state.Dir
 	} else {
 		state.Dir = ""
 	}
 	observed[s.ID] = state
-	return state, changed || timesChanged || dirChanged
+	return state, changed || timesChanged || dirChanged || questionChanged
+}
+
+func questionFingerprint(q *terminalproto.TerminalQuestion) string {
+	if q == nil {
+		return ""
+	}
+	return q.Fingerprint
 }
 
 // reconcileSnapshot merges terminal and chat receipts without letting history

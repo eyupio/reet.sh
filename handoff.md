@@ -32,6 +32,339 @@ changed here.
 **Not done.** No Home end-to-end run for the board pill (computed colour and axe on Home cover it); long titles are
 capped at two lines on phones.
 
+## TERMINAL-QUESTION-1: a terminal agent's dialog shown and answered from reet (23 November 2026)
+
+The base for two "Agent behaviour" roadmap items: the question and its options for terminal agents, and answers
+re-checked before they are written. The full Claude Code plan and the Codex queue are not built.
+
+**What leaves the machine now.** `internal/terminalhost/agent_prompt.go` used to promise that screen text was never
+stored, logged or sent. The owner relaxed that in one bounded way: for a dialog the parser recognises, the dialog's own
+lines and question (500 runes in all, `truncated` when cut or when the dialog starts above the screen) and up to nine
+options (200 runes each, `truncated` per option) go to the controller under the negotiated feature
+`terminal-question-v1`. The controller keeps them in memory only (`internal/terminalbroker/terminal_question.go`);
+`TestTerminalQuestionIsKeptInMemoryOnly` scans the SQLite files. The audit event stores machine, tool, session and
+option number, never text. The comment and `docs/remote-machine-operations.md` state exactly this.
+
+**What counts as a dialog** (`internal/terminalhost/agent_question.go`). Claude Code and Codex only. The options must
+carry the agent's own selection mark (`❯`, `›`; never a plain `>`), sit inside the dialog's box where it has one, and
+have nothing under them but that agent's key hints and the box's bottom. So dialog-looking text in tool output above
+the agent's input box, or above a shell prompt, is not a question. Control, format and box characters are stripped.
+When parsing is not confident nothing is sent and the bell works as before.
+
+**Answering.** `POST /api/v2/terminal/sessions/{id}/answer {fingerprint, option}`: browser session only, as terminal
+input is. The fingerprint is SHA-256 over the pane, the dialog's own lines in full, the options and a round number. The
+machine reads the pane again through the same parser, refuses a changed fingerprint or a dead pane with "The question
+on the terminal changed. Look at it again before answering.", and otherwise works out the keys itself (arrows from the
+selected option, then Enter; never digits) and sends them. A repeat of one answer sends keys once; the same question
+asked again after newer activity is a new round. An older machine: "Update reet on {machine} to answer from here."
+
+**Web.** `web/src/lib/terminal/TerminalQuestionCard.svelte` with rules in `terminalQuestion.ts` (`standingPermission`,
+`needsConfirm`, `nextTap`, `asksForWords`, `fitsHome`, `outcomeOf`). All options have equal weight; no key answers; a
+standing-permission or cut option takes a second tap; after "question changed" a fresh press is needed. The card is
+under the session's header, and in Home only when the dialog has three or fewer options and nothing is cut (otherwise
+the question line and Open). `hasPending` in `attention.ts` counts a terminal question, and a yes/no dialog is an
+approval card.
+
+**Not done, and not known.**
+- Nothing was run against a real agent. Every dialog layout, the selection marks, and arrows-plus-Enter answering
+  rest on hand-written fixtures; if a real screen differs, the strict rules show no card and the bell works as before.
+- Remaining exposure: output that prints a complete fake dialog as the last thing on the screen, with the agent's
+  mark, a closed box and only its key hints below, shows as a card; answering it sends arrows and Enter to whatever
+  reads the terminal.
+- The read and the keys are two tmux calls a few milliseconds apart; typing in the terminal in that gap can move the
+  selection.
+- Standing permission is recognised by wording only; an unrecognised wording answers in one tap.
+- A read-only account and a machine that cannot answer are found out only after a tap (neither reaches these pages
+  or is exposed as a capability today).
+- The full plan text and the Codex queue need a real capture or the agent's transcript format, neither verified.
+
+## SKILL-BUDDY-FOLD-2: skill suggestions stay folded in Chat (23 November 2026)
+
+Follow-up to **PHONE-SKILL-BUDDY-1**: the folded header was still a card above the composer, kept **Pause** beside it,
+and a desktop opened the panel in full.
+
+**What changed.** `web/src/lib/terminal/ChatPane.svelte` passes `compact` to `SkillBuddy` on every screen and no longer
+tracks `PHONE_SCREEN`. `web/src/lib/SkillBuddy.svelte` gains a folded state: no card, no second row, a 14px muted
+label, the first suggestion's name, and **See skills** beside it. **Pause** and the generic "Suggested from the task
+and stage" line appear only when the panel is open or paused. The folded strip keeps the 14px floor that
+`web/src/lib/typeScale.test.mjs` enforces.
+
+**Unchanged.** A Factory stage's per-stage suggestions in `PipelineDetail.svelte` stay open; the native terminal's
+**Suggested skills** dialog is unchanged; **See skills** gives the same panel as before.
+
+**Tests.** `web/tests/calm-session.e2e.mjs`, `web/tests/chat.e2e.mjs` (which already covered the folded phone strip),
+`web/tests/skill-buddy.e2e.mjs`, `npm test`, `npx svelte-check` and `npm run build` pass; screenshots at 1440 and 390
+in both themes show the one-line strip.
+
+**Docs.** `docs/skill-buddy.md` and `CHANGELOG.md` say the panel folds in Chat.
+
+**PR.** [#906](https://github.com/eyupio/reet.sh/pull/906) opened against `main` from `reet/fold-skill-suggestions`.
+
+## DESK-OWN-TAB-1: a desk opens in a tab of its own (23 November 2026)
+
+A small desktop-only affordance, no data-model or autosave change. Reet has no app-level tab that can hold a desk: the
+top bar is fixed navigation, and a desk's own tabs hold panes. What reet does have is one desk per browser window, and
+its tests already call the browser window "a tab for a desk" (`web/tests/desks.e2e.mjs`). So "its own tab" is the
+desk's own browser tab: `/desks/<id>` opened with an ordinary link in a new tab, which leaves the current window's
+desk and its unsaved edits alone.
+
+**Where.** The switch-desk dropdown in `web/src/lib/desks/DeskScreen.svelte` gains **Move to its own tab** after All
+desks and New desk. It opens a second list of the account's non-template desks; the desk already in this window is
+disabled, every other desk is a `menuitem` link to `/desks/<id>` (`target="_blank"`, `rel="noopener noreferrer"`). The
+Desks list's per-card menu in `DeskList.svelte` gains the same item. Both use `DeskMenu`, so first-item focus, arrows,
+Home/End, Escape and focus return are the existing behaviour, and the links keep the menu's existing styling.
+
+**Persistence.** Nothing new is stored. Each browser tab is already its own desk: its address is the desk, and its
+chosen desk tab stays in `sessionStorage['reet-desk-tab:<deskId>']`. A reload restores both windows as they were. The
+existing `localStorage['reet.desks.last.<userId>']` follows the newly opened desk, as it does for any desk open.
+
+**Trade-offs.** The switcher is a switch list, not ownership, so the desk is not removed from it. "Already in its own
+tab" can only be known for the current window; another browser tab on the same desk cannot be detected without a new
+registry, so it is not attempted. Templates are left out, as in the switcher.
+
+**Tests.** `web/tests/desks.e2e.mjs` covers the item in both menus, the keyboard path, the disabled current desk, the
+link's address and new-tab attributes, and a real second window that opens the desk and keeps it across a reload.
+`npm run check`, `npm run build`, `desks.e2e.mjs` and `desks-phone.e2e.mjs` pass.
+## CHAT-COMMANDS-1: an agent's slash commands in Chat (23 November 2026)
+
+The second "Agent behaviour" item of the roadmap's reliability workstream.
+
+**Path.** ACP's `available_commands_update` used to be dropped. The connector now keeps the last announced list on the
+chat session, in memory only (`internal/acpagent`); an empty or malformed announcement clears it. It is carried by a new
+negotiated feature, `acp-commands-v1`, and a control action `"commands"` (`internal/terminalproto/acp_commands.go`),
+kept out of the regular controls poll. `GET /api/v2/terminal/sessions/{id}/chat/commands` answers
+`{"commands":[{name,description,hint}]}`; a machine without the feature answers 200 with an empty list, `code`
+`chat_commands_unsupported` and a sentence. Nothing is stored: agents announce again on load.
+
+**Limits on the agent's text.** At most 64 commands; names 1 to 64 characters of `[A-Za-z0-9:_-]`, first of two equal
+names wins; description 300 bytes, hint 120; the encoded list fits 48 KiB. An invalid entry is dropped, not the list.
+The connector trims and the decoder validates again. The web client drops control characters and the rows isolate
+text direction; nothing is rendered as HTML.
+
+**Web.** `web/src/lib/terminal/skills.ts` holds the rules (`groupCommands`, `withoutAnnounced`, `unknownCommand`,
+`unlistedLine`, `nameClosed`); `SkillPicker.svelte` shows the group first, also while skills load or fail, and a skill
+that is also a command appears once. `ChatPane.svelte` reads the list when the chat opens, when the sheet opens and
+before judging a `/` message. The unlisted-command line shows while typing (after the name is closed by a space, or
+600 ms) and after sending says "Sent to …" or "Queued for … as text"; it never blocks Send. The way to the terminal
+is one decision, `terminalWay` in `sessions.ts`: open the native view, "Restart in terminal…", or no control with the
+header switch's reason.
+
+**Not done, and not known.**
+- Nothing was run against a real agent: which commands each agent announces, and when, is not known. The rule assumes
+  that a command an agent did not announce may need its terminal; reet has no list of terminal-only commands.
+- Matching is case-sensitive, so `/Review` warns when `/review` was announced.
+- Commands can be inserted only while the agent is idle, as with skills.
+- At small heights the queue card still clips its Remove button, as before; the new line adds height there.
+
+## HELD-WORK-1: a turn that ends with work still running is not a finish (23 November 2026)
+
+The first "Agent behaviour" item of the roadmap's reliability workstream.
+
+**What it is.** Over ACP an agent can end a turn while tool calls it started (a subagent, a background command) are
+still open. Those sessions used to read as finished. The connector now keeps the open calls as a held set and puts
+their count on the idle status (`internal/acpagent/session.go`); the feature is `acp-background-v1`
+(`internal/terminalproto/acp_background.go`), and both the count and the give-up code are stripped for a peer without
+it, so an older machine or controller behaves as before.
+
+**States.** The broker stores chat status `background` (attention: working) while the count is above zero, with
+`held_since` for when the turn ended. A held call that completes, fails or is cancelled leaves the set; at zero the
+session finishes as usual, and a failed turn stays failed. A new message from the person clears the hold.
+
+**Giving up.** Nothing is waited on for ever. After `BackgroundHoldLimit` (30 minutes) the connector sends an idle
+status with the code `unwatched` and a transcript notice naming the agent, the count and the machine; the broker has
+its own 30-minute bound for a machine that goes silent and writes its own line. Either ends as chat status
+`unwatched`, never `finished`; it survives a restore, the push says "Stopped waiting for its background work; it may
+still be running.", and it gets its own card kind in the bell and Waiting for you.
+
+**Gaffer.** A stage in `background` is not reviewed as finished; its line says when waiting stops. A stored
+`unwatched` newer than the last review or resume puts the goal in needs-you with a note to read the session, and no
+review is spent. Both move-on confirmations open with the warning that moving on stops the work.
+
+**Web.** `web/src/lib/sessionStatus.ts` holds the words (`heldWork`, `HELD_SENTENCE`, `statusLabel(status, held)`);
+lists say "In background" with a static ring (`.status-ring`), sentences use the long form, and every surface reads
+the full sentence once to a screen reader. `docs/ui-verification.md` and `docs/handoffs/attention-contract.md`
+describe the state.
+
+**Not done, and not known.**
+- Nothing was run against a real agent or machine: which agents leave tool calls open at the end of a turn is not
+  known, so the state may never appear for some of them, or appear for a call an agent simply forgot to close.
+- There is no control to stop the background work; moving a stage on, or ending the session, is the only way.
+- Permissions asked by a held tool after the turn ended are not handled specially.
+- On a phone row "Stopped waiting" is cut short, as "Waiting for you" is.
+- The connector's notice names the machine by hostname; the controller's own line uses the name shown in reet.
+## FACTORY-TEMPLATES-6: private, versioned Factory templates (23 November 2026)
+
+Stage 6 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract is
+[docs/handoffs/factory-templates-design.md](docs/handoffs/factory-templates-design.md).
+
+**Model.** `gaffer_templates` holds one row per version, keyed on `(id, version)`, with `UNIQUE(user_id, request_id)`;
+a version is never updated. A version holds the name, description, objective, review limits and each pipeline's title,
+prompt, merge setting, criteria `{id, text}` and stages (kind, part, brief, tier and its reason, skills with their
+approved revision). The copy from an outcome is an allow-list, so no machine, project, agent, model, credential,
+session id, image, note, evidence or decision can reach a template. Caps: 20 templates an account, 20 versions kept
+(the oldest drops), 64 KiB a version. An outcome gains `templateId`, `templateVersion` and `templateName`; older
+outcomes have none.
+
+**Rules.** Only the signed-in browser account, through `featureAccess`; another account gets 404; read-only accounts,
+API tokens and MCP are refused; there is no MCP tool. A plan can be saved when the outcome is not starting and every
+pipeline is done, or accepted in delivery review and not failed, unfollowed or cancelled. A save or edit is version
+`base + 1` only when `base` is the latest. A repeated request answers what it made; the same id with different content,
+or reused across save, edit and launch, is 409 `template_request_reused`. Launch builds an ordinary `OutcomeInput` for
+the project chosen then, through `CreateOutcome` and every plan check, with the crew from the launch body or the saved
+crew. A skill is used only at exactly the stored approved revision; anything else is a gap the launch must list in
+`skippedSkills`, or it is 409 `template_skills_changed` with the current gaps. The diff matches pipelines by title,
+stages by kind and part, criteria by id, and names tier, brief and part changes; its default `from` is the version last
+used, or the oldest kept when that one was dropped.
+
+**UI.** `web/src/lib/factory/Templates.svelte` (list and a template's page), `TemplateSave.svelte`, `TemplatePlan.svelte`,
+`TemplateChanges.svelte`, `TemplateLine.svelte`, `templates.ts`, and a template mode of `GafferOutcome.svelte` that
+reuses the plan step's project, crew, readiness and launch controls. The start step shows one line per pipeline, opens
+only those that changed or have a skill gap, marks what changed in the plan, and names beside Start the pipelines that
+merge by themselves. `ConfirmDialog`'s danger button was being painted in the accent colour by a global rule; it now
+uses the danger colour everywhere.
+
+**Reviews.** An independent backend review (seven should-fix findings, all fixed) and four design passes on the
+screens: audit 15/20, distill, polish, critique 26/40, whose findings the last round fixed.
+
+**Known gaps.**
+- Deleting one version is not built; versions leave only through the 20-version limit.
+- Nothing from the last launch is remembered, so each use fills the start form again.
+- Templates cannot be shared between accounts.
+- The launch is tested end to end at the service layer; at the HTTP layer only as refused where remote sessions are off.
+- Two launches at once with one request id can answer 500 for the second, as `CreateOutcome` already did.
+- A plain start with no saved crew reads "0 of N stages ready, N to look at": the shared readiness rule, not templates.
+
+**Tests.** `internal/store/store_gaffer_templates_test.go`, `internal/gaffer/templates_test.go`,
+`internal/api/gaffer_templates_test.go`, `web/src/lib/factory/templates.test.mjs`, `web/tests/factory-templates.e2e.mjs`.
+
+## FACTORY-RELIABILITY-4: measured Factory refresh, gzip, one poll, and launches that survive a lost connection (22 November 2026)
+
+Stage 4 of [the delivery review plan](docs/handoffs/factory-delivery-review.md).
+
+**Measured first.** Two kept measurements, neither a test nor in a workflow: `internal/api/gaffer_factory_baseline_test.go`
+(`REET_FACTORY_BASELINE=1 go test ./internal/api/ -run TestFactoryRefreshBaseline -v -count=1`) and
+`web/tests/factory-refresh-baseline.mjs`. For 6 outcomes × 5 pipelines × 8 stages one outcomes read was 353,372 bytes,
+uncompressed, read 16 times a minute on the Factory page (the page's 5 s poll plus the shell's 15 s attention poll),
+about 6.4 MB a minute in all. Half of each read is stage handover summaries, which only the open pipeline's detail
+draws. Time to a visible decision is bounded by the 5 s poll (median about 1.7 s desktop).
+
+**Performance.** `writeJSON` gzips a body of 1 KiB or more when `compressJSON` marked the response as accepting gzip
+(not HEAD, not an upgrade; never 204, 304, 206 or an already encoded body) and sets `Vary: Accept-Encoding` on every
+JSON body. The marker type overrides nothing that writes, so streams, flushing and hijacking are untouched. The
+outcomes read is 92,490 bytes as sent, for about 6 ms more per read. On `/factory` the shell's poll uses the reads the
+Factory page hands it (with the time each started) and reads outcomes and goals itself only on first load, after an
+answer, or when the page's read is over 15 s old. The two changes were not measured together.
+
+**Reliability.** `internal/gaffer/outcome_disconnect_test.go` exercises a lost machine and a controller restart at
+launch, fallback, approval and handover. What changed in the controller:
+- A launch's request is written to `UnsureRequest` in the same write that marks the pipeline starting and cleared when
+  the answer is known. Whether it was sent, and what became of it, is read from the machine's create record in
+  `terminal_operations` (`launchSent`): none or `failed` means not started; a running session is taken up; anything
+  unreadable stays unknown. So a lost reply or a restart never starts a second session, and a merge launch in flight
+  at a restart is not forgotten.
+- Sending a pipeline back ends the session an unanswered launch started.
+- `rebalanceStopped` marks a stage as moved to its backup in the retry's own write, counts an end as done only when
+  the session no longer runs, and waits 5 minutes (in memory) before asking a machine again.
+- `endLeftBehind` ends retired sessions of pipelines that are following, in delivery review, ready to merge or done.
+
+**Known gaps.**
+- A send-back that lands while a launch is in flight may have its new state overwritten by the old run's failure
+  write; noticed in review, not tested or fixed.
+- Deleting an outcome whose launch is unanswered leaves that session running. A session still being created when its
+  pipeline is sent back is not ended later.
+- No ETag, compact list read or change to poll intervals. The phone chat that stops following a streaming reply (see
+  the long-chat baseline) is not addressed.
+- Nothing ran against a real machine.
+## FIRST-USEFUL-RUN-5: a guided first session on Home (22 November 2026)
+
+Stage 5 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). Web UI and docs only; no Go, no API.
+
+**What it is.** `web/src/lib/home/FirstRun.svelte` (pure logic in `home/firstRun.ts`) shows **Your first session** on
+Home once a machine is connected and every session so far is one the guide started. It lists the agents that run as a
+chat on that machine (`structuredAgent`), each with its sign-in line from `launchReadiness`, the same sentences as the
+Factory plan step; a model line shows only when the list could not be read. A ready agent that needs no folder trust
+is preselected; one that needs it names the folder in its tick box. Agents that only run in a terminal get one line
+pointing at **Start an agent session**. One read-only question is started through `createTerminal`, without YOLO, in a
+chosen project folder or the home folder, with a reused request id so asking twice starts one session.
+
+**States.** Asking (with a slower-than-usual line after a minute), answered ("It was asked to change nothing and ran
+without YOLO": what is known, not a claim that nothing changed), ended before an answer (with the exit code when it is
+not zero and the other agent offered), signed out (the machine's sign-ins are read again every 15 s only while one is
+missing; **Open terminal** is the main action), no agent installed, no chat agent, machine not ready. **Not now** and
+**Done** are remembered per person in the browser; after **Not now** a **Show the first-session guide** link stays on
+Home. While the guide shows, the workbench's **Start an agent session** is drawn plain so there is one filled button.
+
+**Design passes.** Audit 16/20, then distill, polish and a critique (26/40) whose findings are what the last round
+fixed: only chat agents are offered, the success line says only what is known, every stuck state has a way to act.
+
+**Known gaps.**
+- The answer's text is not shown in the guide; it links to the session. An answer can take up to 15 s to register.
+- A reply is read from session state; nothing ran against a real agent.
+- The help link's address (`FIRST_SESSION_DOC_URL`) is derived from the docs site's address and was not loaded.
+- **Open terminal** in the signed-out state starts a session, after which the guide no longer shows.
+- The guide speaks plainly, not in the brand's voice.
+
+**Tests.** `home/firstRun.test.mjs`; `web/tests/first-session.e2e.mjs` covers every state at desktop and phone widths.
+
+## FACTORY-LAUNCH-READINESS-3: launch readiness before approval, and a usage limit explained (22 November 2026)
+
+Stage 3 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). It is in the web UI only: no Go, no
+API and no stored field changed. Everything it says is worked out from what the pages already read.
+
+**Before approval.** `web/src/lib/factory/launchReadiness.ts` is a pure resolver. From the machine, the agents, efforts
+and model lists it reports, its sign-ins and plan figures, the saved crew and the choices on screen, it says for each
+crew tier the agent, model and effort a stage will run on and where the agent came from (saved crew, the person's
+choice, the outcome's agent, or the outcome's agent because the saved one is not on the machine). Each fact is one of
+five states that are worded differently: ready, default (left to the agent, a choice), missing, stale and unavailable.
+Backups are listed in the order tried with what each will do. A tier is **ready**, has something to **look at**, or is
+**blocked**; only an agent that is not on the machine now, or a machine that is not connected, blocks.
+
+The plan step of **New Factory outcome** (`GafferOutcome.svelte`, `factory/LaunchReadiness.svelte`,
+`factory/StageParts.svelte`) draws it. Each stage, and each part of a split stage, is one line with its backups folded
+under it. **Launch readiness on** the machine sits at the head of the pipelines: it counts the stages and says each
+cause once, with the crews and stages it affects, and **Choose who does what** opens the crew editor on the first
+affected tier's agent. The crew editor used to be on the first step only; it is now on the plan step too, so a blocked
+plan can be fixed where it is read. An agent that has left the machine stays named in its box as missing. The reason
+Approve is held is beside the button in one status line, which also says when it clears. The machine's sign-ins are
+read once per machine when the plan opens (a busy or failed read is tried once more after 3 s), and the machine list is
+read again when the plan opens and every 10 s while a stage is blocked.
+
+**A usage limit.** `usageLimitWhy` in `web/src/lib/gafferOutcome.ts` says which agent and model ran out on which stage,
+which agent the backup is, and that either choice carries on in the same folder and branch; after a model has already
+taken over it says where the stage started, and whether no backup is saved or none is left. Home's **Waiting for you**
+and the Factory list (`factory/WaitingItem.svelte`) show **Continue with the backup** and **Choose another model…** as
+buttons; the Factory detail adds the plan left and when it resets.
+
+**What it must match on the server, which is unchanged.** `balanceChoice` moves a stage to a backup only when the first
+choice's figures are under six hours old and low, the backup is signed in and has more left. `nextUsageBackup` and
+`recoverPipelineWorker` take the next backup after a usage limit without checking that its agent is on the machine or
+signed in, so the plan says such a backup is still tried and is likely to be refused. The rows are built from
+`withReportedEfforts(stagePlan(...))`, the same dedupe and effort strip as the payload, so a row never lists a backup
+or an effort that is not sent.
+
+**Reviews.** An independent review of the first build found sentences that said things the server does not do (a
+same-agent backup that "can take over", a saved effort shown as the person's choice, pending reads counted as problems);
+all were fixed. Four design passes followed: an audit (16/20), a distill, a polish and a critique (24/40). The critique's
+two main findings, one cause repeated under every stage and a fix that could not be reached from the plan, are what the
+panel and the button answer.
+
+**Known gaps.**
+- After a usage limit the server tries the next backup even when its agent is not on the machine or not signed in.
+  The plan warns about it; making the server skip it is Go work.
+- Home does not say when the plan resets; only the Factory detail reads plan figures. On a desktop Home row
+  **Choose another model…** wraps onto two lines.
+- "More left" compares each agent's tightest window, where the server also matches a window that names a model
+  (a `shortcut:` comment marks it).
+- The YOLO and folder-trust checks in the dialog still look only at first choices, as before.
+- The figures are those read when the plan step opened, not at the moment of approval.
+- Release B's checks were not made: all three agents on a real connector, a real exhausted plan and a lost connection,
+  and a retry recording the chosen backup. Everything here ran against the suites' fixtures.
+
+**Tests.** `launchReadiness.test.mjs` covers the five states, each source, the backups' rules, the summary and its
+causes; `gafferOutcome.test.mjs` the usage-limit sentences. In the browser, `gaffer-outcome.e2e.mjs` covers the panel,
+the button to the crew, the one-line stages and what holds Approve, at desktop and phone widths, light and dark;
+`home-waiting.e2e.mjs` and `factory-decision.e2e.mjs` the usage-limit card and both ways on.
+
 ## CHAT-LONG-BASELINE-1: the long-chat baseline is measured (22 November 2026)
 
 The delivery review plan's stage 0 asked for a long-chat baseline for stage 4 to compare against; it had not been

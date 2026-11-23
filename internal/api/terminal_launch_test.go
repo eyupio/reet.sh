@@ -49,6 +49,9 @@ type launchAPI struct {
 	// (default: the chat is running).
 	reattaches []terminalproto.ChatReattach
 	reattach   func(terminalproto.ChatReattach) terminalproto.Body
+	// answers records every terminal_answer; answerCode answers it (default ok).
+	answers    []terminalproto.TerminalAnswer
+	answerCode terminalproto.ResultCode
 	peer       *terminalbroker.Peer
 }
 
@@ -127,6 +130,15 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			if respond != nil {
 				reply.Body = respond(*op)
 			}
+		case *terminalproto.TerminalAnswer:
+			f.mu.Lock()
+			f.answers = append(f.answers, *op)
+			code := f.answerCode
+			f.mu.Unlock()
+			if code == "" {
+				code = terminalproto.OK
+			}
+			reply.Body = terminalproto.Result{Code: code}
 		case *terminalproto.ChatReattach:
 			f.mu.Lock()
 			f.reattaches = append(f.reattaches, *op)

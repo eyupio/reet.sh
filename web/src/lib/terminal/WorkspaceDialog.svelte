@@ -17,7 +17,8 @@
   /* The frame itself never scrolls: only .content does. Chromium gives a modal dialog overflow:auto by UA style, which
      would add a second scrollbar beside the content's own. */
   dialog { padding:0; border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); width:min(580px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); overflow:hidden; }
-  dialog[open] { display:grid; grid-template-rows:auto minmax(0,1fr); }
+  /* minmax(0,1fr): a long unwrapped line inside cannot widen the column past the dialog's own width. */
+  dialog[open] { display:grid; grid-template-rows:auto minmax(0,1fr); grid-template-columns:minmax(0,1fr); }
   dialog.wide { width:min(820px,calc(100vw - 24px)); }
   dialog::backdrop { background:rgb(20 18 15 / .4); }
   header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:18px 20px 14px; border-bottom:1px solid var(--line); background:var(--card); }

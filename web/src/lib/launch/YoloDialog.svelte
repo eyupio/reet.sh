@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { shell } from '../dialogShell'
   import { toolName } from '../agentLaunch'
-  import { yoloChatSentence } from './yoloWording'
+  import { yoloChatSentence, yoloTerminalSentence } from './yoloWording'
   import { yoloCanStart, type YoloGate } from '../launchBar'
 
   let {
@@ -37,7 +37,7 @@
   const confirm = $derived(setting ? 'Turn on YOLO' : switching ? 'Turn on YOLO' : 'Start with YOLO')
   const sentence = $derived(structured
     ? yoloChatSentence(machine, tool)
-    : `The agent will not ask before running commands and changing files on ${machine}. reet passes ${toolName(tool)}'s own skip-the-prompts option and records the launch.`)
+    : yoloTerminalSentence(machine, toolName(tool), tool))
 
   onMount(() => {
     dialog?.showModal()

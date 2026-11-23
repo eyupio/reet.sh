@@ -3,7 +3,7 @@ import type { CloneStatus } from '../githubRepo'
 import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
-import type { SessionSkills } from './skills'
+import type { ChatCommand, SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
 import type { UsageAnswer } from '../usage'
 import type { ChatUsage } from '../chatUsage'
@@ -26,11 +26,13 @@ export type SoftwareBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'a
 export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
+export type TerminalQuestion = { question: string; truncated?: boolean; options: { index: number; label: string; selected?: boolean; truncated?: boolean }[]; fingerprint: string }
+export type TerminalAnswerResult = { kind: 'answered' | 'alreadyAnswered' | 'changed' | 'updateRequired' | 'busy' | 'readOnly' | 'offline' | 'noReply' | 'failed'; sentence?: string }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string;
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
-  baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number; /** The session's live working folder, as its machine last reported it (desk-shell-v1). */ liveDir?: string }
-export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; /** The machine reports each running session's live folder (desk-shell-v1). */ deskShell?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; /** The machine can list the GitHub repositories its gh sign-in reaches (repo-list-v1). */ repoList?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+  baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; /** The dialog a terminal agent is waiting on (absent: none; older machines never send one). Text read off a terminal screen: untrusted. */ terminalQuestion?: TerminalQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number; /** What the chat last reported: 'background' is a turn that ended with work it started still running. */ chatStatus?: string; /** When the chat began holding work its ended turn left running. */ heldSince?: number; /** The session's live working folder, as its machine last reported it (desk-shell-v1). */ liveDir?: string }
+export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; /** The machine reports each running session's live folder (desk-shell-v1). */ deskShell?: boolean; attention?: boolean; sessionMode?: boolean; sessionModeAgents?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; /** The machine can list the GitHub repositories its gh sign-in reaches (repo-list-v1). */ repoList?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -253,6 +255,18 @@ export async function archiveTerminal(id: string, confirmUnsaved?: (w: UnsavedWo
     if (!(e instanceof TerminalError) || e.code !== 'worktree_unsaved' || !e.worktree || !confirmUnsaved || !(await confirmUnsaved(e.worktree))) throw e
     const w = e.worktree
     await terminalRequest(path, { method: 'POST', body: JSON.stringify({ discard: true, changed: w.changed, unpushed: w.unpushed, fingerprint: w.fingerprint }) })
+  }
+}
+/** Choose one option of the dialog a terminal agent waits on. Never throws: the result says what happened, and `sentence` is the server's own words. */
+export async function answerTerminalQuestion(id: string, fingerprint: string, option: number): Promise<TerminalAnswerResult> {
+  try {
+    const done = await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ fingerprint, option }), signal: AbortSignal.timeout(20000) })).json()
+    return { kind: done?.alreadyAnswered ? 'alreadyAnswered' : 'answered' }
+  } catch (error) {
+    if (!(error instanceof TerminalError)) return { kind: (error as Error)?.name === 'TimeoutError' ? 'noReply' : 'failed' }
+    const sentence = error.message
+    if (error.status === 409) return { kind: error.code === 'question_changed' ? 'changed' : error.code === 'update_required' ? 'updateRequired' : error.code === 'answer_busy' ? 'busy' : 'failed', sentence }
+    return { kind: error.status === 403 ? 'readOnly' : error.status === 503 ? 'offline' : 'failed', sentence }
   }
 }
 export async function markSessionSeen(id: string, signal?: AbortSignal): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/seen`, { method: 'POST', body: '{}', signal: within(signal) }) }
@@ -671,6 +685,15 @@ export async function chatControls(id: string, signal?: AbortSignal): Promise<Ch
 /** What this chat's agent has reported using, from the controller's own record: no machine is asked. */
 export async function chatUsage(id: string, signal?: AbortSignal): Promise<ChatUsage> {
  return (await terminalRequest(`${chatURL(id)}/usage`, { signal })).json()
+}
+/** The agent's slash commands for Chat. `unsupported` is the server's sentence when the machine is too old to report them. */
+export async function chatCommands(id: string, signal?: AbortSignal): Promise<{ commands: ChatCommand[]; unsupported: string }> {
+ const body = await (await terminalRequest(`${chatURL(id)}/commands`, { signal })).json()
+ const text = (v: unknown) => typeof v === 'string' ? v : ''
+ // The agent's description and hint: one line, no control characters. A bidi override is left to the row's CSS isolation.
+ const line = (v: unknown) => text(v).replace(/[\r\n\t]+/g, ' ').replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim()
+ const commands = (Array.isArray(body?.commands) ? body.commands : []).filter((c: unknown) => c && typeof c === 'object').map((c: Record<string, unknown>) => ({ name: text(c.name), description: line(c.description), hint: line(c.hint) }))
+ return { commands, unsupported: body?.code ? text(body.error) || 'Update reet on this machine to see the agent\'s commands.' : '' }
 }
 export async function chatSetting(id: string, configId: string, value: string): Promise<ChatControlAnswer> {
  return (await terminalRequest(`${chatURL(id)}/controls`, { method: 'POST', body: JSON.stringify({ action: 'set', configId, value }) })).json()

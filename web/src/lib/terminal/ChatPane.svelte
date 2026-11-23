@@ -6,7 +6,7 @@
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
  import { alreadyThere } from '../sessions/fixDelivery'
- import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, chatCommands, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, getProfile, listModelFavourites, saveProfile, setModelFavouriteDefault } from '../api'
  import { creditGuidance, sourceChoices, sourceLabel } from '../clineSource'
  import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
@@ -36,22 +36,25 @@ import { chatControls, chatSetting, chatEnqueue, chatUsage, type ChatControls } 
 import { chatUsageView, type ChatUsage } from '../chatUsage'
 import { planEntries, type MachineAccounts } from '../agentAccounts'
 import { machinePlans, PLAN_REFRESH } from '../planLimits'
-import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
+import { applyInvocation, slashQuery, unknownCommand, nameClosed, unlistedLine, type ChatCommand, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES } from './upload'
  import { createChatStream } from './chatStream'
  import { admitImages, createEchoes, createExpiry, createPictureHold, createQueueDrain, echoOf, imagesRefusal, MAX_CHAT_BYTES, messageProblem, previewsFor, QUEUE_NOTES, removePicture, revokePictures, shownAttachments, uploadPictures, type Picture } from './chatAttachments'
  import { loadModels, pollPlans } from './chatLoaders'
- import { PHONE_SCREEN } from './sizing'
 
- let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, terminal, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
   agentModes?: string[]
   /** Opens the start-a-new-agent-session form for this chat's machine; the ended notice offers it beside the reason. */
   onnewchat?: (opener: HTMLElement) => void
+  /** Opens this session's terminal, the way the session header does; the unlisted-command line offers it. */
+  onterminal?: () => void
+  /** How this session reaches its terminal (the header's decision): the native view, a restart, or nothing with the reason. */
+  terminal?: { way: 'open' | 'restart' | 'none'; reason: string }
   /** True while the workspace cannot start another session (no ready machine, or the account is at its limit). */
   newChatOff?: boolean
   /** Loads this exact conversation through the workspace's existing continuation operation. */
@@ -133,8 +136,6 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  }
  let modelMachine = $state<MachineModels | null>(null), modelNote = $state('')
  let modelOpen = $state(false), modelButton = $state<HTMLButtonElement>(), touchModels = $state(false)
-// Skills take the whole screen above the composer on a phone, so they start collapsed there.
-let phone = $state(matchMedia(PHONE_SCREEN).matches)
  let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
  let defaultSource = $state(''), sourceBusy = $state(false)
  const currentSource = $derived(liveProvider?.current ?? '')
@@ -244,6 +245,37 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
  let composerInput: HTMLTextAreaElement | undefined = $state()
  let skillsOpen = $state(false), skillData = $state<SessionSkills | null>(null), skillsLoading = $state(false), skillsError = $state(''), skillQuery = $state('')
  let skillsLife: AbortController | undefined, slashDismissed = false
+ // The agent's own slash commands, read when the chat opens and when the sheet opens. A failed read shows nothing.
+ let commands = $state<ChatCommand[]>([]), commandsNote = $state(''), commandsLife: AbortController | undefined
+ async function loadCommands() {
+  commandsLife?.abort()
+  const life = commandsLife = new AbortController()
+  try { const answer = await chatCommands(session.id, life.signal); if (!life.signal.aborted) { commands = answer.commands; commandsNote = answer.unsupported } }
+  catch { if (!life.signal.aborted) { commands = []; commandsNote = '' } }
+ }
+ // The button and the sheet it opens share one name: the agent's commands are in it when it announced any.
+ const sheetName = $derived(commands.length ? 'Commands and skills' : 'Skills')
+ // The skills the person could mean by a slash word, read once for the unlisted-command line (the sheet reads its own).
+ let knownSkills = $state<SessionSkill[] | null>(null), knownRead: Promise<void> | undefined
+ function ensureSkills(): Promise<void> {
+  knownRead ??= getSessionSkills(session.id, AbortSignal.timeout(5000)).then(data => { knownSkills = data.skills }, () => { knownSkills = [] })
+  return knownRead
+ }
+ // The line about a slash command the agent did not list. Typed: once the name is followed by a space, or after a pause, and
+ // never while the sheet is open. Sent: what became of the message. noteSeq moves on every send and edit, so a late answer
+ // never lands under a later message.
+ let typingName = $state(''), sentNote = $state<{ name: string; kind: 'sent' | 'queued' } | null>(null), noteSeq = 0
+ const unlistedText = $derived(sentNote ? unlistedLine(toolName, sentNote.name, sentNote.kind) : typingName ? unlistedLine(toolName, typingName, 'typing') : '')
+ const unlisted = $derived(unlistedText ? unlistedText + (terminal?.way === 'none' && terminal.reason ? ` ${terminal.reason}` : '') : '')
+ $effect(() => {
+  const text = draft, open = skillsOpen, skills = knownSkills, known = commands
+  const name = open ? null : unknownCommand(text, known, skills ?? [])
+  if (!name) { typingName = ''; return }
+  if (!skills) { void ensureSkills(); return }
+  if (nameClosed(text)) { typingName = name; return }
+  const timer = setTimeout(() => { typingName = name }, 600)
+  return () => clearTimeout(timer)
+ })
  async function loadSkills() {
   skillsLife?.abort()
   const life = skillsLife = new AbortController()
@@ -255,7 +287,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
  function openSkills(query = '') {
   if (skillsOff || skillsOpen) return
   skillQuery = query; skillsOpen = true
-  void loadSkills()
+  void loadSkills(); void loadCommands()
  }
  async function closeSkills(dismissed = true) {
   skillsLife?.abort(); skillsLife = undefined
@@ -312,6 +344,7 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   const input = event.currentTarget as HTMLTextAreaElement
   const value = input.value
   const query = slashQuery(value)
+  sentNote = null; noteSeq++
   if (query !== null) {
    promptMenu = null
    if (!slashDismissed) openSkills(query)
@@ -322,9 +355,9 @@ let phone = $state(matchMedia(PHONE_SCREEN).matches)
   if (!trigger) { promptSuppressed = false; promptMenu = null; return }
   if (!promptSuppressed) openPromptMenu(trigger)
  }
- function pickSkill(skill: SessionSkill) {
+ function insertInvocation(invocation: string) {
   if (skillsOff) { feedback = ended ? `${skillsOff} Nothing was inserted.` : chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
-  const result = applyInvocation(draft, skill.invocation, MAX_CHAT_BYTES)
+  const result = applyInvocation(draft, invocation, MAX_CHAT_BYTES)
   if ('error' in result) { feedback = result.error; void closeSkills(); return }
   feedback = ''; draft = result.draft
   void closeSkills(false)
@@ -476,13 +509,26 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
-  if (!liveControls && (working || queued.length)) { queueCurrent(text); return }
+  sentNote = null
+  const seq = ++noteSeq
+  const kind = working || queued.length ? 'queued' : 'sent'
+  if (!liveControls && (working || queued.length)) { queueCurrent(text); void noteUnlisted(text, seq, kind); return }
   const sendingImages = images.slice()
   const ok = await deliver(text, sendingImages)
   if (!ok) return
   const sent = new Set(sendingImages.map(image => image.id))
   held.keep(sendingImages)
-  draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
+  draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true
+  void noteUnlisted(text, seq, kind)
+  await scrollToEnd()
+ }
+ /** A sent message that starts with a command the agent did not list: say what became of it, once the skills are known. It never blocks. */
+ async function noteUnlisted(text: string, seq: number, kind: 'sent' | 'queued') {
+  if (!text.startsWith('/')) return
+  // The agent may have announced since the last read, so read again before deciding.
+  await Promise.all([loadCommands(), ensureSkills()])
+  const name = seq === noteSeq ? unknownCommand(text, commands, knownSkills ?? []) : null
+  if (name) sentNote = { name, kind }
  }
  /** Put what is in the composer at the end of the queue, pictures and all. */
  function queueCurrent(text: string) {
@@ -690,11 +736,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
 
  onMount(() => {
   touchModels = matchMedia('(pointer: coarse)').matches
-  const phoneQuery = matchMedia(PHONE_SCREEN), syncPhone = () => { phone = phoneQuery.matches }
-  phoneQuery.addEventListener('change', syncPhone)
   const stream = createChatStream({ url: chatURL(session.id), chat: () => chat, setChat: next => { chat = next }, setReplayed: value => { replayed = value }, changed: () => { void scrollToEnd() } })
   stream.start()
-  return () => { phoneQuery.removeEventListener('change', syncPhone); skillsLife?.abort(); stream.stop() }
+  void loadCommands()
+  return () => { skillsLife?.abort(); commandsLife?.abort(); stream.stop() }
  })
  onDestroy(() => { awaiting.clear(); held.releaseAll(images, queued) })
 </script>
@@ -958,12 +1003,12 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {/if}
   {/each}
  </div>
- <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} plan={planView} planNow={planClock} {...progressState} />
+ <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} plan={planView} planNow={planClock} heldSince={session.heldSince} {...progressState} />
  {#if ended && !reattaching}
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
-  <div class="skill-buddy-slot"><SkillBuddy compact={phone} context={{sessionId: session.id, task: draft}} disabled={ended || sending || uploading} oninsert={text => {
+  <div class="skill-buddy-slot"><SkillBuddy compact context={{sessionId: session.id, task: draft}} disabled={ended || sending || uploading} oninsert={text => {
     const next = insertSkillPrompt(draft, text)
     if (new TextEncoder().encode(next.text).length > MAX_CHAT_BYTES) return false
     draft = next.text; void tick().then(() => composerInput?.focus()); return true
@@ -1019,10 +1064,13 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
      <button type="button" class="btn primary send" disabled={reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
+   <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
+   <p class="vh" role="status" data-unlisted-status>{unlisted}</p>
+   {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlisted}</span>{#if onterminal && terminal && terminal.way !== 'none'} <button type="button" class="link" onclick={onterminal}>{terminal.way === 'restart' ? 'Restart in terminal…' : 'Open terminal'}</button>{/if}</p>{/if}
    <div class="composer-bar">
     <div class="composer-tools">
      <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title="Insert one of your saved prompts · or type \ in the message" disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
-     <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
+     <button type="button" class="skills-btn" aria-label={sheetName} aria-haspopup="dialog" title={skillsOff || (commands.length ? 'Insert a command or skill into your message' : 'Insert a skill into your message')} disabled={!!skillsOff} onclick={() => openSkills()}>+ {sheetName}</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
      <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>
@@ -1063,7 +1111,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
       other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
       onpick={value => { selectedModel = value; modelOpen = false; void changeModel() }} onclose={() => modelOpen = false} />
     {/if}
-    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} {commands} {commandsNote} onpickcommand={command => insertInvocation(`/${command.name} `)} onrefresh={() => void loadSkills()} onpick={skill => insertInvocation(skill.invocation)} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
     {#if promptPickerOpen}<PromptPicker opener={promptButton ?? null} sheet={touchModels} context={promptContext} limit={MAX_CHAT_BYTES} oninsert={usePromptFromPicker} onclose={() => { promptPickerOpen = false; void tick().then(() => composerInput?.focus()) }} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
@@ -1133,6 +1181,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
  .notice { margin: 2px 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); border-radius: 0 8px 8px 0; background: var(--bg-sunk); color: var(--ink-soft); font-size: 14px; }
+ .notice.unlisted { border: 1px solid var(--line-strong); border-radius: 8px; }
+ .notice .link { display: inline; padding: 0 4px; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+ @media (pointer: coarse) { .notice .link { display: inline-flex; align-items: center; min-height: 44px; } }
+ .notice .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  .notice.bad { border-left-color: var(--bad); color: var(--bad); }
  /* A tool: one line at rest, with the detail folded under it. */
  .tool { margin: 1px 0; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--card); overflow: hidden; }

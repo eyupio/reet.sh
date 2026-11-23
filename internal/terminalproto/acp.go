@@ -97,6 +97,10 @@ const ACPQuestionFeature = "acp-question-v1"
 // never sends or receives the body.
 const SessionModeFeature = "session-mode-v1"
 
+// SessionModeAgentsFeature extends session-mode-v1 beyond OpenCode: a connector that negotiated it can open
+// every reviewed chat agent's terminal on a saved conversation. A connector without it is only asked for OpenCode.
+const SessionModeAgentsFeature = "session-mode-agents-v1"
+
 // ChatReattachFeature lets a controller ask a machine to reconnect a lost or
 // crashed OpenCode chat in place (chat_reattach). A peer without it never
 // sends or receives the body.
@@ -196,6 +200,16 @@ func SupportsSessionMode(features string) bool {
 	return false
 }
 
+// SupportsSessionModeAgents reports whether the peer negotiated session-mode-agents-v1.
+func SupportsSessionModeAgents(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == SessionModeAgentsFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // SupportsACPQuestion reports whether the peer negotiated acp-question-v1.
 func SupportsACPQuestion(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
@@ -276,11 +290,20 @@ type ACPEvent struct {
 	// Usage is the agent's own token and context report. It is meaningful only
 	// on the usage kind, which carries nothing else.
 	Usage *ACPUsage `json:"usage,omitempty"`
+	// Background is how many tool calls the ended turn left running. It is sent
+	// only with acp-background-v1, and only on an idle status.
+	Background int `json:"background,omitempty"`
 }
 
 func (ACPEvent) kind() string { return "acp_event" }
 
 func (e ACPEvent) valid() bool {
+	if !validBackground(e.Background) || e.Background > 0 && (e.Kind != "status" || e.State != "idle") {
+		return false
+	}
+	if e.Code == ACPCodeUnwatched && (e.Kind != "status" || e.State != "idle") {
+		return false
+	}
 	if e.Code != "" && e.Kind != "status" {
 		return false
 	}
@@ -537,7 +560,7 @@ func validACPEventCode(kind, code string) bool {
 	if code == "" {
 		return true
 	}
-	return kind == "status" && code == "login"
+	return kind == "status" && (code == "login" || code == ACPCodeUnwatched)
 }
 
 func validLocations(paths []string) bool {

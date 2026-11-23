@@ -365,3 +365,26 @@ func TestPushPendingShowsNothingForAnotherPersonsDevice(t *testing.T) {
 		t.Fatalf("the first person's device: %+v", devices)
 	}
 }
+
+// A chat whose machine reet stopped waiting for is told as that, not as a finished turn.
+func TestPushSaysStoppedWaitingNotFinished(t *testing.T) {
+	f := newPushFixture(t)
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`"}`); code != 200 {
+		t.Fatalf("subscribe: %d %s", code, body)
+	}
+	sess, _, err := f.st.ReserveTerminalCreateFor(f.uid, f.agent.ID, terminalbroker.ID(), f.gen, terminalproto.Create{Title: "Run the suite", Tool: "opencode", Dir: "/tmp", Structured: true, Trust: true, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, sess.ID, f.gen, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	done := time.Now().Add(-30 * time.Second).UnixMilli()
+	if err := f.st.SetTerminalChatAttentionFor(f.uid, sess.ID, done, 0, "unwatched", done); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.s.pushSweep(time.Now())
+	if notes := f.pending(t); len(f.woken) != 1 || len(notes) != 1 || notes[0].Body != "Stopped waiting for its background work; it may still be running." {
+		t.Fatalf("stopped waiting: woken %d, pending %+v", len(f.woken), notes)
+	}
+}

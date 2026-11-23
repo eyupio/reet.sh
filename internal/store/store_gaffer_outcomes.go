@@ -80,6 +80,8 @@ type GafferOutcomeStage struct {
 	// reported doing and when it was last active. Live only, never saved.
 	AgentState    string `json:"agentState,omitempty"`
 	AgentActiveAt int64  `json:"agentActiveAt,omitempty"`
+	// AgentHeldSince is when that session began holding work its ended turn left running.
+	AgentHeldSince int64 `json:"agentHeldSince,omitempty"`
 	// SentBack is why the person sent the pipeline back to this stage, told
 	// to the agent that does it again.
 	SentBack       string `json:"sentBack,omitempty"`
@@ -330,8 +332,15 @@ type GafferOutcome struct {
 	// ArchivedAt is when the person put this finished outcome away; zero means
 	// it is on the Factory floor. The record and its report are kept.
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
-	CreatedAt  int64 `json:"createdAt"`
-	UpdatedAt  int64 `json:"updatedAt"`
+	// TemplateID and TemplateVersion name the template version the outcome was
+	// started from, and TemplateName what it was called then. The outcome holds
+	// its own copy of everything it runs on, so a later change to the template,
+	// or its deletion, changes nothing here.
+	TemplateID      string `json:"templateId,omitempty"`
+	TemplateVersion int    `json:"templateVersion,omitempty"`
+	TemplateName    string `json:"templateName,omitempty"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
 }
 
 // MaxGafferOutcomeDecisions is how many of Gaffer's decisions an outcome keeps.
@@ -687,6 +696,31 @@ func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
 // still exists.
 func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following' AND json_extract(value,'$.sessionId')<>'') ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// RetiredGafferOutcomes lists every account's outcomes, not archived, with a
+// pipeline that has left sessions behind and is followed, waits for the
+// person or is done: a session it left may still run.
+func (s *Store) RetiredGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE COALESCE(json_extract(data,'$.archivedAt'),0)=0 AND EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN ('following','delivery_review','ready_to_merge','done') AND json_array_length(value,'$.retired')>0) ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}

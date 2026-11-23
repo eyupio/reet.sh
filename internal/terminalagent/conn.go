@@ -102,13 +102,14 @@ func newAgentConn(ctx context.Context, opts terminalhost.ManagerOptions, supervi
 	// The chats attach first: the terminal state observer below hides a
 	// session while a mode swap moves it between the two.
 	c.chats = attachChats(supervisor, ctx, opts, generation, send, chatFeatures{
-		history:   features.Has(terminalproto.ACPHistoryFeature),
-		details:   features.Has(terminalproto.ACPToolDetailsFeature),
-		questions: features.Has(terminalproto.ACPQuestionFeature),
-		previews:  features.Has(terminalproto.ACPPreviewsFeature),
-		catalogue: features.Has(terminalproto.ACPModelCatalogueFeature),
-		provider:  features.Has(terminalproto.ACPProviderFeature),
-		usage:     features.Has(terminalproto.ACPUsageFeature),
+		history:    features.Has(terminalproto.ACPHistoryFeature),
+		details:    features.Has(terminalproto.ACPToolDetailsFeature),
+		questions:  features.Has(terminalproto.ACPQuestionFeature),
+		previews:   features.Has(terminalproto.ACPPreviewsFeature),
+		catalogue:  features.Has(terminalproto.ACPModelCatalogueFeature),
+		provider:   features.Has(terminalproto.ACPProviderFeature),
+		usage:      features.Has(terminalproto.ACPUsageFeature),
+		background: features.Has(terminalproto.ACPBackgroundFeature),
 	})
 	c.m, c.managerErr = terminalhost.NewManager(ctx, opts)
 	c.switcher = &agentSwitch{chats: c.chats, shells: swapShells(c.m)}
@@ -173,7 +174,7 @@ func (c *agentConn) observeShells() {
 		for _, s := range sessions {
 			seen[s.ID] = struct{}{}
 			state, modified := observeShell(observed, sentDirs, s, c.featureHeader)
-			if !initial && modified {
+			if reportShell(initial, modified, state) {
 				if send(ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: s.ID, Generation: c.generation, Body: state}) != nil {
 					return
 				}
@@ -198,6 +199,13 @@ func (c *agentConn) observeShells() {
 		case <-changed:
 		}
 	}
+}
+
+// reportShell says whether an observation is sent. The first look after a
+// connection is covered by the reconcile, except a question, which the
+// reconcile does not carry.
+func reportShell(initial, modified bool, state terminalproto.SessionChanged) bool {
+	return modified && (!initial || state.TerminalQuestion != nil)
 }
 
 // aside runs work for reply off the dispatcher. A second request while

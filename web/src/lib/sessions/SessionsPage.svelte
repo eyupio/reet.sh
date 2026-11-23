@@ -8,7 +8,7 @@
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { GROUP_CHOICES, needingIds, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
   import { offDesks, type DeskRef } from '../home/deskSessions'
-  import { sessionStatus } from '../sessionStatus'
+  import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, statusLabel, stoppedWaiting } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
   import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
@@ -318,14 +318,15 @@
               {#each g.sessions as s (s.id)}
                 {@const word = stateWord(s)}
                 {@const colour = colourOf(s)}
-                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
+                {@const held = heldWork(s)}
+                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} data-held={held ? '' : undefined} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
-                    {#if sessionStatus(s) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
+                    {#if sessionStatus(s) === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                     <span class="main">
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>
                     </span>
-                    <span class="word" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
+                    <span class="word" title={held ? HELD_SENTENCE : stoppedWaiting(s) ? STOPPED_LINE : word.source}>{#if held}{statusLabel('working', true)}<span class="vh">. {HELD_SENTENCE}</span>{:else}{word.word}{#if stoppedWaiting(s)}<span class="vh">. {STOPPED_LINE}</span>{/if}{/if}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
                   {#if places.get(s.id)}
@@ -468,6 +469,7 @@
   .session-row[data-status='waiting'] .dot { background: transparent; box-shadow: inset 0 0 0 2px var(--status); }
   .session-row[data-status='failed'] .dot { border-radius: 2px; }
   .session-row[data-status='ended'] .dot, .session-row[data-status='quiet'] .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--status); }
+  .status-ring { --ring: 9px; }
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }

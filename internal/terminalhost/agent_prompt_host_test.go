@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -236,4 +237,225 @@ func TestAScreenIsNotReadAgainInsideTheGap(t *testing.T) {
 	if !m.prompts[id].at.Equal(watch.at) {
 		t.Fatal("the screen was read inside the gap")
 	}
+}
+
+// questionOf reconciles once and returns the question the session lists.
+func questionOf(t *testing.T, m *Manager, id string) *terminalproto.TerminalQuestion {
+	t.Helper()
+	bellOf(t, m, id)
+	list, err := m.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range list {
+		if s.ID == id {
+			return s.Question
+		}
+	}
+	t.Fatal("session not listed")
+	return nil
+}
+
+// sentKeys replaces send-keys with a recorder: each call is the pane and the
+// keys, joined by spaces.
+func sentKeys(m *Manager) *[]string {
+	var sent []string
+	m.sendKeys = func(_ context.Context, pane string, keys []string) error {
+		sent = append(sent, pane+" "+strings.Join(keys, " "))
+		return nil
+	}
+	return &sent
+}
+
+// The question on an agent's screen is listed with the session, in memory
+// only, and goes when the dialog does.
+func TestAQuestionOnScreenIsListedUntilItGoes(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 57, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	q := questionOf(t, m, id)
+	if q == nil || q.Question != "Bash command\ngo test ./...\nRun the test suite\nDo you want to proceed?" || len(q.Options) != 3 {
+		t.Fatalf("question not listed: %+v", q)
+	}
+	registry, err := os.ReadFile(m.registryPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(registry), "proceed") || strings.Contains(string(registry), q.Fingerprint) {
+		t.Fatal("the question reached the registry")
+	}
+	changed := m.Changed()
+	draw(t, m, id, tty, claudeWorking, "Running tests")
+	if q := questionOf(t, m, id); q != nil {
+		t.Fatalf("an answered question is still listed: %+v", q)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("the question going was not signalled")
+	}
+}
+
+// An answer is checked against a fresh read of the screen and sends only the
+// keys the machine works out, once.
+func TestAnswerQuestionSendsTheKeysOnce(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 58, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	q := questionOf(t, m, id)
+	if q == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	ctx := context.Background()
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 3); err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.List(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatal(err, list)
+	}
+	pane := list[0].PaneID
+	if len(*sent) != 1 || (*sent)[0] != pane+" Down Down Enter" {
+		t.Fatalf("sent %q", *sent)
+	}
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 3); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a repeat answered %v", err)
+	}
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a second answer to the same question answered %v", err)
+	}
+	if len(*sent) != 1 {
+		t.Fatalf("keys were sent twice: %q", *sent)
+	}
+	// The agent asks the same question again later: it can be answered again.
+	draw(t, m, id, tty, claudeWorking, "Running tests")
+	questionOf(t, m, id)
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	questionOf(t, m, id)
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(*sent) != 2 || (*sent)[1] != pane+" Enter" {
+		t.Fatalf("sent %q", *sent)
+	}
+}
+
+// A screen that no longer shows the question refuses the answer and sends
+// nothing, even before the sweep has noticed.
+func TestAnswerQuestionRefusesAChangedScreen(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 59, "codex")
+	draw(t, m, id, tty, codexCommandPrompt, "make migrate")
+	q := questionOf(t, m, id)
+	if q == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	ctx := context.Background()
+	draw(t, m, id, tty, strings.Replace(codexCommandPrompt, "make migrate", "make drop-db", 1), "make drop-db")
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("a changed question answered %v", err)
+	}
+	draw(t, m, id, tty, codexWorking, "Working")
+	if err := m.AnswerQuestion(ctx, id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("a gone question answered %v", err)
+	}
+	if err := m.AnswerQuestion(ctx, testSessionID(99), q.Fingerprint, 1); !errors.Is(err, ErrSessionMissing) {
+		t.Fatalf("an unknown session answered %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("keys were sent: %q", *sent)
+	}
+}
+
+// An agent that asks the same question again after it was answered is asking
+// anew: the question is listed again, under a new fingerprint, and can be
+// answered again, even when no look saw the screen without it in between.
+// A repeat of one answer still sends its keys once.
+func TestTheSameQuestionAskedAgainCanBeAnsweredAgain(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 60, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	first := questionOf(t, m, id)
+	if first == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	ctx := context.Background()
+	if err := m.AnswerQuestion(ctx, id, first.Fingerprint, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Still on screen in the second it was answered: the same question.
+	if q := questionOf(t, m, id); q == nil || q.Fingerprint != first.Fingerprint {
+		t.Fatalf("the answered question changed before the agent drew anything: %+v", q)
+	}
+	answered := time.Now().Unix()
+	for time.Now().Unix() <= answered {
+		time.Sleep(20 * time.Millisecond)
+	}
+	// The agent drew the same dialog again; only its output above changed.
+	draw(t, m, id, tty, strings.Replace(claudeCommandPrompt, "tests now", "tests again", 1), "tests again")
+	again := questionOf(t, m, id)
+	if again == nil || again.Fingerprint == first.Fingerprint {
+		t.Fatalf("the question asked again is not listed as a new one: %+v", again)
+	}
+	if err := m.AnswerQuestion(ctx, id, again.Fingerprint, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.AnswerQuestion(ctx, id, again.Fingerprint, 2); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a repeat answered %v", err)
+	}
+	if len(*sent) != 2 || !strings.HasSuffix((*sent)[1], " Down Enter") {
+		t.Fatalf("sent %q", *sent)
+	}
+}
+
+// A pane whose process has gone takes no keys: the answer is refused as a
+// changed question and nothing is sent.
+func TestAnswerQuestionRefusesADeadPane(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 61, "claude")
+	draw(t, m, id, tty, claudeCommandPrompt, "Do you want to proceed?")
+	q := questionOf(t, m, id)
+	if q == nil {
+		t.Fatal("no question")
+	}
+	sent := sentKeys(m)
+	m.paneDead = func(context.Context, string) (bool, error) { return true, nil }
+	if err := m.AnswerQuestion(context.Background(), id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("a dead pane answered %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("keys were sent to a dead pane: %q", *sent)
+	}
+}
+
+// An answer prepared for one dialog is refused on another whose option
+// differs only past the characters the controller was sent.
+func TestAnswerQuestionRefusesAnOptionChangedPastTheCap(t *testing.T) {
+	m := promptFixture(t)
+	id, tty := agentSession(t, m, 62, "claude")
+	// The agent wraps the long option onto lines of its own, under its label.
+	long := strings.Repeat("│        and more and more and more and more and more\n", 6)
+	draw(t, m, id, tty, withLongFirstOption(long+"│        then stop\n"), "then stop")
+	q := questionOf(t, m, id)
+	if q == nil || !q.Options[0].Truncated {
+		t.Fatalf("no question with a cut option: %+v", q)
+	}
+	sent := sentKeys(m)
+	draw(t, m, id, tty, withLongFirstOption(long+"│        then wipe\n"), "then wipe")
+	if err := m.AnswerQuestion(context.Background(), id, q.Fingerprint, 1); !errors.Is(err, ErrQuestionChanged) {
+		t.Fatalf("answered %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("keys were sent: %q", *sent)
+	}
+}
+
+// withLongFirstOption is the command approval with lines added under its
+// first option, as the agent wraps a long one.
+func withLongFirstOption(more string) string {
+	first := "│ ❯ 1. Yes                                                     │\n"
+	return strings.Replace(claudeCommandPrompt, first, first+more, 1)
 }

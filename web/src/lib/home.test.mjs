@@ -9,7 +9,7 @@ const attention = `data:text/javascript;base64,${Buffer.from(compileTs(readFileS
 const time = `data:text/javascript;base64,${Buffer.from(compileTs(readFileSync(new URL('./time.ts', import.meta.url), 'utf8'))).toString('base64')}`
 const compiled = compileTs(source).replace("from './attention'", `from '${attention}'`).replace("from './time'", `from '${time}'`)
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
+const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, needingIds, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -252,6 +252,21 @@ test('a waiting chat card carries its earliest approval, and a terminal card car
   assert.deepEqual(cards.find(c => c.sessionId === 'c1').approval, pending)
   assert.equal(cards.find(c => c.sessionId === 't1').approval, undefined)
   assert.deepEqual(cards.find(c => c.sessionId === 'c2').approval, { permissionId: 'p9', title: 'A tool call', command: '', path: '', truncated: true, queued: 0 })
+})
+
+test('a terminal dialog is carried on its card as a question, seen or not', () => {
+  const dialog = { question: 'Which database?', options: [{ index: 1, label: 'Postgres' }, { index: 2, label: 'SQLite' }], fingerprint: 'f1' }
+  const cards = needsYou([session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: false, terminalQuestion: dialog }), session('t2', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: false })], NOW)
+  assert.deepEqual(cards.map(c => c.sessionId), ['t1'])
+  assert.deepEqual(cards[0].terminal, dialog)
+  assert.deepEqual(cards[0].reasons, ['question'])
+})
+
+test('a terminal dialog with a yes and a no is an approval card, like the other approvals', () => {
+  const dialog = { question: 'Run it?', options: [{ index: 1, label: 'Yes' }, { index: 2, label: 'No, and tell Claude what to do differently (esc)' }], fingerprint: 'f1' }
+  const [card] = needsYou([session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: true, terminalQuestion: dialog })], NOW)
+  assert.deepEqual(card.reasons, ['approval'])
+  assert.deepEqual(card.terminal, dialog)
 })
 
 test('a waiting chat with a question is labelled as one and carries its preview, an approval wins when both wait', () => {
@@ -504,4 +519,24 @@ test('a session needs the person as the bell counts it: a plain finish is not co
     session('r', 'a1', 'exited', { attention: 'finished', changedSinceSeen: true, ...tree('r') }),
   ], NOW)
   assert.deepEqual([...h.needingIds(cards)].sort(), ['r', 'w', 'x'])
+})
+
+test('a chat whose ended turn left work running reads as working in the background, and nobody is called for it', () => {
+  const held = session('bg', 'a1', 'running', { structured: true, attention: 'working', attentionSource: 'chat', chatStatus: 'background', changedSinceSeen: true })
+  assert.deepEqual(stateWord(held), { word: 'Working in the background', source: 'from the chat', tone: 'good' })
+  assert.equal(stateWord({ ...held, chatStatus: 'working' }).word, 'Working')
+  assert.deepEqual(needsYou([held], NOW), [])
+  assert.equal(attentionCount(needsYou([held], NOW)), 0)
+})
+
+test('a chat reet stopped waiting on reads Stopped waiting, says the work may still run, and asks no worktree review', () => {
+  const stopped = session('sw', 'a1', 'running', { structured: true, attention: 'finished', attentionSource: 'chat', chatStatus: 'unwatched', changedSinceSeen: true, updatedAt: NOW - MIN, worktreePath: '/w/x' })
+  assert.deepEqual(stateWord(stopped), { word: 'Stopped waiting', source: 'from the chat', tone: 'warn' })
+  const [card] = needsYou([stopped], NOW)
+  assert.equal(card.label, 'Stopped waiting')
+  assert.equal(card.kind, 'stopped')
+  assert.equal(card.worktreeTarget, null)
+  // It is listed with what waits for the person, not set aside as a plain finish.
+  assert.deepEqual([...needingIds([card])], ['sw'])
+  assert.equal(stateWord({ ...stopped, attention: 'quiet', changedSinceSeen: false }).word, 'Stopped waiting')
 })

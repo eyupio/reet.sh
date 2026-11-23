@@ -39,7 +39,8 @@ func (s SessionSnapshot) ForFeatures(features string) SessionSnapshot {
 
 // ForFeatures strips attention fields when attention-v1 was not negotiated,
 // the worktree's base when base-fresh-v1 was not, and the live folder when
-// desk-shell-v1 was not.
+// desk-shell-v1 was not, and the terminal question when terminal-question-v1
+// was not.
 func (s SessionChanged) ForFeatures(features string) SessionChanged {
 	if !SupportsAttention(features) {
 		s.ActivityAt = 0
@@ -54,6 +55,9 @@ func (s SessionChanged) ForFeatures(features string) SessionChanged {
 	}
 	if !SupportsDeskShell(features) {
 		s.Dir = ""
+	}
+	if !SupportsTerminalQuestion(features) {
+		s.TerminalQuestion = nil
 	}
 	return s
 }

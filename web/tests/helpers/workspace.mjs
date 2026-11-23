@@ -71,6 +71,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})
   // A chat whose agent has reported no usage: the status line then shows nothing. A test that wants figures answers the route itself.
   if(/^\/api\/v2\/terminal\/sessions\/[^/]+\/chat\/usage$/.test(path))return json({reported:false,inputTokens:0,outputTokens:0,cachedTokens:0,contextUsed:0,contextSize:0,updatedAt:0})
+  // The agent's slash commands: none announced unless a test answers the route itself.
+  if(/^\/api\/v2\/terminal\/sessions\/[^/]+\/chat\/commands$/.test(path))return json({commands:[]})
   if(path==='/api/v2/session-backlog')return json({drafts:[]})
   // The Usage page's read: nothing counted yet, and no agents listed. A test that wants figures answers the route itself.
   if(path==='/api/v2/skill-buddy/recommendations')return json({skills:[],stage:'',editable:true,scope:'fixture'})
@@ -88,6 +90,9 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/push')return json({available:false,devices:[]})
   // A page that inspects a session's workspace reads GitHub by itself: no pull request unless a test answers this route.
   if (/^\/api\/v2\/terminal\/sessions\/[^/]+\/inspect$/.test(path))return json({checkedAt:Date.now(),reason:'no_pr'})
+  // What a machine reports when it has nothing to say, read by Home's first-session guide for a connected machine: no sign-ins, no model list. A test that cares answers the route itself.
+  if(/^\/api\/v2\/machines\/[^/]+\/accounts(\/refresh)?$/.test(path))return json({state:'read',sentence:'',planLimits:false,checkedAt:Date.now(),accounts:[]})
+  if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path))return json({tool:new URL(route.request().url()).searchParams.get('tool')||'',state:'unsupported',models:[],more:false,source:'',version:'',fetchedAt:null,checkedAt:null,reason:'',sentence:''})
   state.unexpected.push(path)
   return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  })

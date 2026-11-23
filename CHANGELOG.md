@@ -5,6 +5,89 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Answer a terminal agent's question from reet**: when Claude Code or Codex in a terminal session stops at a dialog
+  with numbered options, the session's screen shows what it is asking (the command, file or plan heading, then the
+  question) with the options as buttons, and Home's "Waiting for you" shows the same for a short dialog. Choosing one
+  makes the machine read the screen again and press the keys only if the same dialog is still there; otherwise it
+  says the question changed. An option that keeps applying after the answer, or whose text is cut short, takes a
+  second tap. **This changes what leaves a machine**: for a dialog reet recognises, up to 500 characters of the
+  dialog and up to nine options of 200 characters are sent to the controller, held in memory and never written to
+  its database or logs; before, no screen text left the machine. Needs a machine and a controller on this version.
+- **Skill suggestions stay out of the way in Chat**: **Skills for this task** now opens as one quiet line above the
+  message box on every screen size, naming the task and the first suggestion with **See skills** to open the rest.
+  **Pause** appears once the suggestions are open. A Factory stage's suggestions are unchanged and stay open beside
+  its plan.
+- **A desk can open in a tab of its own**: **Move to its own tab** in the desk switcher opens another desk in a new
+  browser tab, leaving the desk you are on where it is; the desk already in this window is switched off. The same item
+  is on each desk card's menu on the Desks list. Reet keeps one desk to a window, so each tab keeps its own address and
+  its own chosen desk tab, and both come back as they were after a reload. Nothing new is stored.
+- **An agent's slash commands in Chat**: when an agent announces its commands, the Skills sheet in Chat
+  lists them first as "Commands from {agent}", each with its argument and description; picking one adds it to
+  your message and sends nothing. If you type a `/name` the agent did not list, a line under the message says it may
+  only work in the agent's terminal, with the way there; the message still sends, and the line then says it went as
+  text. Needs a machine and a controller on this version; an older machine shows a line asking to update reet on it.
+- **A turn that ends with work still running no longer reads as finished**: when an agent ends its turn while a
+  subagent or background command it started is still open, the session says "In background" (in Chat: when the turn
+  ended, how many tasks are running, and that you can send your next instruction) instead of "Finished", and it does
+  not ring the finish alert. If the agent never says the work ended, reet stops waiting after 30 minutes and says
+  "Stopped waiting", with a note that the work may still be running on the machine. In the Factory, a stage in this
+  state says when it stops waiting, Gaffer does not review it as finished, and moving it on warns first that this
+  stops the work. Needs a machine and a controller on this version; with an older one, sessions read as before.
+- **Private Factory templates**: a finished outcome whose every pipeline finished, or had its delivery accepted, can
+  be saved as a template with **Save as template…**. A template keeps the plan (each pipeline's prompt, stages and
+  tiers, criteria, merge setting and the approved skill revisions) and never the machine, folder, agents, models or
+  sign-ins, which you choose each time you use it. Every save is a new version and old versions stay readable, up to 20
+  templates of 20 versions each. **Templates** on the Factory page lists them; **Use** opens the start step with one
+  line per pipeline, what changed since the version you last used, which pipelines merge by themselves, and any skill
+  that is no longer approved, which you must agree to start without. An outcome started from a template says which
+  template and version it came from, and keeps its own inputs when the template later changes or is deleted.
+  Templates are private to your account. Delete confirmations across reet now use the danger colour.
+- **Factory reads are compressed, and the Factory page reads once**: JSON answers of 1 KiB or more are gzipped for
+  browsers that accept it, so a Factory of 30 pipelines is read as about 92 KB, not 353 KB, for a few milliseconds
+  more on the controller. On the Factory page the bell now uses the page's own reads, so outcomes are read 12 times a
+  minute, not 16; there the bell can show a newly waiting pipeline a few seconds later than before.
+- **A launch survives a lost connection**: when a machine's answer to a launch is lost, or the controller restarts
+  while one is in flight, the pipeline now says it cannot tell whether the session started, and **Try again** takes up
+  the session that did start and never starts a second one. A merge launch in flight at a restart is no longer
+  forgotten. A stage that stopped with its plan low is run on its backup even when its old session could not be ended
+  at first, and a session left behind by a backup switch or a send-back is ended once its machine can be reached.
+- **A first session, guided**: after your first machine connects, Home offers **Your first session**. It lists the
+  agents on that machine that run as a chat, each with its sign-in in the same words the Factory uses, and offers one
+  read-only question to ask, without YOLO. It waits for the answer and links to it. An agent that is signed out is
+  shown as waiting, not as an error, with a terminal on that machine one press away; the guide looks again by itself.
+  Factory, Sessions and starting a session stay where they were. **Not now** puts the guide away, and **Show the
+  first-session guide** brings it back until you have had a first answer. The quick start describes it, with the
+  steps for using reet on your phone.
+- **Launch readiness before you approve a Factory plan**: each stage of the plan, and each part of a split stage, is
+  now one line saying the agent, model and effort it will run on and where its agent came from (your saved crew, your
+  choice here, or the outcome's agent because no crew is saved or the saved agent is not on the machine). Its backups
+  are folded under it, in order, with what each will do (balancing can move a stage onto it, or it takes over only
+  after a usage limit). **Launch readiness on** the machine, at the head of the pipelines, counts the stages that are
+  ready and says each cause once, with the crews and stages it affects; **Choose who does what** takes you to the
+  agent to change. A model the machine does not list, an old list, no sign-in found, sign-ins the machine could not
+  read and an effort the agent does not offer are each worded differently from a model or effort you left to the
+  agent, which is shown as your choice. Old plan figures on a backup that can still take over are not something to
+  look at. Where something was not checked, a note says what happens when the stage starts, and the stage's
+  **Applied** line says what it is running on. The machine is read again when the plan opens. Only an agent that is
+  not on the machine now, or a machine that is not connected, holds **Approve and start**, with the reason beside it;
+  everything else is a warning.
+- **A usage limit is explained, with both ways on, on Home and in the Factory**: a pipeline whose worker reached its
+  plan's limit now says which agent ran out and which agent the backup is. **Continue with the backup** and **Choose
+  another model…** both carry on in the same folder and branch. After another model has already taken over on the
+  stage it says where the stage started, and whether a backup is saved or none is left. Home's **Waiting for you**
+  and the Factory list show both as buttons, on a phone too, and the detail adds the plan left and when it resets.
+- **Older machines are not asked to restart other agents**: reet only offers the terminal restart for Claude Code, Codex, Cline
+  and Antigravity on a machine whose connector is new enough to open their terminal on a saved conversation
+  (`session-mode-agents-v1`). Update reet on the machine to enable it; OpenCode is unchanged.
+- **Codex YOLO now turns its sandbox off**: a Codex terminal started on YOLO runs with `--ask-for-approval never --sandbox
+  danger-full-access`, so its commands can change any file and use the network on the machine. Before, it kept Codex's
+  sandbox and refused whatever needed to leave it. The YOLO confirmation says so, and so does the confirmation when a Codex
+  chat that is on YOLO is switched to its terminal, which now needs an explicit tick first. The account setting, the machine's own
+  `reet terminal yolo` switch and the confirmation still gate it. A Gaffer chat on YOLO is unchanged: it still only answers
+  the approvals Codex asks for.
+- **An empty turn is no longer silent for Antigravity, Claude Code and Codex**: a turn that says and does nothing shows a
+  notice that the agent ended it without a reply, and points at restarting it in its terminal (OpenCode and Cline keep their
+  provider advice).
 - **Restart any agent in its own terminal**: Session actions (and the **Terminal** tab, when the agent has no shared native terminal) can restart a Gaffer chat in the agent's terminal UI, and back, for
   Claude Code, Codex, Cline and Antigravity as well as OpenCode, on the same saved conversation. Cline's terminal resume
   (`--id`) has not been checked against a chat created over ACP; if it cannot open the conversation the chat is restored.

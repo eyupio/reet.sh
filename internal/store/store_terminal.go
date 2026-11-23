@@ -409,6 +409,8 @@ type TerminalSession struct {
 	BellAt       int64  `json:"bellAt,omitempty"`
 	CompletedAt  int64  `json:"completedAt,omitempty"`
 	ChatStatus   string `json:"chatStatus,omitempty"`
+	// HeldSince is when the chat began holding work its ended turn left running.
+	HeldSince int64 `json:"heldSince,omitempty"`
 	// LiveDir is the session's working folder as its machine last reported it
 	// (desk-shell-v1), and LiveDirAt when; absent from the JSON until one is.
 	LiveDir   string `json:"liveDir,omitempty"`
@@ -429,6 +431,11 @@ type TerminalSession struct {
 	// PendingQuestion is the earliest unanswered typed question of a structured chat that is waiting. Home shows it
 	// and sends the person to the chat to answer: a question needs its whole card, not a button.
 	PendingQuestion *PendingQuestion `json:"pendingQuestion,omitempty"`
+	// TerminalQuestion is the question a terminal session's agent is waiting
+	// on, with its numbered options, as its machine read it from the screen.
+	// The controller keeps it in memory only and fills it in for a read; it
+	// is never written to the database.
+	TerminalQuestion *terminalproto.TerminalQuestion `json:"terminalQuestion,omitempty"`
 }
 
 // PendingQuestion is the card-sized view of one unanswered question: a bounded preview of what was asked. Queued counts
@@ -452,14 +459,14 @@ type PendingPermission struct {
 	Queued       int    `json:"queued,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,base_relation,base_start,base_name,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode,substr(prompt,1,300),length(prompt)>300,live_dir,live_dir_at`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,base_relation,base_start,base_name,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,held_since,agent_mode,substr(prompt,1,300),length(prompt)>300,live_dir,live_dir_at`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
 	var attentionObserved int
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.BaseRelation, &t.BaseStart, &t.BaseName, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore, &t.LiveDir, &t.LiveDirAt)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.BaseRelation, &t.BaseStart, &t.BaseName, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.HeldSince, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore, &t.LiveDir, &t.LiveDirAt)
 	t.AttentionObserved = attentionObserved != 0
 	if exit.Valid {
 		n := int(exit.Int64)

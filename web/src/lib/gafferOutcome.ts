@@ -557,11 +557,27 @@ export function ago(at: number | undefined, now: number): string {
 
 /** What the stage in hand's agent last reported doing, and for how long it has been quiet. `quiet` marks an agent that
  *  says it is working but has shown nothing for a quarter of an hour, or that is idle. */
-export function agentActivity(stage: { agentState?: string; agentActiveAt?: number } | undefined, now: number): { text: string; quiet: boolean } {
+/** What a move-on confirmation says first when the stage's agent ended its turn with work still running. */
+export function heldStops(agent: string, heldSince: number | undefined, now: number): string {
+  const minutes = heldSince ? Math.floor(Math.max(0, now - heldSince) / 60_000) : -1
+  const ended = minutes < 0 ? '' : minutes < 1 ? ' (turn ended just now)' : ` (turn ended ${minutes} min ago)`
+  return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} still has work running${ended}; moving on stops it.`
+}
+
+// How long reet waits for held work before it stops waiting: terminalproto.BackgroundHoldLimit, as in sessionStatus.ts.
+const HOLD_MS = 30 * 60_000
+
+export function agentActivity(stage: { agentState?: string; agentActiveAt?: number; agentHeldSince?: number } | undefined, now: number): { text: string; quiet: boolean } {
   if (!stage?.agentState && !stage?.agentActiveAt) return { text: '', quiet: false }
   const since = ago(stage.agentActiveAt, now), minutes = stage.agentActiveAt ? Math.floor((now - stage.agentActiveAt) / 60000) : 0
-  const names: Record<string, string> = { working: 'Working', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled' }
+  const names: Record<string, string> = { working: 'Working', background: 'Working in the background', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled', unwatched: 'Stopped waiting' }
   const name = names[stage.agentState ?? ''] ?? 'Not reported'
+  // Held work says when reet stops waiting for it rather than going quiet; a stopped wait needs a look.
+  if (stage.agentState === 'background') {
+    const left = Math.floor(((stage.agentHeldSince || stage.agentActiveAt || now - HOLD_MS) + HOLD_MS - now) / 60_000)
+    return { text: `${name} · ${left < 1 ? 'stops waiting soon' : `stops waiting in ${left} min`}`, quiet: false }
+  }
+  if (stage.agentState === 'unwatched') return { text: `${name} · work may still be running`, quiet: true }
   return { text: since ? `${name} · last active ${since} ago` : name, quiet: stage.agentState === 'idle' || (stage.agentState === 'working' && minutes >= 15) }
 }
 
@@ -721,7 +737,22 @@ export function deliveryWhy(piece: { criteria?: readonly unknown[]; deliveries?:
   const count = piece.criteria?.length ?? 0, back = (piece.deliveries ?? []).filter(d => d.decision === 'send_back').length
   return ['Delivery review', changedAfterAccept(piece.note) ? 'changed after you accepted it' : '', `${count} ${count === 1 ? 'criterion' : 'criteria'}`, back ? `sent back ${back === 1 ? 'once' : back === 2 ? 'twice' : `${back} times`} before` : ''].filter(Boolean).join(' · ')
 }
-type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; nextUsageBackup?: string }[] }
+type WaitingPiece = { key: string; title: string; state: string; note?: string; criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string; tool?: string; model?: string; first?: { tool: string; model?: string }; usageFailover?: boolean; backup?: { tool: string }; moreBackups?: { tool: string }[]; nextUsageBackup?: string }[] }
+const TOOL_WORDS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cline: 'Cline', antigravity: 'Google Antigravity (AGY)', copilot: 'GitHub Copilot' }
+/** An agent and its model as the controller words a backup: "OpenCode (paid/backup)". */
+const agentWords = (agent: { tool?: string; model?: string } | undefined): string => agent?.tool ? `${TOOL_WORDS[agent.tool] ?? agent.tool}${agent.model ? ` (${agent.model})` : ''}` : ''
+/** What happened when a stage's worker reached its usage limit, from the stage's own record, and what each choice does. */
+export function usageLimitWhy(stage: NonNullable<WaitingPiece['stages']>[number]): string {
+  const ran = agentWords(stage), first = agentWords(stage.first), where = `on the ${stageLabel(stage.kind).toLowerCase()} stage`
+  const none = `${stage.backup?.tool || stage.moreBackups?.length ? 'No backup is left for this stage' : 'No backup is saved for this stage'}; choose another model to carry on in the same folder and branch.`
+  // The buttons say what each choice does; this says what happened. usageFailover is also set when the person chose the
+  // other model, and there can be a third stop: say only what is always true.
+  return [
+    ran ? `${ran} reached its usage limit ${where}.` : `The worker reached its usage limit ${where}.`,
+    stage.usageFailover && `Another model already took over on this stage after a usage limit${first ? `; it started on ${first}` : ''}.`,
+    stage.nextUsageBackup ? `The backup is ${stage.nextUsageBackup}. Either choice carries on in the same folder and branch.` : none,
+  ].filter(Boolean).join(' ')
+}
 /** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
 export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' | 'delivery' | 'usage_limit' }
 /** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used
@@ -739,11 +770,11 @@ export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[]
       if (goal.workerUsageLimited) {
         const backup = stages[at]?.nextUsageBackup
         const replace: NeedChoice = { id: 'replace-worker', label: 'Choose another model…', primary: !backup, recommended: !backup }
-        const why = 'The worker reached its usage limit. Gaffer can continue this stage with another model.'
+        const why = stages[at] ? usageLimitWhy(stages[at]) : ''
         const need = !stages[at]
           ? { why: goal.reason || goal.goal.note, choices: [{ id: 'open', label: 'Open worker session', primary: true } satisfies NeedChoice] }
           : backup
-            ? recommend(why, [{ id: 'backup', label: `Continue with ${backup}` }, replace])
+            ? recommend(why, [{ id: 'backup', label: 'Continue with the backup' }, replace])
             : { why, choices: [replace] }
         out.push({ piece, stage, kind: 'usage_limit', need })
       } else out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })

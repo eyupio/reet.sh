@@ -5,6 +5,8 @@ package acpagent
 import (
 	"io"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // Options is one chat session's connector-owned launch data. No controller
@@ -50,6 +52,9 @@ type Options struct {
 	// ForceStopGrace is how long an agent has to end a turn after it is asked to
 	// cancel. After that the chat is ended explicitly instead of staying busy.
 	ForceStopGrace time.Duration
+	// BackgroundHold is how long a tool call left running at the end of a turn
+	// keeps the chat from reading as finished. Zero uses the protocol's limit.
+	BackgroundHold time.Duration
 	// OnReady, when set, is called once from Start after the session is open
 	// and any session/load replay has been delivered through OnEvent, and
 	// before the events Start emits itself: the interrupted-tool closes of a
@@ -66,6 +71,12 @@ func (o Options) permissionTimeout() time.Duration {
 		return o.PermissionTimeout
 	}
 	return 5 * time.Minute
+}
+func (o Options) backgroundHold() time.Duration {
+	if o.BackgroundHold > 0 {
+		return o.BackgroundHold
+	}
+	return terminalproto.BackgroundHoldLimit
 }
 func (o Options) stillWorkingAfter() time.Duration {
 	if o.StillWorkingAfter > 0 {
@@ -130,6 +141,8 @@ type Event struct {
 	Code string
 	// Usage is the agent's own report of tokens and context (kind "usage").
 	Usage *Usage
+	// Background is how many tool calls an ended turn left running (an idle status only).
+	Background int
 }
 
 func boolPtr(v bool) *bool { return &v }

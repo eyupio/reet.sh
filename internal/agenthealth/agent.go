@@ -94,6 +94,7 @@ type AgentConfig struct {
 	acpLiveControls    bool
 	acpStartOptions    bool
 	acpProvider        bool
+	acpCommands        bool
 	acpPreviews        bool
 	acpAgentMode       bool
 	acpAgentOptions    bool
@@ -101,6 +102,7 @@ type AgentConfig struct {
 	acpLongPrompt      bool
 	acpApproval        bool
 	sessionMode        bool
+	sessionModeAgents  bool
 	nativeView         bool
 	chatReattach       bool
 	chatReattachDetail bool
@@ -110,6 +112,7 @@ type AgentConfig struct {
 	inspect            bool
 	shellDir           bool
 	deskShell          bool
+	terminalQuestion   bool
 	attention          bool
 	progress           bool
 	OnConnection       func(bool)
@@ -1016,6 +1019,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpLiveControls = terminalproto.SupportsACPLiveControls(advertised)
 	cfg.acpStartOptions = terminalproto.SupportsACPStartOptions(advertised)
 	cfg.acpProvider = terminalproto.SupportsACPProvider(advertised)
+	cfg.acpCommands = terminalproto.SupportsACPCommands(advertised)
 	cfg.acpPreviews = terminalproto.SupportsACPPreviews(advertised)
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
@@ -1028,6 +1032,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	// never claimed without all three.
 	cfg.nativeView = terminalproto.SupportsNativeView(advertised) && cfg.acp && cfg.launch
 	cfg.sessionMode = terminalproto.SupportsSessionMode(advertised) && cfg.acp && cfg.acpHistory && cfg.launch
+	cfg.sessionModeAgents = cfg.sessionMode && terminalproto.SupportsSessionModeAgents(advertised)
 	// chat-reattach-v1 stands on chats and their history; it is never
 	// claimed without both.
 	cfg.chatReattach = terminalproto.SupportsChatReattach(advertised) && cfg.acp && cfg.acpHistory
@@ -1038,6 +1043,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.inspect = terminalproto.SupportsInspect(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.deskShell = terminalproto.SupportsDeskShell(advertised)
+	cfg.terminalQuestion = terminalproto.SupportsTerminalQuestion(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 	cfg.progress = terminalproto.SupportsProgress(advertised)
 }
@@ -1135,6 +1141,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	if cfg.acpProvider {
 		features = append(features, terminalproto.ACPProviderFeature)
 	}
+	if cfg.acpCommands {
+		features = append(features, terminalproto.ACPCommandsFeature)
+	}
 	if cfg.acpModel {
 		features = append(features, terminalproto.ACPModelFeature)
 	}
@@ -1171,6 +1180,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	if cfg.sessionMode {
 		features = append(features, terminalproto.SessionModeFeature)
 	}
+	if cfg.sessionModeAgents {
+		features = append(features, terminalproto.SessionModeAgentsFeature)
+	}
 	if cfg.chatReattach {
 		features = append(features, terminalproto.ChatReattachFeature)
 	}
@@ -1188,6 +1200,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.deskShell {
 		features = append(features, terminalproto.DeskShellFeature)
+	}
+	if cfg.terminalQuestion {
+		features = append(features, terminalproto.TerminalQuestionFeature)
 	}
 	if cfg.attention {
 		features = append(features, terminalproto.AttentionFeature)
@@ -1309,6 +1324,8 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		}
 	}
 	acp := cfg.acp && control && enabled && chatTool
+	// A switch stands on chats, their history and a launchable chat agent.
+	sessionMode := acp && cfg.acpHistory && cfg.sessionMode && launch && slices.ContainsFunc(tools, terminalproto.ReviewedChatTool)
 	var software []terminalproto.SoftwareEntry
 	softwareEnabled := cfg.software && cfg.Software != nil
 	if softwareEnabled && control {
@@ -1388,6 +1405,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPLiveControls: acp && cfg.acpLiveControls,
 		ACPStartOptions: acp && cfg.acpLiveControls && cfg.acpStartOptions,
 		ACPProvider:     acp && cfg.acpLiveControls && cfg.acpProvider,
+		ACPCommands:     acp && cfg.acpLiveControls && cfg.acpCommands,
 		ACPPreviews:     acp && cfg.acpPreviews,
 		// Only when a descriptor lists a mode, so the flag never appears without one.
 		ACPAgentMode: acp && cfg.acpAgentMode && anyModes(chatAgents),
@@ -1403,7 +1421,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// their history, and only when a chat agent can be launched in a
 		// terminal: a switch opens that agent's TUI. NativeView stays OpenCode's.
 		NativeView:  acp && cfg.nativeView && launch && slices.Contains(tools, "opencode"),
-		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.ContainsFunc(tools, terminalproto.ReviewedChatTool),
+		SessionMode: sessionMode,
+		// Only with SessionMode, so the flag never appears without it.
+		SessionModeAgents: sessionMode && cfg.sessionModeAgents,
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
 		// their history, and for an agent that can reopen its stored
 		// conversation: OpenCode, or one whose descriptor claims it.
@@ -1413,11 +1433,15 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ShellDir:     cfg.shellDir && control && enabled,
 		// The live folder is read for every running session, as attention
 		// is, so it follows terminal control alone.
-		DeskShell:   cfg.deskShell && control,
-		Attention:   cfg.attention && control,
-		Branches:    cfg.branches && worktree && enabled,
-		BranchPrune: cfg.branchPrune && worktree && enabled,
-		BranchSync:  cfg.branchSync && worktree && enabled,
+		DeskShell: cfg.deskShell && control,
+		// The question is read with attention, for every running session;
+		// whether an answer may be typed is the machine's terminal switch,
+		// checked per answer.
+		TerminalQuestion: cfg.terminalQuestion && control,
+		Attention:        cfg.attention && control,
+		Branches:         cfg.branches && worktree && enabled,
+		BranchPrune:      cfg.branchPrune && worktree && enabled,
+		BranchSync:       cfg.branchSync && worktree && enabled,
 		// Fetching a worktree's base is part of making one, so it follows
 		// Worktree, not enabled: a machine that makes worktrees fetches them.
 		BaseFresh: cfg.baseFresh && worktree,

@@ -1,5 +1,51 @@
 # Reet central-control implementation handoff
 
+## TERMINAL-QUESTION-1: a terminal agent's dialog shown and answered from reet (23 November 2026)
+
+The base for two "Agent behaviour" roadmap items: the question and its options for terminal agents, and answers
+re-checked before they are written. The full Claude Code plan and the Codex queue are not built.
+
+**What leaves the machine now.** `internal/terminalhost/agent_prompt.go` used to promise that screen text was never
+stored, logged or sent. The owner relaxed that in one bounded way: for a dialog the parser recognises, the dialog's own
+lines and question (500 runes in all, `truncated` when cut or when the dialog starts above the screen) and up to nine
+options (200 runes each, `truncated` per option) go to the controller under the negotiated feature
+`terminal-question-v1`. The controller keeps them in memory only (`internal/terminalbroker/terminal_question.go`);
+`TestTerminalQuestionIsKeptInMemoryOnly` scans the SQLite files. The audit event stores machine, tool, session and
+option number, never text. The comment and `docs/remote-machine-operations.md` state exactly this.
+
+**What counts as a dialog** (`internal/terminalhost/agent_question.go`). Claude Code and Codex only. The options must
+carry the agent's own selection mark (`❯`, `›`; never a plain `>`), sit inside the dialog's box where it has one, and
+have nothing under them but that agent's key hints and the box's bottom. So dialog-looking text in tool output above
+the agent's input box, or above a shell prompt, is not a question. Control, format and box characters are stripped.
+When parsing is not confident nothing is sent and the bell works as before.
+
+**Answering.** `POST /api/v2/terminal/sessions/{id}/answer {fingerprint, option}`: browser session only, as terminal
+input is. The fingerprint is SHA-256 over the pane, the dialog's own lines in full, the options and a round number. The
+machine reads the pane again through the same parser, refuses a changed fingerprint or a dead pane with "The question
+on the terminal changed. Look at it again before answering.", and otherwise works out the keys itself (arrows from the
+selected option, then Enter; never digits) and sends them. A repeat of one answer sends keys once; the same question
+asked again after newer activity is a new round. An older machine: "Update reet on {machine} to answer from here."
+
+**Web.** `web/src/lib/terminal/TerminalQuestionCard.svelte` with rules in `terminalQuestion.ts` (`standingPermission`,
+`needsConfirm`, `nextTap`, `asksForWords`, `fitsHome`, `outcomeOf`). All options have equal weight; no key answers; a
+standing-permission or cut option takes a second tap; after "question changed" a fresh press is needed. The card is
+under the session's header, and in Home only when the dialog has three or fewer options and nothing is cut (otherwise
+the question line and Open). `hasPending` in `attention.ts` counts a terminal question, and a yes/no dialog is an
+approval card.
+
+**Not done, and not known.**
+- Nothing was run against a real agent. Every dialog layout, the selection marks, and arrows-plus-Enter answering
+  rest on hand-written fixtures; if a real screen differs, the strict rules show no card and the bell works as before.
+- Remaining exposure: output that prints a complete fake dialog as the last thing on the screen, with the agent's
+  mark, a closed box and only its key hints below, shows as a card; answering it sends arrows and Enter to whatever
+  reads the terminal.
+- The read and the keys are two tmux calls a few milliseconds apart; typing in the terminal in that gap can move the
+  selection.
+- Standing permission is recognised by wording only; an unrecognised wording answers in one tap.
+- A read-only account and a machine that cannot answer are found out only after a tap (neither reaches these pages
+  or is exposed as a capability today).
+- The full plan text and the Codex queue need a real capture or the agent's transcript format, neither verified.
+
 ## SKILL-BUDDY-FOLD-2: skill suggestions stay folded in Chat (23 November 2026)
 
 Follow-up to **PHONE-SKILL-BUDDY-1**: the folded header was still a card above the composer, kept **Pause** beside it,

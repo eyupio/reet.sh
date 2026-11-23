@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Answer a terminal agent's question from reet**: when Claude Code or Codex in a terminal session stops at a dialog
+  with numbered options, the session's screen shows what it is asking (the command, file or plan heading, then the
+  question) with the options as buttons, and Home's "Waiting for you" shows the same for a short dialog. Choosing one
+  makes the machine read the screen again and press the keys only if the same dialog is still there; otherwise it
+  says the question changed. An option that keeps applying after the answer, or whose text is cut short, takes a
+  second tap. **This changes what leaves a machine**: for a dialog reet recognises, up to 500 characters of the
+  dialog and up to nine options of 200 characters are sent to the controller, held in memory and never written to
+  its database or logs; before, no screen text left the machine. Needs a machine and a controller on this version.
 - **Skill suggestions stay out of the way in Chat**: **Skills for this task** now opens as one quiet line above the
   message box on every screen size, naming the task and the first suggestion with **See skills** to open the rest.
   **Pause** appears once the suggestions are open. A Factory stage's suggestions are unchanged and stay open beside

@@ -2,16 +2,41 @@ package terminalhost
 
 import (
 	"context"
+	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // An agent in a terminal that stops to ask before it runs a command or edits
 // a file does not always ring the terminal bell, so the session looked the
 // same as one still working. The host therefore reads the visible screen of an
-// agent's session, on this machine, and says only whether it is waiting for an
-// answer. The text is matched and dropped: it is never stored, logged or sent.
+// agent's session, on this machine, and says whether it is waiting for an
+// answer. The text is matched and dropped: it is never stored, logged or sent,
+// with one bounded exception. For a dialog a rule matched, and only for Claude
+// Code and Codex, the machine sends the controller the dialog's own text and
+// its options (agent_question.go): the dialog's subject lines (the command,
+// the file, the plan's heading and steps) and its question sentence, one line
+// each, up to 500 characters in all, kept from the end nearest the options
+// and marked truncated when some did not fit or the dialog began above the
+// screen; and up to 9 numbered options of up to 200 characters each. Control,
+// format, bidi and zero-width characters and box borders are removed first.
+// Nothing else on the screen is sent. The controller keeps them in memory only
+// and never writes them to its database or its logs; the machine keeps them in
+// memory too, never in its registry.
+//
+// A dialog counts only when it reads as one the agent drew: the agent's own
+// selection mark, its options inside its box, and nothing under them but the
+// box's bottom and the agent's key hints, so the words of a dialog printed by
+// a command, with the agent's input box or a prompt under them, are no
+// question. What this cannot tell apart is a command that prints a complete
+// fake dialog, with the agent's glyphs and hints, as the very last thing on
+// the screen, while the agent shows nothing under it. Then that text is sent
+// as a question, and an answer sends arrow keys and Enter to whatever reads
+// the terminal: the agent, if it is waiting for input, or the command.
 //
 // The rules are deliberately narrow. Each looks only at the last lines of the
 // screen, where an agent draws the question it is waiting on, and needs the
@@ -119,7 +144,18 @@ type promptWatch struct {
 	at time.Time
 	// waiting is whether that screen showed a question.
 	waiting bool
+	// question is the question read from that screen, when it read cleanly.
+	question *terminalproto.TerminalQuestion
 }
+
+var (
+	// ErrQuestionChanged refuses an answer whose question is no longer the
+	// one on the screen.
+	ErrQuestionChanged = errors.New("the question on the terminal changed")
+	// ErrAlreadyAnswered refuses a second answer to a question an option was
+	// already chosen for.
+	ErrAlreadyAnswered = errors.New("the question on the terminal was already answered")
+)
 
 const (
 	// promptReadEvery is the least time between two reads of a screen that
@@ -136,10 +172,11 @@ const (
 // agent with rules was started in, only while the window's activity says the
 // screen may have changed since it was last read, and at most every
 // promptReadEvery while it keeps changing. The screen text does not leave
-// this function.
-func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession, rows []paneWindow) bool {
+// this function, except a question read from a dialog (questionOnScreen),
+// which is kept for List; news says it changed.
+func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession, rows []paneWindow) (asked, news bool) {
 	if !ReadsPrompts(s.Tool) || !paneID.MatchString(s.PaneID) {
-		return false
+		return false, false
 	}
 	var activity int64
 	for _, p := range rows {
@@ -161,9 +198,9 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 	switch {
 	case !seen:
 	case !changed && watch.settled:
-		return false
+		return false, false
 	case changed && now.Sub(watch.at) < every, now.Sub(watch.at) < again:
-		return false
+		return false, false
 	}
 	// tmux counts activity in whole seconds, so more can still be drawn in the
 	// second the last output fell in. The screen is settled only once it has
@@ -172,9 +209,127 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 	data, err := m.command(ctx, promptScreenBytes, "capture-pane", "-p", "-t", s.PaneID)
 	if err != nil {
 		// A screen that cannot be read says nothing; the next change is read.
-		return false
+		return false, false
 	}
 	waiting := AwaitingAnswer(s.Tool, string(data))
-	m.prompts[id] = promptWatch{activity: activity, settled: settled, at: now, waiting: waiting}
-	return waiting && !watch.waiting
+	question := questionOnScreen(s.Tool, m.questionKey(id, s.PaneID), string(data))
+	if a, ok := m.answered[id]; ok {
+		switch {
+		case question == nil || question.Fingerprint != a.fingerprint:
+			// The answered question is gone: the same question asked again
+			// later can be answered again.
+			delete(m.answered, id)
+		case activity > a.at:
+			// The agent drew after the second it was answered in, and the
+			// same question is on the screen: it asks it anew. A new round
+			// gives it a new fingerprint, so it is listed and answered again.
+			if m.rounds == nil {
+				m.rounds = map[string]int{}
+			}
+			m.rounds[id]++
+			delete(m.answered, id)
+			question = questionOnScreen(s.Tool, m.questionKey(id, s.PaneID), string(data))
+		}
+	}
+	m.prompts[id] = promptWatch{activity: activity, settled: settled, at: now, waiting: waiting, question: question}
+	return waiting && !watch.waiting, fingerprintOf(question) != fingerprintOf(watch.question)
+}
+
+// questionKey names a session's pane in its question's fingerprint, with the
+// round when the same question was asked again after an answer.
+func (m *Manager) questionKey(id, pane string) string {
+	if n := m.rounds[id]; n > 0 {
+		return pane + "\x00" + strconv.Itoa(n)
+	}
+	return pane
+}
+
+// answeredQuestion is the question an option was last chosen for, and the
+// second, in tmux's window activity clock, it was chosen in.
+type answeredQuestion struct {
+	fingerprint string
+	at          int64
+}
+
+func fingerprintOf(q *terminalproto.TerminalQuestion) string {
+	if q == nil {
+		return ""
+	}
+	return q.Fingerprint
+}
+
+// AnswerQuestion chooses option on the question an agent's session is waiting
+// on, if the screen still shows the question with this fingerprint. It reads
+// the screen again, works out the keys itself (answerKeys) and sends them to
+// the session's pane; nothing the caller sends reaches the terminal. A
+// question is answered once: a repeat is ErrAlreadyAnswered and sends nothing.
+func (m *Manager) AnswerQuestion(ctx context.Context, id, fingerprint string, option int) error {
+	if !terminalproto.ValidID(id) || !terminalproto.ValidFingerprint(fingerprint) || option < 1 || option > terminalproto.MaxTerminalOptions {
+		return terminalproto.ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.allowed(); err != nil {
+		return err
+	}
+	lock, err := m.registryLock(ctx)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	r, err := m.loadRegistry()
+	if err != nil {
+		return err
+	}
+	s, ok := r.Sessions[id]
+	if !ok || s.State != terminalproto.Running {
+		return ErrSessionMissing
+	}
+	if m.answered[id].fingerprint == fingerprint {
+		return ErrAlreadyAnswered
+	}
+	if !paneID.MatchString(s.PaneID) {
+		return ErrQuestionChanged
+	}
+	dead := m.paneDead
+	if dead == nil {
+		dead = func(ctx context.Context, pane string) (bool, error) {
+			out, err := m.command(ctx, 64, "display-message", "-p", "-t", pane, "#{pane_dead}")
+			return strings.TrimSpace(string(out)) == "1", err
+		}
+	}
+	// A pane whose process ended still shows its last screen; it takes no answer.
+	if gone, err := dead(ctx, s.PaneID); err != nil || gone {
+		return ErrQuestionChanged
+	}
+	data, err := m.command(ctx, promptScreenBytes, "capture-pane", "-p", "-t", s.PaneID)
+	if err != nil {
+		return err
+	}
+	q := questionOnScreen(s.Tool, m.questionKey(id, s.PaneID), string(data))
+	if q == nil || q.Fingerprint != fingerprint {
+		return ErrQuestionChanged
+	}
+	keys, ok := answerKeys(q, option)
+	if !ok {
+		return terminalproto.ErrInvalid
+	}
+	send := m.sendKeys
+	if send == nil {
+		send = func(ctx context.Context, pane string, keys []string) error {
+			_, err := m.command(ctx, 0, append([]string{"send-keys", "-t", pane}, keys...)...)
+			return err
+		}
+	}
+	// The read above and these keys are two tmux calls a few milliseconds
+	// apart. Someone typing in the terminal in that gap can move the
+	// selection, and the arrows then count from where it was read.
+	if err := send(ctx, s.PaneID, keys); err != nil {
+		return err
+	}
+	if m.answered == nil {
+		m.answered = map[string]answeredQuestion{}
+	}
+	m.answered[id] = answeredQuestion{fingerprint: fingerprint, at: time.Now().Unix()}
+	return nil
 }

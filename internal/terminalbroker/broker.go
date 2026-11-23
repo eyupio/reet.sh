@@ -127,6 +127,13 @@ type Peer struct {
 	// been handled, by request id, so a reconcile does not call a session lost
 	// while the machine is still starting it.
 	creates map[string]*pendingCreate
+	// questions holds the question each terminal session's agent waits on, as
+	// the machine last reported it; answered the fingerprint an answer last
+	// succeeded for, and answering the sessions with an answer on its way.
+	// All are in memory only (terminal_question.go).
+	questions map[string]terminalproto.TerminalQuestion
+	answered  map[string]string
+	answering map[string]bool
 }
 
 // pendingCreate is one create the machine has not answered yet. done closes
@@ -440,6 +447,7 @@ func (p *Peer) observe() {
 			if err == nil {
 				// A switch to chat whose answer came after its call gave up.
 				p.adoptLateChat(m.SessionID, s)
+				p.noteQuestion(m.SessionID, s.State, s.TerminalQuestion)
 			}
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)

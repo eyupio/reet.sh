@@ -42,6 +42,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
 	mux.HandleFunc("PATCH /api/v2/terminal/sessions/{id}", s.terminal(s.terminalRename))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/end", s.terminal(s.terminalEnd))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/answer", s.terminal(s.terminalAnswer))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/archive", s.terminalAccess(s.terminalArchive, true))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/seen", s.terminalAccess(s.terminalSessionSeen, true))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/native-view", s.terminal(s.terminalNativeView))
@@ -275,6 +276,7 @@ func (s *server) terminalSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range sessions {
 		s.terminals.ApplyChatAttention(uid, &sessions[i])
+		s.terminals.ApplyTerminalQuestion(uid, &sessions[i])
 	}
 	writeJSON(w, 200, map[string]any{"sessions": sessions})
 }

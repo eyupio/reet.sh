@@ -431,6 +431,11 @@ type TerminalSession struct {
 	// PendingQuestion is the earliest unanswered typed question of a structured chat that is waiting. Home shows it
 	// and sends the person to the chat to answer: a question needs its whole card, not a button.
 	PendingQuestion *PendingQuestion `json:"pendingQuestion,omitempty"`
+	// TerminalQuestion is the question a terminal session's agent is waiting
+	// on, with its numbered options, as its machine read it from the screen.
+	// The controller keeps it in memory only and fills it in for a read; it
+	// is never written to the database.
+	TerminalQuestion *terminalproto.TerminalQuestion `json:"terminalQuestion,omitempty"`
 }
 
 // PendingQuestion is the card-sized view of one unanswered question: a bounded preview of what was asked. Queued counts

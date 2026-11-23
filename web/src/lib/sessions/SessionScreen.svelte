@@ -28,6 +28,7 @@
   import PanelResizer from '../shell/PanelResizer.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import SessionViewSwitch from './SessionViewSwitch.svelte'
+  import TerminalQuestionCard from '../terminal/TerminalQuestionCard.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
   import { SWITCH_LIVE_CHAT_HINT } from '../chatAgents'
@@ -363,6 +364,8 @@
     void tick().then(() => actionsButton?.focus())
   }
   function continueSession() { if (!oncontinue) return; leaveActions(); oncontinue() }
+  // Takes the person to the terminal below the card (the plain shell's own input).
+  function focusTerminal() { void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }
   function openTerminal() { if (!onterminal) return; leaveActions(); onterminal() }
   function openSideTerminal() { if (!onside) return; leaveActions(); onside() }
 
@@ -519,6 +522,8 @@
     </header>
     <!-- A Factory pipeline's decision is taken where the work is: in the session doing its stage in hand. -->
     <div class="below-head">
+    <!-- A terminal agent's open dialog sits right under the header, above the terminal, so it is the first thing seen. -->
+    {#if session.terminalQuestion && !session.structured}<div class="question"><TerminalQuestionCard {session} question={session.terminalQuestion} title={session.title} machine={host} locked={away ? 'The machine is not connected. Try again when it is back.' : ''} onopen={focusTerminal} onreread={onrefresh} /></div>{/if}
     {#if factory?.key && factory.current}<SessionDecision member={factory} sessionId={session.id}/>{/if}
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -562,6 +567,11 @@
   .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); }
   .head { grid-column: 1; grid-row: 1; }
   .below-head { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; }
+  .question { padding: 8px 20px 0; }
+  /* A tall dialog never squeezes the terminal out: the holder caps at 40% of the height and scrolls. */
+  .below-head:has(.question) { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
+  /* The long dialog is the thing to read: the holder allows it more of a phone's height. */
+  @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .below-head:has(.question) { max-height: 70dvh; } }
   /* A long Factory decision sits above the conversation. On a phone (or a sideways one) it keeps a bounded height and
      scrolls itself, so its own choices stay reachable instead of being clipped by the fixed-height workspace. */
   @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

@@ -54,6 +54,10 @@ type ManagedSession struct {
 	// LiveDir is the session's live working folder as the manager last read
 	// it from tmux. It is never persisted: List fills it from memory.
 	LiveDir string `json:"-"`
+	// Question is the question the agent in the session is waiting on, as
+	// the manager last read it from the screen. It is never persisted: List
+	// fills it from memory.
+	Question *terminalproto.TerminalQuestion `json:"-"`
 }
 
 type operationReceipt struct {

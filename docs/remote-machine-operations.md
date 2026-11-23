@@ -232,6 +232,48 @@ fixed patterns in the last 16 lines and dropped: it is not stored, logged or sen
 same time a bell would have set. A plain shell, and an agent reet has no patterns for, are never read. The screen is
 read only when the window's activity says it may have changed, at most every two seconds while it keeps changing.
 
+There is one bounded exception, for a controller that negotiated `terminal-question-v1`. When the screen is a Claude
+Code or Codex dialog the patterns matched, and it reads as one the agent drew, the connector sends what is listed
+below. It reads as the agent's only with one block of 1 to 9 numbered options, exactly one of them selected with the
+agent's own mark (`❯` for Claude Code, `›` for Codex, never a plain `>`); for a boxed dialog, the options inside the
+question's box and the box closed under them; and nothing under the options but the box's bottom and the agent's key
+hints ("Esc to cancel", "Press enter to confirm or esc to cancel"). A dialog's words printed by a command, with the
+agent's input box, a shell prompt or any other text under them, are not a question. The connector sends:
+
+- `question`: the dialog's own text, one screen line per line, joined by newlines: its subject lines (the command or
+  file it asks about, a plan's heading and steps) followed by the question sentence. At most 500 characters in all.
+  When it does not fit, whole lines are dropped from the top, so what is kept is the end nearest the options.
+- `truncated`: set when lines were dropped, or when a Claude dialog began above the visible screen (its top border is
+  not on it), so the person knows the rest is in the terminal. Nothing is cut without it.
+- `options`: up to 9 numbered options, each up to 200 characters, and which one is selected. An option whose label
+  was cut to fit carries `truncated`, so it is never shown as if it were whole.
+- `fingerprint`: a SHA-256 of the pane, the question sentence, the options and the dialog's own lines above the
+  options (from its box's top, or for Codex from its question), all in full, before any cap, even when `question` or
+  an option's label was cut: options that differ only past their 200 characters are different questions. A status line
+  ticking above the dialog does not change it. For a Claude dialog drawn without a box, whose start cannot be told,
+  every line above the options is hashed instead, so a change there refuses an answer rather than risk one. When the
+  agent draws the same dialog again after it was answered, it gets a new fingerprint and can be answered again.
+
+Control, format, bidi and zero-width characters and box borders are removed first; a newline in `question` is the only
+control character the controller accepts. Nothing else on the screen is sent: not the conversation above the dialog,
+not the lines under the options. The machine keeps the question in memory, never in its registry, and the controller
+keeps it in memory only: never in its database and never in its logs, so it is gone after a restart until the
+machine sends it again.
+
+An answer from the web (`POST /api/v2/terminal/sessions/{id}/answer` with the fingerprint and an option number) is
+terminal input, with the same rules as typing: the owner's signed-in browser, never a viewer or an API token. The
+machine reads the screen again, and only if the fingerprint still matches does it send keys to that pane: the arrow
+keys from the selected option to the chosen one, then Enter. The browser never sends keys. A question is answered
+once; asking again for the same fingerprint answers "already answered" and sends nothing. A pane whose process has
+ended takes no answer. The read and the keys are two tmux calls a few milliseconds apart, so someone typing in the
+terminal in that gap can move the selection first. The audit log records the option number, never the question.
+
+What remains: a command whose output ends with a complete imitation of the agent's dialog (the right box, marks and
+key hints, as the last thing on the screen, with the agent drawing nothing under it) is read as a question. Its text
+is sent to the controller within the bounds above, and an answer sends arrow keys and Enter to the terminal, where
+the agent or the command reads them. Only the session's owner can answer, from their own browser, and the card shows
+the same text the terminal does.
+
 Linux services use journal retention. Rotate macOS service logs and the detached
 fallback's private agent log with the host's log management; restart the agent
 after rotating a fallback log so its file descriptor reopens. Without rotation

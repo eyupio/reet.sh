@@ -116,16 +116,18 @@ func NewLimiter(max int, window time.Duration) *Limiter {
 }
 
 // recordLocked records one attempt for key. A new key past the bound drops
-// the key whose last attempt is oldest, the one least likely to be under
-// attack now, rather than refusing everyone once the map is full.
+// the key with the fewest attempts, the oldest among equals, rather than
+// refusing everyone once the map is full: a flood of one-off keys then
+// cannot push out the key of an account that is being guessed at.
 func (l *Limiter) recordLocked(key string, now time.Time) {
 	if _, ok := l.hits[key]; !ok && len(l.hits) >= l.maxKeys {
 		var stale string
 		var staleAt time.Time
-		found := false
+		staleN := 0
 		for k, times := range l.hits {
-			if last := times[len(times)-1]; !found || last.Before(staleAt) {
-				stale, staleAt, found = k, last, true
+			last := times[len(times)-1]
+			if staleN == 0 || len(times) < staleN || len(times) == staleN && last.Before(staleAt) {
+				stale, staleAt, staleN = k, last, len(times)
 			}
 		}
 		delete(l.hits, stale)

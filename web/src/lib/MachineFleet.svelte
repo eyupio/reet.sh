@@ -10,6 +10,7 @@
   import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
+  import { reenrolCommand } from './machineJoin'
   import AgentUpdate from './AgentUpdate.svelte'
   import MachineSettings from './MachineSettings.svelte'
   import UpdateReview from './UpdateReview.svelte'
@@ -48,7 +49,7 @@
     terminalAccess?:boolean
     monitorAccess?:boolean
     /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
-    onjoin?: (opener: HTMLElement | null) => void
+    onjoin?: (opener: HTMLElement | null, name?: string) => void
     /** The machine just brought in by that dialog: its card is marked for a few seconds. */
     highlight?: string
     onupdate: (state: SyncState) => void
@@ -94,6 +95,8 @@
     synced: machines.filter((machine) => fleetGroup(machine) === 'synced').length,
   })
   const fleetCount = $derived(fleetQuery.trim() || fleetFilter !== 'all' ? `${shownMachines.length} of ${machines.length} machines` : `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'}`)
+  // Machines enrolled with a personal API token. More than one is said once, above the list, and each row only marks itself.
+  const legacyCount = $derived(shownMachines.filter((machine) => agentFor(machine)?.legacyToken).length)
   const reviewAgent = $derived(review ? snapshot.agents?.find((agent) => agent.id === review?.agentId) : undefined)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
@@ -325,6 +328,18 @@
       <p class="fleet-count" role="status">{fleetCount}</p>
     </div>
   {/if}
+  {#if legacyCount > 1}
+    <div class="legacy legacy-note" data-legacy-note>
+      <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>{legacyCount} machines were enrolled with a personal API token.</span></p>
+      <p class="legacy-why">A personal API token can do anything your account can and never expires.</p>
+      <details class="legacy-how">
+        <summary>How to change this</summary>
+        <p>On each machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
+        <pre class="legacy-cmd">{reenrolCommand()}</pre>
+        <p class="legacy-hint">It keeps the machine's settings and asks for the code.</p>
+      </details>
+    </div>
+  {/if}
   <div class="machine-grid">
     {#each shownMachines as machine, m (machine.host)}
       {@const enrolled = agentFor(machine)}
@@ -387,6 +402,23 @@
               onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
               oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
             />
+          </div>
+        {/if}
+
+        {#if enrolled?.legacyToken}
+          <div class="legacy" data-legacy-token={enrolled.id}>
+            {#if legacyCount === 1}
+              <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Enrolled with a personal API token, which can do anything your account can and never expires.</span></p>
+              <details class="legacy-how">
+                <summary>How to change this</summary>
+                <p>On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
+                <pre class="legacy-cmd">{reenrolCommand()}</pre>
+                <p class="legacy-hint">It keeps the machine's settings and asks for the code.</p>
+              </details>
+            {:else}
+              <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Personal token</span></p>
+            {/if}
+            {#if onjoin && accounts && canWrite}<div><button type="button" class="btn" aria-label={`Enrol again: ${machine.host}`} onclick={(event) => onjoin(event.currentTarget, machine.host)}>Enrol again</button></div>{/if}
           </div>
         {/if}
 
@@ -559,6 +591,16 @@
   .agent-chip strong { color: var(--ink); font-weight: 600; }
   .agent-chip.muted { opacity: 0.78; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .legacy { display: grid; gap: 6px; color: var(--ink); font-size: 0.875rem; line-height: 1.5; }
+  .legacy-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-weight: 500; }
+  .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
+  .legacy-cmd { margin: 0 0 10px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 0.875rem/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+  .legacy-hint { margin: -4px 0 10px; color: var(--muted); }
+  .legacy-note { margin: 0 0 14px; }
+  .legacy-why { margin: 0; color: var(--muted); }
+  .legacy-how > summary { cursor: pointer; display: list-item; padding: 6px 0; color: var(--muted); }
+  .legacy-how > p { margin: 6px 0 10px; color: var(--muted); overflow-wrap: anywhere; }
+  @media (pointer: coarse) { .legacy-how > summary { padding: 12px 0; } .legacy .btn { min-height: 44px; } }
   .start-reason { margin: -6px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
   .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
   .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }

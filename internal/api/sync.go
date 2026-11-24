@@ -24,6 +24,12 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	if s.authMode != AuthAccounts {
+		// Without accounts there is no personal token to warn about.
+		for i := range agents {
+			agents[i].LegacyToken = false
+		}
+	}
 	jobs, err := s.st.SyncJobsFor(s.uid(r))
 	if err != nil {
 		writeErr(w, 500, err.Error())

@@ -58,11 +58,7 @@ func controllerPost(ctx context.Context, c agentConfig, route string, in, out an
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Reet-Token", c.Token)
-	req.Header.Set("X-Reet-Agent", c.ID)
-	req.Header.Set("X-Reet-Agent-Key", c.Secret)
-	req.Header.Set("X-Reet-Version", version)
-	req.Header.Set("X-Reet-Commit", buildCommit)
+	setAgentHeaders(req.Header, c, version)
 	client := noRedirectClient
 	response, err := client.Do(req)
 	if err != nil {

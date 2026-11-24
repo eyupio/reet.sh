@@ -67,5 +67,128 @@ try {
   await expect(page.getByText('Step 2 · Authenticate')).toBeVisible()
   await context.close()
  }
- console.log('First machine: one entry dialog from every button, the panel waits behind it, Continue says what it needs.')
+ // The key step is an enrolment code, made on a button, and never a personal token. From the first machine's own entry.
+ if (run('code')) {
+  const CODE = 'reet_enrol_FIXTURE_CODE_9f3a'
+  const calls = [], tokenCalls = []
+  let life = 900, refuse
+  const routes = {
+   '/api/v2/sync/enrol-codes': request => { calls.push(request.method()); return refuse ? { status: refuse.status, json: { error: refuse.error } } : { status: 201, json: { code: CODE, expiresAt: Math.floor(Date.now() / 1000) + life } } },
+   '/api/v2/tokens': request => { tokenCalls.push(request.method()); return { status: 500, json: { error: 'Unexpected token call.' } } },
+  }
+  const {context,page,errors} = await open({width:390,theme:'dark',routes,scale:2})
+  await page.goto(`${base}/machines#add-machine`)
+  const dialog = page.getByRole('dialog',{name:'Add a machine'})
+  await expect(dialog).toBeVisible()
+  const key = dialog.locator('section[aria-labelledby$="-key"]')
+  await expect(key.getByRole('heading',{name:'Give it an enrolment code'})).toBeVisible()
+  await expect(dialog).not.toContainText(/machine token/i)
+  const shot = async name => { if (process.env.REET_E2E_SHOTS) await key.screenshot({path:`${process.env.REET_E2E_SHOTS}/first-${name}-390-dark.png`}) }
+  await shot('before')
+  expect(calls).toEqual([])
+  // A refusal is the server's sentence by the button.
+  refuse = {status:429,error:'you have 20 unused enrolment codes; use one or wait for them to expire'}
+  await key.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(key.getByRole('alert')).toHaveText('You have 20 unused codes. Wait for one to run out (each lasts 15 minutes), or use one.')
+  await shot('error')
+  refuse = undefined
+  await key.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(key.locator('.fresh code')).toHaveText(CODE)
+  await expect(key.locator('.fresh')).toContainText('Paste this when the machine asks for an enrolment code.')
+  await expect(key.locator('.fresh')).toContainText(/Expires in 1[45]:\d\d/)
+  await expect(key.getByRole('button',{name:'Copy enrolment code'})).toBeVisible()
+  await shot('code')
+  expect(calls).toEqual(['POST','POST'])
+  expect(tokenCalls).toEqual([])
+  expect(await page.evaluate(()=>location.href+JSON.stringify(localStorage)+JSON.stringify(sessionStorage))).not.toContain(CODE)
+  // Closing and reopening does not bring it back.
+  await dialog.getByRole('button',{name:/Close/}).click()
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('button',{name:'Add a machine'}).first().click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText(CODE)).toHaveCount(0)
+  // A short-lived code runs out in front of the person, who is offered another.
+  life = 2
+  await key.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(key.locator('.fresh code')).toHaveText(CODE)
+  await expect(key.getByText('This code has run out.')).toBeVisible({timeout:8000})
+  await expect(dialog.getByText(CODE)).toHaveCount(0)
+  await shot('expired')
+  await expect(key.getByRole('button',{name:'Make another code'})).toBeVisible()
+  expect(tokenCalls).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ // The step-by-step panel's key step is the same enrolment code, and makes no personal token.
+ if (run('panel')) {
+  const CODE = 'reet_enrol_FIXTURE_CODE_9f3a'
+  for (const [width, theme] of [[1280, 'light'], [390, 'dark']]) {
+   const calls = [], tokenCalls = []
+   const routes = {
+    '/api/v2/sync/enrol-codes': request => { calls.push(request.method()); return { status: 201, json: { code: CODE, expiresAt: Math.floor(Date.now() / 1000) + 900 } } },
+    '/api/v2/tokens': request => { tokenCalls.push(request.method()); return { status: 500, json: { error: 'Unexpected token call.' } } },
+   }
+   const {context,page,errors} = await open({width,theme,routes,scale:2})
+   await page.goto(`${base}/machines#connect-machine`)
+   await page.getByLabel(/Machine name/).first().fill('studio-laptop')
+   await page.getByRole('button',{name:/Continue to authentication/}).click()
+   const panel = page.locator('details#connect-machine .step-panel')
+   await expect(panel.getByRole('heading',{name:'Save the connection on the machine.'})).toBeVisible()
+   await expect(panel).not.toContainText(/machine token|personal API token|Create machine token/i)
+   await expect(panel.getByRole('button',{name:'Make an enrolment code'})).toHaveCount(0)
+   // The code comes after the command the machine will ask it for, on the last step.
+   await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
+   await expect(panel.getByRole('heading',{name:'Bring this machine into your workspace.'})).toBeVisible()
+   await expect(panel).toContainText('Make the code when the machine asks for it. It lasts 15 minutes and works once.')
+   const shot = async name => { if (process.env.REET_E2E_SHOTS) await panel.screenshot({path:`${process.env.REET_E2E_SHOTS}/panel-${name}-${width}-${theme}.png`}) }
+   await shot('before')
+   await panel.getByRole('button',{name:'Make an enrolment code'}).click()
+   await expect(panel.locator('.fresh code')).toHaveText(CODE)
+   await expect(panel.locator('.fresh')).toContainText(/Expires in 1[45]:\d\d/)
+   await expect(panel.getByRole('button',{name:'Copy enrolment code'})).toBeVisible()
+   await expect(panel).toContainText('When prompted, paste the enrolment code.')
+   await expect(panel).not.toContainText(/personal API token/i)
+   await shot('code')
+   expect(calls).toEqual(['POST'])
+   expect(tokenCalls).toEqual([])
+   expect(await page.evaluate(()=>location.href+JSON.stringify(localStorage)+JSON.stringify(sessionStorage))).not.toContain(CODE)
+   // Going back and forward between the steps keeps the code; closing the panel does not.
+   await panel.getByRole('button',{name:'Back'}).click()
+   await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
+   await expect(panel.locator('.fresh code')).toHaveText(CODE)
+   expect(calls).toEqual(['POST'])
+   await page.locator('details#connect-machine > summary').click()
+   await expect(page.locator('details#connect-machine')).not.toHaveAttribute('open','')
+   await page.locator('details#connect-machine > summary').click()
+   await expect(page.getByText(CODE)).toHaveCount(0)
+   // The last step is a check, not a requirement: the machine reports as itself, so no server, name or reconcile is asked for.
+   await panel.getByRole('button',{name:/Continue to optional inventory/}).click()
+   await expect(panel.locator('pre').first()).toHaveText('reet scan --prune')
+   await expect(panel).toContainText('Your machine reports its skills as soon as reet agent run starts. To check now, run this on it.')
+   await expect(panel).not.toContainText(/--reconcile|token/i)
+   await expect(panel).not.toContainText('Run the scan above')
+   await shot('step4')
+   expect(tokenCalls).toEqual([])
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+ // Where the controller has no accounts the last step is as it was: the full scan command.
+ if (run('panel-token')) {
+  const {context,page,errors} = await open({width:1280,status:{mode:'token',user:undefined}})
+  await page.addInitScript(()=>localStorage.setItem('reet-token','instance-token'))
+  await page.goto(`${base}/machines`)
+  await page.getByRole('button',{name:'Connect a machine',exact:true}).click()
+  const panel = page.locator('details#connect-machine .step-panel')
+  await page.getByLabel(/Machine name/).first().fill('garage')
+  await page.getByRole('button',{name:/Continue to authentication/}).click()
+  await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
+  await panel.getByRole('button',{name:/Continue to optional inventory/}).click()
+  await expect(panel.locator('pre').first()).toHaveText(`reet scan --server '${new URL(base).origin}' --env 'garage' --prune --reconcile`)
+  await expect(panel).toContainText('Run the scan on the machine.')
+  await expect(panel).toContainText('Run the scan above.')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ console.log('First machine: one entry dialog from every button, the panel waits behind it, Continue says what it needs, the key step is an enrolment code.')
 } finally {await browser.close()}

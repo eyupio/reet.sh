@@ -201,6 +201,22 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	for i := range in.Environments {
 		in.Environments[i].Host = canonicalize(in.Environments[i].Host)
 	}
+	// A machine reporting by its own secret reports for itself only.
+	if a, ok := authenticatedMachine(r); ok {
+		own := func(host string) bool { return strings.EqualFold(host, a.Host) }
+		mine := own(in.Machine.Host) && in.Text == ""
+		for _, item := range in.Items {
+			// A lock file's entry names no host and touches no machine.
+			mine = mine && (item.Host == "" || own(item.Host))
+		}
+		for _, env := range in.Environments {
+			mine = mine && own(env.Host)
+		}
+		if !mine {
+			writeErr(w, http.StatusForbidden, "a machine reports only its own inventory")
+			return
+		}
+	}
 	imported, created := 0, 0
 	errs := []string{}
 	for _, env := range in.Environments {

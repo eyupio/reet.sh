@@ -70,6 +70,70 @@ try {
     await context.close()
   }
 
+  // A machine enrolled with a personal API token carries a quiet warning, and a how-to on demand. No other machine does.
+  // One such machine says it in full on its row; several say it once above the list and each row only marks itself.
+  if (run('legacy')) {
+    const WHY = 'Enrolled with a personal API token, which can do anything your account can and never expires.'
+    const HOW = 'On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.'
+    const CMD = 'reet agent enroll --again'
+    const KEEPS = "It keeps the machine's settings and asks for the code."
+    const withLegacy = hosts => ({ ...sync, agents: sync.agents.map(a => ({ ...a, legacyToken: hosts.includes(a.host) })) })
+    for (const [width, theme, touch] of [[1280, 'light', false], [390, 'dark', true]]) {
+      const card = (page, host) => page.locator('article.machine').filter({ has: page.getByRole('heading', { name: host, exact: true }) })
+      {
+        const { context, page, errors } = await open({ width, height: 900, theme, touch, scale: 2, sync: withLegacy(['work-1']) })
+        await page.goto(`${base}/machines`)
+        await expect(card(page, 'work-1').getByText(WHY)).toBeVisible()
+        await expect(page.getByText(/Enrolled with a personal API token/)).toHaveCount(1)
+        await expect(page.locator('[data-legacy-note]')).toHaveCount(0)
+        await expect(card(page, 'att-1').locator('[data-legacy-token]')).toHaveCount(0)
+        const how = card(page, 'work-1').locator('.legacy-how')
+        await expect(how.getByText(HOW)).toBeHidden()
+        await how.locator('summary').click()
+        await expect(how.getByText(HOW)).toBeVisible()
+        await expect(how.locator('pre')).toHaveText(CMD)
+        await expect(how.getByText(KEEPS)).toBeVisible()
+        await expect(how).not.toContainText(/agent\.json|allow-apply/)
+        const again = card(page, 'work-1').getByRole('button', { name: 'Enrol again: work-1' })
+        if (touch) {
+          expect((await how.locator('summary').boundingBox()).height, 'how-to summary height').toBeGreaterThanOrEqual(44)
+          expect((await again.boundingBox()).height, 'Enrol again height').toBeGreaterThanOrEqual(44)
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+        if (process.env.REET_E2E_SHOTS) await card(page, 'work-1').screenshot({ path: `${process.env.REET_E2E_SHOTS}/legacy-one-${width}-${theme}.png` })
+        // Its button opens the dialog to enrol that machine again: the name is shown, not asked for.
+        await again.click()
+        const dialog = page.getByRole('dialog', { name: 'Enrol work-1 again' })
+        await expect(dialog).toBeVisible()
+        await expect(dialog.getByLabel('Machine name')).toHaveCount(0)
+        await expect(dialog.locator('pre.commands')).toHaveText(CMD)
+        expect(errors).toEqual([])
+        await context.close()
+      }
+      {
+        const five = ['work-1', 'att-1', 'att-2', 'sync-1', 'sync-2']
+        const { context, page, errors } = await open({ width, height: 900, theme, touch, scale: 2, sync: withLegacy(five) })
+        await page.goto(`${base}/machines`)
+        const note = page.locator('[data-legacy-note]')
+        await expect(note).toContainText('5 machines were enrolled with a personal API token.')
+        await expect(note).toContainText('A personal API token can do anything your account can and never expires.')
+        await expect(page.getByText(/Enrolled with a personal API token/)).toHaveCount(0)
+        await expect(page.locator('[data-legacy-token]')).toHaveCount(5)
+        await expect(page.getByText('Personal token', { exact: true })).toHaveCount(5)
+        await expect(page.getByRole('button', { name: /^Enrol again: / })).toHaveCount(5)
+        await expect(card(page, 'sync-3').locator('[data-legacy-token]')).toHaveCount(0)
+        await note.locator('summary').click()
+        await expect(note.getByText('On each machine run this with a new enrolment code, then revoke the token that machine used, under Account.')).toBeVisible()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+        if (process.env.REET_E2E_SHOTS) {
+          await note.screenshot({ path: `${process.env.REET_E2E_SHOTS}/legacy-five-note-${width}-${theme}.png` })
+          await card(page, 'att-2').screenshot({ path: `${process.env.REET_E2E_SHOTS}/legacy-five-row-${width}-${theme}.png` })
+        }
+        expect(errors).toEqual([])
+        await context.close()
+      }
+    }
+  }
   if (run('phone')) {
     for (const width of [390, 320]) {
       const { context, page, errors } = await open({ width, height: 812, touch: true })

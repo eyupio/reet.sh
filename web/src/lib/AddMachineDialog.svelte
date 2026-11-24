@@ -7,27 +7,26 @@
   import { onMount, untrack } from 'svelte'
  import Icon from './Icon.svelte'
  import { shell } from './dialogShell'
- import type { Snippet } from 'svelte'
  import { UnauthorizedError, type Machine, type SyncSkills, type SyncState } from './api'
- import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
- import { JOIN_WATCH_CAP_MS, canonicalHost, joinBaseline, joinCommands, joinDelay, joinState, joinSyncState, validateMachineName, type JoinBaseline } from './machineJoin'
- import type { ReleaseChannel } from './machineSetup'
+ import EnrolCode from './EnrolCode.svelte'
+ import { reenrolDone } from './enrolCode'
  import CopyButton from './CopyButton.svelte'
+ import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
+ import { JOIN_WATCH_CAP_MS, canonicalHost, joinBaseline, joinCommands, reenrolCommand, joinDelay, joinState, joinSyncState, validateMachineName, type JoinBaseline } from './machineJoin'
+ import type { ReleaseChannel } from './machineSetup'
 
  // Bring another machine in from where you are working. One block of commands to paste on that machine, and a status line that
- // watches the controller for it. It writes nothing to any machine and sends nothing but the existing token request (made by
- // the token creator it shows) and the refresh reads. Every state says only what the controller has been told.
+ // watches the controller for it. It writes nothing to any machine and sends nothing but the enrolment code request and the
+ // refresh reads. It is only offered to a signed-in writer; a controller without accounts keeps the old Connect a machine panel. Every state says only what the controller has been told.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { site, machines, snapshot, skills = null, accounts, canWrite, token, tokenSetup, opener = null, channel = 'stable', onrefresh, onready, onstepbystep, onsignedout, onclose }: {
+ let { site, machines, snapshot, skills = null, opener = null, reenrol = '', channel = 'stable', onrefresh, onready, onstepbystep, onsignedout, onclose }: {
   site: string
+  /** The name of a machine already here that is to be enrolled again with a code, instead of a new machine being named. */
+  reenrol?: string
   machines: Machine[]
   /** Undefined until the machines have been read once. */
   skills?: SyncSkills | null
   snapshot: SyncState | undefined
-  accounts: boolean
-  canWrite: boolean
-  token: string
-  tokenSetup?: Snippet
   opener: HTMLElement | null
   channel?: ReleaseChannel
   onrefresh: () => Promise<void> | void
@@ -40,8 +39,14 @@
  const titleId = $props.id()
  let dialog = $state<HTMLDialogElement>()
  let nameInput = $state<HTMLInputElement>()
- let name = $state(remembered)
+ // svelte-ignore state_referenced_locally
+ let name = $state(reenrol || remembered)
  let touched = $state(false)
+ // The code is held here, not by the step that shows it: it goes with the dialog, never into the URL or browser storage.
+ let issued = $state<{ code: string; expiresAt: number } | undefined>()
+ let spent = $state<'' | 'lapsed' | 'used'>('')
+ // Enrolling again: seen on a personal token at some read, then not. A machine that is merely online proves nothing.
+ let sawLegacy = $state(false)
  const checked = $derived(validateMachineName(name))
  const host = $derived(checked.ok ? checked.name : '')
  // What the server saves the typed name under: a saved alias belongs to an existing machine. The commands keep the typed name.
@@ -66,13 +71,23 @@
   // A fresh clock reading every time the state is asked, never a value held from earlier.
   return joinSyncState(joinState({ name: host, machines, agents: snapshot.agents ?? [], baseline: captured.baseline, now: Date.now() }), skills)
  })
+ const agent = $derived(reenrol ? snapshot?.agents?.find((a) => sameHost(a.host, reenrol)) : undefined)
+ $effect(() => { if (agent?.legacyToken) sawLegacy = true })
+ const reenrolled = $derived(!!reenrol && reenrolDone(agent, sawLegacy))
+ $effect(() => { if (reenrolled) stop() })
  const status = $derived.by(() => {
   if (signedOut) return { stage: 'unknown', label: SIGNED_OUT, detail: '', canUse: false }
+  if (reenrol) {
+   if (!loaded) return { stage: 'idle', label: 'Machines are still loading.', detail: '', canUse: false }
+   if (reenrolled) return { stage: 'ready', label: `${reenrol} now uses its own key.`, detail: 'Revoke the old token under Account.', canUse: false }
+   return { stage: 'waiting', label: 'Waiting for it', detail: `Watching for ${reenrol} to enrol again. Until it does it still uses a personal API token.`, canUse: false }
+  }
   if (!host) return { stage: 'idle', label: 'Choose a name to start watching.', detail: '', canUse: false }
   if (!loaded || !view) return { stage: 'idle', label: 'Machines are still loading.', detail: 'Nothing is claimed about this name until they have been read. If they never load, the step-by-step setup below still works.', canUse: false }
   return view
  })
  const canUse = $derived(status.canUse && !signedOut)
+ const codeUsed = $derived(reenrol ? reenrolled : ['connected', 'first_scan', 'syncing', 'sync_issue', 'ready'].includes(status.stage))
  const waitingOut = $derived(capped && !signedOut && !canUse)
  const decided = $derived(!!host && loaded && captured?.key === key)
  const commands = $derived(decided ? joinCommands(site, host, channel) : '')
@@ -141,7 +156,7 @@
   if (returnFocus && opener?.isConnected) opener.focus()
  }
  function close() {
-  remembered = host
+  if (!reenrol) remembered = host
   shutdown(true)
   onclose()
  }
@@ -177,12 +192,24 @@
  <header data-shell-head>
   <div>
    <p class="eyebrow" data-shell-aside>Machines</p>
-   <h2 id={titleId}>Add a machine</h2>
-   <p class="lede" data-shell-aside>Connect once. Reet brings your skill library to this machine and keeps it up to date.</p>
+   <h2 id={titleId}>{reenrol ? `Enrol ${reenrol} again` : 'Add a machine'}</h2>
+   <p class="lede" data-shell-aside>{reenrol ? 'Give it a key of its own. Its name and history stay as they are.' : 'Connect once. Reet brings your skill library to this machine and keeps it up to date.'}</p>
   </div>
   <button type="button" class="btn" onclick={close} aria-label="Close" data-shell-close>Close <Icon name="x" size={14} /></button>
  </header>
  <div class="body" data-shell-body>
+ {#if reenrol}
+  <section aria-labelledby={`${titleId}-run`}>
+   <h3 id={`${titleId}-run`}><span class="num" aria-hidden="true">1</span>Run it</h3>
+   <p class="hint">On <strong>{reenrol}</strong>, run this. You make the code in the next step.</p>
+   <div class="command"><pre class="commands">{reenrolCommand()}</pre><CopyButton text={reenrolCommand()} label="Copy command" /></div>
+   <p class="hint">It keeps the machine's settings and asks for the code.</p>
+  </section>
+  <section aria-labelledby={`${titleId}-key`}>
+   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>Give it an enrolment code</h3>
+   <EnrolCode bind:issued bind:spent connected={codeUsed} onsignedout={signOut} />
+  </section>
+ {:else}
   <section aria-labelledby={`${titleId}-name`}>
    <h3 id={`${titleId}-name`}><span class="num" aria-hidden="true">1</span>Name it</h3>
    <form onsubmit={(event) => { event.preventDefault(); touched = true }}>
@@ -192,38 +219,31 @@
      oninput={() => (touched = true)} onblur={() => (touched = true)} />
     <datalist id={`${titleId}-known`}>{#each machines as machine (machine.host)}<option value={machine.host}></option>{/each}</datalist>
     <p class="hint" id={`${titleId}-hint`}>This is how the machine appears in reet.sh. Keep it the same between scans.</p>
-    {#if shown}<p class="reason" id={`${titleId}-reason`}>{shown}</p>{/if}
+    <!-- The line is kept free: the field losing focus to a click must not move what was clicked. -->
+    <div class="reason-slot">{#if shown}<p class="reason" id={`${titleId}-reason`}>{shown}</p>{/if}</div>
    </form>
   </section>
 
-  <section aria-labelledby={`${titleId}-key`}>
-   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>Give it a key</h3>
-   {#if tokenSetup}
-    <p class="hint">Create a machine token here. It is shown once and is never stored in the browser. It is not part of the commands: the machine asks for it and you paste it there.</p>
-    {@render tokenSetup()}
-    {#if token}
-     <details class="one-time"><summary>Show the one-time machine token</summary><code>{token}</code><CopyButton text={token} label="Copy machine token" compact /></details>
-     <p class="hint">When the CLI prompts for a token, paste this value. It is not embedded in the commands.</p>
-    {/if}
-   {:else}
-    <p class="hint">Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>
-   {/if}
-  </section>
-
   <section aria-labelledby={`${titleId}-run`}>
-   <h3 id={`${titleId}-run`}><span class="num" aria-hidden="true">3</span>Run it</h3>
+   <h3 id={`${titleId}-run`}><span class="num" aria-hidden="true">2</span>Run it</h3>
    {#if host && !decided}
     <p class="hint">Machines are still loading. The commands appear once they have been read.</p>
    {:else if host}
     <p class="hint">Paste this in a terminal on the machine. It installs reet, connects it and enables skill sync. Reet checks changes and backs up replaced copies.</p>
     <div class="command"><pre class="commands">{commands}</pre><CopyButton text={commands} label="Copy commands" /></div>
-    <p class="hint">The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.</p>
+    <p class="hint">The machine will ask for an enrolment code. Make one in the next step.</p>
    {:else}
     <p class="hint">Enter a name above and the commands will appear here.</p>
    {/if}
    <p class="hint">Nothing happens on that machine until you run this there. reet.sh never logs in to it.</p>
    <button type="button" class="linklike" onclick={stepByStep}>Prefer the step-by-step setup?</button>
   </section>
+
+  <section aria-labelledby={`${titleId}-key`}>
+   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">3</span>Give it an enrolment code</h3>
+   <EnrolCode bind:issued bind:spent connected={codeUsed} onsignedout={signOut} />
+  </section>
+ {/if}
 
   <div class="join-status" role="status" aria-live="polite" aria-atomic="true" data-stage={status.stage}>
    <span class="dot {status.stage}" aria-hidden="true"></span>
@@ -235,11 +255,13 @@
   </div>
   {#if waitingOut}<p class="again"><button type="button" class="btn" onclick={checkAgain}>Check again</button></p>{/if}
   {#if status.stage === 'sync_issue'}<a class="btn" href="/sync">Open sync activity</a>{/if}
+  {#if reenrolled}<a class="btn" href="/account/tokens">Open API tokens</a>{/if}
  </div>
  <footer data-shell-foot>
   <small data-shell-aside>Active skills follow your library. Sync continues after you close this dialog.</small>
   <div class="actions">
-   {#if host && !canUse}<button type="button" class="btn" onclick={checkAgain}>I've run it — check again</button>{/if}
+   {#if reenrolled}<button type="button" class="btn primary" onclick={close}>Done</button>
+   {:else if host && !canUse}<button type="button" class="btn" onclick={checkAgain}>I've run it — check again</button>{/if}
    {#if canUse}<button type="button" class="btn primary" onclick={use}>Done — show {canonical}</button>{/if}
   </div>
  </footer>
@@ -264,11 +286,10 @@
  input { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  input[aria-invalid='true'] { border-color: var(--bad); }
  .hint, small { margin: 6px 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
- .reason { margin: 0; color: var(--bad); font-size: 0.875rem; }
+ .reason { margin: 0; color: var(--bad); font-size: 0.875rem; line-height: 1.5; }
+ .reason-slot { min-height: 1.3125rem; margin: -6px 0 -12px; }
  .command { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
- .one-time { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
- .one-time code { display: block; margin: 10px 0; overflow-wrap: anywhere; }
  .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  .join-status { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
  .join-status > div { display: grid; gap: 4px; min-width: 0; }

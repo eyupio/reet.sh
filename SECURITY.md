@@ -28,6 +28,13 @@ Out of scope: running with `REET_AUTH=none` on an untrusted network (it is docum
 
 - Keep the default `REET_AUTH=accounts`, and put the instance behind HTTPS if it is reachable beyond your LAN.
 - Treat `REET_TOKEN` like a password and rotate it with `sh scripts/init-env.sh --rotate`.
+- Enrol machines with an enrolment code (**Machines → Add a machine**, single use, 15 minutes), typed at the hidden prompt or set in `REET_ENROL_CODE` rather than passed as `--code`, which other users of the machine can see. A machine enrolled by code, or from a signed-in browser, holds only its own id and secret; they open only the routes the machine agent uses, its inventory report only for its own name, and removing the machine revokes them. A machine enrolled with a personal token (every machine enrolled before codes) needs that token on every request, so revoking the token cuts it off; the Machines page marks it, and `reet agent enroll --again` with a code replaces its secret, drops the token, keeps every local setting (remote apply included) and clears the mark. Then revoke the token.
+- Personal API tokens are listed, made and revoked only from a signed-in browser. A leaked token therefore cannot mint or revoke tokens. It can still do what its account can through the API: for example enrol a machine, which works only while that token does, and, for an admin, invite people. Revoke a leaked token from the browser.
+
+## Known properties
+
+- A machine can read any private skill bundle of its own account by id (it installs them); it cannot read another account's.
+- Failed machine-secret attempts are not rate-limited. Each secret is 192 random bits, so guessing one is not practical.
 - If you turn on single sign-on (`REET_OIDC_ISSUER`, see [docs/single-sign-on.md](docs/single-sign-on.md)), keep `REET_OIDC_LINK_BY_EMAIL` off unless your provider verifies every address it issues, keep `REET_OIDC_AUTO_CREATE` off unless anyone who can sign in there should get a reet.sh account, and put the client secret in `REET_OIDC_CLIENT_SECRET_FILE`. The owner always keeps password sign-in, so a provider outage never locks the instance.
 - Back up `reet.db` and the exported JSON somewhere you control.
 - The controller makes outbound requests to keep its own copy of each skill added by link: GitHub archives from `codeload.github.com` (up to 128 MiB each) and `https://<host>/.well-known/agent-skills/` for a skill from a site's index. If your network limits egress, allow those hosts or expect such skills to show "Couldn't fetch the files".

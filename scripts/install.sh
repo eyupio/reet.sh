@@ -11,6 +11,13 @@ Install reet for Linux or macOS (amd64 or arm64) from GitHub Releases.
   --dir DIRECTORY    Install directory (default: REET_INSTALL_DIR or ~/.local/bin)
   --server URL       Connect to this Reet site and enable shared-library sync
   --name NAME        Machine name on that site (required with --server)
+
+With --server, enrolment uses REET_ENROL_CODE if set; otherwise an older personal
+token already in REET_TOKEN or saved by reet, with a warning; otherwise it asks
+for the enrolment code from Machines, Add a machine (hidden input). A machine
+enrolled by code keeps only its own id and secret, never a personal API token.
+To move a machine enrolled with a personal token to a code, keeping its local
+settings: reet agent enroll --again
   -h, --help         Show this help
 
 Requires curl, tar, and sha256sum or shasum. Existing reet binaries are replaced
@@ -164,8 +171,11 @@ if [ -n "$server_url" ]; then
       "$install_dir/reet" agent restart
     fi
   }
-  # curl | sh uses stdin for the script. Read credentials from the actual
-  # terminal, without ever embedding them in the command or shell history.
+  # curl | sh uses stdin for the script. Read the enrolment code from the
+  # actual terminal, without ever embedding it in the command or shell history.
+  if [ -z "${REET_ENROL_CODE:-}" ] && [ -z "${REET_TOKEN:-}" ]; then
+    printf 'If asked, enter the enrolment code from Machines, Add a machine (it works once, for 15 minutes). A personal token reet saved earlier is used instead, with a warning.\n'
+  fi
   if [ -t 0 ]; then
     connect_machine
   elif ( : </dev/tty ) 2>/dev/null; then

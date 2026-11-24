@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -178,5 +179,25 @@ func TestALockedMachineListsNoLiveFolder(t *testing.T) {
 	locked.Store(true)
 	if dir := listed(); dir != "" {
 		t.Fatalf("a locked machine listed %q", dir)
+	}
+}
+
+// Ending a desk shell still works on a locked machine, but its history file
+// is kept: a locked machine deletes nothing for its controller.
+func TestALockedMachineEndsADeskShellButKeepsItsHistory(t *testing.T) {
+	m, home := deskShellFixture(t, "bash", nil)
+	s := createDeskShell(t, m, 1, deskPaneA)
+	typeInShell(t, m, s.ID, "echo reet-kept")
+	file := deskHistoryFile(home, m.shell, deskPaneA)
+	waitFileHas(t, file, "echo reet-kept")
+	m.locked = func() bool { return true }
+	if _, err := m.End(context.Background(), testRequestID(9), s.ID); err != nil {
+		t.Fatalf("ending on a locked machine: %v", err)
+	}
+	if err := m.ForgetDeskSession(context.Background(), s.ID); !errors.Is(err, ErrLocked) {
+		t.Fatalf("forget on a locked machine: %v", err)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("a locked machine deleted the history: %v", err)
 	}
 }

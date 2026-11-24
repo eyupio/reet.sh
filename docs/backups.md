@@ -390,7 +390,7 @@ is the one meant to be live, so a restore clears it.
 
 1. On the old controller, fence it (`reet backup fence --moved-to NEW`) so it stops acting. If the new address is not known yet, fence without it and give it later (`PATCH /api/v2/admin/fence`, or the Move page); the fence stays up.
 2. Take the final copy (`reet backup run`); it is marked fenced.
-3. On the new controller, restore or import it with `--public-url NEW`, and set what the report's checklist lists by hand.
+3. On the new controller, restore it with reet stopped (put the copy in its data folder as `backups/<id>.reetbackup`, then `reet backup restore --yes --public-url NEW <id>`), or import it from the owner's signed-in browser (**Admin → Move → Move a controller in**, whose address field is the `--public-url`), and set what the report's checklist lists by hand. With accounts, `reet backup import` with a token is refused; it is for token mode.
 4. Machines follow on their own; nothing is run on them. Each is told the address on its next request to the fenced controller, keeps it, and moves once the new controller proves it holds the machine's record, before it sends any credential (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). It then tells the old controller it has gone.
 5. Resume the work the restore held back.
 6. Keep the old controller fenced and running until every machine shows as moved (`GET /api/v2/admin/fence/machines`, or the Move page); a machine that was switched off learns the address from it when it is back. Then it can be retired.
@@ -625,14 +625,26 @@ controller to finish. If the swap fails, the staged folder is moved aside and
 the controller starts on the database it had. A second import replaces the
 first; `DELETE` discards it.
 
-**From the terminal**, from any machine that can reach the controller:
+**With accounts (the default), from the owner's signed-in browser only.** A
+personal API token is refused on `POST`, `GET` and `DELETE` of
+`/api/v2/admin/backups/import` with `403` and "do this from a signed-in
+browser", so a leaked token cannot replace the database. Use the page below, or,
+with shell access to the new controller's machine, stop reet there, put the copy
+in its data folder as `backups/<id>.reetbackup` (the name it was downloaded
+with) and [restore it](#restoring-the-instance) with
+`reet backup restore --yes <id>`.
+
+**From the terminal, in token mode only** (`REET_AUTH=token`, where the instance
+token is the owner's one credential), from any machine that can reach the
+controller:
 
 ```sh
-reet backup import --server https://reet.example --token-file ./owner.token \
+reet backup import --server https://reet.example --token-file ./instance.token \
   --password-file ./copy.password --owner-email you@example.com copy.reetbackup
 ```
 
-The token is an owner's personal API token. A secret on the command line is a
+The token is the instance token. Against a controller with accounts the command
+changes nothing and says to use the browser page or the local restore instead. A secret on the command line is a
 file or `-` for standard input, never an argument; the token and the password
 cannot both be `-`. `--drop-sessions`, `--drop-tokens` and `--owner-email` mean
 what they do for a restore, and so does `--allow-live-source`: the example above
@@ -646,13 +658,14 @@ The page shows the report and a **Discard** button while it waits. See
 [moving a controller from the web page](#moving-a-controller-from-the-web-page).
 
 **Over the API**, `POST /api/v2/admin/backups/import` takes `multipart/form-data`
-and the owner only. Send the options first and the copy last, as the field
+and the owner only, from a signed-in browser (or the instance token in token
+mode). Send the options first and the copy last, as the field
 `file`, and add the header `X-Reet-Import: 1` (a website cannot add a header to a
 form, which keeps the upload from being forged cross-site):
 
 ```sh
 curl -X POST "$REET_URL/api/v2/admin/backups/import" \
-  -H "Authorization: Bearer $TOKEN" -H 'X-Reet-Import: 1' \
+  -H "Authorization: Bearer $INSTANCE_TOKEN" -H 'X-Reet-Import: 1' \
   -F 'password=<copy.password' -F ownerEmail=you@example.com \
   -F dropSessions=1 -F dropTokens=1 -F replace=0 \
   -F file=@copy.reetbackup

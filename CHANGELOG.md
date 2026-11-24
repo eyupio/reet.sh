@@ -5,6 +5,8 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A trust model in SECURITY.md** for the remote surfaces: what the controller is trusted with, what the machine agent will and will not do and which local switch gates each, how enrolment credentials are held, what the controller can read on the path to a machine, how YOLO is turned on and checked, and what a relay can see. It also corrects one claim: revoking a personal token does not end a token-enrolled machine's private connection; remove the machine or enrol it again with a code.
+
 - **Lock a machine from the machine**: `reet agent lock`, run on a machine, makes it refuse everything reet starts
   there: new sessions and chats, attaching, input and answers, uploads, binary updates, skill installs, browsing its
   folders and listing its models. It keeps reporting its health and inventory, running sessions keep running, and

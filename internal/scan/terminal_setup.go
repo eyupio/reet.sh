@@ -100,14 +100,13 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 					return err
 				}
 			}
-			token, err := clientconfig.ResolveToken(options.Token, "", in, out)
-			if err != nil {
-				return err
+			// Enrolment asks for an enrolment code; a token given here
+			// still enrols the older way.
+			args := []string{"enroll", "--config", config, "--server", server, "--skip-terminal-setup"}
+			if options.Token != "" {
+				args = append(args, "--token", options.Token)
 			}
-			if token == "" {
-				return errors.New("a personal API token is required to enroll this host")
-			}
-			if err = runAgentInput([]string{"enroll", "--config", config, "--server", server, "--token", token, "--skip-terminal-setup"}, in, out, options.Version); err != nil {
+			if err = runAgentInput(args, in, out, options.Version); err != nil {
 				return err
 			}
 		}

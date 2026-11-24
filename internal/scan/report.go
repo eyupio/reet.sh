@@ -30,8 +30,11 @@ type ReportOptions struct {
 	DryRun      bool
 	Version     string
 	Interactive bool
-	In          io.Reader
-	Out         io.Writer
+	// Machine is the enrolment of the agent that runs this scan. With no
+	// Token, the report goes with the machine's own credentials only.
+	Machine *agentConfig
+	In      io.Reader
+	Out     io.Writer
 
 	// OnScan runs after collection and before any network request.
 	OnScan func(Scan)
@@ -96,8 +99,9 @@ func RunReport(opts ReportOptions) (Report, error) {
 		}
 		server = value
 	}
+	machine := opts.Machine != nil && opts.Token == "" && !opts.Reconcile
 	var cred *clientconfig.Credential
-	if !opts.DryRun {
+	if !opts.DryRun && !machine {
 		tokenInput := input
 		if opts.ServerHost {
 			tokenInput = strings.NewReader("")
@@ -184,14 +188,16 @@ func RunReport(opts ReportOptions) (Report, error) {
 		Errors   []string `json:"errors"`
 		User     string   `json:"user"`
 	}
-	err := clientconfig.Authorize(cred, func(token string) error {
+	send := func(token string) error {
 		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(server, "/")+"/api/import", bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Reet-Source", "scan")
-		if token != "" {
+		if machine {
+			setAgentHeaders(req.Header, *opts.Machine, opts.Version)
+		} else if token != "" {
 			req.Header.Set("X-Reet-Token", token)
 		}
 		resp, err := httpClient.Do(req)
@@ -213,7 +219,13 @@ func RunReport(opts ReportOptions) (Report, error) {
 			return errors.New("unreadable reply from server")
 		}
 		return nil
-	})
+	}
+	var err error
+	if machine {
+		err = send("")
+	} else {
+		err = clientconfig.Authorize(cred, send)
+	}
 	if err != nil {
 		return r, err
 	}

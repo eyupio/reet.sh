@@ -975,13 +975,18 @@ func (e *enrollmentRefusedError) Error() string {
 	return fmt.Sprintf("this machine's enrollment %s (HTTP %d); re-enroll this machine, retrying cannot fix it", reason, e.status)
 }
 
+// authHeaders name the machine and prove it with its secret; a personal
+// token goes too only where an older enrolment still holds one.
 func authHeaders(cfg AgentConfig) http.Header {
-	return http.Header{
-		"X-Reet-Token":     {cfg.Token},
+	h := http.Header{
 		"X-Reet-Agent":     {cfg.AgentID},
 		"X-Reet-Agent-Key": {cfg.Secret},
 		"X-Reet-Version":   {cfg.Version},
 	}
+	if cfg.Token != "" {
+		h.Set("X-Reet-Token", cfg.Token)
+	}
+	return h
 }
 
 // negotiateFeatures records the optional extensions the controller advertised

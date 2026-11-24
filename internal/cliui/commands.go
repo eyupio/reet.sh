@@ -108,7 +108,7 @@ var details = map[string]string{
 	"branches":     "See which local branches are already merged, and tidy them away.",
 	"scan":         "Tek stock of the skills on this machine and report them to your account. Uses the URL and token already in your .env.",
 	"setup":        "Discover, save and restore agent setups so every machine's set up reight.",
-	"agent enroll": "Enrol this machine with a controller. Anything it can already find, like a token in your .env, it uses without asking.",
+	"agent enroll": "Enrol this machine with a controller, using an enrolment code from Machines, Add a machine (--code or REET_ENROL_CODE). The machine keeps only its own id and secret, never a personal token.",
 	"agent status": "This machine's enrolment and its background agent. Read-only.",
 	"terminal":     "Manage controller terminal access.",
 	"configure":    "Save the controller URL and release channel you use most, so you're not asked again.",

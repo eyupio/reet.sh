@@ -299,12 +299,15 @@ func (m *multi) Set(s string) error { *m = append(*m, s); return nil }
 func Run(args []string, out io.Writer) error { return RunVersion(args, out, "dev") }
 
 func RunVersion(args []string, out io.Writer, version string) error {
-	return runVersionAt("", args, out, version)
+	return runVersionAt("", args, out, version, nil)
 }
 
 // runVersionAt scans an explicit directory instead of the process working
 // directory. Background collectors must never change global process state.
-func runVersionAt(dir string, args []string, out io.Writer, version string) error {
+// runVersionAt is reet scan in dir. machine, when given, is the enrolment
+// the agent's own scans report with: without a personal token in it, the
+// report is authenticated by the machine's id and secret alone.
+func runVersionAt(dir string, args []string, out io.Writer, version string, machine *agentConfig) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	fs.SetOutput(out)
 	def := os.Getenv("REET_URL")
@@ -339,6 +342,7 @@ func runVersionAt(dir string, args []string, out io.Writer, version string) erro
 		ServerHost:  *serverHost,
 		DryRun:      *dry,
 		Version:     version,
+		Machine:     machine,
 		Interactive: true,
 		In:          os.Stdin,
 		Out:         os.Stderr,

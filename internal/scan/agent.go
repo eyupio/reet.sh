@@ -29,8 +29,11 @@ import (
 )
 
 type agentConfig struct {
-	Server          string   `json:"server"`
-	Token           string   `json:"token"`
+	Server string `json:"server"`
+	// Token is a personal API token, kept only by a machine enrolled with
+	// one by an older reet or with a controller that cannot take the
+	// machine's own secret alone. New enrolments keep only ID and Secret.
+	Token           string   `json:"token,omitempty"`
 	ID              string   `json:"id"`
 	Secret          string   `json:"secret"`
 	Host            string   `json:"host"`
@@ -160,11 +163,7 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Reet-Token", c.Token)
-	req.Header.Set("X-Reet-Agent", c.ID)
-	req.Header.Set("X-Reet-Agent-Key", c.Secret)
-	req.Header.Set("X-Reet-Version", version)
-	req.Header.Set("X-Reet-Commit", buildCommit)
+	setAgentHeaders(req.Header, c, version)
 	req.Header.Set("X-Reet-Skills-Protocol", "2")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -180,6 +179,18 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 		return nil
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
+}
+
+// setAgentHeaders names the machine and proves it with its secret. A
+// personal token goes too only where the enrolment still holds one.
+func setAgentHeaders(h http.Header, c agentConfig, version string) {
+	if c.Token != "" {
+		h.Set("X-Reet-Token", c.Token)
+	}
+	h.Set("X-Reet-Agent", c.ID)
+	h.Set("X-Reet-Agent-Key", c.Secret)
+	h.Set("X-Reet-Version", version)
+	h.Set("X-Reet-Commit", buildCommit)
 }
 
 // ErrLibraryImportRemoved is what reet agent library-import says now that a
@@ -237,8 +248,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
 	server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
-	token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
-	tokenFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
+	code := fs.String("code", "", "enrolment code from Machines, Add a machine (env REET_ENROL_CODE)")
+	token := fs.String("token", "", "older way: a personal API token to enrol with (env REET_TOKEN)")
+	tokenFile := fs.String("env-file", "", "older way: read REET_TOKEN for enrolment from an explicit env file")
 	host := fs.String("env", clientconfig.EnvName(), "stable machine name")
 	once := fs.Bool("once", false, "poll once, then exit (useful for a scheduler)")
 	foreground := fs.Bool("foreground", false, "keep the agent attached to this terminal (debugging / supervisors)")
@@ -327,24 +339,35 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			}
 			projects[i] = p
 		}
-		cred, err := clientconfig.NewCredential(*token, *tokenFile, strings.TrimRight(*server, "/"), in, os.Stderr)
+		cred, err := clientconfig.ResolveEnrolment(*code, *token, *tokenFile, strings.TrimRight(*server, "/"), in, os.Stderr)
 		if err != nil {
 			return err
 		}
-		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: cred.Token, Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
+		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: cred.Code + cred.Token, Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
 		var result struct {
 			Agent  store.SyncAgent
 			Secret string
 		}
-		if err = clientconfig.Authorize(cred, func(token string) error {
-			c.Token = token
-			return agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version, "commit": buildCommit}, &result, version)
-		}); err != nil {
+		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version, "commit": buildCommit}, &result, version); err != nil {
+			var refused controllerError
+			if cred.Code != "" && errors.As(err, &refused) && refused.Status == http.StatusUnauthorized {
+				return errors.New("the enrolment code was not accepted: it may be mistyped, used already or expired. Make a new one under Machines, Add a machine, and run this again")
+			}
+			if cred.Token != "" && errors.As(err, &refused) && refused.Status == http.StatusUnauthorized {
+				return fmt.Errorf("the personal API token from %s was not accepted; enrol with an enrolment code from Machines, Add a machine, instead: %w", cred.Source, err)
+			}
 			return err
 		}
 		c.ID = result.Agent.ID
 		c.Secret = result.Secret
 		c.Host = result.Agent.Host
+		// The machine keeps a personal token only for a controller that will
+		// not take its own secret alone (one older than enrolment codes).
+		c.Token = ""
+		if cred.Token != "" && agentRequest(c, "/api/v2/sync/identity", map[string]string{}, nil, version) != nil {
+			c.Token = cred.Token
+			fmt.Fprintln(out, "This controller still needs a personal API token from its machines, so this one keeps it. Update the controller, then enrol again with an enrolment code.")
+		}
 		if err = writePrivate(*config, c); err != nil {
 			return fmt.Errorf("enrolled but could not save configuration; revoke enrollment in Machines before retrying: %w", err)
 		}
@@ -663,7 +686,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		var failures []error
 		for _, dir := range dirs {
 			var found bytes.Buffer
-			if err := runVersionAt(dir, []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, &found, version); err != nil {
+			if err := runVersionAt(dir, []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--prune"}, &found, version, &c); err != nil {
 				failures = append(failures, err)
 			}
 			if !periodic || periodicScans.changed(dir, found.String()) {

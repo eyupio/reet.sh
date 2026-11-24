@@ -32,8 +32,8 @@ concurrency:
 
 jobs:
   # The suite is split so it runs on several runners at once. `checks` is the web check, the MCP tests and go vet;
-  # `go` is the Go tests under the race detector in four shards (scripts/ci-go-shard.sh: internal/store, each half
-  # of internal/api, and every other package); `test` is the one result that publish and the branch rules wait for.
+  # `go` is the Go tests under the race detector in six shards (scripts/ci-go-shard.sh: internal/store, each half
+  # of internal/api and of internal/gaffer, and every other package); `test` is the one result that publish and the branch rules wait for.
   checks:
     # Keep PR validation available when the self-hosted pool is offline.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
@@ -66,13 +66,13 @@ jobs:
   go:
     name: go (${{ matrix.shard }})
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    # Slowest observed shard: internal/api under -race, about 26 minutes whole, so about half each. The limit is well
-    # over that; the old single job needed 90 minutes only because it ran everything one after another.
+    # Slowest packages under -race: internal/api about 26 minutes whole, internal/gaffer about 21, so about half each.
+    # The limit is well over that; the old single job needed 90 minutes only because it ran everything one after another.
     timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        shard: [store, api-1, api-2, rest]
+        shard: [store, api-1, api-2, gaffer-1, gaffer-2, rest]
     steps:
       - uses: actions/checkout@v4
       - name: Install tmux when the runner lacks it

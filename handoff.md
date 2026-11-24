@@ -1,24 +1,28 @@
 # Reet central-control implementation handoff
 
-## CI-SHARD-1: the Go suite runs in four shards (24 November 2026)
+## CI-SHARD-1: the Go suite runs in six shards (24 November 2026)
 
 The first "Delivery speed" item. The single `test` job in `.github/workflows/image.yml` ran the web check, the MCP
 tests, `go vet` and `go test -race ./...` one after another, with a 90 minute limit. It is now three kinds of job:
 
-- `checks`: the web check, the MCP tests and `go vet` (30 minute limit).
-- `go (store)`, `go (api-1)`, `go (api-2)`, `go (rest)`: the Go tests under `-race`, from `scripts/ci-go-shard.sh`. `store`
-  is `internal/store` alone, `api-1` and `api-2` take alternate tests of `internal/api` (the slowest package, about 26
-  minutes whole), and `rest` is the other 51 packages. The halves rebalance themselves as tests are added or removed.
-  Each shard job has a 50 minute limit, with `-timeout` of 40 minutes (30 for `rest`).
+- `checks`: the web check, the MCP tests and `go vet` (30 minute limit). About 3 minutes.
+- `go (store)`, `go (api-1)`, `go (api-2)`, `go (gaffer-1)`, `go (gaffer-2)`, `go (rest)`: the Go tests under `-race`,
+  from `scripts/ci-go-shard.sh`. The slowest packages get their own runner: `internal/store`, and `internal/api` and
+  `internal/gaffer` each in two halves (alternate tests of one `go test -list`, so the halves rebalance as tests are
+  added or removed); `rest` is the other 50 packages. Each job has a 50 minute limit, with `go test -timeout` of 40
+  minutes (30 for `rest`).
 - `test`: waits for the others and fails unless both `checks` and `go` passed. It keeps the name `test` so `publish` and
   anything that waits for that check behave as before.
 
-I counted what the shards cover: 54 packages (51 + 2 + 1) and 779 `internal/api` tests (390 + 389), each exactly once.
-Not run locally: a shard under the race detector end to end, and the workflow itself; the pull request's own run is the
-first time it runs. If a shard fails for a reason the old single job did not have (a test that needs another package's
-side effect, or a runner without Node), that is the cause to look for first. Not done yet from this item: parallel web
-tests that report every failure, owners and end dates for flaky tests, a changelog fragment per pull request, and a
-bounded `handoff.md` with a short `AGENTS.md`.
+What the first run showed (four shards): store 6 minutes, each half of api 12 and 15 minutes, but `rest` 25 minutes,
+because `internal/gaffer` alone takes about 21 minutes under `-race` and `internal/backup` about 10. That is why gaffer
+is split too. Coverage is counted, not assumed: 54 packages (50 + 2 + 1 + 1) and every `internal/api` (390 + 389 of
+779) and `internal/gaffer` (138 + 137 of 275) test run exactly once.
+
+If a shard fails for a reason the old single job did not have (a test that needs another package's side effect, or a
+runner without Node), that is the cause to look for first. Not done yet from this item: parallel web tests that report
+every failure, owners and end dates for flaky tests, a changelog fragment per pull request, and a bounded `handoff.md`
+with a short `AGENTS.md`.
 
 ## MACHINE-LOCK-1: a lock only the machine can lift (24 November 2026)
 

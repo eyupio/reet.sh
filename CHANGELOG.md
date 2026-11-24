@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **"Stopped waiting" has its own mark**: a chat reet stopped waiting on (its turn ended with work still running, and
+  nothing said the work finished) now shows an amber "!" in place of its dot, in Sessions, Home, the session's tab and
+  header, the workspace list, the resume list and the chat's status line, with its word in the same warning tone. On a
+  phone, where a row shows no status word, it no longer looks like any other row. It still does not ring or count as
+  waiting for you.
+- **`reet install` keeps `REET_TRUSTED_PROXIES`**: a controller installed as a native service behind a reverse proxy
+  no longer loses the setting.
 - **Sign-in limits charge the right person**: a stranger who knows your email can no longer keep you out of password
   sign-in with five wrong passwords a minute from anywhere. A failed sign-in now counts against its address (60 a
   minute), the email from that address (5 a minute) and the account from anywhere (100 an hour); a correct one counts

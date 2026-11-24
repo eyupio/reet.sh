@@ -8,15 +8,16 @@
  import Icon from './Icon.svelte'
  import { shell } from './dialogShell'
  import type { Snippet } from 'svelte'
- import { UnauthorizedError, type Machine, type SyncSkills, type SyncState } from './api'
+ import { UnauthorizedError, createEnrolCode, type Machine, type SyncSkills, type SyncState } from './api'
+ import { enrolCodeProblem, enrolCountdown } from './enrolCode'
  import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
  import { JOIN_WATCH_CAP_MS, canonicalHost, joinBaseline, joinCommands, joinDelay, joinState, joinSyncState, validateMachineName, type JoinBaseline } from './machineJoin'
  import type { ReleaseChannel } from './machineSetup'
  import CopyButton from './CopyButton.svelte'
 
  // Bring another machine in from where you are working. One block of commands to paste on that machine, and a status line that
- // watches the controller for it. It writes nothing to any machine and sends nothing but the existing token request (made by
- // the token creator it shows) and the refresh reads. Every state says only what the controller has been told.
+ // watches the controller for it. It writes nothing to any machine and sends nothing but the enrolment code request and the
+ // refresh reads. Where the controller has no accounts, the instance token is used as before and no code is asked for. Every state says only what the controller has been told.
  // opener is the element the person pressed to open this, which gets focus back on close.
  let { site, machines, snapshot, skills = null, accounts, canWrite, token, tokenSetup, opener = null, channel = 'stable', onrefresh, onready, onstepbystep, onsignedout, onclose }: {
   site: string
@@ -38,6 +39,13 @@
  } = $props()
 
  const titleId = $props.id()
+ // An enrolment code is for a signed-in writer; elsewhere the token the instance already has is used, as before.
+ const codes = $derived(accounts && canWrite)
+ // The code lives in this component only: not in the URL, browser storage or a log, and gone when the dialog closes.
+ let issued = $state<{ code: string; expiresAt: number } | undefined>()
+ let making = $state(false), codeError = $state(''), spent = $state<'' | 'lapsed' | 'used'>('')
+ let tick = $state(Date.now())
+ const countdown = $derived(issued ? enrolCountdown(issued.expiresAt, tick) : undefined)
  let dialog = $state<HTMLDialogElement>()
  let nameInput = $state<HTMLInputElement>()
  let name = $state(remembered)
@@ -89,6 +97,29 @@
    if (capped) { capped = false; restart() }
   })
  })
+
+ async function makeCode() {
+  if (making || life.signal.aborted) return
+  making = true; codeError = ''
+  try {
+   const made = await createEnrolCode()
+   if (life.signal.aborted) return
+   issued = made; spent = ''
+  } catch (e) {
+   if (life.signal.aborted) return
+   if (lost(e)) signOut(e)
+   else codeError = enrolCodeProblem(e)
+  } finally { making = false }
+ }
+ $effect(() => {
+  if (!issued) return
+  tick = Date.now()
+  const timer = setInterval(() => (tick = Date.now()), 1000)
+  return () => clearInterval(timer)
+ })
+ $effect(() => { if (countdown?.expired) { issued = undefined; spent = 'lapsed' } })
+ // Once the machine has reported in the code is of no more use: take it off the page.
+ $effect(() => { if (issued && ['connected', 'first_scan', 'syncing', 'sync_issue', 'ready'].includes(status.stage)) { issued = undefined; spent = 'used' } })
 
  const live = (g: number) => !life.signal.aborted && g === generation
  const lost = (e: unknown) => isSignedOut(e) || e instanceof UnauthorizedError
@@ -192,13 +223,27 @@
      oninput={() => (touched = true)} onblur={() => (touched = true)} />
     <datalist id={`${titleId}-known`}>{#each machines as machine (machine.host)}<option value={machine.host}></option>{/each}</datalist>
     <p class="hint" id={`${titleId}-hint`}>This is how the machine appears in reet.sh. Keep it the same between scans.</p>
-    {#if shown}<p class="reason" id={`${titleId}-reason`}>{shown}</p>{/if}
+    <!-- The line is kept free: the field losing focus to a click must not move what was clicked. -->
+    <div class="reason-slot">{#if shown}<p class="reason" id={`${titleId}-reason`}>{shown}</p>{/if}</div>
    </form>
   </section>
 
   <section aria-labelledby={`${titleId}-key`}>
-   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>Give it a key</h3>
-   {#if tokenSetup}
+   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>{codes ? 'Give it an enrolment code' : 'Give it a key'}</h3>
+   {#if codes}
+    <p class="hint">The machine asks for an enrolment code when it connects. It works once, for one machine.</p>
+    {#if issued}
+     <div class="fresh">
+      <p>Paste this when the machine asks for an enrolment code. Copy it now; it is not shown again.</p>
+      <div class="secret"><code>{issued.code}</code><CopyButton text={issued.code} label="Copy enrolment code" /></div>
+      <p class="left">{countdown?.text}</p>
+     </div>
+    {:else}
+     <p class="hint" role="status">{#if spent === 'lapsed'}This code has run out.{:else if spent === 'used'}The machine has connected, so its code is no longer shown.{/if}</p>
+     <button type="button" class="btn" disabled={making} aria-busy={making} onclick={makeCode}>{making ? 'Making…' : spent === 'lapsed' ? 'Make another code' : 'Make an enrolment code'}</button>
+    {/if}
+    {#if codeError}<p class="reason" role="alert">{codeError}</p>{/if}
+   {:else if tokenSetup}
     <p class="hint">Create a machine token here. It is shown once and is never stored in the browser. It is not part of the commands: the machine asks for it and you paste it there.</p>
     {@render tokenSetup()}
     {#if token}
@@ -217,7 +262,7 @@
    {:else if host}
     <p class="hint">Paste this in a terminal on the machine. It installs reet, connects it and enables skill sync. Reet checks changes and backs up replaced copies.</p>
     <div class="command"><pre class="commands">{commands}</pre><CopyButton text={commands} label="Copy commands" /></div>
-    <p class="hint">The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.</p>
+    <p class="hint">{codes ? 'The machine will ask for an enrolment code. Paste the code from step 2 when it does; a missing or expired code does not change the commands.' : 'The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.'}</p>
    {:else}
     <p class="hint">Enter a name above and the commands will appear here.</p>
    {/if}
@@ -264,11 +309,18 @@
  input { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  input[aria-invalid='true'] { border-color: var(--bad); }
  .hint, small { margin: 6px 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
- .reason { margin: 0; color: var(--bad); font-size: 0.875rem; }
+ .reason { margin: 0; color: var(--bad); font-size: 0.875rem; line-height: 1.5; }
+ .reason-slot { min-height: 1.3125rem; }
  .command { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
  .one-time { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
  .one-time code { display: block; margin: 10px 0; overflow-wrap: anywhere; }
+ .fresh { padding: 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--tint); }
+ .fresh p { margin: 0 0 8px; font-size: 0.875rem; }
+ .fresh .left { margin: 8px 0 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+ .secret { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+ .secret code { min-width: 0; overflow-wrap: anywhere; font: 0.95rem/1.5 var(--mono); user-select: all; }
+ .reason[role='alert'] { margin-top: 8px; }
  .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  .join-status { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
  .join-status > div { display: grid; gap: 4px; min-width: 0; }

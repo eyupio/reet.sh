@@ -67,5 +67,57 @@ try {
   await expect(page.getByText('Step 2 · Authenticate')).toBeVisible()
   await context.close()
  }
- console.log('First machine: one entry dialog from every button, the panel waits behind it, Continue says what it needs.')
+ // The key step is an enrolment code, made on a button, and never a personal token. From the first machine's own entry.
+ if (run('code')) {
+  const CODE = 'reet_enrol_FIXTURE_CODE_9f3a'
+  const calls = [], tokenCalls = []
+  let life = 900, refuse
+  const routes = {
+   '/api/v2/sync/enrol-codes': request => { calls.push(request.method()); return refuse ? { status: refuse.status, json: { error: refuse.error } } : { status: 201, json: { code: CODE, expiresAt: Math.floor(Date.now() / 1000) + life } } },
+   '/api/v2/tokens': request => { tokenCalls.push(request.method()); return { status: 500, json: { error: 'Unexpected token call.' } } },
+  }
+  const {context,page,errors} = await open({width:390,theme:'dark',routes,scale:2})
+  await page.goto(`${base}/machines#add-machine`)
+  const dialog = page.getByRole('dialog',{name:'Add a machine'})
+  await expect(dialog).toBeVisible()
+  const key = dialog.locator('section[aria-labelledby$="-key"]')
+  await expect(key.getByRole('heading',{name:'Give it an enrolment code'})).toBeVisible()
+  await expect(dialog).not.toContainText(/machine token/i)
+  const shot = async name => { if (process.env.REET_E2E_SHOTS) await key.screenshot({path:`${process.env.REET_E2E_SHOTS}/first-${name}-390-dark.png`}) }
+  await shot('before')
+  expect(calls).toEqual([])
+  // A refusal is the server's sentence by the button.
+  refuse = {status:429,error:'you have 20 unused enrolment codes; use one or wait for them to expire'}
+  await key.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(key.getByRole('alert')).toHaveText(refuse.error)
+  await shot('error')
+  refuse = undefined
+  await key.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(key.locator('.fresh code')).toHaveText(CODE)
+  await expect(key.locator('.fresh')).toContainText('Paste this when the machine asks for an enrolment code.')
+  await expect(key.locator('.fresh')).toContainText(/Expires in 1[45]:\d\d/)
+  await expect(key.getByRole('button',{name:'Copy enrolment code'})).toBeVisible()
+  await shot('code')
+  expect(calls).toEqual(['POST','POST'])
+  expect(tokenCalls).toEqual([])
+  expect(await page.evaluate(()=>location.href+JSON.stringify(localStorage)+JSON.stringify(sessionStorage))).not.toContain(CODE)
+  // Closing and reopening does not bring it back.
+  await dialog.getByRole('button',{name:/Close/}).click()
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('button',{name:'Add a machine'}).first().click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText(CODE)).toHaveCount(0)
+  // A short-lived code runs out in front of the person, who is offered another.
+  life = 2
+  await key.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(key.locator('.fresh code')).toHaveText(CODE)
+  await expect(key.getByText('This code has run out.')).toBeVisible({timeout:8000})
+  await expect(dialog.getByText(CODE)).toHaveCount(0)
+  await shot('expired')
+  await expect(key.getByRole('button',{name:'Make another code'})).toBeVisible()
+  expect(tokenCalls).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ console.log('First machine: one entry dialog from every button, the panel waits behind it, Continue says what it needs, the key step is an enrolment code.')
 } finally {await browser.close()}

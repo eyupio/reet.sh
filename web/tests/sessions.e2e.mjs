@@ -542,6 +542,13 @@ try {
    await expect(gaveUp.locator('.word')).toContainText('Stopped waiting')
    await expect(gaveUp.locator('.word')).toHaveAttribute('title','Work it started may still be running.')
    await expect(gaveUp.locator('.status-tick')).toHaveCount(0)
+   // Its own mark in place of the dot, at every width: the "!" glyph, decorative, in the row's status colour. A plain row keeps its dot.
+   const mark = gaveUp.locator('.status-mark')
+   await expect(mark).toBeVisible()
+   await expect(mark).toHaveAttribute('aria-hidden','true')
+   await expect(gaveUp.locator('.dot, .status-ring')).toHaveCount(0)
+   await expect(plain.locator('.status-mark')).toHaveCount(0)
+   expect(await mark.evaluate(el => { const r = el.getBoundingClientRect(), c = getComputedStyle(el); return [Math.round(r.width), Math.round(r.height), c.color === c.borderTopColor, c.animationName] }), `mark at ${width}px`).toEqual([14,14,true,'none'])
    if (after) { await mkdir(after,{recursive:true}); await gaveUp.evaluate(el => el.scrollIntoView({block:'center'})); await gaveUp.screenshot({path:`${after}/stopped-row-${theme}-${width}.png`}) }
    // The bell says so too, not "Finished".
    await page.getByRole('button',{name:/^Needs you: \d+$/}).click()
@@ -570,6 +577,10 @@ try {
    await expect(flight.locator('.dot')).toHaveCount(0)
    await expect(flight.locator('.word')).toContainText('In background')
    await expect(flight.locator('.word .vh')).toHaveText(`. ${sentence}`)
+   await page.getByRole('region',{name:'Continue working',exact:true}).getByRole('button',{name:'Show 5 more'}).click()
+   const flightStopped = page.getByRole('region',{name:'Continue working',exact:true}).locator('li[data-status]').filter({hasText:'Watch the deploy'})
+   await expect(flightStopped.locator('.status-mark')).toBeVisible()
+   await expect(flightStopped.locator('.dot, .status-ring, .status-tick')).toHaveCount(0)
    if (after) await flight.locator('xpath=ancestor::div[contains(@class,"group")][1]').screenshot({path:`${after}/home-${theme}-${width}.png`})
    await page.goto(`${base}/sessions?agent=a1&session=sb`)
    await page.waitForFunction(() => window.__chatStream)
@@ -625,6 +636,119 @@ try {
    await expect(status.locator('.detail')).toHaveText('Work it started may still be running.')
    await expect(status.locator('.indicator')).not.toContainText('✓')
    if (after) await status.screenshot({path:`${after}/stopped-chat-${theme}-${width}.png`})
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
+
+ // A chat reet stopped waiting on draws one mark, a "!" in the warning colour, in place of its dot on every surface that has
+ // one; its word takes the same tone. It does not ring, does not count as "Waiting for you" and keeps its place in the
+ // list. The word and the sentence still reach a screen reader beside it.
+ if (run('the stopped-waiting mark on every surface')) {
+  const shots = process.env.REET_MARK_SHOTS
+  const stopped = session('su','a1','Watch the deploy',4*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'finished',attentionSource:'chat',chatStatus:'unwatched',completedAt:Date.now()-4*MIN,changedSinceSeen:true})
+  const line = 'Work it started may still be running.'
+  for (const [width,height,theme,touch] of [[1280,900,'light',false],[390,844,'dark',true]]) {
+   const phone = width <= 650
+   const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),{...session('sw','a1','Plain working chat',3*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'working',attentionSource:'chat'})},stopped],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
+   if (shots) await mkdir(shots,{recursive:true})
+   const shot = async (locator,name) => { if (shots) { await locator.evaluate(el => el.scrollIntoView({block:'center'})); await locator.screenshot({path:`${shots}/${name}-${theme}-${width}.png`}) } }
+   // The warning colour is read beside the element, in the same frame, so a theme still settling cannot split the two.
+   const probe = "const w = (() => { const e = document.createElement('i'); e.style.color = getComputedStyle(document.documentElement).getPropertyValue('--warn').trim(); el.parentElement.append(e); const c = getComputedStyle(e).color; e.remove(); return c })();"
+   const tone = async mark => expect(await mark.evaluate(new Function('el', probe + " const c = getComputedStyle(el); return [c.color === w, c.borderTopColor === w, c.width, c.height, c.animationName]")), 'the mark is warning-coloured, 14px, still').toEqual([true,true,'14px','14px','none'])
+   const warm = async word => expect(await word.evaluate(new Function('el', probe + " return getComputedStyle(el).color === w"))).toBe(true)
+   await page.goto(`${base}/sessions?view=list`)
+   const row = rows(page).filter({hasText:'Watch the deploy'})
+   const plain = rows(page).filter({hasText:'Plain working chat'})
+   await tone(row.locator('.status-mark'))
+   await expect(row.locator('.dot, .status-ring, .status-tick')).toHaveCount(0)
+   await warm(row.locator('.word'))
+   // A screen reader hears the word and the sentence beside the mark, which is hidden from it.
+   await expect(row.locator('.word')).toContainText('Stopped waiting')
+   await expect(row.locator('.word .vh')).toHaveText(`. ${line}`)
+   await expect(row.locator('.status-mark')).toHaveAttribute('aria-hidden','true')
+   // Titles stay in line with a dot row's.
+   const left = async r => (await r.locator('.title').boundingBox()).x
+   expect(Math.abs(await left(row) - await left(plain)), 'the mark keeps the dot\'s slot').toBeLessThanOrEqual(1)
+   // It is not "Waiting for you" and the list keeps its order.
+   expect(await row.getAttribute('data-status')).toBe('finished')
+   const order = await rows(page).evaluateAll(els => els.map(el => el.querySelector('.title').textContent.trim()))
+   expect(order.indexOf('Watch the deploy'), 'sorted with the finished chats, not among those waiting').toBeGreaterThan(order.indexOf('Plain working chat'))
+   await shot(page.locator('main .group').filter({hasText:'Watch the deploy'}),'sessions-group')
+   // The bell draws no mark or dot for any kind of item (a word chip only), so there is none here; the chip takes the tone.
+   await page.getByRole('button',{name:/^Needs you: \d+$/}).click()
+   const bellItem = page.getByRole('region',{name:'Needs you',exact:true}).locator('li').filter({hasText:'Watch the deploy'})
+   await expect(bellItem.locator('.kind')).toContainText('Stopped waiting')
+   await expect(bellItem.locator('.dot, .status-ring, .status-tick, .status-mark')).toHaveCount(0)
+   expect(await bellItem.locator('.kind').evaluate(el => getComputedStyle(el).color)).not.toBe('')
+   await shot(bellItem,'bell-item')
+   await page.keyboard.press('Escape')
+   // Home: the Continue working row.
+   await page.goto(`${base}/`)
+   await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Continue working',exact:true}).click()
+   const region = page.getByRole('region',{name:'Continue working',exact:true})
+   const more = region.getByRole('button',{name:/^Show \d+ more$/})
+   if (await more.count()) await more.click()
+   const flight = region.locator('li[data-status]').filter({hasText:'Watch the deploy'})
+   await tone(flight.locator('.status-mark'))
+   await expect(flight.locator('.dot, .status-ring, .status-tick')).toHaveCount(0)
+   await warm(flight.locator('.word'))
+   await expect(flight.locator('.word')).toContainText('Stopped waiting')
+   await expect(flight.locator('.word .vh')).toHaveText(`. ${line}`)
+   await shot(flight.locator('xpath=ancestor::div[contains(@class,"group")][1]'),'home-rows')
+   // Home's planning board: the pill carries the mark in its ink, which keeps 3:1 on its wash.
+   await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Planning board',exact:true}).click()
+   const card = page.locator('article.session-card').filter({hasText:'Watch the deploy'})
+   const pill = card.locator('.status')
+   await expect(pill.locator('.status-mark')).toBeVisible()
+   await expect(pill).toContainText('Stopped waiting')
+   const ratio = await pill.evaluate(el => {
+    const rgb = c => c.match(/[\d.]+/g).slice(0,4).map(Number), over = (top, under) => { const a = top[3] ?? 1; return [0,1,2].map(i => top[i] * a + under[i] * (1 - a)) }
+    let ground = [255,255,255,1]; for (let n = el.parentElement; n; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor); if (c.length === 4 && c[3] > 0 || c.length === 3) { ground = over(c.length === 3 ? [...c,1] : c, ground); if ((c[3] ?? 1) === 1) break } }
+    const wash = over(rgb(getComputedStyle(el).backgroundColor), ground), ink = rgb(getComputedStyle(el.querySelector('.status-mark')).borderTopColor)
+    const lum = c => { const l = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2] }
+    const a = lum(ink), b = lum(wash); return (Math.max(a,b) + 0.05) / (Math.min(a,b) + 0.05)
+   })
+   expect(ratio, `the mark in the board pill at ${width}px`).toBeGreaterThanOrEqual(3)
+   await shot(card,'home-board')
+   // The resume list on the workspace screen with nothing chosen: the word, the sentence for a screen reader, the mark.
+   await page.goto(`${base}/sessions?view=terminal`)
+   const resume = page.getByLabel('Running sessions').getByRole('button').filter({hasText:'Watch the deploy'})
+   await tone(resume.locator('.status-mark'))
+   await expect(resume.locator('.status-ring, .ended-dot')).toHaveCount(0)
+   await expect(resume).toContainText('Stopped waiting')
+   await expect(resume.locator('.vh')).toHaveText(`. ${line}`)
+   await shot(page.getByLabel('Running sessions'),'resume-list')
+   // The session itself: header pill, tab and workspace list on a desktop, the chat's status bar everywhere.
+   await page.goto(`${base}/sessions?agent=a1&session=su`)
+   await page.waitForFunction(() => window.__chatStream)
+   await page.evaluate(() => window.__chatStream.start({seq:1,kind:'user',text:'deploy it'},{seq:2,kind:'status',state:'idle',code:'unwatched'}))
+   const pillHeader = page.locator('.session-screen .pill')
+   await tone(pillHeader.locator('.status-mark'))
+   await expect(pillHeader).toContainText('Stopped waiting')
+   await expect(pillHeader.locator('.vh')).toContainText(line)
+   await shot(pillHeader,'header-pill')
+   const bar = page.locator('.conversation-status')
+   await expect(bar.locator('.label')).toHaveText('Stopped waiting')
+   await tone(bar.locator('.indicator .status-mark'))
+   await expect(bar.locator('.indicator .dot, .indicator .status-ring')).toHaveCount(0)
+   await expect(bar).not.toHaveClass(/attention/)
+   await shot(bar,'chat-status')
+   const tab = page.getByRole('navigation',{name:'Open sessions'}).locator('li').filter({hasText:'Watch the deploy'})
+   if (await tab.count()) {
+    await tone(tab.locator('.status-mark'))
+    const plainTab = await tab.locator('.name').boundingBox()
+    expect(plainTab, 'the tab shows').toBeTruthy()
+    await shot(tab,'tab')
+   } else expect(phone, 'the tabs show on a desktop').toBe(true)
+   if (!phone) {
+    const side = page.getByRole('navigation',{name:'Terminal sessions'}).locator('button.session-row').filter({hasText:'Watch the deploy'})
+    await tone(side.locator('.status-mark'))
+    await expect(side.locator('.session-dot, .status-ring, .status-tick')).toHaveCount(0)
+    await shot(side,'workspace-list')
+   }
+   expect(await noSideScroll(page), `no sideways scroll at ${width}px`).toBe(true)
    expect(errors).toEqual([])
    await context.close()
   }

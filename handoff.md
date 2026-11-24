@@ -1,5 +1,27 @@
 # Reet central-control implementation handoff
 
+## STOPPED-MARK-1: one mark for a stopped wait, and the proxy setting kept by install (24 November 2026)
+
+Two follow-ups to HELD-WORK-1 and SIGN-IN-LIMITS-1.
+
+**The mark.** After the Sessions page tidy-up a phone row shows no status word, so a chat reet stopped waiting on
+(`chatStatus: 'unwatched'`) looked like any other row. The state was also drawn three ways: status blue in lists, a
+warning tone on Home, an orange dot in the chat bar. The owner chose amber, "needs a look". `.status-mark` in
+`web/src/app.css` is a 14 px circled "!" drawn once in CSS; `:where([data-stopped]) { --status: var(--warn) }` gives
+the mark, the word and the pill one tone. `data-stopped` is set on the Sessions row, the Home row and board card, the
+tab, the header pill, the workspace list item, the resume button, the bell item and the chat status bar, which now
+draws the mark in place of its dot. The mark keeps the dot's slot width, so titles do not shift. It is `aria-hidden`;
+the word and "Work it started may still be running." reach a screen reader beside it (the tab and board pill carry
+the word only). It does not ring, is not counted as waiting, and does not change the order of rows.
+`theme.test.mjs` checks the tone and contrast; `sessions.e2e.mjs` checks every surface.
+
+**Install.** `REET_TRUSTED_PROXIES` is in `serverEnv` (`internal/lifecycle/config.go`), so `reet install` saves it for a
+native service and hands it to `serve`.
+
+**Left as they are.** "Waiting for you" and "In background" both show a hollow ring that differs only by colour, so
+with the word hidden on a phone a colour-blind person cannot tell them apart. Rows with a tick sit about 6 px right
+of the others. Both are older than this change.
+
 ## SIGN-IN-LIMITS-1: sign-in limits charged to the right key, and trusted reverse proxies (23 November 2026)
 
 The first "Security and access" item of the roadmap's reliability workstream.

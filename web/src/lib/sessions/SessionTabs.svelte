@@ -51,12 +51,12 @@
       {@const word = stateWord(s)}
       {@const status = sessionStatus(s)}
       {@const held = heldWork(s)}
-      <li class:current={s.id === current} data-status={status} data-held={held ? '' : undefined}>
+      <li class:current={s.id === current} data-status={status} data-held={held ? '' : undefined} data-stopped={stoppedWaiting(s) ? '' : undefined}>
         <a class="tab" href={sessionHref(s)} aria-current={s.id === current ? 'page' : undefined} title={s.title}
           onclick={event => choose(event, s)}
           onmousedown={event => { if (event.button === 1) event.preventDefault() }}
           onauxclick={event => { if (event.button === 1) { event.preventDefault(); void close(s) } }}>
-          {#if status === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}<span class="name">{s.title}</span><span class="state" aria-hidden="true">{statusLabel(status, held, stoppedWaiting(s))}</span><span class="vh">, {word.word}{held ? `. ${HELD_SENTENCE}` : ''}</span>
+          {#if status === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else if stoppedWaiting(s)}<span class="status-mark" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}<span class="name">{s.title}</span><span class="state" aria-hidden="true">{statusLabel(status, held, stoppedWaiting(s))}</span><span class="vh">, {word.word}{held ? `. ${HELD_SENTENCE}` : ''}</span>
         </a>
         <button type="button" class="close" aria-label={`Close ${s.title}`} title={terminalClosed(s.state) ? 'Close the tab (the session stays in its history)' : 'Close the tab (the session keeps running)'} onclick={() => void close(s)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
@@ -89,6 +89,7 @@
   .tab:focus-visible, .close:focus-visible, .new:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 6px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--status); }
   .status-ring { --ring: 8px; }
+  .status-mark { margin-inline: -3px; } /* 14px in the 8px dot's slot */
   .state { flex: none; font-size: 14px; font-weight: 600; color: var(--status); white-space: nowrap; }
   @media (max-width: 1400px) { .state { display: none; } }
   li[data-status] { box-shadow: inset 0 2px var(--status); }

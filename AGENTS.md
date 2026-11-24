@@ -11,7 +11,7 @@ Only what the code does not show. How to build, test and open a pull request is 
 ## House style
 
 - British spelling, plain words, no em dashes in UI copy. Commit subjects are an imperative sentence with no prefix.
-- UI uses design tokens only (no raw colours or sizes), the product's own marks (✓ ! ✕ · …), and 44 px touch targets
+- UI takes its colours from the design tokens in `web/src/app.css` (a literal colour fails `web/src/lib/theme.test.mjs`); there are no spacing or size tokens, so sizes are written in px as the surrounding CSS does. It uses the product's own marks (✓ ! ✕ · …), and 44 px touch targets
   on coarse pointers. Check light and dark, 390 px and desktop.
 - Do not name other products reet was compared with in a commit, pull request, comment, code or doc.
 

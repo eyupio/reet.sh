@@ -24,12 +24,12 @@ func (s *server) registerFenceRoutes(mux *http.ServeMux) {
 	// change is refused before they try one. It tells them nothing the 423
 	// does not. Raising and lifting stay the owner's alone.
 	mux.HandleFunc("GET "+fencePath, s.requireAdmin(s.fenceGet))
-	mux.HandleFunc("POST "+fencePath, s.requireOwner(s.fenceRaise))
-	mux.HandleFunc("DELETE "+fencePath, s.requireOwner(s.fenceLift))
+	mux.HandleFunc("POST "+fencePath, s.adminBrowser(s.requireOwner(s.fenceRaise)))
+	mux.HandleFunc("DELETE "+fencePath, s.adminBrowser(s.requireOwner(s.fenceLift)))
 	// The address can be given or corrected while the fence stands, so a
 	// move whose new address was not known at the start still carries every
 	// machine with it.
-	mux.HandleFunc("PATCH "+fencePath, s.requireOwner(s.fenceAddress))
+	mux.HandleFunc("PATCH "+fencePath, s.adminBrowser(s.requireOwner(s.fenceAddress)))
 	mux.HandleFunc("GET "+fenceMachinesPath, s.requireAdmin(s.fenceMachines))
 	// A machine says here that it has gone, or that it will not go on its
 	// own. It names itself with its own credentials and nothing else.

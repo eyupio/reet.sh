@@ -331,7 +331,7 @@
   {#if legacyCount > 1}
     <div class="legacy legacy-note" data-legacy-note>
       <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>{legacyCount} machines were enrolled with a personal API token.</span></p>
-      <p class="legacy-why">A personal API token can do anything your account can and never expires.</p>
+      <p class="legacy-why">A personal API token can do most of what your account can and never expires.</p>
       <details class="legacy-how">
         <summary>How to change this</summary>
         <p>On each machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
@@ -408,7 +408,7 @@
         {#if enrolled?.legacyToken}
           <div class="legacy" data-legacy-token={enrolled.id}>
             {#if legacyCount === 1}
-              <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Enrolled with a personal API token, which can do anything your account can and never expires.</span></p>
+              <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Enrolled with a personal API token, which can do most of what your account can and never expires.</span></p>
               <details class="legacy-how">
                 <summary>How to change this</summary>
                 <p>On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>

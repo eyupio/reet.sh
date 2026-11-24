@@ -96,6 +96,27 @@ func (s *server) requireOwner(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// adminBrowser keeps an owner's or admin's change to the whole instance to a
+// signed-in browser, so a leaked personal token cannot take a database copy
+// or the account. Without accounts the instance's one token is the browser's
+// credential too, so there is nothing to tell apart and it passes through.
+func (s *server) adminBrowser(next http.HandlerFunc) http.HandlerFunc {
+	return s.accountBrowser("do this", next)
+}
+
+// accountBrowser is browserOnly for a route that also works without accounts,
+// where it passes through unchanged. action names it in the refusals.
+func (s *server) accountBrowser(action string, next http.HandlerFunc) http.HandlerFunc {
+	gated := s.browserOnly(action, "", next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.authMode != AuthAccounts {
+			next(w, r)
+			return
+		}
+		gated(w, r)
+	}
+}
+
 func (s *server) setSession(w http.ResponseWriter, r *http.Request, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true,

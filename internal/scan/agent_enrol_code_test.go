@@ -173,7 +173,7 @@ func TestEnrolWithAPersonalTokenStillWorks(t *testing.T) {
 	if err := RunAgentInput([]string{"enroll", "--server", c.srv.URL, "--token", "personal", "--env", "studio", "--config", config, "--skip-terminal-setup"}, strings.NewReader(""), &out, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "enrol it again") {
+	if !strings.Contains(out.String(), "reet agent enroll --again") {
 		t.Fatalf("no advice: %q", out.String())
 	}
 	if saved, _ := loadAgentConfig(config); saved.Token != "personal" {

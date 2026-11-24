@@ -35,7 +35,7 @@ func ResolveEnrolment(code, explicitToken, envFile, server string, in io.Reader,
 		return Enrolment{}, err
 	}
 	if token != "" {
-		fmt.Fprintf(out, "Enrolling with a personal API token from %s. A machine no longer needs one: make an enrolment code under Machines, Add a machine, and pass it with --code.\n", source)
+		fmt.Fprintf(out, "Enrolling with a personal API token from %s. A machine no longer needs one: make an enrolment code under Machines, Add a machine, and enrol with it instead (it is asked for, or read from REET_ENROL_CODE).\n", source)
 		return Enrolment{Token: token, Source: source}, nil
 	}
 	return askEnrolCode(server, in, out)

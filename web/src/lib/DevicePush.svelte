@@ -98,7 +98,7 @@
   {:else if support === 'unsupported'}
     <p class="blocked">This browser cannot show notifications from a website, so there is nothing to turn on here.</p>
   {:else if device && stopped}
-    <p class="blocked">Notifications stopped reaching this {noun}. Repair turns them on again here, with the same choices.</p>
+    <p class="blocked">Notifications stopped reaching this {noun}. Repair turns them back on, with the same choices.</p>
     <div class="actions">
       <button type="button" class="btn primary" disabled={!!busy} aria-busy={busy === 'repair'} onclick={repair}>{busy === 'repair' ? 'Repairing…' : 'Repair'}</button>
       <button type="button" class="btn quiet" disabled={!!busy} aria-busy={busy === 'off'} onclick={turnOff}>{busy === 'off' ? 'Turning off…' : 'Turn off'}</button>
@@ -110,7 +110,7 @@
       <label class="check"><input type="checkbox" checked={device.ended} onchange={e => choose('ended', e.currentTarget.checked)} /><span><strong>A session has finished</strong><small>It finished its turn, ended, or stopped with a problem, and you have not looked yet.</small></span></label>
     </fieldset>
     <div class="sound">
-      <label class="check"><input type="checkbox" checked={sound} onchange={e => chooseSound(e.currentTarget.checked)} /><span><strong>Play a sound</strong><small>A short, quiet tone when one arrives while reet is open in front. Only on this device.</small></span></label>
+      <label class="check"><input type="checkbox" checked={sound} onchange={e => chooseSound(e.currentTarget.checked)} /><span><strong>Play a sound</strong><small>A quiet tone when one arrives while reet is in front. Only on this device.</small></span></label>
       <button type="button" class="btn quiet" onclick={chime}>Try it</button>
     </div>
     <div class="actions">

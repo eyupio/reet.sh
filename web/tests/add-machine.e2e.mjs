@@ -166,7 +166,7 @@ const block=name=>`curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/m
 // Whitespace counts: the blank lines between the three parts are part of what is pasted.
 const commandsAre=async(p,name)=>{await expect.poll(()=>p.commands.textContent()).toBe(block(name))}
 // Captures for review, only when REET_E2E_SHOTS names a directory: the dialog's code step in the state just reached.
-const capture=async(dialog,name)=>{if(!process.env.REET_E2E_SHOTS)return;const vp=page.viewportSize();await dialog.locator('section[aria-labelledby$="-key"]').screenshot({path:`${process.env.REET_E2E_SHOTS}/${name}-${vp.width}.png`})}
+const capture=async(dialog,name)=>{if(!process.env.REET_E2E_SHOTS)return;const vp=page.viewportSize();await dialog.screenshot({path:`${process.env.REET_E2E_SHOTS}/${name}-${vp.width}.png`})}
 const dialogOf=()=>page.getByRole('dialog',{name:'Add a machine',exact:true})
 const addButton=()=>page.getByRole('button',{name:'Add a machine',exact:true})
 // The dialog's parts, found by what a person sees.
@@ -286,13 +286,15 @@ try{
 
  // Giving it a key is an enrolment code, not a token. Before one is made: what it is, and nothing made or shown.
  await expect(dialog.getByRole('heading',{name:/Give it an enrolment code/})).toBeVisible()
+ // The command to run comes first, then the code: the code's 15 minutes start when the machine asks for it, not before the install.
+ expect(await dialog.locator('h3').allTextContents()).toEqual(['1Name it','2Run it','3Give it an enrolment code'])
  await expect(dialog).not.toContainText(/machine token/i)
  await expect(dialog.getByRole('button',{name:'Make an enrolment code'})).toBeVisible()
- await expect(dialog).toContainText('It works once, for one machine.')
+ await expect(dialog).toContainText('Make the code when the machine asks for it. It lasts 15 minutes and works once.')
  expect(writes).toEqual([])
  // Each refusal is in the server's own sentence, by the button, and leaves the dialog usable.
  const codeButton=()=>dialog.getByRole('button',{name:/^Make (an enrolment code|another code)$/})
- const refusals=[['full','you have 20 unused enrolment codes; use one or wait for them to expire'],['many','too many enrolment codes made; try again later'],['readonly','this account is read-only'],['nope','does not use accounts'],['server','Could not make an enrolment code. Try again.']]
+ const refusals=[['full','You have 20 unused codes. Wait for one to run out (each lasts 15 minutes), or use one.'],['many','You have made too many codes. Try again later.'],['readonly','Your account can look but not add machines.'],['nope','The code could not be made. Try again.'],['server','The code could not be made. Try again.']]
  for(const [mode,sentence] of refusals){
   codeMode=mode
   await codeButton().click()
@@ -304,7 +306,7 @@ try{
  }
  codeMode='drop'
  await codeButton().click()
- await expect(dialog.getByRole('alert')).toContainText('Could not reach reet.sh')
+ await expect(dialog.getByRole('alert')).toContainText('The code could not be made. Try again.')
  await expect(dialog.getByRole('alert')).not.toContainText(/TypeError|Failed to fetch|NetworkError/i)
  await p.name.fill('studio ');await p.name.fill('studio')   // still usable
  await commandsAre(p,'studio')
@@ -640,12 +642,66 @@ try{
  await expect(card('workstation')).toBeVisible()
 
 
+ // Enrolling a machine again from the list: its name is shown, not asked for; the command is `reet agent enroll`; the code step
+ // follows; and the watch is done only when the machine goes from a personal token to its own key, not because it is online.
+ {
+  agents=agents.map(a=>a.id==='agent-ws'?{...a,legacyToken:true}:a)
+  await page.goto(`${base}/machines`)
+  await expect(card('workstation').locator('[data-legacy-token]')).toBeVisible()
+  await card('workstation').getByRole('button',{name:'Enrol again: workstation'}).click()
+  const reenrol=`rm ~/.config/reet/agent.json && reet agent enroll --server ${q(SITE)} --env 'workstation' --allow-apply`
+  const d=page.getByRole('dialog',{name:'Enrol workstation again'})
+  await expect(d).toBeVisible()
+  await expect(d.getByLabel('Machine name')).toHaveCount(0)
+  await expect(d.locator('pre.commands')).toHaveText(reenrol)
+  await expect(d.locator('pre.commands')).not.toContainText('curl')
+  expect(await d.locator('h3').allTextContents()).toEqual(['1Run it','2Give it an enrolment code'])
+  await d.getByRole('button',{name:'Copy command'}).click()
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(reenrol)
+  await expect(d.locator('.join-status')).toContainText('Waiting for it')
+  await d.getByRole('button',{name:'Make an enrolment code'}).click()
+  await expect(d.locator('.fresh code')).toHaveText(SECRET)
+  await capture(d,'reenrol-code')
+  // Online and still on its personal token: not done.
+  agents=agents.map(a=>a.id==='agent-ws'?{...a,lastSeen:Date.now()}:a)
+  await d.getByRole('button',{name:/check again/}).click()
+  await expect(d.locator('.join-status')).toContainText('Waiting for it')
+  await expect(d.locator('.join-status')).not.toContainText('now uses its own key')
+  // It enrols with the code: the flag clears.
+  agents=agents.map(a=>a.id==='agent-ws'?{...a,legacyToken:false}:a)
+  await d.getByRole('button',{name:/check again/}).click()
+  await expect(d.locator('.join-status')).toContainText('workstation now uses its own key.')
+  await expect(d.locator('.join-status')).toContainText('Revoke the old token under Account.')
+  await expect(d.getByRole('link',{name:'Open API tokens'})).toHaveAttribute('href','/account/tokens')
+  await expect(d.getByText(SECRET)).toHaveCount(0)
+  await capture(d,'reenrol-done')
+  await d.getByRole('button',{name:'Done',exact:true}).click()
+  await expect(d).toHaveCount(0)
+  agents=agents.map(a=>a.id==='agent-ws'?{...a,legacyToken:false}:a)
+ }
+ // Where the viewer cannot add a machine, they are told why, plainly.
+ viewer=true
+ await page.goto(`${base}/machines`)
+ await expect(page.getByText('Your account can look but not add machines.').first()).toBeVisible()
+ await expect(addButton()).toHaveCount(0)
+ viewer=false
+ // Where the controller has no accounts the old way still works: Connect a machine, its install command, the instance token's
+ // words, and the watch for the machine. No enrolment code is asked for.
  const writeCountBeforeTokenMode=writes.length
- // Where the controller has no accounts nothing changes: no Add a machine, no code asked for, the old Connect a machine panel.
  authMode='token'
  await page.evaluate(()=>localStorage.setItem('reet-token','instance-token'))
  await page.goto(`${base}/machines`)
- await expect(page.getByRole('button',{name:'Connect a machine',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Connect a machine',exact:true}).click()
+ const setup=page.locator('details#connect-machine')
+ await setup.getByLabel(/Machine name/).first().fill('garage')
+ await expect(setup.locator('pre').first()).toContainText('install.sh')
+ await setup.getByRole('button',{name:/Continue to authentication/}).click()
+ await expect(setup).toContainText('Use the token configured for this instance when the CLI asks.')
+ await expect(setup.getByRole('button',{name:'Make an enrolment code'})).toHaveCount(0)
+ await setup.getByRole('button',{name:'Continue to terminal connection'}).click()
+ await expect(setup).toContainText('When prompted, use the token for this instance.')
+ await expect(setup.getByText('Terminal connection:').first()).toBeAttached()
+ await capture(setup,'token-mode')
  await expect(addButton()).toHaveCount(0)
  expect(writes.filter(w=>w.path==='/api/v2/sync/enrol-codes').length).toBe(writeCountBeforeTokenMode)
  authMode='accounts'

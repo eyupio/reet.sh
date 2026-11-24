@@ -9,12 +9,17 @@ export function enrolCountdown(expiresAt: unknown, now: number): Countdown {
   return { expired: false, text: `Expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` }
 }
 
-/** The sentence shown by the button when making a code fails. The server's own words for its refusals; plain words otherwise. */
+/** The sentence shown by the button when making a code fails: the card's own words for each refusal, whatever the server said. */
 export function enrolCodeProblem(e: unknown): string {
-  const { status, message } = (e ?? {}) as { status?: unknown; message?: unknown }
+  const { status, message, name } = (e ?? {}) as { status?: unknown; message?: unknown; name?: unknown }
   const said = typeof message === 'string' ? message : ''
-  if (status === 429 || status === 403) return said || 'Could not make an enrolment code. Try again.'
-  if (status === 404) return 'This controller does not use accounts, so it has no enrolment codes. Use the token set for this instance instead.'
-  if (typeof status === 'number') return 'Could not make an enrolment code. Try again.'
-  return 'Could not reach reet.sh. Check the connection and try again.'
+  if (status === 401 || name === 'UnauthorizedError') return 'Sign in again to make a code.'
+  if (status === 403) return 'Your account can look but not add machines.'
+  if (status === 429) return /unused/i.test(said) ? 'You have 20 unused codes. Wait for one to run out (each lasts 15 minutes), or use one.' : 'You have made too many codes. Try again later.'
+  return 'The code could not be made. Try again.'
+}
+
+/** A machine enrolled again is done when it has been seen on a personal token and no longer is: being online already proves nothing. */
+export function reenrolDone(agent: { legacyToken?: boolean } | undefined, sawLegacy: boolean): boolean {
+  return !!agent && sawLegacy && !agent.legacyToken
 }

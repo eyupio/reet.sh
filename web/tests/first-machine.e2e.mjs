@@ -89,7 +89,7 @@ try {
   // A refusal is the server's sentence by the button.
   refuse = {status:429,error:'you have 20 unused enrolment codes; use one or wait for them to expire'}
   await key.getByRole('button',{name:'Make an enrolment code'}).click()
-  await expect(key.getByRole('alert')).toHaveText(refuse.error)
+  await expect(key.getByRole('alert')).toHaveText('You have 20 unused codes. Wait for one to run out (each lasts 15 minutes), or use one.')
   await shot('error')
   refuse = undefined
   await key.getByRole('button',{name:'Make an enrolment code'}).click()
@@ -133,23 +133,34 @@ try {
    await page.getByLabel(/Machine name/).first().fill('studio-laptop')
    await page.getByRole('button',{name:/Continue to authentication/}).click()
    const panel = page.locator('details#connect-machine .step-panel')
-   await expect(panel.getByRole('heading',{name:'Give this machine an enrolment code.'})).toBeVisible()
+   await expect(panel.getByRole('heading',{name:'Save the connection on the machine.'})).toBeVisible()
    await expect(panel).not.toContainText(/machine token|personal API token|Create machine token/i)
+   await expect(panel.getByRole('button',{name:'Make an enrolment code'})).toHaveCount(0)
+   // The code comes after the command the machine will ask it for, on the last step.
+   await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
+   await expect(panel.getByRole('heading',{name:'Bring this machine into your workspace.'})).toBeVisible()
+   await expect(panel).toContainText('Make the code when the machine asks for it. It lasts 15 minutes and works once.')
    const shot = async name => { if (process.env.REET_E2E_SHOTS) await panel.screenshot({path:`${process.env.REET_E2E_SHOTS}/panel-${name}-${width}-${theme}.png`}) }
    await shot('before')
    await panel.getByRole('button',{name:'Make an enrolment code'}).click()
    await expect(panel.locator('.fresh code')).toHaveText(CODE)
    await expect(panel.locator('.fresh')).toContainText(/Expires in 1[45]:\d\d/)
    await expect(panel.getByRole('button',{name:'Copy enrolment code'})).toBeVisible()
+   await expect(panel).toContainText('When prompted, paste the enrolment code.')
+   await expect(panel).not.toContainText(/personal API token/i)
    await shot('code')
    expect(calls).toEqual(['POST'])
    expect(tokenCalls).toEqual([])
    expect(await page.evaluate(()=>location.href+JSON.stringify(localStorage)+JSON.stringify(sessionStorage))).not.toContain(CODE)
-   // The last step tells the person to paste the code, not a token.
+   // Going back and forward between the steps keeps the code; closing the panel does not.
+   await panel.getByRole('button',{name:'Back'}).click()
    await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
-   await expect(panel).toContainText('When prompted, paste the enrolment code.')
-   await expect(panel).not.toContainText(/personal API token/i)
-   expect(tokenCalls).toEqual([])
+   await expect(panel.locator('.fresh code')).toHaveText(CODE)
+   expect(calls).toEqual(['POST'])
+   await page.locator('details#connect-machine > summary').click()
+   await expect(page.locator('details#connect-machine')).not.toHaveAttribute('open','')
+   await page.locator('details#connect-machine > summary').click()
+   await expect(page.getByText(CODE)).toHaveCount(0)
    expect(errors).toEqual([])
    await context.close()
   }

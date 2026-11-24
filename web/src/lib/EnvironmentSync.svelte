@@ -53,7 +53,7 @@
   const arrivedForDialog = typeof location !== 'undefined' && location.hash === '#add-machine'
   let setupHost = $state('')
   // The Add a machine dialog, with what opened it, and the machine it just brought in (highlighted for a few seconds).
-  let joining = $state<{ opener: HTMLElement | null; name: string } | null>(null)
+  let joining = $state<{ opener: HTMLElement | null; reenrol: string } | null>(null)
   let importSource = $state<{ environmentId: string; name: string; direct?: boolean } | null>(null)
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
@@ -152,8 +152,8 @@
     if (loadFailure !== undefined) throw loadFailure
   }
   // The connection flow returns to the machine that was added.
-  function openJoin(opener: HTMLElement | null, name = '') {
-    joining = { opener, name }
+  function openJoin(opener: HTMLElement | null, reenrol = '') {
+    joining = { opener, reenrol }
   }
   // Closing the dialog hands focus to the entry that opened it; if that entry has moved (the machines were read while it was
   // open), to wherever the entry is now.
@@ -231,6 +231,7 @@
   <div class="page-tools">
     {#if canAdd}<button class="btn primary" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
     {#if canWrite && !canAdd}<button class="btn" type="button" onclick={() => openSetup()}>Connect a machine</button>{/if}
+    {#if !canWrite}<p class="hint viewer-note">Your account can look but not add machines. Ask an owner or editor to add one.</p>{/if}
     {#if canWrite && visibleMachines.length}<button class="btn quiet" type="button" onclick={() => (importSource = { environmentId: '', name: '' })}>Import a machine skill…</button>{/if}
     <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
     <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
@@ -297,7 +298,7 @@
 {#if importSource}<MachineSkillImports snapshot={syncState} source={importSource} onclose={() => (importSource = null)} />{/if}
 
 {#if joining && canAdd}
-  <AddMachineDialog {skills} {site} {machines} snapshot={loaded ? syncState : undefined} opener={joining.opener} initialName={joining.name}
+  <AddMachineDialog {skills} {site} {machines} snapshot={loaded ? syncState : undefined} opener={joining.opener} reenrol={joining.reenrol}
     channel={serverBuild?.version === 'dev' ? 'dev' : 'stable'} onrefresh={refreshForJoin} onready={joinReady} onstepbystep={joinStepByStep} {onsignedout} onclose={joinClosed} />
 {/if}
 

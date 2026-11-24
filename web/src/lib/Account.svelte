@@ -593,7 +593,7 @@
     {:else}
       <section class="block" aria-labelledby="create-token-title">
         <h2 id="create-token-title">Create a token</h2>
-        <p class="muted">Use a token with scripts and API clients. A token is shown once, then only its name remains. Machines use enrolment codes from Machines, Add a machine.</p>
+        <p class="muted">Use a token with scripts and API clients. A token is shown once, then only its name remains. Machines use enrolment codes: add a machine, on the Machines page.</p>
         {@render tokenForm()}
       </section>
 

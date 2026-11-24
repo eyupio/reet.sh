@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = ts.transpileModule(readFileSync(new URL('./enrolCode.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
-const { enrolCountdown, enrolCodeProblem } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { enrolCountdown, enrolCodeProblem, reenrolDone } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const now = 1_800_000_000_000
 const at = (secondsLeft) => now / 1000 + secondsLeft
@@ -25,19 +25,25 @@ test('a bad expiry counts as run out, not as a code that never expires', () => {
   for (const bad of [NaN, undefined, null, 'soon']) assert.equal(enrolCountdown(bad, now).expired, true)
 })
 
-test('errors use the server sentence for the known refusals', () => {
-  const full = 'you have 20 unused enrolment codes; use one or wait for them to expire'
-  assert.equal(enrolCodeProblem({ status: 429, message: full }), full)
-  assert.equal(enrolCodeProblem({ status: 429, message: 'too many enrolment codes made; try again later' }), 'too many enrolment codes made; try again later')
-  assert.equal(enrolCodeProblem({ status: 403, message: 'this account is read-only' }), 'this account is read-only')
+test('each refusal is the card\'s own sentence, whatever words the server used', () => {
+  assert.equal(enrolCodeProblem({ status: 429, message: 'too many enrolment codes made; try again later' }), 'You have made too many codes. Try again later.')
+  assert.equal(enrolCodeProblem({ status: 429, message: 'you have 20 unused enrolment codes; use one or wait for them to expire' }), 'You have 20 unused codes. Wait for one to run out (each lasts 15 minutes), or use one.')
+  assert.equal(enrolCodeProblem({ status: 403, message: 'this account is read-only' }), 'Your account can look but not add machines.')
+  assert.equal(enrolCodeProblem({ status: 401, message: 'missing or wrong token' }), 'Sign in again to make a code.')
+  assert.equal(enrolCodeProblem({ name: 'UnauthorizedError', message: 'x' }), 'Sign in again to make a code.')
 })
 
-test('a controller without accounts is told to use its configured token', () => {
-  assert.match(enrolCodeProblem({ status: 404, message: '404 Not Found' }), /does not use accounts/)
+test('anything else is one plain sentence, never a raw status line or a network error name', () => {
+  const plain = 'The code could not be made. Try again.'
+  for (const e of [{ status: 500, message: '500 Internal Server Error' }, { status: 404, message: 'not found' }, { status: 502 }, new TypeError('Failed to fetch'), undefined]) assert.equal(enrolCodeProblem(e), plain)
 })
 
-test('anything else is a plain sentence, never a raw status line or a network error name', () => {
-  assert.equal(enrolCodeProblem({ status: 500, message: '500 Internal Server Error' }), 'Could not make an enrolment code. Try again.')
-  assert.equal(enrolCodeProblem(new TypeError('Failed to fetch')), 'Could not reach reet.sh. Check the connection and try again.')
-  assert.equal(enrolCodeProblem(undefined), 'Could not reach reet.sh. Check the connection and try again.')
+test('a machine enrolled again is done only after it was seen on a personal token and then is not', () => {
+  assert.equal(reenrolDone(undefined, true), false)
+  assert.equal(reenrolDone({ legacyToken: true }, true), false)
+  // Online and already clean at the first read proves nothing.
+  assert.equal(reenrolDone({ legacyToken: false }, false), false)
+  assert.equal(reenrolDone({}, false), false)
+  assert.equal(reenrolDone({ legacyToken: false }, true), true)
+  assert.equal(reenrolDone({}, true), true)
 })

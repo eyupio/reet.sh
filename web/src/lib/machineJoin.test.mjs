@@ -18,7 +18,7 @@ const joinSource = transpile('./machineJoin.ts')
 const join = await import(url(joinSource))
 const setup = await import(setupURL)
 const review = await import(reviewURL)
-const { MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, joinDelay } = join
+const { reenrolCommand, MAX_MACHINE_NAME_BYTES, JOIN_WATCH_CAP_MS, validateMachineName, canonicalHost, joinCommands, joinBaseline, joinState, joinDelay } = join
 
 const now = 1_800_000_000_000
 const DAY = 86_400_000
@@ -366,4 +366,9 @@ test('replacement connector waits for its own library report', () => {
   assert.equal(join.joinSyncState(ready, { machines: [old] }).canUse, false)
   assert.equal(join.joinSyncState(ready, { machines: [old, { ...replacement, state: 'installing' }] }).canUse, false)
   assert.equal(join.joinSyncState(ready, { machines: [old, replacement] }).canUse, true)
+})
+
+test('enrolling a machine again removes its saved agent file and keeps its name, quoted for a shell', () => {
+  assert.equal(reenrolCommand('https://reet.example', 'work-laptop'), "rm ~/.config/reet/agent.json && reet agent enroll --server 'https://reet.example' --env 'work-laptop' --allow-apply")
+  assert.equal(reenrolCommand('https://reet.example', " o'neil "), "rm ~/.config/reet/agent.json && reet agent enroll --server 'https://reet.example' --env 'o'\\''neil' --allow-apply")
 })

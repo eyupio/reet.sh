@@ -58,6 +58,10 @@
   let step = $state(1)
   let channel = $state<ReleaseChannel>('stable')
   let channelTouched = $state(false)
+  // Held here, not by the step that shows it, so the code stays while the steps come and go. Closing the panel drops it.
+  let issued = $state<{ code: string; expiresAt: number } | undefined>()
+  let spent = $state<'' | 'lapsed' | 'used'>('')
+  $effect(() => { if (!open) { issued = undefined; spent = '' } })
   // svelte-ignore state_referenced_locally
   let profileName = $state(profiles[0]?.name ?? '')
   let allowApply = $state(true)
@@ -376,14 +380,14 @@
       {:else if step === 2 && mode === 'connect'}
         <header>
           <p class="eyebrow">Step 2 · Authenticate</p>
-          <h3 tabindex="-1" bind:this={panelHeading}>{codes ? 'Give this machine an enrolment code.' : 'Give this machine its key.'}</h3>
-          <p>{codes ? 'Make an enrolment code here, then save the server connection on the machine. The code is shown once and is never stored in the browser.' : 'Save the server connection on the machine.'}</p>
+          <h3 tabindex="-1" bind:this={panelHeading}>{codes ? 'Save the connection on the machine.' : 'Give this machine its key.'}</h3>
+          <p>{codes ? 'Run this on the machine. The next step has the enrolment code it will ask for.' : 'Save the server connection on the machine.'}</p>
         </header>
-        {#if codes}<EnrolCode connected={!!terminalHost} />{:else if tokenSetup}{@render tokenSetup()}{/if}
         <div class="command">
           <div class="command-copy"><span>Save the connection</span><CopyButton text={configure} label="Copy connection command" compact /></div>
           <pre>{configure}</pre>
         </div>
+        {#if !codes && tokenSetup}{@render tokenSetup()}{/if}
         <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection<Icon name="arrow-right" /></button></div>
       {:else if step === 2}
         <header>
@@ -425,7 +429,6 @@
           <h3 tabindex="-1" bind:this={panelHeading}>Bring this machine into your workspace.</h3>
           <p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p>
         </header>
-        {#if mode === 'scratch'}{#if codes}<EnrolCode connected={!!terminalHost} />{:else if tokenSetup}{@render tokenSetup()}{/if}{/if}
         {#if terminalAccess}
           <div class="server-terminal" class:ready={serverTerminal?.available}>
             <div>
@@ -442,6 +445,7 @@
           <div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command" compact /></div>
           <pre>{enroll}</pre>
         </div>
+        {#if codes}<EnrolCode bind:issued bind:spent connected={!!terminalHost} />{:else if mode === 'scratch' && tokenSetup}{@render tokenSetup()}{/if}
         <p class="hint">Run these commands in this machine’s terminal. {codes ? 'When prompted, paste the enrolment code.' : 'When prompted, use the token for this instance.'} Shell access stays disabled until you consent locally; declining still allows inventory reporting.</p>
 
         <div class="watch" class:ready={terminalReady} class:problem={!!terminalError || stage === 'needs-setup'}>

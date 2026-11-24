@@ -7,10 +7,15 @@
   // The key step of connecting a machine: one button makes a code that works once, for one machine. Shared by the Add a machine
   // dialog and the step-by-step panel. The code lives in this component only: not in the URL, browser storage or a log, and it
   // is gone when the component is. `connected` is true once the machine has reported in, which takes the code off the page.
-  let { connected = false, onsignedout }: { connected?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { connected = false, issued = $bindable(), spent = $bindable(''), onsignedout }: {
+    connected?: boolean
+    /** Held by the parent of the steps, so the code stays while they come and go; never beyond the parent. */
+    issued?: { code: string; expiresAt: number }
+    spent?: '' | 'lapsed' | 'used'
+    onsignedout?: (e: unknown) => void
+  } = $props()
 
-  let issued = $state<{ code: string; expiresAt: number } | undefined>()
-  let making = $state(false), codeError = $state(''), spent = $state<'' | 'lapsed' | 'used'>('')
+  let making = $state(false), codeError = $state('')
   let tick = $state(Date.now())
   let gone = false
   const countdown = $derived(issued ? enrolCountdown(issued.expiresAt, tick) : undefined)
@@ -24,8 +29,8 @@
       issued = made; spent = ''
     } catch (e) {
       if (gone) return
+      codeError = enrolCodeProblem(e)
       if (isSignedOut(e) || e instanceof UnauthorizedError) onsignedout?.(e)
-      else codeError = enrolCodeProblem(e)
     } finally { making = false }
   }
   $effect(() => () => { gone = true })
@@ -46,8 +51,8 @@
     <p class="left">{countdown?.text}</p>
   </div>
 {:else}
-  <p class="hint" role="status">{#if spent === ''}The machine asks for an enrolment code when it connects. It works once, for one machine.{:else if spent === 'lapsed'}This code has run out.{:else}The machine has connected, so its code is no longer shown.{/if}</p>
-  <button type="button" class="btn" disabled={making} aria-busy={making} onclick={makeCode}>{making ? 'Making…' : spent === 'lapsed' ? 'Make another code' : 'Make an enrolment code'}</button>
+  <p class="hint" role="status">{#if spent === ''}Make the code when the machine asks for it. It lasts 15 minutes and works once.{:else if spent === 'lapsed'}This code has run out.{:else}The machine has connected, so its code is no longer shown.{/if}</p>
+  {#if spent !== 'used'}<button type="button" class="btn" disabled={making} aria-busy={making} onclick={makeCode}>{making ? 'Making…' : spent === 'lapsed' ? 'Make another code' : 'Make an enrolment code'}</button>{/if}
 {/if}
 {#if codeError}<p class="reason" role="alert">{codeError}</p>{/if}
 

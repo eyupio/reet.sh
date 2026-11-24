@@ -62,10 +62,13 @@ const (
 	CodeSessionLost = "session_lost"
 	// CodeMachineRefused: the machine answered the create with a refusal
 	// (denied, conflict, failed, not found).
-	CodeMachineRefused      = "machine_refused"
-	CodeTerminalsDisabled   = "terminals_disabled"
-	CodeUnknownMachine      = "unknown_machine"
-	CodeMachineUnavailable  = "machine_unavailable"
+	CodeMachineRefused     = "machine_refused"
+	CodeTerminalsDisabled  = "terminals_disabled"
+	CodeUnknownMachine     = "unknown_machine"
+	CodeMachineUnavailable = "machine_unavailable"
+	// CodeMachineLocked: the machine's owner locked it there (reet agent
+	// lock); nothing was sent.
+	CodeMachineLocked       = "machine_locked"
 	CodeSessionLimit        = "session_limit"
 	CodeLaunchUnsupported   = "launch_unsupported"
 	CodeWorktreeUnsupported = "worktree_unsupported"
@@ -164,6 +167,8 @@ func SelectionTitle(prompt, name string) string {
 type Broker interface {
 	CreateSession(ctx context.Context, uid int64, agent, requestID string, in terminalproto.Create) (store.TerminalSession, bool, error)
 	Ready(uid int64, agent string) bool
+	// Locked reports whether the machine said its owner locked it there.
+	Locked(uid int64, agent string) bool
 }
 
 // Store is what the orchestrator reads and writes: store.Store satisfies it.
@@ -491,6 +496,9 @@ func (o *Orchestrator) precheck(uid int64, agent string, deadline time.Time) str
 			code = CodeTerminalsDisabled
 		case !o.cfg.Broker.Ready(uid, agent):
 			code = CodeMachineUnavailable
+			if o.cfg.Broker.Locked(uid, agent) {
+				code = CodeMachineLocked
+			}
 		}
 		if code == "" || !time.Now().Before(deadline) {
 			return code
@@ -632,6 +640,8 @@ func (o *Orchestrator) classify(uid int64, m store.RunMember, request string, se
 		return CodeSessionLost, true
 	case err == nil:
 		return CodeUnknownOutcome, false
+	case errors.Is(err, terminalbroker.ErrLocked):
+		return CodeMachineLocked, true
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		return CodePromptUnsupported, true
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):

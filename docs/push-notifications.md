@@ -76,7 +76,7 @@ All need a signed-in account; the two that change something need a writer.
 | Request | Does |
 | --- | --- |
 | `GET /api/v2/push` | `available`, the `publicKey`, and `devices` (`id`, `label`, `waiting`, `ended`, `createdAt`, `lastOkAt`). With `X-Reet-Push-Endpoint`, `current` is the asking device's id. |
-| `POST /api/v2/push/subscriptions` | Registers `{endpoint, label, waiting, ended}`, or updates the device with that endpoint. A browser that signs in as somebody else moves to them. |
+| `POST /api/v2/push/subscriptions` | Registers `{endpoint, label, waiting, ended}`, or updates the device with that endpoint. A browser that signs in as somebody else moves to them. From a signed-in browser only: a personal API token is refused, so it cannot add a device that receives your notifications. |
 | `DELETE /api/v2/push/subscriptions` | Removes one of your devices by `{endpoint}` or `{id}`. |
 | `POST /api/v2/push/test` | Wakes every device you have on; each shows "Notifications are on" for the next two minutes. |
 | `GET /api/v2/push/pending` | What a woken device shows: `notifications` of `{tag, title, body, url}`. |

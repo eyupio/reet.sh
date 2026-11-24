@@ -16,6 +16,21 @@ this file existed releases were described on their GitHub release pages.
   running there no longer takes prompts, answers or mode changes from reet. Before, only starting one was refused.
 - **No screen text leaves a machine with terminal access off**: the question an agent is waiting on is no longer read
   or sent while terminal access is off, or while the machine is locked.
+- **Owner and admin changes need a signed-in browser**: with accounts on, a personal API token can no longer change a
+  user's role, disable, delete or reset a user, transfer ownership, invite people, change instance, mail or single
+  sign-on settings, configure or run backups, download or import a backup copy, or fence the controller. It gets
+  "do this from a signed-in browser". A leaked token could do all of these before. Read-only admin listings still work
+  with a token, so monitoring scripts keep working; verifying a backup copy still works, now at most six times an hour
+  per account. Controllers without accounts (`REET_AUTH=token`) are unchanged.
+- **Your own sessions, password and sign-in methods too**: listing and ending your browser sessions, changing your
+  password, unlinking single sign-on and adding a notification device now refuse an API token. Before, a leaked token
+  could end every session you opened, in a loop, so you could never sign in to revoke it.
+- **`reet backup import --server` needs a controller without accounts**: with accounts on, import the copy from the
+  owner's browser under Admin, Move, Move a controller in, or restore it on the new machine with
+  `reet backup restore`. The command says so when it is refused.
+- **Admin pages behind a reverse proxy**: the same-site check now also accepts the configured public address
+  (`REET_PUBLIC_URL`), so a proxy that rewrites `Host` no longer makes admin changes, token management or MCP
+  management fail from the browser.
 - **Machines are added with an enrolment code, not a personal API token**: Add a machine now makes a code that works
   once, for one machine, for 15 minutes. The machine swaps it for its own key and keeps no token of yours. Before, the
   "key" was an ordinary personal API token that stayed on the machine in plain text and could do anything your account

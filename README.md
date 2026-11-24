@@ -333,7 +333,10 @@ server's own `.env` is the setup bootstrap token and is refused once personal to
 exist. Use a personal token from the Account page for CLI commands. This covers
 `doctor`, `scan`, `sync` and `setup profile push`/`pull`. Personal API tokens are
 listed, made and revoked only from a signed-in browser (**Account → API tokens**);
-a request carrying a token cannot manage tokens.
+a request carrying a token cannot manage tokens or the account's sessions and
+password, nor do the owner's and admins' changes (backups and their destinations, users, invites, instance settings, the
+fence, importing a copy); those are done from a signed-in browser. See
+[SECURITY.md](SECURITY.md) for the full list.
 
 `reet agent enroll` takes an enrolment code instead: make one under **Machines →
 Add a machine** (it works once and lasts 15 minutes), then type it at the hidden
@@ -523,10 +526,10 @@ reet backup open --password-file p f  # open a downloaded copy to stdout
 reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
 reet backup fence --moved-to URL     # stop this controller acting before the final copy; --lift undoes it
 reet backup restore --yes <id>        # with the server stopped; without --yes it only checks and reports. --drop-sessions, --drop-tokens, --owner-email ADDR, --allow-live-source, --public-url URL
-reet backup import --server URL --token-file F COPY   # into a running controller; applied at its next start
+reet backup import --server URL --token-file F COPY   # REET_AUTH=token only: into a running controller; applied at its next start
 ```
 
-An instance restore replaces the live database, so the admin page tells you the command rather than doing it behind a running server; the database in place is moved aside, not deleted. A restore keeps browser sign-ins and personal tokens working unless you ask for `--drop-sessions` or `--drop-tokens`, always drops the private-connection identity, refuses a copy from a newer reet and a copy of a controller that was not stopped (unless `--allow-live-source`), and reports what came across and which stored secrets the new backup key cannot open. To move a controller without shell access to its machine, the owner can send a copy to the running controller (`POST /api/v2/admin/backups/import`), which stages it and applies it at the next start. A person's restore runs from their own page and only ever touches their own shelf. See [backups](docs/backups.md) for the full runbook, including a machine rebuilt from nothing.
+An instance restore replaces the live database, so the admin page tells you the command rather than doing it behind a running server; the database in place is moved aside, not deleted. A restore keeps browser sign-ins and personal tokens working unless you ask for `--drop-sessions` or `--drop-tokens`, always drops the private-connection identity, refuses a copy from a newer reet and a copy of a controller that was not stopped (unless `--allow-live-source`), and reports what came across and which stored secrets the new backup key cannot open. To move a controller without shell access to its machine, the owner uploads a copy from a signed-in browser under **Admin → Move → Move a controller in** (`POST /api/v2/admin/backups/import`), which stages it and applies it at the next start. With accounts, a personal API token cannot import; `reet backup import` works only against a controller in token mode. A person's restore runs from their own page and only ever touches their own shelf. See [backups](docs/backups.md) for the full runbook, including a machine rebuilt from nothing.
 
 ## Shelf tools and admin
 

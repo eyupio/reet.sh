@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-// fenceCall sends one request to the target with an optional JSON body.
+// fenceCall sends one request to the target with an optional JSON body, from
+// the browser session the credential names: changing the fence needs one.
 func (tg target) fenceCall(t *testing.T, method, path, token, body string) reply {
 	t.Helper()
 	if body == "" && method == "POST" {
@@ -27,7 +27,7 @@ func (tg target) fenceCall(t *testing.T, method, path, token, body string) reply
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	}
 	return doImport(t, req)
 }
@@ -102,9 +102,7 @@ func TestAnAdminMayReadTheFenceButNotRaiseOrLiftIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tg.st.CreateAPIToken(admin.ID, "admin", auth.HashToken("admin-token")); err != nil {
-		t.Fatal(err)
-	}
+	signIn(t, tg.st, admin.ID, "admin-token")
 	wantFence(t, tg.fenceCall(t, "GET", fencePath, "admin-token", ""), false, "")
 	if r := tg.fenceCall(t, "POST", fencePath, "admin-token", ""); r.code != 403 {
 		t.Fatalf("an admin raised the fence: %d %s", r.code, r.text)

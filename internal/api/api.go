@@ -60,6 +60,7 @@ type server struct {
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
 	enrolLimiter   *auth.Limiter // enrolment codes made per account
+	verifyLimiter  *auth.Limiter // backup verifies per account: each may download a whole copy
 	// trustedProxies are the peers whose X-Forwarded-For names the client.
 	trustedProxies []netip.Prefix
 	publicURL      string
@@ -239,7 +240,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), addrLimiter: auth.NewLimiter(60, time.Minute), accountLimiter: auth.NewLimiter(100, time.Hour), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
-		enrolLimiter: auth.NewLimiter(30, time.Hour),
+		enrolLimiter: auth.NewLimiter(30, time.Hour), verifyLimiter: auth.NewLimiter(6, time.Hour),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
 		stop:         make(chan struct{}),
@@ -377,12 +378,12 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v2/tokens", s.tokenManagement(s.requireWriter(s.createToken)))
 	mux.HandleFunc("DELETE /api/v2/tokens", s.tokenManagement(s.requireWriter(s.revokeToken)))
 	mux.HandleFunc("GET /api/v2/admin/users", s.requireAdmin(s.adminUsers))
-	mux.HandleFunc("PATCH /api/v2/admin/users", s.requireAdmin(s.adminUserUpdate))
-	mux.HandleFunc("DELETE /api/v2/admin/users", s.requireOwner(s.adminUserDelete))
-	mux.HandleFunc("POST /api/v2/admin/users/reset", s.requireAdmin(s.adminUserReset))
-	mux.HandleFunc("POST /api/v2/admin/users/revoke", s.requireAdmin(s.adminUserRevoke))
-	mux.HandleFunc("POST /api/v2/admin/users/transfer", s.requireOwner(s.adminUserTransfer))
-	mux.HandleFunc("POST /api/v2/admin/invites", s.requireAdmin(s.adminInvite))
+	mux.HandleFunc("PATCH /api/v2/admin/users", s.adminBrowser(s.requireAdmin(s.adminUserUpdate)))
+	mux.HandleFunc("DELETE /api/v2/admin/users", s.adminBrowser(s.requireOwner(s.adminUserDelete)))
+	mux.HandleFunc("POST /api/v2/admin/users/reset", s.adminBrowser(s.requireAdmin(s.adminUserReset)))
+	mux.HandleFunc("POST /api/v2/admin/users/revoke", s.adminBrowser(s.requireAdmin(s.adminUserRevoke)))
+	mux.HandleFunc("POST /api/v2/admin/users/transfer", s.adminBrowser(s.requireOwner(s.adminUserTransfer)))
+	mux.HandleFunc("POST /api/v2/admin/invites", s.adminBrowser(s.requireAdmin(s.adminInvite)))
 	mux.HandleFunc("GET /api/v2/lists", s.listLists)
 	mux.HandleFunc("POST /api/v2/lists", s.requireWriter(s.createList))
 	mux.HandleFunc("GET /api/v2/lists/{id}", s.listDetail)
@@ -404,15 +405,15 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v2/groups", s.requireWriter(s.createGroup))
 	mux.HandleFunc("PATCH /api/v2/groups/{id}", s.requireWriter(s.updateGroup))
 	mux.HandleFunc("POST /api/v2/groups/{id}/members", s.requireWriter(s.groupMember))
-	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
+	mux.HandleFunc("PATCH /api/admin/settings", s.adminBrowser(s.requireOwner(s.adminSettings)))
 	mux.HandleFunc("GET /api/v2/settings/yolo", s.requireWriter(s.yoloSettingGet))
-	mux.HandleFunc("PUT /api/v2/settings/yolo", s.requireAdmin(s.yoloSettingPut))
+	mux.HandleFunc("PUT /api/v2/settings/yolo", s.adminBrowser(s.requireAdmin(s.yoloSettingPut)))
 	mux.HandleFunc("GET /api/v2/maintenance", s.requireWriter(s.maintenanceGet))
-	mux.HandleFunc("PUT /api/v2/maintenance/worktrees", s.requireAdmin(s.maintenancePut))
+	mux.HandleFunc("PUT /api/v2/maintenance/worktrees", s.adminBrowser(s.requireAdmin(s.maintenancePut)))
 	mux.HandleFunc("POST /api/v2/maintenance/worktrees/scan", s.terminal(s.maintenanceWorktreeScan))
 	mux.HandleFunc("POST /api/v2/maintenance/worktrees/clean", s.terminal(s.maintenanceWorktreeClean))
 	mux.HandleFunc("GET /api/v2/settings/branch-prune", s.requireWriter(s.branchPruneSettingGet))
-	mux.HandleFunc("PUT /api/v2/settings/branch-prune", s.requireAdmin(s.branchPruneSettingPut))
+	mux.HandleFunc("PUT /api/v2/settings/branch-prune", s.adminBrowser(s.requireAdmin(s.branchPruneSettingPut)))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)

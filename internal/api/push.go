@@ -53,7 +53,8 @@ type pushState struct {
 
 func (s *server) registerPushRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/push", s.pushStatus)
-	mux.HandleFunc("POST /api/v2/push/subscriptions", s.requireWriter(s.pushSubscribe))
+	// A token must not add a device that receives its person's notifications.
+	mux.HandleFunc("POST /api/v2/push/subscriptions", s.accountBrowser("add a notification device", s.requireWriter(s.pushSubscribe)))
 	mux.HandleFunc("DELETE /api/v2/push/subscriptions", s.pushUnsubscribe)
 	mux.HandleFunc("POST /api/v2/push/test", s.requireWriter(s.pushTest))
 	mux.HandleFunc("GET /api/v2/push/pending", s.pushPending)

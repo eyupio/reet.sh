@@ -26,7 +26,7 @@ func (s *server) registerNotificationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/notifications/preferences", s.notificationPreferences)
 	mux.HandleFunc("PATCH /api/v2/notifications/preferences", s.saveNotificationPreferences)
 	mux.HandleFunc("GET /api/v2/admin/notifications/defaults", s.requireOwner(s.notificationDefaults))
-	mux.HandleFunc("PATCH /api/v2/admin/notifications/defaults", s.requireOwner(s.saveNotificationDefaults))
+	mux.HandleFunc("PATCH /api/v2/admin/notifications/defaults", s.adminBrowser(s.requireOwner(s.saveNotificationDefaults)))
 }
 
 func (s *server) notificationsReady(w http.ResponseWriter) bool {

@@ -92,11 +92,14 @@ func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if usedAPIToken(r) {
+		switch {
+		case requestToken(r) != "":
 			via = "token"
+		case s.authMode != AuthAccounts:
+			via = "open"
 		}
 		a, secret, err = s.st.EnrollSyncAgentBuild(uid, in.Host, in.Version, in.Commit)
-		if err == nil && via == "token" {
+		if err == nil && usedAPIToken(r) {
 			a.LegacyToken = true
 			err = s.st.SetAgentLegacyTokenFor(uid, a.ID, true)
 		}

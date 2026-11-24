@@ -45,6 +45,7 @@ Then check that:
 - User-visible changes update the README (settings table, commands, screenshots) in the same pull request.
 - No new dependency is added without a reason in the description. The binary stays small on purpose.
 - The UI still works in light and dark mode and at phone width.
+- Do not edit `CHANGELOG.md` or `handoff.md`. Add a changelog fragment in `changelog.d/` for anything a person running reet would notice, and a handoff entry in `docs/handoffs/log/`, so pull requests do not conflict on them. See [AGENTS.md](AGENTS.md).
 
 CI performance comparisons compile both revisions first, then interleave eight
 one-second samples with the starting revision reversed on alternate rounds. To
@@ -90,7 +91,7 @@ See [the acceptance contract](docs/handoffs/gaffer-offline-acceptance.md).
 1. Fork, then branch from `main`.
 2. Make your change, with tests.
 3. Open a pull request using the template. Say what changed and why, and how you checked it.
-4. CI runs the web checks and Go tests. A maintainer reviews; expect questions, not just approval.
+4. CI runs the web checks and the Go tests (in six shards, so about 15 minutes). A maintainer reviews; expect questions, not just approval.
 5. Pull requests are squashed or merged by a maintainer once green and approved.
 
 ## Brand assets

@@ -108,6 +108,8 @@ func (f *browseAPI) addMachine(t *testing.T, host string, caps terminalproto.Cap
 			f.mu.Unlock()
 			reply.Body = answer(op)
 			if reply.Body == nil {
+				// Held with the request it answers, so a test can pick which to release.
+				reply.Body = op
 				f.mu.Lock()
 				f.held = append(f.held, reply)
 				f.mu.Unlock()

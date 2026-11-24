@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -98,9 +99,32 @@ func (f *browseAPI) waitHeld(t *testing.T, n int) {
 // release answers the first held request with body.
 func (f *browseAPI) release(t *testing.T, body terminalproto.Body) {
 	t.Helper()
+	f.answerHeld(t, 0, body)
+}
+
+// releaseClone answers the held clone of repo with body. Clones run on their
+// own goroutines, so the order they reach the machine is not the order they
+// were started in.
+func (f *browseAPI) releaseClone(t *testing.T, repo string, body terminalproto.Body) {
+	t.Helper()
 	f.mu.Lock()
-	reply := f.held[0]
-	f.held = f.held[1:]
+	i := slices.IndexFunc(f.held, func(m terminalproto.Message) bool {
+		c, ok := m.Body.(terminalproto.RepoClone)
+		return ok && c.Repo == repo
+	})
+	f.mu.Unlock()
+	if i < 0 {
+		t.Fatalf("no clone of %s is held", repo)
+	}
+	f.answerHeld(t, i, body)
+}
+
+// answerHeld answers held request i with body.
+func (f *browseAPI) answerHeld(t *testing.T, i int, body terminalproto.Body) {
+	t.Helper()
+	f.mu.Lock()
+	reply := f.held[i]
+	f.held = slices.Delete(f.held, i, i+1)
 	f.mu.Unlock()
 	reply.Body = body
 	data, err := terminalproto.Encode(reply)
@@ -498,7 +522,7 @@ func TestAddFromGitHubRunsAtMostFiveClonesPerAccount(t *testing.T) {
 	if len(f.clonesSent()) != 5 {
 		t.Fatal("the sixth clone was sent")
 	}
-	f.release(t, cloned("acme", "a"))
+	f.releaseClone(t, "a", cloned("acme", "a"))
 	f.waitClone(t, ids[0])
 	f.startClone(t, "acme/f", "")
 	f.waitHeld(t, 5)

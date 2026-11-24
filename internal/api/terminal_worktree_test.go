@@ -638,6 +638,20 @@ func TestYoloWorktreeMismatchStillAuditsTheLaunch(t *testing.T) {
 	}
 }
 
+// worktreeEventsSoon is worktreeEvents for an audit entry written after the
+// state the test just waited for: the server archives a session and records
+// its removal a moment later, so reading the log at once can miss it.
+func worktreeEventsSoon(t *testing.T, st *store.Store, uid int64, action string) []store.Event {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if events := worktreeEvents(t, st, uid, action); len(events) > 0 || time.Now().After(deadline) {
+			return events
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // startWorktreeSession starts one agent session that reported a worktree.
 func startWorktreeSession(t *testing.T, f *launchAPI) string {
 	t.Helper()
@@ -690,7 +704,7 @@ func TestTerminalEndWithRemoveHistoryCleansUpItsWorktree(t *testing.T) {
 	if len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 1 {
 		t.Fatal("the worktree removal was not audited")
 	}
-	if len(worktreeEvents(t, f.st, f.uid, "session-remove")) != 1 {
+	if len(worktreeEventsSoon(t, f.st, f.uid, "session-remove")) != 1 {
 		t.Fatal("the history removal was not audited")
 	}
 }
@@ -766,7 +780,7 @@ func TestPeerReadyResumesAnInterruptedRemoveOnClose(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 1 || len(worktreeEvents(t, f.st, f.uid, "session-remove")) != 1 {
+	if len(worktreeEventsSoon(t, f.st, f.uid, "worktree-remove")) != 1 || len(worktreeEventsSoon(t, f.st, f.uid, "session-remove")) != 1 {
 		t.Fatal("the resumed cleanup was not audited")
 	}
 }

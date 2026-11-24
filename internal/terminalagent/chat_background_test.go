@@ -64,7 +64,7 @@ func TestBackgroundCountFollowsTheControllersFeatureHeader(t *testing.T) {
 	for _, offered := range []bool{true, false} {
 		ctx, cancel := context.WithCancel(context.Background())
 		home := t.TempDir()
-		opts := terminalhost.ManagerOptions{Home: home}
+		opts := terminalhost.ManagerOptions{Home: home, Consent: func() error { return nil }}
 		sup := newChatSupervisor(ctx, opts)
 		proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
 		sup.lookPath = func(string) (string, error) { return "/bin/true", nil }

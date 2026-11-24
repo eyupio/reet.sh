@@ -350,7 +350,7 @@ func TestReattachDispatchAnswersRunning(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	home := t.TempDir()
-	opts := terminalhost.ManagerOptions{Home: home}
+	opts := terminalhost.ManagerOptions{Home: home, Consent: func() error { return nil }}
 	sup := newChatSupervisor(ctx, opts)
 	t.Cleanup(sup.Close)
 	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
@@ -448,7 +448,7 @@ func reattachDispatchStarting(t *testing.T, extra, detail string) {
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	home := t.TempDir()
-	opts := terminalhost.ManagerOptions{Home: home}
+	opts := terminalhost.ManagerOptions{Home: home, Consent: func() error { return nil }}
 	sup := newChatSupervisor(ctx, opts)
 	t.Cleanup(sup.Close)
 	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}

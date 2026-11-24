@@ -691,6 +691,16 @@ func (s *server) auth(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
 				return
 			}
+			if r.Header.Get("X-Reet-Agent") != "" && machineRoute(r) {
+				u, ok := s.machineUser(r)
+				if !ok {
+					writeErr(w, http.StatusUnauthorized, "machine enrollment is missing or revoked")
+					return
+				}
+				ctx := context.WithValue(r.Context(), userContextKey{}, u)
+				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, machineAuthKey{}, true)))
+				return
+			}
 			users, err := s.st.UserCount()
 			if err != nil {
 				writeErr(w, http.StatusInternalServerError, "could not check accounts")

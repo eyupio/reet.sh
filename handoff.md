@@ -23,6 +23,23 @@ If a shard fails for a reason the old single job did not have (a test that needs
 runner without Node), that is the cause to look for first. Not done yet from this item: parallel web tests that report
 every failure, owners and end dates for flaky tests, a changelog fragment per pull request, and a bounded `handoff.md`
 with a short `AGENTS.md`.
+## TRUST-MODEL-1: a trust model for the remote surfaces (24 November 2026)
+
+The last "Security and access" item. `SECURITY.md` gains "Trust model for the remote surfaces" (agent, enrolment,
+terminal path, YOLO, relay), and says what is out of scope. It was written from the code by reading it, not from
+the docs, and the facts each paragraph rests on are in the code paths named in the roadmap items that built them.
+
+Two things the reading found, both stated in the document instead of changed:
+- The private control and terminal routes (`privateHello`, `privateControl`, `privateTerminalData`) authenticate a
+  machine by id and secret and ignore how it was enrolled, so revoking a personal token does not end a token-enrolled
+  machine's private connection (the public routes do check). The owner chose to correct the wording, not the
+  behaviour. `SECURITY.md` and `docs/controller-sync.md` now say so; removing the machine or enrolling it again with a
+  code is what ends it.
+- The controller's YOLO switch is one setting for the whole instance, but its error message says "for this account".
+  Not changed.
+
+Not checked: the relay's behaviour (the statement about what it can see follows from Tailcat's design, not from its
+source), Windows builds, and the MCP and Factory read paths into chat events.
 
 ## MACHINE-LOCK-1: a lock only the machine can lift (24 November 2026)
 

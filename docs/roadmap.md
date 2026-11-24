@@ -20,9 +20,10 @@ priority order within each group):
     session to create or revoke tokens. Built in the controller and the CLI: a single-use enrolment code that lasts 15
     minutes enrols a machine, which then holds and sends only its own id and secret, good on the machine agent's routes
     alone; API tokens are listed, made and revoked only from a signed-in browser; machines still using a personal token
-    keep working and are marked. The web's Add a machine still makes a personal token until it asks for a code.
+    keep working and are marked.
   - Extend `SECURITY.md` with a scope and trust model for the remote surfaces: the machine agent, enrolment, the
-    controller-to-machine terminal path, YOLO and approval-bypass modes, and what a relay can see.
+    controller-to-machine terminal path, YOLO and approval-bypass modes, and what a relay can see. Written from the code;
+    not checked against a real relay.
   - A machine-local lock that refuses every controller-initiated launch and attach until the owner lifts it. Built: `reet agent lock`;
     not yet run against a real machine.
 - **Agent behaviour.**

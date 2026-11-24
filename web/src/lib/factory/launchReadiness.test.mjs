@@ -229,3 +229,10 @@ test('the stage line says what it runs on once, with defaults as a choice and no
   // An effort the machine does not offer is not part of what it runs on; its own line says so.
   assert.equal(line({ member: { tool: 'claude', model: 'claude-big', effort: 'xhigh' } }), 'Claude Code · claude-big')
 })
+
+test('a locked machine blocks a stage with the lock sentence, not "not connected"', () => {
+  const s = r.launchReadiness(input({ machine: machine({ ready: false, locked: true }) }))
+  assert.equal(s.level, 'blocked'); assert.equal(s.connected.label, 'Machine locked')
+  assert.equal(s.issue, 'Locked on the machine. Run `reet agent unlock` there.')
+  assert.equal(r.launchReadiness(input({ machine: machine({ ready: true, locked: true }) })).level, 'blocked')
+})

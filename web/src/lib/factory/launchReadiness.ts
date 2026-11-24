@@ -186,8 +186,9 @@ function spareReadiness(spare: Choice, first: AgentAccount | undefined, input: R
 export function launchReadiness(input: ReadinessInput): StageReadiness {
   const { machine, member } = input
   // The server's own verdict (`ready`) decides; readiness() says why it is not.
-  const gone = machine?.ready ? '' : readiness(machine ?? undefined) || 'The machine is not connected.'
-  const connected = gone ? fact('unavailable', 'Machine not connected', gone) : fact('ready', 'Connected', `${machine?.host} is connected.`)
+  const locked = !!(machine?.locked || machine?.capabilities?.locked)
+  const gone = machine?.ready && !locked ? '' : readiness(machine ?? undefined) || 'The machine is not connected.'
+  const connected = gone ? fact('unavailable', locked ? 'Machine locked' : 'Machine not connected', gone) : fact('ready', 'Connected', `${machine?.host} is connected.`)
   const agent = !member.tool ? fact('missing', 'No agent', 'No agent is chosen for this tier.')
     : input.tools.includes(member.tool) ? fact('ready', name(member.tool), `${name(member.tool)} is on ${machine?.host || 'this machine'}.`)
     : fact('unavailable', 'Not on this machine', `${name(member.tool)} is not on ${machine?.host || 'this machine'} now.`)

@@ -19,6 +19,11 @@ test('offline, paused and protocol failures stay distinct; pending work is condi
   for (const state of ['paused','blocked','needs-update','needs-newer-controller','failed']) assert.equal(machineSkillStatus(machine, health(state)).tone, 'attention')
   assert.match(machineSkillStatus(machine, health('failed', {failed:[{name:'audit',detail:'No write access'}]})).detail, /audit: No write access/)
 })
+test('a blocked report on a locked machine says it is locked, not that allow-apply is off', () => {
+  assert.match(machineSkillStatus(machine, health('blocked')).detail, /Allow local skill writes/)
+  assert.equal(machineSkillStatus(machine, health('blocked'), 'Locked on the machine. Run `reet agent unlock` there.').detail, 'Locked on the machine. Run `reet agent unlock` there.')
+  assert.equal(machineSkillStatus(machine, health('ok'), 'Locked on the machine. Run `reet agent unlock` there.').tone, 'synced')
+})
 test('reconciling files remains work in progress, not a confirmed install', () => {
   for (const state of ['installing','updating','removing']) assert.equal(machineSkillStatus(machine, health(state)).tone, 'working')
 })

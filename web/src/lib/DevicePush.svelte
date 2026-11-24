@@ -87,7 +87,7 @@
 <section class="card" aria-labelledby="device-push-title">
   <div class="head">
     <h2 id="device-push-title">On this device</h2>
-    {#if device && stopped}<span class="state stopped"><i aria-hidden="true"></i>Stopped</span>{:else if device}<span class="state on"><i aria-hidden="true"></i>On</span>{:else if support === 'ok'}<span class="state">Off</span>{/if}
+    {#if device && stopped}<span class="state stopped" data-stopped><span class="status-mark" aria-hidden="true"></span>Stopped</span>{:else if device}<span class="state on"><i aria-hidden="true"></i>On</span>{:else if support === 'ok'}<span class="state">Off</span>{/if}
   </div>
   <p class="muted">Hear when a session needs you, or has finished, while reet is closed. A tap on the notification opens that session.</p>
 
@@ -152,7 +152,7 @@
   .state.on { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); font-weight: 600; }
   .state.stopped { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); font-weight: 600; }
   .state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .blocked { margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; font-size: 0.875rem; line-height: 1.6; }
+  .blocked { margin: 14px 0 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn) 5%, var(--card)); font-size: 0.875rem; line-height: 1.6; }
   fieldset { margin: 16px 0 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.875rem; cursor: pointer; }

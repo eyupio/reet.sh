@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agentupdate"
+	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/syncproof"
 )
@@ -19,7 +20,8 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/content-observations", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("POST /api/v2/sync/agents/update", s.requireWriter(s.updateSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/agents/update/stage", s.requireWriter(s.reportUpdateStage))
-	mux.HandleFunc("POST /api/v2/sync/agents", s.requireWriter(s.enrollSyncAgent))
+	mux.HandleFunc("POST "+enrolPath, s.requireWriter(s.enrollSyncAgent))
+	mux.HandleFunc("POST /api/v2/sync/enrol-codes", s.browserOnly("create enrolment codes", "enrolment codes require accounts mode", s.requireWriter(s.createEnrolCode)))
 	mux.HandleFunc("PATCH /api/v2/sync/agents", s.requireWriter(s.controlSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/jobs", s.requireWriter(s.queueSyncJob))
 	mux.HandleFunc("PATCH /api/v2/sync/jobs", s.requireWriter(s.controlSyncJob))
@@ -78,17 +80,34 @@ func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	a, secret, err := s.st.EnrollSyncAgentBuild(s.uid(r), in.Host, in.Version, in.Commit)
+	uid, via := s.uid(r), "session"
+	var a store.SyncAgent
+	var secret string
+	var err error
+	if code, ok := r.Context().Value(enrolCodeKey{}).(string); ok {
+		via = "code"
+		uid, a, secret, err = s.st.EnrolWithCode(auth.HashToken(code), in.Host, in.Version, in.Commit)
+		if errors.Is(err, store.ErrEnrolCodeInvalid) {
+			writeErr(w, 401, badEnrolCode)
+			return
+		}
+	} else {
+		if usedAPIToken(r) {
+			via = "token"
+		}
+		a, secret, err = s.st.EnrollSyncAgentBuild(uid, in.Host, in.Version, in.Commit)
+	}
 	if err != nil {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	if err = s.st.ControlSyncAgent(s.uid(r), a.ID, "keep-sync-on"); err != nil {
-		_ = s.st.ControlSyncAgent(s.uid(r), a.ID, "revoke")
+	if err = s.st.ControlSyncAgent(uid, a.ID, "keep-sync-on"); err != nil {
+		_ = s.st.ControlSyncAgent(uid, a.ID, "revoke")
 		writeErr(w, 500, err.Error())
 		return
 	}
 	a.KeepSynced = true
+	s.event(uid, "ui", "machine-enrol", "", map[string]string{"agent": a.ID, "host": a.Host, "via": via})
 	writeJSON(w, 201, map[string]any{"agent": a, "secret": secret})
 }
 func (s *server) controlSyncAgent(w http.ResponseWriter, r *http.Request) {

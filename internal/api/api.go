@@ -59,6 +59,7 @@ type server struct {
 	accountLimiter *auth.Limiter // failed password sign-ins per email from any address, against a spread-out guess
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
+	enrolLimiter   *auth.Limiter // enrolment codes made per account
 	// trustedProxies are the peers whose X-Forwarded-For names the client.
 	trustedProxies []netip.Prefix
 	publicURL      string
@@ -238,6 +239,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), addrLimiter: auth.NewLimiter(60, time.Minute), accountLimiter: auth.NewLimiter(100, time.Hour), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
+		enrolLimiter: auth.NewLimiter(30, time.Hour),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
 		stop:         make(chan struct{}),
@@ -647,13 +649,23 @@ func (s *server) auth(next http.Handler) http.Handler {
 				writeErr(w, 403, "MCP credentials are valid only at the /mcp endpoint; use a browser session to maintain access")
 				return
 			}
+			if tok := requestToken(r); guardedPath(r.URL.Path) && strings.HasPrefix(tok, enrolCodePrefix) {
+				// A code is spent by the enrolment handler; it is no credential anywhere else.
+				if r.Method != http.MethodPost || r.URL.Path != enrolPath {
+					writeErr(w, 403, "an enrolment code is accepted only for enrolling a machine")
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), enrolCodeKey{}, tok)))
+				return
+			}
 			if openAuthPath(r.URL.Path) || !guardedPath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			if tok := requestToken(r); tok != "" {
 				if u, ok, _ := s.st.APITokenUser(auth.HashToken(tok), time.Now().UnixMilli()); ok {
-					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
+					ctx := context.WithValue(r.Context(), userContextKey{}, u)
+					next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, apiTokenKey{}, true)))
 					return
 				}
 			}

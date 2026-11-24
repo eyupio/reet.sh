@@ -306,7 +306,7 @@ own approval prompts; it is on by default, still needs the account setting and a
 confirmation, and is refused while terminal access is off. Revoking enrollment cuts private
 access and prevents new authorization; it does not terminate independent local tmux work.
 `reet agent lock` locks the machine against its controller until `reet agent unlock`
-is run there (`reet agent lock status` shows it and how many sessions are running, and
+is run there (`reet agent lock status` shows it, since when, and how many sessions are running, and
 `reet agent status` shows it too). While locked the machine serves only reconcile, end,
 detach, chat cancel, worktree status, the native-view check and probes; everything else
 the controller asks is refused with ``Locked on the machine. Run `reet agent unlock` there.``

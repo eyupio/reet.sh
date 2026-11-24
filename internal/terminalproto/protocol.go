@@ -254,7 +254,10 @@ type Capabilities struct {
 	// Locked is sent only when machine-lock-v1 was negotiated: the machine is
 	// locked locally (reet agent lock) and refuses everything a controller
 	// starts. It is never sent beside Readiness ready.
-	Locked          bool      `json:"locked,omitempty"`
+	Locked bool `json:"locked,omitempty"`
+	// LockedAt is when the lock went on, in Unix seconds, sent with Locked
+	// only. Who locked it never leaves the machine.
+	LockedAt        int64     `json:"lockedAt,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
 	OSUser          string    `json:"osUser"`
@@ -443,6 +446,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.Locked && (c.Readiness == Ready || !SupportsMachineLock(features)) {
+		return ErrInvalid
+	}
+	if c.LockedAt != 0 && (!c.Locked || c.LockedAt < 0 || c.LockedAt > MaxCounter) {
 		return ErrInvalid
 	}
 	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {

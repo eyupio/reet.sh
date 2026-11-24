@@ -52,3 +52,28 @@ func TestLockedResultRoundTrip(t *testing.T) {
 		t.Fatal("a locked result carried a detail")
 	}
 }
+
+// When the lock went on rides with Locked only.
+func TestLockedAtRidesWithLockedOnly(t *testing.T) {
+	locked := Capabilities{ProtocolVersion: Version, OS: "linux", OSUser: "dev", HealthEnabled: true, Readiness: DisabledLocally, Locked: true, LockedAt: 1795000000}
+	if err := locked.ValidateFor(MachineLockFeature); err != nil {
+		t.Fatalf("refused: %v", err)
+	}
+	if locked.ValidateFor("") == nil {
+		t.Fatal("lockedAt accepted without machine-lock-v1")
+	}
+	stray := locked
+	stray.Locked = false
+	if stray.ValidateFor(MachineLockFeature) == nil {
+		t.Fatal("lockedAt accepted on an unlocked machine")
+	}
+	negative := locked
+	negative.LockedAt = -1
+	if negative.ValidateFor(MachineLockFeature) == nil {
+		t.Fatal("a negative lockedAt was accepted")
+	}
+	raw, _ := json.Marshal(locked)
+	if !strings.Contains(string(raw), `"lockedAt":1795000000`) {
+		t.Fatalf("wire: %s", raw)
+	}
+}

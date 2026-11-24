@@ -28,6 +28,7 @@ import SkillPicker from './SkillPicker.svelte'
 import SkillBuddy from '../SkillBuddy.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
+import { keepDraft, restoreDraft } from './drafts'
 import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
 import PromptPicker from '../prompts/PromptPicker.svelte'
 import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
@@ -391,6 +392,20 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  let queueHalted = $state(false), queueNote = $state(''), dispatching = $state(false)
  // Set after one queued message is sent, until the agent is seen working again: one turn takes one message.
  let awaitingWork = $state(false)
+ // What is typed, and the browser-held queue, are kept in this browser (drafts.ts) so a reload or a discarded tab loses nothing. What was
+ // kept comes back once per session, only into an empty field, and never takes focus. A restored queue waits for Retry: nothing sends by itself after a reload.
+ let keptFor = ''
+ $effect(() => {
+  const id = session.id, text = draft, list = queued, controlled = liveControls
+  if (keptFor !== id) {
+   keptFor = id
+   const kept = restoreDraft(id)
+   if (kept?.chat && !text) draft = kept.chat
+   if (kept?.queue && !controlled && !list.length) { queued = kept.queue.map(item => ({ id: `queued-${++queueSeq}`, text: item, payload: [] })); queueHalted = true; queueNote = 'Kept after a reload. Retry sends it.' }
+   return
+  }
+  keepDraft(id, { chat: text, queue: controlled ? [] : list.map(item => item.text) })
+ })
  const awaiting = createExpiry(4000, () => { awaitingWork = false })
  let log: HTMLElement | undefined = $state()
  let nearBottom = true

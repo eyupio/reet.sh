@@ -53,6 +53,7 @@
   import {copyText} from '../clipboard'
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
+  import {keepDraft,restoreDraft} from './drafts'
 
   let { nativeView=false, visible=true, session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false,headerTheatre=false,onconnection,chrome=true,actions=$bindable(),oninput }: { nativeView?:boolean; visible?:boolean; session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean;headerTheatre?:boolean;
     /** Told each time the attachment changes state (a desk pane draws its own words for open elsewhere and reconnecting). */
@@ -142,6 +143,9 @@
   // The compose box: text written in an ordinary field goes to the live shell as one paste, with Enter after it for
   // Send. The person wrote it here to send it, so it is not held for paste review; the draft stays until it is sent.
   let composeOpen=$state(false),composeDraft=$state(''),composeButton=$state<HTMLButtonElement>()
+  // The draft is kept in this browser (drafts.ts) so a reload or a discarded tab does not lose it. It comes back once, into an empty box, without opening it or taking focus.
+  let keptFor=''
+  $effect(()=>{const id=session.id,text=composeDraft;if(keptFor!==id){keptFor=id;const kept=restoreDraft(id);if(kept?.compose&&!text)composeDraft=kept.compose;return}keepDraft(id,{compose:text})})
   // Whether the program takes a paste as one block is read as the box opens; a plain shell without it runs each line.
   let composeBracketed=$state(false)
   function openCompose(){composeBracketed=terminal?.modes.bracketedPasteMode===true;composeOpen=true}
@@ -589,7 +593,7 @@
     <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
       <button onclick={()=>toggleScrollback()} aria-label="Earlier output" aria-pressed={scrollbackOpen} title={scrollbackOpen?"Back to live output":"Scroll earlier terminal output · Shift+PageUp"}><TerminalIcon name="history"/><span>Earlier output</span></button>
-      <button bind:this={composeButton} onclick={openCompose} disabled={scrollbackOpen} aria-haspopup="dialog" aria-label="Compose" title="Write or dictate a message, then send it as one paste"><TerminalIcon name="compose"/><span class="tool-label">Compose</span></button>
+      <button bind:this={composeButton} onclick={openCompose} disabled={scrollbackOpen} aria-haspopup="dialog" aria-label="Compose" data-kept={composeDraft?'':undefined} title={composeDraft?'Your unsent message is kept. Open it to finish or send it.':'Write or dictate a message, then send it as one paste'}><TerminalIcon name="compose"/><span class="tool-label">Compose</span></button>
       <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
       <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
       <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
@@ -683,6 +687,7 @@
   .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:0.875rem}
   .tools>button,.tools label {flex-shrink:0}
   .upload-off {font-size:0.875rem;color:var(--muted);white-space:nowrap;align-self:center}
+  .terminal-toolbar button[data-kept]{position:relative}.terminal-toolbar button[data-kept]::after{content:'';position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--accent-text)}
   .terminal-toolbar{background:var(--bg);padding:4px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:0.875rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 4px;flex-shrink:0}
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
   .tools input {min-width:0;max-width:180px;font-size:0.875rem}

@@ -24,6 +24,7 @@
     type Environment, type Skill, type User,
   } from './lib/api'
   import { disablePushOnSignOut } from './lib/push'
+  import { clearDrafts, setDraftOwner } from './lib/terminal/drafts'
   import AccountMenu from './lib/AccountMenu.svelte'
   import WebMCP from './lib/WebMCP.svelte'
   import BootSkeleton from './lib/BootSkeleton.svelte'
@@ -176,6 +177,8 @@
   const joinToken = new URLSearchParams(location.search).get('token') ?? ''
   const signedIn = $derived(token !== '')
   const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
+  // Kept drafts belong to whoever is signed in; before the panes below mount, so they restore under the right account.
+  $effect.pre(() => setDraftOwner(authenticated ? (currentUser?.id ?? 0) : null))
   const canLoad = $derived(authChecked && authenticated && !needsAuth && !isCommunity && !isPublicList)
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
@@ -524,6 +527,7 @@
 
   async function signOut() {
     unreadNotifications = 0
+    clearDrafts()
     // This device's notifications go first, while the session can still delete its record.
     await disablePushOnSignOut()
     if (authMode === 'accounts') {

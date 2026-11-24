@@ -208,6 +208,10 @@ func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string
 
 // ResolveTokenSource is ResolveToken that also says where the token came from.
 func ResolveTokenSource(explicit, envFile string, in io.Reader, out io.Writer) (string, Source, error) {
+	return resolveTokenSource(explicit, envFile, in, out, true)
+}
+
+func resolveTokenSource(explicit, envFile string, in io.Reader, out io.Writer, prompt bool) (string, Source, error) {
 	token, source := explicit, SourceFlag
 	if token == "" {
 		token, source = os.Getenv("REET_TOKEN"), SourceEnv
@@ -238,7 +242,7 @@ func ResolveTokenSource(explicit, envFile string, in io.Reader, out io.Writer) (
 		}
 		source = SourceSaved
 	}
-	if token == "" && interactiveFn(in) {
+	if token == "" && prompt && interactiveFn(in) {
 		fmt.Fprint(out, "Personal API token (Account on the target server; hidden, Enter for unauthenticated server): ")
 		entered, err := readSecret(in)
 		fmt.Fprintln(out)

@@ -37,6 +37,17 @@ type SyncAgent struct {
 	// work, and SkillsState says so.
 	SkillsProtocol int    `json:"skillsProtocol"`
 	SkillsState    string `json:"skillsState,omitempty"`
+
+	// EnrolledVia is how the machine was enrolled, set at enrolment and by
+	// nothing else: "code" (an enrolment code), "session" (a signed-in
+	// browser), "token" (a personal API token; every machine enrolled before
+	// codes existed) or "open" (an instance without accounts). Only a
+	// machine enrolled by code or session authenticates by its secret alone.
+	EnrolledVia string `json:"enrolledVia"`
+	// LegacyToken says the machine was enrolled with a personal API token,
+	// so it keeps sending one and stops when that token is revoked. Only
+	// enrolling it again with a code clears it.
+	LegacyToken bool `json:"legacyToken"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`
@@ -68,6 +79,7 @@ func (s *Store) migrateSyncAgents() error {
 		{"auto_update", "auto_update INTEGER NOT NULL DEFAULT 1"},
 		{"keep_synced", "keep_synced INTEGER NOT NULL DEFAULT 0"},
 		{"skills_protocol", "skills_protocol INTEGER NOT NULL DEFAULT 0"},
+		{"enrolled_via", "enrolled_via TEXT NOT NULL DEFAULT 'token'"},
 	} {
 		ok, err := hasColumn(s.db, "sync_agents", c.name)
 		if err != nil {
@@ -112,6 +124,19 @@ func (s *Store) EnrollSyncAgent(uid int64, host, version string) (SyncAgent, str
 // EnrollSyncAgentBuild also records the source commit so dev builds remain
 // distinguishable after the controller restarts.
 func (s *Store) EnrollSyncAgentBuild(uid int64, host, version, commit string) (SyncAgent, string, error) {
+	return s.EnrollSyncAgentVia(uid, host, version, commit, EnrolledByToken)
+}
+
+// How a machine was enrolled (SyncAgent.EnrolledVia).
+const (
+	EnrolledByCode    = "code"
+	EnrolledBySession = "session"
+	EnrolledByToken   = "token"
+	EnrolledOpen      = "open"
+)
+
+// EnrollSyncAgentVia enrols a new machine and records how, once.
+func (s *Store) EnrollSyncAgentVia(uid int64, host, version, commit, via string) (SyncAgent, string, error) {
 	host = strings.TrimSpace(host)
 	if !validMachineName(host) {
 		return SyncAgent{}, "", ErrMachineName
@@ -120,22 +145,23 @@ func (s *Store) EnrollSyncAgentBuild(uid int64, host, version, commit string) (S
 	if err != nil {
 		return SyncAgent{}, "", err
 	}
-	a := SyncAgent{ID: syncID(), Host: canonical, Version: cleanAgentBuild(version), Commit: cleanAgentBuild(commit), LastSeen: now(), AutoUpdate: true}
+	a := SyncAgent{ID: syncID(), Host: canonical, Version: cleanAgentBuild(version), Commit: cleanAgentBuild(commit), LastSeen: now(), AutoUpdate: true, EnrolledVia: via, LegacyToken: via == EnrolledByToken}
 	secret := syncID()
-	_, err = s.db.Exec(`INSERT INTO sync_agents(id,user_id,host,secret_hash,version,source_commit,last_seen,paused,auto_update) VALUES(?,?,?,?,?,?,?,0,1)`, a.ID, uid, a.Host, secretHash(secret), a.Version, a.Commit, a.LastSeen)
+	_, err = s.db.Exec(`INSERT INTO sync_agents(id,user_id,host,secret_hash,version,source_commit,last_seen,paused,auto_update,enrolled_via) VALUES(?,?,?,?,?,?,?,0,1,?)`, a.ID, uid, a.Host, secretHash(secret), a.Version, a.Commit, a.LastSeen, via)
 	if err != nil {
 		return a, "", errors.New("machine already enrolled; revoke its existing enrollment before enrolling again")
 	}
 	return a, secret, nil
 }
 
-const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced,skills_protocol`
+const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced,skills_protocol,enrolled_via`
 
 func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
 	var a SyncAgent
 	var protocol int
-	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &protocol)
+	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &protocol, &a.EnrolledVia)
 	a.SetSkillsProtocol(protocol)
+	a.LegacyToken = a.EnrolledVia == EnrolledByToken
 	return a, err
 }
 
@@ -246,7 +272,7 @@ func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, Sync
 	if !validCredentials || !validVersion {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
-	err := s.read.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
+	err := s.read.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced,a.enrolled_via FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &a.EnrolledVia)
 	if err != nil {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}

@@ -15,7 +15,9 @@ export function configureCommand(site: string, channel: ReleaseChannel = 'stable
   return `reet configure --url ${shellQuote(site)} --version ${channel === 'dev' ? 'dev' : 'latest'}`
 }
 
-export function scanCommand(site: string, host: string): string {
+/** `codes`: the machine was enrolled with a code, so it reports as itself and takes its server and name from that. */
+export function scanCommand(site: string, host: string, codes = false): string {
+  if (codes) return 'reet scan --prune'
   return `reet scan --server ${shellQuote(site)} --env ${shellQuote(host)} --prune --reconcile`
 }
 

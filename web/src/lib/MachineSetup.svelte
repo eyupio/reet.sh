@@ -14,6 +14,7 @@
     type ReleaseChannel,
   } from './machineSetup'
   import CopyButton from './CopyButton.svelte'
+  import EnrolCode from './EnrolCode.svelte'
   import Icon from './Icon.svelte'
   import { formatWhen } from './time'
 
@@ -21,7 +22,7 @@
     site,
     machines,
     profiles = [],
-    token = '',
+    codes = false,
     tokenSetup,
     serverBuild = null,
     snapshot,
@@ -36,7 +37,8 @@
     site: string
     machines: Machine[]
     profiles?: SetupProfileSummary[]
-    token?: string
+    /** A signed-in writer: the key is an enrolment code. Otherwise the instance's own token is used. */
+    codes?: boolean
     tokenSetup?: Snippet
     serverBuild?: { version: string; commit: string } | null
     snapshot?: SyncState
@@ -56,6 +58,10 @@
   let step = $state(1)
   let channel = $state<ReleaseChannel>('stable')
   let channelTouched = $state(false)
+  // Held here, not by the step that shows it, so the code stays while the steps come and go. Closing the panel drops it.
+  let issued = $state<{ code: string; expiresAt: number } | undefined>()
+  let spent = $state<'' | 'lapsed' | 'used'>('')
+  $effect(() => { if (!open) { issued = undefined; spent = '' } })
   // svelte-ignore state_referenced_locally
   let profileName = $state(profiles[0]?.name ?? '')
   let allowApply = $state(true)
@@ -87,7 +93,7 @@
   const name = $derived(host.trim() || 'my-machine')
   const install = $derived(installCommands(channel))
   const configure = $derived(configureCommand(site, channel))
-  const scan = $derived(scanCommand(site, name))
+  const scan = $derived(scanCommand(site, name, codes))
   const enroll = $derived(enrollCommands(site, name, allowApply))
   const pull = $derived(selectedProfile ? profilePullCommand(site, selectedProfile.name) : '')
   const fetch = $derived(selectedProfile ? profileFetchCommand(selectedProfile.name, revision) : '')
@@ -374,18 +380,14 @@
       {:else if step === 2 && mode === 'connect'}
         <header>
           <p class="eyebrow">Step 2 · Authenticate</p>
-          <h3 tabindex="-1" bind:this={panelHeading}>Give this machine its own key.</h3>
-          <p>Create a machine token here, then save the server connection on the machine. The token is shown once and is never stored in the browser.</p>
+          <h3 tabindex="-1" bind:this={panelHeading}>{codes ? 'Save the connection on the machine.' : 'Give this machine its key.'}</h3>
+          <p>{codes ? 'Run this on the machine. The next step has the enrolment code it will ask for.' : 'Save the server connection on the machine.'}</p>
         </header>
-        {#if tokenSetup}{@render tokenSetup()}{/if}
-        {#if token}
-          <details class="one-time"><summary>Show the one-time machine token</summary><code>{token}</code><CopyButton text={token} label="Copy machine token" compact /></details>
-          <p class="hint">When the CLI prompts for a token, paste this value. It is not embedded in the command.</p>
-        {/if}
         <div class="command">
           <div class="command-copy"><span>Save the connection</span><CopyButton text={configure} label="Copy connection command" compact /></div>
           <pre>{configure}</pre>
         </div>
+        {#if !codes && tokenSetup}{@render tokenSetup()}{/if}
         <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection<Icon name="arrow-right" /></button></div>
       {:else if step === 2}
         <header>
@@ -427,7 +429,6 @@
           <h3 tabindex="-1" bind:this={panelHeading}>Bring this machine into your workspace.</h3>
           <p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p>
         </header>
-        {#if mode === 'scratch' && tokenSetup}{@render tokenSetup()}{/if}
         {#if terminalAccess}
           <div class="server-terminal" class:ready={serverTerminal?.available}>
             <div>
@@ -444,7 +445,8 @@
           <div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command" compact /></div>
           <pre>{enroll}</pre>
         </div>
-        <p class="hint">Run these commands in this machine’s terminal. When prompted, use its personal API token. Shell access stays disabled until you consent locally; declining still allows inventory reporting.</p>
+        {#if codes}<EnrolCode bind:issued bind:spent connected={!!terminalHost} />{:else if mode === 'scratch' && tokenSetup}{@render tokenSetup()}{/if}
+        <p class="hint">Run these commands in this machine’s terminal. {codes ? 'When prompted, paste the enrolment code.' : 'When prompted, use the token for this instance.'} Shell access stays disabled until you consent locally; declining still allows inventory reporting.</p>
 
         <div class="watch" class:ready={terminalReady} class:problem={!!terminalError || stage === 'needs-setup'}>
           <p class="vh" role="status" aria-live="polite">Terminal connection: {watchTitle}{terminalError ? ` ${terminalError}` : ''}</p>
@@ -489,9 +491,9 @@
         <header>
           <p class="eyebrow">Step 4 · Inventory &amp; sync</p>
           <h3 tabindex="-1" bind:this={panelHeading}>Tell reet.sh what is on this machine.</h3>
-          <p>Run the scan on the machine. It reads the agent skill folders and creates the machine inventory here.</p>
+          {#if codes}<p>Your machine reports its skills as soon as <code>reet agent run</code> starts. To check now, run this on it.</p>{:else}<p>Run the scan on the machine. It reads the agent skill folders and creates the machine inventory here.</p>{/if}
         </header>
-        {#if !host.trim()}<p class="inline-warning">Add a machine name in step 1 first, so the scan and future reports use a stable name.</p>{/if}
+        {#if !codes && !host.trim()}<p class="inline-warning">Add a machine name in step 1 first, so the scan and future reports use a stable name.</p>{/if}
         <div class="command">
           <div class="command-copy"><span>Scan this machine</span><CopyButton text={scan} label="Copy scan command" compact /></div>
           <pre>{scan}</pre>
@@ -521,7 +523,7 @@
               <span class="pulse" aria-hidden="true"></span>
               <div class="watch-copy">
                 <strong>Waiting for the first scan</strong>
-                <p>Run the scan above. This page checks automatically and fills the machine in the moment its report lands.</p>
+                <p>{codes ? 'This page checks automatically and fills the machine in the moment its report lands.' : 'Run the scan above. This page checks automatically and fills the machine in the moment its report lands.'}</p>
               </div>
               <span class="watch-badge">Watching</span>
             </div>
@@ -593,8 +595,6 @@
   .inline-warning { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line)); border-radius: 8px; color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, var(--card)); font-size: 0.875rem; }
   .step-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
   .step-actions .primary { margin-left: auto; }
-  .one-time { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
-  .one-time code { display: block; margin: 10px 0; overflow-wrap: anywhere; }
   .empty-choice { padding: 18px; border: 1px dashed var(--line); border-radius: 12px; background: var(--bg); }
   .empty-choice p { margin: 6px 0 12px; color: var(--muted); font-size: 0.875rem; }
   .advanced { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--bg); }

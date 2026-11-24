@@ -92,7 +92,7 @@ func controllerBundles(c agentConfig) bundleFetcher {
 		// The download is named by bundle and revision; the skill's name,
 		// which may hold a space or any letter, names only its folder.
 		source := "private:" + s.Bundle + ":" + s.Revision + ":" + s.Digest
-		return privateSkillFiles(c.Server, c.Token, store.SyncSkill{Slug: s.Bundle, SourceType: "private", Source: source})
+		return privateSkillFiles(c, store.SyncSkill{Slug: s.Bundle, SourceType: "private", Source: source})
 	}
 }
 

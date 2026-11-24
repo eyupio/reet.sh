@@ -22,6 +22,7 @@ func newAuthFixture(t *testing.T, interactive bool, answers ...string) *authFixt
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("APPDATA", t.TempDir())
 	t.Setenv("REET_TOKEN", "")
+	t.Setenv("REET_ENROL_CODE", "")
 	t.Setenv("REET_ENV_FILE", "")
 	t.Chdir(t.TempDir())
 	f := &authFixture{answers: answers}

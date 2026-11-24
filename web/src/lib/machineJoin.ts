@@ -35,6 +35,11 @@ export function joinCommands(site: string, name: string, channel: ReleaseChannel
   return `curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s --${channel === 'dev' ? ' --version dev' : ''} --server ${shellQuote(site)} --name ${shellQuote(host)}`
 }
 
+/** Run on a machine that is already here to enrol it again in place: it asks for the code and keeps every local setting. */
+export function reenrolCommand(): string {
+  return 'reet agent enroll --again'
+}
+
 export type JoinStage = 'waiting' | 'already_here' | 'connected' | 'first_scan' | 'syncing' | 'sync_issue' | 'ready' | 'unknown'
 export type JoinView = { stage: JoinStage; label: string; detail: string; canUse: boolean; connectorIds?: string[] }
 /** What was already reporting under the name: connector ids, and the newest complete supported scan (0 if none). */

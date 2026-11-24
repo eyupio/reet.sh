@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Machines are added with an enrolment code, not a personal API token**: Add a machine now makes a code that works
+  once, for one machine, for 15 minutes. The machine swaps it for its own key and keeps no token of yours. Before, the
+  "key" was an ordinary personal API token that stayed on the machine in plain text and could do anything your account
+  could, for ever. Machines enrolled the old way keep working and are marked "Enrolled with a personal API token" on
+  the Machines page; run `reet agent enroll --again` on each (it keeps the machine's settings and asks for a code),
+  then revoke the old token under Account. Revoking that token still cuts off any machine that has not moved.
+- **API tokens are managed only from a signed-in browser**: listing, creating and revoking tokens now refuse an API
+  token, so a leaked token cannot make itself a replacement. Scripts that created or revoked tokens with a token will
+  get "manage API tokens from a signed-in browser".
+- **A machine reports only its own inventory**: a report signed with a machine's own key is refused if it names
+  another machine. Enrolling a machine and making a code are now written to the audit log.
 - **"Stopped waiting" has its own mark**: a chat reet stopped waiting on (its turn ended with work still running, and
   nothing said the work finished) now shows an amber "!" in place of its dot, in Sessions, Home, the session's tab and
   header, the workspace list, the resume list and the chat's status line, with its word in the same warning tone. On a

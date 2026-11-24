@@ -30,7 +30,8 @@ func privateSkillDigest(root string) (string, error) {
 }
 
 // privateSkillFiles reads and verifies an immutable account-owned revision.
-func privateSkillFiles(server, token string, skill store.SyncSkill) ([]skillbundle.ContentFile, error) {
+func privateSkillFiles(c agentConfig, skill store.SyncSkill) ([]skillbundle.ContentFile, error) {
+	server := c.Server
 	parts := privateSourcePattern.FindStringSubmatch(skill.Source)
 	if parts == nil || !safeSlug.MatchString(skill.Slug) {
 		return nil, errors.New("invalid private skill source")
@@ -42,7 +43,7 @@ func privateSkillFiles(server, token string, skill store.SyncSkill) ([]skillbund
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Reet-Token", token)
+	setAgentHeaders(req.Header, c, "")
 	client := noRedirectClient
 	resp, err := client.Do(req)
 	if err != nil {
@@ -84,7 +85,7 @@ func checkSkillFiles(files []skillbundle.ContentFile, digest string) ([]skillbun
 // Download only immutable account-owned revisions from the configured controller.
 // Every path, byte count, digest and executable flag is checked before writing.
 func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath string, beforeInstall ...func([]skillbundle.ContentFile) error) error {
-	files, err := privateSkillFiles(server, token, skill)
+	files, err := privateSkillFiles(agentConfig{Server: server, Token: token}, skill)
 	if err != nil {
 		return err
 	}

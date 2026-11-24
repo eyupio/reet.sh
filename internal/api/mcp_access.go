@@ -92,18 +92,25 @@ func (s *server) mcpCredential(raw, resource string) (mcpAccess, bool) {
 
 // Token headers cannot maintain credentials, even if the account also has a browser session.
 func (s *server) mcpManagement(next http.HandlerFunc) http.HandlerFunc {
+	return s.browserOnly("manage MCP access", "MCP access requires accounts mode", next)
+}
+
+// browserOnly lets only a same-origin request with an account's browser
+// session through: a token cannot do what it guards (make credentials), so a
+// leaked one cannot make its own replacement. action names it in the refusals.
+func (s *server) browserOnly(action, offMessage string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.authMode != AuthAccounts {
-			writeErr(w, 404, "MCP access requires accounts mode")
+			writeErr(w, 404, offMessage)
 			return
 		}
 		if requestToken(r) != "" {
-			writeErr(w, 403, "manage MCP access from a signed-in browser")
+			writeErr(w, 403, action+" from a signed-in browser")
 			return
 		}
 		u, ok := s.sessionUser(r)
 		if !ok {
-			writeErr(w, 401, "sign in to manage MCP access")
+			writeErr(w, 401, "sign in to "+action)
 			return
 		}
 		if !mcpSameOrigin(r) {

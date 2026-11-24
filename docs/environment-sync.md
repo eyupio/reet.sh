@@ -2,7 +2,7 @@
 
 Every connected machine follows the account's Active skills. [Controller sync](controller-sync.md) covers enrollment, local file consent and recovery; [the library workflow](sync-skills-between-machines.md) covers Archive, Restore, Delete and new machine discoveries. Inventory reports describe what was scanned; they do not choose a separate desired skill set.
 
-The **Account → Machines → Connect a machine** flow is the starting point: install the binary, create a named personal token in the connection step, then copy the connection command into that machine's terminal. It includes this instance's URL and the newly created token. Copy it before leaving the page; tokens are not saved to browser storage or shown again after a reload. Existing token holders can set `REET_URL` and `REET_TOKEN` directly in their terminal. Run `reet` and choose **Connect machine** to open the existing enrollment command. Use a separate token per machine or server so access can be revoked independently. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
+The **Account → Machines → Connect a machine** flow is the starting point: install the binary, make an enrolment code in the connection step, then copy the connection command into that machine's terminal and enter the code when it asks (or set `REET_ENROL_CODE`; `--code` also works, but a command line is visible to other users of the machine). A code enrols one machine, once, within 15 minutes, and opens nothing else. The machine then keeps only its own id and secret, never a personal token. A machine enrolled earlier with a personal token moves to its own credential with `reet agent enroll --again` on it, which keeps its local settings. Personal API tokens, which `reet scan` from a terminal still uses, are made and revoked only from a signed-in browser. Run `reet` and choose **Connect machine** to open the existing enrollment command. Each enrolled machine has its own secret, so removing one machine under Machines revokes it alone. Generated scan/sync commands use the environment rather than embedding the token. After running the scan, use **Check for my scan** to confirm a complete, recent inventory for the selected machine name.
 
 ## Connect a machine
 
@@ -19,6 +19,16 @@ If `REET_TOKEN` is unset, `reet scan` prompts for the token and saves it in
 `reet/token` under the platform user configuration directory with owner-only
 permissions. Later scans reuse it; `REET_TOKEN`, `--token` or `--env-file` still
 take precedence. Remove the saved copy with `reet configure --forget-token`.
+
+On a machine enrolled with `reet agent enroll` and no personal token anywhere,
+`reet scan` reports with the machine's own enrolment instead (`--agent-config`
+names another enrolment file): only to the controller it was enrolled with and
+only under its own name, so `--server` and `--env` may be left out and a
+different one is refused before anything is sent. `--reconcile` is then skipped
+with one line, since merging machine names needs a personal token or **Merge** on
+the Machines page; the inventory still goes. A token, when there is one, wins.
+The running agent scans by itself as soon as `reet agent run` starts and every
+minute after, so an enrolled machine needs no manual scan.
 
 Choose a stable, distinct `--env` name for each machine. It defaults to the hostname; `REET_ENV` supplies a reusable alias. Run the scan from each project you want to track. Global and project lock files retain their separate source information. Project identities now include a hash of the full local project path so two projects named `app` do not collide. Rescan older project environments with the new binary, then forget obsolete reports from Account.
 

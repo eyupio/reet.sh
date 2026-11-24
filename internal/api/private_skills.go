@@ -27,7 +27,7 @@ func (s *server) privateSkillAccess(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		sameOrigin := r.Header.Get("Origin") != "" && privateSkillSameOrigin(r)
-		noToken := r.Method != http.MethodGet && requestToken(r) == ""
+		noToken := r.Method != http.MethodGet && requestToken(r) == "" && !machineAuthenticated(r)
 		if noToken && !sameOrigin {
 			writeErr(w, 403, "Private skill writes require a same-origin browser request or personal API token.")
 			return

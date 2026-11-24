@@ -161,9 +161,34 @@ try {
    await expect(page.locator('details#connect-machine')).not.toHaveAttribute('open','')
    await page.locator('details#connect-machine > summary').click()
    await expect(page.getByText(CODE)).toHaveCount(0)
+   // The last step is a check, not a requirement: the machine reports as itself, so no server, name or reconcile is asked for.
+   await panel.getByRole('button',{name:/Continue to optional inventory/}).click()
+   await expect(panel.locator('pre').first()).toHaveText('reet scan --prune')
+   await expect(panel).toContainText('Your machine reports its skills as soon as reet agent run starts. To check now, run this on it.')
+   await expect(panel).not.toContainText(/--reconcile|token/i)
+   await expect(panel).not.toContainText('Run the scan above')
+   await shot('step4')
+   expect(tokenCalls).toEqual([])
    expect(errors).toEqual([])
    await context.close()
   }
+ }
+ // Where the controller has no accounts the last step is as it was: the full scan command.
+ if (run('panel-token')) {
+  const {context,page,errors} = await open({width:1280,status:{mode:'token',user:undefined}})
+  await page.addInitScript(()=>localStorage.setItem('reet-token','instance-token'))
+  await page.goto(`${base}/machines`)
+  await page.getByRole('button',{name:'Connect a machine',exact:true}).click()
+  const panel = page.locator('details#connect-machine .step-panel')
+  await page.getByLabel(/Machine name/).first().fill('garage')
+  await page.getByRole('button',{name:/Continue to authentication/}).click()
+  await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
+  await panel.getByRole('button',{name:/Continue to optional inventory/}).click()
+  await expect(panel.locator('pre').first()).toHaveText(`reet scan --server '${new URL(base).origin}' --env 'garage' --prune --reconcile`)
+  await expect(panel).toContainText('Run the scan on the machine.')
+  await expect(panel).toContainText('Run the scan above.')
+  expect(errors).toEqual([])
+  await context.close()
  }
  console.log('First machine: one entry dialog from every button, the panel waits behind it, Continue says what it needs, the key step is an enrolment code.')
 } finally {await browser.close()}

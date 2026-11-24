@@ -273,6 +273,18 @@ func (c *agentConn) dispatch(callCtx context.Context, msg terminalproto.Message)
 	case *terminalproto.Upload:
 		return r.handleUpload(op)
 	}
+	// A chat runs an agent on this machine as a shell does, so it needs the
+	// same local terminal consent, read again for each request, and the
+	// machine unlocked (the control gate refuses first; this holds for a
+	// chat resumed after a restart too).
+	if startsChatWork(msg.Body) {
+		if !allowed(c.opts.Consent) {
+			return r.respond(terminalhost.ErrTerminalDisabled)
+		}
+		if c.opts.Locked != nil && c.opts.Locked() {
+			return r.respond(terminalhost.ErrLocked)
+		}
+	}
 	// A create or end of a session a swap is moving is busy: it would
 	// start or stop a process the swap does not know about. Held for
 	// as long as it runs, so a swap cannot start under it either.
@@ -349,6 +361,20 @@ func (c *agentConn) dispatch(callCtx context.Context, msg terminalproto.Message)
 	default:
 		return terminalproto.ErrInvalid
 	}
+}
+
+// startsChatWork reports whether body starts, resumes, drives or answers a
+// chat. Cancelling and ending one stay allowed without consent.
+func startsChatWork(body terminalproto.Body) bool {
+	switch b := body.(type) {
+	case *terminalproto.Create:
+		return b.Structured
+	case *terminalproto.ChatReattach, *terminalproto.ACPPrompt, *terminalproto.ACPControl, *terminalproto.ACPPermission,
+		*terminalproto.ACPQuestionAnswer, *terminalproto.ACPModel, *terminalproto.ACPAgentMode, *terminalproto.ACPMode,
+		*terminalproto.SessionMode:
+		return true
+	}
+	return false
 }
 
 // bodyFeatureError is the protocol gate every message kind passes before it is

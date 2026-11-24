@@ -17,7 +17,7 @@ import (
 // agreedControlFeatures is the feature list this connection negotiates: every
 // private control feature, with agents-v2 only for a machine that claims it.
 func agreedControlFeatures(c terminalproto.Capabilities) string {
-	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.BranchPruneFeature, terminalproto.BranchSyncFeature, terminalproto.BaseFreshFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ModelsRefreshFeature, terminalproto.ACPFeature, terminalproto.ACPWorktreeFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPApprovalFeature, terminalproto.SessionModeFeature, terminalproto.SessionModeAgentsFeature, terminalproto.NativeViewFeature, terminalproto.ChatReattachFeature, terminalproto.ChatReattachDetailFeature, terminalproto.ACPQuestionFeature, terminalproto.ACPModelFeature, terminalproto.ACPModelCatalogueFeature, terminalproto.ACPLiveControlsFeature, terminalproto.ACPStartOptionsFeature, terminalproto.ACPProviderFeature, terminalproto.ACPCommandsFeature, terminalproto.ACPPreviewsFeature, terminalproto.ACPUsageFeature, terminalproto.ACPBackgroundFeature, terminalproto.ACPAgentModeFeature, terminalproto.ACPAgentOptionsFeature, terminalproto.ACPAgentReattachFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ACPLongPromptFeature, terminalproto.ShellDirFeature, terminalproto.DeskShellFeature, terminalproto.AttentionFeature, terminalproto.SoftwareFeature, terminalproto.SoftwareApplyFeature, terminalproto.ProgressFeature, terminalproto.InspectFeature, terminalproto.AntigravityFeature, terminalproto.AntigravityACPFeature, terminalproto.CopilotFeature, terminalproto.ChatGateFeature, terminalproto.RepoCloneFeature, terminalproto.AgentAccountsFeature, terminalproto.RepoCloneRemoveFeature, terminalproto.RepoCloneFetchFeature, terminalproto.RepoListFeature, terminalproto.TerminalQuestionFeature}
+	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.BranchPruneFeature, terminalproto.BranchSyncFeature, terminalproto.BaseFreshFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ModelsRefreshFeature, terminalproto.ACPFeature, terminalproto.ACPWorktreeFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPApprovalFeature, terminalproto.SessionModeFeature, terminalproto.SessionModeAgentsFeature, terminalproto.NativeViewFeature, terminalproto.ChatReattachFeature, terminalproto.ChatReattachDetailFeature, terminalproto.ACPQuestionFeature, terminalproto.ACPModelFeature, terminalproto.ACPModelCatalogueFeature, terminalproto.ACPLiveControlsFeature, terminalproto.ACPStartOptionsFeature, terminalproto.ACPProviderFeature, terminalproto.ACPCommandsFeature, terminalproto.ACPPreviewsFeature, terminalproto.ACPUsageFeature, terminalproto.ACPBackgroundFeature, terminalproto.ACPAgentModeFeature, terminalproto.ACPAgentOptionsFeature, terminalproto.ACPAgentReattachFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ACPLongPromptFeature, terminalproto.ShellDirFeature, terminalproto.DeskShellFeature, terminalproto.AttentionFeature, terminalproto.SoftwareFeature, terminalproto.SoftwareApplyFeature, terminalproto.ProgressFeature, terminalproto.InspectFeature, terminalproto.AntigravityFeature, terminalproto.AntigravityACPFeature, terminalproto.CopilotFeature, terminalproto.ChatGateFeature, terminalproto.RepoCloneFeature, terminalproto.AgentAccountsFeature, terminalproto.RepoCloneRemoveFeature, terminalproto.RepoCloneFetchFeature, terminalproto.RepoListFeature, terminalproto.TerminalQuestionFeature, terminalproto.MachineLockFeature}
 	if c.AgentsV2 {
 		features = append(features, terminalproto.AgentsFeature)
 	}
@@ -93,6 +93,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "health reporting is disabled")
 		return
 	}
+	handshake.Capabilities = plausibleLockTime(handshake.Capabilities, time.Now())
 	caps, err := s.st.BeginRemoteConnectionFor(uid, agent.ID, handshake.AgentInstanceID, handshake.Capabilities)
 	if err != nil {
 		_ = conn.Close(websocket.StatusPolicyViolation, "connection rejected")
@@ -186,6 +187,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 			if body.AgentInstanceID != handshake.AgentInstanceID {
 				return
 			}
+			body.Capabilities = plausibleLockTime(body.Capabilities, time.Now())
 			if err := s.st.UpdateRemoteCapabilitiesFor(uid, agent.ID, body.AgentInstanceID, caps.Generation, body.Capabilities); err != nil {
 				return
 			}
@@ -209,4 +211,17 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// lockTimeSkew is how far ahead of this controller's clock a machine's lock
+// time may be and still be believed.
+const lockTimeSkew = 5 * time.Minute
+
+// plausibleLockTime drops a lock time from the future, keeping the lock: a
+// machine's clock can be wrong, and the time is only ever shown.
+func plausibleLockTime(c terminalproto.Capabilities, now time.Time) terminalproto.Capabilities {
+	if c.LockedAt > now.Add(lockTimeSkew).Unix() {
+		c.LockedAt = 0
+	}
+	return c
 }

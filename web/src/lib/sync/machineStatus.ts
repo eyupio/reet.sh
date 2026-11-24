@@ -2,10 +2,12 @@ import type { Machine, SyncSkills } from '../api'
 import { sameHost } from '../contentReview'
 
 /** Inventory is not sync evidence. Only the reconcile report can say a machine is in sync. */
-export function machineSkillStatus(machine: Pick<Machine, 'host'>, skills: SyncSkills | null) {
+/** `lockedSays` is the skills line for a machine its owner locked: pending and blocked installs are waiting for the unlock, never installing, and never allow-apply being off. */
+export function machineSkillStatus(machine: Pick<Machine, 'host'>, skills: SyncSkills | null, lockedSays = '') {
   const report = skills?.machines.find(m => sameHost(m.host, machine.host))
   if (!report) return { tone: 'attention', label: 'Skill sync not confirmed', detail: 'Open Sync to check the connection and skill reports.' }
   const detail = `${skills!.active} Active ${skills!.active === 1 ? 'skill follows' : 'skills follow'} your library.`
+  if (lockedSays && ['installing', 'removing', 'updating', 'blocked'].includes(report.state)) return { tone: 'setup', label: lockedSays, detail }
   switch (report.state) {
     case 'ok': return { tone: 'synced', label: 'Skills in sync', detail }
     case 'installing': case 'removing': case 'updating':

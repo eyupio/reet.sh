@@ -47,8 +47,9 @@ export function ledeText(active: number, work: SkillWork): string {
 }
 
 /** One machine's line: what it is doing with your skills, in one tone. */
-export function machineLine(m: SyncMachine, active: number, now = Date.now()): { text: string; tone: Tone } {
+export function machineLine(m: SyncMachine, active: number, now = Date.now(), locked = false): { text: string; tone: Tone } {
   const waiting = m.waiting.length
+  if (locked && m.state === 'blocked') return { text: 'Locked, waiting', tone: 'off' }
   switch (m.state) {
     case 'ok':
       return { text: `In sync · ${count(active, 'skill')} · connector seen ${agoInText(m.lastSeen, now)}`, tone: 'ok' }

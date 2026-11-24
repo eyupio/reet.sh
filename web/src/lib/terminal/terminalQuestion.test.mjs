@@ -95,7 +95,7 @@ test('answerTerminalQuestion posts the fingerprint and option, and maps every re
   assert.deepEqual(JSON.parse(calls[0].init.body), { fingerprint: 'fp1', option: 2 })
   reply(200, { answered: true, alreadyAnswered: true })
   assert.deepEqual(await api.answerTerminalQuestion('s1', 'f', 1), { kind: 'alreadyAnswered' })
-  const cases = [[409, 'question_changed', 'changed'], [409, 'update_required', 'updateRequired'], [409, 'answer_busy', 'busy'], [409, 'other', 'failed'], [403, undefined, 'readOnly'], [503, undefined, 'offline'], [404, undefined, 'failed'], [400, undefined, 'failed']]
+  const cases = [[409, 'question_changed', 'changed'], [409, 'update_required', 'updateRequired'], [409, 'answer_busy', 'busy'], [409, 'other', 'failed'], [409, 'machine_locked', 'failed'], [403, undefined, 'readOnly'], [503, undefined, 'offline'], [404, undefined, 'failed'], [400, undefined, 'failed']]
   for (const [status, code, kind] of cases) {
     reply(status, { error: 'Server words.', ...(code ? { code } : {}) })
     assert.deepEqual(await api.answerTerminalQuestion('s1', 'f', 1), { kind, sentence: 'Server words.' }, `${status} ${code}`)

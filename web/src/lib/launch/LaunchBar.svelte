@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { gafferTooltip } from '../gafferTooltip'
  import { chatNeedsTrust, chatTrustText, isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
@@ -1280,7 +1281,7 @@
       <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{/if}{#if !operation && !working}<kbd aria-hidden="true">{mac ? '↵' : 'Enter'}</kbd>{/if}
     </button>
   </div>
-  <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true">{shownStatus}</p>
+  <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true"><Sentence text={shownStatus} /></p>
 </form>
 
 {#if open && choice}

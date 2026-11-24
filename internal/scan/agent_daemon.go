@@ -90,6 +90,12 @@ func daemonDir(dir string) error {
 	return nil
 }
 func localAgentCall(config, method, path string, out any) error {
+	return localAgentCallWithin(config, method, path, out, 2*time.Second)
+}
+
+// localAgentCallWithin is localAgentCall with its own time limit, for a call
+// that waits for work, such as ending every chat.
+func localAgentCallWithin(config, method, path string, out any, limit time.Duration) error {
 	dir, socket, err := daemonPaths(config)
 	if err != nil {
 		return err
@@ -97,7 +103,7 @@ func localAgentCall(config, method, path string, out any) error {
 	if err := daemonDir(dir); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
@@ -161,6 +167,18 @@ func serveAgentControl(config string, state *agentRuntime, stop context.CancelFu
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(state.snapshot())
+	})
+	// The chats belong to this process: reet agent lock counts them, and
+	// with --end-sessions ends them, here.
+	mux.HandleFunc("GET /chats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"count": agentChats.Load().Running()})
+	})
+	mux.HandleFunc("POST /chats/end", func(w http.ResponseWriter, r *http.Request) {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Minute))
+		n := agentChats.Load().EndAll()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"count": n})
 	})
 	mux.HandleFunc("POST /stop", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)

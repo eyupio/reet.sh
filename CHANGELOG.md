@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Lock a machine from the machine**: `reet agent lock`, run on a machine, makes it refuse everything reet starts
+  there: new sessions and chats, attaching, input and answers, uploads, binary updates, skill installs, browsing its
+  folders and listing its models. It keeps reporting its health and inventory, running sessions keep running, and
+  ending a session or stopping a chat's turn from reet still works. Only `reet agent unlock`, on the machine, lifts
+  it; nothing in reet can. The lock does not contain what is already running: a running session can still run
+  commands there, including the unlock, so `reet agent lock --end-sessions` locks and ends them. Machines, launch
+  controls, open sessions, Sync and the Factory say "Locked on the machine" and since when.
+- **A chat respects the machine's terminal switch**: with terminal access switched off on a machine, a chat already
+  running there no longer takes prompts, answers or mode changes from reet. Before, only starting one was refused.
+- **No screen text leaves a machine with terminal access off**: the question an agent is waiting on is no longer read
+  or sent while terminal access is off, or while the machine is locked.
 - **Owner and admin changes need a signed-in browser**: with accounts on, a personal API token can no longer change a
   user's role, disable, delete or reset a user, transfer ownership, invite people, change instance, mail or single
   sign-on settings, configure or run backups, download or import a backup copy, or fence the controller. It gets

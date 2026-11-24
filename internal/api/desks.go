@@ -536,6 +536,9 @@ func (s *server) deskPaneReopen(w http.ResponseWriter, r *http.Request) {
 // deskReopenError maps a reopen's refusal; anything else keeps the terminal
 // create's mapping.
 func (s *server) deskReopenError(w http.ResponseWriter, err error, uid int64, id, agent, host string) {
+	if machineLocked(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, store.ErrDeskStale):
 		s.deskStale(w, uid, id)

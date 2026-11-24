@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { untrack } from 'svelte'
   import type { NeedCard } from '../home'
   import Approval from '../shell/Approval.svelte'
@@ -60,7 +61,7 @@
 </script>
 
 {#snippet sentence()}
-  {#if goal}<p class="said">Gaffer’s goal needs you.{#if goal.reason}{' '}{goal.reason}{/if}</p>
+  {#if goal}<p class="said">Gaffer’s goal needs you.{#if goal.reason}{' '}<Sentence text={goal.reason} />{/if}</p>
   {:else}
   {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />
   {/if}

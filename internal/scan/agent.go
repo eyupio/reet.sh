@@ -33,15 +33,20 @@ type agentConfig struct {
 	// Token is the personal API token a machine enrolled with one keeps
 	// sending; such a machine stops when the token is revoked. A machine
 	// enrolled with a code keeps only ID and Secret.
-	Token           string   `json:"token,omitempty"`
-	ID              string   `json:"id"`
-	Secret          string   `json:"secret"`
-	Host            string   `json:"host"`
-	Hostname        string   `json:"hostname"`
-	Home            string   `json:"home"`
-	Projects        []string `json:"projects"`
-	AllowApply      bool     `json:"allowApply"`
-	TerminalEnabled bool     `json:"terminalEnabled,omitempty"`
+	Token      string   `json:"token,omitempty"`
+	ID         string   `json:"id"`
+	Secret     string   `json:"secret"`
+	Host       string   `json:"host"`
+	Hostname   string   `json:"hostname"`
+	Home       string   `json:"home"`
+	Projects   []string `json:"projects"`
+	AllowApply bool     `json:"allowApply"`
+	// Locked refuses everything the controller starts on this machine until
+	// its owner runs reet agent unlock. Only a command here changes it.
+	Locked bool `json:"locked,omitempty"`
+	// LockedAt is when the lock went on, in Unix seconds; 0 while unlocked.
+	LockedAt        int64 `json:"lockedAt,omitempty"`
+	TerminalEnabled bool  `json:"terminalEnabled,omitempty"`
 	// BrowseOff refuses folder browsing locally (reet terminal browse off).
 	BrowseOff bool `json:"browseOff,omitempty"`
 	// ClipboardOff refuses OSC 52 clipboard forwarding locally
@@ -209,7 +214,7 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|lock|unlock|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "library-import" {
@@ -225,6 +230,17 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			return err
 		}
 		applyMode, args = mode, rest
+	}
+	lockMode := ""
+	if action == "lock" || action == "unlock" {
+		mode, rest, err := parseAgentLock(args, out)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		lockMode, args = mode, rest
 	}
 	if action == "skill" {
 		return runAgentSkillImport(args[1:], in, out, version)
@@ -260,6 +276,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	skipTerminalSetup := fs.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard after enrollment")
 	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
 	ifNeeded := fs.Bool("if-needed", false, "reuse an enrollment for the same site and machine (installer retries)")
+	endSessions := fs.Bool("end-sessions", false, "with lock: also end every session and chat this machine runs")
 	again := fs.Bool("again", false, "enrol this machine again with an enrolment code, keeping every local setting (leaves a personal token behind)")
 	var projects multi
 	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
@@ -277,6 +294,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		return err
 	}
 	*config = absoluteConfig
+	if *endSessions && action != "lock" {
+		return errors.New("--end-sessions goes with reet agent lock only")
+	}
 	switch action {
 	case "enroll":
 		if *again {
@@ -311,7 +331,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 					if err = os.MkdirAll(filepath.Join(c.Home, ".agents", "skills"), 0755); err != nil {
 						return err
 					}
-					if err = writePrivate(*config, c); err != nil {
+					if err = editAgentConfig(*config, func(s *agentConfig) error { s.AllowApply = true; return nil }); err != nil {
 						return err
 					}
 				}
@@ -406,6 +426,12 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			return err
 		}
 		return runAgentAllowApply(c, *config, applyMode, out)
+	case "lock", "unlock":
+		c, err := loadAgentConfig(*config)
+		if err != nil {
+			return err
+		}
+		return runAgentLock(c, *config, lockMode, *endSessions, out)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {
@@ -414,6 +440,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		if err = printAgentStatus(*config, out); err != nil {
 			return err
 		}
+		fmt.Fprintf(out, "Locked on this machine: %s\n", onOff(c.Locked))
 		if !*remoteStatus {
 			return nil
 		}
@@ -489,6 +516,8 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				ModelsAllowed:    modelsAllowed(*config, c),
 				YoloAllowed:      yoloAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
+				Locked:           lockedNow(*config),
+				LockedAt:         lockedSince(*config),
 				OnConnection:     state.connected.Store,
 				OnError:          func(message string) { state.note(&state.privateError, message) },
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
@@ -655,6 +684,9 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if _, err := checkPendingUpdate(c, config, version); err != nil {
 		return err
 	}
+	// The lock is read fresh each cycle, as allow-apply is, so it holds
+	// from the next cycle without restarting the agent.
+	c.Locked = lockedNow(config)()
 	handled, err := processRemoteImport(ctx, c, version)
 	if handled {
 		return err
@@ -737,7 +769,10 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	case "scan":
 		operationErr = scanAll(false)
 	case "update":
-		if !allowRestart {
+		if c.Locked {
+			// Updating runs code the controller chose; a locked machine refuses.
+			operationErr = errors.New(terminalproto.LockedSentence)
+		} else if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")
 		} else {
 			report := func(stage, detail string) { reportAgentStage(c, j.ID, stage, detail, version) }

@@ -65,7 +65,7 @@ func newSwapRig(t *testing.T) *swapRig {
 	t.Helper()
 	ctx := t.Context()
 	r := &swapRig{out: &sent{}, shells: newFakeShells(), home: t.TempDir()}
-	opts := terminalhost.ManagerOptions{Home: r.home}
+	opts := terminalhost.ManagerOptions{Home: r.home, Consent: func() error { return nil }}
 	r.sup = newChatSupervisor(ctx, opts)
 	r.sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	r.sup.start = r.start

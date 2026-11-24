@@ -33,7 +33,7 @@ func runAgentAllowApply(c agentConfig, config, mode string, out io.Writer) error
 	switch mode {
 	case "on", "off":
 		c.AllowApply = mode == "on"
-		if err := writePrivate(config, c); err != nil {
+		if err := editAgentConfig(config, func(s *agentConfig) error { s.AllowApply = c.AllowApply; return nil }); err != nil {
 			return err
 		}
 		if c.AllowApply {

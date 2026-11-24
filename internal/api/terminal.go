@@ -193,7 +193,20 @@ func terminalOptionalJSON(w http.ResponseWriter, r *http.Request, out any) bool 
 	return terminalJSON(w, r, out)
 }
 
+// machineLocked answers a request the machine refused because its owner
+// locked it there, and reports whether it did. Nothing here can lift it.
+func machineLocked(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, terminalbroker.ErrLocked) {
+		return false
+	}
+	writeErrCode(w, http.StatusConflict, "machine_locked", "", terminalproto.LockedSentence, "")
+	return true
+}
+
 func terminalError(w http.ResponseWriter, err error) {
+	if machineLocked(w, err) {
+		return
+	}
 	status := 503
 	message := "terminal machine is reconnecting; retry after it reconnects"
 	switch {
@@ -225,9 +238,13 @@ func (s *server) terminalMachines(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]any{}
 	for _, a := range agents {
-		item := map[string]any{"agentId": a.ID, "host": a.Host, "ready": s.terminalEnabled() && s.terminals.Ready(s.uid(r), a.ID), "serverEnabled": s.terminalEnabled()}
+		item := map[string]any{"agentId": a.ID, "host": a.Host, "ready": s.terminalEnabled() && s.terminals.Ready(s.uid(r), a.ID), "serverEnabled": s.terminalEnabled(), "locked": false}
 		if c, e := s.st.RemoteCapabilitiesFor(s.uid(r), a.ID); e == nil {
 			item["capabilities"] = c.Capabilities
+			item["locked"] = c.Capabilities.Locked
+			if c.Capabilities.LockedAt > 0 {
+				item["lockedAt"] = c.Capabilities.LockedAt
+			}
 		}
 		out = append(out, item)
 	}
@@ -397,6 +414,9 @@ func (s *server) terminalCreateRecorded(uid int64, agent, requestID string) bool
 // terminalCreateError maps launch refusals to stable codes and plain
 // sentences; every other error keeps its existing terminal mapping.
 func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64, agent, tool string) {
+	if machineLocked(w, err) {
+		return
+	}
 	var trust *terminalbroker.ACPTrustError
 	if errors.As(err, &trust) {
 		message := "This folder has OpenCode plugins. Start only in a folder you trust."

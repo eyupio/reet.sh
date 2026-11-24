@@ -23,7 +23,8 @@ priority order within each group):
     keep working and are marked. The web's Add a machine still makes a personal token until it asks for a code.
   - Extend `SECURITY.md` with a scope and trust model for the remote surfaces: the machine agent, enrolment, the
     controller-to-machine terminal path, YOLO and approval-bypass modes, and what a relay can see.
-  - A machine-local lock that refuses every controller-initiated launch and attach until the owner lifts it.
+  - A machine-local lock that refuses every controller-initiated launch and attach until the owner lifts it. Built: `reet agent lock`;
+    not yet run against a real machine.
 - **Agent behaviour.**
   - Terminal "waiting" detection for Cline, Antigravity and Copilot, with the question and its options, not only a yes/no.
   - A turn that ends while a subagent or background command is still running should not read as finished. Built for

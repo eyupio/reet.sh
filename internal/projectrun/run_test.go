@@ -70,6 +70,7 @@ type fakeBroker struct {
 	agentPeak    map[string]int
 	agentsAtOnce int // most distinct machines with a create in flight at once
 	notReady     map[string]bool
+	locked       map[string]bool
 	answer       func(sent) answer
 	gate         chan struct{}
 	delay        time.Duration
@@ -82,6 +83,12 @@ func (f *fakeBroker) Ready(uid int64, agent string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return !f.notReady[agent]
+}
+
+func (f *fakeBroker) Locked(uid int64, agent string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.locked[agent]
 }
 
 func (f *fakeBroker) setReady(agent string, ready bool) {

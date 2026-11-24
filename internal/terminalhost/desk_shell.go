@@ -467,6 +467,10 @@ func (m *Manager) ForgetDeskSession(ctx context.Context, sessionID string) error
 	if m.closed {
 		return ErrManagerClosed
 	}
+	// Ending stays allowed while locked; deleting the history does not.
+	if m.isLocked() {
+		return ErrLocked
+	}
 	lock, err := m.registryLock(ctx)
 	if err != nil {
 		return err

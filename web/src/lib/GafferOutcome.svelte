@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from './Sentence.svelte'
   // Gaffer proposes the sessions, the person edits and approves the plan, and only then does the
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
@@ -329,6 +330,8 @@
     return split.length > 1 ? split.map(part => ({ stage, crew: tierLabel(part.tier), readiness: tierReady[part.tier] })) : [{ stage, crew: tierLabel(stageTier(kind, item).tier), readiness: tierReady[stageTier(kind, item).tier] }]
   }))))
   const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
+  // A machine that is only locked is waiting, not failing: the hold is said quietly.
+  const waitOnly = $derived(!!approveBlocker && approveBlocker === launch.blocker && launch.waiting === launch.blocked)
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
   let blockerSeen = $state(false)
   $effect(() => { if (step !== 'plan') blockerSeen = false; else if (approveBlocker) blockerSeen = true })
@@ -591,7 +594,7 @@
         {@render readinessPanel()}
         {@render launchChoices()}
         {#if merging}<p class="merging" id={`${formId}-merging`}>{merging}</p>{/if}
-        <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
+        <p class="status" class:warning={!!approveBlocker && !waitOnly} class:hint={!approveBlocker || waitOnly} id={`${formId}-blocker`} role="status"><Sentence text={approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')} /></p>
         {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
         <div class="actions"><button class="btn primary" type="button" disabled={busy || tplReading || !!approveBlocker} aria-describedby={[merging ? `${formId}-merging` : '', approveBlocker ? `${formId}-blocker` : ''].filter(Boolean).join(' ') || undefined} onclick={() => void startFromTemplate()}>{busy ? 'Starting…' : `Start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'} from this template`}</button><button class="btn quiet" type="button" disabled={busy} onclick={leaveTemplate}>Back</button></div>
       {/if}
@@ -639,7 +642,7 @@
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a pipeline</button>{/if}
       {@render launchChoices()}
-      <p class="status" class:warning={!!approveBlocker} class:hint={!approveBlocker} id={`${formId}-blocker`} role="status">{approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')}</p>
+      <p class="status" class:warning={!!approveBlocker && !waitOnly} class:hint={!approveBlocker || waitOnly} id={`${formId}-blocker`} role="status"><Sentence text={approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')} /></p>
       {#if !approveBlocker && !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
       {/if}
@@ -737,10 +740,10 @@
 <!-- What each stage would run on, before the person starts. A blocker here holds the start, for a template as for a plan, and opens the crew editor. -->
 {#snippet readinessPanel()}
       {#if launch.ready + launch.look + launch.blocked + launch.reading}<section class="readiness" aria-label="Launch readiness">
-        <p class="launch" class:look={launch.look > 0 && !launch.blocked} class:stop={launch.blocked > 0}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked ? '✕' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
-        {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.level}>
-          <span class="mark" aria-hidden="true">{cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
-          <span class="text"><strong>{cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. {cause.text}</span>
+        <p class="launch" class:look={(launch.look > 0 && !launch.blocked) || (launch.blocked > 0 && launch.waiting === launch.blocked)} class:stop={launch.blocked > launch.waiting}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked > launch.waiting ? '✕' : launch.waiting ? '!' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
+        {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.waiting ? 'waiting' : cause.level}>
+          <span class="mark" aria-hidden="true">{cause.waiting ? '!' : cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
+          <span class="text"><strong>{cause.waiting ? 'Waiting to be unlocked' : cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. <Sentence text={cause.text} /></span>
           {#if cause.level !== 'note' && !cause.machine}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
         </li>{/each}</ul>{/if}
       </section>{/if}
@@ -849,7 +852,7 @@
   /* Each cause is a row like a stage line: a fixed-width mark, then the text, with its button after it (under it on narrow widths). */
   .readiness{display:grid;gap:6px;min-width:0}.readiness ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
   .readiness li{display:grid;grid-template-columns:1.5em minmax(0,1fr) auto;gap:2px 10px;align-items:start;min-width:0;font-size:0.875rem;color:var(--muted)}
-  .readiness .mark{font-weight:700}.readiness li.blocked .mark{color:var(--bad)}.readiness li.look .mark{color:var(--warn)}.readiness strong{font-weight:600}.readiness li.blocked strong{color:var(--bad)}
+  .readiness .mark{font-weight:700}.readiness li.blocked .mark{color:var(--bad)}.readiness li.look .mark{color:var(--warn)}.readiness li.waiting .mark,.readiness li.waiting strong{color:var(--muted)}.readiness strong{font-weight:600}.readiness li.blocked strong{color:var(--bad)}
   .readiness li .btn{align-self:center}
   .status:empty{position:absolute;width:0;height:0;overflow:hidden}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}

@@ -227,6 +227,8 @@ export function titleFor(tool: string, dir: string): string {
 }
 
 const RUN_SENTENCES: Record<string, string> = {
+  // The machine's owner locked it (reet agent lock); the same sentence readiness() gives.
+  machine_locked: 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.',
   unknown_position: 'Choose repositories that are in this Project, each once.',
   not_failed: 'Only a repository that failed can be tried again.',
   terminals_disabled: "Remote terminals are switched off on this server, so agents can't be started.",

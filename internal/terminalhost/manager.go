@@ -48,6 +48,9 @@ type ManagerOptions struct {
 	// (reet terminal yolo on|off). nil means YOLO is refused, as it is by
 	// default; an error refuses it too.
 	YoloConsent func() error
+	// Locked re-reads the machine's local lock (reet agent lock). While it
+	// reports true, Run closes every attachment; sessions keep running.
+	Locked func() bool
 }
 
 type Manager struct {
@@ -56,6 +59,8 @@ type Manager struct {
 	home       string
 	tmux       Tmux
 	consent    func() error
+	// locked nil means the machine is never locked.
+	locked func() bool
 	// clipboardConsent nil means clipboard forwarding is allowed.
 	clipboardConsent func() error
 	// uploadConsent nil means image uploads are allowed.
@@ -136,7 +141,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskStarts: map[string]deskStart{}, deskForget: map[string]*time.Timer{}}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, locked: opts.Locked, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskStarts: map[string]deskStart{}, deskForget: map[string]*time.Timer{}}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -183,7 +188,7 @@ func (m *Manager) allowed() error {
 func (m *Manager) consented() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.allowed() == nil
+	return m.open() == nil
 }
 
 func updatedAt(s ManagedSession) int64 {
@@ -222,7 +227,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return ManagedSession{}, err
 	}
 	consent := m.yoloConsent == nil || m.yoloConsent() != nil
@@ -344,7 +349,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.saveRegistry(r); err != nil {
 		return s, err
 	}
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return s, err
 	}
 	reportStage(ctx, terminalproto.StageStarting)
@@ -552,8 +557,12 @@ func (m *Manager) List(ctx context.Context) ([]ManagedSession, error) {
 		return nil, err
 	}
 	out := make([]ManagedSession, 0, len(r.Sessions))
+	// A locked machine reports whether its sessions run, not where they work.
+	locked := m.isLocked()
 	for id, s := range r.Sessions {
-		s.LiveDir = m.liveDir[id]
+		if !locked {
+			s.LiveDir = m.liveDir[id]
+		}
 		if s.State == terminalproto.Running {
 			s.Question = m.prompts[id].question
 		}
@@ -780,7 +789,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			return m.Close()
 		}
 		m.mu.Lock()
-		disabled := m.consent() != nil
+		disabled := m.consent() != nil || m.locked != nil && m.locked()
 		if disabled {
 			for _, a := range m.attachments {
 				_ = a.Close()
@@ -856,7 +865,7 @@ func (m *Manager) WorktreeStatus(ctx context.Context, in terminalproto.WorktreeS
 func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeRemove) (WorktreeRemoved, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return WorktreeRemoved{}, err
 	}
 	return RemoveWorktree(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed, Discard: in.Discard, Fingerprint: in.Fingerprint}, m.git)

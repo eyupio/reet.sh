@@ -20,7 +20,7 @@ const THUMB_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC
 const ok = name => ({name,state:'SUCCESS'})
 const second = {...session, id:'session-insights-002', title:'Second session', promptExcerpt:'SECOND-SESSION-PROMPT is a short one.', promptMore:false}
 async function open(width=1600,theme='dark', supported=true, hold=null, opts={}) {
- const calls=[], box={fail:false, answer:null, pull:null, reason:null, offline:false, lists:0}, prompts=[]
+ const calls=[], box={fail:false, answer:null, pull:null, reason:null, offline:false, locked:false, lists:0}, prompts=[]
  const first = {...session, ...opts.session}
  const inspect = async request=>{
    const q=new URL(request.url()).searchParams,view=q.get('view'),path=q.get('path');calls.push({view,path})
@@ -43,7 +43,8 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
   [`/api/v2/terminal/sessions/${second.id}/skills`]:{skills:[],machineSeen:Date.now(),host:'studio'},
   [`/api/v2/terminal/sessions/${second.id}/inspect`]:inspect,
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
-  '/api/v2/terminal/machines':{machines:[{...machine,capabilities:{...caps,inspect:supported}}]},
+  // `box.locked` is the machine's owner locking it while the session is open: not ready, locked, still connected.
+  '/api/v2/terminal/machines':()=>({machines:[{...machine,ready:!box.locked,locked:box.locked,capabilities:{...caps,inspect:supported,locked:box.locked}}]}),
   // `box.offline` makes the next health read say the machine stopped reporting, as a machine that went away would.
   '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{...machine,state:box.offline?'disconnected':'connected',connection:{connected:!box.offline,reportFresh:!box.offline,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
   // Counted, so a test can tell that the workspace read its session list again.
@@ -1085,6 +1086,52 @@ try {
   await page.locator('.session-screen header.head').waitFor({state:'visible'})
   const reloaded=page.getByRole('complementary',{name:'Session context'})
   await expect(reloaded.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
+  expect(errors).toEqual([]);await context.close()
+ }
+
+ // A session open on a machine that becomes locked: the sentence is where the panel says the machine is away, the transcript stays,
+ // reet reads nothing more there, End session stays available and nothing offers to unlock.
+ for(const [width,theme] of [[1600,'light'],[390,'dark']]){
+  const {page,context,panel,errors,box,calls}=await open(width,theme)
+  const SENTENCE='Locked on the machine. The agent keeps running; from here you can only stop its current turn or end the session.'
+  await expect(panel.locator('.connection')).toHaveText('Machine online')
+  await expect(panel.locator('.callout')).toHaveCount(0)
+  await expect(page.locator('[data-lock-status]')).toHaveText('')
+  const before=box.lists
+  box.locked=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+  await expect.poll(()=>box.lists).toBeGreaterThan(before)
+  await expect(panel.locator('.connection')).toHaveText('Machine locked')
+  await expect(panel.locator('.callout')).toHaveText(SENTENCE)
+  await expect(panel.locator('.connection i')).toHaveCSS('background-color', await panel.locator('.connection').evaluate(el=>getComputedStyle(el).color))
+  // Announced once, through an element that was already there; the composer is off with that reason, Stop and End session are not.
+  await expect(page.locator('[data-lock-status]')).toHaveText(SENTENCE)
+  await expect(page.locator('.session-screen').getByRole('textbox',{name:/^Message/})).toBeDisabled()
+  await expect(page.locator('.session-screen').getByRole('button',{name:'Prompts'})).toBeDisabled()
+  await expect(page.locator('.session-screen').locator('button.skills-btn').nth(1)).toBeDisabled()
+  await expect(page.locator('.session-screen .notice').filter({hasText:SENTENCE})).toHaveCount(1)
+  await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeEnabled()
+  expect(await page.evaluate(()=>document.body.innerText.includes('`')),'a literal backtick').toBe(false)
+  await expect(page.getByText('The machine is offline or unavailable')).toHaveCount(0)
+  // The workspace's own notice for a machine that cannot take work says the same sentence, in one piece.
+  await expect(page.locator('.workspace-notice')).toContainText(SENTENCE)
+  await expect(page.getByRole('button',{name:/unlock/i})).toHaveCount(0)
+  // The transcript the page already holds is still there.
+  await expect(page.locator('.session-screen')).toContainText('The workspace is connected. I am checking the browser layout.')
+  // Reading stops while it is locked: a tab that would read says why instead of asking.
+  await panel.getByRole('tab',{name:/^Changes/}).click()
+  await expect(panel.locator('.callout')).toHaveText(SENTENCE)
+  const asked=calls.length
+  await expect(panel.getByRole('button',{name:'Refresh session workspace'})).toBeDisabled()
+  await page.waitForTimeout(300)
+  expect(calls.length).toBe(asked)
+  if(process.env.REET_E2E_SHOTS)await page.screenshot({path:`${process.env.REET_E2E_SHOTS}/session-locked-${width}-${theme}.png`})
+  const end=page.locator('.session-screen').getByRole('button',{name:'End session…',exact:true})
+  if(!await end.isVisible()){
+   const exit=page.locator('.session-screen').getByRole('button',{name:'Exit focus mode',exact:true})
+   if(await exit.count())await exit.click()
+   await page.locator('.session-screen').getByRole('button',{name:'Session actions',exact:true}).click()
+  }
+  await expect(end).toBeEnabled()
   expect(errors).toEqual([]);await context.close()
  }
  console.log('Session workspace: tabs, status line, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')

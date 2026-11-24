@@ -247,13 +247,7 @@ func (s *Store) useVersionProblem(uid int64, item string, on SkillEditedOn, back
 			return fmt.Sprintf("The edited copy on %s has no valid SKILL.md.", on.Host), nil
 		}
 	case "failed":
-		why := map[string]string{
-			"capture_failed":         "reet couldn't read it",
-			"scope_unavailable":      "it isn't in that machine's skills backups",
-			"source_changed":         "it changed while it was being read",
-			"transfer_failed":        "sending it failed",
-			"invalid_skill_manifest": "its SKILL.md isn't valid",
-		}[r.Error]
+		why := remoteImportFailure[r.Error]
 		if why == "" {
 			why = "it could not be read"
 		}
@@ -473,4 +467,15 @@ func (s *Store) LibrarySkillsWithoutShelfFor(uid int64) ([]Skill, error) {
 		out = append(out, sk)
 	}
 	return out, rows.Err()
+}
+
+// remoteImportFailure words each reason a machine gives for not sending an
+// edited copy.
+var remoteImportFailure = map[string]string{
+	"capture_failed":         "reet couldn't read it",
+	"scope_unavailable":      "it isn't in that machine's skills backups",
+	"source_changed":         "it changed while it was being read",
+	"transfer_failed":        "sending it failed",
+	"invalid_skill_manifest": "its SKILL.md isn't valid",
+	"machine_locked":         "it is locked. Run `reet agent unlock` there",
 }

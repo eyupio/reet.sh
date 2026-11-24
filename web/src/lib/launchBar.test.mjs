@@ -461,6 +461,7 @@ test('a start in several projects words its own refusals', () => {
     [429, 'project_rate_limited', 'Slow down a moment, then try again.'],
     [409, 'request_changed', 'That request changed. Start it again.'],
     [422, 'prompt_unsupported', 'Write the opening prompt as at least two words.'],
+    [409, 'machine_locked', 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.'],
     [409, 'launch_option_unsupported', "That agent doesn't take that option."],
   ]
   for (const [status, code, want] of cases) assert.equal(runRefusalText(status, code, 'server words'), want, code)

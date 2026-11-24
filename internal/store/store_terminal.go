@@ -714,6 +714,9 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if err != nil {
 			return err
 		}
+		if c.Capabilities.Locked {
+			return LockedError{Was: ErrTerminalNotReady}
+		}
 		if !c.Capabilities.TerminalEnabled || c.Capabilities.Readiness != terminalproto.Ready {
 			return ErrTerminalNotReady
 		}

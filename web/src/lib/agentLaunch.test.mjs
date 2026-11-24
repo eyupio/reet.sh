@@ -169,6 +169,8 @@ test('title origins agree with the controller', () => {
 })
 
 test('refusal sentences', () => {
+  assert.equal(refusalText(409, 'machine_locked'), 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.')
+  assert.equal(refusalText(409, 'machine_locked', 'anything'), 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.')
   assert.equal(refusalText(409, 'launch_unsupported'), 'Update reet on that machine to start agents.')
   assert.equal(refusalText(422, 'tool_not_installed'), "That agent isn't installed on that machine.")
   assert.equal(refusalText(422, 'folder_unavailable'), "That folder isn't available on that machine.")

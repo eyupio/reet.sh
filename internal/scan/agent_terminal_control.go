@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/eyupio/reet.sh/internal/acpagent"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
@@ -14,6 +15,9 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
+
+// agentChats is this agent process's chats, for its local control socket.
+var agentChats atomic.Pointer[terminalagent.ChatSupervisor]
 
 func terminalControl(ctx context.Context, config string, c agentConfig) agenthealth.TerminalFactory {
 	layout, err := terminalhost.NewEnrollmentLayout(config, c.ID)
@@ -30,10 +34,11 @@ func terminalControl(ctx context.Context, config string, c agentConfig) agenthea
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
-	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }}
+	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }, Locked: lockedNow(config)}
 	// Chat sessions are owned by this process, not by one control connection:
 	// a reconnect adopts them instead of ending every running agent.
 	chats := terminalagent.NewChatSupervisor(ctx, opts)
+	agentChats.Store(chats)
 	onAgentRestart(chats.Close)
 	return terminalagent.FactoryWithChats(opts, chats)
 }

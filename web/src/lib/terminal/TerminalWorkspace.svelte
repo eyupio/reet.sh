@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
+  import { SESSION_LOCKED } from '../machineLock'
   import { listGafferOutcomes } from '../api'
   import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, offFinishedFactory, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   let factory=$state<Map<string,FactoryMember>>(new Map())
@@ -237,7 +239,9 @@
   }
 
   const machineStatus = $derived(health.machines.find(item=>item.agentId===selectedAgent))
-  const setup = $derived(readiness(machine))
+  const setup = $derived(machine?.locked && session ? SESSION_LOCKED : readiness(machine))
+  /** Why an open shell is not live: the lock's own sentence, else that its machine is away. */
+  const awayNote = (m: TerminalMachine) => m.locked ? readiness(m) : `${m.host} is offline. This shell will reconnect when the machine is back.`
   const serverNow = $derived(health.serverNow+elapsed)
   const runningByProject = $derived(projectRunning(listed))
   const currentProjectId = $derived(session?.projectId ?? '')
@@ -326,16 +330,16 @@
     const current=machines.find(item=>item.agentId===agent)
     if(selectedSession){
       // firstLoad already joined a running session (or the address named one): attach, but say when its machine is away.
-      if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
+      if(current&&(!current.ready||current.serverEnabled===false))error=awayNote(current)
       return
     }
     const target=reusableSessionFor(listed,agent)
     if(target){
       chooseSession(target)
-      if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
+      if(current&&(!current.ready||current.serverEnabled===false))error=awayNote(current)
       return
     }
-    if(!current||current.serverEnabled===false||!current.ready||readiness(current)){error=`Open terminal needs ${current?.host||'that machine'} to be online. ${readiness(current)||'It is reconnecting. Try again when it is ready.'}`;return}
+    if(!current||current.serverEnabled===false||!current.ready||readiness(current)){error=current?.locked?readiness(current):`Open terminal needs ${current?.host||'that machine'} to be online. ${readiness(current)||'It is reconnecting. Try again when it is ready.'}`;return}
     if(!canCreateFor(agent)){error=accountActive>=SESSIONS_PER_ACCOUNT?`Open terminal could not start a shell: your account already has ${SESSIONS_PER_ACCOUNT} active sessions. End one and try again.`:'Open terminal could not start a shell on this machine. Try again in a moment.';return}
     selectTerminalMachine(agent)
     creations={...creations,[agent]:{requestId:openTerminalRequestId(agent),title:autoName,dir:'',projectId:undefined,error:''}}
@@ -777,7 +781,7 @@
     <p id="terminal-folder-help">{dirError || 'Leave empty for the machine’s home folder, or enter a full path starting with /.'}</p>
     <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" placeholder={autoName} aria-describedby="terminal-name-help" /></label>
     <p id="terminal-name-help">Optional. Left empty, the session is called {autoName}.</p>
-    {#if !createMachine?.ready || createMachine.serverEnabled===false}<p class="create-reason" role="status">{readiness(createMachine) || 'Choose a machine before creating a shell.'}</p>{/if}
+    {#if !createMachine?.ready || createMachine.serverEnabled===false}<p class="create-reason" role="status">{#if readiness(createMachine)}<Sentence text={readiness(createMachine)} />{:else}Choose a machine before creating a shell.{/if}</p>{/if}
     <p>{createActive} / {SESSIONS_PER_MACHINE} active on this machine · {accountActive} / {SESSIONS_PER_ACCOUNT} across your account{createAtQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
     <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()||autoName) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
 
@@ -807,7 +811,7 @@
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
-  {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
+  {#if error && !showCreate}<p class="workspace-notice bad" role="alert"><Sentence text={error} /> <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
     {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {factory} {machines} sessions={listed} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='drawer'}<div class="drawer-scrim" aria-hidden="true" onclick={()=>{closeDrawer();saveLayout()}}></div>{/if}
@@ -846,14 +850,14 @@
               </div>
             {/if}
           {/snippet}
-          {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
+          {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{#if session.state === 'end_requested'}End requested. Waiting for this machine to confirm; the shell still counts towards its limit.{:else}<Sentence text={setup} />{/if}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#if terminalClosed(session.state) && reattach[session.id]?.phase !== 'pending'}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions">{#if !session.structured}<button type="button" disabled={!machines.length || accountActive>=SESSIONS_PER_ACCOUNT} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button>{/if}<button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
               {@const reattachable = reconnectable(session)}
               <div class="session-presentation" data-session-presentation="chat" hidden={presentation !== 'chat'} inert={presentation !== 'chat'}>
-              <ChatPane {session} project={projects?.find(p => p.id === session.projectId)} planLimits={machine?.capabilities?.agentAccounts===true} planHost={machine?.host??''} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=SESSIONS_PER_ACCOUNT||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} onterminal={()=>sessionScreen?.showTerminal?.()} terminal={sessionScreen?.getTerminalWay?.()} newChatOff={actionBusy||!machines.length||accountActive>=SESSIONS_PER_ACCOUNT} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              <ChatPane {session} locked={machine?.locked?SESSION_LOCKED:''} project={projects?.find(p => p.id === session.projectId)} planLimits={machine?.capabilities?.agentAccounts===true} planHost={machine?.host??''} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=SESSIONS_PER_ACCOUNT||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} onterminal={()=>sessionScreen?.showTerminal?.()} terminal={sessionScreen?.getTerminalWay?.()} newChatOff={actionBusy||!machines.length||accountActive>=SESSIONS_PER_ACCOUNT} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
               </div>
               {#if terminalMounted[session.id]}
                 <div class="session-presentation" data-session-presentation="terminal" hidden={presentation !== 'terminal'} inert={presentation !== 'terminal'}>
@@ -870,7 +874,7 @@
         {@render endedView('This session has ended', "It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.")}
       {:else if !selectedAgent || machine && !setup}
         {#if resumeSessions.length}{@render endedView('Pick up where you left off', `${resumeSessions.length===1?'One session is':`${resumeSessions.length} sessions are`} running. Jump back into one, or start something new.`, true)}{:else}{@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal.')}{/if}
-      {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render startActions()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
+      {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{#if selectedSession}Choose an existing session or create one explicitly. No replacement shell was created.{:else if setup}<Sentence text={setup} />{:else}Create a terminal, then return to the same session whenever you need it.{/if}</p>{@render startActions()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
 </section>
@@ -879,7 +883,7 @@
 {#if viewportDebug}<pre class="viewport-debug" aria-hidden="true">{debugReading}</pre>{/if}
 {#if machineSearchOpen}<WorkspaceDialog title="Find a machine" onclose={()=>machineSearchOpen=false}>
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
-  <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
+  <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {#if item.ready}Ready{:else}<Sentence text={readiness(item)} />{/if}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
 {#if newSessionOpen}<NewSessionChoice project={newSessionProject?.name ?? ''} machine={newSessionProject ? newSessionProject.machine || machine?.host || '' : machine?.host || ''} factory={!!$gafferChatEntry}
   onchoose={kind => void chooseNewSession(kind)} onclose={() => { newSessionOpen = false; newSessionProject = null; newSessionOpener = null }} />{/if}
@@ -888,7 +892,7 @@
 {#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
 {#if detailsOpen}<WorkspaceDialog title="Machine & terminal details" onclose={() => detailsOpen = false}>
   <p class="dialog-copy">{machine?.host || 'No machine selected'}{machine?.capabilities?.osUser ? ` · Shell user ${machine.capabilities.osUser}` : ''}</p>
-  {#if setup}<section class="setup-notice"><h3>Terminal setup</h3><p>{setup}</p>{#if machine?.serverEnabled !== false && !machine?.capabilities?.terminalEnabled}<pre>reet agent terminal setup</pre><CopyButton text={'reet agent terminal setup'} label="Copy local terminal setup" />{:else if machine?.capabilities?.readiness === 'supervisor_unavailable'}<pre>reet agent stop
+  {#if setup}<section class="setup-notice"><h3>{machine?.locked ? 'Machine locked' : 'Terminal setup'}</h3><p><Sentence text={setup} /></p>{#if machine?.serverEnabled !== false && !machine?.locked && !machine?.capabilities?.terminalEnabled}<pre>reet agent terminal setup</pre><CopyButton text={'reet agent terminal setup'} label="Copy local terminal setup" />{:else if machine?.capabilities?.readiness === 'supervisor_unavailable'}<pre>reet agent stop
 reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent service install'} label="Copy service install command" />{/if}</section>{/if}
   {#if healthIssue}<p class="dialog-copy" role="status">{healthIssue}</p>{/if}
   <section aria-label="Machine diagnostics"><h3>Machine health</h3><MachineHealthStrip health={machineStatus} {serverNow} />{#key selectedAgent}<HealthHistory agent={selectedAgent} />{/key}</section>

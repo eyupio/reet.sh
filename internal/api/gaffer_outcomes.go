@@ -633,6 +633,11 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 		} else {
 			message = reply.Error
 		}
+		// A locked machine refused before anything was sent: nothing started,
+		// and the sentence says what to do.
+		if errors.Is(err, terminalbroker.ErrLocked) {
+			return "", "", errors.New(message)
+		}
 		// A machine that could not be reached, or did not answer, has said
 		// nothing about a session an earlier request may have started.
 		if errors.Is(err, terminalbroker.ErrOffline) || errors.Is(err, terminalbroker.ErrNotSent) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {

@@ -129,6 +129,12 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	if work.Instance != instance {
 		return true, nil
 	}
+	if c.Locked {
+		// A locked machine reads no folder for the controller. Whether or
+		// not an older controller takes the reason, the cycle goes on.
+		_, _ = failure("machine_locked")
+		return false, nil
+	}
 	// Use this version reads the backup of the copy edited here, not the
 	// live folder, which holds reet's copy again.
 	var root string

@@ -1,5 +1,57 @@
 # Reet central-control implementation handoff
 
+## MACHINE-LOCK-1: a lock only the machine can lift (24 November 2026)
+
+The last buildable "Security and access" item of the roadmap's reliability workstream. The owner chose the widest
+reach, and chose that a plain lock keeps running sessions.
+
+**The switch.** `Locked` and `LockedAt` in the agent's private config (`internal/scan/agent.go`), changed only by
+`reet agent lock`, `unlock` and `lock status` (`agent_lock.go`). No controller message or polled job can write it. An
+unreadable config counts as locked. Every rewrite of the config goes through `editAgentConfig`, which takes a `flock`
+on `<config>.edit.lock` and changes only its own fields, so a lock cannot be lost to another writer. It survives a
+restart, a binary update, a controller move, `set-server`, and `enroll --again`.
+
+**Enforcement.** One gate, `gateMachineRequests` (`internal/agenthealth/agent.go`), checked when a message is taken
+off the queue. An allow-list: reconcile, end, detach, ACP cancel, worktree status, native-view and probes pass;
+every other kind, and any kind the gate does not know, gets a `locked` result. `lock_test.go` reads the kinds from
+the decoder's source, so a new kind with no decision fails the test. Each attachment checks the lock itself every
+250 ms and an upload stops at its next read; the manager refuses the next step of multi-step work. A software
+install or git operation already running finishes. A chat on a locked machine takes nothing but a cancel, also after
+a restart. While locked the pane is not read for questions and no `TerminalQuestion` or live folder is sent; held
+chat events are bounded (1000 events, 256 KiB), so the latest state and anything waiting on the person are kept and
+older output may be missing. On the HTTP poll, the `update` job, remote skill import and skill installs are refused;
+scans and health reports continue, and a controller move is still followed.
+
+**Running sessions.** A session already running is the same user and can run `reet agent unlock`. `reet agent lock`
+says how many are running; `reet agent lock --end-sessions` locks first, then ends every tmux session and chat.
+
+**Telling the controller.** Feature `machine-lock-v1`: `locked` and `lockedAt` in capabilities, only when negotiated.
+To every controller a locked machine also reports terminals as not ready, which older controllers already understand;
+the machine's own consent check is untouched, so chat records are not deleted. `locked` and `lockedAt` are on
+`GET /api/v2/terminal/machines` and `GET /api/v2/sync`. Requests answer 409 `machine_locked`. Project runs and
+Factory stages carry the sentence.
+
+**Older gap closed.** ACP chat handlers (create, reattach, prompt, control, permission, answer, model, mode, agent
+mode, session-mode swaps) now check local terminal consent on the machine; they used to rely on the controller.
+
+**Web.** One sentence in one place (`readiness()` and the error mapping): "Locked on the machine. Only someone there
+can unlock it, with `reet agent unlock`.", rendered through `Sentence.svelte` so the command is inline code. The
+Machines card's header status is "Locked since …"; the open session says the agent keeps running and disables the
+composer, answers and Open terminal, keeping Stop and End session; Sync and the Factory show waiting, not failure;
+the state uses the muted "!" everywhere. `machineLock.ts` holds the running-session line.
+
+**Not done, and not known.**
+- Nothing was run against a real machine: tmux timing, a real chat agent, the five-second pickup and
+  `--end-sessions` end to end are all untested outside unit and fake-tmux tests.
+- The lock is not a firewall and does not contain processes already running.
+- A terminal session's own typing area is not disabled in the web while locked; its input is refused by the machine.
+- The per-machine skill detail still says "Can't write skills here" for a locked machine.
+- Who locked the machine is not sent; only since when.
+**Review fixes.** Two gaps a review found are closed. When the agent restarts on a locked machine it no longer starts the
+chats it had recorded (`resumeChat`), and keeps the records for after an unlock. A chat that is still starting when the
+lock is taken, or when `--end-sessions` runs, is stopped: the lock is checked again just before the agent process starts and
+just after it, and `EndAll` cancels a start that is under way instead of skipping it. Both have tests that failed before.
+
 ## CLONE-TEST-1: the clone limit test no longer fails at random (24 November 2026)
 
 `TestAddFromGitHubRunsAtMostFiveClonesPerAccount` failed about one run in five under load ("the clone never

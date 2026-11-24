@@ -17,7 +17,7 @@ type SyncFailure struct {
 // SyncMachine is one machine's row on the Sync page. State is, first that
 // applies: paused (left alone by the person), needs-newer-controller (its reet
 // is newer than this controller), needs-update (its reet is older than the
-// skills protocol), blocked (allow-apply is off), failed, offline, updating
+// skills protocol), blocked (allow-apply is off, or the machine is locked), failed, offline, updating
 // (installing and removing), installing, removing, or ok. A machine off the
 // skills protocol, or paused, gets no skill work, so it lists none. Failed and
 // Waiting are by name; Waiting holds the skills it has still to install or
@@ -93,7 +93,7 @@ func (s *Store) SyncMachinesFor(uid int64, now time.Time) ([]SyncMachine, error)
 			break
 		}
 		m.Online = now.UnixMilli()-m.LastSeen <= skillOfflineAfter.Milliseconds()
-		blocked[m.AgentID] = b == "allow-apply"
+		blocked[m.AgentID] = b == "allow-apply" || b == "locked"
 		out = append(out, m)
 	}
 	if err == nil {

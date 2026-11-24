@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { tick, untrack } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { answerTerminalQuestion, chatToolName, type TerminalQuestion } from './api'
@@ -128,7 +129,7 @@
     </div>
   {/if}
   <p class="vh" role="status">{announced}</p>
-  <p class="result {shown?.tone ?? ''}" class:ring={viaKey} role="status" tabindex="-1" bind:this={result}>{#if shown}{#if shown.tone === 'done'}<span aria-hidden="true">✓ </span>{:else if shown.tone === 'error'}<span class="mark" aria-hidden="true">!</span>{/if}<span>{shown.say}{#if outcome?.waitingForWords}{@render way()}{/if}</span>{/if}</p>
+  <p class="result {shown?.tone ?? ''}" class:ring={viaKey} role="status" tabindex="-1" bind:this={result}>{#if shown}{#if shown.tone === 'done'}<span aria-hidden="true">✓ </span>{:else if shown.tone === 'error'}<span class="mark" aria-hidden="true">!</span>{/if}<span><Sentence text={shown.say} />{#if outcome?.waitingForWords}{@render way()}{/if}</span>{/if}</p>
 </div>
 
 <style>

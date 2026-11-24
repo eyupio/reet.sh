@@ -1199,7 +1199,9 @@ func (b *Broker) CancelChat(ctx context.Context, uid int64, session string) erro
 	if err != nil {
 		return err
 	}
-	p, err := b.peer(uid, s.AgentID, true)
+	// A locked machine still stops a chat when asked: cancelling only ends
+	// work, so it is on the lock's allow-list.
+	p, err := b.peer(uid, s.AgentID, !b.Locked(uid, s.AgentID))
 	if err != nil {
 		return err
 	}

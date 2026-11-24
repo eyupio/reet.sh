@@ -273,6 +273,7 @@ var runMemberSentences = func() map[string]string {
 		"worktree_mismatch":    "That machine's answer did not match the request. Check again.",
 		"session_limit":        "The terminal session limit has been reached. End a session and try again.",
 		"machine_unavailable":  "That machine is reconnecting. Try again in a moment.",
+		"machine_locked":       terminalproto.LockedSentence,
 		"unknown_machine":      "That machine isn't enrolled on this account.",
 		// The codes only a run's orchestrator stores (internal/projectrun).
 		"unknown_outcome":    "We didn't hear back, so the agent may have started. Check your sessions before retrying.",

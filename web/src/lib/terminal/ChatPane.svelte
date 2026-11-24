@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fly } from 'svelte/transition'
  import { checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, rejectLabel, summarizeAnswers, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
@@ -44,7 +45,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  import { admitImages, createEchoes, createExpiry, createPictureHold, createQueueDrain, echoOf, imagesRefusal, MAX_CHAT_BYTES, messageProblem, previewsFor, QUEUE_NOTES, removePicture, revokePictures, shownAttachments, uploadPictures, type Picture } from './chatAttachments'
  import { loadModels, pollPlans } from './chatLoaders'
 
- let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, terminal, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, onterminal, terminal, newChatOff = false, locked = '', oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -60,6 +61,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   /** Loads this exact conversation through the workspace's existing continuation operation. */
   oncontinue?: () => void
   continueOff?: boolean
+  /** The machine's owner locked it: why the message box, Queue, attachments, skills and answers are off. Stop and the rest stay. */
+  locked?: string
   /** An in-place reconnect of this lost chat: in flight, or why the last attempt failed (with the server's refusal code
    *  and detail, such as the plugin files of a folder that needs trust). Absent while none is. */
   reattach?: { phase: 'pending' | 'failed'; reason?: string; code?: string; detail?: string }
@@ -448,9 +451,9 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   return () => { clearTimeout(soon); clearInterval(timer) }
  })
  // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
- const composerBlocked = $derived(sending || uploading || changingModel || working || chat.connection === 'reconnecting')
-const promptBlocked = $derived(reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting')
- const skillsOff = $derived(reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
+ const composerBlocked = $derived(!!locked || sending || uploading || changingModel || working || chat.connection === 'reconnecting')
+const promptBlocked = $derived(!!locked || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting')
+ const skillsOff = $derived(locked ? locked : reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
  const approvals = $derived(foldApprovals(chat.items))
@@ -772,7 +775,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    <p><strong>{failure.status}.</strong> {failure.detail}</p>
    {#if reattachDetail(reattach)}<p class="ended-status">{reattachDetail(reattach)}</p>{/if}
    {#if trusted && continuation?.phase === 'pending'}<p class="ended-status">Starting a new session…</p>{/if}
-   {#if trusted && continuation?.phase === 'failed'}<p class="notice bad ended-status">{continuation.reason}</p>{/if}
+   {#if trusted && continuation?.phase === 'failed'}<p class="notice bad ended-status"><Sentence text={continuation.reason ?? ""} /></p>{/if}
    <div class="ended-actions">
     {#if retry}<button type="button" class="btn primary" onclick={retry}>Try again</button>{/if}
     {#if trustReconnect}<button type="button" class="btn primary" disabled={continuation?.phase === 'pending'} onclick={trustReconnect}>Trust this folder and reconnect</button>{/if}
@@ -785,7 +788,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   <div class="ended-note" class:lost={session.state === 'lost'} role="status">
    <p>{endedReason(session.state, toolName, !!oncontinue, !!onreattach)}</p>
    {#if !onreattach && continuation?.phase === 'pending'}<p class="ended-status">Starting a new session…</p>{/if}
-   {#if !onreattach && continuation?.phase === 'failed'}<p class="notice bad ended-status" role="alert">{continuation.reason}</p>{/if}
+   {#if !onreattach && continuation?.phase === 'failed'}<p class="notice bad ended-status" role="alert"><Sentence text={continuation.reason ?? ""} /></p>{/if}
    <div class="ended-actions">
     {#if offer}<button type="button" class="btn primary" disabled={!onreattach && (continueOff || continuation?.phase === 'pending')} aria-busy={!onreattach && continuation?.phase === 'pending' ? 'true' : undefined} onclick={offer}>{onreattach ? 'Reconnect' : 'Continue with history'}</button>{/if}
     {#if onnewchat}<button type="button" class="btn" class:primary={!offer} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
@@ -931,10 +934,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
        <p class="decision">{approvalOutcome(item).note}</p>
       {:else}
        <div class="approval-actions">
-        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>{rejectLabel(tool)}</button>
-        <button type="button" class="btn primary" disabled={!!answering || item.truncated} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
+        <button type="button" class="btn" disabled={!!locked || !!answering} title={locked || undefined} onclick={() => void answer(item.permissionId, false)}>{rejectLabel(tool)}</button>
+        <button type="button" class="btn primary" disabled={!!locked || !!answering || item.truncated} title={locked || undefined} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
         {#if (item.command || item.path) && !item.truncated}
-         <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
+         <button type="button" class="btn" disabled={!!locked || !!answering} title={locked || undefined} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
         {/if}
        </div>
       {/if}
@@ -995,8 +998,8 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
       {#if questionNote[item.questionId]}<p class="notice bad" role="alert">{questionNote[item.questionId]}</p>{/if}
       <div class="approval-actions">
        <button type="button" class="btn" disabled={!!asking} title="Stops what the agent was doing" onclick={() => void respondQuestion(item, 'cancel')}>Cancel question</button>
-       <button type="button" class="btn" disabled={!!asking} title="Let the agent carry on without an answer" onclick={() => void respondQuestion(item, 'decline')}>Skip</button>
-       <button type="submit" class="btn primary" disabled={!!asking} aria-busy={busy}>{busy ? 'Sending…' : 'Send answer'}</button>
+       <button type="button" class="btn" disabled={!!locked || !!asking} title={locked || 'Let the agent carry on without an answer'} onclick={() => void respondQuestion(item, 'decline')}>Skip</button>
+       <button type="submit" class="btn primary" disabled={!!locked || !!asking} title={locked || undefined} aria-busy={busy}>{busy ? 'Sending…' : 'Send answer'}</button>
       </div>
      {/if}
     </form>
@@ -1008,7 +1011,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
-  <div class="skill-buddy-slot"><SkillBuddy compact context={{sessionId: session.id, task: draft}} disabled={ended || sending || uploading} oninsert={text => {
+  <div class="skill-buddy-slot"><SkillBuddy compact context={{sessionId: session.id, task: draft}} disabled={!!locked || ended || sending || uploading} oninsert={text => {
     const next = insertSkillPrompt(draft, text)
     if (new TextEncoder().encode(next.text).length > MAX_CHAT_BYTES) return false
     draft = next.text; void tick().then(() => composerInput?.focus()); return true
@@ -1055,13 +1058,14 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {/if}
    {#if dictating || dictationProblemText}<p class="notice" class:bad={!dictating} role="status">{#if dictating}{dictationInterim ? `${dictationInterim}…` : 'Listening.'} Your browser sends the audio to its own speech service, not to reet.{:else}{dictationProblemText}{/if}</p>{/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
+   {#if locked}<p class="notice" id={`${session.id}-locked`}>{locked}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="1" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="1" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} aria-describedby={locked ? `${session.id}-locked` : undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
      {#if working && !reattaching}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" disabled={reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
+     <button type="button" class="btn primary send" title={locked || undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
@@ -1069,10 +1073,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlisted}</span>{#if onterminal && terminal && terminal.way !== 'none'} <button type="button" class="link" onclick={onterminal}>{terminal.way === 'restart' ? 'Restart in terminal…' : 'Open terminal'}</button>{/if}</p>{/if}
    <div class="composer-bar">
     <div class="composer-tools">
-     <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title="Insert one of your saved prompts · or type \ in the message" disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
+     <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title={locked || 'Insert one of your saved prompts · or type \\ in the message'} disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
      <button type="button" class="skills-btn" aria-label={sheetName} aria-haspopup="dialog" title={skillsOff || (commands.length ? 'Insert a command or skill into your message' : 'Insert a skill into your message')} disabled={!!skillsOff} onclick={() => openSkills()}>+ {sheetName}</button>
-     {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
+     {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title={locked || 'Attach image · or paste or drop one'} disabled={!!locked || sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
+     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={!!locked || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>
       <label for={`${session.id}-effort`}>Effort</label>
       <select id={`${session.id}-effort`} value={liveEffort.current} disabled={changingModel || runtime?.configuring || chat.connection !== 'open'} onchange={event => void changeSetting(liveEffort!.id, event.currentTarget.value)}>

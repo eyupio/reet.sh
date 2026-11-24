@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from './Sentence.svelte'
   import { onMount, tick } from 'svelte'
   import { controlGafferGoal, getGafferGoal, listGafferConversations, listGafferGoals, listGafferOutcomes, removeGafferConversation, stopGafferOutcome, type GafferGoalOverview, type GafferGoalOverviewView, type GafferOutcome as OutcomeRecord } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -170,7 +171,7 @@
         <div class="card-head"><h3>{title}</h3><span class="state">{label(row)}</span></div>
         {#if owned}<p class="belongs"><span class="eyebrow-inline">Outcome</span> {owned}{#if part&&part!==title}<span class="part"> · {part}</span>{/if}</p>
         {:else}<p class="goal-text clamp">{g.text}</p>{/if}
-        {#if row.reason}<p class="callout">{row.reason}{#if g.note}{' '}{g.note}{/if}</p>{/if}
+        {#if row.reason}<p class="callout"><Sentence text={row.reason} />{#if g.note}{' '}{g.note}{/if}</p>{/if}
         {#if g.summary}<div class="review"><p class="eyebrow">Gaffer reports</p><p class="report clamp">{g.summary.length>280?g.summary.slice(0,280)+'…':g.summary}</p></div>{:else}<p class="muted">{g.note||'No completed Gaffer review yet.'}</p>{/if}
         {#if g.activeTurnId}<p class="muted" role="status">Gaffer review in progress.</p>{/if}
         {#if row.delivery}<p class="delivery">{deliveryLabel(row.delivery.state)}</p>{:else if g.pendingId}<p class="warning">Instruction delivery is unavailable in this view.</p>{/if}

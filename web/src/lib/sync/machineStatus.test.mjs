@@ -19,6 +19,16 @@ test('offline, paused and protocol failures stay distinct; pending work is condi
   for (const state of ['paused','blocked','needs-update','needs-newer-controller','failed']) assert.equal(machineSkillStatus(machine, health(state)).tone, 'attention')
   assert.match(machineSkillStatus(machine, health('failed', {failed:[{name:'audit',detail:'No write access'}]})).detail, /audit: No write access/)
 })
+test('a locked machine says its skills wait, for blocked and pending installs, never installing', () => {
+  const says = 'Skills wait until it is unlocked there.'
+  assert.match(machineSkillStatus(machine, health('blocked')).detail, /Allow local skill writes/)
+  for (const state of ['blocked', 'installing', 'removing', 'updating']) {
+    const s = machineSkillStatus(machine, health(state), says)
+    assert.deepEqual([s.label, s.tone], [says, 'setup'], state)
+  }
+  assert.equal(machineSkillStatus(machine, health('ok'), says).tone, 'synced')
+  assert.match(machineSkillStatus(machine, health('installing')).label, /Installing/)
+})
 test('reconciling files remains work in progress, not a confirmed install', () => {
   for (const state of ['installing','updating','removing']) assert.equal(machineSkillStatus(machine, health(state)).tone, 'working')
 })

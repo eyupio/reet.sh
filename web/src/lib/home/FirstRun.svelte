@@ -3,6 +3,7 @@
   // (the words stage 3 uses), one read-only question to ask the one chosen, and the way to reet on a phone. It blocks
   // nothing on Home. It leaves when the person says Not now (Home offers a way back), or once the first reply has been seen.
   import { onMount, tick, untrack } from 'svelte'
+  import Sentence from '../Sentence.svelte'
   import { UnauthorizedError } from '../api'
   import { toolChoices, notStartedText, refusalText } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
@@ -210,7 +211,7 @@
     {#if !stuck}<p class="lede">{host} is connected.{#if rows.length}{' '}Ask an agent one question that changes nothing.{/if}</p>{/if}
 
     {#if stuck}
-      <p class="note">{host} cannot take a session yet. {stuck}</p>
+      <p class="note">{host} cannot take a session yet. <Sentence text={stuck} /></p>
       <p class="help"><a href="/machines">Open Machines</a></p>
     {:else if !installed.length}
       <p class="note">No agent is installed on {host} yet. Install {nameList(supported, 'or')} there; this looks again by itself.</p>
@@ -266,7 +267,7 @@
       </div>
     {/if}
 
-    <p class="status" role="status" class:good={reply === 'replied'}>{status}</p>
+    <p class="status" role="status" class:good={reply === 'replied'}><Sentence text={status} /></p>
 
     {#if stuckHelp}<p class="help"><a href={FIRST_SESSION_DOC_URL} target="_blank" rel="noopener noreferrer">How the first session works<span class="vh"> (opens in a new tab)</span></a></p>{/if}
 

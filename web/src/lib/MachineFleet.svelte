@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { cardReadiness, folderProjectList, terminalMachines, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
+  import Sentence from './Sentence.svelte'
+  import CopyButton from './CopyButton.svelte'
+  import { lockedStatus, runningLine, runningOnMachine } from './machineLock'
+  import { LOCKED_SENTENCE, cardReadiness, folderProjectList, terminalMachines, terminalSessions, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
   import { openTerminalHref } from './terminal/openTerminal'
   import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
@@ -106,6 +109,8 @@
   let terminals = $state<TerminalMachine[] | undefined>()
   // The last read failed: said on the card (and the button stays disabled) until a read succeeds. Reads keep the 15-second pace.
   let terminalsFailed = $state(false)
+  // The live sessions, read beside the machines: a lock does not stop them, so a locked card says how many are running.
+  let liveSessions = $state<TerminalSession[]>()
   let startAgent = $state<{ agent: string; opener: HTMLElement | null } | null>(null)
   // The folder projects the machine's Start an agent offers, so it asks for the same project choice as every other entry
   // point. Read when the dialog opens; a failed read leaves only the explicit "No project" folder path.
@@ -121,7 +126,7 @@
     async function read() {
       if (reading || document.visibilityState !== 'visible') return
       reading = true
-      try { const next = await terminalMachines(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)])); if (!abort.signal.aborted) { terminals = next; terminalsFailed = false } } catch { if (!abort.signal.aborted) terminalsFailed = true } finally { reading = false }
+      try { const next = await terminalMachines(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)])); if (!abort.signal.aborted) { terminals = next; terminalsFailed = false } if (next.some((item) => item.locked)) { try { const list = await terminalSessions(AbortSignal.any([abort.signal, AbortSignal.timeout(10000)])); if (!abort.signal.aborted) liveSessions = list } catch { /* the count is left out until a read succeeds */ } } } catch { if (!abort.signal.aborted) terminalsFailed = true } finally { reading = false }
     }
     void read()
     const wake = () => void read()
@@ -129,6 +134,8 @@
     const timer = setInterval(wake, 15000)
     return () => { abort.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake) }
   })
+  const isLocked = (agent?: SyncAgent): boolean => !!agent && (!!agent.locked || !!terminals?.find((item) => item.agentId === agent.id)?.locked)
+  const lockedAt = (agent: SyncAgent): number | undefined => agent.lockedAt ?? terminals?.find((item) => item.agentId === agent.id)?.lockedAt
   function agentReadiness(agentId: string): string {
     if (terminalsFailed) return "Couldn't check this machine just now. Try again in a moment."
     if (!terminals) return 'Checking whether this machine is ready for terminals.'
@@ -347,18 +354,20 @@
       {@const supported = supportedAgents(machine)}
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
-      {@const sync = machineSkillStatus(machine, skills)}
+      {@const locked = isLocked(enrolled)}
+      {@const sync = machineSkillStatus(machine, skills, locked ? 'Skills wait until it is unlocked there.' : '')}
+      {@const running = locked && enrolled ? runningLine(runningOnMachine(liveSessions, enrolled.id)) : ''}
       <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${encodeURIComponent(machine.host)}`} oncontextmenu={cardContextMenu}>
         <header class="machine-head">
           <div class="identity">
-            <span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>
+            {#if locked}<span class="mark head-mark" aria-hidden="true">!</span>{:else}<span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>{/if}
             <div>
               <h3 id={`machine-${encodeURIComponent(machine.host)}`} title={machine.host}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added — Active skills follow automatically</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
             </div>
           </div>
-          <span class="badge {state}">{stateLabel(machine)}</span>
+          {#if locked && enrolled}<span class="badge locked-badge" title={lockedAt(enrolled) ? formatWhen(lockedAt(enrolled)! * 1000, timeZone, dateFormat) : undefined}>{lockedStatus(lockedAt(enrolled), (at) => agoLabel(at))}</span>{:else}<span class="badge {state}">{stateLabel(machine)}</span>{/if}
         </header>
 
         <div class="sync-band {sync.tone}">
@@ -384,7 +393,7 @@
           <span><strong>{machine.skillCount}</strong> unique {machine.skillCount === 1 ? 'skill' : 'skills'}</span>
           <span><strong>{groups.length}</strong> install {groups.length === 1 ? 'location' : 'locations'}</span>
           <span>Last report <strong title={lastReport(machine) ? formatWhen(lastReport(machine), timeZone, dateFormat) : undefined}>{lastSeen(machine)}</strong></span>
-          {#if enrolled}<span class="live {agentTone(enrolled)}"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
+          {#if enrolled && !locked}<span class="live {agentTone(enrolled)}"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Install locations">
           {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
@@ -402,6 +411,18 @@
               onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
               oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
             />
+          </div>
+        {/if}
+
+        {#if locked && enrolled}
+          <div class="legacy locked" data-locked={enrolled.id}>
+            <p class="legacy-line" id={`locked-${m}`}><span class="mark" aria-hidden="true">!</span><span><Sentence text={LOCKED_SENTENCE} /></span></p>
+            {#if running}<p class="running"><Sentence text={running} /></p>{/if}
+            <details class="legacy-how">
+              <summary>What this means</summary>
+              <p>Locked on the machine: reet cannot start, attach to or change anything there. It still reports its health and inventory.</p>
+              <p>To unlock, run <code>reet agent unlock</code> on it. <CopyButton compact text="reet agent unlock" label="Copy unlock command" /></p>
+            </details>
           </div>
         {/if}
 
@@ -424,11 +445,11 @@
 
         {#if terminalAccess && enrolled}
           <div class="actions">
-            <a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={openTerminalHref(enrolled.id)}>Open terminal</a>
-            <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
+            {#if locked}<button class="btn" type="button" disabled aria-describedby={`locked-${m}`}>Open terminal</button>{:else}<a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={openTerminalHref(enrolled.id)}>Open terminal</a>{/if}
+            <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={locked ? `locked-${m}` : agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
           </div>
         {/if}
-        {#if terminalAccess&&enrolled&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}>{agentReadiness(enrolled.id)}</p>{/if}
+        {#if terminalAccess&&enrolled&&!locked&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}><Sentence text={agentReadiness(enrolled.id)} /></p>{/if}
 
         <details class="agent-list">
           <summary>
@@ -593,7 +614,13 @@
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .legacy { display: grid; gap: 6px; color: var(--ink); font-size: 0.875rem; line-height: 1.5; }
   .legacy-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-weight: 500; }
-  .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
+  .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
+  /* Locked is a fact, not a warning: the same mark and disclosure as the legacy note, in the quiet colour. */
+  .locked .legacy-line, .locked .running { color: var(--muted); }
+  .locked .running { margin: 0; }
+  .locked code { font: 0.875rem var(--mono); color: var(--ink); }
+  .head-mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--muted); border-radius: 50%; color: var(--muted); font-size: 0.875rem; font-weight: 700; }
+  .badge.locked-badge { color: var(--muted); }
   .legacy-cmd { margin: 0 0 10px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 0.875rem/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
   .legacy-hint { margin: -4px 0 10px; color: var(--muted); }
   .legacy-note { margin: 0 0 14px; }

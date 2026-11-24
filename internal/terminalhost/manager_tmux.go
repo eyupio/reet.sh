@@ -248,7 +248,7 @@ func (m *Manager) History(ctx context.Context, sessionID string, lines int) ([]b
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return nil, err
 	}
 	lock, err := m.registryLock(ctx)

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import PageHeader from '../PageHeader.svelte'
+  import Sentence from '../Sentence.svelte'
+  import { LOCKED_SENTENCE } from '../terminal/api'
   import type { SectionItem } from '../SectionNav.svelte'
   import UpdateReview from '../UpdateReview.svelte'
   import FleetSoftware from '../FleetSoftware.svelte'
@@ -19,6 +21,7 @@
   const POLL_MS = 15000
 
   let data = $state<SyncSkills | null>(null)
+  let locked = $state<ReadonlySet<string>>(new Set())
   let loadError = $state('')
   let message = $state('')
   let error = $state('')
@@ -48,9 +51,12 @@
 
   async function read(quiet = false) {
     try {
+      // A blocked machine is either not allowed to write skills or locked by its owner; only the agent list says which.
       const next = await loadSyncSkills()
+      const state = next.machines.some(m => m.state === 'blocked') ? await getSyncState().catch(() => null) : null
       if (destroyed) return
       data = next
+      locked = new Set((state?.agents ?? []).filter(a => a.locked).map(a => a.id))
       now = Date.now()
       loadError = ''
     } catch (e) {
@@ -135,7 +141,7 @@
         {#if machines.length}
           <ul class="machines" aria-label="Machines">
             {#each machines as m (m.agentId)}
-              {@const line = machineLine(m, data.active, now)}
+              {@const line = machineLine(m, data.active, now, locked.has(m.agentId))}
               <li class="machine">
                 <div class="top">
                   <h3>{m.host}</h3>
@@ -156,7 +162,7 @@
                     {#each m.failed as f (f.name)}<li><strong>{f.name}</strong>{f.detail ? `: ${f.detail}` : ''}</li>{/each}
                   </ul>
                 {:else if m.state === 'blocked'}
-                  <p class="why">reet isn't allowed to change skills here. Run <code>reet agent allow-apply on</code> on {m.host}.</p>
+                  <p class="why">{#if locked.has(m.agentId)}<Sentence text={LOCKED_SENTENCE} />{:else}reet isn't allowed to change skills here. Run <code>reet agent allow-apply on</code> on {m.host}.{/if}</p>
                 {/if}
                 {#if (m.state === 'offline' || m.state === 'blocked') && m.waiting.length}
                   <p class="why">Waiting: {andList(m.waiting)}.</p>

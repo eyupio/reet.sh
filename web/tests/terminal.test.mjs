@@ -116,6 +116,15 @@ test('health preserves missing readings and distinguishes last-known observation
   assert.equal(readiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')
 })
 
+test('a locked machine says so first, whatever else is true of it', () => {
+  const locked = 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.'
+  const caps = {osUser:'root',terminalControl:true,terminalEnabled:false,readiness:'ready'}
+  assert.equal(readiness({ready:false,locked:true,capabilities:caps}), locked)
+  assert.equal(readiness({ready:true,serverEnabled:false,locked:true,capabilities:{...caps,locked:true}}), locked)
+  assert.equal(readiness({ready:true,capabilities:{...caps,terminalEnabled:true,locked:true}}), locked)
+  assert.equal(cardReadiness({ready:false,locked:true}), locked)
+})
+
 test('a machine card says plainly when the terminal list does not know the machine yet', () => {
   assert.equal(cardReadiness(undefined), "This machine hasn't connected for terminals yet.")
   assert.equal(cardReadiness({ready:true,capabilities:{osUser:'root',terminalControl:true,terminalEnabled:true,readiness:'ready'}}),'')

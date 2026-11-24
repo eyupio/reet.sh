@@ -229,3 +229,17 @@ test('the stage line says what it runs on once, with defaults as a choice and no
   // An effort the machine does not offer is not part of what it runs on; its own line says so.
   assert.equal(line({ member: { tool: 'claude', model: 'claude-big', effort: 'xhigh' } }), 'Claude Code · claude-big')
 })
+
+test('a locked machine holds a stage as waiting to be unlocked, not as a failure', () => {
+  const s = r.launchReadiness(input({ machine: machine({ ready: false, locked: true }) }))
+  assert.equal(s.level, 'blocked'); assert.equal(s.locked, true); assert.equal(s.connected.label, 'Waiting to be unlocked')
+  assert.equal(s.issue, 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.')
+  assert.equal(r.launchReadiness(input({ machine: machine({ ready: true, locked: true }) })).level, 'blocked')
+  assert.equal(r.launchReadiness(input({ machine: machine({ ready: false }) })).locked, false)
+  const items = r.readinessItems(s)
+  assert.deepEqual(items.map(i => [i.level, !!i.waiting, !!i.machine]), [['blocked', true, true]])
+  const sum = r.launchSummary([{ stage: 'Code', crew: 'Standard', readiness: s }, { stage: 'Review', crew: 'Light', readiness: r.launchReadiness(input({ machine: machine({ ready: false }) })) }])
+  assert.equal(sum.waiting, 1); assert.equal(sum.blocked, 2)
+  assert.match(sum.text, /1 cannot start, 1 waiting to be unlocked/)
+  assert.equal(r.readinessItems(r.launchReadiness(input({ machine: machine({ ready: false }) })))[0].waiting, undefined)
+})

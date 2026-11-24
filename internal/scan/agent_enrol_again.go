@@ -44,7 +44,10 @@ func enrolAgain(config, code, servicePrefix string, in io.Reader, out io.Writer,
 	}
 	renewed := c
 	renewed.ID, renewed.Secret, renewed.Token = result.Agent.ID, result.Secret, ""
-	if err = writePrivate(config, renewed); err != nil {
+	if err = editAgentConfig(config, func(s *agentConfig) error {
+		s.ID, s.Secret, s.Token = renewed.ID, renewed.Secret, renewed.Token
+		return nil
+	}); err != nil {
 		return fmt.Errorf("the controller gave this machine a new credential, but it could not be saved (%w); enrol it again with a new code", err)
 	}
 	what := "new machine credential saved"

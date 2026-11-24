@@ -17,6 +17,7 @@
  import { accountFor, startHint, type MachineAccounts } from './agentAccounts'
  import { machineAccounts } from './terminal/api'
  import { resolveStartSource, sourceOptions } from './clineSource'
+ import Sentence from './Sentence.svelte'
  import ClineSourceSelect from './ClineSourceSelect.svelte'
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
@@ -924,7 +925,7 @@
      {#if !machine}<option value="" disabled>Choose a machine</option>{/if}
      {#each machines as item (item.agentId)}<option value={item.agentId} disabled={!item.ready}>{item.host}{item.ready ? '' : ' · not ready'}</option>{/each}
     </select>
-    {#if blocked}<p class="reason" class:hint={blocked === 'Choose a machine.'} id={`${id}-blocked`}>{blocked}</p>{/if}
+    {#if blocked}<p class="reason" class:hint={blocked === 'Choose a machine.'} id={`${id}-blocked`}><Sentence text={blocked} /></p>{/if}
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
 

@@ -250,7 +250,14 @@ type Capabilities struct {
 	Software []SoftwareEntry `json:"software,omitempty"`
 	// SoftwareApply is sent only when software-apply-v1 was negotiated and
 	// terminal access is on; the machine may then run one reviewed artifact.
-	SoftwareApply   bool      `json:"softwareApply,omitempty"`
+	SoftwareApply bool `json:"softwareApply,omitempty"`
+	// Locked is sent only when machine-lock-v1 was negotiated: the machine is
+	// locked locally (reet agent lock) and refuses everything a controller
+	// starts. It is never sent beside Readiness ready.
+	Locked bool `json:"locked,omitempty"`
+	// LockedAt is when the lock went on, in Unix seconds, sent with Locked
+	// only. Who locked it never leaves the machine.
+	LockedAt        int64     `json:"lockedAt,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
 	OSUser          string    `json:"osUser"`
@@ -320,6 +327,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.TerminalQuestion {
 		features = append(features, TerminalQuestionFeature)
+	}
+	if c.Locked {
+		features = append(features, MachineLockFeature)
 	}
 	if c.RepoCloneRemove {
 		features = append(features, RepoCloneRemoveFeature)
@@ -433,6 +443,12 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.TerminalQuestion && !SupportsTerminalQuestion(features) {
+		return ErrInvalid
+	}
+	if c.Locked && (c.Readiness == Ready || !SupportsMachineLock(features)) {
+		return ErrInvalid
+	}
+	if c.LockedAt != 0 && (!c.Locked || c.LockedAt < 0 || c.LockedAt > MaxCounter) {
 		return ErrInvalid
 	}
 	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
@@ -807,7 +823,7 @@ const (
 const ConflictStarting = "starting"
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired || c == QuestionInvalid || c == QuestionChanged || c == AlreadyAnswered
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired || c == QuestionInvalid || c == QuestionChanged || c == AlreadyAnswered || c == Locked
 }
 
 type Result struct {

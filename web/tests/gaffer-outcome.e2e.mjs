@@ -969,6 +969,30 @@ try {
           await expect(approve).not.toHaveAttribute('aria-describedby')
         }finally{await w.context.close()}
       }
+      // The machine's owner locked it: the same hold, said as waiting to be unlocked (quiet, not a failure), with the command as code,
+      // and nothing in the plan marked as failing.
+      {
+        const lockedMachines=[{...machines[0],ready:false,locked:true,capabilities:{...machines[0].capabilities,...full,locked:true}},machines[1]]
+        const SENTENCE='Locked on the machine. Only someone there can unlock it, with reet agent unlock.'
+        const {w,row,causes,approve,outcome}=await planWith(width,theme,{later:()=>lockedMachines})
+        try{
+          await expect(approve).toBeDisabled()
+          await expect(causes).toHaveCount(1)
+          await expect(causes.first()).toHaveText('! Waiting to be unlocked · Every stage. '+SENTENCE)
+          await expect(causes.first().locator('code')).toHaveText('reet agent unlock')
+          await expect(causes.first()).toHaveClass(/waiting/)
+          await expect(outcome.locator('.status')).toHaveText(SENTENCE)
+          await expect(outcome.locator('.status')).toHaveClass(/hint/)
+          await expect(outcome.locator('p.launch')).toContainText('waiting to be unlocked')
+          await expect(outcome.locator('p.launch')).not.toContainText('cannot start')
+          await expect(row('review')).toContainText('Waiting to be unlocked')
+          await expect(row('review')).not.toContainText('Cannot start')
+          await expect(outcome).not.toContainText('Machine not connected')
+          expect(await w.page.evaluate(()=>document.body.innerText.includes('`')),'a literal backtick').toBe(false)
+          await outcome.locator('section.readiness').screenshot({path:`${shots}/factory-readiness-locked-${width}-${theme}.png`})
+          await w.page.screenshot({path:`${shots}/factory-start-locked-${width}-${theme}.png`})
+        }finally{await w.context.close()}
+      }
       // Nothing blocked, nothing read again.
       if(width===1280){
         const {f,w,summary}=await planWith(width,theme)

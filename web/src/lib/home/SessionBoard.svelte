@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { onMount, tick } from 'svelte'
   import { toolName, notStartedText, validatePrompt } from '../agentLaunch'
   import { agentChoices } from '../catalogue'
@@ -368,7 +369,7 @@
     <span class="result-count">{hasFilters || scopeIds !== undefined ? `${filtered.length} of ${scoped.length}` : all.length} sessions</span>
   </div>
   {#if hasFilters}<div class="chips">{#each chips as chip}<button onclick={() => toggle(chip.key, chip.value)}>{chip.label}<BoardIcon name="close" size={11} /></button>{/each}{#if filters.attention}<button onclick={() => filters.attention = false}>Needs attention<BoardIcon name="close" size={11}/></button>{/if}{#if filters.images}<button onclick={() => filters.images = false}>Has images<BoardIcon name="close" size={11}/></button>{/if}<button class="clear" onclick={clear}>Clear all</button></div>{/if}
-  <div class="live" role="status">{#if notice}<p class="notice">{notice}</p>{/if}</div>
+  <div class="live" role="status">{#if notice}<p class="notice"><Sentence text={notice} /></p>{/if}</div>
   {#if problem}<p class="problem" role="alert">{problem} <button onclick={() => void load()}>Try again</button></p>{/if}
   <div class="board" class:focused={view !== 'board'} class:compact>
     {#each columns as stage}
@@ -409,7 +410,7 @@
                     <span class="status" title={heldWork(session) ? HELD_SENTENCE : word.source}>{#if sessionStatus(session) === 'finished' && !stoppedWaiting(session)}<span class="status-tick" aria-hidden="true"></span>{:else if heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else if stoppedWaiting(session)}<span class="status-mark" aria-hidden="true"></span>{:else}<i></i>{/if}{heldWork(session) ? statusLabel('working', true) : word.word}{#if heldWork(session)}<span class="vh">. {HELD_SENTENCE}</span>{:else if stoppedWaiting(session)}<span class="vh">. {STOPPED_LINE}</span>{/if}{offline.has(item.agentId) ? ' · last known' : ''}</span>{#if sessionStatus(session) === 'finished' && session.changedSinceSeen}<span class="unseen">Not seen yet</span>{/if}<span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
                 </footer>
-                {#if draft && reason}<p class="start-note">{reason}</p>{:else if draft?.starting}<p class="start-note">Start was requested. Retry checks the same request.</p>{/if}
+                {#if draft && reason}<p class="start-note"><Sentence text={reason} /></p>{:else if draft?.starting}<p class="start-note">Start was requested. Retry checks the same request.</p>{/if}
               </article>
             {/each}
           {/if}

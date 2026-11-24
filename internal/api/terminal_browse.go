@@ -322,6 +322,12 @@ func browseView(r terminalproto.BrowseResult) browseJSON {
 // machineRequestError maps a browse or branches outcome to a code and one
 // plain sentence. It never echoes the path or anything the machine sent.
 func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64, agent string) {
+	if errors.Is(err, terminalbroker.ErrOffline) && s.terminals.Locked(uid, agent) {
+		err = terminalbroker.ErrLocked
+	}
+	if machineLocked(w, err) {
+		return
+	}
 	var browse *terminalbroker.BrowseError
 	var branches *terminalbroker.BranchesError
 	var prune *terminalbroker.BranchPruneError

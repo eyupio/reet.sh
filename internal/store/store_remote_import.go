@@ -485,7 +485,7 @@ func (s *Store) ApproveRemoteImportFor(uid int64, id, hash string, exclude []str
 }
 func (s *Store) FailRemoteImportFor(uid int64, agent, id, instance, code string) error {
 	switch code {
-	case "capture_failed", "scope_unavailable", "source_changed", "transfer_failed", "invalid_skill_manifest":
+	case "capture_failed", "scope_unavailable", "source_changed", "transfer_failed", "invalid_skill_manifest", "machine_locked":
 	default:
 		return ErrPrivateSkillInvalid
 	}

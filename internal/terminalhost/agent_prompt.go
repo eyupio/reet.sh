@@ -178,6 +178,17 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 	if !ReadsPrompts(s.Tool) || !paneID.MatchString(s.PaneID) {
 		return false, false
 	}
+	if m.consent() != nil || m.isLocked() {
+		// The screen is not read while terminal access is off or the machine
+		// is locked, and a question already read goes, so the controller is
+		// told there is none.
+		watch, seen := m.prompts[id]
+		if !seen {
+			return false, false
+		}
+		delete(m.prompts, id)
+		return false, watch.question != nil
+	}
 	var activity int64
 	for _, p := range rows {
 		activity = max(activity, p.activity)
@@ -269,7 +280,7 @@ func (m *Manager) AnswerQuestion(ctx context.Context, id, fingerprint string, op
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return err
 	}
 	lock, err := m.registryLock(ctx)

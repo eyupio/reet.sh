@@ -319,7 +319,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				return nil
 			}
 			if c, err := loadAgentConfig(*config); err == nil {
-				return fmt.Errorf("this machine is already connected to %s as %s. Check it with reet agent status. To connect it afresh, delete %s, then run this again with a new enrolment code and the same name", c.Server, c.Host, *config)
+				return fmt.Errorf("this machine is already connected to %s as %s. Check it with reet agent status. To give it a new credential and keep its settings, run reet agent enroll --again with a new enrolment code (enrolment file %s)", c.Server, c.Host, *config)
 			}
 			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
 		}
@@ -384,7 +384,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		// enrolled with one keeps needing it, and stops when it is revoked.
 		c.Token = cred.Token
 		if cred.Token != "" {
-			fmt.Fprintln(out, "This machine keeps the personal API token and stops working if it is revoked. To give it its own credential, make an enrolment code under Machines, Add a machine, and enrol it again with that.")
+			fmt.Fprintln(out, "This machine keeps the personal API token and stops working if it is revoked. To give it its own credential and keep its settings, make an enrolment code under Machines, Add a machine, and run reet agent enroll --again.")
 		}
 		if err = writePrivate(*config, c); err != nil {
 			return fmt.Errorf("enrolled but could not save configuration; revoke enrollment in Machines before retrying: %w", err)

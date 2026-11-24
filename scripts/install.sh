@@ -16,6 +16,8 @@ With --server, enrolment uses REET_ENROL_CODE if set; otherwise an older persona
 token already in REET_TOKEN or saved by reet, with a warning; otherwise it asks
 for the enrolment code from Machines, Add a machine (hidden input). A machine
 enrolled by code keeps only its own id and secret, never a personal API token.
+To move a machine enrolled with a personal token to a code, keeping its local
+settings: reet agent enroll --again
   -h, --help         Show this help
 
 Requires curl, tar, and sha256sum or shasum. Existing reet binaries are replaced

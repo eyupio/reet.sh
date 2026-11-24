@@ -344,9 +344,11 @@ token. A personal token from `--token`, `REET_TOKEN`, an env file or the saved
 token still enrols, with a warning. A machine enrolled with a personal token,
 including every machine enrolled before codes, keeps sending that token, stops
 when it is revoked, and is marked on the Machines page. To move it to its own
-credential, make a code and on the machine run
-`rm ~/.config/reet/agent.json && reet agent enroll --server URL --env NAME` with the same name; it is enrolled
-again in place with a new secret, and the mark goes.
+credential, make a code and on the machine run `reet agent enroll --again`. It
+asks for the code and replaces only the machine's id and secret, dropping the
+token; every local setting (remote apply, terminal access, projects, following
+moves) is kept as it was, the agent restarts, and the mark goes. Then revoke the
+token under Account.
 
 Run `reet` with no command in a terminal for its grouped home: Check & maintain,
 Skills & setups, Machines & access and More commands. Use arrows or `j`/`k`,

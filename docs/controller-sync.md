@@ -16,13 +16,14 @@ reet agent run
 
 Enrollment binds the installation to its controller, actual hostname and home, and saves private credentials locally: the machine's id and its own secret, never a personal API token. After enrolment the agent authenticates with that secret alone, and it opens only the routes the agent uses (its poll, results, update stages, skills report, content observations, skill imports, private skill downloads, its own inventory scan and the private control connection); removing the machine under Machines revokes it. A machine enrolled from a signed-in browser works the same way.
 
-A personal token from `--token`, `REET_TOKEN`, an env file or the saved token still enrols, with a warning. A machine enrolled that way, and every machine enrolled before codes, keeps sending the token and stops when it is revoked; its secret alone is not enough. The Machines page marks it. To give it its own credential, make an enrolment code and on the machine run, with the same name:
+A personal token from `--token`, `REET_TOKEN`, an env file or the saved token still enrols, with a warning. A machine enrolled that way, and every machine enrolled before codes, keeps sending the token and stops when it is revoked; its secret alone is not enough. The Machines page marks it. To give it its own credential, make an enrolment code and on the machine run:
 
 ```sh
-rm ~/.config/reet/agent.json && reet agent enroll --server https://your-site --env work-laptop --allow-apply
+reet agent enroll --again
+# Enrolment code (hidden): paste the code
 ```
 
-It is enrolled again in place: the same machine, a new secret (the old one stops working), and no mark.
+It is enrolled again in place: the same machine under the same name, a new secret (the old one stops working), the personal token removed from its enrolment, and no mark. Every local setting is kept exactly as it was: remote apply on or off, terminal access, projects, following moves. A refused code changes nothing. The agent is restarted, and the command ends by saying what changed; then revoke the old token under **Account → API tokens**. It never takes a personal token, and `--server`, `--env`, `--project` and `--allow-apply` are refused with it. Use `--config PATH` and `--service-prefix` as the other agent commands do.
 
 Then revoke the old personal token from **Account → API tokens** in a signed-in browser (tokens cannot be listed, made or revoked with a token). Do not copy its configuration to another machine. A running agent polls the controller and refreshes inventory; it does not start another web server. Use the installer or your process supervisor to keep it running after logout.
 

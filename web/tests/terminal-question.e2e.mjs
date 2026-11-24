@@ -27,13 +27,14 @@ const machine={agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabili
 const answered=(r,b,key)=>{b.sessions=b.sessions.map(s=>s.id===idOf(key)?{...s,terminalQuestion:undefined,attention:'working',changedSinceSeen:false}:s);return{json:{answered:true}}}
 
 // `box.answer` is the server's reply to the next answer; `box.sessions` is what the list says now; `box.offline` makes the machine stop reporting.
-async function open(keys,{width=1280,theme='light',where='screen',height,answer,hold,offline=false}={}){
+async function open(keys,{width=1280,theme='light',where='screen',height,answer,hold,offline=false,locked=false}={}){
  keys=[].concat(keys);const key=keys[0]
- const box={sessions:keys.map(k=>sessionOf(k)),posts:[],reads:0,offline}
+ const box={sessions:keys.map(k=>sessionOf(k)),posts:[],reads:0,offline,locked}
  box.answer=answer||((r,b)=>answered(r,b,key))
  const routes={
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
-  '/api/v2/terminal/machines':{machines:[machine]},
+  // `box.locked`: the machine's owner locked it, so it is not ready and says so.
+  '/api/v2/terminal/machines':()=>({machines:[box.locked?{...machine,ready:false,locked:true,capabilities:{...machine.capabilities,locked:true}}:machine]}),
   '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{agentId:'a1',host:'studio',state:box.offline?'disconnected':'connected',connection:{connected:!box.offline,reportFresh:!box.offline,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
   '/api/v2/terminal/sessions':()=>{box.reads++;return{sessions:box.sessions}},
  }
@@ -289,6 +290,33 @@ try{
    await expect(w.card.locator('.result')).toHaveText('The machine is not connected. Try again when it is back.')
    for(const b of await w.card.locator('.options button').all())await expect(b).toBeDisabled()
    await w.card.screenshot({path:`${shots}/locked-offline.png`})
+   errorsOf(w)
+  }finally{await w.context.close()}
+ }
+
+ // A terminal session open on a machine that becomes locked: the card says what still works instead of offering what would be
+ // refused, Terminal here is off with that reason, End session stays, and the lock is announced once through an element that was
+ // already there.
+ for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+  const SENTENCE='Locked on the machine. The agent keeps running; from here you can only stop its current turn or end the session.'
+  const w=await open('claude',{width,theme})
+  try{
+   const live=w.page.locator('[data-lock-status]')
+   await expect(live).toHaveText('')
+   for(const b of await w.card.locator('.options button').all())await expect(b).toBeEnabled()
+   w.box.locked=true
+   await w.page.evaluate(()=>window.dispatchEvent(new Event('online')))
+   await expect(live).toHaveText(SENTENCE)
+   await expect(w.card.locator('.result')).toHaveText(SENTENCE)
+   for(const b of await w.card.locator('.options button').all())await expect(b).toBeDisabled()
+   await w.page.screenshot({path:`${shots}/terminal-session-locked-${width}-${theme}.png`})
+   const screen=w.page.locator('.session-screen')
+   if(!await screen.getByRole('button',{name:'End session…',exact:true}).isVisible())await screen.getByRole('button',{name:'Session actions',exact:true}).click()
+   await expect(screen.getByRole('button',{name:'End session…',exact:true})).toBeEnabled()
+   await expect(screen.getByRole('button',{name:'Terminal here',exact:true})).toBeDisabled()
+   await expect(screen.getByRole('button',{name:'Terminal here',exact:true})).toHaveAttribute('title',SENTENCE)
+   expect(await w.page.evaluate(()=>document.body.innerText.includes('`')),'a literal backtick').toBe(false)
+   expect(w.box.posts).toHaveLength(0)
    errorsOf(w)
   }finally{await w.context.close()}
  }

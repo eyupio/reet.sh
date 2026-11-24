@@ -1413,5 +1413,36 @@ try {
   await context.close()
  }
 
+ // A machine its owner locked: every start says so in the one sentence, with the command as code, and starts nothing. The launch
+ // bar and its project list, and the sentence is the same everywhere it shows, and no literal backtick shows.
+ if (run('a locked machine is said once, as code, on every start')) {
+  const SENTENCE = 'Locked on the machine. Only someone there can unlock it, with reet agent unlock.'
+  const lockedMachines = tmachines.map(m => m.agentId === 'a1' ? {...m, ready:false, locked:true, capabilities:{...m.capabilities, locked:true}} : m)
+  const noTicks = async page => expect(await page.evaluate(() => document.body.innerText.includes('`')), 'a literal backtick').toBe(false)
+  const shots = process.env.REET_E2E_SHOTS
+  for (const [width, height, theme] of [[1280, 900, 'light'], [390, 844, 'dark']]) {
+   const {context,page,errors,box} = await home({width, height, theme, touch:width < 600, routes:{'/api/v2/terminal/machines':{machines:lockedMachines}}})
+   const writes = () => box.writes.length
+   await page.goto(base)
+   await openLaunch(page)
+   await expect(startButton(page)).toBeDisabled()
+   await expect(launchStatus(page)).toHaveText(SENTENCE)
+   await expect(launchStatus(page).locator('code')).toHaveText('reet agent unlock')
+   await noTicks(page)
+   // The project list says why each project on that machine cannot be chosen.
+   if (width < 600) await launchBar(page).locator('button.change:visible').first().click()
+   await page.locator('button[aria-label^="Project: "]:visible').first().click()
+   const option = page.getByRole('option').filter({hasText:/Home folder on studio/})
+   await expect(option).toContainText(SENTENCE)
+   await expect(option).toHaveAttribute('aria-disabled','true')
+   await expect(option.locator('code')).toHaveText('reet agent unlock')
+   await noTicks(page)
+   if (shots) await page.screenshot({path:`${shots}/launch-locked-${width}-${theme}.png`})
+   await page.keyboard.press('Escape')
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+
  console.log('Home: fleet strip with sessions running, worktrees in use, CPU or No reading and the skills line, Add a machine, In flight grouped by folder project, Machine and State with offline sessions kept, Needs you empty with a quiet bell, the folder-project rail with its menu, Worktrees, Add with the folder browser, the migration note and the saved Projects waiting, the launch bar going straight to the new session (locked until Home leaves, refusals kept on Home, Back to the new row), the read-only Home, refresh errors keeping the last lists, storage limited to the Group by key, the desktop, tablet and phone layouts, paused machines in words, and the width, theme, target, focus and motion matrix.')
 } finally { await browser.close() }

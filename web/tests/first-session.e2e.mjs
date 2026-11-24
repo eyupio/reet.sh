@@ -448,8 +448,8 @@ try {
  // A machine its owner locked says so in the one sentence, with no second reason; a launch it refuses with 409 machine_locked
  // (locked since the page last read) says the same sentence, and nothing is started.
  if (run('locked')) {
-  const SENTENCE = 'Locked on the machine. Run reet agent unlock there.'
-  const refusal = {status:409, json:{code:'machine_locked', error:'Locked on the machine. Run `reet agent unlock` there.', message:'Locked on the machine. Run `reet agent unlock` there.'}}
+  const SENTENCE = 'Locked on the machine. Only someone there can unlock it, with reet agent unlock.'
+  const refusal = {status:409, json:{code:'machine_locked', error:'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.', message:'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.'}}
   const locked = terminalMachine('a1', 'studio', false)
   locked.locked = true; locked.capabilities.locked = true
   const routes = scene().routes
@@ -463,6 +463,27 @@ try {
    await expect(page.getByRole('button', {name:/unlock/i})).toHaveCount(0)
    await shot(page, 'guide-machine-locked', guide(page))
    await context.close()
+  }
+  // The terminal picker lists a locked machine as waiting, with the sentence as code, beside one that can start a shell.
+  {
+   const routes = scene().routes
+   const vault = terminalMachine('a2', 'vault', false)
+   vault.locked = true; vault.capabilities.locked = true
+   routes['/api/v2/terminal/machines'] = {machines:[terminalMachine('a1', 'studio', true), vault]}
+   for (const [width, theme] of [[1280, 'light'], [390, 'dark']]) {
+    const {context, page} = await openWorkspace(browser, {width, height:width < 600 ? 844 : 800, theme, touch:width < 600, routes})
+    await page.goto(base)
+    await page.getByRole('button', {name:'Open terminal', exact:true}).click()
+    const pick = page.getByRole('dialog', {name:'New terminal session'})
+    const row = pick.getByRole('button', {name:/vault/})
+    await expect(row).toBeDisabled()
+    await expect(row).toContainText(SENTENCE)
+    await expect(row.locator('code')).toHaveText('reet agent unlock')
+    await expect(pick.getByRole('button', {name:/studio/})).toBeEnabled()
+    expect(await page.evaluate(() => document.body.innerText.includes('`')), 'a literal backtick').toBe(false)
+    if (process.env.REET_E2E_SHOTS) await page.screenshot({path:`${process.env.REET_E2E_SHOTS}/picker-locked-${width}-${theme}.png`})
+    await context.close()
+   }
   }
   await both({}, async ({g, world, capture}) => {
    world.answer = refusal

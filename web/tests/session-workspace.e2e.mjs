@@ -1093,15 +1093,24 @@ try {
  // reet reads nothing more there, End session stays available and nothing offers to unlock.
  for(const [width,theme] of [[1600,'light'],[390,'dark']]){
   const {page,context,panel,errors,box,calls}=await open(width,theme)
-  const SENTENCE='Locked on the machine. Run reet agent unlock there.'
+  const SENTENCE='Locked on the machine. The agent keeps running; from here you can only stop its current turn or end the session.'
   await expect(panel.locator('.connection')).toHaveText('Machine online')
   await expect(panel.locator('.callout')).toHaveCount(0)
+  await expect(page.locator('[data-lock-status]')).toHaveText('')
   const before=box.lists
   box.locked=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')))
   await expect.poll(()=>box.lists).toBeGreaterThan(before)
   await expect(panel.locator('.connection')).toHaveText('Machine locked')
   await expect(panel.locator('.callout')).toHaveText(SENTENCE)
-  await expect(panel.locator('.callout code')).toHaveText('reet agent unlock')
+  await expect(panel.locator('.connection i')).toHaveCSS('background-color', await panel.locator('.connection').evaluate(el=>getComputedStyle(el).color))
+  // Announced once, through an element that was already there; the composer is off with that reason, Stop and End session are not.
+  await expect(page.locator('[data-lock-status]')).toHaveText(SENTENCE)
+  await expect(page.locator('.session-screen').getByRole('textbox',{name:/^Message/})).toBeDisabled()
+  await expect(page.locator('.session-screen').getByRole('button',{name:'Prompts'})).toBeDisabled()
+  await expect(page.locator('.session-screen').locator('button.skills-btn').nth(1)).toBeDisabled()
+  await expect(page.locator('.session-screen .notice').filter({hasText:SENTENCE})).toHaveCount(1)
+  await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeEnabled()
+  expect(await page.evaluate(()=>document.body.innerText.includes('`')),'a literal backtick').toBe(false)
   await expect(page.getByText('The machine is offline or unavailable')).toHaveCount(0)
   // The workspace's own notice for a machine that cannot take work says the same sentence, in one piece.
   await expect(page.locator('.workspace-notice')).toContainText(SENTENCE)

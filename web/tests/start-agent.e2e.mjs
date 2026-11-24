@@ -566,6 +566,20 @@ try{
  await page.keyboard.press('Escape')
  for(const m of tmachines)m.ready=m.agentId!==C
 
+ // A locked machine stays chosen when it is the one you came from, with the lock's sentence (the command as code), and Start stays off.
+ {
+  const locked=tmachines.find(m=>m.agentId===C);locked.locked=true;locked.ready=false
+  await page.goto(`${base}/sessions?agent=${C}`)
+  d=await openFromSidebar();p=parts(d)
+  await expect(p.machine).toHaveValue(C)
+  await expect(p.machine).toHaveAccessibleDescription('Locked on the machine. Only someone there can unlock it, with reet agent unlock.')
+  await expect(d.locator('p.reason code')).toHaveText('reet agent unlock')
+  await expect(p.start).toBeDisabled()
+  expect(await page.evaluate(()=>document.body.innerText.includes('`')),'a literal backtick').toBe(false)
+  if(process.env.REET_E2E_SHOTS)await page.screenshot({path:`${process.env.REET_E2E_SHOTS}/start-agent-locked-1360-light.png`})
+  await page.keyboard.press('Escape')
+  delete locked.locked;locked.ready=false
+ }
  // ── From a machine card. ──
  await page.goto(`${base}/machines`)
  await expect(cardEntry('dev-laptop')).toBeEnabled()

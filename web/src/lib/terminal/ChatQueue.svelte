@@ -51,7 +51,7 @@
     <p class="text">{item.text || 'Image only'}{#if item.images.length} <small>· {item.images.length} image{item.images.length === 1 ? '' : 's'}</small>{/if}</p>
     {#if item.note}<p class:uncertain={item.state === 'uncertain'} role="status">{item.note}</p>{/if}
     {#if item.origin}<p class="origin">Gaffer/MCP instruction · Manage through Worker messages</p>{/if}
-    {#if !item.origin&&item.state === 'uncertain'}<label><input type="checkbox" bind:checked={confirmed[item.id]} /> I checked the chat. Retrying may send this twice.</label>{/if}
+    {#if !item.origin&&item.state === 'uncertain'}<label class="confirm"><input type="checkbox" bind:checked={confirmed[item.id]} /> I checked the chat. Retrying may send this twice.</label>{/if}
     {#if editing === item.id}
      <label>Edit message<textarea aria-label="Edit queued message" maxlength="2000" bind:value={editText}></textarea></label>
      <button disabled={busy} onclick={() => void change(item, 'edit')}>Save message</button>
@@ -94,6 +94,8 @@
  .uncertain { color: var(--bad); }
  button { min-height: 30px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--card); color: var(--ink); cursor: pointer; font: inherit; }
  button:disabled { opacity: .5; cursor: default; }
+ /* On a touch screen every button and the retry check are 44 px. */
+ @media (pointer: coarse) { button { min-width: 44px; min-height: 44px; } .confirm { display: flex; align-items: center; gap: 8px; min-height: 44px; } .confirm input { flex: none; width: 24px; height: 24px; margin: 0; } }
  label { display: block; margin-bottom: 8px; }
  textarea { display: block; width: 100%; min-height: 4rem; margin-top: 4px; background: var(--bg-sunk); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; font: inherit; }
 </style>

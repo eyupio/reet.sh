@@ -30,6 +30,7 @@ func browserOnlyAdminRoutes(member int64) []adminRoute {
 		{"PUT", "/api/v2/maintenance/worktrees", `{}`},
 		{"PUT", "/api/v2/settings/branch-prune", `{}`},
 		{"PUT", "/api/v2/settings/software-mirror", `{}`},
+		{"POST", "/api/v2/settings/software-mirror/cache", `{}`},
 		{"PATCH", "/api/v2/admin/notifications/defaults", `{}`},
 		{"PATCH", "/api/v2/admin/backups", `{}`},
 		{"POST", "/api/v2/admin/backups/run", `{}`},

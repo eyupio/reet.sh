@@ -101,7 +101,13 @@ func (s *server) requireOwner(next http.HandlerFunc) http.HandlerFunc {
 // or the account. Without accounts the instance's one token is the browser's
 // credential too, so there is nothing to tell apart and it passes through.
 func (s *server) adminBrowser(next http.HandlerFunc) http.HandlerFunc {
-	gated := s.browserOnly("do this", "", next)
+	return s.accountBrowser("do this", next)
+}
+
+// accountBrowser is browserOnly for a route that also works without accounts,
+// where it passes through unchanged. action names it in the refusals.
+func (s *server) accountBrowser(action string, next http.HandlerFunc) http.HandlerFunc {
+	gated := s.browserOnly(action, "", next)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.authMode != AuthAccounts {
 			next(w, r)

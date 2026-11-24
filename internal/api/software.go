@@ -36,7 +36,7 @@ func (s *server) registerSoftwareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/software/batches/{batchId}/abandon", s.terminal(s.softwareBatchAbandon))
 	mux.HandleFunc("GET /api/v2/settings/software-mirror", s.requireWriter(s.softwareMirrorGet))
 	mux.HandleFunc("PUT /api/v2/settings/software-mirror", s.adminBrowser(s.requireAdmin(s.softwareMirrorPut)))
-	mux.HandleFunc("POST /api/v2/settings/software-mirror/cache", s.requireAdmin(s.softwareMirrorCache))
+	mux.HandleFunc("POST /api/v2/settings/software-mirror/cache", s.adminBrowser(s.requireAdmin(s.softwareMirrorCache)))
 }
 
 // newSoftwareRuns wires the batch driver to the store and the same apply path

@@ -333,8 +333,8 @@ server's own `.env` is the setup bootstrap token and is refused once personal to
 exist. Use a personal token from the Account page for CLI commands. This covers
 `doctor`, `scan`, `sync` and `setup profile push`/`pull`. Personal API tokens are
 listed, made and revoked only from a signed-in browser (**Account → API tokens**);
-a request carrying a token cannot manage tokens, nor do the owner's and admins'
-changes (backups and their destinations, users, invites, instance settings, the
+a request carrying a token cannot manage tokens or the account's sessions and
+password, nor do the owner's and admins' changes (backups and their destinations, users, invites, instance settings, the
 fence, importing a copy); those are done from a signed-in browser. See
 [SECURITY.md](SECURITY.md) for the full list.
 

@@ -127,8 +127,8 @@ what to fix, rather than starting up looking like single sign-on is off.
    address. It has no password. Without it the person is told no account is available.
 4. A person who is signed in can link their own identity (`GET /api/v2/auth/oidc/start?intent=link`;
    the Account page offers it), and unlink it again
-   (`DELETE /api/v2/auth/oidc/identity`) as long as that leaves them a way in: a password, and
-   password sign-in not turned off.
+   (`DELETE /api/v2/auth/oidc/identity`, from a signed-in browser only; a personal API token is
+   refused) as long as that leaves them a way in: a password, and password sign-in not turned off.
 
 The owner is never created or linked by single sign-on. Ownership comes only from setup and from
 transfer. Before setup is done, single sign-on signs nobody in.

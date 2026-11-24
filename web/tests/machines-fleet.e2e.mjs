@@ -1,7 +1,7 @@
 // Machines: a large fleet sorts by attention, and a compact status filter appears
 // only when the fleet is big enough to need it.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace } from './helpers/workspace.mjs'
+import { active, openWorkspace, terminalMachine } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -132,6 +132,48 @@ try {
         expect(errors).toEqual([])
         await context.close()
       }
+    }
+  }
+  // A machine its owner locked says so quietly, explains it on demand, offers no way to unlock it, and refuses nothing silently:
+  // Start an agent is disabled with the sentence, in the same place a machine that is not ready says why.
+  if (run('locked')) {
+    const SENTENCE = 'Locked on the machine. Run reet agent unlock there.'
+    const MEANS = ['Locked on the machine: reet cannot start, attach to or change anything there. It still reports its health and inventory.', 'To unlock, run reet agent unlock on it.']
+    const terminals = [terminalMachine('work-1-agent', 'work-1', false), terminalMachine('att-2-agent', 'att-2', true)]
+    terminals[0].locked = true; terminals[0].capabilities.locked = true
+    const lockedSync = { ...sync, agents: sync.agents.map(a => ({ ...a, locked: a.host === 'work-1' })) }
+    for (const [width, theme, touch] of [[1280, 'light', false], [390, 'dark', true]]) {
+      const card = (page, host) => page.locator('article.machine').filter({ has: page.getByRole('heading', { name: host, exact: true }) })
+      const { context, page, errors } = await open({ width, height: 1000, theme, touch, scale: 2, sync: lockedSync, terminalMachines: terminals, terminalStatus: active })
+      await page.goto(`${base}/machines`)
+      const locked = card(page, 'work-1'), other = card(page, 'att-2')
+      await expect(locked.locator('[data-locked]').getByText('Locked', { exact: true })).toBeVisible()
+      await expect(other.locator('[data-locked]')).toHaveCount(0)
+      // Said once, in words: the sentence under Start an agent, the command in code, and no second, contradictory reason.
+      const start = locked.getByRole('button', { name: 'Start an agent' })
+      await expect(start).toBeDisabled()
+      await expect(locked.locator('.start-reason')).toHaveText(SENTENCE)
+      await expect(locked.locator('.start-reason code')).toHaveText('reet agent unlock')
+      await expect(locked.locator('.start-reason')).not.toContainText(/offline|reconnecting|Enable terminal/)
+      await expect(other.getByRole('button', { name: 'Start an agent' })).toBeEnabled()
+      await expect(locked.locator('[data-agent-update]')).toContainText('locked, so updates wait until it is unlocked there')
+      await expect(locked.locator('[data-agent-update]').getByRole('button', { name: /^Update reet/ })).toBeDisabled()
+      // What it means is on demand, in two lines.
+      const how = locked.locator('[data-locked] details')
+      await expect(how.getByText(MEANS[0])).toBeHidden()
+      await how.locator('summary').click()
+      await expect(how.locator('p').nth(0)).toHaveText(MEANS[0])
+      await expect(how.locator('p').nth(1)).toHaveText(MEANS[1])
+      await expect(how.locator('code')).toHaveText('reet agent unlock')
+      // Nothing in reet unlocks it.
+      await expect(page.getByRole('button', { name: /unlock/i })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: /unlock/i })).toHaveCount(0)
+      await expect(page.getByRole('menuitem', { name: /unlock/i })).toHaveCount(0)
+      if (touch) expect((await how.locator('summary').boundingBox()).height, 'what this means height').toBeGreaterThanOrEqual(44)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+      if (process.env.REET_E2E_SHOTS) await locked.screenshot({ path: `${process.env.REET_E2E_SHOTS}/machines-locked-${width}-${theme}.png` })
+      expect(errors).toEqual([])
+      await context.close()
     }
   }
   if (run('phone')) {

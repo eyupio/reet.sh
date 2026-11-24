@@ -188,6 +188,27 @@ try {
   passed.push('viewer')
  }
 
+ // A blocked machine says why: allow-apply being off, or its owner having locked it, which only the agent list can tell apart.
+ if (run('blocked')) {
+  const w = world()
+  w.machines = [machine('a-lock', 'vault', 'blocked', {waiting:['seo-bing']}), machine('a-apply', 'bench', 'blocked')]
+  const agents = [{id:'a-lock', host:'vault', version:'1.4.0', lastSeen:now, paused:false, autoUpdate:false, locked:true}, {id:'a-apply', host:'bench', version:'1.4.0', lastSeen:now, paused:false, autoUpdate:false, locked:false}]
+  for (const [width, theme] of [[1280, 'light'], [390, 'dark']]) {
+   const {context, page, errors} = await open({width, height:width < 600 ? 844 : 800, theme, touch:width < 600, scale:2, sync:{...sync, agents}}, w)
+   const vault = row(page, 'vault'), bench = row(page, 'bench')
+   await expect(vault.locator('p.why').first()).toHaveText('Locked on the machine. Run reet agent unlock there.')
+   await expect(vault.locator('p.why code')).toHaveText('reet agent unlock')
+   await expect(vault).not.toContainText('allow-apply')
+   await expect(vault.getByRole('button', {name:/unlock/i})).toHaveCount(0)
+   await expect(bench.locator('p.why')).toContainText('Run reet agent allow-apply on on bench.')
+   await expect(bench).not.toContainText('unlock')
+   if (process.env.REET_E2E_SHOTS) await page.screenshot({path:`${process.env.REET_E2E_SHOTS}/skills-blocked-locked-${width}-${theme}.png`})
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  passed.push('blocked')
+ }
+
  // At 1440, 1024 and 390 px, light and dark: nothing scrolls sideways, every target is 44 px, no text under 14 px.
  if (run('layout')) {
   for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], [1024, 'dark'], [390, 'light'], [390, 'dark']]) {

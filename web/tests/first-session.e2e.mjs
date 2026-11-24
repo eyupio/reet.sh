@@ -444,5 +444,36 @@ try {
    await context.close()
   }
  }
+
+ // A machine its owner locked says so in the one sentence, with no second reason; a launch it refuses with 409 machine_locked
+ // (locked since the page last read) says the same sentence, and nothing is started.
+ if (run('locked')) {
+  const SENTENCE = 'Locked on the machine. Run reet agent unlock there.'
+  const refusal = {status:409, json:{code:'machine_locked', error:'Locked on the machine. Run `reet agent unlock` there.', message:'Locked on the machine. Run `reet agent unlock` there.'}}
+  const locked = terminalMachine('a1', 'studio', false)
+  locked.locked = true; locked.capabilities.locked = true
+  const routes = scene().routes
+  routes['/api/v2/terminal/machines'] = {machines:[locked]}
+  for (const [width, theme] of [[1280, 'light'], [390, 'dark']]) {
+   const {context, page} = await openWorkspace(browser, {width, height:width < 600 ? 844 : 800, theme, touch:width < 600, routes})
+   await page.goto(base)
+   await expect(guide(page).getByText(`studio cannot take a session yet. ${SENTENCE}`)).toBeVisible()
+   await expect(guide(page).locator('p.note code')).toHaveText('reet agent unlock')
+   await expect(guide(page)).not.toContainText(/Enable terminal|offline|reconnecting/)
+   await expect(page.getByRole('button', {name:/unlock/i})).toHaveCount(0)
+   await shot(page, 'guide-machine-locked', guide(page))
+   await context.close()
+  }
+  await both({}, async ({g, world, capture}) => {
+   world.answer = refusal
+   await g.getByRole('button', {name:'Ask Claude Code'}).click()
+   await expect(g.getByRole('status')).toHaveText(SENTENCE)
+   await expect(g.getByRole('status').locator('code')).toHaveText('reet agent unlock')
+   expect(world.posts).toHaveLength(1)
+   await expect(g.getByRole('link', {name:'Open the session'})).toHaveCount(0)
+   await expect(g.getByRole('button', {name:'Ask Claude Code'})).toBeEnabled()
+   await capture('guide-launch-locked')
+  })
+ }
  console.log('First session: the guide shows once for a first machine, one line per ready agent, the read-only question and its reply, a signed-out agent and recovery, a slow or ended session, terminal-only agents, Not now and the way back, the phone step, and what stays reachable passed.')
 } finally {await browser.close()}

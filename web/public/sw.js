@@ -40,22 +40,61 @@ async function show() {
     body: String(note.body || ''), tag: String(note.tag || FALLBACK.tag), renotify: true,
     icon: '/icon-192.png', badge: '/icon-192.png', data: { url: typeof note.url === 'string' && note.url.startsWith('/') ? note.url : '/sessions' },
   })))
+  // One reet tab in front is told, so it can play its sound if the person turned it on there. A hidden tab is not: the
+  // notification's own sound is enough, and several tabs would play it several times.
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  const front = windows.find(client => client.focused) || windows.find(client => client.visibilityState === 'visible')
+  front?.postMessage({ type: 'reet-notified' })
 }
 
 self.addEventListener('push', event => event.waitUntil(show()))
 
-// A tap opens the session: in a reet window that is already open, or a new one.
+// The browser replaced or withdrew this device's subscription. A device that was on is subscribed again with the same
+// options, and the controller is told to move its record to the new address, keeping its name and choices. Without the
+// old subscription nothing says this device was on, so nothing is done: the Notifications page then offers Repair.
+async function resubscribe(event) {
+  const old = event.oldSubscription
+  if (!old) return
+  try {
+    const fresh = event.newSubscription || await self.registration.pushManager.subscribe(old.options)
+    await fetch('/api/v2/push/subscriptions', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: fresh.endpoint, previous: old.endpoint }),
+    })
+  } catch {
+    // Signed out, offline or refused: the page notices the mismatch and offers Repair.
+  }
+}
+
+self.addEventListener('pushsubscriptionchange', event => event.waitUntil(resubscribe(event)))
+
+// Whether an open window already shows what a tap asks for: the same session (whatever else its address carries, as
+// the workspace adds its own view to it), or for any other page the same address.
+function shows(clientUrl, target) {
+  const open = new URL(clientUrl)
+  if (open.origin !== target.origin) return false
+  const session = target.searchParams.get('session')
+  if (session) return open.pathname === target.pathname && open.searchParams.get('session') === session
+  return open.pathname === target.pathname && open.search === target.search
+}
+
+// A tap opens the session on the view that asked. A reet window already showing it is brought forward as it is, so
+// nothing typed there is lost. Otherwise the reet window in front (or any) is brought forward and moved there; a window
+// this worker cannot move itself (it does not control it) is asked to move, and with no reet window a new one opens.
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  const url = new URL(event.notification.data?.url || '/sessions', self.location.origin).href
+  const target = new URL(event.notification.data?.url || '/sessions', self.location.origin)
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const open = windows.find(client => client.url === url) || windows[0]
-    if (open) {
-      await open.focus()
-      if (open.url !== url && 'navigate' in open) await open.navigate(url).catch(() => self.clients.openWindow(url))
-      return
+    const same = windows.find(client => shows(client.url, target))
+    if (same) { await same.focus(); return }
+    const open = windows.find(client => client.focused) || windows.find(client => client.visibilityState === 'visible') || windows[0]
+    if (!open) { await self.clients.openWindow(target.href); return }
+    await open.focus().catch(() => {})
+    try {
+      if (!('navigate' in open) || !await open.navigate(target.href)) throw new Error('not moved')
+    } catch {
+      open.postMessage({ type: 'reet-open', url: target.pathname + target.search })
     }
-    await self.clients.openWindow(url)
   })())
 })

@@ -118,6 +118,8 @@
   // The machine card's Open terminal action (?open=1) is read before remember() rewrites the address, and acted on once.
   const openTerminalIntent = wantsOpenTerminal(location.search)
   const openTerminalLinkedSession = new URLSearchParams(location.search).has('session')
+  // A tap on a notification (from=push): a session that no longer exists sends the person to the sessions list, which says so.
+  const fromPush = new URLSearchParams(location.search).get('from') === 'push'
   let openTerminalAttempted = false
   // The Machine page's Open terminal asks for a new shell on that machine. It must never fall back to an agent session
   // already running there, so the request is consumed once the inventory is read and never selects an existing session.
@@ -300,7 +302,7 @@
     }
   }
 
-  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');url.searchParams.delete('open');if(openingTerminal)url.searchParams.set('new','shell');else url.searchParams.delete('new');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');url.searchParams.delete('open');url.searchParams.delete('from');if(openingTerminal)url.searchParams.set('new','shell');else url.searchParams.delete('new');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     openingTerminal=''
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
@@ -365,6 +367,7 @@
       statusError='';accessDenied=false
       const selectionBeforeRefresh=selectedSession
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
+      if(firstLoad&&fromPush&&selectedSession&&!nextSessions.some(item=>item.id===selectedSession)){location.replace('/sessions?view=list&gone=1');return}
       machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error;now=Date.now()
       // A desk read that fails keeps the last list and says nothing: without desks every session shows, as before desks.
       if(nextDesks.data)desks=nextDesks.data

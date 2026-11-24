@@ -3,7 +3,7 @@
 // debugging protocol. The push service is never contacted: the page's subscription is a stand-in, and the worker's
 // question to the controller is answered here.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace } from './helpers/workspace.mjs'
+import { active, openWorkspace } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/this-phone'
@@ -23,32 +23,44 @@ const standIn = ({ endpoint, answer, subscribed }) => {
     register: async (url, options) => { window.__registered = { url, scope: options?.scope }; registered = true; return registration },
     getRegistration: async () => registered ? registration : undefined,
     get ready() { return Promise.resolve(registration) },
-    addEventListener() {}, removeEventListener() {},
+    // The page's listener for the worker's messages, so a test can play the worker.
+    addEventListener(name, listener) { if (name === 'message') (window.__workerListeners ??= []).push(listener) }, removeEventListener() {},
   } })
+  // Web Audio, recorded: each note's pitch, loudest level and end.
+  window.__notes = []
+  window.AudioContext = class { constructor() { this.currentTime = 0; this.state = 'running'; this.destination = {} } resume() { return Promise.resolve() }
+    createGain() { const gain = { peak: 0, setValueAtTime(v) { gain.peak = Math.max(gain.peak, v) }, exponentialRampToValueAtTime(v) { gain.peak = Math.max(gain.peak, v) } }; return { gain, connect: d => d } }
+    createOscillator() { const note = { frequency: { value: 0 } }; return { type: '', frequency: note.frequency, connect: g => { note.gain = g.gain; return g }, start(at) { note.start = at }, stop(at) { window.__notes.push({ frequency: note.frequency.value, peak: note.gain.peak, start: note.start, stop: at }) } } } }
   window.PushManager = window.PushManager || function PushManager() {}
   class FakeNotification { static get permission() { return permission } static async requestPermission() { window.__asked = true; if (answer) permission = answer; return permission } }
   Object.defineProperty(window, 'Notification', { configurable: true, value: FakeNotification })
 }
 
-async function open({ width = 390, height = 844, devices = [], current = 0, answer = 'granted', subscribed = false, available = true, init = null, touch = true } = {}) {
+async function open({ width = 390, height = 844, devices = [], current = 0, answer = 'granted', subscribed = false, available = true, init = null, touch = true, remembered = 0, theme = "light", path = '/notifications', workspace = {}, unknownEndpoint = false } = {}) {
   const calls = []
   const state = { devices: [...devices], current }
   const view = () => ({ available, publicKey: available ? KEY : undefined, devices: state.devices, ...(state.current ? { current: state.current } : {}) })
-  const app = await openWorkspace(browser, { width, height, touch, routes: {
+  const app = await openWorkspace(browser, { width, height, touch, theme, ...workspace, routes: {
     '/api/v2/notifications': { notifications: [], unread: 0 },
     '/api/v2/notifications/preferences': { preferences: [] },
     '/api/v2/push': request => { calls.push({ method: 'GET', endpoint: request.headers()['x-reet-push-endpoint'] || '' }); return view() },
     '/api/v2/push/subscriptions': request => {
       const body = request.postDataJSON(); calls.push({ method: request.method(), body })
-      if (request.method() === 'DELETE') { state.devices = state.devices.filter(d => d.id !== body.id && !(body.endpoint && d.id === state.current)); if (body.endpoint) state.current = 0; return { removed: true } }
-      const saved = { id: 7, label: body.label, waiting: body.waiting, ended: body.ended, createdAt: Date.now(), lastOkAt: 0 }
+      if (request.method() === 'DELETE') {
+        // A subscription the controller never registered names no device: only a removal by id takes a record away.
+        if (unknownEndpoint && body.endpoint) return { removed: false }
+        state.devices = state.devices.filter(d => d.id !== body.id && !(body.endpoint && d.id === state.current)); if (body.endpoint) state.current = 0; return { removed: true }
+      }
+      const kept = body.replace ? state.devices.find(d => d.id === body.replace) : null
+      const saved = kept ? { ...kept, deadAt: 0 } : { id: 7, label: body.label, waiting: body.waiting, ended: body.ended, createdAt: Date.now(), lastOkAt: 0 }
       state.devices = [...state.devices.filter(d => d.id !== 7), saved]; state.current = 7
       return saved
     },
     '/api/v2/push/test': request => { calls.push({ method: 'TEST' }); return { sent: state.devices.length, devices: state.devices.length } },
   } })
   await app.page.addInitScript(init ?? standIn, { endpoint: ENDPOINT, answer, subscribed })
-  await app.page.goto(`${base}/notifications`)
+  if (remembered) await app.page.addInitScript(id => { try { localStorage.setItem('reet.push.device', String(id)) } catch { /* none */ } }, remembered)
+  await app.page.goto(`${base}${path}`)
   const card = app.page.getByRole('region', { name: 'On this device' })
   return { ...app, calls, card, state }
 }
@@ -85,7 +97,7 @@ try {
 
     await card.getByRole('button', { name: 'Turn off' }).click()
     await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
-    expect(calls.find(call => call.method === 'DELETE').body).toEqual({ endpoint: ENDPOINT })
+    expect(calls.filter(call => call.method === 'DELETE').map(call => call.body)).toEqual([{ id: 7 }, { endpoint: ENDPOINT }])
     expect(await page.evaluate(() => window.__unsubscribed)).toBe(true)
     expect(errors).toEqual([])
     await context.close()
@@ -118,6 +130,113 @@ try {
     await context.close()
   }
 
+  // The sound: off to begin with, chosen on this device only. Turning it on and Try it each play the tone once; a
+  // notification the worker reports while the tab is in front plays it once, however many reports arrive together.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, context, errors } = await open({ devices: [mine], current: 7, subscribed: true })
+    const sound = card.getByRole('checkbox', { name: /Play a sound/ })
+    await expect(sound).not.toBeChecked()
+    const notified = () => page.evaluate(() => { for (const listener of window.__workerListeners ?? []) listener(new MessageEvent('message', { data: { type: 'reet-notified' } })) })
+    await notified()
+    expect(await page.evaluate(() => window.__notes.length)).toBe(0)
+    await sound.check()
+    expect(await page.evaluate(() => localStorage.getItem('reet.push.sound'))).toBe('1')
+    await card.getByRole('button', { name: 'Try it' }).click()
+    // A muted phone shows nothing, so the press says so: the button reads Playing… (and ignores a second press) for about a
+    // second, and the status line says Played.
+    await expect(card.getByRole('button', { name: 'Playing…' })).toHaveAttribute('aria-disabled', 'true')
+    await card.getByRole('button', { name: 'Playing…' }).click({ force: true })
+    await expect(card.getByRole('status')).toHaveText('Played')
+    await expect(card.getByRole('button', { name: 'Try it' })).toHaveAttribute('aria-disabled', 'false', { timeout: 3000 })
+    await expect(card.getByRole('status')).toBeHidden()
+    const notes = await page.evaluate(() => window.__notes)
+    expect(notes.map(n => n.frequency)).toEqual([660, 880, 660, 880])
+    // Quiet and short: never above a twentieth of full level, and over in under a second.
+    expect(notes.every(n => n.peak <= 0.05 && n.stop - notes[0].start < 1)).toBe(true)
+    await notified(); await notified()
+    expect(await page.evaluate(() => window.__notes.length)).toBe(6)
+    expect(await targets(card)).toEqual([])
+    expect(await noSidewaysScroll(page)).toBe(true)
+    await sound.uncheck()
+    await page.waitForTimeout(1100)
+    await notified()
+    expect(await page.evaluate(() => [window.__notes.length, localStorage.getItem('reet.push.sound')])).toEqual([6, null])
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // The push service dropped this phone's subscription (the controller marked it dead): the card says so and offers one
+  // button. Nothing is subscribed until it is pressed; Repair subscribes afresh and replaces the record, choices kept.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: false, createdAt: Date.now() - 3 * 86_400_000, lastOkAt: 0, deadAt: Date.now() - 60_000 }
+    const { page, card, calls, errors, context } = await open({ devices: [mine], current: 7, subscribed: true })
+    await expect(card.getByText('Stopped', { exact: true })).toBeVisible()
+    await expect(card.getByText('Notifications stopped reaching this phone.')).toBeVisible()
+    await expect(card.getByText('Your browser may ask permission again.')).toBeVisible()
+    await expect(card.getByRole('checkbox')).toHaveCount(0)
+    expect(await page.evaluate(() => [window.__subscribeOptions, window.__unsubscribed])).toEqual([undefined, undefined])
+    expect(calls.some(call => call.method === 'POST')).toBe(false)
+    expect(await noSidewaysScroll(page)).toBe(true)
+    expect(await targets(card)).toEqual([])
+    await card.getByRole('button', { name: 'Repair' }).click()
+    await expect(card.getByText('On', { exact: true })).toBeVisible()
+    await expect(card.getByRole('status')).toHaveText('Repaired. This device will hear when a session needs you.')
+    // The Repair button is gone; focus moves to the card's heading rather than falling to the page.
+    await expect(card.getByRole('heading', { name: 'On this device' })).toBeFocused()
+    expect(await page.evaluate(() => [window.__unsubscribed, !!window.__subscribeOptions])).toEqual([true, true])
+    expect(calls.find(call => call.method === 'POST').body).toEqual({ endpoint: ENDPOINT, label: 'Chrome on Linux', waiting: true, ended: false, replace: 7 })
+    await expect(card.getByRole('checkbox', { name: /A session has finished/ })).not.toBeChecked()
+    expect(await page.evaluate(() => localStorage.getItem('reet.push.device'))).toBe('7')
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // The browser lost its subscription (or never told the controller of a new one) while the controller still holds this
+  // device: stopped, found by the id this browser remembers. Turn off removes that record by its id.
+  {
+    const mine = { id: 7, label: 'Firefox on Linux', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, calls, context } = await open({ width: 1280, height: 900, touch: false, devices: [mine], remembered: 7 })
+    await expect(card.getByText('Notifications stopped reaching this device.')).toBeVisible()
+    expect(await page.evaluate(() => [window.__asked, window.__subscribeOptions])).toEqual([undefined, undefined])
+    await card.getByRole('button', { name: 'Turn off' }).click()
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
+    await expect(card.getByRole('heading', { name: 'On this device' })).toBeFocused()
+    expect(calls.find(call => call.method === 'DELETE').body).toEqual({ id: 7 })
+    expect(await page.evaluate(() => localStorage.getItem('reet.push.device'))).toBe(null)
+    await context.close()
+  }
+
+  // The browser replaced the subscription (a fresh one the controller never heard of, its registration having failed) while
+  // the controller still holds the device under the old one: stopped, by the id this browser remembers. Turn off must remove
+  // that record by its id as well as the fresh subscription by its endpoint, or the old record is left behind and is listed
+  // under "Your other devices" while this device reads as off.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, calls, state, context } = await open({ devices: [mine], current: 0, subscribed: true, remembered: 7, unknownEndpoint: true })
+    await expect(card.getByText('Notifications stopped reaching this phone.')).toBeVisible()
+    await card.getByRole('button', { name: 'Turn off' }).click()
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
+    expect(calls.filter(call => call.method === 'DELETE').map(call => call.body)).toEqual([{ id: 7 }, { endpoint: ENDPOINT }])
+    expect(await page.evaluate(() => window.__unsubscribed)).toBe(true)
+    expect(state.devices).toEqual([])
+    await page.reload()
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
+    await expect(card.getByText('Your other devices')).toHaveCount(0)
+    await context.close()
+  }
+
+  // A device that works when the card opens, and dies while reet is in the background, is noticed when reet comes back.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, state, context } = await open({ devices: [mine], current: 7, subscribed: true })
+    await expect(card.getByText('On', { exact: true })).toBeVisible()
+    state.devices = [{ ...mine, deadAt: Date.now() }]
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(card.getByText('Notifications stopped reaching this phone.')).toBeVisible()
+    await context.close()
+  }
+
   // An iPhone in a browser tab has no push manager until reet is on the Home Screen: the card says how, and offers no button.
   {
     const iphone = () => {
@@ -136,6 +255,67 @@ try {
     const { page, card, context } = await open({ available: false })
     await expect(page.getByRole('heading', { name: 'What you hear about' })).toBeVisible()
     await expect(card).toHaveCount(0)
+    await context.close()
+  }
+
+  // The Sessions page says so too, once, so a stopped phone is not noticed only by opening the card: one line with Repair,
+  // which goes to the card. Nothing is asked of the controller by a browser that never turned push on, and the line goes
+  // when the device works again.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0, deadAt: Date.now() - 60_000 }
+    const { page, calls, state, context, errors } = await open({ devices: [mine], current: 7, subscribed: true, path: '/sessions?view=list', workspace: { terminalStatus: active } })
+    const line = page.locator('.notice.stopped')
+    await expect(line).toHaveText('Notifications stopped reaching this phone. Repair')
+    const link = line.getByRole('link', { name: 'Repair' })
+    expect(await link.getAttribute('href')).toBe('/notifications#device-push')
+    expect(await noSidewaysScroll(page)).toBe(true)
+    // Back in front: read again, once, and the line follows the answer. Hidden: nothing is read.
+    const reads = () => calls.filter(call => call.method === 'GET').length
+    const before = reads()
+    state.devices = [{ ...mine, deadAt: 0 }]
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(line).toHaveCount(0)
+    expect(reads()).toBe(before + 1)
+    // Repair goes to the card, which scrolls itself into view.
+    state.devices = [mine]
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await link.click()
+    await expect(page.getByRole('region', { name: 'On this device' })).toBeVisible()
+    expect(new URL(page.url()).pathname + new URL(page.url()).hash).toBe('/notifications#device-push')
+    expect(errors).toEqual([])
+    await context.close()
+  }
+  {
+    const { page, calls, context } = await open({ path: '/sessions?view=list', workspace: { terminalStatus: active } })
+    await expect(page.getByRole('heading', { name: 'Sessions', level: 1 })).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(calls.length).toBe(0)
+    await expect(page.locator('.notice.stopped')).toHaveCount(0)
+    await context.close()
+  }
+
+  // A tap opens the session's own address: a chat session opens on its chat. A session removed before the tap lands on
+  // the sessions list, which says so in one line, and a reload does not say it again.
+  {
+    const A = 'connector-laptop000000001', S = 'session-chat000000000000001', now = Date.now()
+    const session = { id: S, agentId: A, title: 'OpenCode · site', state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: '/home/dev/site', structured: true }
+    const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true } }
+    let listed = [session]
+    const { page, context } = await openWorkspace(browser, { width: 390, height: 844, touch: true, terminalStatus: active, terminalMachines: [machine], routes: {
+      '/api/v2/terminal/sessions': () => ({ sessions: listed }), '/api/v2/folder-projects': { projects: [], savedWaiting: 0 },
+    } })
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}&from=push`)
+    await expect(page.locator('[data-session-presentation="chat"]')).toBeVisible()
+    await expect.poll(() => new URL(page.url()).searchParams.get('from')).toBe(null)
+    listed = []
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}&from=push`)
+    await expect(page.getByText('The session from that notification has ended or was removed.')).toBeVisible()
+    expect(new URL(page.url()).search).toBe('?view=list')
+    // It stays for about eight seconds, long enough to read, and goes by itself.
+    await expect(page.getByText('The session from that notification')).toHaveCount(0, { timeout: 12_000 })
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Sessions', level: 1 })).toBeVisible()
+    await expect(page.getByText('The session from that notification')).toHaveCount(0)
     await context.close()
   }
 

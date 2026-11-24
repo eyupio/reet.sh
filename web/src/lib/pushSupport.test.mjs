@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { pushSupport, isIOS, deviceLabel, keyBytes, sameKey } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
+const { pushSupport, isIOS, deviceLabel, keyBytes, sameKey, deviceNoun } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'
 const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15'
@@ -54,4 +54,34 @@ test("the controller's key is read as bytes, and a subscription for another key 
   assert.equal(sameKey(bytes.buffer, keyBytes('BAEC_-4')), false)
   assert.equal(sameKey(bytes.buffer, keyBytes('BAEC')), false)
   assert.equal(sameKey(null, bytes), false)
+})
+
+test('a device is stopped when reet thinks it is on but nothing can reach it', async () => {
+  const { pushHealth } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
+  const phone = { id: 7 }, dead = { id: 7, deadAt: 1 }, other = { id: 3 }
+  assert.deepEqual(pushHealth({ permission: 'granted', current: phone, remembered: 7, devices: [phone] }), { state: 'on', device: phone })
+  // The push service said it is gone.
+  assert.deepEqual(pushHealth({ permission: 'granted', current: dead, remembered: 7, devices: [dead] }), { state: 'stopped', device: dead })
+  // Permission was taken back while the subscription stayed.
+  assert.deepEqual(pushHealth({ permission: 'denied', current: phone, remembered: 7, devices: [phone] }), { state: 'stopped', device: phone })
+  // The browser dropped or changed its subscription: the controller no longer knows this browser by it.
+  assert.deepEqual(pushHealth({ permission: 'granted', current: null, remembered: 7, devices: [other, phone] }), { state: 'stopped', device: phone })
+  // Removed from another device's list, or never turned on here: off, not stopped.
+  assert.deepEqual(pushHealth({ permission: 'granted', current: null, remembered: 7, devices: [other] }), { state: 'off', device: null })
+  assert.deepEqual(pushHealth({ permission: 'default', current: null, remembered: 0, devices: [other] }), { state: 'off', device: null })
+})
+
+test('a chime plays once, only in a tab in front, only when asked for', async () => {
+  const { shouldChime } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
+  assert.equal(shouldChime({ on: true, visible: true, now: 5000, last: 0 }), true)
+  assert.equal(shouldChime({ on: false, visible: true, now: 5000, last: 0 }), false)
+  assert.equal(shouldChime({ on: true, visible: false, now: 5000, last: 0 }), false)
+  assert.equal(shouldChime({ on: true, visible: true, now: 5000, last: 4500 }), false)
+})
+
+test('a phone is called a phone in a sentence, anything else a device', () => {
+  assert.equal(deviceNoun(deviceLabel(ANDROID, 5)), 'phone')
+  assert.equal(deviceNoun(deviceLabel(IPHONE, 5)), 'phone')
+  assert.equal(deviceNoun(deviceLabel(IPAD, 5)), 'device')
+  assert.equal(deviceNoun('Firefox on Linux'), 'device')
 })

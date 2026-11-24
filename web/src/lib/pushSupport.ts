@@ -37,6 +37,11 @@ export function deviceLabel(userAgent: string, maxTouchPoints = 0): string {
   return system ? `${browser} on ${system}` : browser
 }
 
+/** What the card and the Sessions page call this device in a sentence: a phone says "phone", anything else "device". */
+export function deviceNoun(label: string): 'phone' | 'device' {
+  return /iPhone|Android/.test(label) ? 'phone' : 'device'
+}
+
 /** The controller's public key as the bytes pushManager.subscribe wants. */
 export function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
   const padded = base64url.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(base64url.length / 4) * 4, '=')
@@ -50,4 +55,21 @@ export function sameKey(current: ArrayBuffer | null | undefined, wanted: Uint8Ar
   if (!current) return false
   const have = new Uint8Array(current)
   return have.length === wanted.length && have.every((byte, i) => byte === wanted[i])
+}
+
+/** This device as the browser and the controller see it together. `stopped` means reet believes it is on, but nothing
+ *  will reach it: the push service dropped its subscription (the controller marked it dead), the browser no longer has
+ *  the subscription the controller holds, or notification permission was taken back. `remembered` is the device id this
+ *  browser last turned on; a device that is not in the list at all (removed from another device) is off. */
+export function pushHealth<D extends { id: number; deadAt?: number }>(input: { permission: string; current: D | null; remembered: number; devices: D[] }): { state: 'on' | 'stopped' | 'off'; device: D | null } {
+  const { permission, current, remembered, devices } = input
+  if (current) return { state: current.deadAt || permission !== 'granted' ? 'stopped' : 'on', device: current }
+  const kept = remembered ? devices.find(d => d.id === remembered) : undefined
+  return kept ? { state: 'stopped', device: kept } : { state: 'off', device: null }
+}
+
+/** Whether a notification that just arrived should chime in this tab: the person turned the sound on, the tab is in
+ *  front (a hidden tab leaves it to the notification's own sound), and it did not chime in the last second. */
+export function shouldChime(input: { on: boolean; visible: boolean; now: number; last: number }): boolean {
+  return input.on && input.visible && input.now - input.last >= 1000
 }

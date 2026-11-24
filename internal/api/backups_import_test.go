@@ -54,7 +54,7 @@ func source(t *testing.T, password string) []byte {
 }
 
 // target is a controller an import lands on, served over HTTP in accounts
-// mode with an owner token and a member token.
+// mode with an owner and a member, each with a token and a browser session.
 type target struct {
 	st  *store.Store
 	dir string
@@ -90,7 +90,7 @@ func newTarget(t *testing.T, populated bool) target {
 }
 
 // signIn gives a user a personal token and a browser session with the same
-// value: the import routes take the token, the owner's other routes the session.
+// value: the owner's routes take the session, and the token must be refused.
 func signIn(t *testing.T, st *store.Store, uid int64, raw string) {
 	t.Helper()
 	if _, err := st.CreateAPIToken(uid, raw, auth.HashToken(raw)); err != nil {
@@ -131,8 +131,9 @@ type reply struct {
 	v    map[string]any
 }
 
-// post sends an import. These fixtures are copies of controllers that were
-// not fenced, so it says allowLiveSource unless the test sets it itself.
+// post sends an import from the browser session the credential names. These
+// fixtures are copies of controllers that were not fenced, so it says
+// allowLiveSource unless the test sets it itself.
 func (tg target) post(t *testing.T, token string, fields [][2]string, file []byte) reply {
 	t.Helper()
 	set := false
@@ -147,7 +148,7 @@ func (tg target) post(t *testing.T, token string, fields [][2]string, file []byt
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("X-Reet-Import", "1")
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	}
 	return doImport(t, req)
 }
@@ -155,7 +156,7 @@ func (tg target) post(t *testing.T, token string, fields [][2]string, file []byt
 func (tg target) call(t *testing.T, method, token string) reply {
 	t.Helper()
 	req, _ := http.NewRequest(method, tg.url+"/api/v2/admin/backups/import", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	return doImport(t, req)
 }
 
@@ -326,6 +327,62 @@ func TestADamagedCopyChangesNothing(t *testing.T) {
 	tg.untouched(t)
 }
 
+// A leaked token must not stage a database replacement or cancel one: the
+// import, its state and its cancelling are the owner's browser's alone.
+func TestAnImportRefusesAPersonalToken(t *testing.T) {
+	t.Parallel()
+	raw := source(t, "")
+	tg := newTarget(t, false)
+	const refused = "do this from a signed-in browser"
+	send := func(method string, withSession bool, hdr ...string) reply {
+		var req *http.Request
+		if method == "POST" {
+			body, ctype := form(t, [][2]string{{"allowLiveSource", "1"}}, raw)
+			req, _ = http.NewRequest(method, tg.url+"/api/v2/admin/backups/import", body)
+			req.Header.Set("Content-Type", ctype)
+			req.Header.Set("X-Reet-Import", "1")
+		} else {
+			req, _ = http.NewRequest(method, tg.url+"/api/v2/admin/backups/import", nil)
+		}
+		if withSession {
+			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "owner-token"})
+		}
+		for i := 0; i+1 < len(hdr); i += 2 {
+			req.Header.Set(hdr[i], hdr[i+1])
+		}
+		return doImport(t, req)
+	}
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		for _, hdr := range [][]string{{"Authorization", "Bearer owner-token"}, {"X-Reet-Token", "owner-token"}} {
+			for _, withSession := range []bool{false, true} {
+				if r := send(method, withSession, hdr...); r.code != 403 || !strings.Contains(r.text, refused) {
+					t.Fatalf("%s with %s (session %v): %d %s", method, hdr[0], withSession, r.code, r.text)
+				}
+			}
+		}
+		if r := send(method, false); r.code != 401 {
+			t.Fatalf("%s without a session: %d %s", method, r.code, r.text)
+		}
+		if r := send(method, true, "Sec-Fetch-Site", "cross-site"); r.code != 403 || !strings.Contains(r.text, "cross-site") {
+			t.Fatalf("%s cross-site: %d %s", method, r.code, r.text)
+		}
+	}
+	tg.untouched(t)
+	// The owner's session stages it and cancels it, as before.
+	if r := send("POST", true); r.code != 200 {
+		t.Fatalf("stage from the browser: %d %s", r.code, r.text)
+	}
+	if p, _ := backup.PendingImport(tg.dir); p == nil {
+		t.Fatal("the browser's import was not staged")
+	}
+	if r := send("DELETE", true); r.code != 200 {
+		t.Fatalf("cancel from the browser: %d %s", r.code, r.text)
+	}
+	if p, _ := backup.PendingImport(tg.dir); p != nil {
+		t.Fatal("the browser's cancel left the import staged")
+	}
+}
+
 func TestOnlyAnOwnerMayImport(t *testing.T) {
 	t.Parallel()
 	raw := source(t, "")
@@ -347,7 +404,7 @@ func TestAnImportFormWithoutTheMarkerHeaderIsRefused(t *testing.T) {
 	body, ctype := form(t, nil, raw)
 	req, _ := http.NewRequest("POST", tg.url+"/api/v2/admin/backups/import", body)
 	req.Header.Set("Content-Type", ctype)
-	req.Header.Set("Authorization", "Bearer owner-token")
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "owner-token"})
 	if r := doImport(t, req); r.code != http.StatusUnsupportedMediaType {
 		t.Fatalf("got %d %s", r.code, r.text)
 	}
@@ -402,7 +459,7 @@ func TestAnImportOfAnUnfencedCopyIsRefusedUnlessTheOwnerAllowsALiveSource(t *tes
 	}
 	// A page opened later reads the same list beside the staged report.
 	req, _ := http.NewRequest("GET", tg.url+"/api/v2/admin/backups/import", nil)
-	req.Header.Set("Authorization", "Bearer owner-token")
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "owner-token"})
 	pending := doImport(t, req)
 	if again, _ := pending.v["notInCopy"].([]any); pending.code != 200 || pending.v["pending"] == nil || len(again) != len(names) {
 		t.Fatalf("the pending answer: %d %s", pending.code, pending.text)

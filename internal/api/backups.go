@@ -36,9 +36,11 @@ func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/admin/backups/items/{id}/download", s.adminBrowser(s.requireOwner(s.adminBackupDownload)))
 	mux.HandleFunc("POST /api/v2/admin/backups/items/{id}/verify", s.requireAdmin(s.adminBackupVerify))
 	mux.HandleFunc("DELETE /api/v2/admin/backups/items/{id}", s.adminBrowser(s.requireOwner(s.adminBackupDelete)))
-	mux.HandleFunc("GET /api/v2/admin/backups/import", s.requireOwner(s.adminImportPending))
-	mux.HandleFunc("POST /api/v2/admin/backups/import", s.requireOwner(s.adminImportStage))
-	mux.HandleFunc("DELETE /api/v2/admin/backups/import", s.requireOwner(s.adminImportCancel))
+	// A staged import replaces the database at the next start; its report names
+	// owners, the safety copy's path and the secrets it cleared.
+	mux.HandleFunc("GET /api/v2/admin/backups/import", s.adminBrowser(s.requireOwner(s.adminImportPending)))
+	mux.HandleFunc("POST /api/v2/admin/backups/import", s.adminBrowser(s.requireOwner(s.adminImportStage)))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/import", s.adminBrowser(s.requireOwner(s.adminImportCancel)))
 
 	// A person's own copies. A viewer may read; only a writer may change anything.
 	mux.HandleFunc("GET /api/v2/backups", s.userBackups)

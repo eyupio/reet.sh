@@ -43,6 +43,9 @@ func browserOnlyAdminRoutes(member int64) []adminRoute {
 		{"POST", "/api/v2/admin/backups/prune", `{}`},
 		{"GET", "/api/v2/admin/backups/items/x/download", ""},
 		{"DELETE", "/api/v2/admin/backups/items/x", ""},
+		{"GET", "/api/v2/admin/backups/import", ""},
+		{"POST", "/api/v2/admin/backups/import", `{}`},
+		{"DELETE", "/api/v2/admin/backups/import", ""},
 		{"POST", fencePath, `{"unknown":1}`},
 		{"PATCH", fencePath, `{"unknown":1}`},
 		{"DELETE", fencePath, ""},
@@ -105,7 +108,7 @@ func TestOwnerAndAdminChangesNeedASignedInBrowser(t *testing.T) {
 }
 
 // What a script may still read or do with a personal token: listings and
-// states without secrets, and the staged import `reet backup import` sends.
+// states without secrets.
 func TestAdminReadsStillTakeAPersonalToken(t *testing.T) {
 	e := newEnrolAccounts(t)
 	for _, rt := range []adminRoute{
@@ -122,10 +125,6 @@ func TestAdminReadsStillTakeAPersonalToken(t *testing.T) {
 		{"GET", "/api/v2/admin/backups/remotes", ""},
 		{"GET", "/api/v2/admin/backups/remotes/r2/copies", ""},
 		{"POST", "/api/v2/admin/backups/items/x/verify", `{}`},
-		// reet backup import stages a copy with an owner's token; its sending
-		// is pinned in backups_import_test.go and cmd/reet.
-		{"GET", "/api/v2/admin/backups/import", ""},
-		{"DELETE", "/api/v2/admin/backups/import", ""},
 	} {
 		// Some parts are not wired in this test server, so the handler may stop
 		// at 503 or 404; what matters is that the token reached it.
@@ -142,7 +141,9 @@ func TestInstanceTokenStillChangesSettingsWithoutAccounts(t *testing.T) {
 	if status, text := do(t, srv, "PATCH", "/api/admin/settings", `{"instanceName":"Bench"}`, "X-Reet-Token", "instance-token"); status != 200 {
 		t.Fatalf("settings with the instance token: %d %s", status, text)
 	}
-	if status, text := do(t, srv, "PUT", "/api/v2/settings/branch-prune", `{}`, "X-Reet-Token", "instance-token"); status == 401 || status == 403 || status == 404 {
-		t.Fatalf("branch prune with the instance token: %d %s", status, text)
+	for _, rt := range []adminRoute{{"PUT", "/api/v2/settings/branch-prune", `{}`}, {"GET", "/api/v2/admin/backups/import", ""}, {"DELETE", "/api/v2/admin/backups/import", ""}} {
+		if status, text := do(t, srv, rt.method, rt.path, rt.body, "X-Reet-Token", "instance-token"); status == 401 || status == 403 || status == 404 {
+			t.Fatalf("%s %s with the instance token: %d %s", rt.method, rt.path, status, text)
+		}
 	}
 }

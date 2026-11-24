@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -148,5 +149,40 @@ func TestAnOutcomeStartOnALockedMachineSaysWhatToDo(t *testing.T) {
 func TestARunMemberOnALockedMachineSaysWhatToDo(t *testing.T) {
 	if got := runMemberSentence(store.RunMemberFailed, projectrun.CodeMachineLocked); got != terminalproto.LockedSentence {
 		t.Fatalf("sentence: %q", got)
+	}
+}
+
+// When the lock went on is shown beside locked on both listings.
+func TestALockedMachineSaysSinceWhen(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	_, _, raw := f.do(t, f.cookie, "GET", "/api/v2/terminal/machines", nil)
+	if strings.Contains(raw, "lockedAt") {
+		t.Fatalf("an unlocked machine: %s", raw)
+	}
+	f.lock(t)
+	rec, _ := f.st.RemoteCapabilitiesRawFor(f.uid, f.agent.ID)
+	caps := rec.Capabilities
+	caps.LockedAt = 1795000000
+	if err := f.st.UpdateRemoteCapabilitiesFor(f.uid, f.agent.ID, rec.InstanceID, rec.Generation, caps); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v2/terminal/machines", "/api/v2/sync"} {
+		if _, _, raw = f.do(t, f.cookie, "GET", path, nil); !strings.Contains(raw, `"lockedAt":1795000000`) {
+			t.Fatalf("%s: %s", path, raw)
+		}
+	}
+}
+
+// A lock time from the future (beyond a few minutes of clock skew) is not
+// believed: it is dropped, the lock kept.
+func TestALockTimeFromTheFutureIsDropped(t *testing.T) {
+	now := time.Unix(1795000000, 0)
+	caps := terminalproto.Capabilities{Locked: true, LockedAt: now.Add(time.Hour).Unix()}
+	if got := plausibleLockTime(caps, now); got.LockedAt != 0 || !got.Locked {
+		t.Fatalf("future: %+v", got)
+	}
+	caps.LockedAt = now.Add(time.Minute).Unix()
+	if got := plausibleLockTime(caps, now); got.LockedAt != caps.LockedAt {
+		t.Fatalf("skew: %+v", got)
 	}
 }

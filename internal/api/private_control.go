@@ -93,6 +93,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusPolicyViolation, "health reporting is disabled")
 		return
 	}
+	handshake.Capabilities = plausibleLockTime(handshake.Capabilities, time.Now())
 	caps, err := s.st.BeginRemoteConnectionFor(uid, agent.ID, handshake.AgentInstanceID, handshake.Capabilities)
 	if err != nil {
 		_ = conn.Close(websocket.StatusPolicyViolation, "connection rejected")
@@ -186,6 +187,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 			if body.AgentInstanceID != handshake.AgentInstanceID {
 				return
 			}
+			body.Capabilities = plausibleLockTime(body.Capabilities, time.Now())
 			if err := s.st.UpdateRemoteCapabilitiesFor(uid, agent.ID, body.AgentInstanceID, caps.Generation, body.Capabilities); err != nil {
 				return
 			}
@@ -209,4 +211,17 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// lockTimeSkew is how far ahead of this controller's clock a machine's lock
+// time may be and still be believed.
+const lockTimeSkew = 5 * time.Minute
+
+// plausibleLockTime drops a lock time from the future, keeping the lock: a
+// machine's clock can be wrong, and the time is only ever shown.
+func plausibleLockTime(c terminalproto.Capabilities, now time.Time) terminalproto.Capabilities {
+	if c.LockedAt > now.Add(lockTimeSkew).Unix() {
+		c.LockedAt = 0
+	}
+	return c
 }

@@ -51,6 +51,9 @@ type SyncAgent struct {
 	// Locked is the machine saying it is locked there (reet agent lock), as
 	// it last reported. Only the sync listing fills it in.
 	Locked bool `json:"locked"`
+	// LockedAt is when the lock went on, in Unix seconds, when the machine
+	// said so.
+	LockedAt int64 `json:"lockedAt,omitempty"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`

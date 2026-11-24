@@ -242,6 +242,9 @@ func (s *server) terminalMachines(w http.ResponseWriter, r *http.Request) {
 		if c, e := s.st.RemoteCapabilitiesFor(s.uid(r), a.ID); e == nil {
 			item["capabilities"] = c.Capabilities
 			item["locked"] = c.Capabilities.Locked
+			if c.Capabilities.LockedAt > 0 {
+				item["lockedAt"] = c.Capabilities.LockedAt
+			}
 		}
 		out = append(out, item)
 	}

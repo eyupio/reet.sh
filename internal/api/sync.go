@@ -27,7 +27,7 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 	for i := range agents {
 		// What the machine last reported over its private connection.
 		if c, e := s.st.RemoteCapabilitiesRawFor(s.uid(r), agents[i].ID); e == nil {
-			agents[i].Locked = c.Capabilities.Locked
+			agents[i].Locked, agents[i].LockedAt = c.Capabilities.Locked, c.Capabilities.LockedAt
 		}
 	}
 	if s.authMode != AuthAccounts {

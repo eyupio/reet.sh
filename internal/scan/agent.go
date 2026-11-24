@@ -274,6 +274,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	skipTerminalSetup := fs.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard after enrollment")
 	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
 	ifNeeded := fs.Bool("if-needed", false, "reuse an enrollment for the same site and machine (installer retries)")
+	endSessions := fs.Bool("end-sessions", false, "with lock: also end every session and chat this machine runs")
 	again := fs.Bool("again", false, "enrol this machine again with an enrolment code, keeping every local setting (leaves a personal token behind)")
 	var projects multi
 	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
@@ -291,6 +292,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		return err
 	}
 	*config = absoluteConfig
+	if *endSessions && action != "lock" {
+		return errors.New("--end-sessions goes with reet agent lock only")
+	}
 	switch action {
 	case "enroll":
 		if *again {
@@ -425,7 +429,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		if err != nil {
 			return err
 		}
-		return runAgentLock(c, *config, lockMode, out)
+		return runAgentLock(c, *config, lockMode, *endSessions, out)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {

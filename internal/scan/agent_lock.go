@@ -7,14 +7,14 @@ import (
 	"io"
 )
 
-const agentLockUsage = "reet agent lock|unlock [--config PATH]; reet agent lock status [--config PATH]"
+const agentLockUsage = "reet agent lock|unlock [--config PATH]; reet agent lock --end-sessions [--config PATH]; reet agent lock status [--config PATH]"
 
 // parseAgentLock reads lock, unlock and lock status. Like allow-apply it
 // returns the arguments with a placeholder first, so the rest parse as flags.
 func parseAgentLock(args []string, out io.Writer) (string, []string, error) {
 	for _, arg := range args {
 		if arg == "-h" || arg == "--help" || arg == "-help" {
-			fmt.Fprintln(out, agentLockUsage+"\nLock this machine against its controller: while locked it refuses every launch, attach, chat, upload, skill install and reet update the controller starts.\nRunning sessions keep running, ending a session still works, and inventory scans and health reports continue. Only a command on this machine locks or unlocks it.\nA running agent picks up the change within 5 seconds.")
+			fmt.Fprintln(out, agentLockUsage+"\nLock this machine against its controller: while locked it refuses every launch, attach, chat, upload, skill install and reet update the controller starts.\nRunning sessions keep running, ending a session still works, and inventory scans and health reports continue. Only a command on this machine locks or unlocks it.\nA running agent picks up the change within 5 seconds.\nThe lock does not contain processes already running here: a session started before it can run reet agent unlock. --end-sessions ends every session and chat once the lock is on.")
 			return "", nil, flag.ErrHelp
 		}
 	}
@@ -27,23 +27,59 @@ func parseAgentLock(args []string, out io.Writer) (string, []string, error) {
 	return "on", args, nil
 }
 
+// machineSessions counts and ends the sessions and chats this machine's
+// agent runs, for reet agent lock.
+type machineSessions interface {
+	running() (int, error)
+	endAll() (int, error)
+}
+
+// sessionsFor is the machine's own sessions; tests replace it.
+var sessionsFor = localSessionsFor
+
+func sessionCount(n int) string {
+	if n == 1 {
+		return "1 session is"
+	}
+	return fmt.Sprintf("%d sessions are", n)
+}
+
 // runAgentLock flips the machine's lock. It is reachable only through a
 // command on the machine itself: no controller message or job writes it.
-func runAgentLock(c agentConfig, config, mode string, out io.Writer) error {
+// With endSessions it ends every session and chat once the lock is on.
+func runAgentLock(c agentConfig, config, mode string, endSessions bool, out io.Writer) error {
+	if endSessions && mode != "on" {
+		return errors.New("--end-sessions goes with reet agent lock only")
+	}
+	sessions := sessionsFor(config, c)
 	switch mode {
 	case "on", "off":
 		c.Locked = mode == "on"
 		if err := editAgentConfig(config, func(s *agentConfig) error { s.Locked = c.Locked; return nil }); err != nil {
 			return err
 		}
-		if c.Locked {
-			fmt.Fprintf(out, "Locked %s. It now refuses every launch, attach, chat, upload, skill install and update its controller starts. Running sessions keep running; scans and health reports continue. Run reet agent unlock to lift it.\n", c.Host)
-		} else {
+		if !c.Locked {
 			fmt.Fprintf(out, "Unlocked %s. Its controller can start sessions, chats and updates here again.\n", c.Host)
+			return nil
+		}
+		fmt.Fprintf(out, "Locked %s. It now refuses every launch, attach, chat, upload, skill install and update its controller starts. Running sessions keep running; scans and health reports continue. Run reet agent unlock to lift it.\n", c.Host)
+		if endSessions {
+			// Locked first, so nothing new starts while these end.
+			ended, err := sessions.endAll()
+			fmt.Fprintf(out, "Ended %d sessions on this machine.\n", ended)
+			if err != nil {
+				fmt.Fprintf(out, "Some could not be ended: %v\n", err)
+			}
+		}
+		if n, err := sessions.running(); err == nil && n > 0 {
+			fmt.Fprintf(out, "%s still running and can run commands on this machine, including `reet agent unlock`. End them with `reet agent lock --end-sessions`, or from reet.\n", sessionCount(n))
 		}
 		return nil
 	case "status":
 		fmt.Fprintf(out, "Locked on this machine: %s\n", onOff(c.Locked))
+		if n, err := sessions.running(); err == nil {
+			fmt.Fprintf(out, "Sessions running: %d\n", n)
+		}
 		return nil
 	}
 	return errors.New("usage: " + agentLockUsage)

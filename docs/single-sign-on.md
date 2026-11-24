@@ -102,10 +102,11 @@ and leaves the stored value alone until the owner saves new ones.
 
 `GET /api/v2/admin/sso` (administrators and the owner) answers with the five read-only fields (`issuer`,
 `redirectUrl`, `linked`, `reachable`, `problem`) and the twelve settings under the names above. `label` is
-the text in use and `labelSetting` is the stored one. `PATCH /api/v2/admin/sso` (owner only) takes the whole set
+the text in use and `labelSetting` is the stored one. `PATCH /api/v2/admin/sso` (owner only, from a signed-in
+browser: a personal API token is refused with `403` and "do this from a signed-in browser") takes the whole set
 of twelve in one JSON body, every field present, and answers `200` with what is now stored. A missing or unknown
 field, a wrong type, an invalid value or a body over 32 KB is a `400` with `{"error": "…", "field": "…"}`,
-and nothing is stored. Where single sign-on is not enabled it answers `404`; a token that is not the owner's
+and nothing is stored. Where single sign-on is not enabled it answers `404`; a session that is not the owner's
 is always `403`. Each change that alters something is recorded in the activity log as `sso-settings`, with the
 names of the fields that changed and their new values. `GET /api/version` lists `sso-settings` under `features`
 on a build that has the route.
@@ -142,8 +143,8 @@ admin as usual, and a new person gets the default role.
 
 ## Disabling a person
 
-An admin disables an account under **Admin, Users**, or through the same API
-(`PATCH /api/v2/admin/users` with `{"id": 7, "disabled": true}`). That ends the person's sessions and
+An admin disables an account under **Admin, Users**, or through the same API from a signed-in browser
+(`PATCH /api/v2/admin/users` with `{"id": 7, "disabled": true}`; a personal API token is refused). That ends the person's sessions and
 personal tokens and closes their open terminals, and the provider can no longer sign them in. It
 works the same for accounts made by single sign-on and by password.
 

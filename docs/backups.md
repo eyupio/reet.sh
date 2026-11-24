@@ -71,11 +71,11 @@ So the password can be a parameter of one copy instead:
 reet backup run --password-file ./team-copy.password    # or - for standard input
 ```
 
-```sh
-curl -X POST https://reet.example/api/v2/admin/backups/run \
-  -H "Authorization: Bearer $OWNER_TOKEN" -H "Content-Type: application/json" \
-  -d '{"password": "a password the team chose"}'
-```
+From the controller's machine that is the command above. Over the API it is
+`POST /api/v2/admin/backups/run` with `{"password": "a password the team
+chose"}`, from the owner's signed-in browser: like every change to instance
+backups, it refuses a personal API token with `403` and "do this from a
+signed-in browser", so a leaked token cannot take a copy of the database.
 
 - **It seals that copy alone.** Same format and manifest as a copy sealed with
   the stored copy password (`protection` is `password`), so it opens with
@@ -469,7 +469,8 @@ reet backup fence --lift                                # undo it
 
 The command works on the data in `REET_DATA_DIR`, so it can be used with the
 server stopped or running: the server reads the state from the database each
-time, never from memory. The same is available to the owner over the API:
+time, never from memory. The same is available to the owner over the API, from
+a signed-in browser (a personal API token may read the state but not change it):
 
 | Request | Answer |
 | --- | --- |

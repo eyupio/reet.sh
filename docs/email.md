@@ -136,9 +136,11 @@ provider is configuration.
 
 - `GET`, `PATCH /api/v2/admin/mail`, and `POST …/check`, `…/test`, with
   `GET …/dns`. Reading the settings is for admins; changing and testing them
-  is for the owner.
+  is for the owner, from a signed-in browser.
 - `GET /api/v2/admin/mail/outbox` lists the outbox for admins;
-  `POST /api/v2/admin/mail/outbox/resend` is the owner's.
+  `POST /api/v2/admin/mail/outbox/resend` is the owner's, from a signed-in browser.
+- A personal API token may read the settings, the DNS records and the outbox;
+  the changes refuse it with `403` and "do this from a signed-in browser".
 - `POST /api/v2/auth/forgot` and `POST /api/v2/auth/reset` are public.
 - `GET`, `PATCH /api/v2/groups/{id}/notifications` are for that group's owner
   or managers.

@@ -333,7 +333,10 @@ server's own `.env` is the setup bootstrap token and is refused once personal to
 exist. Use a personal token from the Account page for CLI commands. This covers
 `doctor`, `scan`, `sync` and `setup profile push`/`pull`. Personal API tokens are
 listed, made and revoked only from a signed-in browser (**Account → API tokens**);
-a request carrying a token cannot manage tokens.
+a request carrying a token cannot manage tokens, nor do the owner's and admins'
+changes (backups and their destinations, users, invites, instance settings, the
+fence); those are done from a signed-in browser. `reet backup import` still sends
+a copy with an owner's token. See [SECURITY.md](SECURITY.md) for the full list.
 
 `reet agent enroll` takes an enrolment code instead: make one under **Machines →
 Add a machine** (it works once and lasts 15 minutes), then type it at the hidden

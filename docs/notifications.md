@@ -70,4 +70,4 @@ days; unread rows are kept.
 - `GET /api/v2/notifications` and `GET /api/v2/notifications/count`
 - `POST /api/v2/notifications/read`
 - `GET`, `PATCH /api/v2/notifications/preferences`
-- `GET`, `PATCH /api/v2/admin/notifications/defaults` (owner)
+- `GET`, `PATCH /api/v2/admin/notifications/defaults` (owner; `PATCH` from a signed-in browser only)

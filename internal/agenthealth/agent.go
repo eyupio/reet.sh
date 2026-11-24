@@ -121,6 +121,7 @@ type AgentConfig struct {
 	// back because the machine was locked.
 	machineLock  bool
 	locked       bool
+	lockedAt     int64
 	chatsHeld    *atomic.Bool
 	OnConnection func(bool)
 	// OnError receives why the private connection is down, and "" once it is up.
@@ -181,6 +182,8 @@ type AgentConfig struct {
 	// Locked re-reads the machine's local lock (reet agent lock). While it
 	// reports true only the lock's allow-list is served. Nil means unlocked.
 	Locked func() bool
+	// LockedAt re-reads when the lock went on, in Unix seconds. Nil sends none.
+	LockedAt func() int64
 
 	Collector        Collector
 	HTTPClient       *http.Client
@@ -416,7 +419,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	cfg.uploadsAllowed = readUploadsAllowed(cfg)
 	cfg.modelsAllowed = readModelsAllowed(cfg)
 	cfg.yoloAllowed = readYoloAllowed(cfg)
-	cfg.locked = readLocked(cfg)
+	cfg.locked, cfg.lockedAt = readLocked(cfg), readLockedAt(cfg)
 	cfg.chatsHeld = &atomic.Bool{}
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
@@ -628,6 +631,15 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 	}
 }
 
+// lockedAt is when the lock went on, sent only with Locked; a time the
+// protocol would refuse is not sent.
+func lockedAt(cfg AgentConfig) int64 {
+	if !cfg.machineLock || !cfg.locked || cfg.lockedAt <= 0 || cfg.lockedAt > terminalproto.MaxCounter {
+		return 0
+	}
+	return cfg.lockedAt
+}
+
 // lockAllows is the allow-list a locked machine still serves: requests that
 // only report state, or end or stop something. Every other kind, including
 // one added later, is refused while the machine is locked.
@@ -643,6 +655,14 @@ func lockAllows(body terminalproto.Body) bool {
 // readLocked reads the local lock; without a reader the machine is unlocked.
 // The reader itself fails closed.
 func readLocked(cfg AgentConfig) bool { return cfg.Locked != nil && cfg.Locked() }
+
+// readLockedAt reads when the lock went on; without a reader, never.
+func readLockedAt(cfg AgentConfig) int64 {
+	if cfg.LockedAt == nil {
+		return 0
+	}
+	return cfg.LockedAt()
+}
 
 // errChatsHeld is what a chat event send returns while the machine is
 // locked: the chat keeps the event in its own bounded buffer, as it does for
@@ -906,20 +926,23 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		nextUploads := readUploadsAllowed(cfg)
 		nextModels := readModelsAllowed(cfg)
 		nextYolo := readYoloAllowed(cfg)
-		nextLocked := readLocked(cfg)
+		nextLocked, nextLockedAt := readLocked(cfg), readLockedAt(cfg)
 		consentSame := nextEnabled == enabled && nextReadiness == readiness
 		browseSame := nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed
 		uploadsSame := nextUploads == cfg.uploadsAllowed && nextModels == cfg.modelsAllowed
-		yoloSame := nextYolo == cfg.yoloAllowed && nextLocked == cfg.locked
+		yoloSame := nextYolo == cfg.yoloAllowed && nextLocked == cfg.locked && nextLockedAt == cfg.lockedAt
 		allSame := consentSame && browseSame && uploadsSame && yoloSame
 		if allSame {
 			continue
 		}
 		previousBrowse, previousClipboard, previousUploads, previousModels, previousYolo, previousLocked := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed, cfg.locked
+		previousLockedAt := cfg.lockedAt
+		cfg.lockedAt = nextLockedAt
 		cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed, cfg.locked = nextBrowse, nextClipboard, nextUploads, nextModels, nextYolo, nextLocked
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
 		if caps.ValidateFor(terminalFeatures(cfg)) != nil {
 			cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed, cfg.locked = previousBrowse, previousClipboard, previousUploads, previousModels, previousYolo, previousLocked
+			cfg.lockedAt = previousLockedAt
 			continue
 		}
 		requestID, err := randomID()
@@ -1547,6 +1570,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		Locked:          cfg.machineLock && cfg.locked,
+		LockedAt:        lockedAt(cfg),
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

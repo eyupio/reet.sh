@@ -349,3 +349,46 @@ func TestUnlockReconnectsWhenChatEventsWereHeld(t *testing.T) {
 		t.Fatal("unlock did not reconnect to deliver held chat events")
 	}
 }
+
+// When the lock went on is sent with Locked to a controller that negotiated
+// it, and never to an older one.
+func TestLockedAtIsSentOnlyWhenNegotiatedAndLocked(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, func() {}
+	}, locked: true, lockedAt: 1795000000}
+	if older := capabilitiesFor(cfg, true, terminalproto.Ready); older.LockedAt != 0 {
+		t.Fatalf("an older controller was told %d", older.LockedAt)
+	}
+	cfg.machineLock = true
+	newer := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if newer.LockedAt != 1795000000 || newer.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatalf("a newer controller was told %+v", newer)
+	}
+	cfg.locked = false
+	if open := capabilitiesFor(cfg, true, terminalproto.Ready); open.LockedAt != 0 {
+		t.Fatalf("an unlocked machine sent %d", open.LockedAt)
+	}
+}
+
+// The consent poll sends a new hello when the lock's time changes.
+func TestConsentControlSendsWhenTheLockWentOn(t *testing.T) {
+	var at atomic.Int64
+	cfg := AgentConfig{
+		InstanceID: testInstance(), ConsentInterval: 10 * time.Millisecond, machineLock: true,
+		Locked: func() bool { return true }, LockedAt: at.Load, locked: true,
+		Consent: func() (bool, terminalproto.Readiness, error) { return true, terminalproto.Ready, nil },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sent := make(chan terminalproto.Message, 4)
+	go consentControl(ctx, cfg, 3, true, terminalproto.Ready, func(_ context.Context, m terminalproto.Message) error { sent <- m; return nil }, make(chan error, 2))
+	at.Store(1795000000)
+	select {
+	case m := <-sent:
+		if got := m.Body.(terminalproto.Hello).Capabilities.LockedAt; got != 1795000000 {
+			t.Fatalf("lockedAt %d", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no hello")
+	}
+}

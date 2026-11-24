@@ -300,6 +300,12 @@ var schemaV12 = []string{
 		created_by INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_invites_expires ON invites(expires_at)`,
+	`CREATE TABLE IF NOT EXISTS enrol_codes (
+		hash TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+		used_at INTEGER NOT NULL DEFAULT 0, agent_id TEXT NOT NULL DEFAULT '')`,
+	`CREATE INDEX IF NOT EXISTS idx_enrol_codes_user ON enrol_codes(user_id,used_at,expires_at)`,
 	`CREATE TABLE IF NOT EXISTS shelf (
 		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,

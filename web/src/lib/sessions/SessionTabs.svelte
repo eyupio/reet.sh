@@ -51,7 +51,7 @@
       {@const word = stateWord(s)}
       {@const status = sessionStatus(s)}
       {@const held = heldWork(s)}
-      <li class:current={s.id === current} data-status={status} data-held={held ? '' : undefined}>
+      <li class:current={s.id === current} data-status={status} data-held={held ? '' : undefined} data-stopped={stoppedWaiting(s) ? '' : undefined}>
         <a class="tab" href={sessionHref(s)} aria-current={s.id === current ? 'page' : undefined} title={s.title}
           onclick={event => choose(event, s)}
           onmousedown={event => { if (event.button === 1) event.preventDefault() }}
@@ -89,7 +89,7 @@
   .tab:focus-visible, .close:focus-visible, .new:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 6px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--status); }
   .status-ring { --ring: 8px; }
-  .status-mark { --mark: 12px; }
+  .status-mark { margin-inline: -3px; } /* 14px in the 8px dot's slot */
   .state { flex: none; font-size: 14px; font-weight: 600; color: var(--status); white-space: nowrap; }
   @media (max-width: 1400px) { .state { display: none; } }
   li[data-status] { box-shadow: inset 0 2px var(--status); }

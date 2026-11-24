@@ -20,11 +20,11 @@
   const detail = $derived(catchingUp ? 'Loading conversation…' : view.target || (view.active && !held ? 'You can queue your next instruction.' : ''))
 </script>
 
-<div class="conversation-status" class:attention class:problem class:held data-phase={view.phase} data-status={held ? 'working' : undefined} aria-label="Conversation status">
+<div class="conversation-status" class:attention class:problem class:held data-phase={view.phase} data-status={held ? 'working' : stopped ? 'finished' : undefined} data-stopped={stopped ? '' : undefined} aria-label="Conversation status">
   <span class="indicator" class:spinning={(view.active && !held) || catchingUp} aria-hidden="true">
     {#if held && !catchingUp}<span class="status-ring"></span>
     {:else if view.active || catchingUp}<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="2" opacity=".18"/><path d="M10 3a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    {:else if attention || problem}!{:else if view.phase === 'idle' && !stopped}✓{:else}<span class="dot"></span>{/if}
+    {:else if attention || problem}!{:else if view.phase === 'idle' && !stopped}✓{:else if stopped}<span class="status-mark"></span>{:else}<span class="dot"></span>{/if}
   </span>
   <strong class="label" role="status" aria-live="polite" aria-atomic="true">{label}</strong>
   {#if detail}<span class="detail" title={detail}>{detail}</span>{/if}

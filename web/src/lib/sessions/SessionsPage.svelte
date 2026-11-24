@@ -319,7 +319,7 @@
                 {@const word = stateWord(s)}
                 {@const colour = colourOf(s)}
                 {@const held = heldWork(s)}
-                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} data-held={held ? '' : undefined} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
+                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} data-held={held ? '' : undefined} data-stopped={stoppedWaiting(s) ? '' : undefined} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
                     {#if sessionStatus(s) === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else if stoppedWaiting(s)}<span class="status-mark" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                     <span class="main">

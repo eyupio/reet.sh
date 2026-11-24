@@ -106,7 +106,7 @@
           {@const card = entry.card}
           {@const answers = !!card.question && !card.approval}
           {@const where = [card.where, entry.desk ? `Desk ${entry.desk.name}` : ''].filter(Boolean).join(' · ')}
-          <li class="item" data-status={needStatus(card.kind)}>
+          <li class="item" data-status={needStatus(card.kind)} data-stopped={card.kind === 'stopped' ? '' : undefined}>
             <span class="kind">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
             {#if where}<span class="where">{where}</span>{/if}

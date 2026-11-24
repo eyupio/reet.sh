@@ -99,7 +99,7 @@
               {@const status = sessionStatus(s)}
               {@const held = heldWork(s)}
               {@const owner = owners.get(s.id)}
-              <li data-status={status} class:expanded={expanded.includes(s.id)}>
+              <li data-status={status} data-stopped={stoppedWaiting(s) ? '' : undefined} class:expanded={expanded.includes(s.id)}>
                 <div class="summary">
                 <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}
                   oncontextmenu={(event) => { hideCard(); void actions?.openMenu(event, s) }}

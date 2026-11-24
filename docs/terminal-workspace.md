@@ -167,8 +167,7 @@ beside it). Its parts:
   terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
   tabs, the sheet, the docked sessions panel (its rows, menus and swatches; the separator has a 44 × 88 px grip that
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
-  track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; so are the on-screen keys, and only the pane's terminal
-  toolbar is 40 × 40 px.
+  track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; so are the terminal toolbar and the on-screen keys.
 - **Phones** keep the same session actions as desktop. Outside super focus, the identity row shows the
   session and its state, with labelled **Focus**, **Theatre**, **Details** and **More** controls. Interface and approval
   choices stay visible below it, with 44 px touch targets; the toolbar wraps instead of moving them into the menu.
@@ -699,10 +698,10 @@ columns at 390 px instead of 41. A stored size (10–22) always wins.
 
 **Chrome.** The pane header is one line, with the user/host still shown and truncated.
 The pane header, terminal toolbar, extra-key row and footer lose their vertical padding. On a
-touch screen every toolbar button and on-screen key is at least 40 × 40 px; on a touch phone so
-are the workspace toolbar's buttons (back, +, Sessions, New session, Details & help), the pane
-header's controls and the footer's Focus terminal (a touch tablet makes all but the terminal
-toolbar 44 px). The screen frame padding is 4 px. The toolbar and the key rows
+touch screen every toolbar button and on-screen key is at least 44 × 44 px, as are the pane
+header's controls, its Manage menu and the footer's Focus terminal, on a phone held upright too
+(each of those rows is then at most 46 px tall, which `terminal-phone.e2e.mjs` holds them to); the
+workspace toolbar's buttons (back, +, Sessions, New session, Details & help) are 40 × 40 px on a touch phone. The screen frame padding is 4 px. The toolbar and the key rows
 scroll sideways; the end that hides more controls fades. A key row is focusable, so
 arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
 where the keys show too. The keys themselves are described under

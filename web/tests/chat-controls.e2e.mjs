@@ -9,7 +9,7 @@ const machine = { agentId: A, host: 'live-machine', ready: true, serverEnabled: 
 let queue = [], changes = [], serial = 0, commandsAnswer = { commands: [] }, skillsAnswer = { skills: [], machineSeen: now - 60_000, host: 'live-machine' }, skillsGate = Promise.resolve(), skillsFail = false, skillReads = 0, nativeOn = true
 let controls = { working: true, waiting: false, compacting: false, configuring: false, steering: true, model: 'provider/one', options: [{ id: 'model', category: 'model', current: 'provider/one', values: ['provider/one', 'provider/two'] }, { id: 'effort', category: 'thought_level', current: 'low', values: ['low', 'high'] }] }
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
-const { page, context, errors } = await openWorkspace(browser, {
+const launch = (extra = {}) => openWorkspace(browser, {
  width: 1360, height: 900, scale: process.env.REET_UI_SCREENSHOTS ? 2 : undefined, terminalStatus: active, terminalMachines: [machine],
  routes: {
   '/api/v2/terminal/sessions': { sessions: [session] },
@@ -31,8 +31,10 @@ const { page, context, errors } = await openWorkspace(browser, {
    return { queue }
   },
  },
+ ...extra,
 })
-await page.addInitScript(() => {
+const { page, context, errors } = await launch()
+const stream = () => {
  class Stream {
   constructor() { this.listeners = {}; window.__chatStream = this; setTimeout(() => this.onopen?.({}), 0) }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
@@ -40,7 +42,8 @@ await page.addInitScript(() => {
   emit(type, data) { for (const fn of this.listeners[type] ?? []) fn({ data: JSON.stringify(data) }) }
  }
  window.EventSource = Stream
-})
+}
+await page.addInitScript(stream)
 async function open() {
  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
  await page.waitForFunction(() => window.__chatStream)
@@ -359,5 +362,30 @@ try {
   machine.capabilities.nativeView = true; nativeOn = true
  }
  expect(errors).toEqual([])
+
+ // On a phone every button in the durable queue, and the check before a retry, is a 44 px target, in either theme.
+ const phone = await launch({ width: 390, height: 844, scale: 1, touch: true })
+ try {
+  await phone.page.addInitScript(stream)
+  const row = (id, state) => ({ id, text: `Queued message ${id}`, images: [], state, intent: 'wait', revision: ++serial, note: state === 'queued' ? '' : 'Check the conversation before retrying.' })
+  queue = [row('a', 'queued'), row('b', 'failed'), row('c', 'uncertain')]
+  await phone.page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await phone.page.waitForFunction(() => window.__chatStream)
+  await phone.page.evaluate(() => { window.__chatStream.emit('reset', { truncated: false }); window.__chatStream.emit('chat', { seq: 1, kind: 'status', state: 'working' }) })
+  const list = phone.page.getByRole('region', { name: 'Queued messages' })
+  const summary = list.locator('.queue-summary')
+  await expect(list).toBeVisible()
+  if (await summary.isVisible()) await summary.click()
+  await expect(list.getByRole('button', { name: 'Retry', exact: true }).first()).toBeVisible()
+  for (const theme of ['light', 'dark']) {
+   await phone.page.evaluate(theme => { document.documentElement.dataset.theme = theme }, theme)
+   if (shots) await list.screenshot({ path: `${shots}/queue-${theme}-390.png` })
+  }
+  const targets = await list.locator('button, .confirm').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => { const r = e.getBoundingClientRect(); return { name: (e.textContent || '').trim().slice(0, 20), w: Math.round(r.width), h: Math.round(r.height) } }))
+  expect(targets.length).toBeGreaterThanOrEqual(7)
+  expect(targets.filter(t => t.w < 44 || t.h < 44), 'queue targets under 44 px').toEqual([])
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(phone.errors).toEqual([])
+ } finally { await phone.context.close() }
  console.log('Live controls and durable queue UI passed.')
 } finally { await context.close(); await browser.close() }

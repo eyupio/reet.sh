@@ -75,6 +75,12 @@ async function open({width,height,touch,query='',layout=null,motion='no-preferen
  return {context,page,errors,tickets,frames,pane,inputs,sockets:()=>sockets}
 }
 const box=async(page,selector)=>page.evaluate(selector=>{const element=document.querySelector(selector);if(!element||!element.getClientRects().length)return null;const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height}},selector)
+// Every shown control matching the selector is at least `min` px wide and tall (and there is at least one).
+async function targetsAtLeast(page,selector,min,what){
+ const shown=await page.locator(selector).evaluateAll(els=>els.filter(e=>e.getClientRects().length).map(e=>{const r=e.getBoundingClientRect();return {name:(e.getAttribute('aria-label')||e.textContent).trim().slice(0,24),w:Math.round(r.width),h:Math.round(r.height)}}))
+ expect(shown.length,`${what}: ${selector} is shown`).toBeGreaterThan(0)
+ expect(shown.filter(t=>t.w<min||t.h<min),`${what}: ${selector} under ${min} px`).toEqual([])
+}
 // The layout has settled: at least the 150 ms send debounce plus a margin has passed, the terminal's drawn grid (rows and
 // width) has stayed the same over 3 animation frames spanning at least 200 ms, and no size has been sent for 300 ms. A loaded
 // machine only makes it take longer (bounded at 8 s), never read a size mid-change.
@@ -165,10 +171,15 @@ try{
  expect(tickets[0].cols).toBeGreaterThanOrEqual(50)
  // The first attach is not nudged: tmux repaints its grid on attach.
  await settle(page,frames);expect(frames.filter(frame=>frame.rows<tickets[0].rows)).toEqual([])
- // Compact one-line chrome; the toolbar and extra keys are 40 × 40 px or larger, the header controls 40 px tall.
- for(const selector of ['.pane>header','.terminal-toolbar','.mobile-keys'])expect((await box(page,selector)).height).toBeLessThanOrEqual(42)
- for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(40);expect(size.width).toBeGreaterThanOrEqual(40)}
- for(const control of await page.locator('.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(40)
+ // Compact one-line chrome: each row is one 44 px target plus its border (at most 46), and every toolbar, key and header control is 44 × 44 px or larger.
+ for(const selector of ['.pane>header','.terminal-toolbar','.mobile-keys'])expect((await box(page,selector)).height).toBeLessThanOrEqual(46)
+ for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(44);expect(size.width).toBeGreaterThanOrEqual(44)}
+ for(const control of await page.locator('.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44)
+ // The footer and the Manage menu are 44 × 44 px targets too.
+ await targetsAtLeast(page,'.pane>footer button',44,'390 portrait')
+ await page.locator('.session-menu>summary').click()
+ await targetsAtLeast(page,'.session-menu button',44,'390 portrait')
+ await page.locator('.session-menu>summary').click()
  // Only the terminal workspace asks the browser to resize the page for the keyboard.
  expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content')
  await expect(page.locator('.pane>header')).toContainText('developer@dev-laptop')
@@ -255,7 +266,7 @@ try{
  const more=page.getByRole('group',{name:'More terminal keys',exact:true})
  await expect(more).toBeVisible()
  const moreBox=await more.boundingBox()
- expect(moreBox.height).toBeLessThanOrEqual(42)
+ expect(moreBox.height).toBeLessThanOrEqual(46)
  expect((await keys.boundingBox()).y).toBe(firstRowTop)
  expect(moreBox.y+moreBox.height).toBeLessThanOrEqual(firstRowTop+1)
  // The screen gives up the row's height and the line between the two rows, and no more.
@@ -448,6 +459,8 @@ try{
   await expect(p.locator('.pane>footer')).toBeHidden()
   await settle(p)
   const closedRows=await visibleRows(p)
+  // Held sideways the rows carry no cap, so every control of the toolbar, the key row and the header is 44 × 44 px.
+  for(const selector of ['.terminal-toolbar button','.mobile-keys button','.pane>header .controls>button,.session-menu>summary'])await targetsAtLeast(p,selector,44,`${width}x${height}`)
   // Session controls now stay available in landscape. Account for their one
   // touch-sized row without relaxing the renderer bounds or host-size floor.
   const controls=await p.evaluate(()=>{const head=document.querySelector('.session-screen .head').getBoundingClientRect(),rows=document.querySelectorAll('.xterm-rows>div').length,grid=document.querySelector('.xterm-screen').getBoundingClientRect().height;return {height:head.height,rows:Math.ceil(head.height/(grid/rows))}})
@@ -549,6 +562,7 @@ try{
   const more=p.getByRole('group',{name:'More terminal keys',exact:true})
   await more.getByRole('button',{name:'Send Home',exact:true}).click()
   await expect.poll(()=>tab.inputs.at(-1)).toBe('\x1b[H')
+  for(const selector of ['.terminal-toolbar button','.mobile-keys button','.pane>header .controls>button,.session-menu>summary','.pane>footer button'])await targetsAtLeast(p,selector,44,`${width}x${height}`)
   expect(await p.locator('.key-tray button').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.textContent.trim()))).toEqual([])
   expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   expect(tab.errors).toEqual([])

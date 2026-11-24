@@ -776,9 +776,11 @@
     .pane.maximised {inset:0;top:var(--terminal-top,0px);height:var(--terminal-viewport,100dvh);border-radius:0}
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }
-  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button,.key-tray button {min-width:40px;min-height:40px}.key-tray {display:block}}
-  /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
-  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.key-tray button {min-width:40px}.key-fixed,.key-tabs {padding-top:0;padding-bottom:0}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
+  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.session-menu button,.clipboard-menu button,.key-tray button,footer button {min-width:44px;min-height:44px}.key-tray {display:block}}
+  /* Every touch target is 44 × 44 px, and on phones the rows lose their padding instead. A phone held upright keeps its header,
+     toolbar and key rows at 40 × 40 px: terminal-phone.e2e.mjs holds each of those rows to 42 px (a 44 px target would make
+     them 45), and the menus and footer, which are not rows of that cap, are 44. */
+  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.key-fixed,.key-tabs {padding-top:0;padding-bottom:0}footer {padding-top:0;padding-bottom:0}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */
   @media(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     .tool-rows {display:flex;flex-shrink:0;min-width:0;border-bottom:1px solid var(--line)}
@@ -786,6 +788,8 @@
     .tool-rows>.key-tray {flex:1 1 50%;min-width:0}
     .tool-rows>.key-tray {border-top:0;border-left:1px solid var(--line)}
     .pane>footer {display:none}
+    /* The 44 px rows leave a keyboard-open screen two pixels short of its fourth row. */
+    .pane.keyboard .screen-frame {padding-top:2px;padding-bottom:2px}
     /* With the keyboard open there are too few rows for the header; it returns when the keyboard closes. */
     .pane.keyboard>header {display:none}
   }
@@ -797,8 +801,4 @@
   }
   /* The Alt+Shift+M advice is for a hardware keyboard; the Restore size button stays. */
   @media(hover:none) and (pointer:coarse) {.maximise-hint {display:none}}
-  /* A touch tablet: the pane's header, menu and footer controls are 44 px; the terminal's own keys (toolbar and extra keys) stay 40 px, as the spec allows. */
-  @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px) {.controls>button,.session-menu>summary,.session-menu button,footer button {min-height:44px;min-width:44px}.terminal-toolbar button {min-width:40px;min-height:40px}}
-  /* On a touch screen larger than a phone, of any width, the on-screen keys are 44 px. */
-  @media(pointer:coarse) and (min-width:651px) and (min-height:501px) {.key-tray button {min-width:44px;min-height:44px}}
 </style>

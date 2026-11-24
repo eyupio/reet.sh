@@ -23,6 +23,9 @@ var (
 	ErrOffline  = errors.New("terminal machine is reconnecting")
 	ErrConflict = errors.New("terminal attachment conflicts with current writer")
 	ErrTicket   = errors.New("terminal ticket expired or already used")
+	// ErrLocked is a machine its owner locked there (reet agent lock). It is
+	// the store's error, so a refusal found at reservation reads the same.
+	ErrLocked = store.ErrMachineLocked
 )
 
 type Sender func(context.Context, terminalproto.Message) error
@@ -555,6 +558,9 @@ func (b *Broker) peer(uid int64, agent string, ready bool) (*Peer, error) {
 	default:
 	}
 	if !ok {
+		if b.Locked(uid, agent) {
+			return nil, store.LockedError{Was: ErrOffline}
+		}
 		return nil, ErrOffline
 	}
 	return p, nil
@@ -562,6 +568,13 @@ func (b *Broker) peer(uid int64, agent string, ready bool) (*Peer, error) {
 func (b *Broker) Ready(uid int64, agent string) bool {
 	_, err := b.peer(uid, agent, true)
 	return err == nil
+}
+
+// Locked reports whether the machine last said it is locked there. Only a
+// machine that negotiated machine-lock-v1 says so.
+func (b *Broker) Locked(uid int64, agent string) bool {
+	c, err := b.st.RemoteCapabilitiesRawFor(uid, agent)
+	return err == nil && c.Capabilities.Locked
 }
 
 // Receive runs on the sole authenticated control reader. Never wait for an
@@ -720,6 +733,11 @@ func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit ti
 			result.AttachmentGeneration == m.AttachmentGeneration
 		if !same {
 			return m, ErrConflict
+		}
+		// Every request a locked machine refuses comes back here, whatever
+		// its kind, so one place turns it into ErrLocked.
+		if r, ok := result.Body.(*terminalproto.Result); ok && r.Code == terminalproto.Locked {
+			return result, store.LockedError{Was: ErrDenied}
 		}
 		return result, nil
 	}

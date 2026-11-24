@@ -23,8 +23,8 @@ const (
 type SkillReportEntry struct{ Folder, Name, State, Digest, Detail, Backup string }
 
 // SkillReport is what a machine did on its last reconcile. State is one of
-// installed, removed, failed, unknown or edited; Blocked is "" or
-// "allow-apply".
+// installed, removed, failed, unknown or edited; Blocked is "",
+// "allow-apply" or "locked" (the machine is locked there).
 type SkillReport struct {
 	Version, Blocked string
 	Entries          []SkillReportEntry
@@ -197,7 +197,7 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			return err
 		}
 		blocked := ""
-		if rep.Blocked == "allow-apply" {
+		if rep.Blocked == "allow-apply" || rep.Blocked == "locked" {
 			blocked = rep.Blocked
 		}
 		if _, err = tx.Exec(`INSERT INTO machine_skill_reports(user_id,agent_id,version,blocked) VALUES(?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET version=excluded.version,blocked=excluded.blocked`, uid, agentID, cleanReportText(rep.Version, 128), blocked); err != nil {
@@ -447,7 +447,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		if err = rows.Scan(&m.id, &m.host, &m.lastSeen, &blocked); err != nil {
 			break
 		}
-		m.blocked = blocked == "allow-apply"
+		m.blocked = blocked == "allow-apply" || blocked == "locked"
 		machines = append(machines, m)
 	}
 	if err == nil {

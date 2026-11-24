@@ -73,7 +73,7 @@ try {
   // A machine enrolled with a personal API token carries a quiet warning, and a how-to on demand. No other machine does.
   // One such machine says it in full on its row; several say it once above the list and each row only marks itself.
   if (run('legacy')) {
-    const WHY = 'Enrolled with a personal API token, which can do anything your account can and never expires.'
+    const WHY = 'Enrolled with a personal API token, which can do most of what your account can and never expires.'
     const HOW = 'On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.'
     const CMD = 'reet agent enroll --again'
     const KEEPS = "It keeps the machine's settings and asks for the code."
@@ -116,7 +116,7 @@ try {
         await page.goto(`${base}/machines`)
         const note = page.locator('[data-legacy-note]')
         await expect(note).toContainText('5 machines were enrolled with a personal API token.')
-        await expect(note).toContainText('A personal API token can do anything your account can and never expires.')
+        await expect(note).toContainText('A personal API token can do most of what your account can and never expires.')
         await expect(page.getByText(/Enrolled with a personal API token/)).toHaveCount(0)
         await expect(page.locator('[data-legacy-token]')).toHaveCount(5)
         await expect(page.getByText('Personal token', { exact: true })).toHaveCount(5)

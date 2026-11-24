@@ -1077,14 +1077,14 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    {#if locked}<p class="notice" id={`${session.id}-locked`}>{locked}</p>{/if}
    <!-- The status line above is the live region; this reason stays beside the disabled Send and does not announce again. -->
-   {#if reconnecting}<p class="notice" id={`${session.id}-kept`}>Reconnecting. Your message is kept.</p>{/if}
+   {#if reconnecting}<p class="notice kept" id={`${session.id}-kept`}>Reconnecting. Your message is kept.</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
     <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="1" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} aria-describedby={[locked ? `${session.id}-locked` : '', reconnecting ? `${session.id}-kept` : ''].filter(Boolean).join(' ') || undefined} disabled={!!locked || reattaching || sending || uploading || changingModel}></textarea>
     <div class="field-actions">
      {#if working && !reattaching}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" title={locked || undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || reconnecting} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
+     <button type="button" class="btn primary send" title={locked || undefined} aria-describedby={reconnecting ? `${session.id}-kept` : undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || reconnecting} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
@@ -1204,7 +1204,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
  .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
  .notice { margin: 2px 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); border-radius: 0 8px 8px 0; background: var(--bg-sunk); color: var(--ink-soft); font-size: 14px; }
- .notice.unlisted { border: 1px solid var(--line-strong); border-radius: 8px; }
+ .notice.unlisted, .notice.kept { border: 1px solid var(--line-strong); border-radius: 8px; }
  .notice .link { display: inline; padding: 0 4px; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
  @media (pointer: coarse) { .notice .link { display: inline-flex; align-items: center; min-height: 44px; } }
  .notice .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

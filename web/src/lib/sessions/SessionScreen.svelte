@@ -427,7 +427,7 @@
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
-      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished' && !stoppedWaiting(session)}<span class="status-tick" aria-hidden="true"></span>{:else if statusKind === 'working' && heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}{statusKind === 'working' && heldWork(session) ? `. ${HELD_SENTENCE}` : stoppedWaiting(session) ? `. ${STOPPED_LINE}` : ''}</span></span>
+      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished' && !stoppedWaiting(session)}<span class="status-tick" aria-hidden="true"></span>{:else if statusKind === 'working' && heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else if stoppedWaiting(session)}<span class="status-mark" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}{statusKind === 'working' && heldWork(session) ? `. ${HELD_SENTENCE}` : stoppedWaiting(session) ? `. ${STOPPED_LINE}` : ''}</span></span>
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}
@@ -639,6 +639,7 @@
     background: none; border: 0; color: var(--muted); font-size: 14px; font-weight: 400; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
   .pill .status-ring { --ring: 8px; }
+  .pill .status-mark { --mark: 12px; }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .approvals { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); }

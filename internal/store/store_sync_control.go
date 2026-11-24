@@ -37,6 +37,10 @@ type SyncAgent struct {
 	// work, and SkillsState says so.
 	SkillsProtocol int    `json:"skillsProtocol"`
 	SkillsState    string `json:"skillsState,omitempty"`
+
+	// LegacyToken says the machine's last request, or its enrolment, used a
+	// personal API token rather than the machine's own secret alone.
+	LegacyToken bool `json:"legacyToken"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`
@@ -68,6 +72,7 @@ func (s *Store) migrateSyncAgents() error {
 		{"auto_update", "auto_update INTEGER NOT NULL DEFAULT 1"},
 		{"keep_synced", "keep_synced INTEGER NOT NULL DEFAULT 0"},
 		{"skills_protocol", "skills_protocol INTEGER NOT NULL DEFAULT 0"},
+		{"legacy_token", "legacy_token INTEGER NOT NULL DEFAULT 0"},
 	} {
 		ok, err := hasColumn(s.db, "sync_agents", c.name)
 		if err != nil {
@@ -129,12 +134,12 @@ func (s *Store) EnrollSyncAgentBuild(uid int64, host, version, commit string) (S
 	return a, secret, nil
 }
 
-const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced,skills_protocol`
+const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced,skills_protocol,legacy_token`
 
 func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
 	var a SyncAgent
 	var protocol int
-	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &protocol)
+	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &protocol, &a.LegacyToken)
 	a.SetSkillsProtocol(protocol)
 	return a, err
 }
@@ -168,6 +173,14 @@ func (a *SyncAgent) SetSkillsProtocol(protocol int) {
 // work, only its updates and scans.
 func (s *Store) SetAgentSkillsProtocolFor(uid int64, agentID string, protocol int) error {
 	_, err := s.db.Exec(`UPDATE sync_agents SET skills_protocol=? WHERE id=? AND user_id=?`, protocol, agentID, uid)
+	return err
+}
+
+// SetAgentLegacyTokenFor records how the machine last authenticated: with a
+// personal API token (true) or its own secret alone. Callers write it only
+// when it changes, so it costs no write per request.
+func (s *Store) SetAgentLegacyTokenFor(uid int64, agentID string, legacy bool) error {
+	_, err := s.db.Exec(`UPDATE sync_agents SET legacy_token=? WHERE id=? AND user_id=?`, legacy, agentID, uid)
 	return err
 }
 

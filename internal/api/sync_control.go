@@ -96,6 +96,10 @@ func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
 			via = "token"
 		}
 		a, secret, err = s.st.EnrollSyncAgentBuild(uid, in.Host, in.Version, in.Commit)
+		if err == nil && via == "token" {
+			a.LegacyToken = true
+			err = s.st.SetAgentLegacyTokenFor(uid, a.ID, true)
+		}
 	}
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -156,6 +160,13 @@ func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.Sy
 	if err != nil {
 		writeErr(w, 403, err.Error())
 		return a, false
+	}
+	if legacy := usedAPIToken(r); legacy != a.LegacyToken {
+		if err = s.st.SetAgentLegacyTokenFor(s.uid(r), a.ID, legacy); err != nil {
+			writeErr(w, 500, err.Error())
+			return a, false
+		}
+		a.LegacyToken = legacy
 	}
 	return a, true
 }

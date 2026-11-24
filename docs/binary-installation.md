@@ -47,8 +47,10 @@ copy its command. You can also connect directly:
 curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s -- --server 'https://your-reet-instance.example' --name 'my-laptop'
 ```
 
-This verifies and installs the binary, saves the connection, asks for the machine
-token privately, enables skill sync and installs the native sync service. It
+This verifies and installs the binary, saves the connection, asks for the
+enrolment code that page made (hidden input; it works once, for 15 minutes),
+enables skill sync and installs the native sync service. The machine keeps only
+its own id and secret, never a personal API token. It
 creates a shared skills folder on a blank machine. The first scan sets up the
 library automatically, including private drafts you wrote. New skills and edits
 to written skills follow on agent polls. No browser needs to remain open.
@@ -69,7 +71,7 @@ Add `--version dev` to the installer command to use the development channel.
 The new connection flags require a binary release containing this workflow.
 Publish the matching binary before making the updated installer the default.
 
-Use `reet agent enroll --server https://reet.sh --env NAME` with your personal `REET_TOKEN`, then `reet agent run`. Add `--allow-apply` during enrollment to enable plans approved in the web UI (changed later with `reet agent allow-apply on` on that machine), and `--project /absolute/path` for tracked project scopes. See [controller sync](controller-sync.md) for private configuration, controls and recovery.
+Use `reet agent enroll --server https://reet.sh --env NAME --code CODE` with an enrolment code from **Machines → Add a machine** (or set `REET_ENROL_CODE`, or type it when asked), then `reet agent run`. A personal token (`--token` or `REET_TOKEN`) still enrols, with a warning, for a controller older than enrolment codes. To move a machine enrolled with a personal token to its own secret, remove it under Machines and run `rm ~/.config/reet/agent.json && reet agent enroll --server URL --env NAME --code CODE` on it. Add `--allow-apply` during enrollment to enable plans approved in the web UI (changed later with `reet agent allow-apply on` on that machine), and `--project /absolute/path` for tracked project scopes. See [controller sync](controller-sync.md) for private configuration, controls and recovery.
 
 ## Run the web UI
 
@@ -283,7 +285,8 @@ reet scan --env-file .env
 reet scan
 ```
 
-Use a personal API token from **Account** on the target server. The file option
+Use a personal API token from **Account** on the target server; tokens are made
+and revoked only from a signed-in browser. The file option
 reads only `REET_TOKEN`; the target still comes from `--server`, `REET_URL`, or
 saved CLI defaults. It accepts literal unquoted, single-quoted or double-quoted
 values and optional `export`. It never executes the file or expands variables.
@@ -302,8 +305,10 @@ saved configuration before asking for missing inputs. URL and release defaults
 retain their existing persistence. Tokens, passwords and recovery keys use hidden
 input and are not added to `client.env`.
 
-- `scan`, `sync`, `agent enroll` and text `doctor` share token resolution and the
-  explicit `--env-file` option. Sync can reuse enrollment credentials only for the
+- `scan`, `sync` and text `doctor` share token resolution and the explicit
+  `--env-file` option. `agent enroll` asks for an enrolment code instead (hidden;
+  `--code` or `REET_ENROL_CODE`), and uses a personal token only if one is
+  already given or saved, never by prompting and never saving one. Sync can reuse enrollment credentials only for the
   enrolled server; explicit credentials take precedence.
 - `sync` asks for a missing target ID. `agent restore` takes a skill name, `--list`, or the `--target ID --backup PATH` a sync job's restore command names. Enrollment still creates its private enrollment file
   through the existing enrollment flow.

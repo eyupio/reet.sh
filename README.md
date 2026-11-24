@@ -74,7 +74,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Review discoveries.** Skills found in managed home folders appear under **New on a machine**. **Keep** captures the files into reet and makes the skill Active; **Archive** keeps it off machines. An inventory scan does not add it to your library.
 - **Copy feedback.** Copy buttons confirm success with a brief checkmark reveal; reduced-motion preferences use a gentle fade.
 - **Machine maintenance.** Merge hostname/`--env` duplicates, rename or forget machines in Account → Machines. Old names remain aliases, preventing duplicate reports on later scans. `reet scan --prune --reconcile --env NAME` repairs the local hostname and refreshes inventories; fleet commands never install/remove skills.
-- **Connected machines.** Enroll once and allow local writes. The connector installs reet's saved content directly, checks its digest, and backs up replacements and removals. [Setup and recovery](docs/controller-sync.md).
+- **Connected machines.** Enroll once with a short-lived enrolment code and allow local writes. A machine keeps only its own id and secret, never your personal token. The connector installs reet's saved content directly, checks its digest, and backs up replacements and removals. [Setup and recovery](docs/controller-sync.md).
 - **Local recovery.** `reet agent restore --list` lists machine backups. `reet sync` and `reet agent library-import` print their replacements and exit without changing files.
 - **Metadata that stays fresh.** Description, install count and a weekly sparkline, refreshed every six hours, politely.
 - **Tags and notes.** Skills.sh topics are seeded as tags; add your own and filter by several at once.
@@ -331,7 +331,19 @@ next time; a token from `REET_TOKEN`, `--token` or an env file takes precedence,
 the command says which one to change. With accounts enabled, the `REET_TOKEN` in the
 server's own `.env` is the setup bootstrap token and is refused once personal tokens
 exist. Use a personal token from the Account page for CLI commands. This covers
-`doctor`, `scan`, `sync`, `agent enroll` and `setup profile push`/`pull`.
+`doctor`, `scan`, `sync` and `setup profile push`/`pull`. Personal API tokens are
+listed, made and revoked only from a signed-in browser (**Account → API tokens**);
+a request carrying a token cannot manage tokens.
+
+`reet agent enroll` takes an enrolment code instead: make one under **Machines →
+Add a machine** (it works once and lasts 15 minutes), then pass it with `--code`,
+set `REET_ENROL_CODE`, or type it at the hidden prompt. The machine saves only its
+own id and secret, sends only those afterwards, and enrolment writes no saved
+token. A personal token from `--token`, `REET_TOKEN`, an env file or the saved
+token still enrols, with a warning; machines enrolled that way before keep working
+and are marked on the Machines page. To move an old machine to a code, remove it
+under Machines, then on it run
+`rm ~/.config/reet/agent.json && reet agent enroll --server URL --env NAME --code CODE`.
 
 Run `reet` with no command in a terminal for its grouped home: Check & maintain,
 Skills & setups, Machines & access and More commands. Use arrows or `j`/`k`,

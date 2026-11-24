@@ -4,16 +4,24 @@ Every connected machine follows the account's library: Active skills are install
 
 ## Connect a machine
 
-Use **Machines → Connect a machine**. Install the binary, create a personal token for that machine and copy the connection command shown by your instance. Use a separate token for each installation so it can be revoked independently.
+Use **Machines → Connect a machine**. Install the binary, make an enrolment code and copy the connection command shown by your instance. The code works once, for 15 minutes, and only to enrol a machine. Enrolment asks for it at a hidden prompt, or takes `--code` or `REET_ENROL_CODE`:
 
 For an installation with `REET_URL` and `REET_TOKEN` already set privately:
 
 ```sh
-reet agent enroll --env work-laptop --allow-apply
+reet agent enroll --env work-laptop --allow-apply --code reet_enrol_…
 reet agent run
 ```
 
-Enrollment binds the installation to its controller, actual hostname and home, and saves private credentials locally. Do not copy its configuration to another machine. A running agent polls the controller and refreshes inventory; it does not start another web server. Use the installer or your process supervisor to keep it running after logout.
+Enrollment binds the installation to its controller, actual hostname and home, and saves private credentials locally: the machine's id and its own secret, never a personal API token. After enrolment the agent authenticates with that secret alone, and it opens only the routes the agent uses (its poll, results, update stages, skills report, content observations, skill imports, private skill downloads, inventory scan and the private control connection); removing the machine under Machines revokes it.
+
+A personal token from `--token`, `REET_TOKEN`, an env file or the saved token still enrols, with a warning. Against a controller that takes the machine's secret alone the token is not kept; against an older controller it is kept so the machine goes on working. Machines enrolled with a personal token before keep working, and the Machines page marks a machine whose last request used one. To move such a machine to its own secret, remove it under Machines, make an enrolment code, and on the machine run:
+
+```sh
+rm ~/.config/reet/agent.json && reet agent enroll --server https://your-site --env work-laptop --allow-apply --code reet_enrol_…
+```
+
+Then revoke the old personal token from **Account → API tokens** in a signed-in browser (tokens cannot be listed, made or revoked with a token). Do not copy its configuration to another machine. A running agent polls the controller and refreshes inventory; it does not start another web server. Use the installer or your process supervisor to keep it running after logout.
 
 ## Allow local writes
 

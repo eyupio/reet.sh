@@ -16,7 +16,7 @@ reet agent run
 
 Enrollment binds the installation to its controller, actual hostname and home, and saves private credentials locally: the machine's id and its own secret, never a personal API token. After enrolment the agent authenticates with that secret alone, and it opens only the routes the agent uses (its poll, results, update stages, skills report, content observations, skill imports, private skill downloads, its own inventory scan and the private control connection); removing the machine under Machines revokes it. A machine enrolled from a signed-in browser works the same way.
 
-A personal token from `--token`, `REET_TOKEN`, an env file or the saved token still enrols, with a warning. A machine enrolled that way, and every machine enrolled before codes, keeps sending the token and stops when it is revoked; its secret alone is not enough. The Machines page marks it. To give it its own credential, make an enrolment code and on the machine run:
+A personal token from `--token`, `REET_TOKEN`, an env file or the saved token still enrols, with a warning. A machine enrolled that way, and every machine enrolled before codes, keeps sending the token on the routes it uses over the controller's public address, so revoking the token cuts it off there; its private control and terminal connection checks only its id and secret, so to end that one, remove the machine or enrol it again with a code. The Machines page marks it. To give it its own credential, make an enrolment code and on the machine run:
 
 ```sh
 reet agent enroll --again

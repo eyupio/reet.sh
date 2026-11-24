@@ -642,6 +642,14 @@ func zipBackup(id string, payload []byte) ([]byte, error) {
 }
 
 func (s *server) verifyBackup(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
+	// Each verify may fetch and open a whole off-site copy, and one with a
+	// password is a guess at it, so an account has a small budget.
+	key := "backup-verify:" + strconv.FormatInt(s.uid(r), 10)
+	if !s.verifyLimiter.Take(key) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(s.verifyLimiter.Wait(key).Seconds())+1))
+		writeErr(w, http.StatusTooManyRequests, "too many copies verified in the last hour; try again later")
+		return
+	}
 	result := svc.VerifyWithPassword(r.Context(), ownerID, r.PathValue("id"), backupPassword(r))
 	writeJSON(w, 200, result)
 }

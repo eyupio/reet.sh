@@ -60,6 +60,7 @@ type server struct {
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
 	enrolLimiter   *auth.Limiter // enrolment codes made per account
+	verifyLimiter  *auth.Limiter // backup verifies per account: each may download a whole copy
 	// trustedProxies are the peers whose X-Forwarded-For names the client.
 	trustedProxies []netip.Prefix
 	publicURL      string
@@ -239,7 +240,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), addrLimiter: auth.NewLimiter(60, time.Minute), accountLimiter: auth.NewLimiter(100, time.Hour), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
-		enrolLimiter: auth.NewLimiter(30, time.Hour),
+		enrolLimiter: auth.NewLimiter(30, time.Hour), verifyLimiter: auth.NewLimiter(6, time.Hour),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
 		stop:         make(chan struct{}),

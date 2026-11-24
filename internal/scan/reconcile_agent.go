@@ -18,6 +18,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // skillInventory is the report of a machine that may not write: what the
@@ -257,7 +258,7 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 		}
 	}
 	var rep store.SkillReport
-	if local.AllowApply {
+	if local.AllowApply && !local.Locked {
 		installed := readInstalledSkills(config, now, out)
 		// Each edit or removal is kept the moment its backup is made, so an
 		// agent stopped before the report still reports it.
@@ -282,6 +283,15 @@ func reconcileAgentSkills(ctx context.Context, c agentConfig, config string, fre
 		}
 	} else {
 		rep = skillInventory(c.Home, *d, c.Projects)
+	}
+	if local.Locked {
+		// Installs wait for the owner to unlock, even with allow-apply on.
+		rep.Blocked = "locked"
+		for i := range rep.Entries {
+			if rep.Entries[i].Detail == "allow-apply is off" {
+				rep.Entries[i].Detail = terminalproto.LockedSentence
+			}
+		}
 	}
 	var undelivered []string
 	sent := capSkillReport(withUnsent(rep, unsent), d.Remove)

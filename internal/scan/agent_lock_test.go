@@ -142,3 +142,22 @@ func TestTheLockSurvivesAnUpdate(t *testing.T) {
 		t.Fatal("the update dropped the lock")
 	}
 }
+
+// The running agent's reader sees the lock as soon as it is saved, and a
+// file it cannot read counts as locked.
+func TestLockedNowReadsTheFileAndFailsClosed(t *testing.T) {
+	config := enrolledMachine(t, "https://example.invalid")
+	locked := lockedNow(config)
+	if locked() {
+		t.Fatal("an unlocked machine read as locked")
+	}
+	if err := RunAgent([]string{"lock", "--config", config}, io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !locked() {
+		t.Fatal("the lock was not read again")
+	}
+	if !lockedNow(config + ".missing")() {
+		t.Fatal("an unreadable enrolment read as unlocked")
+	}
+}

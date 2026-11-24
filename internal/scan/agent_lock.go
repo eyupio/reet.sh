@@ -48,3 +48,12 @@ func runAgentLock(c agentConfig, config, mode string, out io.Writer) error {
 	}
 	return errors.New("usage: " + agentLockUsage)
 }
+
+// lockedNow re-reads the lock from the enrolment file. A file that cannot be
+// read counts as locked: the switch fails closed.
+func lockedNow(config string) func() bool {
+	return func() bool {
+		c, err := loadAgentConfig(config)
+		return err != nil || c.Locked
+	}
+}

@@ -510,6 +510,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				ModelsAllowed:    modelsAllowed(*config, c),
 				YoloAllowed:      yoloAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
+				Locked:           lockedNow(*config),
 				OnConnection:     state.connected.Store,
 				OnError:          func(message string) { state.note(&state.privateError, message) },
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
@@ -676,6 +677,9 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if _, err := checkPendingUpdate(c, config, version); err != nil {
 		return err
 	}
+	// The lock is read fresh each cycle, as allow-apply is, so it holds
+	// from the next cycle without restarting the agent.
+	c.Locked = lockedNow(config)()
 	handled, err := processRemoteImport(ctx, c, version)
 	if handled {
 		return err
@@ -758,7 +762,10 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	case "scan":
 		operationErr = scanAll(false)
 	case "update":
-		if !allowRestart {
+		if c.Locked {
+			// Updating runs code the controller chose; a locked machine refuses.
+			operationErr = errors.New(terminalproto.LockedSentence)
+		} else if !allowRestart {
 			operationErr = errors.New("updating reet requires the long-running background or service agent")
 		} else {
 			report := func(stage, detail string) { reportAgentStage(c, j.ID, stage, detail, version) }

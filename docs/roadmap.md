@@ -40,10 +40,16 @@ priority order within each group):
     `docs/superpowers/plans/2026-11-22-agy-transcript-chat.md`.
 - **Phone and web.** Keep unsent drafts and queued messages across a reload or a discarded tab, keep the composer typeable
   through a short reconnect, notice and repair a dead push subscription, open a notification on the exact session and view,
-  and add an optional audible alert.
+  and add an optional audible alert. Built: drafts and the browser-held queue survive a reload, the chat box stays
+  typeable while it reconnects, a dead push subscription is kept, noticed and repaired in one tap, a tapped notification opens
+  its session in the window already open, and a quiet tone is optional per device. Not yet checked on a real phone or against a
+  real push service.
 - **Delivery speed.** Shard the Go suite across CI jobs (`internal/store` on its own shard), run the web tests in parallel and
   report every failure, give flaky tests an owner and an end date, move changelog entries to one fragment per PR, and keep
-  `handoff.md` to a bounded length with a short `AGENTS.md` for the traps the code does not show.
+  `handoff.md` to a bounded length with a short `AGENTS.md` for the traps the code does not show. Built: the Go suite runs in six shards (about 15 minutes
+  whole), the terminal browser suites run in four shards and every failing suite is named, unstable tests are listed with an
+  owner and a date, and handoff entries and changelog fragments are one file each. Not built: the `gaffer-settings` job still runs
+  its 19 scripts one after another, and nothing yet checks that a pull request adds its fragment.
 
 Overlap with the Factory delivery review, so the two do not collide: its stage 4 (delivery reliability) and the recovery states
 of stage 3 should own anything about a lost connection or a launch that is retried, and the "turn ended with background work"

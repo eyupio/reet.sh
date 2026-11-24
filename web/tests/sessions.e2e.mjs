@@ -654,14 +654,16 @@ try {
    const {context,page,errors} = await open({width,height,theme,touch,scale:2,sessions:[...sessions(),{...session('sw','a1','Plain working chat',3*MIN,{tool:'claude',structured:true,projectId:'p1',attention:'working',attentionSource:'chat'})},stopped],machines:switchMachines(),chat:true,chatHold:true,sessionFocus:'default'})
    if (shots) await mkdir(shots,{recursive:true})
    const shot = async (locator,name) => { if (shots) { await locator.evaluate(el => el.scrollIntoView({block:'center'})); await locator.screenshot({path:`${shots}/${name}-${theme}-${width}.png`}) } }
-   const tone = async mark => expect(await mark.evaluate(el => { const c = getComputedStyle(el); return [c.color, c.borderTopColor, c.width, c.height, c.animationName] }), 'the mark is warning-coloured, 14px, still').toEqual([warn,warn,'14px','14px','none'])
+   // The warning colour is read beside the element, in the same frame, so a theme still settling cannot split the two.
+   const probe = "const w = (() => { const e = document.createElement('i'); e.style.color = getComputedStyle(document.documentElement).getPropertyValue('--warn').trim(); el.parentElement.append(e); const c = getComputedStyle(e).color; e.remove(); return c })();"
+   const tone = async mark => expect(await mark.evaluate(new Function('el', probe + " const c = getComputedStyle(el); return [c.color === w, c.borderTopColor === w, c.width, c.height, c.animationName]")), 'the mark is warning-coloured, 14px, still').toEqual([true,true,'14px','14px','none'])
+   const warm = async word => expect(await word.evaluate(new Function('el', probe + " return getComputedStyle(el).color === w"))).toBe(true)
    await page.goto(`${base}/sessions?view=list`)
-   const warn = await page.evaluate(() => { const e = document.createElement('i'); e.style.color = getComputedStyle(document.documentElement).getPropertyValue('--warn').trim(); (document.querySelector('#app') ?? document.body).append(e); const c = getComputedStyle(e).color; e.remove(); return c })
    const row = rows(page).filter({hasText:'Watch the deploy'})
    const plain = rows(page).filter({hasText:'Plain working chat'})
    await tone(row.locator('.status-mark'))
    await expect(row.locator('.dot, .status-ring, .status-tick')).toHaveCount(0)
-   expect(await row.locator('.word').evaluate(el => getComputedStyle(el).color), 'the word takes the warning tone').toBe(warn)
+   await warm(row.locator('.word'))
    // A screen reader hears the word and the sentence beside the mark, which is hidden from it.
    await expect(row.locator('.word')).toContainText('Stopped waiting')
    await expect(row.locator('.word .vh')).toHaveText(`. ${line}`)
@@ -691,7 +693,7 @@ try {
    const flight = region.locator('li[data-status]').filter({hasText:'Watch the deploy'})
    await tone(flight.locator('.status-mark'))
    await expect(flight.locator('.dot, .status-ring, .status-tick')).toHaveCount(0)
-   expect(await flight.locator('.word').evaluate(el => getComputedStyle(el).color)).toBe(warn)
+   await warm(flight.locator('.word'))
    await expect(flight.locator('.word')).toContainText('Stopped waiting')
    await expect(flight.locator('.word .vh')).toHaveText(`. ${line}`)
    await shot(flight.locator('xpath=ancestor::div[contains(@class,"group")][1]'),'home-rows')

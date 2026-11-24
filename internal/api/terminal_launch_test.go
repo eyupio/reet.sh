@@ -207,6 +207,7 @@ func (f *launchAPI) doCtx(t *testing.T, ctx context.Context, cookie, method, pat
 	r := httptest.NewRequestWithContext(ctx, method, path, reader)
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", "https://reet.example")
+	r.Host = "reet.example" // the browser's page is at the public address it sends as Origin
 	if cookie != "" {
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
 	}

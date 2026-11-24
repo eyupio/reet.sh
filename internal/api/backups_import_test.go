@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
@@ -72,24 +73,32 @@ func newTarget(t *testing.T, populated bool) target {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateAPIToken(owner.ID, "owner", auth.HashToken("owner-token")); err != nil {
-		t.Fatal(err)
-	}
+	signIn(t, st, owner.ID, "owner-token")
 	if populated {
 		// A second account is data; a new controller has only its first owner.
 		member, err := st.CreateUser("member@example.com", "Member", "member", "x")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.CreateAPIToken(member.ID, "member", auth.HashToken("member-token")); err != nil {
-			t.Fatal(err)
-		}
+		signIn(t, st, member.ID, "member-token")
 	}
 	sealer, _ := backup.NewSealer(importKey, "test")
 	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: importKey})
 	ts := httptest.NewServer(New(st, meta.Fetcher{}, "", WithAuthMode(AuthAccounts), WithBackups(svc)))
 	t.Cleanup(ts.Close)
 	return target{st: st, dir: dir, url: ts.URL}
+}
+
+// signIn gives a user a personal token and a browser session with the same
+// value: the import routes take the token, the owner's other routes the session.
+func signIn(t *testing.T, st *store.Store, uid int64, raw string) {
+	t.Helper()
+	if _, err := st.CreateAPIToken(uid, raw, auth.HashToken(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSession(auth.HashToken(raw), uid, time.Now().Add(time.Hour).UnixMilli(), "test"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func form(t *testing.T, fields [][2]string, file []byte) (*bytes.Buffer, string) {

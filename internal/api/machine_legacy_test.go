@@ -136,3 +136,28 @@ func TestEnrollingAgainWithACodeClearsTheMark(t *testing.T) {
 		t.Fatalf("machines: %+v", agents)
 	}
 }
+
+// A paused machine gets the same answer by its own secret as a paused machine
+// with a personal token: authentication does not look at the pause, and the
+// routes that must not act for a paused machine refuse it themselves.
+func TestAPausedMachineIsTreatedAlikeHoweverItAuthenticates(t *testing.T) {
+	e := newEnrolAccounts(t)
+	codeID, codeSecret := e.enrolledMachine(t, "studio")
+	old, oldSecret := enrolResult(t, func() (int, string) { return e.enrol(t, "laptop", "X-Reet-Token", e.token) })
+	for _, id := range []string{codeID, old.ID} {
+		mcpJSON(t, e.browser, e.ts, "PATCH", "/api/v2/sync/agents", map[string]any{"id": id, "action": "pause"}, 200)
+	}
+	for _, req := range machineRequests {
+		if req.path == "/api/import" {
+			continue // its body names the machine's own host
+		}
+		bySecret, _ := do(t, e.ts, req.method, req.path, req.body, machineHeaders(codeID, codeSecret)...)
+		byToken, _ := do(t, e.ts, req.method, req.path, req.body, append(machineHeaders(old.ID, oldSecret), "X-Reet-Token", e.token)...)
+		if bySecret != byToken || bySecret == 401 {
+			t.Errorf("%s %s paused: %d by secret, %d with a token", req.method, req.path, bySecret, byToken)
+		}
+	}
+	if status, _ := do(t, e.ts, "GET", "/api/v2/sync/skill-import", "", machineHeaders(codeID, codeSecret)...); status != 409 {
+		t.Fatalf("skill import by a paused machine: %d", status)
+	}
+}

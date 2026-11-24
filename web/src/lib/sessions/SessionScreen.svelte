@@ -420,7 +420,7 @@
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
   <div class="body" class:context-docked={docked && effectiveOpen && !hasSide} class:context-sheet={!theatre && !docked && effectiveOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <!-- Always in the page, so the lock is announced once when it arrives, not read as a notice that appeared with its text. -->
-    <p class="lock-status" role="status" aria-live="polite" data-lock-status>{lockedHere ? SESSION_LOCKED : ''}</p>
+    <p class="lock-status" aria-live="polite" data-lock-status>{lockedHere ? SESSION_LOCKED : ''}</p>
     <header class="head">
       <div class="identity-row">
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>

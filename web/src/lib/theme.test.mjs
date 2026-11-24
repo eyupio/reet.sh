@@ -290,3 +290,32 @@ test('a tinted row keeps its pill text at AA and its ring at 3:1', () => {
     }
   }
 })
+
+// A chat reet stopped waiting on (finished or quiet) draws the "!" mark in the warning colour, as every other "!" in the
+// product is, in place of a dot; its word and the Home board's pill take the same tone. The mark keeps 3:1 against every
+// ground a row sits on, a 5% warning tint included; the word keeps 4.5:1 as text, and the board pill's ink 4.5:1 on its
+// wash, in both palettes. It is drawn from tokens alone and does not move.
+test('the stopped-waiting mark and word take the warning tone and keep their contrast', () => {
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
+  const mix = (a, b, share) => '#' + hex(a).map((v, i) => Math.round(v * share + hex(b)[i] * (1 - share)).toString(16).padStart(2, '0')).join('')
+  const rule = css.match(/\.status-mark \{[^}]*\}/)?.[0]
+  assert.ok(rule, 'app.css draws .status-mark')
+  assert.match(rule, /border: [\d.]+px solid var\(--status\)/)
+  assert.match(rule, /color: var\(--status\)/)
+  assert.doesNotMatch(rule, /#[0-9a-f]{3,8}\b|rgb|animation|transition/i)
+  assert.match(css, /:where\(\[data-stopped\]\) \{ --status: var\(--warn\); \}/)
+  for (const p of PALETTES) {
+    const t = TOKENS[p]
+    for (const ground of ['--card', '--bg', '--card-raised']) {
+      const tinted = mix(t['--warn'], t[ground], 0.05)
+      for (const g of [t[ground], tinted]) {
+        assert.ok(contrast(t['--warn'], g) >= 3, `${p}: mark on ${g} is ${contrast(t['--warn'], g).toFixed(2)}`)
+        assert.ok(contrast(t['--warn'], g) >= 4.5, `${p}: word on ${g} is ${contrast(t['--warn'], g).toFixed(2)}`)
+      }
+      const wash = mix(t['--warn'], t[ground], 0.13)
+      const ink = p === 'light' ? mix(t['--warn'], '#000000', 0.85) : t['--warn']
+      assert.ok(contrast(ink, wash) >= 4.5, `${p}: board pill ink ${ink} on its wash ${wash} over ${ground} is ${contrast(ink, wash).toFixed(2)}`)
+      assert.ok(contrast(ink, wash) >= 3, `${p}: mark in the board pill on ${wash}`)
+    }
+  }
+})

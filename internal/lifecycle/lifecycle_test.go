@@ -815,3 +815,35 @@ func TestDoctorNeverPointsAtTheRemovedSyncCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeInstallKeepsTrustedProxiesForServe(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("native services support Linux and macOS")
+	}
+	a, state, _ := testApp(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("REET_TRUSTED_PROXIES", "127.0.0.1, 10.0.0.2")
+	args := []string{"--mode", "native", "--no-start", "--yes", "--state-dir", state, "--dir", filepath.Join(t.TempDir(), "bin"),
+		"--data-dir", filepath.Join(t.TempDir(), "data")}
+	if err := a.Run("install", args); err != nil {
+		t.Fatal(err)
+	}
+	// A service starts without the installer's environment; serve reads the saved copy.
+	os.Unsetenv("REET_TRUSTED_PROXIES")
+	t.Cleanup(func() { os.Unsetenv("REET_TRUSTED_PROXIES") })
+	if err := LoadServerConfig(filepath.Join(state, "deployment.json")); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("REET_TRUSTED_PROXIES"); got != "127.0.0.1, 10.0.0.2" {
+		t.Fatalf("serve got REET_TRUSTED_PROXIES %q", got)
+	}
+}
+
+func TestServerEnvIncludesTrustedProxies(t *testing.T) {
+	for _, k := range ServerEnv() {
+		if k == "REET_TRUSTED_PROXIES" {
+			return
+		}
+	}
+	t.Fatal("reet install does not save REET_TRUSTED_PROXIES")
+}

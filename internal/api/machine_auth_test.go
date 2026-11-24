@@ -26,25 +26,43 @@ func machineHeaders(id, secret string) []string {
 	return []string{"X-Reet-Agent", id, "X-Reet-Agent-Key", secret, "X-Reet-Version", "test", "X-Reet-Skills-Protocol", "2"}
 }
 
-// What a machine sends after enrolment, traced from its agent: each is opened
-// by the machine's own secret, with no personal token.
-var machineRequests = [][3]string{
-	{"POST", "/api/v2/sync/identity", `{}`},
-	{"POST", "/api/v2/sync/poll", `{"skillsVersion":""}`},
-	{"POST", "/api/v2/sync/result", `{"id":"no-such-job","status":"succeeded"}`},
-	{"POST", "/api/v2/sync/agents/update/stage", `{"id":"no-such-job","stage":"downloading"}`},
-	{"POST", "/api/v2/sync/private", `{}`},
-	{"POST", "/api/v2/sync/skills/report", `{}`},
-	{"POST", "/api/v2/sync/content-observations/prepare", `{}`},
-	{"POST", "/api/v2/sync/content-observations", `{}`},
-	{"GET", "/api/v2/sync/skill-import", ``},
-	{"POST", "/api/v2/sync/skill-import", `{}`},
-	{"POST", "/api/v2/sync/skill-import/work", `{}`},
-	{"POST", "/api/v2/sync/skill-import/preview", `{}`},
-	{"POST", "/api/v2/sync/skill-import/transfer", `{}`},
-	{"POST", "/api/v2/sync/skill-import/failure", `{}`},
-	{"GET", "/api/v2/skill-bundles/no-such/revisions/1", ``},
-	{"POST", "/api/import", `{"items":[],"machine":{"host":"studio"}}`},
+// What a machine sends after enrolment, traced from its agent, and what each
+// answers a machine enrolled by code that sends no personal token. Each is
+// opened by the machine's own secret: none answers 401.
+var machineRequests = []struct {
+	method, path, body string
+	want               int
+}{
+	{"POST", "/api/v2/sync/identity", `{}`, 200},
+	{"POST", "/api/v2/sync/poll", `{"skillsVersion":""}`, 200},
+	{"POST", "/api/v2/sync/result", `{"id":"no-such-job","status":"succeeded"}`, 409},
+	{"POST", "/api/v2/sync/agents/update/stage", `{"id":"no-such-job","stage":"downloading"}`, 409},
+	{"POST", "/api/v2/sync/private", `{}`, 503}, // no private listener in a test
+	{"POST", "/api/v2/sync/skills/report", `{}`, 200},
+	{"POST", "/api/v2/sync/content-observations/prepare", `{}`, 200},
+	{"POST", "/api/v2/sync/content-observations", `{}`, 400},
+	{"GET", "/api/v2/sync/skill-import", ``, 200},
+	{"POST", "/api/v2/sync/skill-import", `{}`, 400},
+	{"POST", "/api/v2/sync/skill-import/work", `{}`, 400},
+	{"POST", "/api/v2/sync/skill-import/preview", `{}`, 400},
+	{"POST", "/api/v2/sync/skill-import/transfer", `{}`, 404}, // no such import
+	{"POST", "/api/v2/sync/skill-import/failure", `{}`, 400},
+	{"GET", "/api/v2/skill-bundles/no-such/revisions/1", ``, 404},
+	{"POST", "/api/import", `{"items":[{"name":"alpha","host":"studio","agent":"claude"}],"environments":[{"host":"studio","agent":"claude","skills":["alpha"]}],"machine":{"host":"studio"}}`, 200},
+}
+
+// ownBundle saves a private skill for the account and returns its revision path.
+func ownBundle(t *testing.T, st *store.Store, uid int64, key string) string {
+	t.Helper()
+	var in store.PrivateSkillWrite
+	if err := json.Unmarshal([]byte(privateSkillBody(key, "", "PRIVATE")), &in); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := st.SavePrivateSkillRevisionFor(uid, "", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "/api/v2/skill-bundles/" + saved.Bundle.ID + "/revisions/" + saved.Revision.ID
 }
 
 func TestAMachineSecretOpensItsOwnRoutesAndNoOthers(t *testing.T) {
@@ -52,19 +70,30 @@ func TestAMachineSecretOpensItsOwnRoutesAndNoOthers(t *testing.T) {
 	id, secret := e.enrolledMachine(t, "studio")
 	machine := machineHeaders(id, secret)
 	for _, req := range machineRequests {
-		if status, body := do(t, e.ts, req[0], req[1], req[2], machine...); status == 401 || status == 403 {
-			t.Errorf("%s %s by the machine: %d %s", req[0], req[1], status, body)
+		if status, body := do(t, e.ts, req.method, req.path, req.body, machine...); status != req.want {
+			t.Errorf("%s %s by the machine: %d, want %d: %s", req.method, req.path, status, req.want, body)
 		}
-		if status, _ := do(t, e.ts, req[0], req[1], req[2]); status != 401 {
-			t.Errorf("%s %s with no credential: %d", req[0], req[1], status)
+		if status, _ := do(t, e.ts, req.method, req.path, req.body); status != 401 {
+			t.Errorf("%s %s with no credential: %d", req.method, req.path, status)
 		}
 		wrong := machineHeaders(id, "not-the-secret")
-		if status, _ := do(t, e.ts, req[0], req[1], req[2], wrong...); status != 401 {
-			t.Errorf("%s %s with a wrong secret: %d", req[0], req[1], status)
+		if status, _ := do(t, e.ts, req.method, req.path, req.body, wrong...); status != 401 {
+			t.Errorf("%s %s with a wrong secret: %d", req.method, req.path, status)
 		}
 	}
 	if status, body := do(t, e.ts, "POST", "/api/v2/sync/identity", `{}`, machine...); status != 200 || !strings.Contains(body, id) {
 		t.Fatalf("identity: %d %s", status, body)
+	}
+	// A real bundle of its own account downloads; another account's does not.
+	if status, body := do(t, e.ts, "GET", ownBundle(t, e.st, e.uid, "machine_own_0001"), "", machine...); status != 200 || !strings.Contains(body, `"path":"SKILL.md"`) {
+		t.Fatalf("own bundle: %d %s", status, body)
+	}
+	other, err := e.st.CreateUser("other@example.com", "Other", "member", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := do(t, e.ts, "GET", ownBundle(t, e.st, other.ID, "machine_other_01"), "", machine...); status != 404 {
+		t.Fatalf("another account's bundle: %d", status)
 	}
 	// A sample of every other family of routes.
 	for _, req := range [][3]string{
@@ -73,7 +102,7 @@ func TestAMachineSecretOpensItsOwnRoutesAndNoOthers(t *testing.T) {
 		{"POST", "/api/v2/skill-imports", `{}`}, {"GET", "/api/tags", ``}, {"GET", "/api/v2/lists", ``},
 		{"GET", "/api/v2/tokens", ``}, {"POST", "/api/v2/tokens", `{"name":"x"}`}, {"POST", "/api/v2/sync/enrol-codes", `{}`},
 		{"GET", "/api/v2/mcp", ``}, {"GET", "/api/v2/auth/me", ``}, {"GET", "/api/v2/account", ``},
-		{"GET", "/api/admin/status", ``}, {"GET", "/api/v2/admin/users", ``}, {"GET", "/api/v2/admin/backups", ``},
+		{"GET", "/api/admin/status", ``}, {"GET", "/api/v2/admin/users", ``}, {"POST", "/api/v2/admin/invites", `{}`}, {"GET", "/api/v2/admin/backups", ``},
 		{"GET", "/api/export", ``}, {"POST", "/api/restore", `{}`},
 		{"GET", "/api/v2/terminal/sessions", ``}, {"POST", "/api/v2/terminal/sessions", `{}`},
 		{"GET", "/api/v2/sync", ``}, {"POST", "/api/v2/sync/agents", `{"host":"another"}`}, {"PATCH", "/api/v2/sync/agents", `{"id":"` + id + `","action":"pause"}`},
@@ -88,8 +117,8 @@ func TestAMachineSecretOpensItsOwnRoutesAndNoOthers(t *testing.T) {
 	// A revoked machine is refused everywhere.
 	mcpJSON(t, e.browser, e.ts, "PATCH", "/api/v2/sync/agents", map[string]any{"id": id, "action": "revoke"}, 200)
 	for _, req := range machineRequests {
-		if status, _ := do(t, e.ts, req[0], req[1], req[2], machine...); status != 401 {
-			t.Errorf("%s %s by a revoked machine: %d", req[0], req[1], status)
+		if status, _ := do(t, e.ts, req.method, req.path, req.body, machine...); status != 401 {
+			t.Errorf("%s %s by a revoked machine: %d", req.method, req.path, status)
 		}
 	}
 }

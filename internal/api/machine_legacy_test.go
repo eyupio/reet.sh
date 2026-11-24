@@ -2,73 +2,137 @@ package api
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-func legacyFlag(t *testing.T, e enrolAccounts, id string) bool {
+func listedAgent(t *testing.T, e enrolAccounts, id string) map[string]any {
 	t.Helper()
-	agents, err := e.st.SyncAgentsFor(e.uid)
-	if err != nil {
-		t.Fatal(err)
-	}
 	r := mcpJSON(t, e.browser, e.ts, "GET", "/api/v2/sync", nil, 200)
 	for _, a := range r["agents"].([]any) {
 		if m := a.(map[string]any); m["id"] == id {
-			flag, present := m["legacyToken"].(bool)
-			for _, stored := range agents {
-				if stored.ID == id && stored.LegacyToken != flag {
-					t.Fatalf("listing says %v, store %v", flag, stored.LegacyToken)
-				}
-			}
-			if !present {
-				t.Fatalf("no legacyToken in %v", m)
-			}
-			return flag
+			return m
 		}
 	}
 	t.Fatalf("machine %s not listed", id)
-	return false
+	return nil
 }
 
-// A machine enrolled with a personal token, and an older one still sending
-// it, keep working and are marked; a request with the machine's secret alone
-// clears the mark, and a machine enrolled by code never has it.
-func TestMachinesStillUsingAPersonalTokenAreMarked(t *testing.T) {
-	e := newEnrolAccounts(t)
-	status, body := e.enrol(t, "old-laptop", "X-Reet-Token", e.token)
-	var old struct {
+func legacyFlag(t *testing.T, e enrolAccounts, id string) bool {
+	t.Helper()
+	flag, ok := listedAgent(t, e, id)["legacyToken"].(bool)
+	if !ok {
+		t.Fatal("no legacyToken in the listing")
+	}
+	return flag
+}
+
+func enrolResult(t *testing.T, send func() (int, string)) (store.SyncAgent, string) {
+	t.Helper()
+	status, body := send()
+	var got struct {
 		Agent  store.SyncAgent `json:"agent"`
 		Secret string          `json:"secret"`
 	}
-	if status != 201 || json.Unmarshal([]byte(body), &old) != nil || !old.Agent.LegacyToken {
-		t.Fatalf("token enrolment: %d %s", status, body)
+	if status != 201 || json.Unmarshal([]byte(body), &got) != nil {
+		t.Fatalf("enrolment: %d %s", status, body)
 	}
-	if !legacyFlag(t, e, old.Agent.ID) {
-		t.Fatal("token enrolment not marked")
-	}
-	legacy := append(machineHeaders(old.Agent.ID, old.Secret), "X-Reet-Token", e.token)
-	for _, req := range machineRequests {
-		if status, body := do(t, e.ts, req[0], req[1], req[2], legacy...); status == 401 || status == 403 {
-			t.Errorf("%s %s by an older machine: %d %s", req[0], req[1], status, body)
+	return got.Agent, got.Secret
+}
+
+func (e enrolAccounts) revokeTokens(t *testing.T) {
+	t.Helper()
+	list := mcpJSON(t, e.browser, e.ts, "GET", "/api/v2/tokens", nil, 200)
+	for _, tok := range list["tokens"].([]any) {
+		id := strconv.FormatInt(int64(tok.(map[string]any)["id"].(float64)), 10)
+		if status, _ := doClient(t, e.browser, e.ts, "DELETE", "/api/v2/tokens?id="+id, ""); status != 204 {
+			t.Fatalf("revoke %s: %d", id, status)
 		}
 	}
-	if status, _ := do(t, e.ts, "POST", "/api/v2/sync/poll", `{}`, machineHeaders(old.Agent.ID, old.Secret)...); status != 200 {
-		t.Fatalf("poll by secret: %d", status)
-	}
-	if legacyFlag(t, e, old.Agent.ID) {
-		t.Fatal("mark kept after a request with the secret alone")
-	}
-	if status, _ := do(t, e.ts, "POST", "/api/v2/sync/poll", `{}`, legacy...); status != 200 || !legacyFlag(t, e, old.Agent.ID) {
-		t.Fatalf("token poll did not mark the machine: %d", status)
-	}
+}
 
-	id, secret := e.enrolledMachine(t, "new-laptop")
-	if legacyFlag(t, e, id) {
-		t.Fatal("code enrolment marked")
+// A machine enrolled with a personal token works only while it presents that
+// token, as before enrolment codes: its secret alone opens nothing, and
+// revoking the token cuts it off. It stays marked throughout.
+func TestATokenEnrolledMachineStopsWithItsToken(t *testing.T) {
+	e := newEnrolAccounts(t)
+	a, secret := enrolResult(t, func() (int, string) { return e.enrol(t, "studio", "X-Reet-Token", e.token) })
+	if !a.LegacyToken || a.EnrolledVia != store.EnrolledByToken || !legacyFlag(t, e, a.ID) {
+		t.Fatalf("token enrolment not marked: %+v", a)
 	}
-	if status, _ := do(t, e.ts, "POST", "/api/v2/sync/identity", `{}`, machineHeaders(id, secret)...); status != 200 || legacyFlag(t, e, id) {
-		t.Fatalf("secret request marked the machine: %d", status)
+	withToken := append(machineHeaders(a.ID, secret), "X-Reet-Token", e.token)
+	for _, req := range machineRequests {
+		if status, body := do(t, e.ts, req.method, req.path, req.body, withToken...); status != req.want {
+			t.Errorf("%s %s with its token: %d, want %d: %s", req.method, req.path, status, req.want, body)
+		}
+		if status, _ := do(t, e.ts, req.method, req.path, req.body, machineHeaders(a.ID, secret)...); status != 401 {
+			t.Errorf("%s %s by its secret alone: %d", req.method, req.path, status)
+		}
+	}
+	if !legacyFlag(t, e, a.ID) {
+		t.Fatal("mark cleared by a request")
+	}
+	e.revokeTokens(t)
+	for _, req := range machineRequests {
+		for name, hdr := range map[string][]string{"revoked token": withToken, "secret alone": machineHeaders(a.ID, secret)} {
+			if status, _ := do(t, e.ts, req.method, req.path, req.body, hdr...); status != 401 {
+				t.Errorf("%s %s after revocation, %s: %d", req.method, req.path, name, status)
+			}
+		}
+	}
+	if !legacyFlag(t, e, a.ID) {
+		t.Fatal("mark cleared after revocation")
+	}
+}
+
+// Machines enrolled by code, or by a signed-in browser, do not depend on any
+// personal token.
+func TestACodeOrBrowserEnrolledMachineOutlivesTokenRevocation(t *testing.T) {
+	e := newEnrolAccounts(t)
+	id, secret := e.enrolledMachine(t, "studio")
+	browser, browserSecret := enrolResult(t, func() (int, string) {
+		return doClient(t, e.browser, e.ts, "POST", "/api/v2/sync/agents", `{"host":"desk","version":"test"}`)
+	})
+	if browser.EnrolledVia != store.EnrolledBySession || browser.LegacyToken {
+		t.Fatalf("browser enrolment: %+v", browser)
+	}
+	e.revokeTokens(t)
+	for _, m := range [][2]string{{id, secret}, {browser.ID, browserSecret}} {
+		if status, _ := do(t, e.ts, "POST", "/api/v2/sync/poll", `{}`, machineHeaders(m[0], m[1])...); status != 200 {
+			t.Fatalf("machine %s after token revocation: %d", m[0], status)
+		}
+		if legacyFlag(t, e, m[0]) || listedAgent(t, e, m[0])["enrolledVia"] == store.EnrolledByToken {
+			t.Fatalf("machine %s marked", m[0])
+		}
+	}
+}
+
+// Enrolling a token-enrolled machine again with a code keeps its id, gives it
+// a new secret that works alone, retires the old one, and clears the mark.
+// The answer is the one a new machine gets, and the code is spent.
+func TestEnrollingAgainWithACodeClearsTheMark(t *testing.T) {
+	e := newEnrolAccounts(t)
+	old, oldSecret := enrolResult(t, func() (int, string) { return e.enrol(t, "studio", "X-Reet-Token", e.token) })
+	code := e.newCode(t)
+	again, secret := enrolResult(t, func() (int, string) { return e.enrol(t, "Studio", "X-Reet-Token", code) })
+	if again.ID != old.ID || again.LegacyToken || again.EnrolledVia != store.EnrolledByCode || secret == oldSecret {
+		t.Fatalf("again by code: %+v", again)
+	}
+	if legacyFlag(t, e, old.ID) {
+		t.Fatal("still marked")
+	}
+	if status, _ := do(t, e.ts, "POST", "/api/v2/sync/identity", `{}`, machineHeaders(old.ID, secret)...); status != 200 {
+		t.Fatalf("new secret alone: %d", status)
+	}
+	if status, _ := do(t, e.ts, "POST", "/api/v2/sync/identity", `{}`, append(machineHeaders(old.ID, oldSecret), "X-Reet-Token", e.token)...); status != 403 {
+		t.Fatalf("old secret with the token: %d", status)
+	}
+	if status, _ := e.enrol(t, "fresh", "X-Reet-Token", code); status != 401 {
+		t.Fatalf("code reused: %d", status)
+	}
+	if agents, _ := e.st.SyncAgentsFor(e.uid); len(agents) != 1 {
+		t.Fatalf("machines: %+v", agents)
 	}
 }

@@ -60,12 +60,18 @@ func (s *server) createEnrolCode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"code": code, "expiresAt": expires.Unix()})
 }
 
-// machineAuthKey marks a request a machine's own id and secret authenticated.
+// machineAuthKey carries the machine whose own id and secret alone
+// authenticated the request.
 type machineAuthKey struct{}
 
 func machineAuthenticated(r *http.Request) bool {
-	v, _ := r.Context().Value(machineAuthKey{}).(bool)
-	return v
+	_, ok := authenticatedMachine(r)
+	return ok
+}
+
+func authenticatedMachine(r *http.Request) (store.SyncAgent, bool) {
+	a, ok := r.Context().Value(machineAuthKey{}).(store.SyncAgent)
+	return a, ok
 }
 
 // machineRoutes is every request an enrolled machine makes on the public
@@ -105,13 +111,16 @@ func machineRoute(r *http.Request) bool {
 	return pattern != ""
 }
 
-// machineUser is the account of the enrolled machine the request names, when
-// its secret matches and neither it nor the account has been removed.
-func (s *server) machineUser(r *http.Request) (store.User, bool) {
-	uid, _, err := s.st.AuthenticateRemoteAgent(r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"))
-	if err != nil {
-		return store.User{}, false
+// machineUser is the account and record of the enrolled machine the request
+// names, when its secret matches, neither it nor the account has been
+// removed, and it was enrolled by code or by a signed-in browser. A machine
+// enrolled with a personal token keeps needing that token, so revoking the
+// token still cuts it off.
+func (s *server) machineUser(r *http.Request) (store.User, store.SyncAgent, bool) {
+	uid, a, err := s.st.AuthenticateRemoteAgent(r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"))
+	if err != nil || (a.EnrolledVia != store.EnrolledByCode && a.EnrolledVia != store.EnrolledBySession) {
+		return store.User{}, a, false
 	}
 	u, ok, err := s.st.UserByID(uid)
-	return u, ok && err == nil && u.DisabledAt == 0
+	return u, a, ok && err == nil && u.DisabledAt == 0
 }

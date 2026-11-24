@@ -112,16 +112,8 @@ func TestPrivateBootstrapReturnsCapabilityOnlyToTheOwningEnrollment(t *testing.T
 	if code, _ := call(ownerToken, "X-Reet-Agent", agent.ID, "X-Reet-Agent-Key", "wrong"); code != 403 {
 		t.Fatalf("wrong enrollment secret status = %d", code)
 	}
-	// The enrollment's own secret is enough without an account token; with
-	// neither, or a wrong secret, the request is refused.
-	if code, body := call("", enrollment...); code != 200 || !strings.Contains(body, fake.address) {
-		t.Fatalf("enrollment secret alone status = %d %s", code, body)
-	}
-	if code, _ := call(""); code != 401 {
-		t.Fatalf("no credential status = %d", code)
-	}
-	if code, _ := call("", "X-Reet-Agent", agent.ID, "X-Reet-Agent-Key", "wrong"); code != 401 {
-		t.Fatalf("wrong secret alone status = %d", code)
+	if code, _ := call("", enrollment...); code != 401 {
+		t.Fatalf("missing account token status = %d", code)
 	}
 	other, _ := st.CreateUser("other@remote.invalid", "Other", "member", "")
 	if _, err := st.CreateAPIToken(other.ID, "other", auth.HashToken("fixture-other")); err != nil {

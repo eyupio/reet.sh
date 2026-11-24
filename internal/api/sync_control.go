@@ -80,29 +80,30 @@ func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	uid, via := s.uid(r), "session"
+	uid, via := s.uid(r), store.EnrolledOpen
 	var a store.SyncAgent
 	var secret string
 	var err error
 	if code, ok := r.Context().Value(enrolCodeKey{}).(string); ok {
-		via = "code"
-		uid, a, secret, err = s.st.EnrolWithCode(auth.HashToken(code), in.Host, in.Version, in.Commit)
+		var replaced bool
+		via = store.EnrolledByCode
+		uid, a, secret, replaced, err = s.st.EnrolWithCode(auth.HashToken(code), in.Host, in.Version, in.Commit)
 		if errors.Is(err, store.ErrEnrolCodeInvalid) {
 			writeErr(w, 401, badEnrolCode)
 			return
 		}
+		if err == nil && replaced {
+			// Its old secret no longer works; neither do connections made with it.
+			s.terminals.Revoke(uid, a.ID)
+		}
 	} else {
 		switch {
-		case requestToken(r) != "":
-			via = "token"
-		case s.authMode != AuthAccounts:
-			via = "open"
+		case usedAPIToken(r):
+			via = store.EnrolledByToken
+		case s.authMode == AuthAccounts:
+			via = store.EnrolledBySession
 		}
-		a, secret, err = s.st.EnrollSyncAgentBuild(uid, in.Host, in.Version, in.Commit)
-		if err == nil && usedAPIToken(r) {
-			a.LegacyToken = true
-			err = s.st.SetAgentLegacyTokenFor(uid, a.ID, true)
-		}
+		a, secret, err = s.st.EnrollSyncAgentVia(uid, in.Host, in.Version, in.Commit, via)
 	}
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -163,13 +164,6 @@ func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.Sy
 	if err != nil {
 		writeErr(w, 403, err.Error())
 		return a, false
-	}
-	if legacy := usedAPIToken(r); legacy != a.LegacyToken {
-		if err = s.st.SetAgentLegacyTokenFor(s.uid(r), a.ID, legacy); err != nil {
-			writeErr(w, 500, err.Error())
-			return a, false
-		}
-		a.LegacyToken = legacy
 	}
 	return a, true
 }

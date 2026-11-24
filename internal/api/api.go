@@ -694,13 +694,13 @@ func (s *server) auth(next http.Handler) http.Handler {
 			// A token that was presented and refused is not passed over for the
 			// machine's secret: the machine authenticates by its secret alone.
 			if r.Header.Get("X-Reet-Agent") != "" && requestToken(r) == "" && machineRoute(r) {
-				u, ok := s.machineUser(r)
+				u, a, ok := s.machineUser(r)
 				if !ok {
-					writeErr(w, http.StatusUnauthorized, "machine enrollment is missing or revoked")
+					writeErr(w, http.StatusUnauthorized, "machine enrollment is missing or revoked, or needs its personal token")
 					return
 				}
 				ctx := context.WithValue(r.Context(), userContextKey{}, u)
-				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, machineAuthKey{}, true)))
+				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, machineAuthKey{}, a)))
 				return
 			}
 			users, err := s.st.UserCount()

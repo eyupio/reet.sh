@@ -1,0 +1,26 @@
+name: notes
+
+# A pull request leaves a handoff entry (a new docs/handoffs/log/*.md) and, when people running reet would notice the change,
+# a changelog fragment (a new changelog.d/*.md). Both are new files so pull requests never conflict on them; see AGENTS.md.
+# Only the entry is required. Bots (dependency updates) are skipped.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notes-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  notes:
+    if: ${{ !endsWith(github.actor, '[bot]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history, so the diff against the base branch has a merge base to start from.
+          fetch-depth: 0
+      - run: scripts/check-notes.sh origin/${{ github.base_ref }}

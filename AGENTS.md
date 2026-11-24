@@ -6,7 +6,7 @@ Only what the code does not show. How to build, test and open a pull request is 
 
 - A handoff entry: `docs/handoffs/log/<ID>.md` (see [handoff.md](handoff.md)).
 - A changelog fragment for anything a person running reet would notice: `changelog.d/<name>.md` (see
-  [changelog.d/README.md](changelog.d/README.md)). Do not edit `CHANGELOG.md` or `handoff.md` in a pull request.
+  [changelog.d/README.md](changelog.d/README.md)). Do not edit `CHANGELOG.md` or `handoff.md` in a pull request. The `notes` check fails a pull request that adds no handoff entry, and notes (without failing) a change to `web/src`, `internal/api` or `cmd` that adds no fragment.
 
 ## House style
 

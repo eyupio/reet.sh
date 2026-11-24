@@ -15,13 +15,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  terminal-browser:
+  # The terminal and dashboard fixtures used to be one job of 58 scripts one after another, then the real-binary steps, and
+  # stopped at the first script that failed. They are now three shards of the script list (web/tests/ci-terminal-ui.txt,
+  # run by scripts/run-browser-suites.sh, which runs every script and names every one that failed) and a fourth job for
+  # the real-binary steps, all side by side. The job named terminal-browser, below, is the one result that waits for them.
+  terminal-ui:
+    name: terminal ui (${{ matrix.shard }})
     # Keep PR validation available when the self-hosted pool is offline.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    strategy:
+      # One failing shard must not hide the others' results.
+      fail-fast: false
+      matrix:
+        shard: ['1', '2', '3', 'real']
     # The UI fixtures take about 9 minutes and the real-binary step then compiles Go from a cold cache; 15 was enough on
     # the GitHub-hosted runners but cancelled the job mid-compile on the Zoomies runners. Setup itself has since taken ten
     # minutes on a slow host, so the whole job needs headroom beyond the fixtures rather than a timeout spent on setup.
-    timeout-minutes: 45
+    # A script shard has about a third of the fixtures and no Go to compile; the real shard has the compile.
+    timeout-minutes: ${{ matrix.shard == 'real' && 45 || 30 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,7 +70,13 @@ jobs:
           $as_root fc-cache -f
           if ! have_font; then echo "::error::fonts-dejavu-core installed but DejaVu Sans Mono is still not visible to fontconfig."; exit 1; fi
           fc-list | grep -i 'DejaVu Sans Mono' | sed -n '1,2p'
-      - run: npm ci && npm run check && npm run build
+      - run: npm ci
+        working-directory: web
+      # The check does not depend on the shard, so it runs once.
+      - run: npm run check
+        if: matrix.shard == '1'
+        working-directory: web
+      - run: npm run build
         working-directory: web
       - name: Prepare Chromium
         working-directory: web
@@ -79,6 +96,7 @@ jobs:
             echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
       - name: Exercise dashboard and terminal workspace UI
+        if: matrix.shard != 'real'
         env:
           REET_UI_URL: http://127.0.0.1:4173
         run: |
@@ -89,77 +107,34 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          node web/tests/public-workspace.e2e.mjs
-          node web/tests/first-run.e2e.mjs
-          node web/tests/session-board.e2e.mjs
-          node web/tests/compact-work-items.e2e.mjs
-          node web/tests/attention-contract.e2e.mjs
-          node web/tests/terminal-question.e2e.mjs
-          node web/tests/phone-layout.e2e.mjs
-          node web/tests/navigation.e2e.mjs
-          node web/tests/loading.e2e.mjs
-          node web/tests/loading-width.e2e.mjs
-          node web/tests/readiness.e2e.mjs
-          node web/tests/single-sign-on.e2e.mjs
-          node web/tests/first-machine.e2e.mjs
-          node web/tests/first-skills.e2e.mjs
-          node web/tests/empty-states.e2e.mjs
-          node web/tests/lists.e2e.mjs
-          node web/tests/community.e2e.mjs
-          node web/tests/supporting-nav.e2e.mjs
-          node web/tests/spaces.e2e.mjs
-          node web/tests/machines-search.e2e.mjs
-          node web/tests/machines-fleet.e2e.mjs
-          node web/tests/written-skill-record.e2e.mjs
-          node web/tests/setups.e2e.mjs
-          node web/tests/inbox.e2e.mjs
-          node web/tests/admin-users.e2e.mjs
-          node web/tests/admin-team.e2e.mjs
-          node web/tests/admin-tickets.e2e.mjs
-          node web/tests/admin-email.e2e.mjs
-          node web/tests/admin-notifications.e2e.mjs
-          node web/tests/admin-backups.e2e.mjs
-          node web/tests/admin-settings.e2e.mjs
-          node web/tests/admin-activity.e2e.mjs
-          node web/tests/account-sessions.e2e.mjs
-          node web/tests/account-tokens.e2e.mjs
-          node web/tests/account-profile.e2e.mjs
-          node web/tests/account-security.e2e.mjs
-          node web/tests/account-mcp.e2e.mjs
-          node web/tests/library.e2e.mjs
-          node web/tests/fleet-software.e2e.mjs
-          node web/tests/skill-card.e2e.mjs
-          node web/tests/skills-prune.e2e.mjs
-          node web/tests/skills-new.e2e.mjs
-          node web/tests/skill-open.e2e.mjs
-          node web/tests/sync-page.e2e.mjs
-          node web/tests/library-machine-flow.e2e.mjs
-          node web/tests/control.e2e.mjs
-          node web/tests/machine-import.e2e.mjs
-          node web/tests/add-machine.e2e.mjs
-          node web/tests/start-agent.e2e.mjs
-          node web/tests/start-agent-source.e2e.mjs
-          node web/tests/terminal-start.e2e.mjs
-          node web/tests/open-terminal.e2e.mjs
-          node web/tests/terminal-workspace.e2e.mjs
-          node web/tests/terminal-lifecycle.e2e.mjs
-          node web/tests/terminal-organisation.e2e.mjs
-          node web/tests/terminal-phone.e2e.mjs
-          node web/tests/desks.e2e.mjs
-          node web/tests/desks-phone.e2e.mjs
+          scripts/run-browser-suites.sh --list web/tests/ci-terminal-ui.txt --shard ${{ matrix.shard }} --of 3
       - name: Exercise real browser, broker and persistent tmux shell
+        if: matrix.shard == 'real'
         env:
           REET_BROWSER_TESTS: '1'
           REET_BROWSER_ARTIFACT_DIR: ${{ runner.temp }}/terminal-browser
         run: go test -race -count=1 -timeout=6m ./internal/api -run '^TestTerminalPrivateLifecyclePreservesActualShell$' -v
       - name: Exercise explicitly enabled root shells
+        if: matrix.shard == 'real'
         run: sudo env "PATH=$PATH" "GOPATH=$(go env GOPATH)" "GOCACHE=$RUNNER_TEMP/root-go-cache" go test -race -count=1 -timeout=3m ./internal/terminalhost ./internal/scan -run 'TestManagerRetryAndRestartKeepOriginalProcess|TestAgentTerminalEnableAllowsExplicitRootConsent' -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: terminal-browser
+          name: terminal-browser-${{ matrix.shard }}
           path: ${{ runner.temp }}/terminal-browser
           if-no-files-found: ignore
+
+  # The one result for the terminal and dashboard fixtures; branch rules and docs refer to this name.
+  terminal-browser:
+    needs: [terminal-ui]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
+        run: |
+          echo "terminal-ui: ${{ needs.terminal-ui.result }}"
+          [ "${{ needs.terminal-ui.result }}" = success ]
 
   # Its own job, so the phone zoom contract, Home with its project rail, the retired Projects addresses and the Add project
   # dialog's later fixes run alongside the terminal job instead of adding to its time. (Local runs take roughly 45, 60, 5
@@ -207,10 +182,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          node web/tests/phone-zoom.e2e.mjs
-          node web/tests/shell-fidelity.e2e.mjs
-          node web/tests/home.e2e.mjs
-          node web/tests/projects.e2e.mjs
+          scripts/run-browser-suites.sh phone-zoom shell-fidelity home projects
       # The Add project dialog's later fixes (stale edit, branch suggestions, filter while a folder opens). It serves the
       # dialog's component fixture with Vite, so it needs no preview server.
       - name: Add project dialog, later fixes
@@ -285,11 +257,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          for script in $SCRIPTS; do
-            echo "::group::$script"
-            node "web/tests/$script.e2e.mjs"
-            echo "::endgroup::"
-          done
+          scripts/run-browser-suites.sh $SCRIPTS
       - name: Add a project by browsing a machine's folders
         if: matrix.job == 'phone-dialogs'
         run: node web/tests/add-project.e2e.mjs

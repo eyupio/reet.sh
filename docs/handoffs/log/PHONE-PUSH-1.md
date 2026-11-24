@@ -28,6 +28,8 @@ land on whatever page a reet window was showing, and there was no sound while re
   notice) with a Repair link to `/notifications#device-push`; `DevicePush` scrolls to that anchor once its read
   answers. After Turn on, Repair or Turn off the card moves focus to its heading, as the pressed button is gone. Try it
   uses `aria-disabled` (focus stays) for a second and says "Played" in the status line.
+- **Turn off by id.** `disablePush(id)` removes the remembered record by id first, then the browser's subscription by
+  endpoint, so a replaced subscription the controller never heard of cannot leave the old record listed as another device.
 - **Sound.** `pushSound.ts`: off by default, `reet.push.sound` in localStorage, two sine notes (660 and 880 Hz) at a
   peak gain of 0.05, about 0.4 s. After showing notifications the worker posts `reet-notified` to one window only, the
   focused one or else a visible one, so several tabs never play it together and a hidden tab never does.

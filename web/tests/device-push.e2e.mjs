@@ -36,7 +36,7 @@ const standIn = ({ endpoint, answer, subscribed }) => {
   Object.defineProperty(window, 'Notification', { configurable: true, value: FakeNotification })
 }
 
-async function open({ width = 390, height = 844, devices = [], current = 0, answer = 'granted', subscribed = false, available = true, init = null, touch = true, remembered = 0, theme = "light", path = '/notifications', workspace = {} } = {}) {
+async function open({ width = 390, height = 844, devices = [], current = 0, answer = 'granted', subscribed = false, available = true, init = null, touch = true, remembered = 0, theme = "light", path = '/notifications', workspace = {}, unknownEndpoint = false } = {}) {
   const calls = []
   const state = { devices: [...devices], current }
   const view = () => ({ available, publicKey: available ? KEY : undefined, devices: state.devices, ...(state.current ? { current: state.current } : {}) })
@@ -46,7 +46,11 @@ async function open({ width = 390, height = 844, devices = [], current = 0, answ
     '/api/v2/push': request => { calls.push({ method: 'GET', endpoint: request.headers()['x-reet-push-endpoint'] || '' }); return view() },
     '/api/v2/push/subscriptions': request => {
       const body = request.postDataJSON(); calls.push({ method: request.method(), body })
-      if (request.method() === 'DELETE') { state.devices = state.devices.filter(d => d.id !== body.id && !(body.endpoint && d.id === state.current)); if (body.endpoint) state.current = 0; return { removed: true } }
+      if (request.method() === 'DELETE') {
+        // A subscription the controller never registered names no device: only a removal by id takes a record away.
+        if (unknownEndpoint && body.endpoint) return { removed: false }
+        state.devices = state.devices.filter(d => d.id !== body.id && !(body.endpoint && d.id === state.current)); if (body.endpoint) state.current = 0; return { removed: true }
+      }
       const kept = body.replace ? state.devices.find(d => d.id === body.replace) : null
       const saved = kept ? { ...kept, deadAt: 0 } : { id: 7, label: body.label, waiting: body.waiting, ended: body.ended, createdAt: Date.now(), lastOkAt: 0 }
       state.devices = [...state.devices.filter(d => d.id !== 7), saved]; state.current = 7
@@ -93,7 +97,7 @@ try {
 
     await card.getByRole('button', { name: 'Turn off' }).click()
     await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
-    expect(calls.find(call => call.method === 'DELETE').body).toEqual({ endpoint: ENDPOINT })
+    expect(calls.filter(call => call.method === 'DELETE').map(call => call.body)).toEqual([{ id: 7 }, { endpoint: ENDPOINT }])
     expect(await page.evaluate(() => window.__unsubscribed)).toBe(true)
     expect(errors).toEqual([])
     await context.close()
@@ -200,6 +204,25 @@ try {
     await expect(card.getByRole('heading', { name: 'On this device' })).toBeFocused()
     expect(calls.find(call => call.method === 'DELETE').body).toEqual({ id: 7 })
     expect(await page.evaluate(() => localStorage.getItem('reet.push.device'))).toBe(null)
+    await context.close()
+  }
+
+  // The browser replaced the subscription (a fresh one the controller never heard of, its registration having failed) while
+  // the controller still holds the device under the old one: stopped, by the id this browser remembers. Turn off must remove
+  // that record by its id as well as the fresh subscription by its endpoint, or the old record is left behind and is listed
+  // under "Your other devices" while this device reads as off.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, calls, state, context } = await open({ devices: [mine], current: 0, subscribed: true, remembered: 7, unknownEndpoint: true })
+    await expect(card.getByText('Notifications stopped reaching this phone.')).toBeVisible()
+    await card.getByRole('button', { name: 'Turn off' }).click()
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
+    expect(calls.filter(call => call.method === 'DELETE').map(call => call.body)).toEqual([{ id: 7 }, { endpoint: ENDPOINT }])
+    expect(await page.evaluate(() => window.__unsubscribed)).toBe(true)
+    expect(state.devices).toEqual([])
+    await page.reload()
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
+    await expect(card.getByText('Your other devices')).toHaveCount(0)
     await context.close()
   }
 

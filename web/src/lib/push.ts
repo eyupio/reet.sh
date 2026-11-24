@@ -54,12 +54,17 @@ export async function enablePush(status: PushStatus, choices: { waiting: boolean
   return device
 }
 
-/** Turns this device off, here and on the controller. `id` removes this device's record when the browser no longer has
- *  the subscription to name it by. */
+/** Turns this device off, here and on the controller. `id` is the device record this browser knows as its own: it is removed
+ *  by that id first, because the subscription the browser holds now may not be the one the record was made for (the
+ *  browser replaced it and the new one was never registered), and removing by endpoint would leave the record behind. */
 export async function disablePush(id = 0): Promise<void> {
   remember(0)
   const subscription = await currentSubscription()
-  if (!subscription) { if (id) await removePushDevice({ id }); return }
+  if (id) {
+    if (!subscription) { await removePushDevice({ id }); return }
+    await removePushDevice({ id }).catch(() => { /* the browser's side still goes */ })
+  }
+  if (!subscription) return
   await removePushDevice({ endpoint: subscription.endpoint }).catch(() => { /* the browser's side still goes */ })
   await subscription.unsubscribe()
 }

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 )
 
 const agentLockUsage = "reet agent lock|unlock [--config PATH]; reet agent lock --end-sessions [--config PATH]; reet agent lock status [--config PATH]"
@@ -34,6 +35,9 @@ type machineSessions interface {
 	endAll() (int, error)
 }
 
+// lockClock is when a lock goes on; tests replace it.
+var lockClock = time.Now
+
 // sessionsFor is the machine's own sessions; tests replace it.
 var sessionsFor = localSessionsFor
 
@@ -55,7 +59,17 @@ func runAgentLock(c agentConfig, config, mode string, endSessions bool, out io.W
 	switch mode {
 	case "on", "off":
 		c.Locked = mode == "on"
-		if err := editAgentConfig(config, func(s *agentConfig) error { s.Locked = c.Locked; return nil }); err != nil {
+		if err := editAgentConfig(config, func(s *agentConfig) error {
+			// Locking again keeps when it first went on; unlocking forgets it.
+			switch {
+			case !c.Locked:
+				s.LockedAt = 0
+			case !s.Locked || s.LockedAt == 0:
+				s.LockedAt = lockClock().Unix()
+			}
+			s.Locked = c.Locked
+			return nil
+		}); err != nil {
 			return err
 		}
 		if !c.Locked {
@@ -77,6 +91,9 @@ func runAgentLock(c agentConfig, config, mode string, endSessions bool, out io.W
 		return nil
 	case "status":
 		fmt.Fprintf(out, "Locked on this machine: %s\n", onOff(c.Locked))
+		if c.Locked && c.LockedAt > 0 {
+			fmt.Fprintf(out, "Locked since %s.\n", time.Unix(c.LockedAt, 0).Format("2006-01-02 15:04"))
+		}
 		if n, err := sessions.running(); err == nil {
 			fmt.Fprintf(out, "Sessions running: %d\n", n)
 		}
@@ -91,5 +108,17 @@ func lockedNow(config string) func() bool {
 	return func() bool {
 		c, err := loadAgentConfig(config)
 		return err != nil || c.Locked
+	}
+}
+
+// lockedSince re-reads when the lock went on, for the controller; 0 when
+// unlocked or unreadable.
+func lockedSince(config string) func() int64 {
+	return func() int64 {
+		c, err := loadAgentConfig(config)
+		if err != nil || !c.Locked {
+			return 0
+		}
+		return c.LockedAt
 	}
 }

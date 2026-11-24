@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func lockedMachine(t *testing.T, server string) string {
@@ -159,5 +160,66 @@ func TestLockedNowReadsTheFileAndFailsClosed(t *testing.T) {
 	}
 	if !lockedNow(config + ".missing")() {
 		t.Fatal("an unreadable enrolment read as unlocked")
+	}
+}
+
+// The lock records when it went on: once, kept by a second lock, cleared by
+// unlock, kept by a move and enrol --again, and shown by lock status.
+func TestTheLockRecordsWhenItWentOn(t *testing.T) {
+	config := enrolledMachine(t, "https://old.example.com")
+	withSessions(t, config, 0)
+	at := time.Date(2026, 11, 24, 8, 10, 0, 0, time.Local)
+	old := lockClock
+	lockClock = func() time.Time { return at }
+	t.Cleanup(func() { lockClock = old })
+	run := func(args ...string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := RunAgent(append(args, "--config", config), &out, "test"); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	run("lock")
+	if got := loaded(t, config).LockedAt; got != at.Unix() || lockedSince(config)() != at.Unix() {
+		t.Fatalf("lockedAt %d", got)
+	}
+	lockClock = func() time.Time { return at.Add(time.Hour) }
+	run("lock")
+	if got := loaded(t, config).LockedAt; got != at.Unix() {
+		t.Fatalf("a second lock reset it: %d", got)
+	}
+	if out := run("lock", "status"); !strings.Contains(out, "Locked since 2026-11-24 08:10.") {
+		t.Fatalf("status: %q", out)
+	}
+	next := honest(t)
+	if !(&moveFollower{}).follow(context.Background(), movedRefusal(next.URL), loaded(t, config), config, io.Discard, "test") {
+		t.Fatal("not followed")
+	}
+	if got := loaded(t, config).LockedAt; got != at.Unix() {
+		t.Fatalf("a move dropped it: %d", got)
+	}
+	run("unlock")
+	if c := loaded(t, config); c.Locked || c.LockedAt != 0 || lockedSince(config)() != 0 {
+		t.Fatalf("unlock kept it: %+v", c)
+	}
+	if out := run("lock", "status"); strings.Contains(out, "Locked since") {
+		t.Fatalf("status when unlocked: %q", out)
+	}
+}
+
+func TestEnrolAgainKeepsWhenTheLockWentOn(t *testing.T) {
+	c := newCodeController(t)
+	config, _ := tokenEnrolled(t, c, false)
+	saved := loaded(t, config)
+	saved.Locked, saved.LockedAt = true, 1795000000
+	if err := writePrivate(config, saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunAgentInput([]string{"enroll", "--again", "--code", c.code(t), "--config", config}, strings.NewReader(""), io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded(t, config); !got.Locked || got.LockedAt != 1795000000 {
+		t.Fatalf("enrol --again: %+v", got)
 	}
 }

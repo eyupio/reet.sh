@@ -43,8 +43,10 @@ type agentConfig struct {
 	AllowApply bool     `json:"allowApply"`
 	// Locked refuses everything the controller starts on this machine until
 	// its owner runs reet agent unlock. Only a command here changes it.
-	Locked          bool `json:"locked,omitempty"`
-	TerminalEnabled bool `json:"terminalEnabled,omitempty"`
+	Locked bool `json:"locked,omitempty"`
+	// LockedAt is when the lock went on, in Unix seconds; 0 while unlocked.
+	LockedAt        int64 `json:"lockedAt,omitempty"`
+	TerminalEnabled bool  `json:"terminalEnabled,omitempty"`
 	// BrowseOff refuses folder browsing locally (reet terminal browse off).
 	BrowseOff bool `json:"browseOff,omitempty"`
 	// ClipboardOff refuses OSC 52 clipboard forwarding locally
@@ -515,6 +517,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				YoloAllowed:      yoloAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
 				Locked:           lockedNow(*config),
+				LockedAt:         lockedSince(*config),
 				OnConnection:     state.connected.Store,
 				OnError:          func(message string) { state.note(&state.privateError, message) },
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,

@@ -765,6 +765,10 @@ export async function getBrowserMCPTools(): Promise<{ tools: MCPTool[] }> {
 export async function callBrowserMCP(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   return (await req('/api/v2/mcp/browser/call', { method: 'POST', body: json({ name, arguments: args }) })).json()
 }
+/** A code for one machine to enrol with: `expiresAt` is unix seconds. Shown once; the server keeps no copy to read back. */
+export async function createEnrolCode(): Promise<{ code: string; expiresAt: number }> {
+  return (await req('/api/v2/sync/enrol-codes', { method: 'POST', body: json({}) })).json()
+}
 export async function createToken(name: string): Promise<{ id: number; name: string; token: string; createdAt: number }> {
   return (await req('/api/v2/tokens', { method: 'POST', body: json({ name }) })).json()
 }
@@ -1521,7 +1525,7 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
   await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
 
-export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
+export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean; /** True when the machine last connected with a personal API token (enrolled the old way). */ legacyToken?: boolean }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
 export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan?: unknown; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 

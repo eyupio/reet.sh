@@ -201,3 +201,22 @@ func TestALockedMachineEndsADeskShellButKeepsItsHistory(t *testing.T) {
 		t.Fatalf("a locked machine deleted the history: %v", err)
 	}
 }
+
+// reet agent lock --end-sessions ends every session the manager runs, as the
+// controller's end does, and counts them; Running counts what is left.
+func TestEndAllEndsEveryRunningSession(t *testing.T) {
+	m, _ := managerFixture(t)
+	createManaged(t, m, 5)
+	createManaged(t, m, 6)
+	ctx := context.Background()
+	if n, err := m.Running(ctx); err != nil || n != 2 {
+		t.Fatalf("running: %d %v", n, err)
+	}
+	m.locked = func() bool { return true }
+	if n, err := m.EndAll(ctx); err != nil || n != 2 {
+		t.Fatalf("ended: %d %v", n, err)
+	}
+	if n, err := m.Running(ctx); err != nil || n != 0 {
+		t.Fatalf("still running: %d %v", n, err)
+	}
+}

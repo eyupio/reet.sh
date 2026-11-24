@@ -3,9 +3,14 @@
 package terminalhost
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // ErrLocked refuses work because the machine is locked there (reet agent
@@ -68,4 +73,56 @@ func (l lockedReader) Read(p []byte) (int, error) {
 		return 0, ErrLocked
 	}
 	return l.r.Read(p)
+}
+
+// Running counts the sessions the manager has that run or are starting.
+func (m *Manager) Running(ctx context.Context) (int, error) {
+	ids, err := m.runningIDs(ctx)
+	return len(ids), err
+}
+
+func (m *Manager) runningIDs(ctx context.Context) ([]string, error) {
+	sessions, err := m.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, s := range sessions {
+		if s.State == terminalproto.Running || s.State == terminalproto.Creating {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids, nil
+}
+
+// EndAll ends every running session as the controller's end does (locked or
+// not), and reports how many it ended. It is for reet agent lock
+// --end-sessions on the machine.
+func (m *Manager) EndAll(ctx context.Context) (int, error) {
+	ids, err := m.runningIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	ended := 0
+	var last error
+	for _, id := range ids {
+		request, err := randomRequestID()
+		if err != nil {
+			return ended, err
+		}
+		if _, err := m.End(ctx, request, id); err != nil {
+			last = err
+			continue
+		}
+		ended++
+	}
+	return ended, last
+}
+
+func randomRequestID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "end-all-" + hex.EncodeToString(b), nil
 }

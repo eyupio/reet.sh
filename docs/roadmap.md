@@ -48,8 +48,8 @@ priority order within each group):
   report every failure, give flaky tests an owner and an end date, move changelog entries to one fragment per PR, and keep
   `handoff.md` to a bounded length with a short `AGENTS.md` for the traps the code does not show. Built: the Go suite runs in six shards (about 15 minutes
   whole), the terminal browser suites run in four shards and every failing suite is named, unstable tests are listed with an
-  owner and a date, and handoff entries and changelog fragments are one file each. Not built: the `gaffer-settings` job still runs
-  its 19 scripts one after another, and nothing yet checks that a pull request adds its fragment.
+  owner and a date, handoff entries and changelog fragments are one file each, the `gaffer-settings` job runs in three shards, and
+  a `notes` check fails a pull request that adds no handoff entry.
 
 Overlap with the Factory delivery review, so the two do not collide: its stage 4 (delivery reliability) and the recovery states
 of stage 3 should own anything about a lost connection or a launch that is retried, and the "turn ended with background work"

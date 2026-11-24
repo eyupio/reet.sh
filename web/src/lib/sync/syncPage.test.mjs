@@ -59,6 +59,9 @@ test('each machine has a line for its state', () => {
     [m('needs-newer-controller', { host: 'future', protocol: 3 }), 'future runs a newer reet than this controller; update the controller to keep its skills in sync', 'bad'],
   ]
   for (const [machine, text, tone] of cases) assert.deepEqual(machineLine(machine, 118, now), { text, tone }, text)
+  // A locked machine is waiting for its owner, not failing: muted, never "Can't write skills here".
+  assert.deepEqual(machineLine({ ...cases.find(c => c[0].state === 'blocked')[0] }, 118, now, true), { text: 'Locked, waiting', tone: 'off' })
+  assert.deepEqual(machineLine({ ...cases.find(c => c[0].state === 'ok')[0] }, 118, now, true).tone, 'ok')
 })
 
 test('activity names the skill and every machine that did the same', () => {

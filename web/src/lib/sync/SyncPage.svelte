@@ -141,7 +141,7 @@
         {#if machines.length}
           <ul class="machines" aria-label="Machines">
             {#each machines as m (m.agentId)}
-              {@const line = machineLine(m, data.active, now)}
+              {@const line = machineLine(m, data.active, now, locked.has(m.agentId))}
               <li class="machine">
                 <div class="top">
                   <h3>{m.host}</h3>

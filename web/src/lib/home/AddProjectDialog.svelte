@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -661,7 +662,7 @@
               {#each machines as m (m.agentId)}<option value={m.agentId}>{m.host} · {m.ready ? 'online' : 'offline'}</option>{/each}
             </select>
           </div>
-          {#if block && machine}<p class="machine-note" id={`${id}-machine-note`}>{block}</p>{/if}
+          {#if block && machine}<p class="machine-note" id={`${id}-machine-note`}><Sentence text={block} /></p>{/if}
           {#if machines.length === 0}<p class="hint">No machine is enrolled yet. <a href={machinesAt('add-machine')}>Add a machine</a> first.</p>{/if}
         </div>
 

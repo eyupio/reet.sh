@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import FleetPlanMeters from '../FleetPlanMeters.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
@@ -641,7 +642,7 @@
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
-      <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
+      <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}><Sentence text={notice.text} />{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <FirstRun bind:this={firstRun} machine={firstMachine} {sessions} projects={projects ?? []} {userId} bind:showing={guideShowing} bind:back={guideBack} onterminal={opener => startFromWorkbench('terminal', opener)} onchanged={() => void load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       <!-- The guide's own running session hides the workbench, where this link otherwise lives. -->
       {#if guideBack && !showWorkbench}<div class="guide-back"><button type="button" class="btn quiet" onclick={() => void firstRun?.restore()}>Show the first-session guide</button></div>{/if}
@@ -697,7 +698,7 @@
       {#if terminalPick}
         <WorkspaceDialog title="New terminal session" onclose={() => { const opener = terminalPick?.opener; terminalPick = null; opener?.focus() }}>
           <p class="pick-copy">Choose the machine the terminal runs on.</p>
-          <div class="pick-machines">{#each terminals ?? [] as item (item.agentId)}{@const why = readiness(item)}<button type="button" class="pick-machine" disabled={!!why} onclick={() => { const opener = terminalPick?.opener; terminalPick = null; void startTerminalOn(item.agentId, opener) }}><strong>{item.host}</strong><span>{why || 'Ready'}</span></button>{/each}</div>
+          <div class="pick-machines">{#each terminals ?? [] as item (item.agentId)}{@const why = readiness(item)}<button type="button" class="pick-machine" disabled={!!why} onclick={() => { const opener = terminalPick?.opener; terminalPick = null; void startTerminalOn(item.agentId, opener) }}><strong>{item.host}</strong><span>{#if why}<Sentence text={why} />{:else}Ready{/if}</span></button>{/each}</div>
         </WorkspaceDialog>
       {/if}
       {#if agentStart && terminals}

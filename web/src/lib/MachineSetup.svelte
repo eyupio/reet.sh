@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from './Sentence.svelte'
   import type { Snippet } from 'svelte'
   import { tick, untrack } from 'svelte'
   import { terminalControllerStatus, terminalMachines, readiness, type TerminalControllerStatus, type TerminalMachine } from './terminal/api'
@@ -454,7 +455,7 @@
             <span class="pulse" class:on={terminalReady} class:warn={!!terminalError || stage === 'needs-setup'} aria-hidden="true"></span>
             <div class="watch-copy">
               <strong>{watchTitle}</strong>
-              <p>{watchDetail}</p>
+              <p><Sentence text={watchDetail} /></p>
             </div>
             <span class="watch-badge">{terminalReady ? 'Ready' : stage === 'blocked' ? 'Blocked' : stage === 'needs-setup' ? 'Setup needed' : stage === 'reconnecting' ? 'Reconnecting' : 'Watching'}</span>
           </div>

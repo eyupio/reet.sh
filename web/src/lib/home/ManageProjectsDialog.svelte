@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { onMount, tick } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -464,7 +465,7 @@
           <div class="empty">
             <span class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h16v13H4zM8 9.5h8M8 13.5h5" /></svg></span>
             <h3>No machine can browse its folders</h3>
-            <p>{machines.length === 0 ? 'No machines are connected right now.' : browseBlock(machines[0])}</p>
+            <p><Sentence text={machines.length === 0 ? 'No machines are connected right now.' : browseBlock(machines[0])} /></p>
           </div>
         {:else}
           <div class="scan-bar">

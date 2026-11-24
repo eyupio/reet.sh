@@ -1,5 +1,6 @@
 <script lang="ts">
   import Sentence from '../Sentence.svelte'
+  import { SESSION_LOCKED } from '../machineLock'
   import { listGafferOutcomes } from '../api'
   import { FACTORY_SESSION_END_DEFAULT, factoryEndWarning, factoryMembers, factorySessionEndModeOf, factorySessionEndRequest, offFinishedFactory, type FactoryMember, type FactorySessionEndMode } from '../gafferOutcome'
   let factory=$state<Map<string,FactoryMember>>(new Map())
@@ -238,7 +239,7 @@
   }
 
   const machineStatus = $derived(health.machines.find(item=>item.agentId===selectedAgent))
-  const setup = $derived(readiness(machine))
+  const setup = $derived(machine?.locked && session ? SESSION_LOCKED : readiness(machine))
   /** Why an open shell is not live: the lock's own sentence, else that its machine is away. */
   const awayNote = (m: TerminalMachine) => m.locked ? readiness(m) : `${m.host} is offline. This shell will reconnect when the machine is back.`
   const serverNow = $derived(health.serverNow+elapsed)
@@ -856,7 +857,7 @@
             {#if session.structured}
               {@const reattachable = reconnectable(session)}
               <div class="session-presentation" data-session-presentation="chat" hidden={presentation !== 'chat'} inert={presentation !== 'chat'}>
-              <ChatPane {session} project={projects?.find(p => p.id === session.projectId)} planLimits={machine?.capabilities?.agentAccounts===true} planHost={machine?.host??''} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=SESSIONS_PER_ACCOUNT||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} onterminal={()=>sessionScreen?.showTerminal?.()} terminal={sessionScreen?.getTerminalWay?.()} newChatOff={actionBusy||!machines.length||accountActive>=SESSIONS_PER_ACCOUNT} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              <ChatPane {session} locked={machine?.locked?SESSION_LOCKED:''} project={projects?.find(p => p.id === session.projectId)} planLimits={machine?.capabilities?.agentAccounts===true} planHost={machine?.host??''} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=SESSIONS_PER_ACCOUNT||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} onterminal={()=>sessionScreen?.showTerminal?.()} terminal={sessionScreen?.getTerminalWay?.()} newChatOff={actionBusy||!machines.length||accountActive>=SESSIONS_PER_ACCOUNT} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
               </div>
               {#if terminalMounted[session.id]}
                 <div class="session-presentation" data-session-presentation="terminal" hidden={presentation !== 'terminal'} inert={presentation !== 'terminal'}>
@@ -882,7 +883,7 @@
 {#if viewportDebug}<pre class="viewport-debug" aria-hidden="true">{debugReading}</pre>{/if}
 {#if machineSearchOpen}<WorkspaceDialog title="Find a machine" onclose={()=>machineSearchOpen=false}>
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
-  <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
+  <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {#if item.ready}Ready{:else}<Sentence text={readiness(item)} />{/if}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
 {#if newSessionOpen}<NewSessionChoice project={newSessionProject?.name ?? ''} machine={newSessionProject ? newSessionProject.machine || machine?.host || '' : machine?.host || ''} factory={!!$gafferChatEntry}
   onchoose={kind => void chooseNewSession(kind)} onclose={() => { newSessionOpen = false; newSessionProject = null; newSessionOpener = null }} />{/if}

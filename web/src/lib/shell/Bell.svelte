@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { tick } from 'svelte'
   import type { WaitingEntry } from '../home/homeWaiting'
   import { short } from '../gafferOutcome'
@@ -99,7 +100,7 @@
             <span class="kind">Gaffer</span>
             <span class="title">{entry.goal.title}</span>
             <span class="where">Session{entry.goal.where ? ` · ${entry.goal.where}` : ''}{entry.desk ? ` · Desk ${entry.desk.name}` : ''}</span>
-            <span class="ask">Gaffer’s goal needs you.{#if entry.goal.reason}{' '}{entry.goal.reason}{/if}</span>
+            <span class="ask">Gaffer’s goal needs you.{#if entry.goal.reason}{' '}<Sentence text={entry.goal.reason} />{/if}</span>
             <div class="actions"><a class="btn open" href={entry.goal.href} aria-label={`Open ${entry.goal.title}`} onclick={() => close()}>Open</a></div>
           </li>
           {:else}

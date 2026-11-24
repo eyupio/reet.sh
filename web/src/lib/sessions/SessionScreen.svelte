@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SESSION_LOCKED } from '../machineLock'
   import { factoryBadge, type FactoryMember } from '../gafferOutcome'
   import SessionDecision from '../factory/SessionDecision.svelte'
   import { gafferChatEntry, gafferSessionContext } from '../gafferContext'
@@ -19,7 +20,7 @@
   import { yoloCanStart, type YoloGate } from '../launchBar'
   import { signalAttentionChanged } from '../attentionSignal'
   import { attentionRuleOf } from '../attention'
-  import { LOCKED_SENTENCE, structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
   import type { ChatProgressState } from '../gafferProgress'
@@ -418,6 +419,8 @@
 <div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:terminal-view={terminalShowing} class:resizing={contextResizing}
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
   <div class="body" class:context-docked={docked && effectiveOpen && !hasSide} class:context-sheet={!theatre && !docked && effectiveOpen && !hasSide} bind:clientWidth={bodyWidth}>
+    <!-- Always in the page, so the lock is announced once when it arrives, not read as a notice that appeared with its text. -->
+    <p class="lock-status" role="status" aria-live="polite" data-lock-status>{lockedHere ? SESSION_LOCKED : ''}</p>
     <header class="head">
       <div class="identity-row">
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
@@ -498,8 +501,8 @@
           <div class="action-grid">
             <button type="button" class="tool-action action-tile" disabled={busy || serverOff} onclick={() => act('rename')}><TerminalIcon name="compose" />Rename…</button>
             {#if session.worktreeBranch}<button type="button" class="tool-action action-tile secondary-action" onclick={() => void copyBranch()}><TerminalIcon name="copy" />Copy branch</button>{/if}
-            {#if live && onterminal}<button type="button" class="tool-action action-tile" aria-label="Terminal here" disabled={busy || serverOff} onclick={openTerminal}><TerminalIcon name="screen" /><span class="here-label">Terminal here</span></button>{/if}
-            {#if live && onside}<button type="button" class="tool-action action-tile secondary-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
+            {#if live && onterminal}<button type="button" class="tool-action action-tile" aria-label="Terminal here" disabled={busy || serverOff || lockedHere} title={lockedHere ? SESSION_LOCKED : undefined} onclick={openTerminal}><TerminalIcon name="screen" /><span class="here-label">Terminal here</span></button>{/if}
+            {#if live && onside}<button type="button" class="tool-action action-tile secondary-action" disabled={busy || serverOff || showSide || lockedHere} title={lockedHere ? SESSION_LOCKED : undefined} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
             {#if target}<button type="button" class="tool-action action-tile secondary-action" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}><TerminalIcon name="delete" />Check and remove worktree…</button>{/if}
             {#if oncontinue}<button type="button" class="tool-action action-tile" disabled={busy} onclick={continueSession}><TerminalIcon name="history" />{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
           </div>
@@ -524,7 +527,7 @@
     <!-- A Factory pipeline's decision is taken where the work is: in the session doing its stage in hand. -->
     <div class="below-head">
     <!-- A terminal agent's open dialog sits right under the header, above the terminal, so it is the first thing seen. -->
-    {#if session.terminalQuestion && !session.structured}<div class="question"><TerminalQuestionCard {session} question={session.terminalQuestion} title={session.title} machine={host} locked={away ? 'The machine is not connected. Try again when it is back.' : lockedHere ? LOCKED_SENTENCE : ''} onopen={focusTerminal} onreread={onrefresh} /></div>{/if}
+    {#if session.terminalQuestion && !session.structured}<div class="question"><TerminalQuestionCard {session} question={session.terminalQuestion} title={session.title} machine={host} locked={away ? 'The machine is not connected. Try again when it is back.' : lockedHere ? SESSION_LOCKED : ''} onopen={focusTerminal} onreread={onrefresh} /></div>{/if}
     {#if factory?.key && factory.current}<SessionDecision member={factory} sessionId={session.id}/>{/if}
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -657,6 +660,7 @@
   .live p { margin: 0 28px 8px; font-size: 14px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
+  .lock-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; margin: 0; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @media (pointer: coarse) { .tool-action, .theatre-button { min-width: 44px; min-height: 44px; } .tui-picker select, .approvals button { min-height: 44px; } }
   /* A narrow sheet stacks the action tiles and lets each control fill the width, so nothing is squeezed into a column

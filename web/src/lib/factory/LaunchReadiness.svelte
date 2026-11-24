@@ -8,7 +8,8 @@
   let { ready, label }: { ready: StageReadiness; /** The stage and pipeline in words: "Review in pipeline 1". */ label: string } = $props()
   const MARK = { ready: ['✓', ''], look: ['!', 'Look at'], blocked: ['✕', 'Cannot start'] } as const
   const reading = $derived(ready.pending && ready.level === 'ready')
-  const mark = $derived(reading ? ['…', 'Reading'] : MARK[ready.level])
+  const waiting = $derived(ready.level === 'blocked' && ready.locked)
+  const mark = $derived(reading ? ['…', 'Reading'] : waiting ? ['!', 'Waiting to be unlocked'] : MARK[ready.level])
   const attention = $derived(ready.backups.filter(item => !item.pending && !item.eligible).length)
   // Agents in the order tried; the model joins only where two backups share an agent.
   const names = $derived(ready.backups.map(item => {
@@ -17,7 +18,7 @@
   }))
 </script>
 
-<span class="ready-line {reading ? 'reading' : ready.level}"><span class="mark" aria-hidden="true">{mark[0]}</span><span class="text">{#if mark[1]}<strong>{mark[1]}</strong>{' · '}{:else}<span class="sr-only">Ready, </span>{/if}{ready.line} · {ready.sourceFact.label}</span></span>
+<span class="ready-line {reading ? 'reading' : waiting ? 'waiting' : ready.level}"><span class="mark" aria-hidden="true">{mark[0]}</span><span class="text">{#if mark[1]}<strong>{mark[1]}</strong>{' · '}{:else}<span class="sr-only">Ready, </span>{/if}{ready.line} · {ready.sourceFact.label}</span></span>
 {#if ready.backups.length}<div class="notes">
   <details class="backups" aria-label={`Backups for ${label}, in the order tried`}>
     <summary>Backups: {names.join(', then ')}{#if attention}{' · '}{attention} to look at{/if}</summary>
@@ -31,7 +32,7 @@
   /* Text columns start after a fixed-width mark, so wrapped lines and the lines under a row align under the text. */
   .ready-line,.backups li{display:grid;grid-template-columns:1.5em minmax(0,1fr);min-width:0;margin:0;font-size:0.875rem;color:var(--muted);overflow-wrap:anywhere}
   .mark{font-weight:700}.text{min-width:0}.ready-line strong{font-weight:600}
-  .ready-line.ready .mark{color:var(--good)}.ready-line.look .mark{color:var(--warn)}.ready-line.blocked .mark,.ready-line.blocked strong{color:var(--bad)}
+  .ready-line.ready .mark{color:var(--good)}.ready-line.look .mark{color:var(--warn)}.ready-line.waiting .mark,.ready-line.waiting strong{color:var(--muted)}.ready-line.blocked .mark,.ready-line.blocked strong{color:var(--bad)}
   .notes{grid-column:1/-1;display:grid;gap:2px;min-width:0}
   /* Quieter than the stage's own line above it: backups are detail, opened when wanted. */
   .backups summary{min-height:28px;display:list-item;list-style-position:outside;margin-left:1.5em;align-content:center;cursor:pointer;font-size:0.875rem;color:var(--muted);overflow-wrap:anywhere}

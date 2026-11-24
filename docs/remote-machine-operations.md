@@ -306,17 +306,33 @@ own approval prompts; it is on by default, still needs the account setting and a
 confirmation, and is refused while terminal access is off. Revoking enrollment cuts private
 access and prevents new authorization; it does not terminate independent local tmux work.
 `reet agent lock` locks the machine against its controller until `reet agent unlock`
-is run there (`reet agent lock status` shows it, as does `reet agent status`). While
-locked the machine serves only reconcile, end, detach, chat cancel, worktree status,
-the native-view check and probes; everything else the controller asks is refused
-with ``Locked on the machine. Run `reet agent unlock` there.`` It also refuses the
-controller's `reet` update job, remote skill imports and skill installs, while
-inventory scans, health reports and following a controller move carry on. A running
-agent picks the change up within 5 seconds: attachments close within a second,
-the machine reports terminal access off (with `locked` to a controller that knows
-the lock), chat output is held on the machine and delivered after unlock, and
-nothing is ended or deleted. The lock is stored in the enrolment file, so it
-survives restarts, updates, moves and `reet agent enroll --again`.
+is run there (`reet agent lock status` shows it and how many sessions are running, and
+`reet agent status` shows it too). While locked the machine serves only reconcile, end,
+detach, chat cancel, worktree status, the native-view check and probes; everything else
+the controller asks is refused with ``Locked on the machine. Run `reet agent unlock` there.``
+It also refuses the controller's `reet` update job, remote skill imports and skill
+installs, while inventory scans, health reports and following a controller move carry
+on. Taking the lock acts within these bounds: a new request is refused at once;
+attachments close and an upload in progress stops within about a second; chat output
+stops at once; the text of an agent's on-screen question is no longer read, and the
+controller is told none is waiting, at the next session sweep (a few seconds); the
+machine reports terminal access off (with `locked` to a controller that knows the
+lock) within 5 seconds. Work already under way when the lock was taken, such as a
+software install, a git branch operation or a worktree removal, runs to the end; the
+next step of a launch or a chat start is refused. Sessions and chats keep running.
+While locked, a chat's latest state and anything waiting on you (a permission or a
+question) are kept for the controller; older output may be missing after a long locked
+turn, because the machine keeps at most 1000 events (256 KiB) per chat. Ending a desk
+shell while locked keeps its history file. The lock is stored in the enrolment file,
+so it survives restarts, updates, moves and `reet agent enroll --again`; every
+command that rewrites that file waits for the others, so none drops the lock.
+
+The lock stops the controller from starting or reaching anything new; it does not
+contain processes already running on the machine. A session started before the lock
+runs as the same user and can run `reet agent unlock` itself. `reet agent lock` says
+how many sessions are still running; `reet agent lock --end-sessions` locks and then
+ends every terminal session and chat reet runs on the machine (as ending them from
+reet does), and says how many it ended.
 Sign-out closes that browser login's attachments. Forgetting an inventory report
 is not credential revocation. End work locally if the controller is unavailable.
 

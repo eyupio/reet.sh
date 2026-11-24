@@ -23,7 +23,7 @@ import (
 func runBackup(args []string, out io.Writer) error {
 	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
 	if help {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--make-owner ADDR --owner-password-file F] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--make-owner ADDR --owner-password-file F] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start; it works only with REET_AUTH=token. With accounts, upload the copy from a signed-in browser (Admin → Move → Move a controller in), or restore it locally.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
@@ -454,7 +454,7 @@ func backupImport(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("reet backup import", flag.ContinueOnError)
 	f.SetOutput(out)
 	server := f.String("server", os.Getenv("REET_URL"), "the controller's address (default: REET_URL)")
-	tokenFile := f.String("token-file", "", "read an owner's API token from this file, or - for standard input")
+	tokenFile := f.String("token-file", "", "read the instance token (REET_AUTH=token) from this file, or - for standard input")
 	passwordFile := f.String("password-file", "", "read the copy password from this file, or - for standard input")
 	dropSessions := f.Bool("drop-sessions", false, "end every browser sign-in and password-reset link in the copy")
 	dropTokens := f.Bool("drop-tokens", false, "revoke every personal API token and MCP connection in the copy")
@@ -488,7 +488,7 @@ func backupImport(args []string, out io.Writer) error {
 		return errors.New("--server must be an http(s) address without credentials")
 	}
 	if *tokenFile == "" {
-		return errors.New("give an owner's API token with --token-file FILE (or - for standard input); it is never taken as an argument")
+		return errors.New("give the instance token with --token-file FILE (or - for standard input); it is never taken as an argument")
 	}
 	if *tokenFile == "-" && *passwordFile == "-" {
 		return errors.New("standard input can hold the token or the password, not both")
@@ -553,6 +553,9 @@ func backupImport(args []string, out io.Writer) error {
 		if e.Error == "" {
 			e.Error = resp.Status
 		}
+		if resp.StatusCode == http.StatusForbidden && strings.Contains(e.Error, "from a signed-in browser") {
+			return errors.New(browserOnlyImport(f.Arg(0)))
+		}
 		hint := ""
 		switch {
 		case strings.Contains(e.Error, "password") && password == "":
@@ -574,6 +577,19 @@ func backupImport(args []string, out io.Writer) error {
 	}
 	fmt.Fprintln(out, "It takes effect when the controller next starts; restart it, and it will open the imported database.")
 	return nil
+}
+
+// browserOnlyImport says what still works when a controller with accounts
+// refuses an import sent with a personal token.
+func browserOnlyImport(file string) string {
+	id := strings.TrimSuffix(filepath.Base(file), ".reetbackup")
+	if id == filepath.Base(file) {
+		id = "<id>"
+	}
+	return "the controller refused the copy and changed nothing: with accounts, a copy is imported only from a signed-in browser, never with a token. " +
+		"Either upload it from the owner's browser under Admin → Move → Move a controller in, " +
+		"or restore it on the new controller's machine with reet stopped: put the file in its data folder as backups/" + id + ".reetbackup and run " +
+		"reet backup restore --yes " + id + " (add --password-file F for a copy with a password)"
 }
 
 func humanBytes(n int64) string {

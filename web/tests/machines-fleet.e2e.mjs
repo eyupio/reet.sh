@@ -76,7 +76,7 @@ try {
     const WHY = 'Enrolled with a personal API token, which can do anything your account can and never expires.'
     const HOW = 'On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.'
     const CMD = 'reet agent enroll --again'
-    const KEEPS = "It keeps this machine's settings and asks for the code."
+    const KEEPS = "It keeps the machine's settings and asks for the code."
     const withLegacy = hosts => ({ ...sync, agents: sync.agents.map(a => ({ ...a, legacyToken: hosts.includes(a.host) })) })
     for (const [width, theme, touch] of [[1280, 'light', false], [390, 'dark', true]]) {
       const card = (page, host) => page.locator('article.machine').filter({ has: page.getByRole('heading', { name: host, exact: true }) })

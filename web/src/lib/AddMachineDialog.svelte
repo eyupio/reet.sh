@@ -203,7 +203,7 @@
    <h3 id={`${titleId}-run`}><span class="num" aria-hidden="true">1</span>Run it</h3>
    <p class="hint">On <strong>{reenrol}</strong>, run this. You make the code in the next step.</p>
    <div class="command"><pre class="commands">{reenrolCommand()}</pre><CopyButton text={reenrolCommand()} label="Copy command" /></div>
-   <p class="hint">It keeps this machine's settings and asks for the code.</p>
+   <p class="hint">It keeps the machine's settings and asks for the code.</p>
   </section>
   <section aria-labelledby={`${titleId}-key`}>
    <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>Give it an enrolment code</h3>

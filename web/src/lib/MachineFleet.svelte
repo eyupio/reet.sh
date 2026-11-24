@@ -336,7 +336,7 @@
         <summary>How to change this</summary>
         <p>On each machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
         <pre class="legacy-cmd">{reenrolCommand()}</pre>
-        <p class="legacy-hint">It keeps this machine's settings and asks for the code.</p>
+        <p class="legacy-hint">It keeps the machine's settings and asks for the code.</p>
       </details>
     </div>
   {/if}
@@ -413,7 +413,7 @@
                 <summary>How to change this</summary>
                 <p>On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
                 <pre class="legacy-cmd">{reenrolCommand()}</pre>
-                <p class="legacy-hint">It keeps this machine's settings and asks for the code.</p>
+                <p class="legacy-hint">It keeps the machine's settings and asks for the code.</p>
               </details>
             {:else}
               <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Personal token</span></p>

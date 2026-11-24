@@ -655,7 +655,7 @@ try{
   await expect(d.getByLabel('Machine name')).toHaveCount(0)
   await expect(d.locator('pre.commands')).toHaveText(reenrol)
   await expect(d.locator('pre.commands')).not.toContainText('curl')
-  await expect(d).toContainText("It keeps this machine's settings and asks for the code.")
+  await expect(d).toContainText("It keeps the machine's settings and asks for the code.")
   await expect(d).not.toContainText(/agent\.json|allow-apply/)
   expect(await d.locator('h3').allTextContents()).toEqual(['1Run it','2Give it an enrolment code'])
   await d.getByRole('button',{name:'Copy command'}).click()

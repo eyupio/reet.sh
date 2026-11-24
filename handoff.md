@@ -11,7 +11,16 @@ now keep the request they belong to, and `releaseClone(t, repo, body)` answers t
 the test asserts is unchanged: at most five at once, the sixth refused with `clone_limit`, all finish. No wait was
 lengthened. 280 runs with `-race` under load passed afterwards, against 25 failures in 120 before.
 
-Not fixed here: two move-follow tests in `internal/scan` (`TestAMachineThatWillNotFollowTellsTheOldControllerOnce`,
+A second test with the same kind of fault failed on the lock PR: `TestTerminalEndWithRemoveHistoryCleansUpItsWorktree`
+("the history removal was not audited"). The server archives a session, closes its chat and only then writes the
+`session-remove` audit entry (`onSessionClosed`), while the test stopped waiting as soon as the session left the list
+and read the audit at once. It and the restart-replay test now wait for that entry (`worktreeEventsSoon`, three
+seconds, the same bound as the wait before it). The server's order is unchanged. 20 runs with `-race` passed, then the
+clone tests ten times over with `-race`.
+
+Not fixed here: `TestFetchStopsReadingStream` in `internal/skillfetch` failed once in a loaded full run (its fake
+server writes ahead of the client, so under load it can pass the half-way mark before the client closes) and passes
+alone 20 times; two move-follow tests in `internal/scan` (`TestAMachineThatWillNotFollowTellsTheOldControllerOnce`,
 `TestSetServerClearsAPendingMoveAndTellsTheOldController`) fail when repeated with `-count` above 1 because state
 leaks between repeats; CI runs them once. `TestExclusiveLockReleasedByProcessDeath` failed once in a loaded full run
 and then passed 250 runs; its cause is not known.

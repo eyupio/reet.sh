@@ -28,6 +28,7 @@ import SkillPicker from './SkillPicker.svelte'
 import SkillBuddy from '../SkillBuddy.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
+import { keepDraft, restoreDraft } from './drafts'
 import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
 import PromptPicker from '../prompts/PromptPicker.svelte'
 import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
@@ -347,7 +348,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   const input = event.currentTarget as HTMLTextAreaElement
   const value = input.value
   const query = slashQuery(value)
-  sentNote = null; noteSeq++
+  sentNote = null; noteSeq++; restoredDraft = false
   if (query !== null) {
    promptMenu = null
    if (!slashDismissed) openSkills(query)
@@ -391,6 +392,20 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  let queueHalted = $state(false), queueNote = $state(''), dispatching = $state(false)
  // Set after one queued message is sent, until the agent is seen working again: one turn takes one message.
  let awaitingWork = $state(false)
+ // What is typed, and the browser-held queue, are kept in this browser (drafts.ts) so a reload or a discarded tab loses nothing. What was
+ // kept comes back once per session, only into an empty field, and never takes focus. A restored queue waits for Retry: nothing sends by itself after a reload.
+ let keptFor = '', restoredDraft = $state(false)
+ $effect(() => {
+  const id = session.id, text = draft, list = queued, controlled = liveControls
+  if (keptFor !== id) {
+   keptFor = id
+   const kept = restoreDraft(id)
+   if (kept?.chat && !text) { draft = kept.chat; restoredDraft = true }
+   if (kept?.queue && !controlled && !list.length) { queued = kept.queue.map(item => ({ id: `queued-${++queueSeq}`, text: item, payload: [] })); queueHalted = true; queueNote = 'Paused after a reload. Retry sends it.' }
+   return
+  }
+  keepDraft(id, { chat: text, queue: controlled ? [] : list.map(item => item.text) })
+ })
  const awaiting = createExpiry(4000, () => { awaitingWork = false })
  let log: HTMLElement | undefined = $state()
  let nearBottom = true
@@ -451,6 +466,8 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   return () => { clearTimeout(soon); clearInterval(timer) }
  })
  // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
+ // The stream is down and will return: Send waits, the box stays typeable, and the note beside Send says why.
+ const reconnecting = $derived(chat.connection === 'reconnecting')
  const composerBlocked = $derived(!!locked || sending || uploading || changingModel || working || chat.connection === 'reconnecting')
 const promptBlocked = $derived(!!locked || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting')
  const skillsOff = $derived(locked ? locked : reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
@@ -512,7 +529,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
-  sentNote = null
+  sentNote = null; restoredDraft = false
   const seq = ++noteSeq
   const kind = working || queued.length ? 'queued' : 'sent'
   if (!liveControls && (working || queued.length)) { queueCurrent(text); void noteUnlisted(text, seq, kind); return }
@@ -1059,24 +1076,27 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
    {#if dictating || dictationProblemText}<p class="notice" class:bad={!dictating} role="status">{#if dictating}{dictationInterim ? `${dictationInterim}…` : 'Listening.'} Your browser sends the audio to its own speech service, not to reet.{:else}{dictationProblemText}{/if}</p>{/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    {#if locked}<p class="notice" id={`${session.id}-locked`}>{locked}</p>{/if}
+   <!-- The status line above is the live region; this reason stays beside the disabled Send and does not announce again. -->
+   {#if reconnecting}<p class="notice kept" id={`${session.id}-kept`}>Reconnecting. Your message is kept. Send turns on when you are back.</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="1" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} aria-describedby={locked ? `${session.id}-locked` : undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="1" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} aria-describedby={[locked ? `${session.id}-locked` : '', reconnecting ? `${session.id}-kept` : ''].filter(Boolean).join(' ') || undefined} disabled={!!locked || reattaching || sending || uploading || changingModel}></textarea>
     <div class="field-actions">
      {#if working && !reattaching}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" title={locked || undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
+     <button type="button" class="btn primary send" title={locked || undefined} aria-describedby={reconnecting ? `${session.id}-kept` : undefined} disabled={!!locked || reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || reconnecting} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
    <p class="vh" role="status" data-unlisted-status>{unlisted}</p>
    {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlisted}</span>{#if onterminal && terminal && terminal.way !== 'none'} <button type="button" class="link" onclick={onterminal}>{terminal.way === 'restart' ? 'Restart in terminal…' : 'Open terminal'}</button>{/if}</p>{/if}
+   {#if restoredDraft && draft}<p class="notice kept">Draft from earlier. Edit or send.</p>{/if}
    <div class="composer-bar">
     <div class="composer-tools">
      <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title={locked || 'Insert one of your saved prompts · or type \\ in the message'} disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
      <button type="button" class="skills-btn" aria-label={sheetName} aria-haspopup="dialog" title={skillsOff || (commands.length ? 'Insert a command or skill into your message' : 'Insert a skill into your message')} disabled={!!skillsOff} onclick={() => openSkills()}>+ {sheetName}</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title={locked || 'Attach image · or paste or drop one'} disabled={!!locked || sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={!!locked || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
+     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={!!locked || reattaching || sending || uploading || changingModel} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>
       <label for={`${session.id}-effort`}>Effort</label>
       <select id={`${session.id}-effort`} value={liveEffort.current} disabled={changingModel || runtime?.configuring || chat.connection !== 'open'} onchange={event => void changeSetting(liveEffort!.id, event.currentTarget.value)}>
@@ -1185,7 +1205,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
  .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
  .notice { margin: 2px 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); border-radius: 0 8px 8px 0; background: var(--bg-sunk); color: var(--ink-soft); font-size: 14px; }
- .notice.unlisted { border: 1px solid var(--line-strong); border-radius: 8px; }
+ .notice.unlisted, .notice.kept { border: 1px solid var(--line-strong); border-radius: 8px; }
  .notice .link { display: inline; padding: 0 4px; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
  @media (pointer: coarse) { .notice .link { display: inline-flex; align-items: center; min-height: 44px; } }
  .notice .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -1287,7 +1307,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
  .queue-title b { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); font: 600 14px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); box-sizing: border-box; }
  .queue-icon { display: grid; place-items: center; color: var(--accent-text); }
  .queue-icon svg { width: 13px; height: 13px; }
- .queue-said { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); text-align: right; }
+ .queue-said { min-width: 0; margin-left: auto; overflow-wrap: anywhere; text-wrap: balance; font-size: 14px; color: var(--muted); text-align: right; }
  .queue-list { display: flex; flex-direction: column; gap: 3px; list-style: none; margin: 0; padding: 0; }
  .queue-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; min-height: 30px; padding: 4px 5px 4px 9px; border: 1px solid transparent; border-radius: 7px; background: var(--card); }
  .queue-list li.first { border-color: color-mix(in srgb, var(--accent) 26%, var(--line)); }
@@ -1409,8 +1429,10 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
   /* A touch browser zooms the page in to a field under 16px when it takes focus and leaves it scaled; app.css only sets 16px up to 560px. */
   .composer-input, .model-picker, .qfield textarea { font-size: 16px; }
   .skills-btn, .icon-btn { min-height: 44px; min-width: 44px; }
+  .field-actions .btn { min-height: 44px; }
   .queue-list li { min-height: 44px; }
   .queue-actions button { min-height: 36px; padding: 0 9px; }
+  .queue-actions .retry { min-height: 44px; }
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
   .qoption { min-height: 44px; align-items: center; }

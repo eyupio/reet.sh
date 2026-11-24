@@ -188,7 +188,7 @@ func (m *Manager) allowed() error {
 func (m *Manager) consented() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.allowed() == nil
+	return m.open() == nil
 }
 
 func updatedAt(s ManagedSession) int64 {
@@ -227,7 +227,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return ManagedSession{}, err
 	}
 	consent := m.yoloConsent == nil || m.yoloConsent() != nil
@@ -349,7 +349,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.saveRegistry(r); err != nil {
 		return s, err
 	}
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return s, err
 	}
 	reportStage(ctx, terminalproto.StageStarting)
@@ -557,8 +557,12 @@ func (m *Manager) List(ctx context.Context) ([]ManagedSession, error) {
 		return nil, err
 	}
 	out := make([]ManagedSession, 0, len(r.Sessions))
+	// A locked machine reports whether its sessions run, not where they work.
+	locked := m.isLocked()
 	for id, s := range r.Sessions {
-		s.LiveDir = m.liveDir[id]
+		if !locked {
+			s.LiveDir = m.liveDir[id]
+		}
 		if s.State == terminalproto.Running {
 			s.Question = m.prompts[id].question
 		}
@@ -861,7 +865,7 @@ func (m *Manager) WorktreeStatus(ctx context.Context, in terminalproto.WorktreeS
 func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeRemove) (WorktreeRemoved, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return WorktreeRemoved{}, err
 	}
 	return RemoveWorktree(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed, Discard: in.Discard, Fingerprint: in.Fingerprint}, m.git)

@@ -58,7 +58,7 @@ func (m *Manager) Attach(ctx context.Context, sessionID string, opts AttachOptio
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return nil, err
 	}
 	lock, err := m.registryLock(ctx)
@@ -104,7 +104,7 @@ func (m *Manager) AttachNative(ctx context.Context, sessionID string, opts Attac
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return nil, err
 	}
 	return m.attachProcessLocked(ctx, sessionID, opts, func(attachCtx context.Context) *exec.Cmd {
@@ -139,7 +139,7 @@ func (m *Manager) attachProcessLocked(ctx context.Context, sessionID string, opt
 		}
 		_ = old.Close()
 	}
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return nil, err
 	}
 	attachmentLock, err := filelock.Acquire(filepath.Join(m.layout.Dir, m.name(sessionID)+".attachment.lock"))
@@ -185,6 +185,7 @@ func (m *Manager) attachProcessLocked(ctx context.Context, sessionID string, opt
 	a := &Attachment{ID: opts.ID, Generation: opts.Generation, ptmx: ptmx, cancel: cancel, done: make(chan struct{}), lock: attachmentLock}
 	started = true
 	m.attachments[sessionID] = a
+	go m.watchCut(a)
 	a.deadline = time.Now().Add(opts.Lease)
 	a.lease = time.AfterFunc(opts.Lease, func() {
 		a.leaseMu.Lock()
@@ -278,7 +279,7 @@ func (m *Manager) RenewAttachment(sessionID, attachmentID string, generation int
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return err
 	}
 	a := m.attachments[sessionID]

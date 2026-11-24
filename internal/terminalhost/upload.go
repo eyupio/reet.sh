@@ -54,7 +54,7 @@ func (m *Manager) WriteUpload(ctx context.Context, sessionID string, req termina
 		return "", err
 	}
 	m.mu.Lock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		m.mu.Unlock()
 		return "", err
 	}
@@ -63,6 +63,7 @@ func (m *Manager) WriteUpload(ctx context.Context, sessionID string, req termina
 		return "", ErrUploadDisabled
 	}
 	m.mu.Unlock()
+	src = m.whileUnlocked(src)
 	ctx, cancel := context.WithTimeout(ctx, uploadDeadline)
 	defer cancel()
 	if req.Launch {

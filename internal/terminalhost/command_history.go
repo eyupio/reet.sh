@@ -35,7 +35,7 @@ func (m *Manager) CommandHistoryFor(ctx context.Context, sessionID string, deskS
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.allowed(); err != nil {
+	if err := m.open(); err != nil {
 		return nil, err
 	}
 	lock, err := m.registryLock(ctx)

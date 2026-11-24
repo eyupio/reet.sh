@@ -30,24 +30,26 @@ const standIn = ({ endpoint, answer, subscribed }) => {
   Object.defineProperty(window, 'Notification', { configurable: true, value: FakeNotification })
 }
 
-async function open({ width = 390, height = 844, devices = [], current = 0, answer = 'granted', subscribed = false, available = true, init = null, touch = true } = {}) {
+async function open({ width = 390, height = 844, devices = [], current = 0, answer = 'granted', subscribed = false, available = true, init = null, touch = true, remembered = 0, theme = "light" } = {}) {
   const calls = []
   const state = { devices: [...devices], current }
   const view = () => ({ available, publicKey: available ? KEY : undefined, devices: state.devices, ...(state.current ? { current: state.current } : {}) })
-  const app = await openWorkspace(browser, { width, height, touch, routes: {
+  const app = await openWorkspace(browser, { width, height, touch, theme, routes: {
     '/api/v2/notifications': { notifications: [], unread: 0 },
     '/api/v2/notifications/preferences': { preferences: [] },
     '/api/v2/push': request => { calls.push({ method: 'GET', endpoint: request.headers()['x-reet-push-endpoint'] || '' }); return view() },
     '/api/v2/push/subscriptions': request => {
       const body = request.postDataJSON(); calls.push({ method: request.method(), body })
       if (request.method() === 'DELETE') { state.devices = state.devices.filter(d => d.id !== body.id && !(body.endpoint && d.id === state.current)); if (body.endpoint) state.current = 0; return { removed: true } }
-      const saved = { id: 7, label: body.label, waiting: body.waiting, ended: body.ended, createdAt: Date.now(), lastOkAt: 0 }
+      const kept = body.replace ? state.devices.find(d => d.id === body.replace) : null
+      const saved = kept ? { ...kept, deadAt: 0 } : { id: 7, label: body.label, waiting: body.waiting, ended: body.ended, createdAt: Date.now(), lastOkAt: 0 }
       state.devices = [...state.devices.filter(d => d.id !== 7), saved]; state.current = 7
       return saved
     },
     '/api/v2/push/test': request => { calls.push({ method: 'TEST' }); return { sent: state.devices.length, devices: state.devices.length } },
   } })
   await app.page.addInitScript(init ?? standIn, { endpoint: ENDPOINT, answer, subscribed })
+  if (remembered) await app.page.addInitScript(id => { try { localStorage.setItem('reet.push.device', String(id)) } catch { /* none */ } }, remembered)
   await app.page.goto(`${base}/notifications`)
   const card = app.page.getByRole('region', { name: 'On this device' })
   return { ...app, calls, card, state }
@@ -115,6 +117,54 @@ try {
     expect(calls.find(call => call.method === 'DELETE').body).toEqual({ id: 3 })
     expect(await noSidewaysScroll(page)).toBe(true)
     expect(await targets(card)).toEqual([])
+    await context.close()
+  }
+
+  // The push service dropped this phone's subscription (the controller marked it dead): the card says so and offers one
+  // button. Nothing is subscribed until it is pressed; Repair subscribes afresh and replaces the record, choices kept.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: false, createdAt: Date.now() - 3 * 86_400_000, lastOkAt: 0, deadAt: Date.now() - 60_000 }
+    const { page, card, calls, errors, context } = await open({ devices: [mine], current: 7, subscribed: true })
+    await expect(card.getByText('Stopped', { exact: true })).toBeVisible()
+    await expect(card.getByText('Notifications stopped reaching this phone.')).toBeVisible()
+    await expect(card.getByRole('checkbox')).toHaveCount(0)
+    expect(await page.evaluate(() => [window.__subscribeOptions, window.__unsubscribed])).toEqual([undefined, undefined])
+    expect(calls.some(call => call.method === 'POST')).toBe(false)
+    expect(await noSidewaysScroll(page)).toBe(true)
+    expect(await targets(card)).toEqual([])
+    await card.getByRole('button', { name: 'Repair' }).click()
+    await expect(card.getByText('On', { exact: true })).toBeVisible()
+    await expect(card.getByRole('status')).toHaveText('Repaired. This device will hear when a session needs you.')
+    expect(await page.evaluate(() => [window.__unsubscribed, !!window.__subscribeOptions])).toEqual([true, true])
+    expect(calls.find(call => call.method === 'POST').body).toEqual({ endpoint: ENDPOINT, label: 'Chrome on Linux', waiting: true, ended: false, replace: 7 })
+    await expect(card.getByRole('checkbox', { name: /A session has finished/ })).not.toBeChecked()
+    expect(await page.evaluate(() => localStorage.getItem('reet.push.device'))).toBe('7')
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // The browser lost its subscription (or never told the controller of a new one) while the controller still holds this
+  // device: stopped, found by the id this browser remembers. Turn off removes that record by its id.
+  {
+    const mine = { id: 7, label: 'Firefox on Linux', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, calls, context } = await open({ width: 1280, height: 900, touch: false, devices: [mine], remembered: 7 })
+    await expect(card.getByText('Notifications stopped reaching this device.')).toBeVisible()
+    expect(await page.evaluate(() => [window.__asked, window.__subscribeOptions])).toEqual([undefined, undefined])
+    await card.getByRole('button', { name: 'Turn off' }).click()
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toBeVisible()
+    expect(calls.find(call => call.method === 'DELETE').body).toEqual({ id: 7 })
+    expect(await page.evaluate(() => localStorage.getItem('reet.push.device'))).toBe(null)
+    await context.close()
+  }
+
+  // A device that works when the card opens, and dies while reet is in the background, is noticed when reet comes back.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, state, context } = await open({ devices: [mine], current: 7, subscribed: true })
+    await expect(card.getByText('On', { exact: true })).toBeVisible()
+    state.devices = [{ ...mine, deadAt: Date.now() }]
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(card.getByText('Notifications stopped reaching this phone.')).toBeVisible()
     await context.close()
   }
 

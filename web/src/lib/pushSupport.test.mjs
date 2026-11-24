@@ -55,3 +55,18 @@ test("the controller's key is read as bytes, and a subscription for another key 
   assert.equal(sameKey(bytes.buffer, keyBytes('BAEC')), false)
   assert.equal(sameKey(null, bytes), false)
 })
+
+test('a device is stopped when reet thinks it is on but nothing can reach it', async () => {
+  const { pushHealth } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
+  const phone = { id: 7 }, dead = { id: 7, deadAt: 1 }, other = { id: 3 }
+  assert.deepEqual(pushHealth({ permission: 'granted', current: phone, remembered: 7, devices: [phone] }), { state: 'on', device: phone })
+  // The push service said it is gone.
+  assert.deepEqual(pushHealth({ permission: 'granted', current: dead, remembered: 7, devices: [dead] }), { state: 'stopped', device: dead })
+  // Permission was taken back while the subscription stayed.
+  assert.deepEqual(pushHealth({ permission: 'denied', current: phone, remembered: 7, devices: [phone] }), { state: 'stopped', device: phone })
+  // The browser dropped or changed its subscription: the controller no longer knows this browser by it.
+  assert.deepEqual(pushHealth({ permission: 'granted', current: null, remembered: 7, devices: [other, phone] }), { state: 'stopped', device: phone })
+  // Removed from another device's list, or never turned on here: off, not stopped.
+  assert.deepEqual(pushHealth({ permission: 'granted', current: null, remembered: 7, devices: [other] }), { state: 'off', device: null })
+  assert.deepEqual(pushHealth({ permission: 'default', current: null, remembered: 0, devices: [other] }), { state: 'off', device: null })
+})

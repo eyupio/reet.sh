@@ -159,6 +159,11 @@ func (s *server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 		Label    string `json:"label"`
 		Waiting  *bool  `json:"waiting"`
 		Ended    *bool  `json:"ended"`
+		// Replace (a device's id, from the page's Repair) or Previous (its
+		// old address, from the service worker) moves that device to this
+		// new subscription, keeping its name and choices.
+		Replace  int64  `json:"replace"`
+		Previous string `json:"previous"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -167,8 +172,18 @@ func (s *server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "That is not an address a browser's push service gives out.")
 		return
 	}
-	waiting, ended := in.Waiting == nil || *in.Waiting, in.Ended == nil || *in.Ended
-	device, err := s.st.SavePushSubscription(uid, in.Endpoint, strings.TrimSpace(in.Label), waiting, ended)
+	var device store.PushSubscription
+	var err error
+	if in.Replace != 0 || in.Previous != "" {
+		device, err = s.st.ReplacePushSubscription(uid, in.Replace, in.Previous, in.Endpoint)
+	} else {
+		waiting, ended := in.Waiting == nil || *in.Waiting, in.Ended == nil || *in.Ended
+		device, err = s.st.SavePushSubscription(uid, in.Endpoint, strings.TrimSpace(in.Label), waiting, ended)
+	}
+	if errors.Is(err, store.ErrPushNotFound) {
+		writeErr(w, http.StatusNotFound, "That device is no longer on. Turn notifications on again.")
+		return
+	}
 	if errors.Is(err, store.ErrPushLimit) {
 		writeErr(w, http.StatusConflict, "You have "+strconv.Itoa(store.MaxPushSubscriptions)+" devices already. Remove one you no longer use, then turn this one on.")
 		return
@@ -362,8 +377,9 @@ func (s *server) pushSubject() string {
 	return "https://reet.sh"
 }
 
-// pushWake wakes each device and reports how many the push services accepted.
-// A device the push service no longer knows is forgotten.
+// pushWake wakes each working device and reports how many the push services
+// accepted. A device the push service no longer knows is marked dead: kept,
+// so its person is told on it, and sent nothing more until it is repaired.
 func (s *server) pushWake(ctx context.Context, devices []store.PushSubscription, topic string) int {
 	keys, err := s.pushKeys()
 	if err != nil {
@@ -376,13 +392,16 @@ func (s *server) pushWake(ctx context.Context, devices []store.PushSubscription,
 	}
 	subject, sent := s.pushSubject(), 0
 	for _, device := range devices {
+		if device.DeadAt != 0 {
+			continue
+		}
 		err := send(ctx, webpush.Message{Endpoint: device.Endpoint, Subject: subject, TTL: pushTTL, Topic: topic})
 		switch {
 		case err == nil:
 			sent++
 			_ = s.st.MarkPushDelivered(device.Endpoint)
 		case errors.Is(err, webpush.ErrGone), errors.Is(err, webpush.ErrEndpoint):
-			_ = s.st.DropPushEndpoint(device.Endpoint)
+			_ = s.st.MarkPushDead(device.Endpoint)
 		default:
 			log.Printf("push: device %d: %v", device.ID, err)
 		}

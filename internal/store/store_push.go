@@ -13,6 +13,9 @@ import (
 // MaxPushSubscriptions is how many devices one person may register.
 const MaxPushSubscriptions = 12
 
+// ErrPushNotFound means the person has no device by that id or address.
+var ErrPushNotFound = errors.New("no such notification device")
+
 // ErrPushLimit means the person already has MaxPushSubscriptions devices.
 var ErrPushLimit = errors.New("too many devices are registered for notifications")
 
@@ -26,6 +29,16 @@ type PushSubscription struct {
 	Ended     bool   `json:"ended"`
 	CreatedAt int64  `json:"createdAt"`
 	LastOKAt  int64  `json:"lastOkAt"`
+	// DeadAt is when the push service said it no longer knows this
+	// subscription (0 while it works). The record is kept so its person is
+	// told on that device and can repair it; nothing is sent to it meanwhile.
+	DeadAt int64 `json:"deadAt"`
+}
+
+const pushCols = `id,user_id,endpoint,label,on_waiting,on_ended,created_at,last_ok_at,dead_at`
+
+func scanPush(row interface{ Scan(...any) error }, p *PushSubscription) error {
+	return row.Scan(&p.ID, &p.UserID, &p.Endpoint, &p.Label, &p.Waiting, &p.Ended, &p.CreatedAt, &p.LastOKAt, &p.DeadAt)
 }
 
 func (s *Store) migratePush() error {
@@ -51,7 +64,13 @@ func (s *Store) migratePush() error {
 			return err
 		}
 	}
-	return nil
+	// Added later: rows from before read as working.
+	ok, err := hasColumn(s.db, "push_subscriptions", "dead_at")
+	if err != nil || ok {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE push_subscriptions ADD COLUMN dead_at INTEGER NOT NULL DEFAULT 0`)
+	return err
 }
 
 // SavePushSubscription registers endpoint for uid, or updates its label and
@@ -89,19 +108,48 @@ func (s *Store) SavePushSubscription(uid int64, endpoint, label string, waiting,
 			if err != nil {
 				return err
 			}
-		} else if _, err := tx.Exec(`UPDATE push_subscriptions SET user_id=?,label=?,on_waiting=?,on_ended=? WHERE id=?`,
+		} else if _, err := tx.Exec(`UPDATE push_subscriptions SET user_id=?,label=?,on_waiting=?,on_ended=?,dead_at=0 WHERE id=?`,
 			uid, label, waiting, ended, existing); err != nil {
 			return err
 		}
-		return tx.QueryRow(`SELECT id,user_id,endpoint,label,on_waiting,on_ended,created_at,last_ok_at FROM push_subscriptions WHERE id=?`, existing).
-			Scan(&out.ID, &out.UserID, &out.Endpoint, &out.Label, &out.Waiting, &out.Ended, &out.CreatedAt, &out.LastOKAt)
+		return scanPush(tx.QueryRow(`SELECT `+pushCols+` FROM push_subscriptions WHERE id=?`, existing), &out)
+	})
+	return out, err
+}
+
+// ReplacePushSubscription points one of uid's devices, named by its id or its
+// old address, at a new subscription from the same browser, keeping its name
+// and choices, and marks it working again. A record that already had the new
+// address is folded into it.
+func (s *Store) ReplacePushSubscription(uid, id int64, previous, endpoint string) (PushSubscription, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	if uid <= 0 || endpoint == "" || id == 0 && previous == "" {
+		return PushSubscription{}, ErrPushNotFound
+	}
+	var out PushSubscription
+	err := s.withTx(func(tx *sql.Tx) error {
+		var existing int64
+		err := tx.QueryRow(`SELECT id FROM push_subscriptions WHERE user_id=? AND (id=? OR (?<>'' AND endpoint=?))`, uid, id, previous, previous).Scan(&existing)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPushNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM push_subscriptions WHERE endpoint=? AND id<>?`, endpoint, existing); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE push_subscriptions SET endpoint=?,dead_at=0 WHERE id=?`, endpoint, existing); err != nil {
+			return err
+		}
+		return scanPush(tx.QueryRow(`SELECT `+pushCols+` FROM push_subscriptions WHERE id=?`, existing), &out)
 	})
 	return out, err
 }
 
 // PushSubscriptionsFor lists uid's registered browsers, oldest first.
 func (s *Store) PushSubscriptionsFor(uid int64) ([]PushSubscription, error) {
-	rows, err := s.db.Query(`SELECT id,user_id,endpoint,label,on_waiting,on_ended,created_at,last_ok_at FROM push_subscriptions WHERE user_id=? ORDER BY id`, uid)
+	rows, err := s.db.Query(`SELECT `+pushCols+` FROM push_subscriptions WHERE user_id=? ORDER BY id`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +157,7 @@ func (s *Store) PushSubscriptionsFor(uid int64) ([]PushSubscription, error) {
 	out := []PushSubscription{}
 	for rows.Next() {
 		var p PushSubscription
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Endpoint, &p.Label, &p.Waiting, &p.Ended, &p.CreatedAt, &p.LastOKAt); err != nil {
+		if err := scanPush(rows, &p); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -117,10 +165,10 @@ func (s *Store) PushSubscriptionsFor(uid int64) ([]PushSubscription, error) {
 	return out, rows.Err()
 }
 
-// PushUsers lists the people who have at least one registered browser and
-// can still use sessions.
+// PushUsers lists the people who have at least one working registered
+// browser and can still use sessions.
 func (s *Store) PushUsers() ([]int64, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT p.user_id FROM push_subscriptions p JOIN users u ON u.id=p.user_id WHERE u.disabled_at=0 AND u.role<>'viewer' ORDER BY p.user_id`)
+	rows, err := s.db.Query(`SELECT DISTINCT p.user_id FROM push_subscriptions p JOIN users u ON u.id=p.user_id WHERE p.dead_at=0 AND u.disabled_at=0 AND u.role<>'viewer' ORDER BY p.user_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -147,9 +195,10 @@ func (s *Store) DeletePushSubscription(uid int64, endpoint string, id int64) (bo
 	return n > 0, err
 }
 
-// DropPushEndpoint forgets a subscription the push service no longer knows.
-func (s *Store) DropPushEndpoint(endpoint string) error {
-	_, err := s.db.Exec(`DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
+// MarkPushDead records that the push service no longer knows a subscription.
+// The record stays, so its device can say so and be repaired.
+func (s *Store) MarkPushDead(endpoint string) error {
+	_, err := s.db.Exec(`UPDATE push_subscriptions SET dead_at=? WHERE endpoint=? AND dead_at=0`, now(), endpoint)
 	return err
 }
 

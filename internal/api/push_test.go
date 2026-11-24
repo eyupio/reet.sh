@@ -218,15 +218,57 @@ func TestPushLeavesAloneWhatItShould(t *testing.T) {
 	if len(f.woken) != 0 {
 		t.Fatalf("an hour-old moment was told: %+v", f.woken)
 	}
-	// A subscription the push service no longer knows is forgotten.
+}
+
+func TestPushDeadDeviceIsKeptToldAndRepaired(t *testing.T) {
+	f := newPushFixture(t)
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`","label":"Chrome on Android","ended":false}`); code != 200 {
+		t.Fatalf("subscribe: %d %s", code, body)
+	}
+	// The push service says the subscription is gone: the record stays, marked, so the phone can say so.
 	f.fail = webpush.ErrGone
 	f.session(t, "Fix the failing build", time.Minute)
 	f.srv.s.pushSweep(time.Now())
 	if len(f.woken) != 1 {
 		t.Fatalf("woken %d, want 1", len(f.woken))
 	}
+	devices, _ := f.st.PushSubscriptionsFor(f.uid)
+	if len(devices) != 1 || devices[0].DeadAt == 0 {
+		t.Fatalf("a gone subscription was not kept and marked: %+v", devices)
+	}
+	if _, body := f.do(t, "GET", "/api/v2/push", "", "X-Reet-Push-Endpoint", testEndpoint); !strings.Contains(body, `"deadAt":`+jsonInt(devices[0].DeadAt)) {
+		t.Fatalf("the device was not told it is dead: %s", body)
+	}
+	// Nothing more is sent to it: not for a new moment, not for a test.
+	f.fail = nil
+	f.session(t, "Another one", time.Minute)
+	f.srv.s.pushSweep(time.Now())
+	if code, body := f.do(t, "POST", "/api/v2/push/test", "{}"); code != 200 || !strings.Contains(body, `"sent":0}`) || len(f.woken) != 1 {
+		t.Fatalf("a dead device was woken: %d %s, woken %d", code, body, len(f.woken))
+	}
+	// Repair: a fresh subscription replaces the record, keeping its name and choices.
+	const fresh = "https://fcm.googleapis.com/fcm/send/fresh"
+	code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+fresh+`","label":"ignored","replace":`+jsonInt(devices[0].ID)+`}`)
+	var repaired store.PushSubscription
+	if code != 200 || json.Unmarshal([]byte(body), &repaired) != nil || repaired.ID != devices[0].ID || repaired.DeadAt != 0 || repaired.Label != "Chrome on Android" || repaired.Ended {
+		t.Fatalf("repair: %d %s", code, body)
+	}
+	if code, body := f.do(t, "POST", "/api/v2/push/test", "{}"); code != 200 || !strings.Contains(body, `"sent":1}`) || f.woken[len(f.woken)-1].Endpoint != fresh {
+		t.Fatalf("a repaired device was not woken: %d %s", code, body)
+	}
+	// The service worker's own repair names the old address; a device removed meanwhile is not brought back.
+	const third = "https://fcm.googleapis.com/fcm/send/third"
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+third+`","previous":"`+fresh+`"}`); code != 200 || !strings.Contains(body, `"id":`+jsonInt(repaired.ID)) {
+		t.Fatalf("worker repair: %d %s", code, body)
+	}
+	if code, _ := f.do(t, "DELETE", "/api/v2/push/subscriptions", `{"id":`+jsonInt(repaired.ID)+`}`); code != 200 {
+		t.Fatal("remove")
+	}
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"https://fcm.googleapis.com/fcm/send/fourth","previous":"`+third+`"}`); code != 404 {
+		t.Fatalf("a removed device was brought back: %d %s", code, body)
+	}
 	if devices, _ := f.st.PushSubscriptionsFor(f.uid); len(devices) != 0 {
-		t.Fatalf("a gone subscription was kept: %+v", devices)
+		t.Fatalf("devices after a refused repair: %+v", devices)
 	}
 }
 

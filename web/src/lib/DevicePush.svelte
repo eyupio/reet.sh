@@ -9,11 +9,14 @@
 
   let status = $state<PushStatus | null>(null)
   let device = $state<PushDevice | null>(null)
+  // Reet holds this device as on, but nothing reaches it (see pushHealth): the card says so and offers Repair.
+  let stopped = $state(false)
   let support = $state<PushSupport>('ok')
   let busy = $state('')
   let error = $state('')
   let notice = $state('')
   const since = (at: number) => { const ago = elapsed(at); return ago === 'just now' ? ago : `${ago} ago` }
+  const noun = $derived(device && /iPhone|Android/.test(device.label) ? 'phone' : 'device')
   const others = $derived(status ? status.devices.filter(d => d.id !== device?.id) : [])
 
   async function load() {
@@ -21,11 +24,19 @@
       const read = await readPush()
       status = read.status
       device = read.device
+      stopped = read.stopped
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
   }
-  onMount(() => { support = pushSupport(browserEnvironment()); void load() })
+  // Read again whenever reet comes back to the front, so a subscription the browser dropped meanwhile is noticed.
+  const onVisible = () => { if (document.visibilityState === 'visible' && !busy) void load() }
+  onMount(() => {
+    support = pushSupport(browserEnvironment())
+    void load()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  })
 
   async function run(name: string, work: () => Promise<void>) {
     busy = name
@@ -39,8 +50,14 @@
     await load()
     notice = 'On. This device will hear when a session needs you.'
   })
+  const repair = () => run('repair', async () => {
+    if (!status || !device) return
+    await enablePush(status, { waiting: device.waiting, ended: device.ended }, device)
+    await load()
+    notice = 'Repaired. This device will hear when a session needs you.'
+  })
   const turnOff = () => run('off', async () => {
-    await disablePush()
+    await disablePush(device?.id)
     await load()
     notice = 'Off for this device.'
   })
@@ -66,7 +83,7 @@
 <section class="card" aria-labelledby="device-push-title">
   <div class="head">
     <h2 id="device-push-title">On this device</h2>
-    {#if device}<span class="state on"><i aria-hidden="true"></i>On</span>{:else if support === 'ok'}<span class="state">Off</span>{/if}
+    {#if device && stopped}<span class="state stopped"><i aria-hidden="true"></i>Stopped</span>{:else if device}<span class="state on"><i aria-hidden="true"></i>On</span>{:else if support === 'ok'}<span class="state">Off</span>{/if}
   </div>
   <p class="muted">Hear when a session needs you, or has finished, while reet is closed. A tap on the notification opens that session.</p>
 
@@ -76,6 +93,12 @@
     <p class="blocked">On an iPhone or iPad, add reet to your Home Screen first: tap Share, then <strong>Add to Home Screen</strong>. Open reet from there and turn this on.</p>
   {:else if support === 'unsupported'}
     <p class="blocked">This browser cannot show notifications from a website, so there is nothing to turn on here.</p>
+  {:else if device && stopped}
+    <p class="blocked">Notifications stopped reaching this {noun}. Repair turns them on again here, with the same choices.</p>
+    <div class="actions">
+      <button type="button" class="btn primary" disabled={!!busy} aria-busy={busy === 'repair'} onclick={repair}>{busy === 'repair' ? 'Repairing…' : 'Repair'}</button>
+      <button type="button" class="btn quiet" disabled={!!busy} aria-busy={busy === 'off'} onclick={turnOff}>{busy === 'off' ? 'Turning off…' : 'Turn off'}</button>
+    </div>
   {:else if device}
     <fieldset disabled={!!busy}>
       <legend>Tell this device when</legend>
@@ -119,6 +142,7 @@
   .small { margin-top: 12px; }
   .state { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; }
   .state.on { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); font-weight: 600; }
+  .state.stopped { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); font-weight: 600; }
   .state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
   .blocked { margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px; font-size: 0.875rem; line-height: 1.6; }
   fieldset { margin: 16px 0 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }

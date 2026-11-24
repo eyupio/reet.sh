@@ -44,6 +44,25 @@ async function show() {
 
 self.addEventListener('push', event => event.waitUntil(show()))
 
+// The browser replaced or withdrew this device's subscription. A device that was on is subscribed again with the same
+// options, and the controller is told to move its record to the new address, keeping its name and choices. Without the
+// old subscription nothing says this device was on, so nothing is done: the Notifications page then offers Repair.
+async function resubscribe(event) {
+  const old = event.oldSubscription
+  if (!old) return
+  try {
+    const fresh = event.newSubscription || await self.registration.pushManager.subscribe(old.options)
+    await fetch('/api/v2/push/subscriptions', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: fresh.endpoint, previous: old.endpoint }),
+    })
+  } catch {
+    // Signed out, offline or refused: the page notices the mismatch and offers Repair.
+  }
+}
+
+self.addEventListener('pushsubscriptionchange', event => event.waitUntil(resubscribe(event)))
+
 // A tap opens the session: in a reet window that is already open, or a new one.
 self.addEventListener('notificationclick', event => {
   event.notification.close()

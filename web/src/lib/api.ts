@@ -1212,14 +1212,16 @@ export async function saveNotificationPreferences(preferences: { key: string; en
   return (await req('/api/v2/notifications/preferences', { method: 'PATCH', body: json({ preferences }) })).json()
 }
 /** One browser that is told when a session needs its person. */
-export type PushDevice = { id: number; label: string; waiting: boolean; ended: boolean; createdAt: number; lastOkAt: number }
+/** `deadAt` is when the push service said it no longer knows this device's subscription; 0 while it works. */
+export type PushDevice = { id: number; label: string; waiting: boolean; ended: boolean; createdAt: number; lastOkAt: number; deadAt?: number }
 /** `available` is false on an instance without accounts. */
 export type PushStatus = { available: boolean; publicKey?: string; devices: PushDevice[]; current?: number }
 /** With this browser's push address, the answer says which listed device it is (`current`). */
 export async function getPush(endpoint = ''): Promise<PushStatus> {
   return (await req('/api/v2/push', endpoint ? { headers: { 'X-Reet-Push-Endpoint': endpoint } } : {})).json()
 }
-export async function savePushDevice(input: { endpoint: string; label: string; waiting: boolean; ended: boolean }): Promise<PushDevice> {
+/** With `replace` (a device's id) the device is moved to this subscription, keeping its name and choices. */
+export async function savePushDevice(input: { endpoint: string; label: string; waiting: boolean; ended: boolean; replace?: number }): Promise<PushDevice> {
   return (await req('/api/v2/push/subscriptions', { method: 'POST', body: json(input) })).json()
 }
 export async function removePushDevice(input: { endpoint?: string; id?: number }): Promise<{ removed: boolean }> {

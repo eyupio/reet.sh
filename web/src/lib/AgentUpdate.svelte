@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LOCKED_SENTENCE } from './terminal/api'
   import type { ReleaseInfo, SyncAgent, SyncJob } from './api'
   import { agentBuild, agentUpdateState, channelBuild, updateAction, updateAvailable, updateProgress, updateStateLabel, updateStepsShown } from './machines'
 
@@ -54,7 +55,7 @@
   // The controller only names a channel; the agent resolves it from GitHub. A
   // failed release check therefore blocks automatic updates, not a person's
   // deliberate one.
-  const canReview = $derived(canWrite && !busy && !agent.paused)
+  const canReview = $derived(canWrite && !busy && !agent.paused && !agent.locked)
   const action = $derived(updateAction(phase, { autoUpdate: agent.autoUpdate, updateWaiting }))
   // A retry says what it will retry: "Try again…" alone does not name the build or the channel.
   const actionLabel = $derived(action ? (phase === 'failed' || phase === 'rolled_back' ? `Retry update to ${shownTarget}` : action.label) : '')
@@ -76,6 +77,7 @@
   // The policy left the card for the machine's settings, so the card says
   // which way it is set; otherwise a quiet machine would not say why it waits.
   const explanation = $derived.by(() => {
+    if (agent.locked) return LOCKED_SENTENCE
     if (agent.paused) return 'Sync is paused for this machine, so updates wait until it is resumed.'
     if (phase === 'running') return `The agent is ${switching ? 'switching to' : 'installing'} ${jobTarget}. It keeps the current binary and restarts into the verified one.`
     if (phase === 'queued') return 'The update is queued. The machine will collect it on its next check and verify the release itself.'

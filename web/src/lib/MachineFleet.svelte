@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { cardReadiness, folderProjectList, terminalMachines, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
+  import Sentence from './Sentence.svelte'
+  import { LOCKED_SENTENCE, cardReadiness, folderProjectList, terminalMachines, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
   import { openTerminalHref } from './terminal/openTerminal'
   import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
@@ -347,7 +348,7 @@
       {@const supported = supportedAgents(machine)}
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
-      {@const sync = machineSkillStatus(machine, skills)}
+      {@const sync = machineSkillStatus(machine, skills, enrolled?.locked ? LOCKED_SENTENCE : '')}
       <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${encodeURIComponent(machine.host)}`} oncontextmenu={cardContextMenu}>
         <header class="machine-head">
           <div class="identity">
@@ -364,7 +365,7 @@
         <div class="sync-band {sync.tone}">
           <div class="sync-copy">
             <span class="sync-pulse" class:live={sync.tone === 'working'} aria-hidden="true"></span>
-            <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
+            <div><strong>{sync.label}</strong><small><Sentence text={sync.detail} /></small></div>
           </div>
           <div class="sync-cta">
             <a class="btn sync-now" href="/sync">View sync status</a>
@@ -405,6 +406,17 @@
           </div>
         {/if}
 
+        {#if enrolled?.locked}
+          <div class="locked" data-locked={enrolled.id}>
+            <p class="locked-line"><span class="mark" aria-hidden="true">!</span><span>Locked</span></p>
+            <details class="legacy-how">
+              <summary>What this means</summary>
+              <p>Locked on the machine: reet cannot start, attach to or change anything there. It still reports its health and inventory.</p>
+              <p>To unlock, run <code>reet agent unlock</code> on it.</p>
+            </details>
+          </div>
+        {/if}
+
         {#if enrolled?.legacyToken}
           <div class="legacy" data-legacy-token={enrolled.id}>
             {#if legacyCount === 1}
@@ -428,7 +440,7 @@
             <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
           </div>
         {/if}
-        {#if terminalAccess&&enrolled&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}>{agentReadiness(enrolled.id)}</p>{/if}
+        {#if terminalAccess&&enrolled&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}><Sentence text={agentReadiness(enrolled.id)} /></p>{/if}
 
         <details class="agent-list">
           <summary>
@@ -591,6 +603,10 @@
   .agent-chip strong { color: var(--ink); font-weight: 600; }
   .agent-chip.muted { opacity: 0.78; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .locked { display: grid; gap: 6px; font-size: 0.875rem; line-height: 1.5; }
+  .locked-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--muted); font-weight: 500; }
+  .locked .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--muted); border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
+  .locked code { font: 0.875rem var(--mono); color: var(--ink); }
   .legacy { display: grid; gap: 6px; color: var(--ink); font-size: 0.875rem; line-height: 1.5; }
   .legacy-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-weight: 500; }
   .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
@@ -600,7 +616,7 @@
   .legacy-why { margin: 0; color: var(--muted); }
   .legacy-how > summary { cursor: pointer; display: list-item; padding: 6px 0; color: var(--muted); }
   .legacy-how > p { margin: 6px 0 10px; color: var(--muted); overflow-wrap: anywhere; }
-  @media (pointer: coarse) { .legacy-how > summary { padding: 12px 0; } .legacy .btn { min-height: 44px; } }
+  @media (pointer: coarse) { .locked .legacy-how > summary { min-height: 44px; box-sizing: border-box; display: flex; align-items: center; } .legacy-how > summary { padding: 12px 0; } .legacy .btn { min-height: 44px; } }
   .start-reason { margin: -6px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
   .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
   .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }

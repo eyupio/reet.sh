@@ -1,6 +1,7 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
  import Icon from './Icon.svelte'
+import Sentence from './Sentence.svelte'
  import { onMount, untrack } from 'svelte'
  import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
@@ -26,7 +27,7 @@
  const agentLabels: Record<string,string> = { agents: 'Shared agents / Codex', claude: 'Claude Code', cursor: 'Cursor', codex: 'Legacy Codex', opencode: 'OpenCode' }
  const stateLabels: Record<string,string> = {queued:'Queued',previewing:'Reading files',reviewing:'Ready for review',approved:'Approved',uploading:'Saving private copy',completed:'Saved',cancelled:'Cancelled',expired:'Expired',failed:'Needs attention'}
  const messages: Record<string,string> = { reviewing: 'Ready for your review. No file contents have been uploaded.', queued: 'Waiting for the machine to prepare a preview.', previewing: 'Reading file metadata on the machine. No file contents have been uploaded.', approved: 'Approved. Waiting for the machine to recheck and transfer your selection.', uploading: 'Verifying and saving the approved files privately.', cancelled: 'Cancelled. No further transfer is authorised.', expired: 'This preview expired or the connector restarted. Request a fresh preview.', failed: 'The import could not complete. Review the reason and request a fresh preview.', completed: 'Saved privately in reet.' }
- const reasons: Record<string,string> = { capture_failed: 'The source contains unsafe, unavailable or changing files.', source_changed: 'Files changed after preview. Nothing from this attempt was saved.', scope_unavailable: 'The source is no longer enrolled locally.', transfer_failed: 'The transfer was rejected. Check the destination revision, content validation and private storage capacity.', preview_expired: 'The preview or connector generation expired.', invalid_skill_manifest: 'SKILL.md needs valid matching metadata and instructions.' }
+ const reasons: Record<string,string> = { capture_failed: 'The source contains unsafe, unavailable or changing files.', source_changed: 'Files changed after preview. Nothing from this attempt was saved.', scope_unavailable: 'The source is no longer enrolled locally.', transfer_failed: 'The transfer was rejected. Check the destination revision, content validation and private storage capacity.', preview_expired: 'The preview or connector generation expired.', machine_locked: 'Locked on the machine. Run `reet agent unlock` there.', invalid_skill_manifest: 'SKILL.md needs valid matching metadata and instructions.' }
  // A skill chosen from the connect step goes straight to the library: the preview and approval happen without a stop for review.
  // Anything that needs a person's decision (a file the server blocks, an invalid SKILL.md, a failure) falls back to the review below.
  $effect(() => {
@@ -109,7 +110,7 @@
    <section aria-label="Import review">
     <div class="review-head"><div><h3>{selected.name}</h3><p>{selected.host} · {agentLabels[selected.agent] ?? selected.agent} · {selected.project || 'this machine’s home folder'}</p><p>{selected.bundleId ? `Adds to the copy already in your library (${selected.bundleId})` : 'Saves a new copy to your library'}</p></div><span class="status-pill">{stateLabels[selected.state] ?? selected.state}</span></div>
     <p role="status">{messages[selected.state] ?? 'Checking the import request.'}</p>
-    {#if selected.error}<p class="error">{reasons[selected.error] ?? 'Request a fresh preview to continue.'}</p>{/if}
+    {#if selected.error}<p class="error"><Sentence text={reasons[selected.error] ?? 'Request a fresh preview to continue.'} /></p>{/if}
     {#if selected.preview && selected.state === 'reviewing'}
      <p class="hint">Only checked files will be imported. Exclude credential/configuration files and review supporting files. SKILL.md is required.</p>
      {#if !selected.preview.skillValid}<p class="error">SKILL.md needs a matching name, description and instructions. Fix it on the machine, then request a fresh preview.</p>{/if}

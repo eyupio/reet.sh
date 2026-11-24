@@ -91,6 +91,7 @@ try {
       await how.getByRole('button', { name: 'Make an enrolment code' }).click()
       const dialog = page.getByRole('dialog', { name: 'Add a machine' })
       await expect(dialog.getByRole('button', { name: 'Make an enrolment code' })).toBeVisible()
+      await expect(dialog.getByLabel('Machine name', { exact: true })).toHaveValue('work-1')
       expect(errors).toEqual([])
       await context.close()
     }

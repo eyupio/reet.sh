@@ -119,5 +119,40 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
+ // The step-by-step panel's key step is the same enrolment code, and makes no personal token.
+ if (run('panel')) {
+  const CODE = 'reet_enrol_FIXTURE_CODE_9f3a'
+  for (const [width, theme] of [[1280, 'light'], [390, 'dark']]) {
+   const calls = [], tokenCalls = []
+   const routes = {
+    '/api/v2/sync/enrol-codes': request => { calls.push(request.method()); return { status: 201, json: { code: CODE, expiresAt: Math.floor(Date.now() / 1000) + 900 } } },
+    '/api/v2/tokens': request => { tokenCalls.push(request.method()); return { status: 500, json: { error: 'Unexpected token call.' } } },
+   }
+   const {context,page,errors} = await open({width,theme,routes,scale:2})
+   await page.goto(`${base}/machines#connect-machine`)
+   await page.getByLabel(/Machine name/).first().fill('studio-laptop')
+   await page.getByRole('button',{name:/Continue to authentication/}).click()
+   const panel = page.locator('details#connect-machine .step-panel')
+   await expect(panel.getByRole('heading',{name:'Give this machine an enrolment code.'})).toBeVisible()
+   await expect(panel).not.toContainText(/machine token|personal API token|Create machine token/i)
+   const shot = async name => { if (process.env.REET_E2E_SHOTS) await panel.screenshot({path:`${process.env.REET_E2E_SHOTS}/panel-${name}-${width}-${theme}.png`}) }
+   await shot('before')
+   await panel.getByRole('button',{name:'Make an enrolment code'}).click()
+   await expect(panel.locator('.fresh code')).toHaveText(CODE)
+   await expect(panel.locator('.fresh')).toContainText(/Expires in 1[45]:\d\d/)
+   await expect(panel.getByRole('button',{name:'Copy enrolment code'})).toBeVisible()
+   await shot('code')
+   expect(calls).toEqual(['POST'])
+   expect(tokenCalls).toEqual([])
+   expect(await page.evaluate(()=>location.href+JSON.stringify(localStorage)+JSON.stringify(sessionStorage))).not.toContain(CODE)
+   // The last step tells the person to paste the code, not a token.
+   await panel.getByRole('button',{name:'Continue to terminal connection'}).click()
+   await expect(panel).toContainText('When prompted, paste the enrolment code.')
+   await expect(panel).not.toContainText(/personal API token/i)
+   expect(tokenCalls).toEqual([])
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
  console.log('First machine: one entry dialog from every button, the panel waits behind it, Continue says what it needs, the key step is an enrolment code.')
 } finally {await browser.close()}

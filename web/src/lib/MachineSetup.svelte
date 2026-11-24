@@ -14,6 +14,7 @@
     type ReleaseChannel,
   } from './machineSetup'
   import CopyButton from './CopyButton.svelte'
+  import EnrolCode from './EnrolCode.svelte'
   import Icon from './Icon.svelte'
   import { formatWhen } from './time'
 
@@ -21,7 +22,7 @@
     site,
     machines,
     profiles = [],
-    token = '',
+    codes = false,
     tokenSetup,
     serverBuild = null,
     snapshot,
@@ -36,7 +37,8 @@
     site: string
     machines: Machine[]
     profiles?: SetupProfileSummary[]
-    token?: string
+    /** A signed-in writer: the key is an enrolment code. Otherwise the instance's own token is used. */
+    codes?: boolean
     tokenSetup?: Snippet
     serverBuild?: { version: string; commit: string } | null
     snapshot?: SyncState
@@ -374,14 +376,10 @@
       {:else if step === 2 && mode === 'connect'}
         <header>
           <p class="eyebrow">Step 2 · Authenticate</p>
-          <h3 tabindex="-1" bind:this={panelHeading}>Give this machine its own key.</h3>
-          <p>Create a machine token here, then save the server connection on the machine. The token is shown once and is never stored in the browser.</p>
+          <h3 tabindex="-1" bind:this={panelHeading}>{codes ? 'Give this machine an enrolment code.' : 'Give this machine its key.'}</h3>
+          <p>{codes ? 'Make an enrolment code here, then save the server connection on the machine. The code is shown once and is never stored in the browser.' : 'Save the server connection on the machine.'}</p>
         </header>
-        {#if tokenSetup}{@render tokenSetup()}{/if}
-        {#if token}
-          <details class="one-time"><summary>Show the one-time machine token</summary><code>{token}</code><CopyButton text={token} label="Copy machine token" compact /></details>
-          <p class="hint">When the CLI prompts for a token, paste this value. It is not embedded in the command.</p>
-        {/if}
+        {#if codes}<EnrolCode connected={!!terminalHost} />{:else if tokenSetup}{@render tokenSetup()}{/if}
         <div class="command">
           <div class="command-copy"><span>Save the connection</span><CopyButton text={configure} label="Copy connection command" compact /></div>
           <pre>{configure}</pre>
@@ -427,7 +425,7 @@
           <h3 tabindex="-1" bind:this={panelHeading}>Bring this machine into your workspace.</h3>
           <p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p>
         </header>
-        {#if mode === 'scratch' && tokenSetup}{@render tokenSetup()}{/if}
+        {#if mode === 'scratch'}{#if codes}<EnrolCode connected={!!terminalHost} />{:else if tokenSetup}{@render tokenSetup()}{/if}{/if}
         {#if terminalAccess}
           <div class="server-terminal" class:ready={serverTerminal?.available}>
             <div>
@@ -444,7 +442,7 @@
           <div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command" compact /></div>
           <pre>{enroll}</pre>
         </div>
-        <p class="hint">Run these commands in this machine’s terminal. When prompted, use its personal API token. Shell access stays disabled until you consent locally; declining still allows inventory reporting.</p>
+        <p class="hint">Run these commands in this machine’s terminal. {codes ? 'When prompted, paste the enrolment code.' : 'When prompted, use the token for this instance.'} Shell access stays disabled until you consent locally; declining still allows inventory reporting.</p>
 
         <div class="watch" class:ready={terminalReady} class:problem={!!terminalError || stage === 'needs-setup'}>
           <p class="vh" role="status" aria-live="polite">Terminal connection: {watchTitle}{terminalError ? ` ${terminalError}` : ''}</p>
@@ -593,8 +591,6 @@
   .inline-warning { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line)); border-radius: 8px; color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, var(--card)); font-size: 0.875rem; }
   .step-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
   .step-actions .primary { margin-left: auto; }
-  .one-time { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
-  .one-time code { display: block; margin: 10px 0; overflow-wrap: anywhere; }
   .empty-choice { padding: 18px; border: 1px dashed var(--line); border-radius: 12px; background: var(--bg); }
   .empty-choice p { margin: 6px 0 12px; color: var(--muted); font-size: 0.875rem; }
   .advanced { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--bg); }

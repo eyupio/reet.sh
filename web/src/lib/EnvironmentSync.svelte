@@ -16,7 +16,7 @@
   import { agoLabel } from './time'
   import { formatWhen } from './time'
 
-  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, timeZone = '', dateFormat = 'locale', tokenSetup, startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
   let skills = $state<SyncSkills | null>(null)
   let syncState = $state<SyncState>({ environments: [] })
@@ -53,7 +53,7 @@
   const arrivedForDialog = typeof location !== 'undefined' && location.hash === '#add-machine'
   let setupHost = $state('')
   // The Add a machine dialog, with what opened it, and the machine it just brought in (highlighted for a few seconds).
-  let joining = $state<{ opener: HTMLElement | null } | null>(null)
+  let joining = $state<{ opener: HTMLElement | null; name: string } | null>(null)
   let importSource = $state<{ environmentId: string; name: string; direct?: boolean } | null>(null)
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
@@ -152,8 +152,8 @@
     if (loadFailure !== undefined) throw loadFailure
   }
   // The connection flow returns to the machine that was added.
-  function openJoin(opener: HTMLElement | null) {
-    joining = { opener }
+  function openJoin(opener: HTMLElement | null, name = '') {
+    joining = { opener, name }
   }
   // Closing the dialog hands focus to the entry that opened it; if that entry has moved (the machines were read while it was
   // open), to wherever the entry is now.
@@ -251,7 +251,7 @@
         {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
       </section>
     {/if}
-    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
+    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} codes={accounts && canWrite} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
 
   {#if canWrite && machines.length}
     <details class="advanced-fleet">
@@ -297,7 +297,7 @@
 {#if importSource}<MachineSkillImports snapshot={syncState} source={importSource} onclose={() => (importSource = null)} />{/if}
 
 {#if joining && canAdd}
-  <AddMachineDialog {skills} {site} {machines} snapshot={loaded ? syncState : undefined} {accounts} {canWrite} {token} {tokenSetup} opener={joining.opener}
+  <AddMachineDialog {skills} {site} {machines} snapshot={loaded ? syncState : undefined} opener={joining.opener} initialName={joining.name}
     channel={serverBuild?.version === 'dev' ? 'dev' : 'stable'} onrefresh={refreshForJoin} onready={joinReady} onstepbystep={joinStepByStep} {onsignedout} onclose={joinClosed} />
 {/if}
 

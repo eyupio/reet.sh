@@ -7,28 +7,25 @@
   import { onMount, untrack } from 'svelte'
  import Icon from './Icon.svelte'
  import { shell } from './dialogShell'
- import type { Snippet } from 'svelte'
- import { UnauthorizedError, createEnrolCode, type Machine, type SyncSkills, type SyncState } from './api'
- import { enrolCodeProblem, enrolCountdown } from './enrolCode'
+ import { UnauthorizedError, type Machine, type SyncSkills, type SyncState } from './api'
+ import EnrolCode from './EnrolCode.svelte'
+ import CopyButton from './CopyButton.svelte'
  import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
  import { JOIN_WATCH_CAP_MS, canonicalHost, joinBaseline, joinCommands, joinDelay, joinState, joinSyncState, validateMachineName, type JoinBaseline } from './machineJoin'
  import type { ReleaseChannel } from './machineSetup'
- import CopyButton from './CopyButton.svelte'
 
  // Bring another machine in from where you are working. One block of commands to paste on that machine, and a status line that
  // watches the controller for it. It writes nothing to any machine and sends nothing but the enrolment code request and the
- // refresh reads. Where the controller has no accounts, the instance token is used as before and no code is asked for. Every state says only what the controller has been told.
+ // refresh reads. It is only offered to a signed-in writer; a controller without accounts keeps the old Connect a machine panel. Every state says only what the controller has been told.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { site, machines, snapshot, skills = null, accounts, canWrite, token, tokenSetup, opener = null, channel = 'stable', onrefresh, onready, onstepbystep, onsignedout, onclose }: {
+ let { site, machines, snapshot, skills = null, opener = null, initialName = '', channel = 'stable', onrefresh, onready, onstepbystep, onsignedout, onclose }: {
   site: string
+  /** A machine's name to start with (for a machine being enrolled again); otherwise the last name typed. */
+  initialName?: string
   machines: Machine[]
   /** Undefined until the machines have been read once. */
   skills?: SyncSkills | null
   snapshot: SyncState | undefined
-  accounts: boolean
-  canWrite: boolean
-  token: string
-  tokenSetup?: Snippet
   opener: HTMLElement | null
   channel?: ReleaseChannel
   onrefresh: () => Promise<void> | void
@@ -39,16 +36,10 @@
  } = $props()
 
  const titleId = $props.id()
- // An enrolment code is for a signed-in writer; elsewhere the token the instance already has is used, as before.
- const codes = $derived(accounts && canWrite)
- // The code lives in this component only: not in the URL, browser storage or a log, and gone when the dialog closes.
- let issued = $state<{ code: string; expiresAt: number } | undefined>()
- let making = $state(false), codeError = $state(''), spent = $state<'' | 'lapsed' | 'used'>('')
- let tick = $state(Date.now())
- const countdown = $derived(issued ? enrolCountdown(issued.expiresAt, tick) : undefined)
  let dialog = $state<HTMLDialogElement>()
  let nameInput = $state<HTMLInputElement>()
- let name = $state(remembered)
+ // svelte-ignore state_referenced_locally
+ let name = $state(initialName || remembered)
  let touched = $state(false)
  const checked = $derived(validateMachineName(name))
  const host = $derived(checked.ok ? checked.name : '')
@@ -97,29 +88,6 @@
    if (capped) { capped = false; restart() }
   })
  })
-
- async function makeCode() {
-  if (making || life.signal.aborted) return
-  making = true; codeError = ''
-  try {
-   const made = await createEnrolCode()
-   if (life.signal.aborted) return
-   issued = made; spent = ''
-  } catch (e) {
-   if (life.signal.aborted) return
-   if (lost(e)) signOut(e)
-   else codeError = enrolCodeProblem(e)
-  } finally { making = false }
- }
- $effect(() => {
-  if (!issued) return
-  tick = Date.now()
-  const timer = setInterval(() => (tick = Date.now()), 1000)
-  return () => clearInterval(timer)
- })
- $effect(() => { if (countdown?.expired) { issued = undefined; spent = 'lapsed' } })
- // Once the machine has reported in the code is of no more use: take it off the page.
- $effect(() => { if (issued && ['connected', 'first_scan', 'syncing', 'sync_issue', 'ready'].includes(status.stage)) { issued = undefined; spent = 'used' } })
 
  const live = (g: number) => !life.signal.aborted && g === generation
  const lost = (e: unknown) => isSignedOut(e) || e instanceof UnauthorizedError
@@ -229,29 +197,8 @@
   </section>
 
   <section aria-labelledby={`${titleId}-key`}>
-   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>{codes ? 'Give it an enrolment code' : 'Give it a key'}</h3>
-   {#if codes}
-    {#if issued}
-     <div class="fresh">
-      <p>Paste this when the machine asks for an enrolment code. It works once, for one machine. Copy it now; it is not shown again.</p>
-      <div class="secret"><code>{issued.code}</code><CopyButton text={issued.code} label="Copy enrolment code" /></div>
-      <p class="left">{countdown?.text}</p>
-     </div>
-    {:else}
-     <p class="hint" role="status">{#if spent === ''}The machine asks for an enrolment code when it connects. It works once, for one machine.{:else if spent === 'lapsed'}This code has run out.{:else if spent === 'used'}The machine has connected, so its code is no longer shown.{/if}</p>
-     <button type="button" class="btn" disabled={making} aria-busy={making} onclick={makeCode}>{making ? 'Making…' : spent === 'lapsed' ? 'Make another code' : 'Make an enrolment code'}</button>
-    {/if}
-    {#if codeError}<p class="reason" role="alert">{codeError}</p>{/if}
-   {:else if tokenSetup}
-    <p class="hint">Create a machine token here. It is shown once and is never stored in the browser. It is not part of the commands: the machine asks for it and you paste it there.</p>
-    {@render tokenSetup()}
-    {#if token}
-     <details class="one-time"><summary>Show the one-time machine token</summary><code>{token}</code><CopyButton text={token} label="Copy machine token" compact /></details>
-     <p class="hint">When the CLI prompts for a token, paste this value. It is not embedded in the commands.</p>
-    {/if}
-   {:else}
-    <p class="hint">Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>
-   {/if}
+   <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>Give it an enrolment code</h3>
+   <EnrolCode connected={['connected', 'first_scan', 'syncing', 'sync_issue', 'ready'].includes(status.stage)} onsignedout={signOut} />
   </section>
 
   <section aria-labelledby={`${titleId}-run`}>
@@ -261,7 +208,7 @@
    {:else if host}
     <p class="hint">Paste this in a terminal on the machine. It installs reet, connects it and enables skill sync. Reet checks changes and backs up replaced copies.</p>
     <div class="command"><pre class="commands">{commands}</pre><CopyButton text={commands} label="Copy commands" /></div>
-    <p class="hint">{codes ? 'The machine will ask for an enrolment code. Paste the one from step 2.' : 'The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.'}</p>
+    <p class="hint">The machine will ask for an enrolment code. Paste the one from step 2.</p>
    {:else}
     <p class="hint">Enter a name above and the commands will appear here.</p>
    {/if}
@@ -312,14 +259,6 @@
  .reason-slot { min-height: 1.3125rem; margin-top: -6px; }
  .command { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
- .one-time { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
- .one-time code { display: block; margin: 10px 0; overflow-wrap: anywhere; }
- .fresh { padding: 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--tint); }
- .fresh p { margin: 0 0 8px; font-size: 0.875rem; }
- .fresh .left { margin: 8px 0 0; color: var(--muted); font-variant-numeric: tabular-nums; }
- .secret { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
- .secret code { min-width: 0; overflow-wrap: anywhere; font: 0.95rem/1.5 var(--mono); user-select: all; }
- .reason[role='alert'] { margin-top: 8px; }
  .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  .join-status { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
  .join-status > div { display: grid; gap: 4px; min-width: 0; }

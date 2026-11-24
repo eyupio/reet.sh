@@ -48,7 +48,7 @@
     terminalAccess?:boolean
     monitorAccess?:boolean
     /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
-    onjoin?: (opener: HTMLElement | null) => void
+    onjoin?: (opener: HTMLElement | null, name?: string) => void
     /** The machine just brought in by that dialog: its card is marked for a few seconds. */
     highlight?: string
     onupdate: (state: SyncState) => void
@@ -396,7 +396,7 @@
             <details class="legacy-how">
               <summary>How to change this</summary>
               <p>Run <code>reet agent enroll</code> on it with a new enrolment code, then revoke the old token under Account.</p>
-              {#if onjoin && accounts && canWrite}<button type="button" class="btn" onclick={(event) => onjoin(event.currentTarget)}>Make an enrolment code</button>{/if}
+              {#if onjoin && accounts && canWrite}<button type="button" class="btn" onclick={(event) => onjoin(event.currentTarget, machine.host)}>Make an enrolment code</button>{/if}
             </details>
           </div>
         {/if}

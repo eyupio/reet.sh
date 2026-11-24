@@ -375,7 +375,7 @@
   {#if canWrite}
     <form onsubmit={makeToken} aria-busy={busy === 'token'}>
       <label for="token-name">Token name</label>
-      <div class="createrow"><input id="token-name" bind:value={tokenName} placeholder="e.g. work laptop" autocomplete="off" required disabled={!!busy} /><button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button></div>
+      <div class="createrow"><input id="token-name" bind:value={tokenName} placeholder="e.g. backup script" autocomplete="off" required disabled={!!busy} /><button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button></div>
     </form>
     {#if freshToken}<div class="fresh" role="status"><p>Reet, token created. Copy it now; it disappears when you leave this page.</p><div class="token-secret"><code>{freshToken}</code><CopyButton text={freshToken} label="Copy token" /></div></div>{/if}
   {/if}
@@ -584,9 +584,7 @@
   {:else if section === 'activity'}
     <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}
-    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} timeZone={profile.timezone} dateFormat={profile.dateFormat} onsignedout={onerror}>
-      {#snippet tokenSetup()}{@render tokenForm()}{/snippet}
-    </EnvironmentSync>
+    <EnvironmentSync {canWrite} accounts {startConnect} timeZone={profile.timezone} dateFormat={profile.dateFormat} onsignedout={onerror} />
   {:else if section === 'sync'}
     <p>Machines follow your library automatically. <a href="/sync">View sync status</a>.</p>
   {:else if section === 'tokens'}

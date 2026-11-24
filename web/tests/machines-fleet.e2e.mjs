@@ -70,6 +70,31 @@ try {
     await context.close()
   }
 
+  // A machine that last connected with a personal API token carries a quiet warning, and a how-to on demand. No other machine does.
+  if (run('legacy')) {
+    const legacySync = { ...sync, agents: sync.agents.map(a => a.host === 'work-1' ? { ...a, legacyToken: true } : { ...a, legacyToken: false }) }
+    for (const [width, theme, touch] of [[1280, 'light', false], [390, 'dark', true]]) {
+      const { context, page, errors } = await open({ width, height: 900, theme, touch, scale: 2, sync: legacySync })
+      await page.goto(`${base}/machines`)
+      const card = host => page.locator('article.machine').filter({ has: page.getByRole('heading', { name: host, exact: true }) })
+      await expect(card('work-1').getByText('Connected with a personal API token.')).toBeVisible()
+      await expect(page.getByText('Connected with a personal API token.')).toHaveCount(1)
+      await expect(card('att-1').locator('[data-legacy-token]')).toHaveCount(0)
+      const how = card('work-1').locator('.legacy-how')
+      await expect(how.getByText('Run reet agent enroll on it with a new enrolment code, then revoke the old token under Account.')).toBeHidden()
+      await how.locator('summary').click()
+      await expect(how.getByText('Run reet agent enroll on it with a new enrolment code, then revoke the old token under Account.')).toBeVisible()
+      if (touch) expect((await how.locator('summary').boundingBox()).height, 'how-to summary height').toBeGreaterThanOrEqual(44)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+      if (process.env.REET_E2E_SHOTS) await card('work-1').screenshot({ path: `${process.env.REET_E2E_SHOTS}/legacy-${width}-${theme}.png` })
+      // Its button opens Add a machine, where the code is made.
+      await how.getByRole('button', { name: 'Make an enrolment code' }).click()
+      const dialog = page.getByRole('dialog', { name: 'Add a machine' })
+      await expect(dialog.getByRole('button', { name: 'Make an enrolment code' })).toBeVisible()
+      expect(errors).toEqual([])
+      await context.close()
+    }
+  }
   if (run('phone')) {
     for (const width of [390, 320]) {
       const { context, page, errors } = await open({ width, height: 812, touch: true })

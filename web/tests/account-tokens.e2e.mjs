@@ -48,6 +48,9 @@ try {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/account/tokens`)
     await expect(count(page)).toHaveText('3 tokens')
+    // Tokens are for scripts and API clients; machines use enrolment codes.
+    await expect(page.getByText('Machines use enrolment codes from Machines, Add a machine.')).toBeVisible()
+    await expect(page.getByText(/reet scan --token/)).toHaveCount(0)
     await expect(scope(page, /^All/)).toHaveText(/All\s*3/)
     await expect(scope(page, /^Used/)).toHaveText(/Used\s*2/)
     await expect(scope(page, /^Never used/)).toHaveText(/Never used\s*1/)

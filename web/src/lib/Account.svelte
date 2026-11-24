@@ -595,7 +595,7 @@
     {:else}
       <section class="block" aria-labelledby="create-token-title">
         <h2 id="create-token-title">Create a token</h2>
-        <p class="muted">Use a token with <code>reet scan --token …</code> or an API client. A token is shown once, then only its name remains.</p>
+        <p class="muted">Use a token with scripts and API clients. A token is shown once, then only its name remains. Machines use enrolment codes from Machines, Add a machine.</p>
         {@render tokenForm()}
       </section>
 
@@ -621,7 +621,7 @@
         {:else if tokens.length === 0}
           <div class="state-block">
             <h2>No API tokens yet.</h2>
-            <p>Tokens you create for scanners and API clients appear here.</p>
+            <p>Tokens you create for scripts and API clients appear here.</p>
           </div>
         {:else if visibleTokens.length === 0}
           <div class="state-block">

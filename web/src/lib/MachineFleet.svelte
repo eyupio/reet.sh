@@ -390,6 +390,17 @@
           </div>
         {/if}
 
+        {#if enrolled?.legacyToken}
+          <div class="legacy" data-legacy-token={enrolled.id}>
+            <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Connected with a personal API token.</span></p>
+            <details class="legacy-how">
+              <summary>How to change this</summary>
+              <p>Run <code>reet agent enroll</code> on it with a new enrolment code, then revoke the old token under Account.</p>
+              {#if onjoin && accounts && canWrite}<button type="button" class="btn" onclick={(event) => onjoin(event.currentTarget)}>Make an enrolment code</button>{/if}
+            </details>
+          </div>
+        {/if}
+
         {#if terminalAccess && enrolled}
           <div class="actions">
             <a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={openTerminalHref(enrolled.id)}>Open terminal</a>
@@ -559,6 +570,12 @@
   .agent-chip strong { color: var(--ink); font-weight: 600; }
   .agent-chip.muted { opacity: 0.78; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .legacy { display: grid; gap: 6px; color: var(--ink); font-size: 0.875rem; line-height: 1.5; }
+  .legacy-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-weight: 500; }
+  .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
+  .legacy-how > summary { cursor: pointer; display: flex; align-items: center; min-height: 32px; color: var(--muted); }
+  .legacy-how > p { margin: 6px 0 10px; color: var(--muted); overflow-wrap: anywhere; }
+  @media (pointer: coarse) { .legacy-how > summary { min-height: 44px; } .legacy-how .btn { min-height: 44px; } }
   .start-reason { margin: -6px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
   .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
   .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }

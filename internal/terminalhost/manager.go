@@ -48,6 +48,9 @@ type ManagerOptions struct {
 	// (reet terminal yolo on|off). nil means YOLO is refused, as it is by
 	// default; an error refuses it too.
 	YoloConsent func() error
+	// Locked re-reads the machine's local lock (reet agent lock). While it
+	// reports true, Run closes every attachment; sessions keep running.
+	Locked func() bool
 }
 
 type Manager struct {
@@ -56,6 +59,8 @@ type Manager struct {
 	home       string
 	tmux       Tmux
 	consent    func() error
+	// locked nil means the machine is never locked.
+	locked func() bool
 	// clipboardConsent nil means clipboard forwarding is allowed.
 	clipboardConsent func() error
 	// uploadConsent nil means image uploads are allowed.
@@ -136,7 +141,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskStarts: map[string]deskStart{}, deskForget: map[string]*time.Timer{}}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, locked: opts.Locked, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskStarts: map[string]deskStart{}, deskForget: map[string]*time.Timer{}}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -780,7 +785,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			return m.Close()
 		}
 		m.mu.Lock()
-		disabled := m.consent() != nil
+		disabled := m.consent() != nil || m.locked != nil && m.locked()
 		if disabled {
 			for _, a := range m.attachments {
 				_ = a.Close()

@@ -4,6 +4,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
 </script>
 
 <script lang="ts">
+  import Sentence from '../Sentence.svelte'
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
@@ -179,7 +180,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
       <span class="name">{o.label}</span>
       {#if o.description}<span class="description">{o.description}</span>{/if}
       {#if o.detail}<span class="detail">{o.detail}</span>{/if}
-      {#if o.reason}<span class="reason">{o.reason}</span>{/if}
+      {#if o.reason}<span class="reason"><Sentence text={o.reason} /></span>{/if}
     </div>
     {#if o.onstar}
       <button type="button" class="star" aria-pressed={o.starred ? 'true' : 'false'}

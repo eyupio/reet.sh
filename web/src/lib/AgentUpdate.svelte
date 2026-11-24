@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { LOCKED_SENTENCE } from './terminal/api'
   import type { ReleaseInfo, SyncAgent, SyncJob } from './api'
   import { agentBuild, agentUpdateState, channelBuild, updateAction, updateAvailable, updateProgress, updateStateLabel, updateStepsShown } from './machines'
 
@@ -77,7 +76,7 @@
   // The policy left the card for the machine's settings, so the card says
   // which way it is set; otherwise a quiet machine would not say why it waits.
   const explanation = $derived.by(() => {
-    if (agent.locked) return LOCKED_SENTENCE
+    if (agent.locked) return 'This machine is locked, so updates wait until it is unlocked there.'
     if (agent.paused) return 'Sync is paused for this machine, so updates wait until it is resumed.'
     if (phase === 'running') return `The agent is ${switching ? 'switching to' : 'installing'} ${jobTarget}. It keeps the current binary and restarts into the verified one.`
     if (phase === 'queued') return 'The update is queued. The machine will collect it on its next check and verify the release itself.'

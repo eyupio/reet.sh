@@ -267,7 +267,7 @@
       </div>
     {/if}
 
-    <p class="status" role="status" class:good={reply === 'replied'}>{status}</p>
+    <p class="status" role="status" class:good={reply === 'replied'}><Sentence text={status} /></p>
 
     {#if stuckHelp}<p class="help"><a href={FIRST_SESSION_DOC_URL} target="_blank" rel="noopener noreferrer">How the first session works<span class="vh"> (opens in a new tab)</span></a></p>{/if}
 

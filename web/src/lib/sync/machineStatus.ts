@@ -2,7 +2,7 @@ import type { Machine, SyncSkills } from '../api'
 import { sameHost } from '../contentReview'
 
 /** Inventory is not sync evidence. Only the reconcile report can say a machine is in sync. */
-/** `lockedDetail` is the lock's sentence when the machine's owner locked it: a blocked report on a locked machine is that, not allow-apply being off. */
+/** `lockedDetail` is what to say when the machine's owner locked it: a blocked report on a locked machine is that, not allow-apply being off. */
 export function machineSkillStatus(machine: Pick<Machine, 'host'>, skills: SyncSkills | null, lockedDetail = '') {
   const report = skills?.machines.find(m => sameHost(m.host, machine.host))
   if (!report) return { tone: 'attention', label: 'Skill sync not confirmed', detail: 'Open Sync to check the connection and skill reports.' }

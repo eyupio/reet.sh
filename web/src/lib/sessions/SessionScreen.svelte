@@ -19,7 +19,7 @@
   import { yoloCanStart, type YoloGate } from '../launchBar'
   import { signalAttentionChanged } from '../attentionSignal'
   import { attentionRuleOf } from '../attention'
-  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { LOCKED_SENTENCE, structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
   import type { ChatProgressState } from '../gafferProgress'
@@ -190,6 +190,7 @@
   const source = $derived(word.source.charAt(0).toUpperCase() + word.source.slice(1))
   const target = $derived(worktreeTargetOf(session))
   const serverOff = $derived(machines.find(m => m.agentId === session.agentId)?.serverEnabled === false)
+  const lockedHere = $derived(!!machines.find(m => m.agentId === session.agentId)?.locked)
   const live = $derived(!terminalClosed(session.state))
 
   // Approvals: a structured chat can switch between asking for every card and YOLO, which answers each one itself (for Codex, only in its ask-before-leaving-the-sandbox mode).
@@ -523,7 +524,7 @@
     <!-- A Factory pipeline's decision is taken where the work is: in the session doing its stage in hand. -->
     <div class="below-head">
     <!-- A terminal agent's open dialog sits right under the header, above the terminal, so it is the first thing seen. -->
-    {#if session.terminalQuestion && !session.structured}<div class="question"><TerminalQuestionCard {session} question={session.terminalQuestion} title={session.title} machine={host} locked={away ? 'The machine is not connected. Try again when it is back.' : ''} onopen={focusTerminal} onreread={onrefresh} /></div>{/if}
+    {#if session.terminalQuestion && !session.structured}<div class="question"><TerminalQuestionCard {session} question={session.terminalQuestion} title={session.title} machine={host} locked={away ? 'The machine is not connected. Try again when it is back.' : lockedHere ? LOCKED_SENTENCE : ''} onopen={focusTerminal} onreread={onrefresh} /></div>{/if}
     {#if factory?.key && factory.current}<SessionDecision member={factory} sessionId={session.id}/>{/if}
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -532,7 +533,7 @@
       <div class="side-terminal" data-keeps-focus>{@render side()}</div>
     {:else}
       {#key session.id}
-        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} chatProgress={insightProgress} supported={!!machineCaps?.inspect}
+        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} chatProgress={insightProgress} supported={!!machineCaps?.inspect} locked={lockedHere}
           docked={docked}
           onterminal={() => { closeSheet(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }}
           id={panelId} onkeydown={panelKey} onclose={() => void collapseDetails()} />

@@ -20,13 +20,16 @@
   import GafferProgress from '../terminal/GafferProgress.svelte'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import { GAFFER_GOALS_CHANGED, gafferChatEntry } from '../gafferContext'
-  import { chatToolName, terminalClosed } from '../terminal/api'
+  import Sentence from '../Sentence.svelte'
+  import { LOCKED_SENTENCE, chatToolName, terminalClosed } from '../terminal/api'
   import type { ChatProgressState } from '../gafferProgress'
   import { activeFollowGoal } from './stageActions'
 
-  let { session, host, status, project, skills, now, chat, chatProgress, supported = false, docked = false, onterminal, onkeydown, onclose, id }: {
+  let { session, host, status, project, skills, now, chat, chatProgress, supported = false, locked = false, docked = false, onterminal, onkeydown, onclose, id }: {
     session: TerminalSession; host: string; status: FleetCard['status'] | undefined
     project: string; skills: FleetCard['skills'] | null | undefined; now: number; chat?: ChatState; chatProgress?: ChatProgressState; supported?: boolean
+    /** The machine's owner locked it: reet reads nothing there and says so, in the place it says the machine is away. */
+    locked?: boolean
     /** The panel sits beside the terminal: it has a resize separator and its own collapse control. */
     docked?: boolean
     onterminal?: () => void; onkeydown?: (event: KeyboardEvent) => void; onclose?: () => void; id: string
@@ -69,7 +72,7 @@
     } catch { /* the read below shows the goal that is actually there */ }
     finally { if (alive) { unfollowBusy = false; await readFollow() } }
   }
-  const canRead = $derived(supported && status !== 'offline' && status !== 'paused')
+  const canRead = $derived(supported && !locked && status !== 'offline' && status !== 'paused')
   const view = $derived(tab === 'github' ? 'github' : tab === 'files' ? 'files' : 'status')
   const current = $derived(tab === 'github' ? github : tab === 'files' ? listing : workspace)
   const target = $derived(worktreeTargetOf(session))
@@ -184,10 +187,11 @@
 <aside class="context-panel" aria-label="Session context" data-keeps-focus {id} {onkeydown}>
   <header class="panel-head">
     <div class="panel-title"><strong>Session workspace</strong>{#if onclose && !docked}<button type="button" class="close-details" onclick={onclose}>Close details</button>{/if}</div>
-    <div class="panel-tools"><span class="connection" class:warn={status !== 'online'}><i></i>{status === 'online' ? 'Machine online' : status === 'offline' ? 'Machine offline' : status === 'paused' ? 'Machine paused' : 'Checking connection'}</span>{#if $gafferChatEntry}<button class="icon-button gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={20} /></button>{/if}<button class="icon-button" aria-label="Refresh session workspace" title="Refresh session workspace" disabled={!!pending[view] || (supported && !canRead)} aria-busy={!!pending[view] || legacyBusy} onclick={refresh}><InsightIcon name="refresh" /></button>{#if onclose && docked}<button class="icon-button collapse-panel" aria-label="Collapse session workspace" title="Collapse session workspace" onclick={onclose}><TerminalIcon name="panelRight" /></button>{/if}</div>
+    <div class="panel-tools"><span class="connection" class:warn={locked || status !== 'online'}><i></i>{locked ? 'Machine locked' : status === 'online' ? 'Machine online' : status === 'offline' ? 'Machine offline' : status === 'paused' ? 'Machine paused' : 'Checking connection'}</span>{#if $gafferChatEntry}<button class="icon-button gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={20} /></button>{/if}<button class="icon-button" aria-label="Refresh session workspace" title="Refresh session workspace" disabled={!!pending[view] || (supported && !canRead)} aria-busy={!!pending[view] || legacyBusy} onclick={refresh}><InsightIcon name="refresh" /></button>{#if onclose && docked}<button class="icon-button collapse-panel" aria-label="Collapse session workspace" title="Collapse session workspace" onclick={onclose}><TerminalIcon name="panelRight" /></button>{/if}</div>
     <div class="tabs" role="tablist" aria-label="Session workspace views">{#each tabs as item, i}<button id={`${id}-tab-${item.key}`} role="tab" aria-selected={tab === item.key} aria-controls={`${id}-view`} aria-label={item.key === 'github' && githubState ? `GitHub, ${githubState}` : undefined} tabindex={tab === item.key ? 0 : -1} onclick={() => pick(item.key)} onkeydown={e => tabKeys(e, i)}><InsightIcon name={item.key} /><span>{item.label}</span>{#if item.key === 'changes' && workspace?.changed}<small>{workspace.changed}</small>{/if}{#if item.key === 'github' && githubState}<i class="tab-dot" data-tone={githubTone} title={githubState} aria-hidden="true"></i>{/if}</button>{/each}</div>
   </header>
   <div class="panel-body" id={`${id}-view`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} tabindex="0">
+    {#if locked}<p class="callout" role="status"><Sentence text={LOCKED_SENTENCE} /></p>{/if}
     {#if tab === 'overview'}
       {#if session.structured}
         <div class="overview-gaffer">
@@ -205,7 +209,7 @@
     {:else if !supported}
       {#if tab === 'changes'}<section aria-label="Changed files"><h3>Changed files</h3>{#if !session.worktreePath}<p class="empty">Update reet on this machine to inspect changes in the checkout.</p>{:else if !target}<p class="empty">reet can't name this worktree, so its changes aren't listed here.</p>{:else if legacyList}<p><span class="total">{legacyList.total}</span> changed files</p><ul class="legacy-files">{#each legacyList.shown as path}<li>{path}</li>{/each}</ul>{#if legacyList.more}<p class="quiet">and {legacyList.more} more not listed.</p>{/if}{:else}<p class="empty">{legacyFailed ? "Couldn't read the changed files just now." : 'Checking…'}</p>{/if}{#if target}<button class="secondary" disabled={legacyBusy} aria-busy={legacyBusy} onclick={() => void readLegacy()}>Refresh changed files</button>{/if}</section>{:else}<p class="empty">Update reet on this machine to use {tab === 'github' ? 'GitHub status' : 'read-only file browsing'}.</p>{/if}
     {:else}
-      {#if !canRead}<p class="callout">The machine is offline or unavailable. Showing the last known view. Refresh when it reconnects.</p>{/if}
+      {#if !canRead && !locked}<p class="callout">The machine is offline or unavailable. Showing the last known view. Refresh when it reconnects.</p>{/if}
       {#if errors[view]}<p class="callout bad" role="status">{sentence(errors[view])}{current ? ' The previous result is shown below.' : ''}</p>{/if}
       {#if selected}
         <div class="preview-head"><button class="text-action" onclick={() => { selected = ''; requests.get('preview')?.abort(); pending.preview = false }}>← Back to {tab === 'changes' ? 'changes' : 'files'}</button><strong>{selected}</strong>{#if tab === 'changes'}<div class="preview-modes"><button aria-pressed={previewView === 'diff'} onclick={() => { previewView = 'diff'; void read('diff', selected) }}>Diff</button><button aria-pressed={previewView === 'file'} onclick={() => { previewView = 'file'; void read('file', selected) }}>File</button></div>{/if}</div>

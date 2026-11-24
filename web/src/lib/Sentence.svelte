@@ -3,7 +3,7 @@
   let { text }: { text: string } = $props()
   const parts = $derived(text.split('`'))
 </script>
-{#each parts as part, i}{#if i % 2}<code>{part}</code>{:else}{part}{/if}{/each}
+<span>{#each parts as part, i}{#if i % 2}<code>{part}</code>{:else}{part}{/if}{/each}</span>
 <style>
   code { font: 0.875em var(--mono); color: var(--ink); overflow-wrap: anywhere; }
 </style>

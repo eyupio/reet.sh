@@ -52,7 +52,8 @@
   async function read(quiet = false) {
     try {
       // A blocked machine is either not allowed to write skills or locked by its owner; only the agent list says which.
-      const [next, state] = await Promise.all([loadSyncSkills(), getSyncState().catch(() => null)])
+      const next = await loadSyncSkills()
+      const state = next.machines.some(m => m.state === 'blocked') ? await getSyncState().catch(() => null) : null
       if (destroyed) return
       data = next
       locked = new Set((state?.agents ?? []).filter(a => a.locked).map(a => a.id))

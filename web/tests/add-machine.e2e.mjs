@@ -642,19 +642,21 @@ try{
  await expect(card('workstation')).toBeVisible()
 
 
- // Enrolling a machine again from the list: its name is shown, not asked for; the command is `reet agent enroll`; the code step
+ // Enrolling a machine again from the list: its name is shown, not asked for; the command is `reet agent enroll --again`; the code step
  // follows; and the watch is done only when the machine goes from a personal token to its own key, not because it is online.
  {
   agents=agents.map(a=>a.id==='agent-ws'?{...a,legacyToken:true}:a)
   await page.goto(`${base}/machines`)
   await expect(card('workstation').locator('[data-legacy-token]')).toBeVisible()
   await card('workstation').getByRole('button',{name:'Enrol again: workstation'}).click()
-  const reenrol=`rm ~/.config/reet/agent.json && reet agent enroll --server ${q(SITE)} --env 'workstation' --allow-apply`
+  const reenrol='reet agent enroll --again'
   const d=page.getByRole('dialog',{name:'Enrol workstation again'})
   await expect(d).toBeVisible()
   await expect(d.getByLabel('Machine name')).toHaveCount(0)
   await expect(d.locator('pre.commands')).toHaveText(reenrol)
   await expect(d.locator('pre.commands')).not.toContainText('curl')
+  await expect(d).toContainText("It keeps this machine's settings and asks for the code.")
+  await expect(d).not.toContainText(/agent\.json|allow-apply/)
   expect(await d.locator('h3').allTextContents()).toEqual(['1Run it','2Give it an enrolment code'])
   await d.getByRole('button',{name:'Copy command'}).click()
   expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(reenrol)

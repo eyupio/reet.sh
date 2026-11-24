@@ -368,7 +368,7 @@ test('replacement connector waits for its own library report', () => {
   assert.equal(join.joinSyncState(ready, { machines: [old, replacement] }).canUse, true)
 })
 
-test('enrolling a machine again removes its saved agent file and keeps its name, quoted for a shell', () => {
-  assert.equal(reenrolCommand('https://reet.example', 'work-laptop'), "rm ~/.config/reet/agent.json && reet agent enroll --server 'https://reet.example' --env 'work-laptop' --allow-apply")
-  assert.equal(reenrolCommand('https://reet.example', " o'neil "), "rm ~/.config/reet/agent.json && reet agent enroll --server 'https://reet.example' --env 'o'\\''neil' --allow-apply")
+test('enrolling a machine again is one fixed command, with no file removal and no apply switch', () => {
+  assert.equal(reenrolCommand(), 'reet agent enroll --again')
+  assert.ok(!/rm |--allow-apply|--server|--env/.test(reenrolCommand()))
 })

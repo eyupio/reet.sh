@@ -75,7 +75,8 @@ try {
   if (run('legacy')) {
     const WHY = 'Enrolled with a personal API token, which can do anything your account can and never expires.'
     const HOW = 'On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.'
-    const CMD = u => `rm ~/.config/reet/agent.json && reet agent enroll --server '${u}' --env 'work-1' --allow-apply`
+    const CMD = 'reet agent enroll --again'
+    const KEEPS = "It keeps this machine's settings and asks for the code."
     const withLegacy = hosts => ({ ...sync, agents: sync.agents.map(a => ({ ...a, legacyToken: hosts.includes(a.host) })) })
     for (const [width, theme, touch] of [[1280, 'light', false], [390, 'dark', true]]) {
       const card = (page, host) => page.locator('article.machine').filter({ has: page.getByRole('heading', { name: host, exact: true }) })
@@ -90,7 +91,9 @@ try {
         await expect(how.getByText(HOW)).toBeHidden()
         await how.locator('summary').click()
         await expect(how.getByText(HOW)).toBeVisible()
-        await expect(how.locator('pre')).toHaveText(CMD(new URL(base).origin))
+        await expect(how.locator('pre')).toHaveText(CMD)
+        await expect(how.getByText(KEEPS)).toBeVisible()
+        await expect(how).not.toContainText(/agent\.json|allow-apply/)
         const again = card(page, 'work-1').getByRole('button', { name: 'Enrol again: work-1' })
         if (touch) {
           expect((await how.locator('summary').boundingBox()).height, 'how-to summary height').toBeGreaterThanOrEqual(44)
@@ -103,7 +106,7 @@ try {
         const dialog = page.getByRole('dialog', { name: 'Enrol work-1 again' })
         await expect(dialog).toBeVisible()
         await expect(dialog.getByLabel('Machine name')).toHaveCount(0)
-        await expect(dialog.locator('pre.commands')).toHaveText(CMD(new URL(base).origin))
+        await expect(dialog.locator('pre.commands')).toHaveText(CMD)
         expect(errors).toEqual([])
         await context.close()
       }
@@ -120,7 +123,7 @@ try {
         await expect(page.getByRole('button', { name: /^Enrol again: / })).toHaveCount(5)
         await expect(card(page, 'sync-3').locator('[data-legacy-token]')).toHaveCount(0)
         await note.locator('summary').click()
-        await expect(note.getByText('Use Enrol again on each machine, then revoke the token that machine used, under Account.')).toBeVisible()
+        await expect(note.getByText('On each machine run this with a new enrolment code, then revoke the token that machine used, under Account.')).toBeVisible()
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
         if (process.env.REET_E2E_SHOTS) {
           await note.screenshot({ path: `${process.env.REET_E2E_SHOTS}/legacy-five-note-${width}-${theme}.png` })

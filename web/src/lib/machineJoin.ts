@@ -35,9 +35,9 @@ export function joinCommands(site: string, name: string, channel: ReleaseChannel
   return `curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s --${channel === 'dev' ? ' --version dev' : ''} --server ${shellQuote(site)} --name ${shellQuote(host)}`
 }
 
-/** Enrol a machine that is already here again, in place: the same name, a new secret. The saved agent file goes first. */
-export function reenrolCommand(site: string, name: string): string {
-  return `rm ~/.config/reet/agent.json && reet agent enroll --server ${shellQuote(site)} --env ${shellQuote(name.trim())} --allow-apply`
+/** Run on a machine that is already here to enrol it again in place: it asks for the code and keeps every local setting. */
+export function reenrolCommand(): string {
+  return 'reet agent enroll --again'
 }
 
 export type JoinStage = 'waiting' | 'already_here' | 'connected' | 'first_scan' | 'syncing' | 'sync_issue' | 'ready' | 'unknown'

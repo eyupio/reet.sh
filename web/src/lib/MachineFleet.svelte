@@ -334,7 +334,9 @@
       <p class="legacy-why">A personal API token can do anything your account can and never expires.</p>
       <details class="legacy-how">
         <summary>How to change this</summary>
-        <p>Use Enrol again on each machine, then revoke the token that machine used, under Account.</p>
+        <p>On each machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
+        <pre class="legacy-cmd">{reenrolCommand()}</pre>
+        <p class="legacy-hint">It keeps this machine's settings and asks for the code.</p>
       </details>
     </div>
   {/if}
@@ -410,7 +412,8 @@
               <details class="legacy-how">
                 <summary>How to change this</summary>
                 <p>On that machine run this with a new enrolment code, then revoke the token that machine used, under Account.</p>
-                <pre class="legacy-cmd">{reenrolCommand(site, machine.host)}</pre>
+                <pre class="legacy-cmd">{reenrolCommand()}</pre>
+                <p class="legacy-hint">It keeps this machine's settings and asks for the code.</p>
               </details>
             {:else}
               <p class="legacy-line"><span class="mark" aria-hidden="true">!</span><span>Personal token</span></p>
@@ -592,6 +595,7 @@
   .legacy-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-weight: 500; }
   .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
   .legacy-cmd { margin: 0 0 10px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 0.875rem/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+  .legacy-hint { margin: -4px 0 10px; color: var(--muted); }
   .legacy-note { margin: 0 0 14px; }
   .legacy-why { margin: 0; color: var(--muted); }
   .legacy-how > summary { cursor: pointer; display: list-item; padding: 6px 0; color: var(--muted); }

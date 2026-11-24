@@ -87,3 +87,13 @@ export async function readPush(): Promise<{ status: PushStatus; device: PushDevi
   remember(health.device?.id ?? 0)
   return { status, device: health.device, stopped: health.state === 'stopped' }
 }
+
+/** Listens to the notifications worker: a tap on a notification asks a window the worker cannot move itself to open the
+ *  session. Only an address on this site is followed. */
+export function listenToWorker(): void {
+  if (!('serviceWorker' in navigator)) return
+  navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
+    const data = event.data as { type?: string; url?: unknown } | null
+    if (data?.type === 'reet-open' && typeof data.url === 'string' && data.url.startsWith('/') && !data.url.startsWith('//')) location.assign(data.url)
+  })
+}

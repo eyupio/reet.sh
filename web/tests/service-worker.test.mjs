@@ -49,3 +49,42 @@ test('without the old subscription nothing says this device was on, so nothing i
   assert.deepEqual(w.subscribed, [])
   assert.deepEqual(w.fetched, [])
 })
+
+// A reet window as clients.matchAll gives it, recording what is done to it.
+function win(url, { focused = false, visibilityState = 'visible', controlled = true } = {}) {
+  const done = []
+  const client = { url, focused, visibilityState, done, focus: async () => { done.push('focus'); return client }, postMessage: message => done.push(message) }
+  if (controlled) client.navigate = async to => { done.push(`navigate ${to}`); return client }
+  else client.navigate = async () => { throw new TypeError('not controlled') }
+  return client
+}
+const click = url => ({ notification: { close() {}, data: { url } } })
+const SESSION = '/sessions?agent=a1&session=s1&from=push'
+
+test('a tap brings forward a window already on that session as it is, whatever else its address says', async () => {
+  const other = win('https://reet.example/', { focused: true }), there = win('https://reet.example/sessions?view=terminal&agent=a1&session=s1', { visibilityState: 'hidden' })
+  const w = worker({ windows: [other, there] })
+  await w.fire('notificationclick', click(SESSION))
+  assert.deepEqual(there.done, ['focus'])
+  assert.deepEqual(other.done, [])
+  assert.deepEqual(w.opened, [])
+})
+
+test('a tap moves the reet window in front to the session, not just any window, and never stays on another page', async () => {
+  const back = win('https://reet.example/machines', { visibilityState: 'hidden' }), front = win('https://reet.example/sessions?session=s2', { focused: true })
+  const w = worker({ windows: [back, front] })
+  await w.fire('notificationclick', click(SESSION))
+  assert.deepEqual(front.done, ['focus', 'navigate https://reet.example/sessions?agent=a1&session=s1&from=push'])
+  assert.deepEqual(back.done, [])
+})
+
+test('a window the worker cannot move is asked to move itself; with no reet window a new one opens', async () => {
+  const page = win('https://reet.example/notifications', { controlled: false })
+  const w = worker({ windows: [page] })
+  await w.fire('notificationclick', click(SESSION))
+  assert.deepEqual(page.done, ['focus', { type: 'reet-open', url: SESSION }])
+  assert.deepEqual(w.opened, [])
+  const none = worker()
+  await none.fire('notificationclick', click(SESSION))
+  assert.deepEqual(none.opened, ['https://reet.example/sessions?agent=a1&session=s1&from=push'])
+})

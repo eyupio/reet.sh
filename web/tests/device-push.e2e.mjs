@@ -3,7 +3,7 @@
 // debugging protocol. The push service is never contacted: the page's subscription is a stand-in, and the worker's
 // question to the controller is answered here.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace } from './helpers/workspace.mjs'
+import { active, openWorkspace } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/this-phone'
@@ -186,6 +186,29 @@ try {
     const { page, card, context } = await open({ available: false })
     await expect(page.getByRole('heading', { name: 'What you hear about' })).toBeVisible()
     await expect(card).toHaveCount(0)
+    await context.close()
+  }
+
+  // A tap opens the session's own address: a chat session opens on its chat. A session removed before the tap lands on
+  // the sessions list, which says so in one line, and a reload does not say it again.
+  {
+    const A = 'connector-laptop000000001', S = 'session-chat000000000000001', now = Date.now()
+    const session = { id: S, agentId: A, title: 'OpenCode · site', state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: '/home/dev/site', structured: true }
+    const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true } }
+    let listed = [session]
+    const { page, context } = await openWorkspace(browser, { width: 390, height: 844, touch: true, terminalStatus: active, terminalMachines: [machine], routes: {
+      '/api/v2/terminal/sessions': () => ({ sessions: listed }), '/api/v2/folder-projects': { projects: [], savedWaiting: 0 },
+    } })
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}&from=push`)
+    await expect(page.locator('[data-session-presentation="chat"]')).toBeVisible()
+    await expect.poll(() => new URL(page.url()).searchParams.get('from')).toBe(null)
+    listed = []
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}&from=push`)
+    await expect(page.getByText('That session no longer exists, so here are your sessions.')).toBeVisible()
+    expect(new URL(page.url()).search).toBe('?view=list')
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Sessions', level: 1 })).toBeVisible()
+    await expect(page.getByText('That session no longer exists')).toHaveCount(0)
     await context.close()
   }
 

@@ -230,6 +230,14 @@
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
+    // A notification tapped after its session was removed lands here (gone=1, from the workspace): one line says so, and
+    // the address loses the flag so a reload does not say it again.
+    const url = new URL(location.href)
+    if (url.searchParams.get('gone') === '1') {
+      notice = { text: 'That session no longer exists, so here are your sessions.' }
+      url.searchParams.delete('gone')
+      history.replaceState(history.state, '', url)
+    }
     void load()
     void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) }).catch(() => { /* the safe default keeps history */ })
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)

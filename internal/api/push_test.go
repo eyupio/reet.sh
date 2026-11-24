@@ -172,7 +172,7 @@ func TestPushTellsAWaitingSessionOnce(t *testing.T) {
 		t.Fatalf("woken %+v", f.woken)
 	}
 	notes := f.pending(t)
-	if len(notes) != 1 || notes[0].Title != "Refactor the store layer" || notes[0].Body != "Needs you." || notes[0].URL != "/sessions?agent="+f.agent.ID+"&session="+sess.ID {
+	if len(notes) != 1 || notes[0].Title != "Refactor the store layer" || notes[0].Body != "Needs you." || notes[0].URL != "/sessions?agent="+f.agent.ID+"&session="+sess.ID+"&from=push" {
 		t.Fatalf("pending %+v", notes)
 	}
 	// The same bell is told once, however many times it is looked at.

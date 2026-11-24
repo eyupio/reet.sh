@@ -305,7 +305,9 @@ func (s *server) pushPending(w http.ResponseWriter, r *http.Request) {
 		if !wanted || kind != "waiting" && now.Sub(time.UnixMilli(at)) > pushFresh {
 			continue
 		}
-		notes = append(notes, pushNote{Tag: "reet-session-" + item.ID, Title: pushTitle(item), Body: pushBody(kind), URL: "/sessions?agent=" + item.AgentID + "&session=" + item.ID})
+		// The session opens on its own view: a chat (whose questions and approvals are asked there) on the chat, a
+		// terminal on the terminal. from=push lets the page say so when the session is gone by the time of the tap.
+		notes = append(notes, pushNote{Tag: "reet-session-" + item.ID, Title: pushTitle(item), Body: pushBody(kind), URL: "/sessions?agent=" + item.AgentID + "&session=" + item.ID + "&from=push"})
 		if len(notes) >= 4 {
 			break
 		}

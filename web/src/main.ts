@@ -4,8 +4,10 @@ import './workspace.css'
 import './dialog-shell.css'
 import App from './App.svelte'
 import { installCombobox } from './lib/combobox'
+import { listenToWorker } from './lib/push'
 
 installCombobox()
+listenToWorker()
 
 const target = document.getElementById('app')!
 

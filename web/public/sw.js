@@ -63,18 +63,33 @@ async function resubscribe(event) {
 
 self.addEventListener('pushsubscriptionchange', event => event.waitUntil(resubscribe(event)))
 
-// A tap opens the session: in a reet window that is already open, or a new one.
+// Whether an open window already shows what a tap asks for: the same session (whatever else its address carries, as
+// the workspace adds its own view to it), or for any other page the same address.
+function shows(clientUrl, target) {
+  const open = new URL(clientUrl)
+  if (open.origin !== target.origin) return false
+  const session = target.searchParams.get('session')
+  if (session) return open.pathname === target.pathname && open.searchParams.get('session') === session
+  return open.pathname === target.pathname && open.search === target.search
+}
+
+// A tap opens the session on the view that asked. A reet window already showing it is brought forward as it is, so
+// nothing typed there is lost. Otherwise the reet window in front (or any) is brought forward and moved there; a window
+// this worker cannot move itself (it does not control it) is asked to move, and with no reet window a new one opens.
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  const url = new URL(event.notification.data?.url || '/sessions', self.location.origin).href
+  const target = new URL(event.notification.data?.url || '/sessions', self.location.origin)
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const open = windows.find(client => client.url === url) || windows[0]
-    if (open) {
-      await open.focus()
-      if (open.url !== url && 'navigate' in open) await open.navigate(url).catch(() => self.clients.openWindow(url))
-      return
+    const same = windows.find(client => shows(client.url, target))
+    if (same) { await same.focus(); return }
+    const open = windows.find(client => client.focused) || windows.find(client => client.visibilityState === 'visible') || windows[0]
+    if (!open) { await self.clients.openWindow(target.href); return }
+    await open.focus().catch(() => {})
+    try {
+      if (!('navigate' in open) || !await open.navigate(target.href)) throw new Error('not moved')
+    } catch {
+      open.postMessage({ type: 'reet-open', url: target.pathname + target.search })
     }
-    await self.clients.openWindow(url)
   })())
 })

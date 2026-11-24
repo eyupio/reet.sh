@@ -260,6 +260,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	skipTerminalSetup := fs.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard after enrollment")
 	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
 	ifNeeded := fs.Bool("if-needed", false, "reuse an enrollment for the same site and machine (installer retries)")
+	again := fs.Bool("again", false, "enrol this machine again with an enrolment code, keeping every local setting (leaves a personal token behind)")
 	var projects multi
 	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -278,6 +279,24 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	*config = absoluteConfig
 	switch action {
 	case "enroll":
+		if *again {
+			for _, name := range []string{"token", "env-file"} {
+				if f := fs.Lookup(name); f.Value.String() != "" {
+					return errors.New("reet agent enroll --again takes an enrolment code, never a personal token: it exists to leave the token behind. Make a code under Machines, Add a machine")
+				}
+			}
+			var kept []string
+			fs.Visit(func(f *flag.Flag) {
+				switch f.Name {
+				case "server", "env", "project", "allow-apply", "if-needed":
+					kept = append(kept, "--"+f.Name)
+				}
+			})
+			if len(kept) != 0 {
+				return fmt.Errorf("reet agent enroll --again keeps this machine's settings as they are; leave out %s", strings.Join(kept, ", "))
+			}
+			return enrolAgain(*config, *code, *servicePrefix, in, out, version)
+		}
 		if _, err := os.Stat(*config); err == nil {
 			if *ifNeeded {
 				c, err := loadAgentConfig(*config)

@@ -38,6 +38,29 @@ func ResolveEnrolment(code, explicitToken, envFile, server string, in io.Reader,
 		fmt.Fprintf(out, "Enrolling with a personal API token from %s. A machine no longer needs one: make an enrolment code under Machines, Add a machine, and pass it with --code.\n", source)
 		return Enrolment{Token: token, Source: source}, nil
 	}
+	return askEnrolCode(server, in, out)
+}
+
+// ResolveEnrolCode is ResolveEnrolment without the personal token: --code,
+// then REET_ENROL_CODE, then the hidden prompt. With none, it says so.
+func ResolveEnrolCode(code, server string, in io.Reader, out io.Writer) (string, error) {
+	if code == "" {
+		code = strings.TrimSpace(os.Getenv("REET_ENROL_CODE"))
+	}
+	var got Enrolment
+	var err error
+	if code != "" {
+		got, err = enrolCode(code)
+	} else {
+		got, err = askEnrolCode(server, in, out)
+	}
+	if err == nil && got.Code == "" {
+		err = errors.New("an enrolment code is needed: make one under Machines, Add a machine, then type it when asked or set REET_ENROL_CODE")
+	}
+	return got.Code, err
+}
+
+func askEnrolCode(server string, in io.Reader, out io.Writer) (Enrolment, error) {
 	if !interactiveFn(in) {
 		return Enrolment{}, nil
 	}

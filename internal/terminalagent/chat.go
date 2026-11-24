@@ -409,6 +409,14 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create, ba
 // baseFresh is the connection's negotiated base-fresh-v1: without it a
 // worktree starts where a create always started it and nothing is fetched.
 func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay, baseFresh bool) (terminalproto.SessionChanged, error) {
+	// Every path that starts a chat (a create, a reattach, a swap) checks
+	// the machine's own switches again here, right before it starts.
+	if consent := h.sup.opts.Consent; consent != nil && consent() != nil {
+		return terminalproto.SessionChanged{}, terminalhost.ErrTerminalDisabled
+	}
+	if locked := h.sup.opts.Locked; locked != nil && locked() {
+		return terminalproto.SessionChanged{}, terminalhost.ErrLocked
+	}
 	if in.Tool == agentsoftware.OpenCodeTool {
 		release, err := lockSoftwareRead(h.sup.ctx)
 		if err != nil {

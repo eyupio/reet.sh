@@ -21,9 +21,16 @@ comment said "Nothing is stored"). Only the second needed work.
   back as text, halted: the first message shows Retry and nothing is sent until it is pressed, so a reload can never
   send a message twice. Pictures are never kept, so a queued message that had one comes back without it.
 - The chat message box is no longer disabled while the stream reconnects (nor is its dictation button). Send stays
-  disabled with the visible line "Reconnecting. Your message is kept." (the box's description), `send()` still refuses
+  disabled with the visible line "Reconnecting. Your message is kept. Send turns on when you are back." (the description
+  of the box and of Send; silent, the status line is the live region), `send()` still refuses
   while reconnecting, and nothing sends on reconnect. The terminal's Compose box already behaved this way and is
   unchanged. The chat Send and Stop buttons are now 44 px on a coarse pointer (they were 40).
+- After the critique: a restored chat draft shows the quiet line "Draft from earlier. Edit or send." under the box until
+  the first keystroke or a send; a restored queue says "Paused after a reload. Retry sends it." (it no longer claims
+  anything about pictures), queued messages with no text are not restored (the rest are), and the restored queue's Retry
+  is 44 px on a coarse pointer. The Compose key is named "Compose, unsent message kept" while a draft is kept (the dot,
+  now 8 px, stays decorative; 5.0:1 light and 7.3:1 dark against the toolbar), and the queue's note wraps instead of
+  being cut off. The controller queue's Retry in `ChatQueue.svelte` (30 px) is not part of this branch and is unchanged.
 - `web/tests/phone-drafts.e2e.mjs` (phone-chat group in `terminal-browser.yml`), 390 px, light and dark: restore,
   reconnect, no auto-send, sent clears, queue restore, other account, 15-day-old entry, rubbish and throwing storage,
   sign out, and the terminal Compose draft.

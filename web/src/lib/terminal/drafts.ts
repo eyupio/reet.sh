@@ -31,7 +31,8 @@ export function loadKept(store: Store, owner: number, session: string, now = Dat
   const kept: Kept = {}
   if (isText(entry.chat)) kept.chat = entry.chat
   if (isText(entry.compose)) kept.compose = entry.compose
-  if (Array.isArray(entry.queue) && entry.queue.every(isText) && entry.queue.length) kept.queue = entry.queue
+  const queue = Array.isArray(entry.queue) ? entry.queue.filter(isText) : [] // a message with no text has nothing to restore
+  if (queue.length) kept.queue = queue
   return Object.keys(kept).length ? kept : null
 }
 

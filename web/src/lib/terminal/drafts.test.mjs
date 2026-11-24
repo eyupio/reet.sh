@@ -65,6 +65,13 @@ test('clearing removes every draft of every account', () => {
   assert.equal(loadKept(s, 1, 'a', T), null); assert.equal(loadKept(s, 2, 'b', T), null)
 })
 
+test('queued messages with no text are not restored, and the others still are', () => {
+  const s = memory()
+  s.setItem(DRAFTS_KEY, JSON.stringify([{ u: 1, s: 'a', at: T, queue: ['x', '', 'y'] }, { u: 1, s: 'b', at: T, queue: ['', ''] }]))
+  assert.deepEqual(loadKept(s, 1, 'a', T), { queue: ['x', 'y'] })
+  assert.equal(loadKept(s, 1, 'b', T), null)
+})
+
 test('storage that is off, full or holds rubbish never throws', () => {
   assert.equal(loadKept(broken, 1, 'a', T), null)
   assert.doesNotThrow(() => { saveKept(broken, 1, 'a', { chat: 'x' }, T); clearKept(broken) })

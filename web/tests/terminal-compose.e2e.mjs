@@ -53,7 +53,7 @@ try {
   if (run('phone')) {
     const { page, inputs, errors, context } = await open({ width: 390, height: 844, touch: true })
     // The toolbar's Compose is in view without scrolling, and opens it without raising the keyboard over the terminal first.
-    const key = page.locator('.terminal-toolbar').getByRole('button', { name: 'Compose', exact: true })
+    const key = page.locator('.terminal-toolbar').getByRole('button', { name: /^Compose/ })
     await expect(key).toBeVisible()
     const keyBox = await key.boundingBox()
     expect(keyBox.x + keyBox.width).toBeLessThanOrEqual(390)
@@ -108,7 +108,7 @@ try {
 
   if (run('dictation')) {
     const { page, inputs, context } = await open({ width: 390, height: 844, touch: true, bracketed: true })
-    await page.locator('.terminal-toolbar').getByRole('button', { name: 'Compose', exact: true }).click()
+    await page.locator('.terminal-toolbar').getByRole('button', { name: /^Compose/ }).click()
     const dictate = sheet(page).getByRole('button', { name: 'Dictate', exact: true })
     await expect(dictate).toHaveAttribute('aria-pressed', 'false')
     await field(page).fill('Refactor the store')
@@ -141,7 +141,7 @@ try {
   if (run('no speech')) {
     // A browser with no speech recognition offers no Dictate button; the keyboard's own microphone still works in the field.
     const { page, context } = await open({ width: 390, height: 844, touch: true, dictation: false })
-    await page.locator('.terminal-toolbar').getByRole('button', { name: 'Compose', exact: true }).click()
+    await page.locator('.terminal-toolbar').getByRole('button', { name: /^Compose/ }).click()
     await expect(sheet(page).getByRole('button', { name: 'Send', exact: true })).toBeVisible()
     await expect(sheet(page).getByRole('button', { name: 'Dictate' })).toHaveCount(0)
     await context.close()
@@ -150,7 +150,7 @@ try {
   if (run('desktop')) {
     // On a mouse screen Ctrl+Enter sends, and focus goes back to the terminal.
     const { page, inputs, context, drop } = await open({ width: 1360, height: 900, touch: false, session: 't2' })
-    await page.locator('.terminal-toolbar').getByRole('button', { name: 'Compose', exact: true }).click()
+    await page.locator('.terminal-toolbar').getByRole('button', { name: /^Compose/ }).click()
     await expect(sheet(page).getByText('Message for the shell')).toBeVisible()
     await field(page).fill('ls -la')
     await page.keyboard.press('Control+Enter')
@@ -159,7 +159,7 @@ try {
     await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(true)
 
     // The connection goes while the box is open: nothing can be sent, and the text is kept.
-    await page.locator('.terminal-toolbar').getByRole('button', { name: 'Compose', exact: true }).click()
+    await page.locator('.terminal-toolbar').getByRole('button', { name: /^Compose/ }).click()
     await field(page).fill('still here')
     drop()
     await expect(sheet(page).getByText('Reconnect before sending. Your text is kept.')).toBeVisible()

@@ -348,7 +348,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   const input = event.currentTarget as HTMLTextAreaElement
   const value = input.value
   const query = slashQuery(value)
-  sentNote = null; noteSeq++
+  sentNote = null; noteSeq++; restoredDraft = false
   if (query !== null) {
    promptMenu = null
    if (!slashDismissed) openSkills(query)
@@ -394,14 +394,14 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  let awaitingWork = $state(false)
  // What is typed, and the browser-held queue, are kept in this browser (drafts.ts) so a reload or a discarded tab loses nothing. What was
  // kept comes back once per session, only into an empty field, and never takes focus. A restored queue waits for Retry: nothing sends by itself after a reload.
- let keptFor = ''
+ let keptFor = '', restoredDraft = $state(false)
  $effect(() => {
   const id = session.id, text = draft, list = queued, controlled = liveControls
   if (keptFor !== id) {
    keptFor = id
    const kept = restoreDraft(id)
-   if (kept?.chat && !text) draft = kept.chat
-   if (kept?.queue && !controlled && !list.length) { queued = kept.queue.map(item => ({ id: `queued-${++queueSeq}`, text: item, payload: [] })); queueHalted = true; queueNote = 'Kept after a reload. Retry sends it.' }
+   if (kept?.chat && !text) { draft = kept.chat; restoredDraft = true }
+   if (kept?.queue && !controlled && !list.length) { queued = kept.queue.map(item => ({ id: `queued-${++queueSeq}`, text: item, payload: [] })); queueHalted = true; queueNote = 'Paused after a reload. Retry sends it.' }
    return
   }
   keepDraft(id, { chat: text, queue: controlled ? [] : list.map(item => item.text) })
@@ -529,7 +529,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
-  sentNote = null
+  sentNote = null; restoredDraft = false
   const seq = ++noteSeq
   const kind = working || queued.length ? 'queued' : 'sent'
   if (!liveControls && (working || queued.length)) { queueCurrent(text); void noteUnlisted(text, seq, kind); return }
@@ -1077,7 +1077,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    {#if locked}<p class="notice" id={`${session.id}-locked`}>{locked}</p>{/if}
    <!-- The status line above is the live region; this reason stays beside the disabled Send and does not announce again. -->
-   {#if reconnecting}<p class="notice kept" id={`${session.id}-kept`}>Reconnecting. Your message is kept.</p>{/if}
+   {#if reconnecting}<p class="notice kept" id={`${session.id}-kept`}>Reconnecting. Your message is kept. Send turns on when you are back.</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
@@ -1090,6 +1090,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
    <!-- A live region has to be in the page before its text arrives, or a screen reader may skip it; the visible line is silent. -->
    <p class="vh" role="status" data-unlisted-status>{unlisted}</p>
    {#if unlisted}<p class="notice unlisted"><span aria-hidden="true">{unlisted}</span>{#if onterminal && terminal && terminal.way !== 'none'} <button type="button" class="link" onclick={onterminal}>{terminal.way === 'restart' ? 'Restart in terminal…' : 'Open terminal'}</button>{/if}</p>{/if}
+   {#if restoredDraft && draft}<p class="notice kept">Draft from earlier. Edit or send.</p>{/if}
    <div class="composer-bar">
     <div class="composer-tools">
      <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title={locked || 'Insert one of your saved prompts · or type \\ in the message'} disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
@@ -1306,7 +1307,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
  .queue-title b { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); font: 600 14px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); box-sizing: border-box; }
  .queue-icon { display: grid; place-items: center; color: var(--accent-text); }
  .queue-icon svg { width: 13px; height: 13px; }
- .queue-said { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); text-align: right; }
+ .queue-said { min-width: 0; margin-left: auto; overflow-wrap: anywhere; text-wrap: balance; font-size: 14px; color: var(--muted); text-align: right; }
  .queue-list { display: flex; flex-direction: column; gap: 3px; list-style: none; margin: 0; padding: 0; }
  .queue-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; min-height: 30px; padding: 4px 5px 4px 9px; border: 1px solid transparent; border-radius: 7px; background: var(--card); }
  .queue-list li.first { border-color: color-mix(in srgb, var(--accent) 26%, var(--line)); }
@@ -1431,6 +1432,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
   .field-actions .btn { min-height: 44px; }
   .queue-list li { min-height: 44px; }
   .queue-actions button { min-height: 36px; padding: 0 9px; }
+  .queue-actions .retry { min-height: 44px; }
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
   .qoption { min-height: 44px; align-items: center; }

@@ -40,7 +40,7 @@ func (s *server) registerSSORoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/auth/oidc/identity", s.ssoIdentity)
 	mux.HandleFunc("DELETE /api/v2/auth/oidc/identity", s.ssoUnlink)
 	mux.HandleFunc("GET /api/v2/admin/sso", s.requireAdmin(s.ssoAdminStatus))
-	mux.HandleFunc("PATCH /api/v2/admin/sso", s.requireOwner(s.ssoSettingsUpdate))
+	mux.HandleFunc("PATCH /api/v2/admin/sso", s.adminBrowser(s.requireOwner(s.ssoSettingsUpdate)))
 }
 
 // ssoStatus is the part of auth/status that tells the sign-in page what to offer.

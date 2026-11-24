@@ -319,6 +319,7 @@ func runVersionAt(dir string, args []string, out io.Writer, version string, mach
 	prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments; keeps installed files and shelf entries")
 	serverHost := fs.Bool("server-host", false, "register this process as a reet server")
 	envName := fs.String("env", clientconfig.EnvName(), "environment name for this machine (default hostname)")
+	agentConfig := fs.String("agent-config", AgentConfigPath(), "this machine's enrolment, used to report when no personal token is given")
 	var dirs multi
 	fs.Var(&dirs, "dir", "extra skills folder to scan (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -329,6 +330,24 @@ func runVersionAt(dir string, args []string, out io.Writer, version string, mach
 	}
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments; use --help")
+	}
+	usedEnrolment := false
+	if machine == nil && !*dry {
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		enrolled, err := scanEnrolment(*agentConfig, *token, *tokenEnvFile, server, envName, set["env"])
+		if err != nil {
+			return err
+		}
+		if enrolled != nil && enrolled.Token != "" {
+			// Enrolled with a personal token: it reports, and reconciles, with it.
+			*token = enrolled.Token
+			enrolled = nil
+		}
+		machine, usedEnrolment = enrolled, enrolled != nil
+		if usedEnrolment && *reconcile {
+			fmt.Fprintf(out, "--reconcile skipped: merging machine names needs a personal API token (or Merge on the Machines page); reporting as %s.\n", machine.Host)
+		}
 	}
 	r, err := RunReport(ReportOptions{
 		Server:      *server,
@@ -355,7 +374,39 @@ func runVersionAt(dir string, args []string, out io.Writer, version string, mach
 	if success || r.Sent {
 		RenderResult(out, r)
 	}
+	if clientconfig.IsRejected(err) && !usedEnrolment && machine == nil {
+		err = fmt.Errorf("%w. To report from this machine, enrol it with reet agent enroll (an enrolment code from Machines, Add a machine), or give a personal API token", err)
+	}
 	return err
+}
+
+// scanEnrolment is the machine's own enrolment a standalone scan reports
+// with when no personal token is given, flagged, exported, in an env file or
+// saved (a token still wins). Its secret goes only to the controller it was
+// made for, and only for its own name (a machine enrolled with a personal
+// token sends that token too). With no enrolment it returns nil and
+// the scan carries on as before.
+func scanEnrolment(path, token, tokenFile string, server, env *string, envSet bool) (*agentConfig, error) {
+	found, _, err := clientconfig.ResolveTokenSource(token, tokenFile, strings.NewReader(""), io.Discard)
+	if err != nil || found != "" {
+		return nil, err
+	}
+	c, err := loadAgentConfig(path)
+	if err != nil || c.ID == "" || c.Secret == "" {
+		return nil, nil
+	}
+	if *server == "" {
+		*server = c.Server
+	}
+	if origin, err := controllerOrigin(*server); err != nil || !strings.EqualFold(origin, c.Server) {
+		return nil, fmt.Errorf("this machine is enrolled with %s, not %s; scan that controller, or give a personal API token for this one", c.Server, *server)
+	}
+	if !envSet {
+		*env = c.Host
+	} else if !strings.EqualFold(strings.TrimSpace(*env), c.Host) {
+		return nil, fmt.Errorf("this machine is enrolled as %s; its enrolment reports only under that name, so use --env %s or give a personal API token", c.Host, c.Host)
+	}
+	return &c, nil
 }
 
 func sourceForScope(global, project map[string]string, scope, name string) string {

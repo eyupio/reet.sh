@@ -589,7 +589,15 @@ Developed by [EyUp.io](https://eyup.io)
 
 For scan authentication, export `REET_TOKEN`, use `reet scan --env-file .env`, or
 enter a personal API token at the hidden interactive prompt. Tokens entered at
-the prompt are not saved. See [scanner authentication](docs/binary-installation.md#scanner-authentication).
+the prompt are not saved. On a machine enrolled with `reet agent enroll` and no personal token anywhere,
+`reet scan` reports with the machine's own enrolment instead (`--agent-config`
+names another enrolment file): only to the controller it was enrolled with and
+only under its own name, so `--server` and `--env` may be left out and a
+different one is refused before anything is sent. `--reconcile` is then skipped
+with one line, since merging machine names needs a personal token or **Merge** on
+the Machines page; the inventory still goes. A token, when there is one, wins.
+The running agent scans by itself as soon as `reet agent run` starts and every
+minute after, so an enrolled machine needs no manual scan. See [scanner authentication](docs/binary-installation.md#scanner-authentication).
 
 Interactive commands also ask for missing sync targets, restore identifiers,
 backup paths, passwords and keys when needed. Saved values are used first;

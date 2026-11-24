@@ -106,7 +106,7 @@ var details = map[string]string{
 	"upgrade":      "Check, verify and install a newer release. Asks before it changes owt.",
 	"backup":       "List, take and restore sealed copies of your instance, so nowt gets lost.",
 	"branches":     "See which local branches are already merged, and tidy them away.",
-	"scan":         "Tek stock of the skills on this machine and report them to your account. Uses the URL and token already in your .env.",
+	"scan":         "Tek stock of the skills on this machine and report them to your account. Uses the URL and token already in your .env, or this machine's own enrolment when there's no token.",
 	"setup":        "Discover, save and restore agent setups so every machine's set up reight.",
 	"agent enroll": "Enrol this machine with a controller, using an enrolment code from Machines, Add a machine, typed when asked or set in REET_ENROL_CODE. The machine keeps only its own id and secret, never a personal token. --again moves a machine enrolled with a personal token to a code and keeps its local settings.",
 	"agent status": "This machine's enrolment and its background agent. Read-only.",

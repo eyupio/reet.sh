@@ -28,6 +28,9 @@ type codeController struct {
 	uid       int64
 	mu        sync.Mutex
 	withToken []string
+	// imports are the inventory reports, each noted "machine" when it
+	// carried the machine's headers and "token" when it carried a token.
+	imports []string
 }
 
 func newCodeController(t *testing.T) *codeController {
@@ -50,6 +53,15 @@ func newCodeController(t *testing.T) *codeController {
 		c.mu.Lock()
 		if tok != "" && !strings.Contains(tok, clientconfig.EnrolCodePrefix) {
 			c.withToken = append(c.withToken, r.URL.Path)
+		}
+		if r.URL.Path == "/api/import" {
+			how := "none"
+			if tok != "" {
+				how = "token"
+			} else if r.Header.Get("X-Reet-Agent-Key") != "" {
+				how = "machine"
+			}
+			c.imports = append(c.imports, how)
 		}
 		c.mu.Unlock()
 		h.ServeHTTP(w, r)

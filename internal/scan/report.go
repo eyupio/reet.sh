@@ -99,7 +99,7 @@ func RunReport(opts ReportOptions) (Report, error) {
 		}
 		server = value
 	}
-	machine := opts.Machine != nil && opts.Token == "" && !opts.Reconcile
+	machine := opts.Machine != nil && opts.Token == ""
 	var cred *clientconfig.Credential
 	if !opts.DryRun && !machine {
 		tokenInput := input
@@ -125,7 +125,11 @@ func RunReport(opts ReportOptions) (Report, error) {
 	if opts.DryRun {
 		return r, found.Err()
 	}
-	if opts.Reconcile {
+	if opts.Reconcile && machine {
+		// The merge rewrites the account's machine names, which a machine's
+		// own secret may not do (reet scan says so); the inventory still goes
+		// under its name.
+	} else if opts.Reconcile {
 		hostname, err := os.Hostname()
 		if err != nil || hostname == "" {
 			return r, errors.New("cannot reconcile this machine without a hostname")

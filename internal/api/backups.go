@@ -21,24 +21,26 @@ import (
 func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	// The instance's copies and destinations: the owner configures, admins read.
 	mux.HandleFunc("GET /api/v2/admin/backups", s.requireAdmin(s.adminBackups))
-	mux.HandleFunc("PATCH /api/v2/admin/backups", s.requireOwner(s.adminBackupSettings))
-	mux.HandleFunc("POST /api/v2/admin/backups/run", s.requireOwner(s.adminBackupRun))
+	mux.HandleFunc("PATCH /api/v2/admin/backups", s.adminBrowser(s.requireOwner(s.adminBackupSettings)))
+	mux.HandleFunc("POST /api/v2/admin/backups/run", s.adminBrowser(s.requireOwner(s.adminBackupRun)))
 	mux.HandleFunc("GET /api/v2/admin/backups/remotes", s.requireAdmin(s.adminBackupRemotes))
-	mux.HandleFunc("POST /api/v2/admin/backups/remotes", s.requireOwner(s.adminBackupRemoteCreate))
-	mux.HandleFunc("POST /api/v2/admin/backups/remotes/test", s.requireOwner(s.adminBackupRemoteTestDraft))
-	mux.HandleFunc("PATCH /api/v2/admin/backups/remotes/{name}", s.requireOwner(s.adminBackupRemoteUpdate))
-	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}", s.requireOwner(s.adminBackupRemoteDelete))
-	mux.HandleFunc("POST /api/v2/admin/backups/remotes/{name}/test", s.requireOwner(s.adminBackupRemoteTest))
+	mux.HandleFunc("POST /api/v2/admin/backups/remotes", s.adminBrowser(s.requireOwner(s.adminBackupRemoteCreate)))
+	mux.HandleFunc("POST /api/v2/admin/backups/remotes/test", s.adminBrowser(s.requireOwner(s.adminBackupRemoteTestDraft)))
+	mux.HandleFunc("PATCH /api/v2/admin/backups/remotes/{name}", s.adminBrowser(s.requireOwner(s.adminBackupRemoteUpdate)))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}", s.adminBrowser(s.requireOwner(s.adminBackupRemoteDelete)))
+	mux.HandleFunc("POST /api/v2/admin/backups/remotes/{name}/test", s.adminBrowser(s.requireOwner(s.adminBackupRemoteTest)))
 	mux.HandleFunc("GET /api/v2/admin/backups/remotes/{name}/copies", s.requireAdmin(s.adminBackupRemoteCopies))
-	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}/copies/{id}", s.requireOwner(s.adminBackupRemoteCopyDelete))
-	mux.HandleFunc("POST /api/v2/admin/backups/offsite", s.requireOwner(s.adminBackupOffsite))
-	mux.HandleFunc("POST /api/v2/admin/backups/prune", s.requireOwner(s.adminBackupPrune))
-	mux.HandleFunc("GET /api/v2/admin/backups/items/{id}/download", s.requireOwner(s.adminBackupDownload))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/remotes/{name}/copies/{id}", s.adminBrowser(s.requireOwner(s.adminBackupRemoteCopyDelete)))
+	mux.HandleFunc("POST /api/v2/admin/backups/offsite", s.adminBrowser(s.requireOwner(s.adminBackupOffsite)))
+	mux.HandleFunc("POST /api/v2/admin/backups/prune", s.adminBrowser(s.requireOwner(s.adminBackupPrune)))
+	mux.HandleFunc("GET /api/v2/admin/backups/items/{id}/download", s.adminBrowser(s.requireOwner(s.adminBackupDownload)))
 	mux.HandleFunc("POST /api/v2/admin/backups/items/{id}/verify", s.requireAdmin(s.adminBackupVerify))
-	mux.HandleFunc("DELETE /api/v2/admin/backups/items/{id}", s.requireOwner(s.adminBackupDelete))
-	mux.HandleFunc("GET /api/v2/admin/backups/import", s.requireOwner(s.adminImportPending))
-	mux.HandleFunc("POST /api/v2/admin/backups/import", s.requireOwner(s.adminImportStage))
-	mux.HandleFunc("DELETE /api/v2/admin/backups/import", s.requireOwner(s.adminImportCancel))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/items/{id}", s.adminBrowser(s.requireOwner(s.adminBackupDelete)))
+	// A staged import replaces the database at the next start; its report names
+	// owners, the safety copy's path and the secrets it cleared.
+	mux.HandleFunc("GET /api/v2/admin/backups/import", s.adminBrowser(s.requireOwner(s.adminImportPending)))
+	mux.HandleFunc("POST /api/v2/admin/backups/import", s.adminBrowser(s.requireOwner(s.adminImportStage)))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/import", s.adminBrowser(s.requireOwner(s.adminImportCancel)))
 
 	// A person's own copies. A viewer may read; only a writer may change anything.
 	mux.HandleFunc("GET /api/v2/backups", s.userBackups)
@@ -640,6 +642,14 @@ func zipBackup(id string, payload []byte) ([]byte, error) {
 }
 
 func (s *server) verifyBackup(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
+	// Each verify may fetch and open a whole off-site copy, and one with a
+	// password is a guess at it, so an account has a small budget.
+	key := "backup-verify:" + strconv.FormatInt(s.uid(r), 10)
+	if !s.verifyLimiter.Take(key) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(s.verifyLimiter.Wait(key).Seconds())+1))
+		writeErr(w, http.StatusTooManyRequests, "too many copies verified in the last hour; try again later")
+		return
+	}
 	result := svc.VerifyWithPassword(r.Context(), ownerID, r.PathValue("id"), backupPassword(r))
 	writeJSON(w, 200, result)
 }

@@ -58,12 +58,12 @@ var teamMailEvents = []mailEventView{
 
 func (s *server) registerMailRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/admin/mail", s.requireAdmin(s.mailSettings))
-	mux.HandleFunc("PATCH /api/v2/admin/mail", s.requireOwner(s.saveMailSettings))
-	mux.HandleFunc("POST /api/v2/admin/mail/check", s.requireOwner(s.checkMailSettings))
-	mux.HandleFunc("POST /api/v2/admin/mail/test", s.requireOwner(s.testMail))
+	mux.HandleFunc("PATCH /api/v2/admin/mail", s.adminBrowser(s.requireOwner(s.saveMailSettings)))
+	mux.HandleFunc("POST /api/v2/admin/mail/check", s.adminBrowser(s.requireOwner(s.checkMailSettings)))
+	mux.HandleFunc("POST /api/v2/admin/mail/test", s.adminBrowser(s.requireOwner(s.testMail)))
 	mux.HandleFunc("GET /api/v2/admin/mail/dns", s.requireAdmin(s.mailDNS))
 	mux.HandleFunc("GET /api/v2/admin/mail/outbox", s.requireAdmin(s.mailOutbox))
-	mux.HandleFunc("POST /api/v2/admin/mail/outbox/resend", s.requireOwner(s.resendMail))
+	mux.HandleFunc("POST /api/v2/admin/mail/outbox/resend", s.adminBrowser(s.requireOwner(s.resendMail)))
 	mux.HandleFunc("POST /api/v2/auth/forgot", s.forgotPassword)
 	mux.HandleFunc("POST /api/v2/auth/reset", s.resetPassword)
 	mux.HandleFunc("GET /api/v2/groups/{id}/notifications", s.groupNotifications)

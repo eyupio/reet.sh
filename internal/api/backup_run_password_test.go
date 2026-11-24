@@ -22,7 +22,8 @@ func copiesIn(t *testing.T, tg target) []string {
 	return m
 }
 
-// runRequest sends the run route with a raw body (or none) and a JSON type.
+// runRequest sends the run route with a raw body (or none) and a JSON type,
+// from the browser session the credential names: running a copy needs one.
 func runRequest(t *testing.T, tg target, token string, body *string) reply {
 	t.Helper()
 	var rd io.Reader = http.NoBody
@@ -31,7 +32,7 @@ func runRequest(t *testing.T, tg target, token string, body *string) reply {
 	}
 	req, _ := http.NewRequest("POST", tg.url+runPath, rd)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	return doImport(t, req)
 }
 

@@ -375,7 +375,7 @@
   {#if canWrite}
     <form onsubmit={makeToken} aria-busy={busy === 'token'}>
       <label for="token-name">Token name</label>
-      <div class="createrow"><input id="token-name" bind:value={tokenName} placeholder="e.g. backup script" autocomplete="off" required disabled={!!busy} /><button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button></div>
+      <div class="createrow"><input id="token-name" bind:value={tokenName} placeholder="e.g. scan script" autocomplete="off" required disabled={!!busy} /><button type="submit" class="btn primary" disabled={!!busy}>{busy === 'token' ? 'Creating…' : 'Create token'}</button></div>
     </form>
     {#if freshToken}<div class="fresh" role="status"><p>Reet, token created. Copy it now; it disappears when you leave this page.</p><div class="token-secret"><code>{freshToken}</code><CopyButton text={freshToken} label="Copy token" /></div></div>{/if}
   {/if}
@@ -593,7 +593,7 @@
     {:else}
       <section class="block" aria-labelledby="create-token-title">
         <h2 id="create-token-title">Create a token</h2>
-        <p class="muted">Use a token with scripts and API clients. A token is shown once, then only its name remains. Machines use enrolment codes: add a machine, on the Machines page.</p>
+        <p class="muted">Use a token with scripts and API clients. A token is shown once, then only its name remains. Machines use enrolment codes: add a machine, on the Machines page. Admin changes, such as instance backups, users and settings, are made from a signed-in browser, not with a token.</p>
         {@render tokenForm()}
       </section>
 

@@ -113,7 +113,7 @@ func (s *server) browserOnly(action, offMessage string, next http.HandlerFunc) h
 			writeErr(w, 401, "sign in to "+action)
 			return
 		}
-		if !mcpSameOrigin(r) {
+		if !s.sameOrigin(r) {
 			writeErr(w, 403, "cross-site requests are not allowed")
 			return
 		}
@@ -121,13 +121,17 @@ func (s *server) browserOnly(action, offMessage string, next http.HandlerFunc) h
 	}
 }
 
-func mcpSameOrigin(r *http.Request) bool {
+// sameOrigin reports whether a browser request comes from this instance's own
+// pages: its Origin names the Host it was sent to, or, behind a proxy that
+// rewrites Host, exactly the configured public origin.
+func (s *server) sameOrigin(r *http.Request) bool {
 	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 		return false
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
-		return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host == r.Host && u.User == nil
+		sameHost := err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host == r.Host && u.User == nil
+		return sameHost || s.terminalOrigin(r)
 	}
 	return true
 }

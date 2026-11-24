@@ -16,10 +16,13 @@ import (
 func (s *server) registerProfileRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/profile", s.profileGet)
 	mux.HandleFunc("PATCH /api/v2/profile", s.profileSave)
-	mux.HandleFunc("POST /api/v2/profile/password", s.requireWriter(s.profilePassword))
-	mux.HandleFunc("GET /api/v2/profile/sessions", s.profileSessions)
-	mux.HandleFunc("DELETE /api/v2/profile/sessions/{id}", s.requireWriter(s.profileEndSession))
-	mux.HandleFunc("POST /api/v2/profile/sessions/end-others", s.requireWriter(s.profileEndOtherSessions))
+	// A token must not end its person's sessions or change their password:
+	// it could keep them signed out, and only a browser can revoke it.
+	sessions := func(h http.HandlerFunc) http.HandlerFunc { return s.accountBrowser("manage your sessions", h) }
+	mux.HandleFunc("POST /api/v2/profile/password", s.accountBrowser("change your password", s.requireWriter(s.profilePassword)))
+	mux.HandleFunc("GET /api/v2/profile/sessions", sessions(s.profileSessions))
+	mux.HandleFunc("DELETE /api/v2/profile/sessions/{id}", sessions(s.requireWriter(s.profileEndSession)))
+	mux.HandleFunc("POST /api/v2/profile/sessions/end-others", sessions(s.requireWriter(s.profileEndOtherSessions)))
 	mux.HandleFunc("GET /api/v2/profile/activity", s.profileActivity)
 }
 

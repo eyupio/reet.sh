@@ -26,7 +26,7 @@ func (s *server) privateSkillAccess(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 400, "Private skill requests do not accept query parameters.")
 			return
 		}
-		sameOrigin := r.Header.Get("Origin") != "" && privateSkillSameOrigin(r)
+		sameOrigin := r.Header.Get("Origin") != "" && s.privateSkillSameOrigin(r)
 		noToken := r.Method != http.MethodGet && requestToken(r) == "" && !machineAuthenticated(r)
 		if noToken && !sameOrigin {
 			writeErr(w, 403, "Private skill writes require a same-origin browser request or personal API token.")
@@ -35,9 +35,9 @@ func (s *server) privateSkillAccess(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r)
 	}
 }
-func privateSkillSameOrigin(r *http.Request) bool {
+func (s *server) privateSkillSameOrigin(r *http.Request) bool {
 	origin, err := url.Parse(r.Header.Get("Origin"))
-	return err == nil && mcpSameOrigin(r) && origin.Path == "" && origin.RawQuery == "" && !origin.ForceQuery && origin.Fragment == ""
+	return err == nil && s.sameOrigin(r) && origin.Path == "" && origin.RawQuery == "" && !origin.ForceQuery && origin.Fragment == ""
 }
 func (s *server) registerPrivateSkillRoutes(mux *http.ServeMux) {
 	s.registerCanonicalLibrary(mux)

@@ -781,7 +781,6 @@
      toolbar and key rows at 40 × 40 px: terminal-phone.e2e.mjs holds each of those rows to 42 px (a 44 px target would make
      them 45), and the menus and footer, which are not rows of that cap, are 44. */
   @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.key-fixed,.key-tabs {padding-top:0;padding-bottom:0}footer {padding-top:0;padding-bottom:0}}
-  @media(max-width:650px) and (pointer:coarse) and (orientation:portrait) {.tools button,.controls>button,.session-menu>summary,.key-tray button {min-width:40px;min-height:40px}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */
   @media(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     .tool-rows {display:flex;flex-shrink:0;min-width:0;border-bottom:1px solid var(--line)}

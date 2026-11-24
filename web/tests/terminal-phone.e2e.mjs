@@ -171,11 +171,11 @@ try{
  expect(tickets[0].cols).toBeGreaterThanOrEqual(50)
  // The first attach is not nudged: tmux repaints its grid on attach.
  await settle(page,frames);expect(frames.filter(frame=>frame.rows<tickets[0].rows)).toEqual([])
- // Compact one-line chrome; the toolbar and extra keys are 40 × 40 px or larger, the header controls 40 px tall.
- for(const selector of ['.pane>header','.terminal-toolbar','.mobile-keys'])expect((await box(page,selector)).height).toBeLessThanOrEqual(42)
- for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(40);expect(size.width).toBeGreaterThanOrEqual(40)}
- for(const control of await page.locator('.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(40)
- // The footer and the Manage menu are not rows held to 42 px: their targets are 44 × 44 px.
+ // Compact one-line chrome: each row is one 44 px target plus its border (at most 46), and every toolbar, key and header control is 44 × 44 px or larger.
+ for(const selector of ['.pane>header','.terminal-toolbar','.mobile-keys'])expect((await box(page,selector)).height).toBeLessThanOrEqual(46)
+ for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(44);expect(size.width).toBeGreaterThanOrEqual(44)}
+ for(const control of await page.locator('.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44)
+ // The footer and the Manage menu are 44 × 44 px targets too.
  await targetsAtLeast(page,'.pane>footer button',44,'390 portrait')
  await page.locator('.session-menu>summary').click()
  await targetsAtLeast(page,'.session-menu button',44,'390 portrait')
@@ -266,7 +266,7 @@ try{
  const more=page.getByRole('group',{name:'More terminal keys',exact:true})
  await expect(more).toBeVisible()
  const moreBox=await more.boundingBox()
- expect(moreBox.height).toBeLessThanOrEqual(42)
+ expect(moreBox.height).toBeLessThanOrEqual(46)
  expect((await keys.boundingBox()).y).toBe(firstRowTop)
  expect(moreBox.y+moreBox.height).toBeLessThanOrEqual(firstRowTop+1)
  // The screen gives up the row's height and the line between the two rows, and no more.

@@ -1,4 +1,4 @@
-## TOUCH-TARGETS-1: the terminal toolbar and the chat queue reach the 44 px touch rule, except three rows on a portrait phone (24 November 2026)
+## TOUCH-TARGETS-1: the terminal toolbar and the chat queue reach the 44 px touch rule (24 November 2026)
 
 Two sets of controls were under the product's 44 px rule on a coarse pointer: the terminal pane's toolbar, key row,
 header controls, menus and footer button (40 px, the menus 32 px), and the buttons in `ChatQueue.svelte` (30 px).
@@ -10,17 +10,14 @@ What changed.
   44 px row (class `confirm`) with a 24 px box. Nothing changes with a mouse.
 - `TerminalPane.svelte`: on `pointer:coarse` the toolbar, key row, pane header controls, Manage menu items, the
   copy and paste menu and the footer buttons are 44 × 44 px. The two tablet rules that kept the toolbar at 40 px and
-  the key row at 44 px are gone, because the base rule says 44 now. A phone held upright
-  (`max-width:650px`, `orientation:portrait`) puts the header controls, toolbar and key row back to 40 × 40 px.
+  the key row at 44 px are gone, because the base rule says 44 now. A first version of this change kept the header
+  controls, toolbar and key row of a phone held upright at 40 px (a rule at `max-width:650px`, `orientation:portrait`)
+  because `terminal-phone.e2e.mjs` capped those rows at 42 px. A review pointed out that this made the main phone layout
+  an exception to the 44 px rule, and the owner chose 44 px everywhere: the rule is deleted and the test's three row caps
+  and the open More keys row cap are 46 px (a 44 px target and its border).
 - Held sideways (`max-height:500px`), a keyboard-open screen would have been 2 px short of its fourth row, so
   `.pane.keyboard .screen-frame` there takes 2 px of padding instead of 4 px above and below.
 - `docs/terminal-workspace.md` says so.
-
-Why three rows stay at 40 px. `terminal-phone.e2e.mjs` (390 × 844, around line 169) holds `.pane>header`,
-`.terminal-toolbar` and `.mobile-keys` to a height of at most 42 px, and the open "More terminal keys" row to 42 px
-(around line 258). A 44 px target makes the header and toolbar 45 px and the key row 44 px. The tests'
-requirements were not changed, so those rows and their buttons stay at 40 px on a phone held upright. The footer and
-the menus are not in that cap and are 44 px.
 
 Numbers (Chromium, `hasTouch`, DejaVu Sans Mono, the fixture app of `terminal-phone.e2e.mjs`, full chrome unless said).
 
@@ -34,9 +31,11 @@ Numbers (Chromium, `hasTouch`, DejaVu Sans Mono, the fixture app of `terminal-ph
 | 844 × 390, keyboard open | 4 rows | 4 rows (3 without the 2 px padding change) |
 | 915 × 412, keyboard open | 4 rows | 4 rows |
 
-Targets: on a portrait phone the toolbar, key row and header controls stay 40 px, the footer button goes from 40 to 44 and
-the Manage menu items from 32 to 44. Held sideways and on a touch tablet the toolbar, key row and header controls go from
-40 to 44 (the tablet's footer, menus and key row already were). Chat queue buttons go from 30 to 44.
+Targets: the toolbar, key row and header controls go from 40 to 44 on every touch screen, the footer button from 40 to 44
+and the Manage menu items from 32 to 44 (the tablet's footer, menus and key row already were). Chat queue buttons go from
+30 to 44. The table above was measured with the portrait rows still at 40 px; for the final change `terminal-phone` and
+the other suites pass, and a trial of this same change had 390 × 844 at 53 columns and 33 rows and took 320 × 568 from
+11 rows to 10 (the screen from 144 to 132 px). 320 × 568 has no test and was not re-measured after the final edit.
 
 Tests. `terminal-phone.e2e.mjs` has `targetsAtLeast`: the portrait footer and Manage menu, the sideways toolbar, key row
 and header controls (844 × 390 and 915 × 412) and the tablet toolbar, key row, header controls and footer are at least
@@ -47,7 +46,4 @@ the fixtures.
 
 Not checked: a real phone (all of this is Chromium emulation with synthesised touch), Safari, a screen with the
 browser's own chrome shrinking the viewport, the copy and paste menu's 44 px (changed, no assertion), and the
-320 px landscape range. The pane's `.agent-copy button` (40 px) and the workspace toolbar's 40 px buttons are not part
-of this branch. To make the portrait phone 44 px as well, the three 42 px limits in `terminal-phone.e2e.mjs` have to
-move to 46 first; the sent rows at 390 × 844 stay 33 and the columns 53, but a trial with everything at 44 px took 320 × 568
-from 11 rows to 10 (the screen from 144 to 132 px).
+320 px landscape range. The pane's `.agent-copy button` (40 px) and the workspace toolbar's 40 px buttons are not part of this change.

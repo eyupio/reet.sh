@@ -2,10 +2,10 @@ name: Gaffer settings browser
 
 on:
   pull_request:
-    paths: ['web/**', '.github/workflows/gaffer-settings.yml']
+    paths: ['web/**', 'scripts/run-browser-suites.sh', '.github/workflows/gaffer-settings.yml']
   push:
     branches: [main]
-    paths: ['web/**', '.github/workflows/gaffer-settings.yml']
+    paths: ['web/**', 'scripts/run-browser-suites.sh', '.github/workflows/gaffer-settings.yml']
 
 permissions:
   contents: read
@@ -15,9 +15,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gaffer-settings:
+  # The 19 scripts (web/tests/ci-gaffer-settings.txt) used to run one after another in one job and took about 11 minutes, the
+  # longest of the browser jobs. They run as three shards side by side through scripts/run-browser-suites.sh, which runs every
+  # script and names every one that failed. The job named gaffer-settings, below, is the one result that waits for them.
+  gaffer-ui:
+    name: gaffer-settings (${{ matrix.shard }})
     runs-on: zoomies-linux-x64
     timeout-minutes: 30
+    strategy:
+      # One failing shard must not hide the others' results.
+      fail-fast: false
+      matrix:
+        shard: ['1', '2', '3']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,28 +55,22 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          node web/tests/skill-buddy.e2e.mjs
-          node web/tests/gaffer-settings.e2e.mjs
-          node web/tests/gaffer-chat.e2e.mjs
-          node web/tests/gaffer-tools.e2e.mjs
-          node web/tests/gaffer-context.e2e.mjs
-          node web/tests/gaffer-worker.e2e.mjs
-          node web/tests/gaffer-goal.e2e.mjs
-          node web/tests/stage-follow.e2e.mjs
-          node web/tests/gaffer-followed.e2e.mjs
-          node web/tests/gaffer-floor.e2e.mjs
-          node web/tests/gaffer-outcome.e2e.mjs
-          node web/tests/gaffer-factory.e2e.mjs
-          node web/tests/gaffer-factory-session.e2e.mjs
-          node web/tests/factory-decision.e2e.mjs
-          node web/tests/factory-delivery.e2e.mjs
-          node web/tests/factory-pieces.e2e.mjs
-          node web/tests/home-followups.e2e.mjs
-          node web/tests/home-waiting.e2e.mjs
-          node web/tests/gaffer-widget-ux.e2e.mjs
+          scripts/run-browser-suites.sh --list web/tests/ci-gaffer-settings.txt --shard ${{ matrix.shard }} --of 3
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gaffer-settings
+          name: gaffer-settings-${{ matrix.shard }}
           path: ${{ runner.temp }}/gaffer-settings
           if-no-files-found: ignore
+
+  # The one result for the Gaffer settings and Factory browser scripts; branch rules and docs refer to this name.
+  gaffer-settings:
+    needs: [gaffer-ui]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
+        run: |
+          echo "gaffer-ui: ${{ needs.gaffer-ui.result }}"
+          [ "${{ needs.gaffer-ui.result }}" = success ]

@@ -1,5 +1,57 @@
 # Reet central-control implementation handoff
 
+## ENROL-CODE-1: enrolment codes, machines that sign as themselves, and browser-only tokens (24 November 2026)
+
+The second "Security and access" item of the roadmap's reliability workstream.
+
+**What was wrong.** "Give it a key" made an ordinary personal API token. The machine kept it in plain text, sent it on
+every request and used it for ever; it could do owner and admin actions, run backups and mint tokens. A token could
+mint and revoke tokens, so revoking a leaked one did not remove access, and revoking the real one cut off every
+machine. Enrolment wrote no audit event.
+
+**Enrolment codes** (`internal/store/store_enrol.go`, `internal/api/enrol.go`). `POST /api/v2/sync/enrol-codes`,
+browser session only, returns `reet_enrol_…` (256 bits, 15 minutes, single use, hash stored; at most 20 unused per
+account and 30 an hour). A code is a credential only on `POST /api/v2/sync/agents`; anywhere else it is refused. It is
+consumed in one conditional UPDATE. A code given for a host that already exists enrols that machine again in place
+(same id, new secret, old secret retired), so the answer does not reveal whether a name was taken. Audit events:
+`enrol-code-create`, `machine-enrol` with how.
+
+**How a machine authenticates.** Each machine records once how it was enrolled (`enrolledVia`: code, session, token,
+open; rows from before this change count as token). The id and secret alone open a fixed list of machine routes only
+for a code- or session-enrolled machine: identity, poll, result, update stage, private bootstrap, skills report,
+content observations, skill import and its work routes, the owner's skill bundle download, and the inventory import.
+A token-enrolled machine must present a valid personal token on every request, as before, so revoking that token
+still cuts it off. A request that presents a refused token is not let through on its secret. A machine-signed
+inventory report naming another host, or carrying free text, is refused. `legacyToken` on `GET /api/v2/sync` is true
+for a token-enrolled machine in accounts mode.
+
+**Tokens.** `GET/POST/DELETE /api/v2/tokens` are behind a session-only wrapper: any API token, even beside a valid
+session, gets 403 "manage API tokens from a signed-in browser".
+
+**CLI** (`internal/scan/agent.go`, `agent_enrol_again.go`, `internal/clientconfig/enrol.go`). `reet agent enroll`
+takes a code (hidden prompt, `REET_ENROL_CODE`, or `--code`) and saves only the id and secret. `reet agent enroll
+--again` renews an existing enrolment with a code: the whole local config is kept (remote apply, terminal switches,
+follow-moves, projects), only the id, secret and token change, the file is written only after the exchange succeeds,
+and the agent is restarted as `set-server` does. It refuses a token and the flags that would change settings. The
+saved token file is left alone and named if it holds the same token. Token mode (no accounts) enrols with
+`REET_TOKEN` as before.
+
+**Web.** `web/src/lib/EnrolCode.svelte` is the code step, shared by `AddMachineDialog` and the step-by-step panel
+(`MachineSetup`): run the command first, then make the code when the machine asks; shown once with copy and a
+countdown; kept while stepping, dropped on close; never in the URL or storage. The Machines page's own "machine
+token" form is gone. A token-enrolled machine shows the warning and "Enrol again", which opens the dialog in a
+re-enrol mode that reports success only after that machine's mark clears; with several, one note sits above the list.
+A viewer is told why they cannot add a machine.
+
+**Known properties and gaps.**
+- Nothing was run against a real machine, the install script or the private relay.
+- A leaked personal token can still enrol a machine that works while the token does, and an admin's can still invite
+  people; owner and admin routes accepting tokens is the next change.
+- A machine can read any skill bundle of its owner by id. Machine-secret guessing is not rate-limited (192 bits).
+- The private listener routes accepted a machine's secret alone before this change and still do.
+- A code leaked within its 15 minutes can enrol one machine, including replacing an existing machine of that name.
+- The countdown trusts the browser's clock.
+
 ## STOPPED-MARK-1: one mark for a stopped wait, and the proxy setting kept by install (24 November 2026)
 
 Two follow-ups to HELD-WORK-1 and SIGN-IN-LIMITS-1.

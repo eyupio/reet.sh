@@ -33,15 +33,18 @@ type agentConfig struct {
 	// Token is the personal API token a machine enrolled with one keeps
 	// sending; such a machine stops when the token is revoked. A machine
 	// enrolled with a code keeps only ID and Secret.
-	Token           string   `json:"token,omitempty"`
-	ID              string   `json:"id"`
-	Secret          string   `json:"secret"`
-	Host            string   `json:"host"`
-	Hostname        string   `json:"hostname"`
-	Home            string   `json:"home"`
-	Projects        []string `json:"projects"`
-	AllowApply      bool     `json:"allowApply"`
-	TerminalEnabled bool     `json:"terminalEnabled,omitempty"`
+	Token      string   `json:"token,omitempty"`
+	ID         string   `json:"id"`
+	Secret     string   `json:"secret"`
+	Host       string   `json:"host"`
+	Hostname   string   `json:"hostname"`
+	Home       string   `json:"home"`
+	Projects   []string `json:"projects"`
+	AllowApply bool     `json:"allowApply"`
+	// Locked refuses everything the controller starts on this machine until
+	// its owner runs reet agent unlock. Only a command here changes it.
+	Locked          bool `json:"locked,omitempty"`
+	TerminalEnabled bool `json:"terminalEnabled,omitempty"`
 	// BrowseOff refuses folder browsing locally (reet terminal browse off).
 	BrowseOff bool `json:"browseOff,omitempty"`
 	// ClipboardOff refuses OSC 52 clipboard forwarding locally
@@ -209,7 +212,7 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|lock|unlock|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "library-import" {
@@ -225,6 +228,17 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			return err
 		}
 		applyMode, args = mode, rest
+	}
+	lockMode := ""
+	if action == "lock" || action == "unlock" {
+		mode, rest, err := parseAgentLock(args, out)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		lockMode, args = mode, rest
 	}
 	if action == "skill" {
 		return runAgentSkillImport(args[1:], in, out, version)
@@ -406,6 +420,12 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			return err
 		}
 		return runAgentAllowApply(c, *config, applyMode, out)
+	case "lock", "unlock":
+		c, err := loadAgentConfig(*config)
+		if err != nil {
+			return err
+		}
+		return runAgentLock(c, *config, lockMode, out)
 	case "status":
 		c, err := loadAgentConfig(*config)
 		if err != nil {
@@ -414,6 +434,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		if err = printAgentStatus(*config, out); err != nil {
 			return err
 		}
+		fmt.Fprintf(out, "Locked on this machine: %s\n", onOff(c.Locked))
 		if !*remoteStatus {
 			return nil
 		}

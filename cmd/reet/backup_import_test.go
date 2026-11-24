@@ -154,7 +154,7 @@ func TestTheImportCommandSaysWhatToDoWhenTheControllerWantsABrowser(t *testing.T
 	if err == nil {
 		t.Fatal("a personal token staged an import")
 	}
-	for _, want := range []string{"changed nothing", "signed-in browser", "Admin → Move → Move a controller in", "reet backup restore --yes " + id, "backups/" + id + ".reetbackup", "with reet stopped"} {
+	for _, want := range []string{"changed nothing", "signed-in browser", "Admin → Move → Move a controller in", "reet backup restore --yes " + id, "backups/" + id + ".reetbackup", "with reet stopped", "--allow-live-source"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal lacks %q:\n%v", want, err)
 		}

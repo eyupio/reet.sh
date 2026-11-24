@@ -589,7 +589,7 @@ func browserOnlyImport(file string) string {
 	return "the controller refused the copy and changed nothing: with accounts, a copy is imported only from a signed-in browser, never with a token. " +
 		"Either upload it from the owner's browser under Admin → Move → Move a controller in, " +
 		"or restore it on the new controller's machine with reet stopped: put the file in its data folder as backups/" + id + ".reetbackup and run " +
-		"reet backup restore --yes " + id + " (add --password-file F for a copy with a password)"
+		"reet backup restore --yes " + id + " (add --password-file F for a copy with a password, and --allow-live-source if the copy was not taken fenced and the old controller is gone)"
 }
 
 func humanBytes(n int64) string {

@@ -1,5 +1,39 @@
 # Reet central-control implementation handoff
 
+## BROWSER-ONLY-1: owner, admin and account-safety changes refuse API tokens (24 November 2026)
+
+A follow-up to ENROL-CODE-1, decided by the owner: a leaked personal token must not be able to take an instance or an
+account over.
+
+**The wrappers** (`internal/api/auth_session.go`, `mcp_access.go`). `browserOnly` already refused any API token, even
+beside a valid session, for token and MCP management. `accountBrowser(action, next)` reuses it and passes requests
+through when the instance has no accounts (`REET_AUTH=token` or `none`), where the instance token is what the browser
+itself sends; `adminBrowser` is the same for owner and admin routes. A token gets 403 with one sentence ("do this from
+a signed-in browser", or the action's own); no session gets 401. The wrapper sits outside the role check, so a token
+of any role gets the same answer.
+
+**Gated.** Users (role, disable, delete, reset, revoke, transfer), invites, instance settings, notification defaults,
+backup settings, runs, off-site, prune, remotes, downloads and import (POST, GET, DELETE), fence, mail, single sign-on,
+the software mirror cache. Per account: listing and ending sessions, password change, unlinking single sign-on, adding
+a push device. **Left open to a token on purpose:** read-only admin listings (none returns a secret; passwords and
+keys come back as booleans), backup verify (now 6 an hour per account through `verifyLimiter`), tag rename and merge,
+support-desk tickets. `TestEveryOwnerAndAdminWriteNeedsABrowser` reads the package source and fails when an owner or
+admin write is registered without a wrapper and is not in its allow-list.
+
+**Same-site check.** `s.sameOrigin` accepts an `Origin` matching `Host` or equal to the configured public origin, and
+still refuses `Sec-Fetch-Site: cross-site`. With neither header the request passes, as before.
+
+**CLI.** `reet backup import --server` works only without accounts; refused, it names the browser upload (Admin, Move,
+Move a controller in) and the local restore, including `--allow-live-source`.
+
+**Known properties.**
+- `REET_TOKEN` in accounts mode is accepted only for the skill import route while the owner has no active personal
+  token, as before; it reaches none of the gated routes.
+- An admin's token can still rename and merge tags, act on support tickets, read the admin listings and verify
+  backups. Each person's own backup copies and destinations are not gated.
+- A stolen session cookie used without `Origin` or `Sec-Fetch-Site` headers is outside what this check stops.
+- Not run behind a real reverse proxy.
+
 ## ENROL-CODE-1: enrolment codes, machines that sign as themselves, and browser-only tokens (24 November 2026)
 
 The second "Security and access" item of the roadmap's reliability workstream.

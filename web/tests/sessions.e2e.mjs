@@ -542,6 +542,13 @@ try {
    await expect(gaveUp.locator('.word')).toContainText('Stopped waiting')
    await expect(gaveUp.locator('.word')).toHaveAttribute('title','Work it started may still be running.')
    await expect(gaveUp.locator('.status-tick')).toHaveCount(0)
+   // Its own mark in place of the dot, at every width: the "!" glyph, decorative, in the row's status colour. A plain row keeps its dot.
+   const mark = gaveUp.locator('.status-mark')
+   await expect(mark).toBeVisible()
+   await expect(mark).toHaveAttribute('aria-hidden','true')
+   await expect(gaveUp.locator('.dot, .status-ring')).toHaveCount(0)
+   await expect(plain.locator('.status-mark')).toHaveCount(0)
+   expect(await mark.evaluate(el => { const r = el.getBoundingClientRect(), c = getComputedStyle(el); return [Math.round(r.width), Math.round(r.height), c.color === c.borderTopColor, c.animationName] }), `mark at ${width}px`).toEqual([14,14,true,'none'])
    if (after) { await mkdir(after,{recursive:true}); await gaveUp.evaluate(el => el.scrollIntoView({block:'center'})); await gaveUp.screenshot({path:`${after}/stopped-row-${theme}-${width}.png`}) }
    // The bell says so too, not "Finished".
    await page.getByRole('button',{name:/^Needs you: \d+$/}).click()
@@ -570,6 +577,10 @@ try {
    await expect(flight.locator('.dot')).toHaveCount(0)
    await expect(flight.locator('.word')).toContainText('In background')
    await expect(flight.locator('.word .vh')).toHaveText(`. ${sentence}`)
+   await page.getByRole('region',{name:'Continue working',exact:true}).getByRole('button',{name:'Show 5 more'}).click()
+   const flightStopped = page.getByRole('region',{name:'Continue working',exact:true}).locator('li[data-status]').filter({hasText:'Watch the deploy'})
+   await expect(flightStopped.locator('.status-mark')).toBeVisible()
+   await expect(flightStopped.locator('.dot, .status-ring, .status-tick')).toHaveCount(0)
    if (after) await flight.locator('xpath=ancestor::div[contains(@class,"group")][1]').screenshot({path:`${after}/home-${theme}-${width}.png`})
    await page.goto(`${base}/sessions?agent=a1&session=sb`)
    await page.waitForFunction(() => window.__chatStream)

@@ -290,3 +290,26 @@ test('a tinted row keeps its pill text at AA and its ring at 3:1', () => {
     }
   }
 })
+
+// A chat reet stopped waiting on (finished or quiet, never tinted) draws the "!" mark in its status colour in place of
+// a dot. The mark keeps 3:1 against every ground a row sits on, the 5% tint included, in both palettes; it is drawn from
+// the status tokens alone and does not move.
+test('the stopped-waiting mark keeps 3:1 on its row and uses status tokens only', () => {
+  const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
+  const mix = (a, b, share) => '#' + hex(a).map((v, i) => Math.round(v * share + hex(b)[i] * (1 - share)).toString(16).padStart(2, '0')).join('')
+  const rule = css.match(/\.status-mark \{[^}]*\}/)?.[0]
+  assert.ok(rule, 'app.css draws .status-mark')
+  assert.match(rule, /border: [\d.]+px solid var\(--status\)/)
+  assert.match(rule, /color: var\(--status\)/)
+  assert.doesNotMatch(rule, /#[0-9a-f]{3,8}\b|rgb|animation|transition/i)
+  for (const p of PALETTES) {
+    const t = TOKENS[p]
+    for (const name of ['--status-finished', '--status-quiet']) {
+      for (const ground of ['--card', '--bg', '--card-raised']) {
+        assert.ok(contrast(t[name], t[ground]) >= 3, `${p}: ${name} mark on ${ground} is ${contrast(t[name], t[ground]).toFixed(2)}`)
+        const tinted = mix(t[name], t[ground], 0.05)
+        assert.ok(contrast(t[name], tinted) >= 3, `${p}: ${name} mark on the tinted ${ground} ${tinted} is ${contrast(t[name], tinted).toFixed(2)}`)
+      }
+    }
+  }
+})

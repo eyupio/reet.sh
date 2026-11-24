@@ -104,7 +104,7 @@
                 <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}
                   oncontextmenu={(event) => { hideCard(); void actions?.openMenu(event, s) }}
                   onkeydown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { hideCard(); void actions?.openMenu(event, s) } }}>
-                  {#if status === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
+                  {#if status === 'finished' && !stoppedWaiting(s)}<span class="status-tick" aria-hidden="true"></span>{:else if held}<span class="status-ring" aria-hidden="true"></span>{:else if stoppedWaiting(s)}<span class="status-mark" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                   <span class="main">
                     <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}{#if factory.get(s.id)}{' '}<span class="badge factory" title={`Part of a Factory pipeline: ${factory.get(s.id)!.pipeline}`}>{factoryBadge(factory.get(s.id)!)}</span>{/if}</span>
                     <span class="where">{owner?.name || hostOf(s.agentId)}<span class="mobile-age"> · {shortAge(Math.max(0, now - s.updatedAt))} ago</span></span>
@@ -180,6 +180,7 @@
   .row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 10px 16px; color: var(--ink); text-decoration: none; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status); }
   .status-ring { --ring: 9px; }
+  .status-mark { margin-inline: -2.5px; } /* 14px round a 9px dot's slot, so titles stay in line */
   li[data-status='waiting'], li[data-status='failed'] { box-shadow: inset 2px 0 var(--status); }
   .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
   .title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

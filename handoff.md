@@ -1,5 +1,29 @@
 # Reet central-control implementation handoff
 
+## CLONE-TEST-1: the clone limit test no longer fails at random (24 November 2026)
+
+`TestAddFromGitHubRunsAtMostFiveClonesPerAccount` failed about one run in five under load ("the clone never
+finished"), on any branch. The cause was in the test, not the limiter. Each clone starts in its own goroutine
+(`internal/api/folder_projects_github.go`), so the five requests reach the test's fake machine in any order; the fake
+queued them by arrival and the test answered the first one with acme/a's result, then waited for acme/a. When another
+repository's request arrived first, that job finished with the wrong answer and acme/a stayed "cloning". Held requests
+now keep the request they belong to, and `releaseClone(t, repo, body)` answers the clone of a named repository. What
+the test asserts is unchanged: at most five at once, the sixth refused with `clone_limit`, all finish. No wait was
+lengthened. 280 runs with `-race` under load passed afterwards, against 25 failures in 120 before.
+
+A second test with the same kind of fault failed on the lock PR: `TestTerminalEndWithRemoveHistoryCleansUpItsWorktree`
+("the history removal was not audited"). The server archives a session, closes its chat and only then writes the
+`session-remove` audit entry (`onSessionClosed`), while the test stopped waiting as soon as the session left the list
+and read the audit at once. It and the restart-replay test now wait for that entry (`worktreeEventsSoon`, three
+seconds, the same bound as the wait before it). The server's order is unchanged. 20 runs with `-race` passed, then the
+clone tests ten times over with `-race`.
+
+Not fixed here: `TestFetchStopsReadingStream` in `internal/skillfetch` failed once in a loaded full run (its fake
+server writes ahead of the client, so under load it can pass the half-way mark before the client closes) and passes
+alone 20 times; two move-follow tests in `internal/scan` (`TestAMachineThatWillNotFollowTellsTheOldControllerOnce`,
+`TestSetServerClearsAPendingMoveAndTellsTheOldController`) fail when repeated with `-count` above 1 because state
+leaks between repeats; CI runs them once. `TestExclusiveLockReleasedByProcessDeath` failed once in a loaded full run
+and then passed 250 runs; its cause is not known.
 ## BROWSER-ONLY-1: owner, admin and account-safety changes refuse API tokens (24 November 2026)
 
 A follow-up to ENROL-CODE-1, decided by the owner: a leaked personal token must not be able to take an instance or an

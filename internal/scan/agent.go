@@ -248,7 +248,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
 	server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
-	code := fs.String("code", "", "enrolment code from Machines, Add a machine (env REET_ENROL_CODE)")
+	code := fs.String("code", "", "enrolment code from Machines, Add a machine; prefer the hidden prompt or REET_ENROL_CODE, as a command line is visible to other users")
 	token := fs.String("token", "", "older way: a personal API token to enrol with (env REET_TOKEN)")
 	tokenFile := fs.String("env-file", "", "older way: read REET_TOKEN for enrolment from an explicit env file")
 	host := fs.String("env", clientconfig.EnvName(), "stable machine name")
@@ -300,7 +300,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				return nil
 			}
 			if c, err := loadAgentConfig(*config); err == nil {
-				return fmt.Errorf("this machine is already connected to %s as %s. Check it with reet agent status. To connect it afresh, remove it under Machines in the web app, delete %s, then run this again", c.Server, c.Host, *config)
+				return fmt.Errorf("this machine is already connected to %s as %s. Check it with reet agent status. To connect it afresh, delete %s, then run this again with a new enrolment code and the same name", c.Server, c.Host, *config)
 			}
 			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
 		}

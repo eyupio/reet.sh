@@ -336,14 +336,17 @@ listed, made and revoked only from a signed-in browser (**Account → API tokens
 a request carrying a token cannot manage tokens.
 
 `reet agent enroll` takes an enrolment code instead: make one under **Machines →
-Add a machine** (it works once and lasts 15 minutes), then pass it with `--code`,
-set `REET_ENROL_CODE`, or type it at the hidden prompt. The machine saves only its
+Add a machine** (it works once and lasts 15 minutes), then type it at the hidden
+prompt or set `REET_ENROL_CODE` (`--code` also works, but other users of the
+machine can see a command line). The machine saves only its
 own id and secret, sends only those afterwards, and enrolment writes no saved
 token. A personal token from `--token`, `REET_TOKEN`, an env file or the saved
-token still enrols, with a warning; machines enrolled that way before keep working
-and are marked on the Machines page. To move an old machine to a code, remove it
-under Machines, then on it run
-`rm ~/.config/reet/agent.json && reet agent enroll --server URL --env NAME --code CODE`.
+token still enrols, with a warning. A machine enrolled with a personal token,
+including every machine enrolled before codes, keeps sending that token, stops
+when it is revoked, and is marked on the Machines page. To move it to its own
+credential, make a code and on the machine run
+`rm ~/.config/reet/agent.json && reet agent enroll --server URL --env NAME` with the same name; it is enrolled
+again in place with a new secret, and the mark goes.
 
 Run `reet` with no command in a terminal for its grouped home: Check & maintain,
 Skills & setups, Machines & access and More commands. Use arrows or `j`/`k`,

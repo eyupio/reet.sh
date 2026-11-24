@@ -119,6 +119,10 @@ func (s *server) terminalUpload(w http.ResponseWriter, r *http.Request) {
 		uploadError(w, terminalbroker.ErrOffline)
 		return
 	}
+	if caps.Capabilities.Locked {
+		uploadError(w, terminalbroker.ErrLocked)
+		return
+	}
 	if !caps.Capabilities.Uploads {
 		if caps.Capabilities.UploadsOff {
 			uploadError(w, terminalbroker.ErrUploadsOff)
@@ -178,6 +182,10 @@ func (s *server) terminalLaunchUpload(w http.ResponseWriter, r *http.Request) {
 	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
 	if err != nil {
 		uploadError(w, terminalbroker.ErrOffline)
+		return
+	}
+	if caps.Capabilities.Locked {
+		uploadError(w, terminalbroker.ErrLocked)
 		return
 	}
 	if !caps.Capabilities.Uploads {
@@ -275,6 +283,9 @@ func (s *server) auditTerminalLaunchUpload(uid int64, agent, mime string, size i
 // uploadError maps an upload failure to one sentence. No sentence carries a
 // path, file name or hash.
 func uploadError(w http.ResponseWriter, err error) {
+	if machineLocked(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, terminalbroker.ErrUploadUnsupported):
 		writeErrCode(w, http.StatusConflict, "upload_unsupported", "", "Update reet on that machine to attach images.", "")

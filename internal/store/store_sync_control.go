@@ -48,6 +48,9 @@ type SyncAgent struct {
 	// so it keeps sending one and stops when that token is revoked. Only
 	// enrolling it again with a code clears it.
 	LegacyToken bool `json:"legacyToken"`
+	// Locked is the machine saying it is locked there (reet agent lock), as
+	// it last reported. Only the sync listing fills it in.
+	Locked bool `json:"locked"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`

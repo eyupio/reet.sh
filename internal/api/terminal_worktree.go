@@ -90,6 +90,9 @@ func writeWorktreeRefusal(w http.ResponseWriter, err error, op worktreeOperation
 // worktreeError maps the broker's worktree outcomes; everything else keeps
 // the existing terminal mapping.
 func worktreeError(w http.ResponseWriter, err error, op worktreeOperation) {
+	if machineLocked(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):
 		writeErrCode(w, http.StatusConflict, "worktree_unsupported", "", "Update reet on that machine to start agents with worktrees.", "")

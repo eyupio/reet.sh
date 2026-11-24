@@ -24,6 +24,12 @@ func (s *server) syncState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	for i := range agents {
+		// What the machine last reported over its private connection.
+		if c, e := s.st.RemoteCapabilitiesRawFor(s.uid(r), agents[i].ID); e == nil {
+			agents[i].Locked = c.Capabilities.Locked
+		}
+	}
 	if s.authMode != AuthAccounts {
 		// Without accounts there is no personal token to warn about.
 		for i := range agents {

@@ -230,6 +230,9 @@ func (s *server) terminalChatTarget(w http.ResponseWriter, r *http.Request) (sto
 }
 
 func (s *server) terminalChatError(w http.ResponseWriter, err error) {
+	if machineLocked(w, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, terminalbroker.ErrACPModelRejected), errors.Is(err, terminalbroker.ErrACPModelUnsupported),
 		errors.Is(err, terminalbroker.ErrACPAgentModeRejected), errors.Is(err, terminalbroker.ErrACPAgentModeUnsupported), errors.Is(err, terminalbroker.ErrACPModeUnknown):
@@ -351,6 +354,9 @@ func (s *server) terminalSessionMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
+	if machineLocked(w, err) {
+		return
+	}
 	var trust *terminalbroker.ACPTrustError
 	switch {
 	case errors.As(err, &trust):
@@ -411,6 +417,9 @@ func (s *server) terminalChatReattach(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
+	if machineLocked(w, err) {
+		return
+	}
 	var trust *terminalbroker.ACPTrustError
 	switch {
 	case errors.As(err, &trust):

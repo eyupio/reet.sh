@@ -457,8 +457,8 @@ describe the state.
 - The connector's notice names the machine by hostname; the controller's own line uses the name shown in reet.
 ## FACTORY-TEMPLATES-6: private, versioned Factory templates (23 November 2026)
 
-Stage 6 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract is
-[docs/handoffs/factory-templates-design.md](docs/handoffs/factory-templates-design.md).
+Stage 6 of [the delivery review plan](../../docs/handoffs/factory-delivery-review.md). The contract is
+[docs/handoffs/factory-templates-design.md](../../docs/handoffs/factory-templates-design.md).
 
 **Model.** `gaffer_templates` holds one row per version, keyed on `(id, version)`, with `UNIQUE(user_id, request_id)`;
 a version is never updated. A version holds the name, description, objective, review limits and each pipeline's title,
@@ -502,7 +502,7 @@ screens: audit 15/20, distill, polish, critique 26/40, whose findings the last r
 
 ## FACTORY-RELIABILITY-4: measured Factory refresh, gzip, one poll, and launches that survive a lost connection (22 November 2026)
 
-Stage 4 of [the delivery review plan](docs/handoffs/factory-delivery-review.md).
+Stage 4 of [the delivery review plan](../../docs/handoffs/factory-delivery-review.md).
 
 **Measured first.** Two kept measurements, neither a test nor in a workflow: `internal/api/gaffer_factory_baseline_test.go`
 (`REET_FACTORY_BASELINE=1 go test ./internal/api/ -run TestFactoryRefreshBaseline -v -count=1`) and
@@ -540,7 +540,7 @@ launch, fallback, approval and handover. What changed in the controller:
 - Nothing ran against a real machine.
 ## FIRST-USEFUL-RUN-5: a guided first session on Home (22 November 2026)
 
-Stage 5 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). Web UI and docs only; no Go, no API.
+Stage 5 of [the delivery review plan](../../docs/handoffs/factory-delivery-review.md). Web UI and docs only; no Go, no API.
 
 **What it is.** `web/src/lib/home/FirstRun.svelte` (pure logic in `home/firstRun.ts`) shows **Your first session** on
 Home once a machine is connected and every session so far is one the guide started. It lists the agents that run as a
@@ -571,7 +571,7 @@ fixed: only chat agents are offered, the success line says only what is known, e
 
 ## FACTORY-LAUNCH-READINESS-3: launch readiness before approval, and a usage limit explained (22 November 2026)
 
-Stage 3 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). It is in the web UI only: no Go, no
+Stage 3 of [the delivery review plan](../../docs/handoffs/factory-delivery-review.md). It is in the web UI only: no Go, no
 API and no stored field changed. Everything it says is worked out from what the pages already read.
 
 **Before approval.** `web/src/lib/factory/launchReadiness.ts` is a pure resolver. From the machine, the agents, efforts
@@ -639,7 +639,7 @@ streams a reply a piece at a time, and prints JSON: the history's bytes and time
 takes to reach the screen (median, 95th percentile, worst), and how the scroll position behaves while following and
 while reading. `REET_CHAT_EVENTS` and `REET_CHAT_UPDATES` set its size. It is not a test, asserts nothing and is in no
 workflow. The figures are in
-[docs/handoffs/factory-delivery-review-design.md](docs/handoffs/factory-delivery-review-design.md#long-chat).
+[docs/handoffs/factory-delivery-review-design.md](../../docs/handoffs/factory-delivery-review-design.md#long-chat).
 
 **What it found, on main at `2dec0d1`.** A 2,000-event history is 313,161 bytes and draws in about a quarter of a
 second. A streamed piece of 107 bytes reaches the screen in two or three frames (p95 50 ms) at both widths. A reader
@@ -665,9 +665,9 @@ other folder-project tests.
 
 ## FACTORY-DELIVERY-REVIEW-2: delivery review UI (22 November 2026)
 
-Stage 2 of [the delivery review plan](docs/handoffs/factory-delivery-review.md), on top of
+Stage 2 of [the delivery review plan](../../docs/handoffs/factory-delivery-review.md), on top of
 `FACTORY-DELIVERY-REVIEW-1` below, built to
-[the contract](docs/handoffs/factory-delivery-review-design.md).
+[the contract](../../docs/handoffs/factory-delivery-review-design.md).
 
 **What changed.**
 
@@ -709,9 +709,9 @@ reply-to-Gaffer carry-over has a unit test only.
 
 ## FACTORY-DELIVERY-REVIEW-1: delivery review backend (22 November 2026)
 
-Stages 0 and 1 of [the delivery review plan](docs/handoffs/factory-delivery-review.md). The contract both stages build
+Stages 0 and 1 of [the delivery review plan](../../docs/handoffs/factory-delivery-review.md). The contract both stages build
 to, with the states, the status rules, the conflict codes and the routes, is
-[docs/handoffs/factory-delivery-review-design.md](docs/handoffs/factory-delivery-review-design.md).
+[docs/handoffs/factory-delivery-review-design.md](../../docs/handoffs/factory-delivery-review-design.md).
 
 **What changed.** A pipeline can be approved with acceptance criteria (`criteria` on each pipeline of the plan). Such a
 pipeline stops in a new state, `delivery_review`, before its merge stage or before it is called done, and waits for the
@@ -1016,7 +1016,7 @@ unmocked session inspect with `no_pr`, so the automatic read does not count as a
 package timeout under load, `internal/clientconfig` failed its pipe prompt test, and `internal/lifecycle` failed
 `TestDoctorIsReadOnlyAndRedactsCredentials` ("token not sent"); all are outside this change and CI is the arbiter.
 
-**Docs.** [Factory](docs/factory.md), the README's Factory bullet and the changelog.
+**Docs.** [Factory](../../docs/factory.md), the README's Factory bullet and the changelog.
 
 **PR.** [#859](https://github.com/eyupio/reet.sh/pull/859) opened against `main`; the checks above are this PR's.
 **Merged** as `92e38f50` on 20 November 2026; its facts and outcome-bar change are in `main` and this branch is merged up to it.
@@ -1115,7 +1115,7 @@ treated as stale claims). No migration; older records are read as before.
 long recommendation at 390 whose last choice must scroll into view), `gaffer-factory.e2e.mjs`,
 `gaffer-factory-session.e2e.mjs`, `factory-pieces.e2e.mjs` and `session-workspace.e2e.mjs`.
 
-**Docs.** [Factory](docs/factory.md), [Gaffer AI](docs/gaffer-ai.md), [UI verification](docs/ui-verification.md) and
+**Docs.** [Factory](../../docs/factory.md), [Gaffer AI](../../docs/gaffer-ai.md), [UI verification](../../docs/ui-verification.md) and
 the changelog.
 
 **Merged.** [#854](https://github.com/eyupio/reet.sh/pull/854) as `ec3a3343`. Every required check on the final head
@@ -1221,21 +1221,21 @@ the one the base check and its tests already cover.
 
 reet.sh is a self-hosted AI fleet control room: machines, the AI agents installed on them, skills,
 reviewed sync, browser terminals and, now, an agents home with folder projects. This file is the
-current state and the standing rules; start here. Where things are: [README.md](README.md) and
-CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
-[control centre](docs/control-centre.md), [terminal workspace](docs/terminal-workspace.md),
-[projects](docs/projects.md), [folder browse](docs/folder-browse.md),
-[remote machine operations](docs/remote-machine-operations.md),
-[controller terminal commands](docs/terminal-controller-commands.md),
-[OpenCode in Gaffer](docs/structured-sessions.md) and
-[voice and copy](docs/voice-and-copy.md)); the agents-home mock-up in
-[docs/design/agents-home/](docs/design/agents-home/), its
-[plan](docs/superpowers/plans/2026-10-26-agents-home.md) and
-[spec](docs/superpowers/specs/2026-10-26-agents-home-design.md); the 2 November UI refresh contracts in
+current state and the standing rules; start here. Where things are: [README.md](../../README.md) and
+CONTRIBUTING.md; [docs/](../../docs/) for shipped behaviour (for example
+[control centre](../../docs/control-centre.md), [terminal workspace](../../docs/terminal-workspace.md),
+[projects](../../docs/projects.md), [folder browse](../../docs/folder-browse.md),
+[remote machine operations](../../docs/remote-machine-operations.md),
+[controller terminal commands](../../docs/terminal-controller-commands.md),
+[OpenCode in Gaffer](../../docs/structured-sessions.md) and
+[voice and copy](../../docs/voice-and-copy.md)); the agents-home mock-up in
+[docs/design/agents-home/](../../docs/design/agents-home/), its
+[plan](../../docs/superpowers/plans/2026-10-26-agents-home.md) and
+[spec](../../docs/superpowers/specs/2026-10-26-agents-home-design.md); the 2 November UI refresh contracts in
 `docs/superpowers/specs/2026-11-02-*.md`; what each UI change was checked against in
-[docs/ui-verification.md](docs/ui-verification.md); the research behind the queued work in
-[docs/research/](docs/research/); and older narrative in
-[handoff-history.md](handoff-history.md).
+[docs/ui-verification.md](../../docs/ui-verification.md); the research behind the queued work in
+[docs/research/](../../docs/research/); and older narrative in
+[handoff-history.md](../../handoff-history.md).
 
 ## FOLDER-BROWSE-1: start an agent by picking a folder (19 November 2026)
 
@@ -1254,7 +1254,7 @@ refusal.
 `GET /api/v2/machines/{id}/browse`, and checks the button, the live list, a pick filling the select and the
 browser closing. `cd web && npm run check`; the full `start-agent.e2e.mjs` passed against `vite preview`.
 
-**Docs.** [docs/start-agent-session.md](docs/start-agent-session.md) and README name the browser.
+**Docs.** [docs/start-agent-session.md](../../docs/start-agent-session.md) and README name the browser.
 
 **Merged.** [#848](https://github.com/eyupio/reet.sh/pull/848) as `28c22e4b`.
 
@@ -1517,14 +1517,14 @@ unmocked request on the page), `outcome_effort_test.go` (`TestAStageRefusedForAn
 untyped error with the same words starts once).
 
 **Not checked.** No real machine or agent: every refusal, model list and capability report is a fixture or a unit
-test. Widths are emulated. No screen reader. The captures are in [docs/ui-verification.md](docs/ui-verification.md).
+test. Widths are emulated. No screen reader. The captures are in [docs/ui-verification.md](../../docs/ui-verification.md).
 
 ## HOME-REWORK-1: Home rebuilt around one list of what waits (17 November 2026)
 
 The owner asked for Home next, by the same method as the Factory page and in its own pull request, on the branch
 `ccr-93f68fda-ippwiu` (restarted from main after #825 merged). The design is the Home section of
-[2026-11-17-factory-home-rework-design.md](docs/superpowers/specs/2026-11-17-factory-home-rework-design.md), the plan
-[2026-11-17-home-rework.md](docs/superpowers/plans/2026-11-17-home-rework.md). Web only: no controller, API, MCP or
+[2026-11-17-factory-home-rework-design.md](../../docs/superpowers/specs/2026-11-17-factory-home-rework-design.md), the plan
+[2026-11-17-home-rework.md](../../docs/superpowers/plans/2026-11-17-home-rework.md). Web only: no controller, API, MCP or
 stored-field change.
 
 **What was built.** Home (for an account that can start sessions) opens on **Waiting for you**: one list that mixes
@@ -1636,7 +1636,7 @@ green. No deploy.
 `gaffer-outcome`, `shell-fidelity`, `phone-layout` and `navigation`. Before this, a full local run of the 88 suites CI
 runs found two (add a machine, skill content) that forbid requests the bell now makes; both were taught the reads.
 `home-waiting` runs at 1440 (light and dark), 1250, 1180, 834, 390 and 320. The captures are in
-[docs/ui-verification.md](docs/ui-verification.md), and `docs/images/ui/factory-rework-*` were retaken.
+[docs/ui-verification.md](../../docs/ui-verification.md), and `docs/images/ui/factory-rework-*` were retaken.
 
 **Not checked.** No real tablet or phone: widths are emulated. No real controller: every pipeline and session in the
 tests is a fixture. No screen reader.
@@ -1644,8 +1644,8 @@ tests is a fixture. No screen reader.
 ## FACTORY-REWORK-1: the Factory page rebuilt as a list and one detail (17 November 2026)
 
 The owner found the Factory page overwhelming with several items on it, and its buttons and settings in too many
-places. Spec [2026-11-17-factory-home-rework-design.md](docs/superpowers/specs/2026-11-17-factory-home-rework-design.md),
-plan [2026-11-17-factory-page-rework.md](docs/superpowers/plans/2026-11-17-factory-page-rework.md), PR
+places. Spec [2026-11-17-factory-home-rework-design.md](../../docs/superpowers/specs/2026-11-17-factory-home-rework-design.md),
+plan [2026-11-17-factory-page-rework.md](../../docs/superpowers/plans/2026-11-17-factory-page-rework.md), PR
 [#825](https://github.com/eyupio/reet.sh/pull/825) on `ccr-93f68fda-ippwiu`. Web only: no controller, API, MCP or
 stored-field change.
 
@@ -1743,12 +1743,12 @@ a goal as followed too.
 touch sizes, eight stages, long part names and the floating button); `gaffer-factory` at 1440 (light and dark), 1280
 (light) and 390 (light); `gaffer-factory-session` at 1440 (light) and 390 (dark). Restore is covered by
 `gaffer-factory` (the archived pass), and the YOLO and merge-on-YOLO confirmations from the Settings row by
-`factory-pieces`. The captures are in [docs/ui-verification.md](docs/ui-verification.md).
+`factory-pieces`. The captures are in [docs/ui-verification.md](../../docs/ui-verification.md).
 
-**After merging main.** Main added [docs/factory.md](docs/factory.md) and its two pictures (`factory-desktop-*` in
+**After merging main.** Main added [docs/factory.md](../../docs/factory.md) and its two pictures (`factory-desktop-*` in
 `docs/images/workspace/`) for the old page; both were brought up to date for this one (the pictures retaken with
 `scripts/capture-docs-workspace.mjs --only=factory`, the old files removed), along with the Factory section of
-[docs/gaffer-ai.md](docs/gaffer-ai.md).
+[docs/gaffer-ai.md](../../docs/gaffer-ai.md).
 
 **Not checked.** No real machine: every pipeline in the tests is a fixture, so a real run has not shown the page. No
 real tablet or phone: widths are emulated, and the owner's Android tablet has not been tried. The keyboard is not
@@ -1805,9 +1805,9 @@ code in two parts (standard, light), review, test, pr. Stopped by hand during th
 The owner runs several terminals at once for one job and did it outside reet. They asked for that working set to be a
 thing in reet: named, saved, reopened in any browser, each tab back in its folder with its own command history, side by
 side when wanted, and restored after a machine reboot. Spec
-[2026-11-16-desks-design.md](docs/superpowers/specs/2026-11-16-desks-design.md), plan
-[2026-11-16-desks.md](docs/superpowers/plans/2026-11-16-desks.md), mock-ups in [docs/design/desks/](docs/design/desks/).
-What a person sees is in [docs/desks.md](docs/desks.md). PR [#813](https://github.com/eyupio/reet.sh/pull/813) on
+[2026-11-16-desks-design.md](../../docs/superpowers/specs/2026-11-16-desks-design.md), plan
+[2026-11-16-desks.md](../../docs/superpowers/plans/2026-11-16-desks.md), mock-ups in [docs/design/desks/](../../docs/design/desks/).
+What a person sees is in [docs/desks.md](../../docs/desks.md). PR [#813](https://github.com/eyupio/reet.sh/pull/813) on
 `claude/youthful-cannon-53mko0`.
 
 - **The record.** `internal/desk` (no dependencies): `Doc` (tabs, a split tree and panes), `Validate`, `Parse` and
@@ -1860,7 +1860,7 @@ What a person sees is in [docs/desks.md](docs/desks.md). PR [#813](https://githu
   starts or set in `/etc/zshenv` is not honoured; the current tab is in the saved document, so a tab switch moves
   another window on the same desk; End the shell on an agent's pane does not repeat Sessions' Factory-outcome and
   worktree warnings. The full list with what a person would notice is the last section of
-  [docs/desks.md](docs/desks.md).
+  [docs/desks.md](../../docs/desks.md).
 - **The open desk and the server.** An open desk re-reads itself when the page's 15 s desk-list read shows it at a
   newer version (`DeskScreen`'s effect calls `autosave.refresh()`; no second poll). `autosave.ts` stops retrying a save
   refused for good (any 4xx but 401, 408, 429; state `refused`, `onRefused`), refuses a change over 64 KiB locally
@@ -1881,7 +1881,7 @@ What a person sees is in [docs/desks.md](docs/desks.md). PR [#813](https://githu
   by design. On the final head the web check and build, thirteen browser files, `go vet`, `go build`, the desk Go
   packages under `-race` and focused store and api runs passed in the container, and screenshots at 1440, 820 and
   390 px in both themes were looked at; the record, with what was not checked, is the Desks section of
-  [docs/ui-verification.md](docs/ui-verification.md).
+  [docs/ui-verification.md](../../docs/ui-verification.md).
 
 ## FACTORY-LIMITS-1: the limits FACTORY-PARTS-1 and FACTORY-BALANCE-1 left (16 November 2026)
 
@@ -2034,7 +2034,7 @@ The owner asked for stages to use one agent or model over another when it has mo
 
 The owner asked for every decision to be clickable options with the recommendation first, on the Factory card's
 head and in Factory sessions, and for an option where Gaffer takes the decisions and reports what it took and why.
-Read "Decisions as choices" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md).
+Read "Decisions as choices" in the [factory floor handoff](../../docs/handoffs/gaffer-factory-floor.md).
 
 - **Recommendation.** A stage review's `ask_user` takes `recommend` (`again`, `tell`, `move`), `why` and
   `instruction`. It is kept as `GafferGoal.Advice` and cleared by the next review or control. The web puts that
@@ -2057,7 +2057,7 @@ Read "Decisions as choices" in the [factory floor handoff](docs/handoffs/gaffer-
 
 The owner's direction: Gaffer orchestrates and advises; each Factory stage is a separate session on the agent and
 model that suits how hard the stage is; several agents delivering one stage comes next. Two of three slices are done.
-Read "A session per stage, and tiers" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md).
+Read "A session per stage, and tiers" in the [factory floor handoff](../../docs/handoffs/gaffer-factory-floor.md).
 
 - **A session per stage.** `advancePipeline` no longer carries a stage on in the previous stage's session when agent,
   model and effort match. Every stage launches its own session from the handover and the previous one is ended.
@@ -2075,7 +2075,7 @@ Read "A session per stage, and tiers" in the [factory floor handoff](docs/handof
 
 The owner asked for a review of Gaffer, the Factory integration and what the handoffs still owed, then chose to have
 every finding fixed in one PR. Read "Second review" in the
-[factory floor handoff](docs/handoffs/gaffer-factory-floor.md): it lists what was found, the contract changes and
+[factory floor handoff](../../docs/handoffs/gaffer-factory-floor.md): it lists what was found, the contract changes and
 what was found and left.
 
 - **The merge gate** held only on a hand-over. A pipeline at Ready to merge that was stopped and tried again, or one
@@ -2096,7 +2096,7 @@ what was found and left.
   longer holds back what was queued after it (`nextQueued` in `terminalbroker/chat_queue.go`). That is what left
   Gaffer's next instruction waiting for **Stop and send**.
 - **Focus mode on a phone** shows less around a busy chat: one header row, one status line, the queue as one line that
-  opens, and the composer's settings behind **Exit focus**. See [terminal workspace](docs/terminal-workspace.md).
+  opens, and the composer's settings behind **Exit focus**. See [terminal workspace](../../docs/terminal-workspace.md).
 
 - **Plan limits where the work is.** What is left of each agent's plan (AGENT-ACCOUNTS-1) shows on Home, the Sessions
   toolbar, a chat's status strip and a Factory card, as one control: `PlanMeters.svelte` (chips, a tip on hover or
@@ -2106,7 +2106,7 @@ what was found and left.
 
 The owner runs the Factory against real agents; this slice was checked with the test fakes only, so the Applied line on
 a real stage is the first thing to look at. The roadmap's own next item is unchanged: finish and record the
-[device and login checks](docs/device-checks.md), then turn Claude Code and Codex chats on by default.
+[device and login checks](../../docs/device-checks.md), then turn Claude Code and Codex chats on by default.
 
 ## Factory outcome follows a stopped session (16 November 2026)
 
@@ -2198,7 +2198,7 @@ The owner asked for MOBILE-1's "Not done" list. Five things, each run at phone a
 
 Also: `ChatStatus` no longer pads its right end for a floating launcher on touch screens, where MOBILE-1 hid it.
 
-**Checked:** see [docs/ui-verification.md](docs/ui-verification.md).
+**Checked:** see [docs/ui-verification.md](../../docs/ui-verification.md).
 
 **Not verified:** a real phone, as before. Safe areas were emulated; a real notch, Dynamic Island or Android
 gesture bar was not seen. Dictation was driven by a stand-in recogniser; no real microphone or speech service was
@@ -2254,7 +2254,7 @@ terminal was attached.
 **What changed (push):** `internal/webpush` (VAPID, an empty wake-up, the push service address list),
 `internal/store/store_push.go` (`push_subscriptions`, `push_told`), `internal/api/push.go` (five routes and a worker
 every five seconds), `web/public/sw.js`, `web/src/lib/push.ts`, `pushSupport.ts` and `DevicePush.svelte` on the
-Notifications page. Design and limits: [docs/push-notifications.md](docs/push-notifications.md).
+Notifications page. Design and limits: [docs/push-notifications.md](../../docs/push-notifications.md).
 
 **Decisions made here, for the owner to overturn if wrong:**
 
@@ -2265,7 +2265,7 @@ Notifications page. Design and limits: [docs/push-notifications.md](docs/push-no
 - The panel still docks by default from 768 px (the documented rule); only its layout at 240 px changed.
 - Push is its own card, not a kind in `internal/notify`: it is per device, and that catalogue is per person.
 
-**Checked:** see [docs/ui-verification.md](docs/ui-verification.md) for the commands and results.
+**Checked:** see [docs/ui-verification.md](../../docs/ui-verification.md) for the commands and results.
 
 **Not verified:** a real phone or tablet; Safari and Firefox; a real push through a push service; momentum scrolling,
 pinch zoom and text selection in the terminal; the notch held sideways (`index.html` has no `viewport-fit=cover`, so
@@ -2356,7 +2356,7 @@ What changed (browser only; nothing in Go, the protocol or the machine):
   44 px keys above phone size. The floating pad and its styles are gone.
 - The second row takes its height from the screen, so opening it resizes the terminal once. That is the owner's choice
   over the pad that floated above the screen.
-- Docs: [On-screen keys](docs/terminal-workspace.md#on-screen-keys).
+- Docs: [On-screen keys](../../docs/terminal-workspace.md#on-screen-keys).
 
 Checked: `terminal-keys.test.mjs` (six cases) and `terminal-phone.e2e.mjs`, which now covers the fixed arrows, the
 modifier cycle, two modifiers on one key, a locked modifier joining typed input, the label's colour, hold-to-repeat to
@@ -2374,14 +2374,14 @@ not seen. Firefox and Safari were not run.
 Not done: choosing or reordering the keys; swipe gestures for the arrows; hiding the row on a tablet that has a hardware
 keyboard attached (it cannot be told apart); a locked modifier is let go when the connection changes state.
 
-Also seen and left alone: [the phone docs](docs/terminal-workspace.md#phones) say a sideways 844 × 390 phone shows 13
+Also seen and left alone: [the phone docs](../../docs/terminal-workspace.md#phones) say a sideways 844 × 390 phone shows 13
 rows; the test prints 9 on main before this change too.
 
 ## AGENT-ACCOUNTS-1: which agents are signed in, and plan limits (14 November 2026)
 
 A machine now says which of its agents are signed in and, when the account turns plan limits on, how much of each plan's
 allowance is left. The owner chose the gate: **an account setting, off by default, on machines with terminal access on;
-no new switch on the machine.** Full contract: [agent sign-ins and plan limits](docs/agent-accounts.md).
+no new switch on the machine.** Full contract: [agent sign-ins and plan limits](../../docs/agent-accounts.md).
 
 - **Machine reader** (`internal/agentaccounts`): Claude Code (`.credentials.json`, `.claude.json`) and Codex
   (`auth.json`, identity-token claims) sign-ins from files; with limits, one GET each to the provider with the agent's
@@ -2538,7 +2538,7 @@ conflated"), so such a session looked like one still working.
   read again). Three rules were each removed and a test seen to fail (recorded on every read, every session read,
   settled screens read again). `go test -race ./internal/terminalhost`: pass.
 - **Not verified:** the patterns were not run against a signed-in Claude Code, Codex or OpenCode; the screens in the
-  tests were written for them. [Device check 5](docs/device-checks.md) says how to confirm each and what to record
+  tests were written for them. [Device check 5](../../docs/device-checks.md) says how to confirm each and what to record
   when one misses. macOS was not run.
 - **Not done:** Cline, Google Antigravity and any other agent; telling "working" from "idle" (the window's activity
   still decides that); a word for it distinct from a bell's, so opening the session clears it as it clears a bell; a
@@ -2546,7 +2546,7 @@ conflated"), so such a session looked like one still working.
 ## CHAT-USAGE-1: a chat shows what its agent reports using (14 November 2026)
 
 The agent's tokens and context figures were already kept per session (`terminal_session_usage`, see "Agent tokens and
-context left" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md)) and shown only on the Factory page.
+context left" in the [factory floor handoff](../../docs/handoffs/gaffer-factory-floor.md)) and shown only on the Factory page.
 An ordinary chat now shows them too.
 
 - **Controller.** `GET /api/v2/terminal/sessions/{id}/chat/usage` (`internal/api/terminal_chat_usage.go`) answers the
@@ -2564,7 +2564,7 @@ An ordinary chat now shows them too.
   keeping the last figures, the low mark, tokens with no window, 1360/390/320 px in both themes, nothing floating over
   the figure — that last check was seen failing with the clearance removed). The twelve existing chat and session
   browser suites pass. The usage field names were compared with the published protocol schema and the Claude adapter's
-  source ([structured sessions](docs/structured-sessions.md#what-the-agent-has-used)).
+  source ([structured sessions](../../docs/structured-sessions.md#what-the-agent-has-used)).
 - **Not done:** the sessions list and the hover card show no usage; no price; no plan or rate-limit allowance (that is
   separate work); nothing was run against a signed-in agent, so which agents actually send the figures is still unknown.
 - **Later the same day:** `chat-usage.e2e.mjs` failed once in CI and about one run in twelve here. It measured the
@@ -2669,14 +2669,14 @@ and `allowLiveSource`, `reet agent set-server`) and absent from the web UI. It i
   `backup.Item` carries `fenced` and `protection`; the import answers carry `notInCopy` and the two refusals an owner
   can answer carry a `code`.
 
-Checked as [docs/ui-verification.md](docs/ui-verification.md) records: unit and browser contracts, and two real
+Checked as [docs/ui-verification.md](../../docs/ui-verification.md) records: unit and browser contracts, and two real
 controllers driven through fence, final copy, download, lift and import in Chromium at 320 and 1280 px in both
 themes. Not done: the session workspace shows no fenced line, and nothing was tried in Firefox, Safari or on a physical phone.
 The refusal text for a live copy is the controller's own and still names the command-line flag.
 
 ## Current Gaffer pause point — 6 November 2026
 
-The user has paused work. Read the [continuation checkpoint](docs/handoffs/gaffer-resume.md)
+The user has paused work. Read the [continuation checkpoint](../../docs/handoffs/gaffer-resume.md)
 first: owner-merged #625 passed all 20 applicable checks and owner-merged #626
 passed all 22. Both had four intentional skips and no unresolved inline review
 threads. Automated code review was blocked by account quota. No next slice has
@@ -2691,7 +2691,7 @@ an agent factory. They chose the **factory floor** as the next slice and **pick 
 **Chat options → Factory floor** is the former Followed sessions job sheet plus every running structured chat not yet
 followed; ticked sessions share one review and each is then started through the existing reviewed per-session setup.
 Browser-only: no backend, schema or protocol change, and Gaffer's authority is unchanged. The
-[factory floor handoff](docs/handoffs/gaffer-factory-floor.md) records the decisions, contract, validation and the
+[factory floor handoff](../../docs/handoffs/gaffer-factory-floor.md) records the decisions, contract, validation and the
 deferred options (commanding sessions from general chat, bulk pause/stop).
 
 On 10 November the same branch gained a usability pass (the floor is one click from general chat and Home, the session
@@ -2754,7 +2754,7 @@ Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.
 
 ## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
 
-The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
+The user selected the [Gaffer session-companion MVP](../../docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
 as the initial AI-chat direction. Outside a session Gaffer is a general
 Zoomies-style chat; each reet session has its own Gaffer conversation. Gaffer is
 the user's quirky critical buddy: it reads permitted context and messages the
@@ -2774,7 +2774,7 @@ that branch, then #603 merged into main as `b3b8e781`. It contains account-owned
 live model selection and Account → Gaffer AI, plus separate durable general/session
 conversations, versioned model choices, turn receipts, SSE, cancellation and
 restart recovery without replay. That initial chat slice sent only typed companion messages; GM3A below adds explicit retained-context sharing.
-The [conversation/access contract](docs/handoffs/gaffer-conversations.md) records
+The [conversation/access contract](../../docs/handoffs/gaffer-conversations.md) records
 worker eligibility, grants and queue receipt/recovery boundaries for later slices.
 
 GM2B shipped in [merged PR #606](https://github.com/eyupio/reet.sh/pull/606),
@@ -2792,7 +2792,7 @@ archive handling. Snapshots are bounded and timestamped, omit raw tool payloads,
 reasoning/approvals/files and make no live machine or GitHub requests. Durable turn
 receipts record the source/category/digest; revoked context-derived history cannot
 silently re-enter later provider prompts. See the updated
-[conversation/access contract](docs/handoffs/gaffer-conversations.md).
+[conversation/access contract](../../docs/handoffs/gaffer-conversations.md).
 
 The screenshot-led UX follow-up in #608 makes the narrative the main area: compact
 header with Conversation history, separate model picker opened from below the
@@ -2807,7 +2807,7 @@ GM3B shipped in [merged PR #612](https://github.com/eyupio/reet.sh/pull/612) as
 `77892506`, with all 20 final-head checks passing. It used
 `feat/gaffer-worker-messages`. It started from main `6c5638cf` after #608/#609 and
 is aligned with main `6c40c7fb` after #610/#611. The concrete
-[worker-message plan](docs/handoffs/gaffer-worker-messages.md) records separate
+[worker-message plan](../../docs/handoffs/gaffer-worker-messages.md) records separate
 permissions, one explicitly enabled request, atomic queue receipts and delivery
 checks. It preserves the working model and user approval boundary.
 GM4’s plan was merged by the owner in [PR #617](https://github.com/eyupio/reet.sh/pull/617).
@@ -2815,7 +2815,7 @@ The implementation is tracked separately in [PR #620](https://github.com/eyupio/
 `feat/gaffer-offline-runtime`, aligned with main `1b10a978`. Its final head
 `1ce63151` passed all 20 applicable CI checks (four intentionally skipped) and has
 no unresolved review threads; the owner has merged it. The
-[offline-goal contract](docs/handoffs/gaffer-offline-goals.md) records explicit
+[offline-goal contract](../../docs/handoffs/gaffer-offline-goals.md) records explicit
 per-session goals, the user's default of 12 reviews over 24 hours, progress-only
 reviews, atomic budget/turn admission, fresh goal/grant delivery checks, stop/
 pause/resume, concurrent sessions and restart reconciliation. Instance restores
@@ -2833,7 +2833,7 @@ separates model reports from retained delivery receipts and user completion.
 **Chat options → Followed sessions** opens it from general or session chat without
 crowding the narrative. Existing goal controls retain fresh permission checks;
 listing never calls a provider, wakes a worker or starts a goal. See the
-[overview handoff](docs/handoffs/gaffer-followed-sessions.md) for tests and PR state.
+[overview handoff](../../docs/handoffs/gaffer-followed-sessions.md) for tests and PR state.
 
 The owner merged the UX slice in [PR #625](https://github.com/eyupio/reet.sh/pull/625),
 `feat/gaffer-companion-ux`. The user's selected **one reviewed session setup,
@@ -2843,12 +2843,12 @@ and a bounded goal. General chat and MCP retain their separate authority.
 The single floating mascot has saved left/right placement, three reference-sized
 presets, temporary drag/resize and modal full screen/phone layouts. Page docks and
 session viewports reserve its corner. See the
-[widget/setup handoff](docs/handoffs/gaffer-widget-setup.md).
+[widget/setup handoff](../../docs/handoffs/gaffer-widget-setup.md).
 GM6 shipped through owner-merged [PR #626](https://github.com/eyupio/reet.sh/pull/626).
 Fake-backed real-controller/private-WebSocket browser acceptance passes in native
 with race detection and the production container runtime/non-root user, including
 restart, limits, approvals, revocation and uncertain delivery. Its
-[acceptance contract](docs/handoffs/gaffer-offline-acceptance.md) records exact
+[acceptance contract](../../docs/handoffs/gaffer-offline-acceptance.md) records exact
 coverage and validation limits. Final CI passed all 22 applicable checks; automated
 review was quota-blocked. Neither
 PR merging nor real-provider setup is authorised by this handoff.
@@ -3010,7 +3010,7 @@ the controller makes no outbound calls today and the README promises none.
   characters does); an ASCII first letter is capitalised; over 60 characters it is cut at the last space (not
   before the 20th character) with an ellipsis, else at 60. With nothing usable it is `<Agent> · <folder>`, or
   `Terminal` and `Terminal · <folder>` for a plain shell. Stated in full in
-  [Launch requests → Session titles](docs/terminal-launch.md#session-titles).
+  [Launch requests → Session titles](../../docs/terminal-launch.md#session-titles).
 - **One list of cases for both languages.** `internal/terminalproto/testdata/autotitle.json` (38 prompt cases,
   14 whole-title cases) is read by `autotitle_test.go` and `web/src/lib/agentLaunch.test.mjs`, so the title the
   dialog suggests cannot drift from the one the controller would give. The expected values were worked out by
@@ -3051,7 +3051,7 @@ show a read's file, an editor's `path`/`new_text` as a diff and a `commands` lis
 nothing to review stays unapprovable. Opt-in `TestRealClineStart` passes against the installed binary with no
 prompt: version floor, identity, act mode, a confirmed plan/act switch and a confirmed model switch. Two prompts
 with every permission rejected recorded the cards, and a stored conversation replayed through `session/load`.
-The evidence and limits are in [the Cline ACP probe](docs/research/cline-acp-probe.md). Not covered: images, MCP
+The evidence and limits are in [the Cline ACP probe](../../docs/research/cline-acp-probe.md). Not covered: images, MCP
 tools or subagents in a turn. A provider failure Cline logs without an ACP frame is now shown as that turn's error
 ([PR #573](https://github.com/eyupio/reet.sh/pull/573)); in-place reconnect for a lost Cline chat is in review
 ([PR #567](https://github.com/eyupio/reet.sh/pull/567)).
@@ -3073,8 +3073,8 @@ and a 307-entry case in `web/src/lib/models.test.mjs`. In review as
 
 ## SEO-1: public search surface and documentation (4 November 2026)
 
-The public-search audit and its current status are in [SEO_AUDIT.md](SEO_AUDIT.md). The continuation state, remaining
-tasks and a copy-paste starting prompt are in [the SEO follow-up handoff](docs/handoffs/seo-follow-up.md). Read that
+The public-search audit and its current status are in [SEO_AUDIT.md](../../SEO_AUDIT.md). The continuation state, remaining
+tasks and a copy-paste starting prompt are in [the SEO follow-up handoff](../../docs/handoffs/seo-follow-up.md). Read that
 file before changing the public routes, metadata, sitemap or docs.
 
 Merged on `main`: real 404s and private-route noindex (#479, `e54cd9c`); install-first landing CTAs (#481, `aed7d36`);
@@ -3097,10 +3097,10 @@ remains the default.
 
 ## GAFFER-PREVIEWS-1: agent image previews and continuation (4 November 2026)
 
-Start a new environment with [the current continuation handoff](docs/handoffs/gaffer-continuation.md). It records the
+Start a new environment with [the current continuation handoff](../../docs/handoffs/gaffer-continuation.md). It records the
 delivered Gaffer PRs, their final heads, validation results and merge shas using repository-relative paths. The image
 preview implementation is in [PR #498](https://github.com/eyupio/reet.sh/pull/498) on `feat/chat-image-previews`, merged as
-`0de8f7d`; its [feature handoff](docs/handoffs/chat-image-previews.md) covers the wire contract, private snapshot cache, UI,
+`0de8f7d`; its [feature handoff](../../docs/handoffs/chat-image-previews.md) covers the wire contract, private snapshot cache, UI,
 recovery, limits and checked screenshots. [PR #490](https://github.com/eyupio/reet.sh/pull/490) (session actions) merged as
 `99c7fd8` and [PR #493](https://github.com/eyupio/reet.sh/pull/493) (startup and backlog settings) merged as `918f452`.
 The handoff refresh that records all three landed as #503 (`4539386`) and #504 (`80ae4cc`). No Gaffer pull request remains
@@ -3108,7 +3108,7 @@ open; follow the "Starting a fresh session" checklist in the continuation handof
 
 ## GAFFER-START-1: launch and backlog model/effort selection (4 November 2026)
 
-Implementation and verification are tracked in [the startup-options handoff](docs/handoffs/start-agent-options.md).
+Implementation and verification are tracked in [the startup-options handoff](../../docs/handoffs/start-agent-options.md).
 Both start dialogs and backlog creation/editing retain model and native effort choices. The new `acp-start-options-v1`
 contract prevents older live-control connectors receiving unsupported create fields. Runtime confirmation precedes readiness
 and the opening prompt. The local web, browser and focused race checks pass. [PR #493](https://github.com/eyupio/reet.sh/pull/493) merged as
@@ -3116,7 +3116,7 @@ and the opening prompt. The local web, browser and focused race checks pass. [PR
 
 ## GAFFER-LIVE-1: live settings and durable message delivery (4 November 2026)
 
-Implementation and verification are tracked in [the live-controls handoff](docs/handoffs/live-chat-controls.md).
+Implementation and verification are tracked in [the live-controls handoff](../../docs/handoffs/live-chat-controls.md).
 This covers negotiated runtime model/effort selectors, capability-aware steering, durable shared queues and recovery
 from uncertain delivery. [PR #488](https://github.com/eyupio/reet.sh/pull/488) merged as `ac5938d` after final-head checks and review fixes passed.
 
@@ -3181,7 +3181,7 @@ automatically. No wire format, dependency or agent availability changes.
 Branch `claude/fervent-wright-5omayg`. Copy only. The card on the sign-in, sign-up and first-run owner-setup pages
 (`AuthCard.svelte`) now says "Your whole AI setup. Ready to control." instead of "...On every machine.", so it agrees with the
 landing page's h1. The page title and meta description keep "on every machine" on purpose. `first-run.e2e.mjs` (`authfit`)
-holds the words. Checks and screenshots in [UI verification](docs/ui-verification.md).
+holds the words. Checks and screenshots in [UI verification](../../docs/ui-verification.md).
 
 ## LANDING-1: the control-room landing page (3 November 2026)
 
@@ -3197,7 +3197,7 @@ the workbench" line now says "Agent software: OpenCode today, more agents to com
 a plan only when its owner has opted in. The sign-in card headline was left alone at first; see AUTH-CARD-1 below.
 
 Checks: `npm run check` (unit suites, svelte-check 0 errors, 0 warnings), `public-workspace.e2e.mjs` and `first-run.e2e.mjs`
-against `vite preview`, `go test ./web/`. Screenshots and scope in [UI verification](docs/ui-verification.md). The copy chip
+against `vite preview`, `go test ./web/`. Screenshots and scope in [UI verification](../../docs/ui-verification.md). The copy chip
 omits `--server` as approved: the command takes the server from `REET_URL`, so it works on a machine where that is set.
 The boot-shell skeleton in `index.html` still draws the old hero shape; it is decoration and was not changed.
 
@@ -3320,7 +3320,7 @@ Checks: web unit suites, svelte-check (0 errors/warnings), production build, the
 existing OpenCode chat browser contracts (legacy and descriptor capabilities), Claude/Codex browser contracts and Go vet pass. The recovery contract covers
 1360/390/320 px, both themes, lost/exited/ended states, unsupported history, offline machines, reload refusal and the same
 operation id after an uncertain reply. New Go recovery tests pass under race; the retained-id and restart-record tests and
-the web wording tests fail on unchanged main. Captures and scope are in [UI verification](docs/ui-verification.md).
+the web wording tests fail on unchanged main. Captures and scope are in [UI verification](../../docs/ui-verification.md).
 
 The repository race run is not green: `TestCloseKillsOrphanedGroupMembers` and
 `TestListModelsTimeoutKillsTheProcessGroup` also fail on unchanged main in this environment. The API suite exhausted its
@@ -3354,7 +3354,7 @@ handovers are explicit. No provider request or stored report is introduced.
 
 Web unit tests, svelte-check, the production build and the Gaffer browser matrix pass. The browser
 matrix covers replay, phase changes, animation pause, summaries, failures, session end, keyboard
-controls, both themes and 320/390/768 px widths. See [UI verification](docs/ui-verification.md) for
+controls, both themes and 320/390/768 px widths. See [UI verification](../../docs/ui-verification.md) for
 the approved mocks, phone captures and animation recording. The full chat browser fixture, Go vet,
 race-enabled web/CLI packages and the API suite without race pass. The full race attempt exposed
 existing process, model-listing and missing-tmux fixture failures, reproduced on unchanged `1e626ff`.
@@ -3376,7 +3376,7 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-skill-card-machine-actions.md`, `...-machine-add-skill.md`,
 `...-skill-remove-from-machine.md`, `...-skills-sync-vocabulary.md`,
 `...-written-skill-record.md`, `...-written-skill-lifecycle.md` and
-`...-session-skill-drafts.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md).
+`...-session-skill-drafts.md`; checks are in [docs/ui-verification.md](../../docs/ui-verification.md).
 The refresh merged through #457. Merge main into the next branch as later work lands.
 
 **Merged, all with every required check green:**
@@ -3502,13 +3502,13 @@ identity is dropped, stored secrets the controller's key cannot open are named, 
 (`store.SchemaVersion`, stamped by `store.Open`) is refused. The owner can stage a copy on a running controller with
 `POST /api/v2/admin/backups/import` (also `GET`, `DELETE`); `backup.ApplyPendingImport` swaps it in at the start of `serve`.
 The import has an Admin → Backups control (`Backups.svelte`). Left for later: bumping `store.SchemaVersion`
-when a release changes the schema incompatibly. See [docs/backups.md](docs/backups.md).
+when a release changes the schema incompatibly. See [docs/backups.md](../../docs/backups.md).
 
 ## Structured chats (SC1–SC5): resume here (2 November 2026)
 
-**Read first:** [docs/structured-chat-plan.md](docs/structured-chat-plan.md) (the plan and every progress note),
-[docs/device-checks.md](docs/device-checks.md) (what needs a real device or login) and
-[docs/research/structured-adapters/probe-report.md](docs/research/structured-adapters/probe-report.md) (what each adapter was
+**Read first:** [docs/structured-chat-plan.md](../../docs/structured-chat-plan.md) (the plan and every progress note),
+[docs/device-checks.md](../../docs/device-checks.md) (what needs a real device or login) and
+[docs/research/structured-adapters/probe-report.md](../../docs/research/structured-adapters/probe-report.md) (what each adapter was
 measured to do). This section is the position and the order of what is left.
 
 **Where it stands.** OpenCode, Cline and Google Antigravity chats are offered to every account. Claude Code and Codex are built end
@@ -3581,7 +3581,7 @@ continue independent SC5 work, not evidence of a real login. Do not re-ask while
 then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are the signed-in runs
 (section 2 Run B for Claude and section 3 Run B for Codex), then section 1's physical touch and screen-reader checks. Claude Code and Codex chats are not on by default, and
 `elicitation.form` is not turned on, before the required evidence is recorded. Record each result in the ledger at the top of
-[docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
+[docs/device-checks.md](../../docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
 **Recorded 4 November 2026 (logged-out runs, pinned adapters):** Claude `claude-agent-acp@0.99.1` advertises no login methods, creates a session
 without a login and refuses the first prompt with `-32000 Authentication required` (`authenticatedHint: false`); `TestRealClaudeStart` passes against
@@ -3761,14 +3761,14 @@ Branch `feat/gaffer-interface`, based on main `9b8bc17`. The native browser
 interface is branded Gaffer, with shared accessible HTML explanations; stored
 `reet`/`chat` choices, ACP sessions and OpenCode TUI remain compatible. A bounded
 Eli provider/conformance probe and licence/dependency review contribute to KZ5A;
-no coordinator or new adapter is enabled. See [the companion update](docs/work-orchestration-handoff.md#gaffer-branding-and-eli-reuse-1-november-2026)
-and [reuse decisions](docs/research/eli-reuse.md). KZ0 and KZ5A remain incomplete;
+no coordinator or new adapter is enabled. See [the companion update](../../docs/work-orchestration-handoff.md#gaffer-branding-and-eli-reuse-1-november-2026)
+and [reuse decisions](../../docs/research/eli-reuse.md). KZ0 and KZ5A remain incomplete;
 the exact remaining decisions and future stage gates stay in those documents.
 Publication and validation are recorded in the PR; no merge or deployment is implied.
 
 ## Durable work, Eli and Kanzo follow-on handoff (1 November 2026)
 
-The staged [work orchestration handoff](docs/work-orchestration-handoff.md) is a
+The staged [work orchestration handoff](../../docs/work-orchestration-handoff.md) is a
 companion plan for the user's durable-work direction: steps assigned across
 agents, models and machines, with revision-bound independent reviews and an
 Eli-style coordinator informed by Zoomies. It owns stages KZ0–KZ12, including
@@ -3789,7 +3789,7 @@ on 27 October 2026; they live in git history before commit `bd9e56c` (for exampl
 sudo repair, roadmap checkpoints, terminal polish, terminal-first workspace requirements, the
 implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Projects PR 1 and
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
-[handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
+[handoff-history.md](../../handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
 ## Loading: compressed assets, one progress bar, skeletons everywhere (2 November 2026)
 
@@ -3891,7 +3891,7 @@ lower-case UUID for Claude/Codex, still gated by `ReviewedChatTool`); and `typed
 `internal/acpagent/session.go`, which turns Claude's `{type:"diff"}` content into the
 existing bounded 10 KiB diff and reads `rawInput.file_path`. A missing or unusable diff
 still leaves an edit card unapprovable. Results are in the
-[probe report](docs/research/structured-adapters/probe-report.md).
+[probe report](../../docs/research/structured-adapters/probe-report.md).
 
 **Findings that block enabling Claude:** a repository's own hooks run without an approval
 card; leader exit did not retire the whole process group; `session/load` ignores `cwd`;
@@ -3929,7 +3929,7 @@ sandbox to see whether any approval request exists, and cancel on a running comm
 ## SC3 — Typed agent questions, machine core (31 October 2026)
 
 **Scope:** `internal/acpagent` only; no wire, API or UI change and no agent enabled. See the SC3 progress
-note in [the plan](docs/structured-chat-plan.md).
+note in [the plan](../../docs/structured-chat-plan.md).
 
 **Added:** a normalized `Question` model (text, single select, multi select), a strict `elicitation/create`
 parser that refuses unsupported forms whole, an authoritative answer validator (`Question.Validate`,
@@ -3948,7 +3948,7 @@ old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability bef
 ## SC3 — Typed agent questions, machine core (31 October 2026)
 
 **Scope:** `internal/acpagent` only; no wire, API or UI change and no agent enabled. See the SC3 progress
-note in [the plan](docs/structured-chat-plan.md).
+note in [the plan](../../docs/structured-chat-plan.md).
 
 **Added:** a normalized `Question` model (text, single select, multi select), a strict `elicitation/create`
 parser that refuses unsupported forms whole, an authoritative answer validator (`Question.Validate`,
@@ -3983,7 +3983,7 @@ adapter, and a descriptor-less peer is still OpenCode-only.
 **Scope:** separate probe PR targeting main; no new runtime adapter is enabled.
 Branch `feat/structured-adapter-probes`, following the merged
 [SC1 PR #300](https://github.com/eyupio/reet.sh/pull/300). See
-[the probe report](docs/research/structured-adapters/probe-report.md) and its
+[the probe report](../../docs/research/structured-adapters/probe-report.md) and its
 narrowed protocol fixtures. This is partial SC2 evidence, not completion of the
 first additional-agent integration.
 
@@ -4057,7 +4057,7 @@ non-reaping PID 1 needs a test-only subreaper for orphan-exit checks, and socket
 network permission. No real provider, physical phone or new adapter was run.
 
 **Exact next unchecked task:** SC2's Claude Code and Codex ACP adapter probes;
-read [the plan](docs/structured-chat-plan.md), `internal/acpagent/{spec,describe,session}.go`,
+read [the plan](../../docs/structured-chat-plan.md), `internal/acpagent/{spec,describe,session}.go`,
 `internal/terminalproto/acp_agents.go`, `internal/scan/agent_terminal_control.go`
 and `web/src/lib/StartAgentDialog.svelte`. Do not enable a candidate before its
 callback, permission, trust, provider and history contracts are observed.
@@ -4093,7 +4093,7 @@ control room. The planned terminal-interface slices are complete; install, agent
   own auto-answer, answers cards already waiting, and keeps the local YOLO switch gate. The controller keeps
   the launch gates (account Allow YOLO, machine `yolo`, agent option), updates `terminal_sessions.yolo`, and
   audits `yolo-mode`; the session header and actions menu carry the switch, with the existing confirmation
-  dialog in switching form. Docs: [structured sessions](docs/structured-sessions.md).
+  dialog in switching form. Docs: [structured sessions](../../docs/structured-sessions.md).
 - **Ask me can allow a command or file for this session.** A card with a command or path adds
   **Allow this command/file for this session**. The controller remembers the exact tool kind plus command or
   path for that chat, answers repeats itself, audits each as `session-allow`, and forgets on chat end,
@@ -4118,7 +4118,7 @@ through `setup.InspectInstallations`; it never runs OpenCode, npm or an installe
 /api/v2/machines/{agentId}/software/plan?tool=opencode&action=install|update|remove` builds a plan from stored
 evidence (current/target version, exact command, steps, running-session effects, always `executes: false`); the only
 reviewed target is the pinned 1.19.5. Machines → Settings → **Software** shows the evidence and the plan inline, with
-no Apply action. Read [docs/agent-software.md](docs/agent-software.md).
+no Apply action. Read [docs/agent-software.md](../../docs/agent-software.md).
 
 **Compatibility / migration behaviour:** an older controller does not advertise `software-v1`, so a new connector
 sends no inventory; an older connector reports none. No schema migration — the inventory rides in the capabilities
@@ -4142,7 +4142,7 @@ and interruption recovery are not implemented.
 
 **Exact next unchecked task and first files to read:** L2 — verified single-machine maintenance with rollback, still
 plan-first. Read `internal/agentsoftware/plan.go`, `internal/terminalhost/software.go`, `internal/api/software.go`,
-`internal/scan/agent.go`, `web/src/lib/MachineSettings.svelte` and [docs/agent-software.md](docs/agent-software.md).
+`internal/scan/agent.go`, `web/src/lib/MachineSettings.svelte` and [docs/agent-software.md](../../docs/agent-software.md).
 
 **Publication / deployment state (verified, not inferred):** the branch is pushed and PR #282 is open; nothing is
 merged, released or deployed.
@@ -4179,7 +4179,7 @@ OpenCode session exists, sends only state/version/managed, merges the fresh entr
 `software-apply`, and maps refusals/failures to codes. The UI shows **Apply** only when the machine reports the
 capability, uses one confirmation dialog, and records the fresh entry. Launches, model listing and inventory now
 prefer the managed binary (`launchArgv`, `ListModels`, `InspectSoftware`). A system install has no managed receipt and
-is never updated or removed. Docs: [docs/agent-software.md](docs/agent-software.md).
+is never updated or removed. Docs: [docs/agent-software.md](../../docs/agent-software.md).
 
 **Checks for L2b:** `go test` passed for `terminalproto`, `agentsoftware`, `terminalhost`, `terminalagent`,
 `terminalbroker`, `agenthealth`, `scan` and `api`; `go test -race` passed for the first seven and for the
@@ -4200,7 +4200,7 @@ connector starts. It removes staging files and unfinished version directories, v
 the kept previous version when the current is broken (clearing the broken rollback target), clears a previous target
 that no longer verifies, and reports a broken current with no valid previous as `managed_broken` rather than hiding it
 or falling back to a system copy. Tests cover leftovers, a broken current with a good previous, a broken current with
-no previous, an invalid previous, and orphan versions without a current receipt. Docs: [docs/agent-software.md](docs/agent-software.md).
+no previous, an invalid previous, and orphan versions without a current receipt. Docs: [docs/agent-software.md](../../docs/agent-software.md).
 
 **L2e, on `feat/fleet-software-review` ([#292](https://github.com/eyupio/reet.sh/pull/292), commit `b06585d`, stacked on #291):** a **plan-only fleet review**. `GET
 /api/v2/software/plans` builds one row per enrolled machine from stored evidence (version, managed/system/missing,
@@ -4312,28 +4312,28 @@ mirror resilience are later follow-ons. Read
   reviewed it, or the owner gives an explicit exception. The full race job now has a 60-minute budget.
 - **Release:** F can ship separately. R22 still lets the earlier B, C, E, copy/paste, models and reet TUI
   work go out together; the owner's call.
-- The research these start from is in [docs/research/](docs/research/) (copied whole from the session's git-ignored
+- The research these start from is in [docs/research/](../../docs/research/) (copied whole from the session's git-ignored
   notes). Those reports summarise third-party code and docs read as untrusted data: check a claim against its label
   (*read*, *doc*, *belief*/*memory*) before building on it.
 
 ### State
 
 Home, the shell and the machine-folder projects were rebuilt to the mock-up in
-[docs/design/agents-home/](docs/design/agents-home/) (reference renders at 1440, 834 and 390 px; each PR is checked against
+[docs/design/agents-home/](../../docs/design/agents-home/) (reference renders at 1440, 834 and 390 px; each PR is checked against
 them in `docs/ui-verification.md`). The plan is
-[docs/superpowers/plans/2026-10-26-agents-home.md](docs/superpowers/plans/2026-10-26-agents-home.md); the **rulings R1–R22**
-are binding and live in the spec's [Rulings](docs/superpowers/specs/2026-10-26-agents-home-design.md#rulings) section.
+[docs/superpowers/plans/2026-10-26-agents-home.md](../../docs/superpowers/plans/2026-10-26-agents-home.md); the **rulings R1–R22**
+are binding and live in the spec's [Rulings](../../docs/superpowers/specs/2026-10-26-agents-home-design.md#rulings) section.
 **Quicker plan, agreed 27 October 2026:** the fidelity polish (P) was folded into C and E, YOLO (F) and attention (G) were
 left out of the first pass, and the Program 2 spike ran in parallel. F shipped in #264/#266; G is on `ccr-attention`.
 
 | PR | What | State |
 | --- | --- | --- |
 | D | App shell (top and bottom tabs, bell, Jump, More sheet) and Home | merged, [#218](https://github.com/eyupio/reet.sh/pull/218) as `8c33c99` |
-| A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent opens the session, dockable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219) as `41066c5`; contract in [docs/folder-browse.md](docs/folder-browse.md) |
-| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old writes answer 410 `projects_moved`), the Add project dialog with the folder browser, the rail; `/projects` redirects to Home; read [docs/projects.md](docs/projects.md) | merged, [#221](https://github.com/eyupio/reet.sh/pull/221) as `cb89a26` (no Codex review of its final head; merged on green CI, no exception comment) |
+| A | Machine folder browse and branches (`agents`, `browse-v1`, `branches-v1`), start-agent opens the session, dockable sessions panel | merged, [#219](https://github.com/eyupio/reet.sh/pull/219) as `41066c5`; contract in [docs/folder-browse.md](../../docs/folder-browse.md) |
+| B | Folder projects: store and API (`/api/v2/folder-projects`, reorder, `import-saved`), saved Projects moved over (old writes answer 410 `projects_moved`), the Add project dialog with the folder browser, the rail; `/projects` redirects to Home; read [docs/projects.md](../../docs/projects.md) | merged, [#221](https://github.com/eyupio/reet.sh/pull/221) as `cb89a26` (no Codex review of its final head; merged on green CI, no exception comment) |
 | P | Fidelity polish | folded into C and E |
 | C | Agent catalogue and launch fields (`agents-v2`, named worktree base, effort, tool on the listing, `osVersion`), Cline with safe arguments, chrome polish | merged, [#226](https://github.com/eyupio/reet.sh/pull/226) as `540d247` (no Codex review: quota exhausted; merged on green CI, no exception comment) |
-| E | Launch bar on Home, Start in several projects, fixes from the #226 review; read [docs/start-agent-session.md](docs/start-agent-session.md#on-home-the-launch-bar) | merged, [#227](https://github.com/eyupio/reet.sh/pull/227) as `fe3e9b7` (owner exception, recorded on the PR) |
+| E | Launch bar on Home, Start in several projects, fixes from the #226 review; read [docs/start-agent-session.md](../../docs/start-agent-session.md#on-home-the-launch-bar) | merged, [#227](https://github.com/eyupio/reet.sh/pull/227) as `fe3e9b7` (owner exception, recorded on the PR) |
 | F | YOLO (off by default, per session, audited, machines can refuse), with the account Allow YOLO setting, machine switch and capability, reviewed preset options, confirmation dialog and badges | merged, [#264](https://github.com/eyupio/reet.sh/pull/264) as `9cf82f4`; follow-up [#266](https://github.com/eyupio/reet.sh/pull/266) as `99b3fd0`; plan `docs/superpowers/plans/2026-10-26-agents-home.md` (Task F) |
 | G | Attention (`attention-v1`), per-person seen state (`POST /api/v2/terminal/sessions/{id}/seen`), Home's Needs you queue, bell popover, title count and live-region announcements | merged, [#269](https://github.com/eyupio/reet.sh/pull/269) as `52afc9d` (owner exception: Codex quota, recorded on the PR); plan `docs/superpowers/plans/2026-10-26-agents-home.md` (Task G) |
 | Program 2, slice 3 | Inline approvals on Home: answer pending reet TUI command and edit approvals (**Allow once** / **Deny**) directly from Home's **Needs you** column and bell popover | merged, [#272](https://github.com/eyupio/reet.sh/pull/272) as `362ffd9` (retargeted to `main`; owner exception); plan `docs/superpowers/plans/2026-10-26-agents-home.md` |
@@ -4400,7 +4400,7 @@ After the models UI:
   list was not load-tested, and no physical phone, Safari or live agent CLI run was part of this PR.
 - The new terminal controls have no mock-up element. They join the existing toolbar, menu and banner styles; at 1440
   the toolbar scrolls as it did before. The Select text sheet, upload chip, copy-on-select checkbox and the uploads-off
-  note are the additions listed in [docs/ui-verification.md](docs/ui-verification.md).
+  note are the additions listed in [docs/ui-verification.md](../../docs/ui-verification.md).
 - `terminal-clipboard.e2e.mjs` and `terminal-upload.e2e.mjs` are in the `phone-dialogs` CI job. Nothing new was added to
   `terminal-browser`. The local matrix's session screen passes 40 states.
 - Still true from PR H: the session screen keeps the sessions panel and workspace toolbar (the mock-up has neither); the
@@ -4453,7 +4453,7 @@ After the reet TUI slices:
   approvals are not restored; replayed tools are shown interrupted.
 - **OpenCode 1.19.5 or newer.** The connector refuses an older version before starting a process; the ACP handshake must
   also name `OpenCode` and speak protocol 1. The seven conditions in
-  [structured-sessions.md](docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the
+  [structured-sessions.md](../../docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the
   Start dialog's trust confirmation. Always allow is never offered, and a diff or command too large for one control frame
   cannot be allowed.
 - **No live model turn** was sent in the checks. The real 1.19.5 binary opened and then loaded a session in a throwaway
@@ -4480,7 +4480,7 @@ Before this PR:
 - The site footer (account name, Admin, the developer credit) has targets under 44 px on touch; it predates the agents
   home and was left as it is.
 - On a touch phone the terminal's chrome (workspace toolbar, pane header and footer, terminal keys) is 40 × 40 px, not
-  44, so the terminal keeps its rows; documented in [docs/terminal-workspace.md](docs/terminal-workspace.md#phones). H4's
+  44, so the terminal keeps its rows; documented in [docs/terminal-workspace.md](../../docs/terminal-workspace.md#phones). H4's
   40 px footer button costs one row with the keyboard down at 390 × 844 (39 → 38); keyboard-open and sideways rows are
   unchanged.
 - `terminal-phone.e2e.mjs`'s 20 × 8 floor case used to read 13 rows in about one run in five: the workspace height was
@@ -4505,7 +4505,7 @@ Still true from earlier PRs:
 - Worktree git calls share the lazy-fetch and fsmonitor hazard the folder browser already guards against.
 - Nothing has been checked on a real phone or in Safari (browser emulation only), including the touch long press.
 - The tablet shows its own **Change** button for model and worktree (approved deviation). Per-screen differences from
-  the drawings are listed per PR in [docs/ui-verification.md](docs/ui-verification.md).
+  the drawings are listed per PR in [docs/ui-verification.md](../../docs/ui-verification.md).
 
 ### Queued work (decided; next up)
 
@@ -4522,9 +4522,9 @@ requests (`permission` events with `permissionId`, `title`, `command`, `diff`, `
 so Home's **Needs you** column and the bell popover render the command/edit approval cards with inline **Allow once** and
 **Deny** actions (`POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}`) alongside **Open**. Slices 1 and
 2 are merged in #256 and #258; their seven conditions and limits remain binding:
-[docs/research/probe-report.md](docs/research/probe-report.md),
-[reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
-[reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
+[docs/research/probe-report.md](../../docs/research/probe-report.md),
+[reference-tool-frontend-research.md](../../docs/research/reference-tool-frontend-research.md) and
+[reference-tool-agents-research.md](../../docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
 once / Deny only, and only with all seven conditions:
 
 1. A reet-owned ask-everywhere config in `OPENCODE_CONFIG_CONTENT` (edit, bash and external_directory ask, for every
@@ -4540,7 +4540,7 @@ once / Deny only, and only with all seven conditions:
 7. OpenCode pinned at exactly `opencode-ai@1.19.5` (integrity in the probe report). There is no `--standalone` or
    `--auto` on `acp` in 1.19.5.
 
-**The probe's blocking findings** (full text: [probe-report.md](docs/research/probe-report.md), sections 4, 6 and 7):
+**The probe's blocking findings** (full text: [probe-report.md](../../docs/research/probe-report.md), sections 4, 6 and 7):
 
 - By default OpenCode asks nothing: writes, edits and shell commands ran without a permission request.
 - A repository's config, the user's config or `OPENCODE_PERMISSION` can switch asking off.
@@ -4621,13 +4621,13 @@ once / Deny only, and only with all seven conditions:
 
 - Terminal security: a later, user-agreed security pass for privilege-capable browser terminals (a PIN
   or similar preference) is deferred; nothing of it is implemented. Read "Later: user-controlled
-  terminal security preferences" in [handoff-history.md](handoff-history.md) before starting it.
+  terminal security preferences" in [handoff-history.md](../../handoff-history.md) before starting it.
 - A reported terminal-stop incident (Stop/End with removal interrupting other tmux work) is unresolved;
   do not disturb the user's work or ask them to reproduce it. Never use a shared or default tmux
   `kill-server`. Details and what to collect if it recurs: "Reported terminal-stop incident" in
-  [handoff-history.md](handoff-history.md).
+  [handoff-history.md](../../handoff-history.md).
 - Shared dialog shell for phones: `web/src/lib/dialogShell.ts` and `web/src/dialog-shell.css`; how to
-  adopt it is in "Phones: dialogs" in [handoff-history.md](handoff-history.md).
+  adopt it is in "Phones: dialogs" in [handoff-history.md](../../handoff-history.md).
 - Product acceptance and evidence boundaries: discovery is not install capability, shell persistence
   is not conversation recovery, configuration restore is not runtime health, and local checks are not
   a deployment; describe outcomes without competitor names (full text in the history).
@@ -4646,7 +4646,7 @@ once / Deny only, and only with all seven conditions:
 | Desired sets/jobs/receipts | `internal/store/store_sync.go`, `store_sync_control.go`; `internal/api/sync.go`, `sync_control.go` |
 | Store/migrations and route registration | `internal/store/store.go`, `internal/api/api.go`; inspect feature-local initialisation too |
 | Hosted bundle validation/editor | `internal/store/store_hosted.go`, `internal/api/hosted.go`, `web/src/lib/Hosting.svelte` |
-| Read-only content manifests (S1) | `internal/skillbundle`, [contract](docs/skill-bundle-manifests.md); independent of live sync/snapshot formats |
+| Read-only content manifests (S1) | `internal/skillbundle`, [contract](../../docs/skill-bundle-manifests.md); independent of live sync/snapshot formats |
 | Snapshot whole-skill collection/verification | `internal/setup/skills.go`, `skills_verify.go`, `snapshot.go`, `restore_apply.go`, `rollback.go` |
 | Agent adapters/discovery/evidence | `internal/setup/adapters.go`, `discovery.go`, `installation.go`, `health.go`, config/policy files and tests |
 | Setup profiles | `internal/setup/profile.go`, `internal/profilehistory`, `internal/store/store_setup_profiles.go`, `internal/api/setup_profiles.go` |
@@ -4654,7 +4654,7 @@ once / Deny only, and only with all seven conditions:
 | Typed private transport and broker | `internal/terminalproto`, `internal/terminalagent`, `internal/terminalbroker`, `internal/privateconn` |
 | Terminal API and records | `internal/api/terminal.go`, `internal/store/store_terminal.go` |
 | Terminal UI and connection state | `web/src/lib/terminal/TerminalWorkspace.svelte`, `TerminalPane.svelte`, `api.ts`, `connection.ts` |
-| Desks: record and rules | `internal/desk` (`Doc`, `Tab`, `Node`, `Pane`, `Validate`, tree edits, presets); `internal/store/store_desks.go` (tables `desks`, `desk_sessions`, `desk_pane_dirs`; `Desk`, `CreateDeskFor`, `UpdateDeskFor`, `ReopenDeskPaneFor`, `NoteDeskPaneDirFor`, `DeskPaneReportedDirFor`); [docs/desks.md](docs/desks.md) |
+| Desks: record and rules | `internal/desk` (`Doc`, `Tab`, `Node`, `Pane`, `Validate`, tree edits, presets); `internal/store/store_desks.go` (tables `desks`, `desk_sessions`, `desk_pane_dirs`; `Desk`, `CreateDeskFor`, `UpdateDeskFor`, `ReopenDeskPaneFor`, `NoteDeskPaneDirFor`, `DeskPaneReportedDirFor`); [docs/desks.md](../../docs/desks.md) |
 | Desks: routes and machine side | `internal/api/desks.go` (`/api/v2/desks…`, reopen); `internal/terminalproto/desk_shell.go` (`desk-shell-v1`, `DeskRef`); `internal/terminalhost/desk_shell.go` (wrappers, pane history, `ForgetDeskSession`), `live_dir.go`, `launch.go` (`ResolveDeskDir`); `internal/terminalbroker` (`EndDeskPane`, `recordLiveDir`) |
 | Desks: page | `web/src/lib/desks/*` (DesksPage, DeskList, DeskScreen, DeskTabs, SplitArea, DeskPane, DeskToolbar, PaneStateCard, `paneState.ts`, `autosave.ts`, `tree.ts`, `keys.ts`, `typeInAll.ts`, `addSession.ts`, `api.ts`); `web/tests/desks.e2e.mjs`, `desks-phone.e2e.mjs` |
 | OpenCode in the reet TUI | `internal/acpagent` (agent spec, process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
@@ -4738,7 +4738,7 @@ Conversation resume/fork, granular machine/project permissions, read-only termin
 observation and OIDC login are valuable later extensions. A full terminal TUI,
 themes, sound effects and a broad plugin marketplace are lower priority than the
 outcomes above. Keep the warm Reet branding, Yorkshire rose and familiar
-navigation; read [voice and copy](docs/voice-and-copy.md) for user-facing changes.
+navigation; read [voice and copy](../../docs/voice-and-copy.md) for user-facing changes.
 
 The older setup plan records an earlier delivery order (backup/restore, profiles,
 maintenance). Preserve its data-safety and recovery requirements. This roadmap is

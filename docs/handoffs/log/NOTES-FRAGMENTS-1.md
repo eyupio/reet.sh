@@ -18,5 +18,6 @@ not start the main test workflow at all.
   not moved"; it does not end the machine's private connection. That is corrected, and a fragment says so for the next
   release.
 
-Not done: nothing checks that a pull request that changes behaviour added a fragment or a log entry. Not checked: that
-every cross-reference to `handoff.md` still reads well (they cite entry IDs, which are all in the archive).
+Not done: nothing checks that a pull request that changes behaviour added a fragment or a log entry. Moving the archive one folder down broke 124 repository-relative links in it (a review found them); they
+are rewritten and a check finds none broken. Not checked: that every cross-reference to `handoff.md` still reads well
+(they cite entry IDs, which are all in the archive).

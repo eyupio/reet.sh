@@ -35,6 +35,10 @@ test('supported agent scopes are explicit and scan-only scopes stay separate', (
 test('commands are shell-quoted and machine-specific', () => {
   assert.equal(shellQuote("Sam's laptop"), "'Sam'\\''s laptop'")
   assert.match(scanCommand('https://reet.sh', "Sam's laptop"), /--env 'Sam'\\''s laptop' --prune --reconcile/)
+  // With an enrolment code the machine reports as itself: no server, no name, no reconcile. Token mode is as it was.
+  assert.equal(scanCommand('https://reet.sh', "Sam's laptop", true), 'reet scan --prune')
+  assert.equal(scanCommand('https://reet.sh', 'studio', false), "reet scan --server 'https://reet.sh' --env 'studio' --prune --reconcile")
+  assert.equal(scanCommand('https://reet.sh', 'studio'), "reet scan --server 'https://reet.sh' --env 'studio' --prune --reconcile")
   assert.match(enrollCommands('https://reet.sh', 'studio', true), /--allow-apply\nreet agent run/)
   assert.match(profilePullCommand('https://reet.sh', 'work'), /reet setup profile pull 'work' --server 'https:\/\/reet.sh'/)
   assert.match(profileFetchCommand('work', 4), /--profile 'work' --revision 4/)

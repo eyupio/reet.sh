@@ -93,7 +93,7 @@
   const name = $derived(host.trim() || 'my-machine')
   const install = $derived(installCommands(channel))
   const configure = $derived(configureCommand(site, channel))
-  const scan = $derived(scanCommand(site, name))
+  const scan = $derived(scanCommand(site, name, codes))
   const enroll = $derived(enrollCommands(site, name, allowApply))
   const pull = $derived(selectedProfile ? profilePullCommand(site, selectedProfile.name) : '')
   const fetch = $derived(selectedProfile ? profileFetchCommand(selectedProfile.name, revision) : '')
@@ -491,9 +491,9 @@
         <header>
           <p class="eyebrow">Step 4 · Inventory &amp; sync</p>
           <h3 tabindex="-1" bind:this={panelHeading}>Tell reet.sh what is on this machine.</h3>
-          <p>Run the scan on the machine. It reads the agent skill folders and creates the machine inventory here.</p>
+          {#if codes}<p>Your machine reports its skills as soon as <code>reet agent run</code> starts. To check now, run this on it.</p>{:else}<p>Run the scan on the machine. It reads the agent skill folders and creates the machine inventory here.</p>{/if}
         </header>
-        {#if !host.trim()}<p class="inline-warning">Add a machine name in step 1 first, so the scan and future reports use a stable name.</p>{/if}
+        {#if !codes && !host.trim()}<p class="inline-warning">Add a machine name in step 1 first, so the scan and future reports use a stable name.</p>{/if}
         <div class="command">
           <div class="command-copy"><span>Scan this machine</span><CopyButton text={scan} label="Copy scan command" compact /></div>
           <pre>{scan}</pre>
@@ -523,7 +523,7 @@
               <span class="pulse" aria-hidden="true"></span>
               <div class="watch-copy">
                 <strong>Waiting for the first scan</strong>
-                <p>Run the scan above. This page checks automatically and fills the machine in the moment its report lands.</p>
+                <p>{codes ? 'This page checks automatically and fills the machine in the moment its report lands.' : 'Run the scan above. This page checks automatically and fills the machine in the moment its report lands.'}</p>
               </div>
               <span class="watch-badge">Watching</span>
             </div>

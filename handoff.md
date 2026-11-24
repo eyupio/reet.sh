@@ -1,5 +1,25 @@
 # Reet central-control implementation handoff
 
+## CI-SHARD-1: the Go suite runs in four shards (24 November 2026)
+
+The first "Delivery speed" item. The single `test` job in `.github/workflows/image.yml` ran the web check, the MCP
+tests, `go vet` and `go test -race ./...` one after another, with a 90 minute limit. It is now three kinds of job:
+
+- `checks`: the web check, the MCP tests and `go vet` (30 minute limit).
+- `go (store)`, `go (api-1)`, `go (api-2)`, `go (rest)`: the Go tests under `-race`, from `scripts/ci-go-shard.sh`. `store`
+  is `internal/store` alone, `api-1` and `api-2` take alternate tests of `internal/api` (the slowest package, about 26
+  minutes whole), and `rest` is the other 51 packages. The halves rebalance themselves as tests are added or removed.
+  Each shard job has a 50 minute limit, with `-timeout` of 40 minutes (30 for `rest`).
+- `test`: waits for the others and fails unless both `checks` and `go` passed. It keeps the name `test` so `publish` and
+  anything that waits for that check behave as before.
+
+I counted what the shards cover: 54 packages (51 + 2 + 1) and 779 `internal/api` tests (390 + 389), each exactly once.
+Not run locally: a shard under the race detector end to end, and the workflow itself; the pull request's own run is the
+first time it runs. If a shard fails for a reason the old single job did not have (a test that needs another package's
+side effect, or a runner without Node), that is the cause to look for first. Not done yet from this item: parallel web
+tests that report every failure, owners and end dates for flaky tests, a changelog fragment per pull request, and a
+bounded `handoff.md` with a short `AGENTS.md`.
+
 ## MACHINE-LOCK-1: a lock only the machine can lift (24 November 2026)
 
 The last buildable "Security and access" item of the roadmap's reliability workstream. The owner chose the widest

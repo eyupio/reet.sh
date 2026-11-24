@@ -325,7 +325,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 					if err = os.MkdirAll(filepath.Join(c.Home, ".agents", "skills"), 0755); err != nil {
 						return err
 					}
-					if err = writePrivate(*config, c); err != nil {
+					if err = editAgentConfig(*config, func(s *agentConfig) error { s.AllowApply = true; return nil }); err != nil {
 						return err
 					}
 				}

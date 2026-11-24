@@ -33,7 +33,7 @@ func runAgentLock(c agentConfig, config, mode string, out io.Writer) error {
 	switch mode {
 	case "on", "off":
 		c.Locked = mode == "on"
-		if err := writePrivate(config, c); err != nil {
+		if err := editAgentConfig(config, func(s *agentConfig) error { s.Locked = c.Locked; return nil }); err != nil {
 			return err
 		}
 		if c.Locked {

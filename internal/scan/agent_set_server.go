@@ -93,7 +93,13 @@ func runAgentSetServer(args []string, out io.Writer, version string) error {
 	}
 	fmt.Fprintln(out, "Check 2 of 2 passed: it accepts this machine's credentials.")
 	// Only the address changes; the identity, secret and settings are kept.
-	if err := writePrivate(absolute, moved); err != nil {
+	if err := editAgentConfig(absolute, func(s *agentConfig) error {
+		if s.ID != c.ID || s.Secret != c.Secret {
+			return errLeftAlone
+		}
+		s.Server, s.MovingTo, s.LeftFrom, s.LeftAt = moved.Server, moved.MovingTo, moved.LeftFrom, moved.LeftAt
+		return nil
+	}); err != nil {
 		return fmt.Errorf("nothing was changed: could not save the enrollment: %w", err)
 	}
 	fmt.Fprintf(out, "This machine now points at %s (it was %s).\n", server, c.Server)

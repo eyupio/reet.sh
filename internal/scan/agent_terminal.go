@@ -144,7 +144,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 			return err
 		}
 		c.TerminalEnabled = true
-		if err := writePrivate(*config, c); err != nil {
+		if err := editAgentConfig(*config, func(s *agentConfig) error { s.TerminalEnabled = c.TerminalEnabled; return nil }); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Terminal access enabled locally for %s.\n", c.Host)
@@ -156,7 +156,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		return nil
 	case "disable":
 		c.TerminalEnabled = false
-		if err := writePrivate(*config, c); err != nil {
+		if err := editAgentConfig(*config, func(s *agentConfig) error { s.TerminalEnabled = c.TerminalEnabled; return nil }); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Remote terminal access disabled for %s. Local tmux sessions continue; list or end them with reet agent terminal sessions or end.\n", c.Host)
@@ -217,7 +217,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		switch sub {
 		case "on", "off":
 			c.BrowseOff = sub == "off"
-			if err := writePrivate(*config, c); err != nil {
+			if err := editAgentConfig(*config, func(s *agentConfig) error { s.BrowseOff = c.BrowseOff; return nil }); err != nil {
 				return err
 			}
 			switch {
@@ -236,7 +236,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		switch sub {
 		case "on", "off":
 			c.ClipboardOff = sub == "off"
-			if err := writePrivate(*config, c); err != nil {
+			if err := editAgentConfig(*config, func(s *agentConfig) error { s.ClipboardOff = c.ClipboardOff; return nil }); err != nil {
 				return err
 			}
 			switch {
@@ -255,7 +255,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		switch sub {
 		case "on", "off":
 			c.UploadsOff = sub == "off"
-			if err := writePrivate(*config, c); err != nil {
+			if err := editAgentConfig(*config, func(s *agentConfig) error { s.UploadsOff = c.UploadsOff; return nil }); err != nil {
 				return err
 			}
 			switch {
@@ -274,7 +274,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		switch sub {
 		case "on", "off":
 			c.ModelsOff = sub == "off"
-			if err := writePrivate(*config, c); err != nil {
+			if err := editAgentConfig(*config, func(s *agentConfig) error { s.ModelsOff = c.ModelsOff; return nil }); err != nil {
 				return err
 			}
 			switch {
@@ -293,7 +293,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		switch sub {
 		case "on", "off":
 			c.YoloOff = sub == "off"
-			if err := writePrivate(*config, c); err != nil {
+			if err := editAgentConfig(*config, func(s *agentConfig) error { s.YoloOff = c.YoloOff; return nil }); err != nil {
 				return err
 			}
 			switch {

@@ -204,16 +204,22 @@ func (f *moveFollower) follow(ctx context.Context, cycleErr error, c agentConfig
 	// a terminal switch) must survive, so the file is read again and only its
 	// address is replaced. An enrollment that is no longer this one is left
 	// alone: somebody re-enrolled or moved the machine by hand meanwhile.
-	saved, err := loadAgentConfig(config)
-	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret || !strings.EqualFold(saved.Server, c.Server) {
-		f.say(out, "This machine's enrollment changed while its controller was moving, so the agent left it alone. Restart the agent to use it: reet agent restart")
+	err = editAgentConfig(config, func(saved *agentConfig) error {
+		if saved.ID != c.ID || saved.Secret != c.Secret || !strings.EqualFold(saved.Server, c.Server) {
+			return errLeftAlone
+		}
+		saved.Server = server
+		saved.MovingTo = ""
+		saved.LeftFrom, saved.LeftAt = c.Server, time.Now().UnixMilli()
+		return nil
+	})
+	var unsaved configWriteError
+	if errors.As(err, &unsaved) {
+		f.say(out, fmt.Sprintf("The controller moved to %s and passed both checks, but the enrollment could not be saved: %v", server, err))
 		return false
 	}
-	saved.Server = server
-	saved.MovingTo = ""
-	saved.LeftFrom, saved.LeftAt = c.Server, time.Now().UnixMilli()
-	if err := writePrivate(config, saved); err != nil {
-		f.say(out, fmt.Sprintf("The controller moved to %s and passed both checks, but the enrollment could not be saved: %v", server, err))
+	if err != nil {
+		f.say(out, "This machine's enrollment changed while its controller was moving, so the agent left it alone. Restart the agent to use it: reet agent restart")
 		return false
 	}
 	f.pending = ""
@@ -230,12 +236,14 @@ func (f *moveFollower) remember(config string, c agentConfig, server string) {
 	if f.pending == server {
 		return
 	}
-	saved, err := loadAgentConfig(config)
-	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret || !strings.EqualFold(saved.Server, c.Server) {
-		return
-	}
-	saved.MovingTo = server
-	if writePrivate(config, saved) == nil {
+	err := editAgentConfig(config, func(saved *agentConfig) error {
+		if saved.ID != c.ID || saved.Secret != c.Secret || !strings.EqualFold(saved.Server, c.Server) {
+			return errLeftAlone
+		}
+		saved.MovingTo = server
+		return nil
+	})
+	if err == nil {
 		f.pending = server
 	}
 }
@@ -277,15 +285,15 @@ func (f *moveFollower) forget(config string, c agentConfig) {
 	if f.pending == "" {
 		return
 	}
-	saved, err := loadAgentConfig(config)
-	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret {
-		return
-	}
-	if saved.MovingTo != "" {
-		saved.MovingTo = ""
-		if writePrivate(config, saved) != nil {
-			return
+	err := editAgentConfig(config, func(saved *agentConfig) error {
+		if saved.ID != c.ID || saved.Secret != c.Secret {
+			return errLeftAlone
 		}
+		saved.MovingTo = ""
+		return nil
+	})
+	if err != nil {
+		return
 	}
 	f.pending = ""
 }
@@ -299,15 +307,15 @@ func (f *moveFollower) settled(config string, c agentConfig, out io.Writer) {
 	if f.pending == "" {
 		return
 	}
-	saved, err := loadAgentConfig(config)
-	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret {
-		return
-	}
-	if saved.MovingTo != "" {
-		saved.MovingTo = ""
-		if writePrivate(config, saved) != nil {
-			return
+	err := editAgentConfig(config, func(saved *agentConfig) error {
+		if saved.ID != c.ID || saved.Secret != c.Secret {
+			return errLeftAlone
 		}
+		saved.MovingTo = ""
+		return nil
+	})
+	if err != nil {
+		return
 	}
 	f.pending, f.held = "", ""
 	fmt.Fprintf(out, "%s answers again, so the move it announced is off; this machine stays with it.\n", c.Server)
@@ -366,12 +374,13 @@ func (d *departureReport) report(ctx context.Context, config, version string) {
 		}
 	}
 	// Read again so only the report is cleared, never a setting changed meanwhile.
-	saved, err := loadAgentConfig(config)
-	if err != nil || saved.ID != c.ID || saved.LeftFrom != c.LeftFrom {
-		return
-	}
-	saved.LeftFrom, saved.LeftAt = "", 0
-	_ = writePrivate(config, saved)
+	_ = editAgentConfig(config, func(saved *agentConfig) error {
+		if saved.ID != c.ID || saved.LeftFrom != c.LeftFrom {
+			return errLeftAlone
+		}
+		saved.LeftFrom, saved.LeftAt = "", 0
+		return nil
+	})
 }
 
 // tellOldFn sends what a machine says of a move to the controller it is
@@ -417,7 +426,7 @@ func runAgentFollowMoves(args []string, out io.Writer) error {
 		return nil
 	}
 	c.FollowOff = mode == "off"
-	if err := writePrivate(absolute, c); err != nil {
+	if err := editAgentConfig(absolute, func(s *agentConfig) error { s.FollowOff = c.FollowOff; return nil }); err != nil {
 		return err
 	}
 	if c.FollowOff {

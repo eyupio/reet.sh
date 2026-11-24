@@ -38,7 +38,7 @@ this file existed releases were described on their GitHub release pages.
   "key" was an ordinary personal API token that stayed on the machine in plain text and could do anything your account
   could, for ever. Machines enrolled the old way keep working and are marked "Enrolled with a personal API token" on
   the Machines page; run `reet agent enroll --again` on each (it keeps the machine's settings and asks for a code),
-  then revoke the old token under Account. Revoking that token still cuts off any machine that has not moved.
+  then revoke the old token under Account. Revoking that token cuts off any machine that has not moved from the controller's public address, but not its private connection; remove such a machine to end that.
 - **API tokens are managed only from a signed-in browser**: listing, creating and revoking tokens now refuse an API
   token, so a leaked token cannot make itself a replacement. Scripts that created or revoked tokens with a token will
   get "manage API tokens from a signed-in browser".

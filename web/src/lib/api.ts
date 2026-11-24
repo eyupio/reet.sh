@@ -1525,7 +1525,7 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
   await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
 
-export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; /** Locked by its owner on the machine (reet agent lock). */ locked: boolean; autoUpdate: boolean; /** True when the machine last connected with a personal API token (enrolled the old way). */ legacyToken?: boolean; /** How the machine enrolled. Not shown. */ enrolledVia?: 'code' | 'session' | 'token' | 'open' }
+export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; /** Locked by its owner on the machine (reet agent lock). */ locked: boolean; /** When it was locked, in unix seconds. */ lockedAt?: number; autoUpdate: boolean; /** True when the machine last connected with a personal API token (enrolled the old way). */ legacyToken?: boolean; /** How the machine enrolled. Not shown. */ enrolledVia?: 'code' | 'session' | 'token' | 'open' }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
 export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan?: unknown; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 

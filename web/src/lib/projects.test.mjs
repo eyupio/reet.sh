@@ -37,7 +37,7 @@ test('a member line gives its state in words', () => {
   const r = run(['pending', 'started', 'failed', 'removed'], 'running')
   assert.deepEqual(r.members.map(memberLine), ['Waiting to start.', 'Started.', "That folder isn't available on that machine.", 'Started. Its worktree has been removed.'])
   const odd = run(['failed'], 'failed'); odd.members[0].sentence = ''
-  assert.equal(memberLine({ state: 'failed', sentence: '', code: 'machine_locked' }), 'Locked on the machine. Run `reet agent unlock` there.')
+  assert.equal(memberLine({ state: 'failed', sentence: '', code: 'machine_locked' }), 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.')
   assert.equal(memberLine(odd.members[0]), 'Something changed. Check again.')
 })
 

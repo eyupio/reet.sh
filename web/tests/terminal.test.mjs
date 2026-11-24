@@ -117,7 +117,7 @@ test('health preserves missing readings and distinguishes last-known observation
 })
 
 test('a locked machine says so first, whatever else is true of it', () => {
-  const locked = 'Locked on the machine. Run `reet agent unlock` there.'
+  const locked = 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.'
   const caps = {osUser:'root',terminalControl:true,terminalEnabled:false,readiness:'ready'}
   assert.equal(readiness({ready:false,locked:true,capabilities:caps}), locked)
   assert.equal(readiness({ready:true,serverEnabled:false,locked:true,capabilities:{...caps,locked:true}}), locked)

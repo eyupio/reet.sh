@@ -49,6 +49,8 @@ export type StageReadiness = {
   level: 'ready' | 'look' | 'blocked'
   /** The first reason for `level`, '' when ready. */
   issue: string
+  /** The machine's owner locked it: the stage is waiting to be unlocked there, not failing. */
+  locked: boolean
 }
 /** What the machine lists for an agent: 'reading' while it is being read, null when it could not be. */
 export type ModelsRead = MachineModels | null | 'reading'
@@ -188,7 +190,7 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
   // The server's own verdict (`ready`) decides; readiness() says why it is not.
   const locked = !!(machine?.locked || machine?.capabilities?.locked)
   const gone = machine?.ready && !locked ? '' : readiness(machine ?? undefined) || 'The machine is not connected.'
-  const connected = gone ? fact('unavailable', locked ? 'Machine locked' : 'Machine not connected', gone) : fact('ready', 'Connected', `${machine?.host} is connected.`)
+  const connected = gone ? fact('unavailable', locked ? 'Waiting to be unlocked' : 'Machine not connected', gone) : fact('ready', 'Connected', `${machine?.host} is connected.`)
   const agent = !member.tool ? fact('missing', 'No agent', 'No agent is chosen for this tier.')
     : input.tools.includes(member.tool) ? fact('ready', name(member.tool), `${name(member.tool)} is on ${machine?.host || 'this machine'}.`)
     : fact('unavailable', 'Not on this machine', `${name(member.tool)} is not on ${machine?.host || 'this machine'} now.`)
@@ -209,16 +211,16 @@ export function launchReadiness(input: ReadinessInput): StageReadiness {
     machine: machine?.host ?? '', connected, agent, model, effort, signIn, source, sourceFact: sourceF, backups, line,
     checkedAtStart: [model, effort].some(item => item.later),
     pending: [signIn, model, effort].some(item => item.pending) || backups.some(item => item.pending),
-    level: blocked ? 'blocked' : issue ? 'look' : 'ready', issue,
+    level: blocked ? 'blocked' : issue ? 'look' : 'ready', issue, locked,
   }
 }
 
-export type ReadinessItem = { level: 'blocked' | 'look' | 'note'; text: string; /** The machine, not a tier: it holds for every stage. */ machine?: true }
+export type ReadinessItem = { level: 'blocked' | 'look' | 'note'; text: string; /** The machine, not a tier: it holds for every stage. */ machine?: true; /** The machine is locked: waiting, not failed. */ waiting?: true }
 
 /** Everything one tier has to say. A machine that is not connected, or an agent that is not on it, is the whole story:
  *  the tier’s model, effort, sign-in and backups do not matter until that is fixed. */
 export function readinessItems(ready: StageReadiness): ReadinessItem[] {
-  if (ready.connected.state !== 'ready') return [{ level: 'blocked', text: ready.connected.text, machine: true }]
+  if (ready.connected.state !== 'ready') return [{ level: 'blocked', text: ready.connected.text, machine: true, ...(ready.locked ? { waiting: true as const } : {}) }]
   if (ready.agent.state !== 'ready') return [{ level: 'blocked', text: ready.agent.text }]
   const facts = [ready.signIn, ready.model, ready.effort, ready.sourceFact].filter(item => !item.pending && item.state !== 'ready' && item.state !== 'default')
   const later = [...new Set([ready.model.later, ready.effort.later].filter((text): text is string => !!text))]
@@ -243,8 +245,9 @@ const CREW_ORDER = ['Heavy', 'Standard', 'Light'], LEVEL_ORDER = ['blocked', 'lo
 export const inWords = (items: readonly string[]) => new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(items)
 
 /** The summary at the head of the pipelines: how many stages are ready, and each cause said once with who it affects. */
-export function launchSummary(stages: readonly { /** "Code"; a part of a split stage uses the stage’s label. */ stage: string; /** The tier’s label: "Standard". */ crew: string; readiness: StageReadiness }[]): { ready: number; look: number; blocked: number; reading: number; text: string; blocker: string; causes: LaunchCause[] } {
+export function launchSummary(stages: readonly { /** "Code"; a part of a split stage uses the stage’s label. */ stage: string; /** The tier’s label: "Standard". */ crew: string; readiness: StageReadiness }[]): { ready: number; look: number; blocked: number; /** Of `blocked`, the stages on a locked machine. */ waiting: number; reading: number; text: string; blocker: string; causes: LaunchCause[] } {
   const count = (level: StageReadiness['level']) => stages.filter(item => item.readiness.level === level).length
+  const waiting = stages.filter(item => item.readiness.level === 'blocked' && item.readiness.locked).length
   const reading = stages.filter(item => item.readiness.level === 'ready' && item.readiness.pending).length
   const ready = count('ready') - reading, look = count('look'), blocked = count('blocked')
   const found = new Map<string, LaunchCause>()
@@ -257,7 +260,7 @@ export function launchSummary(stages: readonly { /** "Code"; a part of a split s
   // Array.sort is stable, so causes of one level stay in the order they were first seen.
   const causes = [...found.values()].map(cause => ({ ...cause, crews: cause.crews.sort((a, b) => CREW_ORDER.indexOf(a) - CREW_ORDER.indexOf(b)) })).sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level))
   const first = causes.find(cause => cause.level === 'blocked')
-  const parts = [`${ready} of ${stages.length} ${stages.length === 1 ? 'stage' : 'stages'} ready`, look ? `${look} to look at` : '', reading ? `${reading} still being read` : '', blocked ? `${blocked} cannot start` : ''].filter(Boolean)
+  const parts = [`${ready} of ${stages.length} ${stages.length === 1 ? 'stage' : 'stages'} ready`, look ? `${look} to look at` : '', reading ? `${reading} still being read` : '', blocked - waiting ? `${blocked - waiting} cannot start` : '', waiting ? `${waiting} waiting to be unlocked` : ''].filter(Boolean)
   const blocker = first ? `${first.text}${first.machine ? '' : ` Change the agent of the ${inWords(first.crews)} ${first.crews.length === 1 ? 'crew' : 'crews'} under “Choose who does what”.`}` : ''
-  return { ready, look, blocked, reading, text: `${parts.join(', ')}.`, blocker, causes }
+  return { ready, look, blocked, waiting, reading, text: `${parts.join(', ')}.`, blocker, causes }
 }

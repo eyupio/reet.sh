@@ -30,9 +30,9 @@ import (
 
 type agentConfig struct {
 	Server string `json:"server"`
-	// Token is a personal API token, kept only by a machine enrolled with
-	// one by an older reet or with a controller that cannot take the
-	// machine's own secret alone. New enrolments keep only ID and Secret.
+	// Token is the personal API token a machine enrolled with one keeps
+	// sending; such a machine stops when the token is revoked. A machine
+	// enrolled with a code keeps only ID and Secret.
 	Token           string   `json:"token,omitempty"`
 	ID              string   `json:"id"`
 	Secret          string   `json:"secret"`
@@ -361,12 +361,11 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		c.ID = result.Agent.ID
 		c.Secret = result.Secret
 		c.Host = result.Agent.Host
-		// The machine keeps a personal token only for a controller that will
-		// not take its own secret alone (one older than enrolment codes).
-		c.Token = ""
-		if cred.Token != "" && agentRequest(c, "/api/v2/sync/identity", map[string]string{}, nil, version) != nil {
-			c.Token = cred.Token
-			fmt.Fprintln(out, "This controller still needs a personal API token from its machines, so this one keeps it. Update the controller, then enrol again with an enrolment code.")
+		// A code is spent; a personal token is kept, because a machine
+		// enrolled with one keeps needing it, and stops when it is revoked.
+		c.Token = cred.Token
+		if cred.Token != "" {
+			fmt.Fprintln(out, "This machine keeps the personal API token and stops working if it is revoked. To give it its own credential, make an enrolment code under Machines, Add a machine, and enrol it again with that.")
 		}
 		if err = writePrivate(*config, c); err != nil {
 			return fmt.Errorf("enrolled but could not save configuration; revoke enrollment in Machines before retrying: %w", err)

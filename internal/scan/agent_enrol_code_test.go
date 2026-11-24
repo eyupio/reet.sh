@@ -21,15 +21,13 @@ import (
 )
 
 // codeController is an accounts controller that remembers which requests
-// carried a personal token. refuseMachines makes it act as an older
-// controller, which knows no machine authentication.
+// carried a personal token.
 type codeController struct {
-	srv            *httptest.Server
-	st             *store.Store
-	uid            int64
-	mu             sync.Mutex
-	withToken      []string
-	refuseMachines bool
+	srv       *httptest.Server
+	st        *store.Store
+	uid       int64
+	mu        sync.Mutex
+	withToken []string
 }
 
 func newCodeController(t *testing.T) *codeController {
@@ -53,12 +51,7 @@ func newCodeController(t *testing.T) *codeController {
 		if tok != "" && !strings.Contains(tok, clientconfig.EnrolCodePrefix) {
 			c.withToken = append(c.withToken, r.URL.Path)
 		}
-		refuse := c.refuseMachines
 		c.mu.Unlock()
-		if refuse && tok == "" && r.URL.Path != "/api/v2/sync/agent-proof" {
-			http.Error(w, `{"error":"sign in required"}`, 401)
-			return
-		}
 		h.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { c.srv.Close(); h.Close(); st.Close() })
@@ -165,42 +158,40 @@ func TestEnrolCodeFromTheEnvironmentAndARefusedCode(t *testing.T) {
 	}
 }
 
-// A personal token still enrols. Where the controller takes the machine's
-// own secret, the token is not kept; an older controller keeps it working.
+// A personal token still enrols, as before: the machine keeps the token,
+// is marked, and stops when the token is revoked. Enrolment still writes no
+// saved token file.
 func TestEnrolWithAPersonalTokenStillWorks(t *testing.T) {
 	c := newCodeController(t)
-	if _, err := c.st.CreateAPIToken(c.uid, "old way", auth.HashToken("personal")); err != nil {
+	tok, err := c.st.CreateAPIToken(c.uid, "old way", auth.HashToken("personal"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	config := filepath.Join(t.TempDir(), "agent.json")
+	var out bytes.Buffer
 	// (Its warning, on standard error, is checked in clientconfig.)
-	if err := RunAgentInput([]string{"enroll", "--server", c.srv.URL, "--token", "personal", "--env", "studio", "--config", config, "--skip-terminal-setup"}, strings.NewReader(""), io.Discard, "test"); err != nil {
+	if err := RunAgentInput([]string{"enroll", "--server", c.srv.URL, "--token", "personal", "--env", "studio", "--config", config, "--skip-terminal-setup"}, strings.NewReader(""), &out, "test"); err != nil {
 		t.Fatal(err)
 	}
-	noPersonalTokenOnDisk(t, config)
-	if err := RunAgent([]string{"run", "--once", "--config", config}, io.Discard, "test"); err != nil {
-		t.Fatal(err)
-	}
-	if a := c.agent(t); a.LegacyToken {
-		t.Fatal("machine still marked after leaving the token behind")
-	}
-
-	older := newCodeController(t)
-	if _, err := older.st.CreateAPIToken(older.uid, "old way", auth.HashToken("personal")); err != nil {
-		t.Fatal(err)
-	}
-	older.refuseMachines = true
-	config = filepath.Join(t.TempDir(), "agent.json")
-	if err := RunAgentInput([]string{"enroll", "--server", older.srv.URL, "--token", "personal", "--env", "studio", "--config", config, "--skip-terminal-setup"}, strings.NewReader(""), io.Discard, "test"); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(out.String(), "enrol it again") {
+		t.Fatalf("no advice: %q", out.String())
 	}
 	if saved, _ := loadAgentConfig(config); saved.Token != "personal" {
-		t.Fatalf("an older controller's machine lost its token: %+v", saved)
+		t.Fatalf("the token was not kept: %+v", saved)
+	}
+	if path, _ := clientconfig.TokenPath(); fileExists(path) {
+		t.Fatalf("enrolment wrote %s", path)
 	}
 	if err := RunAgent([]string{"run", "--once", "--config", config}, io.Discard, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if a := older.agent(t); !a.LegacyToken {
-		t.Fatal("a machine using a personal token is not marked")
+	if a := c.agent(t); !a.LegacyToken {
+		t.Fatal("a machine enrolled with a personal token is not marked")
+	}
+	if err = c.st.RevokeAPIToken(c.uid, tok.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunAgent([]string{"run", "--once", "--config", config}, io.Discard, "test"); err == nil {
+		t.Fatal("the machine kept working after its token was revoked")
 	}
 }

@@ -115,7 +115,7 @@ func (s *server) hostedMCP(api http.Handler) http.Handler {
 		return srv
 	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 1 << 20})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !mcpSameOrigin(r) {
+		if !s.sameOrigin(r) {
 			writeErr(w, 403, "cross-site requests are not allowed")
 			return
 		}

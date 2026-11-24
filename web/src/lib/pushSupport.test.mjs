@@ -70,3 +70,11 @@ test('a device is stopped when reet thinks it is on but nothing can reach it', a
   assert.deepEqual(pushHealth({ permission: 'granted', current: null, remembered: 7, devices: [other] }), { state: 'off', device: null })
   assert.deepEqual(pushHealth({ permission: 'default', current: null, remembered: 0, devices: [other] }), { state: 'off', device: null })
 })
+
+test('a chime plays once, only in a tab in front, only when asked for', async () => {
+  const { shouldChime } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
+  assert.equal(shouldChime({ on: true, visible: true, now: 5000, last: 0 }), true)
+  assert.equal(shouldChime({ on: false, visible: true, now: 5000, last: 0 }), false)
+  assert.equal(shouldChime({ on: true, visible: false, now: 5000, last: 0 }), false)
+  assert.equal(shouldChime({ on: true, visible: true, now: 5000, last: 4500 }), false)
+})

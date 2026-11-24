@@ -23,8 +23,14 @@ const standIn = ({ endpoint, answer, subscribed }) => {
     register: async (url, options) => { window.__registered = { url, scope: options?.scope }; registered = true; return registration },
     getRegistration: async () => registered ? registration : undefined,
     get ready() { return Promise.resolve(registration) },
-    addEventListener() {}, removeEventListener() {},
+    // The page's listener for the worker's messages, so a test can play the worker.
+    addEventListener(name, listener) { if (name === 'message') (window.__workerListeners ??= []).push(listener) }, removeEventListener() {},
   } })
+  // Web Audio, recorded: each note's pitch, loudest level and end.
+  window.__notes = []
+  window.AudioContext = class { constructor() { this.currentTime = 0; this.state = 'running'; this.destination = {} } resume() { return Promise.resolve() }
+    createGain() { const gain = { peak: 0, setValueAtTime(v) { gain.peak = Math.max(gain.peak, v) }, exponentialRampToValueAtTime(v) { gain.peak = Math.max(gain.peak, v) } }; return { gain, connect: d => d } }
+    createOscillator() { const note = { frequency: { value: 0 } }; return { type: '', frequency: note.frequency, connect: g => { note.gain = g.gain; return g }, start(at) { note.start = at }, stop(at) { window.__notes.push({ frequency: note.frequency.value, peak: note.gain.peak, start: note.start, stop: at }) } } } }
   window.PushManager = window.PushManager || function PushManager() {}
   class FakeNotification { static get permission() { return permission } static async requestPermission() { window.__asked = true; if (answer) permission = answer; return permission } }
   Object.defineProperty(window, 'Notification', { configurable: true, value: FakeNotification })
@@ -117,6 +123,35 @@ try {
     expect(calls.find(call => call.method === 'DELETE').body).toEqual({ id: 3 })
     expect(await noSidewaysScroll(page)).toBe(true)
     expect(await targets(card)).toEqual([])
+    await context.close()
+  }
+
+  // The sound: off to begin with, chosen on this device only. Turning it on and Try it each play the tone once; a
+  // notification the worker reports while the tab is in front plays it once, however many reports arrive together.
+  {
+    const mine = { id: 7, label: 'Chrome on Android', waiting: true, ended: true, createdAt: Date.now() - 86_400_000, lastOkAt: 0 }
+    const { page, card, context, errors } = await open({ devices: [mine], current: 7, subscribed: true })
+    const sound = card.getByRole('checkbox', { name: /Play a sound/ })
+    await expect(sound).not.toBeChecked()
+    const notified = () => page.evaluate(() => { for (const listener of window.__workerListeners ?? []) listener(new MessageEvent('message', { data: { type: 'reet-notified' } })) })
+    await notified()
+    expect(await page.evaluate(() => window.__notes.length)).toBe(0)
+    await sound.check()
+    expect(await page.evaluate(() => localStorage.getItem('reet.push.sound'))).toBe('1')
+    await card.getByRole('button', { name: 'Try it' }).click()
+    const notes = await page.evaluate(() => window.__notes)
+    expect(notes.map(n => n.frequency)).toEqual([660, 880, 660, 880])
+    // Quiet and short: never above a twentieth of full level, and over in under a second.
+    expect(notes.every(n => n.peak <= 0.05 && n.stop - notes[0].start < 1)).toBe(true)
+    await notified(); await notified()
+    expect(await page.evaluate(() => window.__notes.length)).toBe(6)
+    expect(await targets(card)).toEqual([])
+    expect(await noSidewaysScroll(page)).toBe(true)
+    await sound.uncheck()
+    await page.waitForTimeout(1100)
+    await notified()
+    expect(await page.evaluate(() => [window.__notes.length, localStorage.getItem('reet.push.sound')])).toEqual([6, null])
+    expect(errors).toEqual([])
     await context.close()
   }
 

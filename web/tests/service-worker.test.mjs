@@ -88,3 +88,19 @@ test('a window the worker cannot move is asked to move itself; with no reet wind
   await none.fire('notificationclick', click(SESSION))
   assert.deepEqual(none.opened, ['https://reet.example/sessions?agent=a1&session=s1&from=push'])
 })
+
+test('a push that shows something tells one reet tab in front, so it can play its sound once', async () => {
+  const hidden = win('https://reet.example/', { visibilityState: 'hidden' }), front = win('https://reet.example/sessions', { focused: true }), also = win('https://reet.example/machines')
+  const w = worker({ windows: [hidden, also, front], pending: { notifications: [{ tag: 'reet-session-s1', title: 'A', body: 'Needs you.', url: '/sessions' }] } })
+  await w.fire('push', {})
+  assert.deepEqual(front.done, [{ type: 'reet-notified' }])
+  assert.deepEqual([hidden.done, also.done], [[], []])
+  // Every tab hidden: the notification's own sound is enough.
+  const away = win('https://reet.example/', { visibilityState: 'hidden' })
+  await worker({ windows: [away] }).fire('push', {})
+  assert.deepEqual(away.done, [])
+  // A push that shows nothing (the subscription was just ended) tells nobody.
+  const quiet = win('https://reet.example/', { focused: true })
+  await worker({ windows: [quiet], pending: { notifications: [], unsubscribe: true } }).fire('push', {})
+  assert.deepEqual(quiet.done, [])
+})

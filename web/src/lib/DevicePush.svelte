@@ -5,12 +5,15 @@
   import { removePushDevice, savePushDevice, testPush, type PushDevice, type PushStatus } from './api'
   import { browserEnvironment, currentSubscription, disablePush, enablePush, readPush } from './push'
   import { pushSupport, type PushSupport } from './pushSupport'
+  import { chime, setSound, soundOn } from './pushSound'
   import { elapsed } from './time'
 
   let status = $state<PushStatus | null>(null)
   let device = $state<PushDevice | null>(null)
   // Reet holds this device as on, but nothing reaches it (see pushHealth): the card says so and offers Repair.
   let stopped = $state(false)
+  // The sound while reet is open in front, for this device only.
+  let sound = $state(soundOn())
   let support = $state<PushSupport>('ok')
   let busy = $state('')
   let error = $state('')
@@ -66,6 +69,7 @@
     if (!subscription || !device) return
     device = await savePushDevice({ endpoint: subscription.endpoint, label: device.label, waiting: device.waiting, ended: device.ended, [key]: value })
   })
+  const chooseSound = (on: boolean) => { sound = on; setSound(on); if (on) chime() }
   const sendTest = () => run('test', async () => {
     const result = await testPush()
     notice = result.sent === result.devices
@@ -105,6 +109,10 @@
       <label class="check"><input type="checkbox" checked={device.waiting} onchange={e => choose('waiting', e.currentTarget.checked)} /><span><strong>A session needs you</strong><small>An agent is waiting for an answer or an approval.</small></span></label>
       <label class="check"><input type="checkbox" checked={device.ended} onchange={e => choose('ended', e.currentTarget.checked)} /><span><strong>A session has finished</strong><small>It finished its turn, ended, or stopped with a problem, and you have not looked yet.</small></span></label>
     </fieldset>
+    <div class="sound">
+      <label class="check"><input type="checkbox" checked={sound} onchange={e => chooseSound(e.currentTarget.checked)} /><span><strong>Play a sound</strong><small>A short, quiet tone when one arrives while reet is open in front. Only on this device.</small></span></label>
+      <button type="button" class="btn quiet" onclick={chime}>Try it</button>
+    </div>
     <div class="actions">
       <button type="button" class="btn" disabled={!!busy} aria-busy={busy === 'test'} onclick={sendTest}>{busy === 'test' ? 'Sending…' : 'Send a test'}</button>
       <button type="button" class="btn quiet" disabled={!!busy} aria-busy={busy === 'off'} onclick={turnOff}>{busy === 'off' ? 'Turning off…' : 'Turn off'}</button>
@@ -152,6 +160,9 @@
   .check input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
   .check span { display: grid; gap: 2px; min-width: 0; }
   .check small, .devices small { color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+  .sound { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .sound .check { flex: 1 1 auto; border-top: 0; }
+  .sound .btn { flex: none; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
   .said { min-height: 1.4em; margin: 12px 0 0; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
   .said:empty { display: none; }

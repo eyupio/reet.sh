@@ -40,6 +40,11 @@ async function show() {
     body: String(note.body || ''), tag: String(note.tag || FALLBACK.tag), renotify: true,
     icon: '/icon-192.png', badge: '/icon-192.png', data: { url: typeof note.url === 'string' && note.url.startsWith('/') ? note.url : '/sessions' },
   })))
+  // One reet tab in front is told, so it can play its sound if the person turned it on there. A hidden tab is not: the
+  // notification's own sound is enough, and several tabs would play it several times.
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  const front = windows.find(client => client.focused) || windows.find(client => client.visibilityState === 'visible')
+  front?.postMessage({ type: 'reet-notified' })
 }
 
 self.addEventListener('push', event => event.waitUntil(show()))

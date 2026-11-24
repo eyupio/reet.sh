@@ -1,7 +1,8 @@
 // Notifications on this device (web push): the browser's own APIs. The rules are in pushSupport.ts.
 import { getPush, removePushDevice, savePushDevice, type PushDevice, type PushStatus } from './api'
 
-import { deviceLabel, isIOS, keyBytes, pushHealth, sameKey, type PushEnvironment } from './pushSupport'
+import { chime, soundOn } from './pushSound'
+import { deviceLabel, isIOS, keyBytes, pushHealth, sameKey, shouldChime, type PushEnvironment } from './pushSupport'
 
 export function browserEnvironment(): PushEnvironment {
   const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
@@ -89,11 +90,14 @@ export async function readPush(): Promise<{ status: PushStatus; device: PushDevi
 }
 
 /** Listens to the notifications worker: a tap on a notification asks a window the worker cannot move itself to open the
- *  session. Only an address on this site is followed. */
+ *  session (only an address on this site is followed), and a notification shown while this tab is in front plays the
+ *  sound once, if the person turned it on for this device. */
 export function listenToWorker(): void {
   if (!('serviceWorker' in navigator)) return
+  let last = 0
   navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
     const data = event.data as { type?: string; url?: unknown } | null
+    if (data?.type === 'reet-notified' && shouldChime({ on: soundOn(), visible: document.visibilityState === 'visible', now: Date.now(), last })) { last = Date.now(); chime() }
     if (data?.type === 'reet-open' && typeof data.url === 'string' && data.url.startsWith('/') && !data.url.startsWith('//')) location.assign(data.url)
   })
 }

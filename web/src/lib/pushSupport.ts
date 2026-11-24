@@ -62,3 +62,9 @@ export function pushHealth<D extends { id: number; deadAt?: number }>(input: { p
   const kept = remembered ? devices.find(d => d.id === remembered) : undefined
   return kept ? { state: 'stopped', device: kept } : { state: 'off', device: null }
 }
+
+/** Whether a notification that just arrived should chime in this tab: the person turned the sound on, the tab is in
+ *  front (a hidden tab leaves it to the notification's own sound), and it did not chime in the last second. */
+export function shouldChime(input: { on: boolean; visible: boolean; now: number; last: number }): boolean {
+  return input.on && input.visible && input.now - input.last >= 1000
+}

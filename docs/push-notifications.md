@@ -16,21 +16,27 @@ device under **Notifications → On this device**. It needs an instance with acc
 A tap on a notification opens that session on its own view: a chat (where its questions and approvals are asked) on
 the chat, a terminal on the terminal. A reet window already showing that session is brought to the front as it is, so
 nothing typed there is lost; otherwise the reet window in front is moved to the session, and with no reet window open a
-new one opens. A session removed before the tap opens the sessions list, which says so in one line. Signing out turns
+new one opens. A session removed before the tap opens the sessions list, which says "The session from that notification has ended or was removed." for about eight seconds. Signing out turns
 notifications off on that browser, so the next person to sign in there is not told about your sessions; turn them on
 again after you sign back in. **Turn off** stops this device; **Your other devices** lists the rest, each with **Remove**. One person can have 12 devices on.
 
 **Play a sound.** Off to begin with, and chosen per device (the browser keeps the choice). With it on, a notification
 that arrives while reet is open in front also plays a short, quiet two-note tone in that tab, once. A tab in the
 background plays nothing, since the notification makes its own sound. **Try it** plays the tone; browsers let a page
-play sound only after a press on it, so press it once after opening reet if the tone stays silent.
+play sound only after a press on it, so press it once after opening reet if the tone stays silent. The button reads
+"Playing…" for about a second and the card says "Played", so a muted phone still shows the press worked.
 
 **When notifications stop.** A browser can drop a device's subscription (its data was cleared, notifications were
 turned off for the site, or the push service replaced the subscription) while reet still holds the device as on. The
 card notices this when it opens and whenever reet comes back to the front: it compares the browser's own subscription
 and permission with the device's record, and reads the controller's word that the push service no longer knows the
 device. Then it says "Notifications stopped reaching this phone." (or "this device") with **Repair**, which subscribes
-afresh and moves the record to the new subscription, keeping its name and choices, and **Turn off**. Nothing is
+afresh and moves the record to the new subscription, keeping its name and choices (the browser may ask permission
+again), and **Turn off**. Once either is pressed, focus moves to the card's heading, since the button it was on is gone.
+The **Sessions** page makes the same check when it opens and whenever reet comes back to the front, never on a timer,
+and shows one line under its search, "Notifications stopped reaching this phone." with a **Repair** link to the card
+(`/notifications#device-push`); the line goes once the device works. A browser that never turned notifications on
+asks the controller nothing. Nothing is
 subscribed again until Repair is pressed, with one exception: when the browser itself replaces the subscription of a
 device that is on, the service worker subscribes again with the same options and moves the record at once.
 

@@ -37,6 +37,11 @@ export function deviceLabel(userAgent: string, maxTouchPoints = 0): string {
   return system ? `${browser} on ${system}` : browser
 }
 
+/** What the card and the Sessions page call this device in a sentence: a phone says "phone", anything else "device". */
+export function deviceNoun(label: string): 'phone' | 'device' {
+  return /iPhone|Android/.test(label) ? 'phone' : 'device'
+}
+
 /** The controller's public key as the bytes pushManager.subscribe wants. */
 export function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
   const padded = base64url.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(base64url.length / 4) * 4, '=')

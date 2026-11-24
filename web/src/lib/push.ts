@@ -2,7 +2,7 @@
 import { getPush, removePushDevice, savePushDevice, type PushDevice, type PushStatus } from './api'
 
 import { chime, soundOn } from './pushSound'
-import { deviceLabel, isIOS, keyBytes, pushHealth, sameKey, shouldChime, type PushEnvironment } from './pushSupport'
+import { deviceLabel, deviceNoun, isIOS, keyBytes, pushHealth, sameKey, shouldChime, type PushEnvironment } from './pushSupport'
 
 export function browserEnvironment(): PushEnvironment {
   const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
@@ -87,6 +87,16 @@ export async function readPush(): Promise<{ status: PushStatus; device: PushDevi
   const health = pushHealth({ permission, current, remembered: remembered(), devices: status.devices })
   remember(health.device?.id ?? 0)
   return { status, device: health.device, stopped: health.state === 'stopped' }
+}
+
+/** What the Sessions page asks: "phone" or "device" when this browser's device is held as on but nothing reaches it (the
+ *  card's own check, readPush), else null. Only a browser that has turned push on, a remembered device or a subscription,
+ *  asks the controller at all, so a person who never used notifications costs it nothing. */
+export async function stoppedDevice(): Promise<'phone' | 'device' | null> {
+  const known = remembered() || ('serviceWorker' in navigator && await currentSubscription().catch(() => null))
+  if (!known) return null
+  const read = await readPush()
+  return read.stopped && read.device ? deviceNoun(read.device.label) : null
 }
 
 /** Listens to the notifications worker: a tap on a notification asks a window the worker cannot move itself to open the

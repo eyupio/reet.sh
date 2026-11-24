@@ -20,7 +20,14 @@ land on whatever page a reet window was showing, and there was no sound while re
   `{type: 'reet-open'}` and moves itself (`listenToWorker` in `push.ts`, started in `main.ts`). The view needed no new
   parameter: a structured session opens on its chat, where its questions and approvals are, and a terminal session
   has only the terminal. With `from=push` and the session not listed, the workspace replaces the address with
-  `/sessions?view=list&gone=1` and the Sessions page says so once.
+  `/sessions?view=list&gone=1` and the Sessions page says so once ("The session from that notification has ended or
+  was removed."), and clears it after about eight seconds or on `popstate`.
+- **Stopped, outside the card.** `stoppedDevice()` in `push.ts` is `readPush()` behind a gate (it asks the
+  controller only when this browser has a remembered device or a subscription). `SessionsPage.svelte` calls it on
+  mount and on `visibilitychange`, never on a timer, and shows one line in its reserved notice slot (after any other
+  notice) with a Repair link to `/notifications#device-push`; `DevicePush` scrolls to that anchor once its read
+  answers. After Turn on, Repair or Turn off the card moves focus to its heading, as the pressed button is gone. Try it
+  uses `aria-disabled` (focus stays) for a second and says "Played" in the status line.
 - **Sound.** `pushSound.ts`: off by default, `reet.push.sound` in localStorage, two sine notes (660 and 880 Hz) at a
   peak gain of 0.05, about 0.4 s. After showing notifications the worker posts `reet-notified` to one window only, the
   focused one or else a visible one, so several tabs never play it together and a hidden tab never does.

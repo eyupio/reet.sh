@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 
 const compile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { pushSupport, isIOS, deviceLabel, keyBytes, sameKey } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
+const { pushSupport, isIOS, deviceLabel, keyBytes, sameKey, deviceNoun } = await import(`data:text/javascript;base64,${Buffer.from(compile('./pushSupport.ts')).toString('base64')}`)
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'
 const IPAD = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15'
@@ -77,4 +77,11 @@ test('a chime plays once, only in a tab in front, only when asked for', async ()
   assert.equal(shouldChime({ on: false, visible: true, now: 5000, last: 0 }), false)
   assert.equal(shouldChime({ on: true, visible: false, now: 5000, last: 0 }), false)
   assert.equal(shouldChime({ on: true, visible: true, now: 5000, last: 4500 }), false)
+})
+
+test('a phone is called a phone in a sentence, anything else a device', () => {
+  assert.equal(deviceNoun(deviceLabel(ANDROID, 5)), 'phone')
+  assert.equal(deviceNoun(deviceLabel(IPHONE, 5)), 'phone')
+  assert.equal(deviceNoun(deviceLabel(IPAD, 5)), 'device')
+  assert.equal(deviceNoun('Firefox on Linux'), 'device')
 })

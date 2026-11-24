@@ -3,6 +3,7 @@
   import { onMount, tick } from 'svelte'
   import { onAttentionChanged } from '../attentionSignal'
   import { getProfile, listGafferOutcomes, UnauthorizedError } from '../api'
+  import { stoppedDevice } from '../push'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
@@ -73,6 +74,8 @@
   let query = $state(''), sort = $state<SessionSort>('recent'), filtersOpen = $state(false)
   let filter = $state<SessionFilter>({ state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' })
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
+  // This browser's notifications stopped reaching it (the Notifications card's own check): one line below, with a link to Repair.
+  let stopped = $state<'phone' | 'device' | null>(null)
   let savedWaiting = $state(0)
   // Tablet and phone widths (the spec's breakpoints): the full rail; a desktop keeps the simple cards (Home has the rail).
   const NARROW = '(max-width: 1099px)'
@@ -230,11 +233,14 @@
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
-    // A notification tapped after its session was removed lands here (gone=1, from the workspace): one line says so, and
-    // the address loses the flag so a reload does not say it again.
+    // A notification tapped after its session was removed lands here (gone=1, from the workspace): one line says so for
+    // a few seconds, and the address loses the flag so a reload does not say it again.
+    let goneTimer: ReturnType<typeof setTimeout> | undefined
     const url = new URL(location.href)
     if (url.searchParams.get('gone') === '1') {
-      notice = { text: 'That session no longer exists, so here are your sessions.' }
+      const gone = { text: 'The session from that notification has ended or was removed.' }
+      notice = gone
+      goneTimer = setTimeout(() => { if (notice?.text === gone.text) notice = null }, 8000)
       url.searchParams.delete('gone')
       history.replaceState(history.state, '', url)
     }
@@ -243,10 +249,16 @@
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', wake)
+    // The same check the card makes: on load and when reet comes back to the front, never on a timer.
+    const checkPush = () => { if (document.visibilityState === 'visible') void stoppedDevice().then(noun => { stopped = noun }).catch(() => { /* no line is better than a wrong one */ }) }
+    checkPush()
+    document.addEventListener('visibilitychange', checkPush)
+    const leave = () => { notice = null }
+    addEventListener('popstate', leave)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
     query.addEventListener('change', resized)
     const offAttention = onAttentionChanged(() => { void load(true) })
-    return () => { offAttention(); clearInterval(timer); document.removeEventListener('visibilitychange', wake); query.removeEventListener('change', resized); life.abort() }
+    return () => { offAttention(); clearInterval(timer); clearTimeout(goneTimer); removeEventListener('popstate', leave); document.removeEventListener('visibilitychange', checkPush); document.removeEventListener('visibilitychange', wake); query.removeEventListener('change', resized); life.abort() }
   })
 </script>
 
@@ -295,7 +307,8 @@
        aimed at a row lands on it). -->
   <div class="status-line">
     <div class="live" role="status" aria-live="polite">
-      {#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}</p>{/if}
+      {#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}</p>
+      {:else if stopped}<p class="notice stopped" data-stopped><span class="status-mark" aria-hidden="true"></span><span>Notifications stopped reaching this {stopped}. <a href="/notifications#device-push">Repair</a></span></p>{/if}
     </div>
     <!-- Not a live region: a read every 15 seconds would be announced each time. -->
     {#if checking}<p class="checking">Checking…</p>{/if}
@@ -448,6 +461,11 @@
   .status-line .live { flex: 1; min-width: 0; }
   .checking { margin: 0 0 0 auto; flex: none; font-size: 14px; line-height: 18px; color: var(--muted); }
   .notice.bad, .problem { color: var(--bad); }
+  .notice.stopped { display: flex; align-items: baseline; gap: 8px; }
+  .notice.stopped .status-mark { --mark: 14px; align-self: center; }
+  .notice.stopped a { position: relative; }
+  /* A phone's finger needs 44px; the line is 18px, so the target reaches down into the space under it and never up over the tabs. */
+  @media (pointer: coarse) { .notice.stopped a::after { content: ''; position: absolute; inset: -6px -10px -20px; } }
   .again { min-height: 44px; padding: 0 6px; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
   .none { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); }
   .first-machine { padding: 24px 16px; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); text-align: center; }

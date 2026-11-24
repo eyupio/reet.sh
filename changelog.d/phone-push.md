@@ -3,5 +3,5 @@
   **Notifications → On this device**, with a **Repair** button, instead of going quiet; the controller keeps such a
   device marked rather than forgetting it, and sends it nothing until it is repaired. A tap on a notification opens
   that session on its chat or terminal, in the reet window already open, and a session removed meanwhile opens the
-  sessions list with a line saying so. **Play a sound** (off by default, per device) adds a short, quiet tone while
-  reet is open in front.
+  sessions list with a line saying so. The Sessions page also says when this phone's notifications have stopped, with a **Repair**
+  link to the card. **Play a sound** (off by default, per device) adds a short, quiet tone while reet is open.

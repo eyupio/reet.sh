@@ -1,10 +1,10 @@
 <script lang="ts">
   // Notifications on this device: turn them on, choose what it hears about, send a test, and see the other devices
   // that are on. Shown on the Notifications page, for an instance with accounts.
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { removePushDevice, savePushDevice, testPush, type PushDevice, type PushStatus } from './api'
   import { browserEnvironment, currentSubscription, disablePush, enablePush, readPush } from './push'
-  import { pushSupport, type PushSupport } from './pushSupport'
+  import { deviceNoun, pushSupport, type PushSupport } from './pushSupport'
   import { chime, setSound, soundOn } from './pushSound'
   import { elapsed } from './time'
 
@@ -16,10 +16,13 @@
   let sound = $state(soundOn())
   let support = $state<PushSupport>('ok')
   let busy = $state('')
+  let heading = $state<HTMLElement>()
+  // Try it, for about a second: a muted phone would otherwise give no sign the press did anything.
+  let playing = $state(false)
   let error = $state('')
   let notice = $state('')
   const since = (at: number) => { const ago = elapsed(at); return ago === 'just now' ? ago : `${ago} ago` }
-  const noun = $derived(device && /iPhone|Android/.test(device.label) ? 'phone' : 'device')
+  const noun = $derived(device ? deviceNoun(device.label) : 'device')
   const others = $derived(status ? status.devices.filter(d => d.id !== device?.id) : [])
 
   async function load() {
@@ -36,7 +39,8 @@
   const onVisible = () => { if (document.visibilityState === 'visible' && !busy) void load() }
   onMount(() => {
     support = pushSupport(browserEnvironment())
-    void load()
+    // The Sessions page links here (#device-push); the card draws only once its read has answered.
+    void load().then(tick).then(() => { if (location.hash === '#device-push') document.getElementById('device-push')?.scrollIntoView({ block: 'start' }) })
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   })
@@ -46,6 +50,8 @@
     error = ''
     notice = ''
     try { await work() } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = '' }
+    // These three replace the button that was pressed; keep the person's place by moving to the card's heading.
+    if (name === 'on' || name === 'repair' || name === 'off') { await tick(); heading?.focus() }
   }
   const turnOn = () => run('on', async () => {
     if (!status) return
@@ -70,6 +76,12 @@
     device = await savePushDevice({ endpoint: subscription.endpoint, label: device.label, waiting: device.waiting, ended: device.ended, [key]: value })
   })
   const chooseSound = (on: boolean) => { sound = on; setSound(on); if (on) chime() }
+  // aria-disabled, not disabled, so a keyboard user's focus stays on the button.
+  const tryIt = () => {
+    if (playing) return
+    chime(); playing = true; error = ''; notice = 'Played'
+    setTimeout(() => { playing = false; if (notice === 'Played') notice = '' }, 1000)
+  }
   const sendTest = () => run('test', async () => {
     const result = await testPush()
     notice = result.sent === result.devices
@@ -84,9 +96,9 @@
 </script>
 
 {#if status?.available}
-<section class="card" aria-labelledby="device-push-title">
+<section class="card" id="device-push" aria-labelledby="device-push-title">
   <div class="head">
-    <h2 id="device-push-title">On this device</h2>
+    <h2 id="device-push-title" tabindex="-1" bind:this={heading}>On this device</h2>
     {#if device && stopped}<span class="state stopped" data-stopped><span class="status-mark" aria-hidden="true"></span>Stopped</span>{:else if device}<span class="state on"><i aria-hidden="true"></i>On</span>{:else if support === 'ok'}<span class="state">Off</span>{/if}
   </div>
   <p class="muted">Hear when a session needs you, or has finished, while reet is closed. A tap on the notification opens that session.</p>
@@ -98,7 +110,7 @@
   {:else if support === 'unsupported'}
     <p class="blocked">This browser cannot show notifications from a website, so there is nothing to turn on here.</p>
   {:else if device && stopped}
-    <p class="blocked">Notifications stopped reaching this {noun}. Repair turns them back on, with the same choices.</p>
+    <p class="blocked">Notifications stopped reaching this {noun}. Repair turns them back on, with the same choices. Your browser may ask permission again.</p>
     <div class="actions">
       <button type="button" class="btn primary" disabled={!!busy} aria-busy={busy === 'repair'} onclick={repair}>{busy === 'repair' ? 'Repairing…' : 'Repair'}</button>
       <button type="button" class="btn quiet" disabled={!!busy} aria-busy={busy === 'off'} onclick={turnOff}>{busy === 'off' ? 'Turning off…' : 'Turn off'}</button>
@@ -110,8 +122,8 @@
       <label class="check"><input type="checkbox" checked={device.ended} onchange={e => choose('ended', e.currentTarget.checked)} /><span><strong>A session has finished</strong><small>It finished its turn, ended, or stopped with a problem, and you have not looked yet.</small></span></label>
     </fieldset>
     <div class="sound">
-      <label class="check"><input type="checkbox" checked={sound} onchange={e => chooseSound(e.currentTarget.checked)} /><span><strong>Play a sound</strong><small>A quiet tone when one arrives while reet is in front. Only on this device.</small></span></label>
-      <button type="button" class="btn quiet" onclick={chime}>Try it</button>
+      <label class="check"><input type="checkbox" checked={sound} onchange={e => chooseSound(e.currentTarget.checked)} /><span><strong>Play a sound</strong><small>A quiet tone when a notification arrives while reet is open. Only on this device.</small></span></label>
+      <button type="button" class="btn quiet" aria-disabled={playing} onclick={tryIt}>{playing ? 'Playing…' : 'Try it'}</button>
     </div>
     <div class="actions">
       <button type="button" class="btn" disabled={!!busy} aria-busy={busy === 'test'} onclick={sendTest}>{busy === 'test' ? 'Sending…' : 'Send a test'}</button>
@@ -152,7 +164,7 @@
   .state.on { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); font-weight: 600; }
   .state.stopped { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); font-weight: 600; }
   .state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .blocked { margin: 14px 0 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn) 5%, var(--card)); font-size: 0.875rem; line-height: 1.6; }
+  .blocked { margin: 14px 0 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn) 10%, var(--card)); font-size: 0.875rem; line-height: 1.6; text-wrap: pretty; }
   fieldset { margin: 16px 0 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.875rem; cursor: pointer; }
@@ -163,7 +175,11 @@
   .sound { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; }
   .sound .check { flex: 1 1 auto; border-top: 0; }
   .sound .btn { flex: none; }
+  .sound .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  /* A borderless button reads as text but takes a wide, invisible target; the line says where it ends. */
+  .actions .btn.quiet, .sound .btn.quiet { border-color: var(--line-strong); }
+  h2:focus-visible { outline-offset: 4px; border-radius: 4px; }
   .said { min-height: 1.4em; margin: 12px 0 0; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
   .said:empty { display: none; }
   .bad { color: var(--bad); }
@@ -171,5 +187,5 @@
   .devices li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.875rem; }
   .devices li:first-child { border-top: 0; }
   .devices span { display: grid; gap: 2px; min-width: 0; }
-  @media (max-width: 560px) { .card { padding: 16px; } .actions .btn { flex: 1 1 auto; } }
+  @media (max-width: 560px) { .card { padding: 16px; } .actions .btn { flex: 0 0 auto; } }
 </style>

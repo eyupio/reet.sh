@@ -1,5 +1,21 @@
 # Reet central-control implementation handoff
 
+## CLONE-TEST-1: the clone limit test no longer fails at random (24 November 2026)
+
+`TestAddFromGitHubRunsAtMostFiveClonesPerAccount` failed about one run in five under load ("the clone never
+finished"), on any branch. The cause was in the test, not the limiter. Each clone starts in its own goroutine
+(`internal/api/folder_projects_github.go`), so the five requests reach the test's fake machine in any order; the fake
+queued them by arrival and the test answered the first one with acme/a's result, then waited for acme/a. When another
+repository's request arrived first, that job finished with the wrong answer and acme/a stayed "cloning". Held requests
+now keep the request they belong to, and `releaseClone(t, repo, body)` answers the clone of a named repository. What
+the test asserts is unchanged: at most five at once, the sixth refused with `clone_limit`, all finish. No wait was
+lengthened. 280 runs with `-race` under load passed afterwards, against 25 failures in 120 before.
+
+Not fixed here: two move-follow tests in `internal/scan` (`TestAMachineThatWillNotFollowTellsTheOldControllerOnce`,
+`TestSetServerClearsAPendingMoveAndTellsTheOldController`) fail when repeated with `-count` above 1 because state
+leaks between repeats; CI runs them once. `TestExclusiveLockReleasedByProcessDeath` failed once in a loaded full run
+and then passed 250 runs; its cause is not known.
+
 ## ENROL-CODE-1: enrolment codes, machines that sign as themselves, and browser-only tokens (24 November 2026)
 
 The second "Security and access" item of the roadmap's reliability workstream.

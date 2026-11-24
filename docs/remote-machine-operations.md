@@ -305,6 +305,18 @@ reports; it is on by default and refused while terminal access is off. `reet ter
 own approval prompts; it is on by default, still needs the account setting and a per-session
 confirmation, and is refused while terminal access is off. Revoking enrollment cuts private
 access and prevents new authorization; it does not terminate independent local tmux work.
+`reet agent lock` locks the machine against its controller until `reet agent unlock`
+is run there (`reet agent lock status` shows it, as does `reet agent status`). While
+locked the machine serves only reconcile, end, detach, chat cancel, worktree status,
+the native-view check and probes; everything else the controller asks is refused
+with ``Locked on the machine. Run `reet agent unlock` there.`` It also refuses the
+controller's `reet` update job, remote skill imports and skill installs, while
+inventory scans, health reports and following a controller move carry on. A running
+agent picks the change up within 5 seconds: attachments close within a second,
+the machine reports terminal access off (with `locked` to a controller that knows
+the lock), chat output is held on the machine and delivered after unlock, and
+nothing is ended or deleted. The lock is stored in the enrolment file, so it
+survives restarts, updates, moves and `reet agent enroll --again`.
 Sign-out closes that browser login's attachments. Forgetting an inventory report
 is not credential revocation. End work locally if the controller is unavailable.
 

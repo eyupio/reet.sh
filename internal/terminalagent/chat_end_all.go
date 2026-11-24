@@ -2,7 +2,12 @@
 
 package terminalagent
 
-import "path/filepath"
+import (
+	"errors"
+	"path/filepath"
+
+	"github.com/eyupio/reet.sh/internal/terminalhost"
+)
 
 // Running counts the chats this agent process is running.
 func (c *ChatSupervisor) Running() int {
@@ -42,6 +47,8 @@ func (c *ChatSupervisor) EndAll() int {
 	for _, id := range c.running() {
 		if _, err := h.end(id); err == nil {
 			ended++
+		} else if errors.Is(err, terminalhost.ErrOperationConflict) && c.cancelStart(id) {
+			ended++
 		}
 	}
 	return ended
@@ -64,4 +71,18 @@ func ForgetRecordedChats(layoutDir string) int {
 		r.remove(rec.ID)
 	}
 	return len(records)
+}
+
+// cancelStart stops a chat whose process is still starting. One that has not
+// reached its start yet (it is making its worktree) is stopped by the lock
+// check just before the start, and again just after it.
+func (c *ChatSupervisor) cancelStart(id string) bool {
+	c.s.mu.Lock()
+	defer c.s.mu.Unlock()
+	cs := c.s.sessions[id]
+	if cs == nil || cs.process != nil || cs.cancel == nil {
+		return false
+	}
+	cs.cancel()
+	return true
 }

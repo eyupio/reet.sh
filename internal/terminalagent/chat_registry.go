@@ -323,6 +323,10 @@ func (s *chatSupervisor) resumePersisted() {
 }
 
 func (s *chatSupervisor) resumeChat(rec chatRecord) {
+	// A locked machine starts nothing, and keeps the record for after an unlock.
+	if s.isLocked() {
+		return
+	}
 	if s.opts.Consent != nil && s.opts.Consent() != nil {
 		s.registry.remove(rec.ID)
 		return
@@ -390,6 +394,14 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 		return
 	}
 
+	// A lock taken while the chat was restoring stops it; its record stays.
+	if s.isLocked() {
+		s.mu.Lock()
+		delete(s.sessions, rec.ID)
+		s.mu.Unlock()
+		process.Close()
+		return
+	}
 	restored.Store(true)
 	acpID := process.SessionID()
 	s.mu.Lock()

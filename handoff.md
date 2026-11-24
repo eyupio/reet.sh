@@ -47,6 +47,11 @@ the state uses the muted "!" everywhere. `machineLock.ts` holds the running-sess
 - A terminal session's own typing area is not disabled in the web while locked; its input is refused by the machine.
 - The per-machine skill detail still says "Can't write skills here" for a locked machine.
 - Who locked the machine is not sent; only since when.
+**Review fixes.** Two gaps a review found are closed. When the agent restarts on a locked machine it no longer starts the
+chats it had recorded (`resumeChat`), and keeps the records for after an unlock. A chat that is still starting when the
+lock is taken, or when `--end-sessions` runs, is stopped: the lock is checked again just before the agent process starts and
+just after it, and `EndAll` cancels a start that is under way instead of skipping it. Both have tests that failed before.
+
 ## BROWSER-ONLY-1: owner, admin and account-safety changes refuse API tokens (24 November 2026)
 
 A follow-up to ENROL-CODE-1, decided by the owner: a leaked personal token must not be able to take an instance or an

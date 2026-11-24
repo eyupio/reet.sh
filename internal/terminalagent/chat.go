@@ -397,6 +397,10 @@ func (s *chatSupervisor) detach(h *chatHost) {
 	s.mu.Unlock()
 }
 
+// isLocked reports whether the machine's owner has locked it. A chat start
+// asks again at each step, as the lock can be taken at any moment.
+func (s *chatSupervisor) isLocked() bool { return s.opts.Locked != nil && s.opts.Locked() }
+
 func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create, baseFresh bool) (terminalproto.SessionChanged, error) {
 	return h.openChat(requestID, sessionID, in, false, baseFresh)
 }
@@ -414,7 +418,7 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	if consent := h.sup.opts.Consent; consent != nil && consent() != nil {
 		return terminalproto.SessionChanged{}, terminalhost.ErrTerminalDisabled
 	}
-	if locked := h.sup.opts.Locked; locked != nil && locked() {
+	if h.sup.isLocked() {
 		return terminalproto.SessionChanged{}, terminalhost.ErrLocked
 	}
 	if in.Tool == agentsoftware.OpenCodeTool {
@@ -529,6 +533,9 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	h.sup.mu.Lock()
 	cs.cancel = cancel
 	h.sup.mu.Unlock()
+	if h.sup.isLocked() {
+		return terminalproto.SessionChanged{}, terminalhost.ErrLocked
+	}
 	var started atomic.Bool
 	if !dropReplay {
 		started.Store(true)
@@ -548,6 +555,12 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	})
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
+	}
+	// A lock taken while the chat was starting (or ending every chat while it
+	// was) stops it here, before it takes a slot or sends its first prompt.
+	if h.sup.isLocked() {
+		process.Close()
+		return terminalproto.SessionChanged{}, terminalhost.ErrLocked
 	}
 	started.Store(true)
 	acpID := process.SessionID()

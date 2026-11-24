@@ -231,15 +231,14 @@
   <section aria-labelledby={`${titleId}-key`}>
    <h3 id={`${titleId}-key`}><span class="num" aria-hidden="true">2</span>{codes ? 'Give it an enrolment code' : 'Give it a key'}</h3>
    {#if codes}
-    <p class="hint">The machine asks for an enrolment code when it connects. It works once, for one machine.</p>
     {#if issued}
      <div class="fresh">
-      <p>Paste this when the machine asks for an enrolment code. Copy it now; it is not shown again.</p>
+      <p>Paste this when the machine asks for an enrolment code. It works once, for one machine. Copy it now; it is not shown again.</p>
       <div class="secret"><code>{issued.code}</code><CopyButton text={issued.code} label="Copy enrolment code" /></div>
       <p class="left">{countdown?.text}</p>
      </div>
     {:else}
-     <p class="hint" role="status">{#if spent === 'lapsed'}This code has run out.{:else if spent === 'used'}The machine has connected, so its code is no longer shown.{/if}</p>
+     <p class="hint" role="status">{#if spent === ''}The machine asks for an enrolment code when it connects. It works once, for one machine.{:else if spent === 'lapsed'}This code has run out.{:else if spent === 'used'}The machine has connected, so its code is no longer shown.{/if}</p>
      <button type="button" class="btn" disabled={making} aria-busy={making} onclick={makeCode}>{making ? 'Making…' : spent === 'lapsed' ? 'Make another code' : 'Make an enrolment code'}</button>
     {/if}
     {#if codeError}<p class="reason" role="alert">{codeError}</p>{/if}
@@ -262,7 +261,7 @@
    {:else if host}
     <p class="hint">Paste this in a terminal on the machine. It installs reet, connects it and enables skill sync. Reet checks changes and backs up replaced copies.</p>
     <div class="command"><pre class="commands">{commands}</pre><CopyButton text={commands} label="Copy commands" /></div>
-    <p class="hint">{codes ? 'The machine will ask for an enrolment code. Paste the code from step 2 when it does; a missing or expired code does not change the commands.' : 'The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.'}</p>
+    <p class="hint">{codes ? 'The machine will ask for an enrolment code. Paste the one from step 2.' : 'The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.'}</p>
    {:else}
     <p class="hint">Enter a name above and the commands will appear here.</p>
    {/if}
@@ -310,7 +309,7 @@
  input[aria-invalid='true'] { border-color: var(--bad); }
  .hint, small { margin: 6px 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
  .reason { margin: 0; color: var(--bad); font-size: 0.875rem; line-height: 1.5; }
- .reason-slot { min-height: 1.3125rem; }
+ .reason-slot { min-height: 1.3125rem; margin-top: -6px; }
  .command { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
  .one-time { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }

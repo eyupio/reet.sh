@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -86,45 +87,16 @@ func StageTarballFrom(ctx context.Context, client *http.Client, dir string, arti
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return Staged{}, ErrArtifactDownload
-	}
-	for name, values := range header {
-		request.Header[name] = append([]string(nil), values...)
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return Staged{}, fmt.Errorf("%w: %v", ErrArtifactDownload, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return Staged{}, fmt.Errorf("%w: HTTP %d", ErrArtifactDownload, response.StatusCode)
-	}
-	if response.ContentLength > MaxArtifactBytes {
-		return Staged{}, ErrArtifactTooLarge
-	}
-
-	archive, err := os.CreateTemp(dir, ".opencode-*.tgz")
+	archive, err := downloadArchive(ctx, client, dir, artifact, url, header)
 	if err != nil {
 		return Staged{}, err
 	}
 	archivePath := archive.Name()
+	// The archive is finished with, good or bad, once it has been read here; only a download that stopped part-way keeps its file.
 	defer func() {
 		archive.Close()
 		os.Remove(archivePath)
 	}()
-	hash := sha512.New()
-	written, err := io.Copy(io.MultiWriter(archive, hash), io.LimitReader(response.Body, MaxArtifactBytes+1))
-	if err != nil {
-		return Staged{}, fmt.Errorf("%w: %v", ErrArtifactDownload, err)
-	}
-	if written > MaxArtifactBytes {
-		return Staged{}, ErrArtifactTooLarge
-	}
-	if base64.StdEncoding.EncodeToString(hash.Sum(nil)) != artifact.SHA512 {
-		return Staged{}, ErrArtifactChecksum
-	}
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return Staged{}, err
 	}
@@ -150,6 +122,165 @@ func StageTarballFrom(ctx context.Context, client *http.Client, dir string, arti
 		}
 		return stageBinary(dir, entries, artifact)
 	}
+}
+
+// partialMaxAge is how long a half-downloaded archive is kept for a later attempt to continue.
+const partialMaxAge = 24 * time.Hour
+
+// partialPath is where a download of artifact waits between attempts. It is named for the archive's checksum, so a
+// different artifact never continues it, and every source of the same archive (the registry, a mirror) continues the same
+// file: the whole archive is checked against its checksum at the end whichever source supplied which part.
+func partialPath(dir string, artifact Artifact) string {
+	sum := sha256.Sum256([]byte(artifact.SHA512))
+	return filepath.Join(dir, ".opencode-"+hex.EncodeToString(sum[:8])+".part")
+}
+
+// downloadArchive returns artifact's whole archive as an open file positioned at its start, verified against
+// artifact.SHA512. A download that fails part-way leaves what it has in partialPath, and the next call asks the server
+// for the rest (a Range request); a server that ignores the range sends the whole archive and the file starts again. An
+// archive that fails its checksum is deleted, so a bad file is never continued.
+//
+// shortcut: one download of an artifact at a time (the software lock makes it so), and no If-Range: the end checksum is the
+// guarantee that the pieces belong together.
+func downloadArchive(ctx context.Context, client *http.Client, dir string, artifact Artifact, url string, header http.Header) (*os.File, error) {
+	path := partialPath(dir, artifact)
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (*os.File, error) { file.Close(); return nil, err }
+	restart := func() error {
+		if err := file.Truncate(0); err != nil {
+			return err
+		}
+		_, err := file.Seek(0, io.SeekStart)
+		return err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return fail(err)
+	}
+	if size := info.Size(); size > MaxArtifactBytes || (artifact.ArchiveSize > 0 && size > artifact.ArchiveSize) || time.Since(info.ModTime()) > partialMaxAge {
+		if err := restart(); err != nil {
+			return fail(err)
+		}
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		have, err := file.Seek(0, io.SeekEnd)
+		if err != nil {
+			return fail(err)
+		}
+		complete := artifact.ArchiveSize > 0 && have == artifact.ArchiveSize
+		if !complete {
+			status, err := fetchInto(ctx, client, file, have, url, header)
+			if err != nil {
+				file.Close() // what arrived stays for the next attempt, unless it can never be used
+				if errors.Is(err, ErrArtifactTooLarge) {
+					os.Remove(path)
+				}
+				return nil, err
+			}
+			if status == fetchAgain {
+				if err := restart(); err != nil {
+					return fail(err)
+				}
+				continue
+			}
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return fail(err)
+		}
+		hash := sha512.New()
+		written, err := io.Copy(hash, file)
+		if err != nil {
+			return fail(err)
+		}
+		if written > MaxArtifactBytes {
+			file.Close()
+			os.Remove(path)
+			return nil, ErrArtifactTooLarge
+		}
+		if base64.StdEncoding.EncodeToString(hash.Sum(nil)) != artifact.SHA512 {
+			file.Close()
+			os.Remove(path)
+			return nil, ErrArtifactChecksum
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return fail(err)
+		}
+		return file, nil
+	}
+	return fail(fmt.Errorf("%w: the server would not continue the download", ErrArtifactDownload))
+}
+
+// PrunePartials deletes the half-downloaded archives in dir that are older than a download may be continued, so one that is never
+// tried again does not sit on disk for ever.
+func PrunePartials(dir string) {
+	found, _ := filepath.Glob(filepath.Join(dir, ".opencode-*.part"))
+	for _, path := range found {
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > partialMaxAge {
+			os.Remove(path)
+		}
+	}
+}
+
+type fetchStatus int
+
+const (
+	fetched fetchStatus = iota
+	fetchAgain
+)
+
+// fetchInto appends the rest of the archive, from byte have, to file (positioned at its end).
+func fetchInto(ctx context.Context, client *http.Client, file *os.File, have int64, url string, header http.Header) (fetchStatus, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fetched, ErrArtifactDownload
+	}
+	for name, values := range header {
+		request.Header[name] = append([]string(nil), values...)
+	}
+	if have > 0 {
+		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return fetched, fmt.Errorf("%w: %v", ErrArtifactDownload, err)
+	}
+	defer response.Body.Close()
+	switch {
+	case response.StatusCode == http.StatusPartialContent && have > 0:
+		var start, end, total int64
+		if n, _ := fmt.Sscanf(response.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total); n < 2 || start != have {
+			return fetchAgain, nil
+		}
+	case response.StatusCode == http.StatusOK:
+		// The server sent the whole archive (it ignored the range, or none was asked for): start the file again.
+		if have > 0 {
+			if err := file.Truncate(0); err != nil {
+				return fetched, err
+			}
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				return fetched, err
+			}
+			have = 0
+		}
+	case response.StatusCode == http.StatusRequestedRangeNotSatisfiable && have > 0:
+		return fetchAgain, nil
+	default:
+		return fetched, fmt.Errorf("%w: HTTP %d", ErrArtifactDownload, response.StatusCode)
+	}
+	if response.ContentLength > MaxArtifactBytes-have {
+		return fetched, ErrArtifactTooLarge
+	}
+	written, err := io.Copy(file, io.LimitReader(response.Body, MaxArtifactBytes-have+1))
+	if err != nil {
+		return fetched, fmt.Errorf("%w: %v", ErrArtifactDownload, err)
+	}
+	if have+written > MaxArtifactBytes {
+		return fetched, ErrArtifactTooLarge
+	}
+	return fetched, nil
 }
 
 func stageBinary(dir string, reader io.Reader, artifact Artifact) (Staged, error) {

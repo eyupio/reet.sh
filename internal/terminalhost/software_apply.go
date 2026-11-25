@@ -119,7 +119,10 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 		result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyInstall
 		return result
 	}
-	defer os.RemoveAll(dir)
+	// A half-finished download stays in dir for the next attempt (the staging code deletes it once it is finished or bad); every
+	// other temporary file goes.
+	agentsoftware.PrunePartials(dir)
+	defer clearStaging(dir)
 	runCtx, cancel := context.WithTimeout(ctx, softwareApplyTimeout)
 	defer cancel()
 	staged, source, err := stageSoftware(runCtx, dir, sources)
@@ -157,6 +160,17 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 	}
 	result.State, result.Version, result.Previous, result.Entry = terminalproto.SoftwareApplyApplied, receipt.Version, receipt.Previous, &entry
 	return result
+}
+
+// clearStaging removes everything in dir except a half-finished download, which the next attempt continues.
+func clearStaging(dir string) {
+	entries, _ := os.ReadDir(dir)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".opencode-") && strings.HasSuffix(entry.Name(), ".part") {
+			continue
+		}
+		os.RemoveAll(filepath.Join(dir, entry.Name()))
+	}
 }
 
 // stageSoftware tries the registry first and the controller's mirror only when

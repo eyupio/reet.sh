@@ -361,6 +361,8 @@ export async function tellGafferPipelineAgent(o: Pick<GafferOutcome, 'id'>, key:
 /** Whether one pipeline merges by itself at its merge stage, or waits for the person's approval. */
 export async function setGafferPipelineAutoMerge(o: Pick<GafferOutcome, 'id'>, key: string, on: boolean, yoloConfirmed = false, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/automerge`, { method: 'POST', body: json(on && yoloConfirmed ? { on, yoloConfirmed } : { on }), signal })).json() }
 export async function retryGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+/** Runs the stage in hand again in a new session and ends `session`, the stuck one that is still open. */
+export async function restartGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, session: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision, endSession: session }), signal })).json() }
 export async function recoverGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, stoppedSession: string, worker?: { tool: string; model: string }, signal?: AbortSignal): Promise<GafferOutcome> {
   return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision, stoppedSession, worker }), signal })).json()
 }

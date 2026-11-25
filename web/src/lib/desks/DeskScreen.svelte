@@ -26,6 +26,7 @@
   import DeskPane from './DeskPane.svelte'
   import DeskTabs from './DeskTabs.svelte'
   import DeskToolbar from './DeskToolbar.svelte'
+  import CommandBar from './CommandBar.svelte'
   import NewTabDialog from './NewTabDialog.svelte'
   import AddSessionDialog from './AddSessionDialog.svelte'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -140,7 +141,9 @@
         const reading = browserViewport(), height = fittedHeight(pageViewport.read(reading), reading)
         const root = document.documentElement
         // Typing in a pane on a touch screen: only the tab bar stays above it, so the terminal gets the room.
-        typing = height !== null && matchMedia('(pointer: coarse)').matches && !!section?.querySelector('.area')?.contains(document.activeElement)
+        const at = document.activeElement, inBar = !!section?.querySelector('.cbar')?.contains(at)
+        typing = height !== null && matchMedia('(pointer: coarse)').matches && (inBar || !!section?.querySelector('.area')?.contains(at))
+        barTyping = typing && inBar
         if (height === null) root.style.removeProperty('--desk-fit')
         else {
           root.style.setProperty('--desk-fit', `${height}px`)
@@ -868,6 +871,10 @@
   $effect(() => { document.documentElement.toggleAttribute('data-desk-theatre', theatre) })
   // An on-screen keyboard is open over a pane the person is typing in (set where the screen is fitted above it).
   let typing = $state(false)
+  // That keyboard is open for the command bar: the bar stays, and gives its lines back to a terminal that is typed in.
+  let barTyping = $state(false)
+  let commandBar = $state<CommandBar>()
+  const activeSession = $derived(activePane?.session ? sessionById.get(activePane.session) : undefined)
   $effect(() => { document.documentElement.toggleAttribute('data-desk-typing', typing); return () => document.documentElement.removeAttribute('data-desk-typing') })
 
   // The Keys list.
@@ -900,6 +907,7 @@
       case 'newTab': if (tabs.length < MAX_TABS && !template) adding = section?.querySelector<HTMLElement>('[aria-label="New tab"]') ?? section ?? null; break
       case 'prevTab': if (tabs.length > 1) select(tabs[(at - 1 + tabs.length) % tabs.length].id); break
       case 'nextTab': if (tabs.length > 1) select(tabs[(at + 1) % tabs.length].id); break
+      case 'commandBar': commandBar?.focus(); break
       default: {
         if (!activeTab?.root || !activePaneId || zoomed) return
         const dir = k === 'focusLeft' ? 'left' : k === 'focusRight' ? 'right' : k === 'focusUp' ? 'up' : 'down'
@@ -1024,6 +1032,10 @@
         </div>
       {/if}
     </div>
+    {#if activeTab && activePane && !template && (!typing || barTyping)}
+      <CommandBar bind:this={commandBar} name={paneName(activePane)} actions={actionsFor[activePaneId]} session={activeSession?.id} agentId={activePane.host}
+        dir={activeSession?.liveDir || activePane.dir} shell={!!activeSession && !activeSession.tool} history={machineById.get(activePane.host)?.capabilities?.commandHistory ?? false} />
+    {/if}
   {/if}
 </section>
 

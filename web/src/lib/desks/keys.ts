@@ -3,12 +3,12 @@
 // default, and Ctrl or Meta with them is left alone. Alt+Shift+M (the Sessions terminal's maximise) is not a desk key;
 // a desk pane zooms instead.
 
-export type DeskKey = 'splitRight' | 'splitDown' | 'focusLeft' | 'focusRight' | 'focusUp' | 'focusDown' | 'zoom' | 'closePane' | 'newTab' | 'prevTab' | 'nextTab' | { tab: number }
+export type DeskKey = 'splitRight' | 'splitDown' | 'focusLeft' | 'focusRight' | 'focusUp' | 'focusDown' | 'zoom' | 'closePane' | 'newTab' | 'prevTab' | 'nextTab' | 'commandBar' | { tab: number }
 
 const CODES: Record<string, Exclude<DeskKey, { tab: number }>> = {
   KeyD: 'splitRight', KeyE: 'splitDown',
   ArrowLeft: 'focusLeft', ArrowRight: 'focusRight', ArrowUp: 'focusUp', ArrowDown: 'focusDown',
-  KeyZ: 'zoom', KeyW: 'closePane', KeyT: 'newTab', BracketLeft: 'prevTab', BracketRight: 'nextTab',
+  KeyZ: 'zoom', KeyW: 'closePane', KeyT: 'newTab', BracketLeft: 'prevTab', BracketRight: 'nextTab', KeyK: 'commandBar',
 }
 
 /** The desk action for a key press, or null for anything that is not exactly Alt+Shift and one of the chords. */
@@ -29,4 +29,5 @@ export const DESK_KEYS: { keys: string; label: string }[] = [
   { keys: 'Alt+Shift+T', label: 'New tab' },
   { keys: 'Alt+Shift+[ and ]', label: 'Previous and next tab' },
   { keys: 'Alt+Shift+1…9', label: 'Tab by number' },
+  { keys: 'Alt+Shift+K', label: 'Command bar' },
 ]

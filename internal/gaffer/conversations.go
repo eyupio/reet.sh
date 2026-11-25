@@ -443,10 +443,14 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	go s.runTurn(ctx, job, c, row, backend, client, turn)
 	return turn, nil
 }
+
+// turnDeadline is how long one answer may take.
+var turnDeadline = 3 * time.Minute
+
 func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferConversation, row store.GafferProvider, backend elicore.Provider, client *http.Client, turn store.GafferTurn) {
 	defer s.wg.Done()
 	defer client.CloseIdleConnections()
-	ctx, stop := context.WithTimeout(parent, 3*time.Minute)
+	ctx, stop := context.WithTimeout(parent, turnDeadline)
 	defer stop()
 	watched := make(chan struct{})
 	go func() {
@@ -486,6 +490,9 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 		err = s.contextTurnAccess(job, c)
 	}
 	cause := context.Cause(parent)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errors.New("The provider took more than three minutes to answer. Try again or choose a faster model.")
+	}
 	switch {
 	case errors.Is(cause, errGafferCancelled):
 		turn.State = "cancelled"

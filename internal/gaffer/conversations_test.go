@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -326,4 +327,26 @@ func TestGoalReviewsDoNotCrowdOutTheChat(t *testing.T) {
 	delete(s.chatJobs, "review-1")
 	delete(s.chatJobs, "review-2")
 	s.mu.Unlock()
+}
+
+// A provider that does not answer in time ends the turn with words the person
+// can act on, not the bare "context deadline exceeded".
+func TestATurnThatRunsOutOfTimeSaysSo(t *testing.T) {
+	turnDeadline = 100 * time.Millisecond
+	t.Cleanup(func() { turnDeadline = 3 * time.Minute })
+	s, _, p := settingsFixture(t)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body) // the server notices a closed connection only once the request is read
+		<-r.Context().Done()
+	}))
+	defer func() { s.Close(); fake.Close() }()
+	v := conversationFixture(t, s, p, fake.URL)
+	in := TurnInput{ID: strings.Repeat("a", 32), Revision: v.Conversation.Revision, Text: "Anyone there?"}
+	if _, err := s.StartTurn(p.UserID, v.Conversation.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	turn := waitTurn(t, s, p.UserID, v.Conversation.ID, in.ID)
+	if turn.State != "failed" || turn.Error != "The provider took more than three minutes to answer. Try again or choose a faster model." {
+		t.Fatalf("turn: %+v", turn)
+	}
 }

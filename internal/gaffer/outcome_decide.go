@@ -1,11 +1,9 @@
 package gaffer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -264,13 +262,7 @@ func decision(raw json.RawMessage, choices []string) (choice, why, text string, 
 		Why         string `json:"why"`
 		Instruction string `json:"instruction"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if len(raw) > 16<<10 || dec.Decode(&in) != nil {
-		return "", "", "", bad
-	}
-	var extra any
-	if dec.Decode(&extra) != io.EOF {
+	if len(raw) > 16<<10 || !strictJSON(raw, &in) {
 		return "", "", "", bad
 	}
 	allowed := false

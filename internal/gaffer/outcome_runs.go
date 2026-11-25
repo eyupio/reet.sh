@@ -1411,7 +1411,8 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if stage.Part != "" {
 			// One part of a split stage: Gaffer follows it against the part's own brief.
 			launch.Title = partTitle(item.Title, stage.Kind, stage.Part)
-			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 600) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
+			// The brief is clipped hard here so a long title, objective and part name cannot take the goal past the 2,000 bytes a goal may hold.
+			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 400) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
 		}
 		// The merge gate holds on every path into the merge stage, not only on
 		// a hand-over: a pipeline tried again at its merge stage, or one whose

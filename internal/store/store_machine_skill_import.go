@@ -27,8 +27,33 @@ type MachineSkillImport struct {
 	Files         []skillbundle.ContentFile `json:"files"`
 }
 
+// SaveMachineSkillImportFor is an import authorised by the machine's own secret alone, so it may add only to a bundle that
+// enrolment started. An import a person reviewed and approved in the browser (CommitRemoteImportFor) is authorised by that
+// approval and may add to any of their bundles.
 func (s *Store) SaveMachineSkillImportFor(uid int64, enrollment string, in MachineSkillImport) (PrivateSkillResult, error) {
-	return s.saveMachineSkillImportFor(uid, enrollment, in, nil, nil)
+	return s.saveMachineSkillImportFor(uid, enrollment, in, machineStartedBundle(uid, enrollment, in.BundleID), nil)
+}
+
+// machineStartedBundle refuses an existing bundle with no revision from this enrolment: it was made by another machine or in
+// the browser, and its next revision would be installed on the account's other machines. A bundle that does not exist is left
+// to the missing-bundle error of the write.
+func machineStartedBundle(uid int64, enrollment, bundle string) func(*sql.Tx) error {
+	return func(tx *sql.Tx) error {
+		if bundle == "" {
+			return nil
+		}
+		var exists, own int
+		err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM private_skill_bundles WHERE user_id=? AND id=?),
+			(SELECT COUNT(*) FROM private_skill_revisions WHERE user_id=? AND bundle_id=? AND json_extract(origin,'$.kind')='import' AND json_extract(json_extract(origin,'$.reference'),'$.Enrollment')=?)`,
+			uid, bundle, uid, bundle, enrollment).Scan(&exists, &own)
+		if err != nil {
+			return err
+		}
+		if exists > 0 && own == 0 {
+			return ErrMachineBundleNotOwned
+		}
+		return nil
+	}
 }
 func (s *Store) saveMachineSkillImportFor(uid int64, enrollment string, in MachineSkillImport, guard func(*sql.Tx) error, finish func(*sql.Tx, PrivateSkillResult) error) (PrivateSkillResult, error) {
 	var empty PrivateSkillResult
@@ -55,21 +80,6 @@ func (s *Store) saveMachineSkillImportFor(uid int64, enrollment string, in Machi
 		}
 		if found != 1 {
 			return ErrRemoteNotFound
-		}
-		// Only to a bundle this enrolment started: an existing bundle with no revision from it is another
-		// machine's, or the browser's, and its next revision would be installed on the account's other machines.
-		// A bundle that does not exist falls through to the missing-bundle error below.
-		if in.BundleID != "" {
-			var exists, own int
-			err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM private_skill_bundles WHERE user_id=? AND id=?),
-				(SELECT COUNT(*) FROM private_skill_revisions WHERE user_id=? AND bundle_id=? AND json_extract(origin,'$.kind')='import' AND json_extract(json_extract(origin,'$.reference'),'$.Enrollment')=?)`,
-				uid, in.BundleID, uid, in.BundleID, enrollment).Scan(&exists, &own)
-			if err != nil {
-				return err
-			}
-			if exists > 0 && own == 0 {
-				return ErrMachineBundleNotOwned
-			}
 		}
 		if guard != nil {
 			return guard(tx)

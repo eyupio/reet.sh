@@ -32,8 +32,10 @@ Machines and sync.
   machine. `agentIdentity` answers 403 only for a refusal and 500, with a fixed message, otherwise, so an agent keeps its
   saved update result.
 - 5. A scan upload is read before `importMu` is taken.
-- 6. A machine adds to a private skill bundle only if one of its revisions was made by that enrolment
-  (`ErrMachineBundleNotOwned`, 409). `docs/machine-skill-import.md` said a personal token was needed; it now says what is true.
+- 6. A machine adds to a private skill bundle, with its secret alone, only if one of its revisions was made by that enrolment
+  (`ErrMachineBundleNotOwned`, 409). An import a person reviews and approves in the browser (`CommitRemoteImportFor`) may still
+  add to any of their bundles: the check is a guard on `SaveMachineSkillImportFor` only. A first version put it in the shared
+  helper and refused that approved flow too; the automated review caught it. `docs/machine-skill-import.md` said a personal token was needed; it now says what is true.
 - 8. `EnrolWithCode` is one transaction, so a failure after the claim rolls it back.
 - 9. Merging two machines that each have an agent answers 409. The merge no longer waits for a running job or cancels queued
   ones: update jobs hold the agent id, not the host.

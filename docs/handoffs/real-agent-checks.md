@@ -71,7 +71,8 @@ In a structured **chat** with each agent that supports chat:
 | Put the phone in aeroplane mode for ten seconds with a chat open and type | The box stays typeable; Send is off with "Reconnecting. Your message is kept. Send turns on when you are back."; nothing sends by itself |
 | **Notifications → Turn on**; make an agent need you; lock the phone | A notification arrives; tapping it opens that session, in the window already open if there is one |
 | Turn on **Play a sound**, press Try it, keep a reet tab in front, trigger a notification | A short quiet two-note tone once. If it is silent, say whether you had pressed anything on the page since loading |
-| Clear this site's data in the browser, or turn the site's notifications off and on in browser settings, then open reet | The Notifications card and the Sessions page say "Notifications stopped reaching this phone." and Repair fixes it in one tap |
+| In the browser's site settings, turn this site's notifications off and then on again (this ends the push subscription but keeps reet's own record of the device), then open reet | The Notifications card and the Sessions page say "Notifications stopped reaching this phone." and Repair fixes it in one tap |
+| Clear all of this site's data (this also forgets which device was yours), sign in again, open the Notifications card | It reads Off, because nothing remembers the device; turning it on again works. The old record may still be listed under "Your other devices" until you remove it. That is expected, not a failure of the repair |
 | Touch targets on the terminal toolbar, key row, header, footer and the chat queue | Comfortable to hit one-handed at 390 px wide; note any that are not, and the model of phone |
 | A very small phone (320 px wide) with a terminal open | One fewer row than before is expected; say if it feels cramped |
 

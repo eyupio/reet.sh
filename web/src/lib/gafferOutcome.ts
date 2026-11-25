@@ -345,6 +345,12 @@ export const DEFAULT_STAGES: StageKind[] = ['code', 'review', 'test', 'pr', 'bab
 export const stageLabel = (kind: string): string => STAGES.find(stage => stage.kind === kind)?.label ?? kind
 /** What a stored stage is called on screen: a custom stage's own name, else its kind's label. */
 export const stageName = (stage: { kind: string; name?: string }): string => stage.kind === 'custom' && stage.name ? stage.name : stageLabel(stage.kind)
+/** A stage as it reads in a sentence: a built-in stage in lower case, a custom name as the person wrote it. A plain
+ * string is a stage's label, lower-cased only when it is a built-in one. */
+export const stageInSentence = (stage: { kind: string; name?: string } | string): string => {
+  const text = typeof stage === 'string' ? stageLabel(stage) : stageName(stage)
+  return STAGES.some(item => item.label === text) ? text.toLowerCase() : text
+}
 /** What the server calls a stored stage wherever a `stage` is sent or returned: the custom name, else the kind. */
 export const stageKey = (stage: { kind: string; name?: string }): string => stage.kind === 'custom' && stage.name ? stage.name : stage.kind
 
@@ -597,7 +603,7 @@ export function factorySessionEndRequest(mode: FactorySessionEndMode): string {
 /** What ending, or removing, a session costs a pipeline that is still working in it. '' when it costs nothing. */
 export function factoryEndWarning(member: FactoryMember | undefined, removing = false): string {
   if (!member?.working) return ''
-  const what = member.stage ? `the ${member.stage.toLowerCase()} stage of the Factory pipeline “${member.pipeline}”` : `the Factory pipeline “${member.pipeline}”`
+  const what = member.stage ? `the ${stageInSentence(member.stage)} stage of the Factory pipeline “${member.pipeline}”` : `the Factory pipeline “${member.pipeline}”`
   return removing
     ? `This session is doing ${what}. Removing it leaves that pipeline with nothing working on it. The session stays in history while the pipeline still works in its worktree.`
     : `This session is doing ${what}. Ending it leaves that pipeline with nothing working on it, so choose below what happens to the outcome.`
@@ -708,7 +714,7 @@ const TOOL_WORDS: Record<string, string> = { claude: 'Claude Code', codex: 'Code
 const agentWords = (agent: { tool?: string; model?: string } | undefined): string => agent?.tool ? `${TOOL_WORDS[agent.tool] ?? agent.tool}${agent.model ? ` (${agent.model})` : ''}` : ''
 /** What happened when a stage's worker reached its usage limit, from the stage's own record, and what each choice does. */
 export function usageLimitWhy(stage: NonNullable<WaitingPiece['stages']>[number]): string {
-  const ran = agentWords(stage), first = agentWords(stage.first), where = `on the ${stageName(stage).toLowerCase()} stage`
+  const ran = agentWords(stage), first = agentWords(stage.first), where = `on the ${stageInSentence(stage)} stage`
   const none = `${stage.backup?.tool || stage.moreBackups?.length ? 'No backup is left for this stage' : 'No backup is saved for this stage'}; choose another model to carry on in the same folder and branch.`
   // The buttons say what each choice does; this says what happened. usageFailover is also set when the person chose the
   // other model, and there can be a third stop: say only what is always true.

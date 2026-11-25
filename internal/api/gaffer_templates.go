@@ -140,6 +140,20 @@ func (s *server) gafferTemplateDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, d)
 }
 
+// recordStageSkills leaves the skill receipts a choice on the page would have
+// left for the pipelines' stages, so a stage's Skills panel shows them and its
+// launch marks them prepared. A receipt that is not saved changes nothing.
+func (s *server) recordStageSkills(uid int64, outcome string, pipelines []store.GafferOutcomeSession) {
+	for _, p := range pipelines {
+		for i, st := range p.Stages {
+			for _, sk := range st.SkillGuidance {
+				sk.State = "selected"
+				_ = s.st.RecordSkillBuddyFor(uid, "factory:"+outcome+":"+p.Key+":"+strconv.Itoa(i), "", st.Kind, sk)
+			}
+		}
+	}
+}
+
 // gafferTemplateLaunch starts an outcome from a template version. It is an
 // approval like any other: refused where remote sessions are off, and YOLO
 // needs the account's setting.
@@ -165,18 +179,9 @@ func (s *server) gafferTemplateLaunch(w http.ResponseWriter, r *http.Request) {
 		gafferTemplateError(w, err)
 		return
 	}
-	// The skill receipts a choice on the page would have left, so the stage's
-	// launch marks them prepared. A receipt that is not saved changes nothing.
 	// A repeated request leaves the receipts of the outcome it already made.
 	if created {
-		for _, p := range o.Sessions {
-			for i, st := range p.Stages {
-				for _, sk := range st.SkillGuidance {
-					sk.State = "selected"
-					_ = s.st.RecordSkillBuddyFor(uid, "factory:"+o.ID+":"+p.Key+":"+strconv.Itoa(i), "", st.Kind, sk)
-				}
-			}
-		}
+		s.recordStageSkills(uid, o.ID, o.Sessions)
 	}
 	s.eventRequest(r, "gaffer-template-launched", "", map[string]any{"template": o.TemplateID, "version": o.TemplateVersion, "outcome": o.ID, "machine": o.AgentID, "projectId": o.ProjectID, "yolo": o.Yolo})
 	writeJSON(w, 201, o)

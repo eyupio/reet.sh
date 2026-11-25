@@ -137,6 +137,12 @@ test('a custom stage is shown by its name and identified by it', () => {
   assert.equal(o.stageKey({ kind: 'custom' }), 'custom')
   // A label the server returns as a plain string shows as itself.
   assert.equal(o.stageLabel('Audit'), 'Audit')
+  // In a sentence a built-in stage is lower case and a custom name stays as written.
+  assert.equal(o.stageInSentence({ kind: 'custom', name: 'API audit' }), 'API audit')
+  assert.equal(o.stageInSentence({ kind: 'pr' }), 'pr')
+  assert.equal(o.stageInSentence('API audit'), 'API audit')
+  assert.equal(o.stageInSentence('merge'), 'merge')
+  assert.equal(o.stageInSentence('Review'), 'review')
 })
 
 test('a pipeline track shows what is done, in hand, waiting on the person or failed', () => {

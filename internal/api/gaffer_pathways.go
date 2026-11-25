@@ -77,7 +77,7 @@ func (s *server) gafferPathway(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) gafferPathwayCreate(w http.ResponseWriter, r *http.Request) {
 	var in store.GafferPathway
-	if !decodeStrictJSON(w, r, 64<<10, &in, "That pathway is invalid or too large.") {
+	if !decodeStrictJSON(w, r, 128<<10, &in, "That pathway is invalid or too large.") {
 		return
 	}
 	uid := s.uid(r)
@@ -93,7 +93,7 @@ func (s *server) gafferPathwayCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) gafferPathwayEdit(w http.ResponseWriter, r *http.Request) {
 	var in store.GafferPathway
-	if !decodeStrictJSON(w, r, 64<<10, &in, "That pathway is invalid or too large.") {
+	if !decodeStrictJSON(w, r, 128<<10, &in, "That pathway is invalid or too large.") {
 		return
 	}
 	uid := s.uid(r)
@@ -108,7 +108,7 @@ func (s *server) gafferPathwayEdit(w http.ResponseWriter, r *http.Request) {
 		gafferPathwayError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pathway-saved", "", map[string]any{"pathway": saved.ID})
+	s.eventRequest(r, "gaffer-pathway-edited", "", map[string]any{"pathway": saved.ID})
 	writeJSON(w, 200, s.pathwayView(uid, saved))
 }
 

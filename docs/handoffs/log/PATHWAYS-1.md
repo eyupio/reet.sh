@@ -16,6 +16,8 @@ nothing new to click, but everything after it stands on it.
 **Checked:** the web unit tests (`stageName`, `stageKey`, `canSaveAsTemplate` with a pathway) and `npm run check` in
 `web/`. Standard pipelines are untouched: for a built-in stage `stageName` and `stageKey` give what `stageLabel` and
 `kind` gave before. The Go suite and the browser suites were run by the earlier tasks and were not needed for this one.
+A whole-branch review was made and its findings fixed: a pathway's skills now show in a stage's Skills panel, and a
+full-size pathway is no longer refused as too large.
 
 **Not done:** there is no page to build a pathway yet (the next pull request). Gaffer and the MCP tools cannot use
 pathways yet (the third pull request), and over MCP an agent cannot yet see the name of an earlier custom stage.

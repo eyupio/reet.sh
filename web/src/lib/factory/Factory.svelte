@@ -11,7 +11,7 @@
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { onAttentionChanged, signalAttentionChanged } from '../attentionSignal'
-  import { deliveryAnchor, pipelineAnchor, stageKey, stageLabel, stageName, type NeedChoice } from '../gafferOutcome'
+  import { deliveryAnchor, pipelineAnchor, stageInSentence, stageKey, stageName, type NeedChoice } from '../gafferOutcome'
   import { sourceLabel } from '../clineSource'
   import { planEntries, type MachineAccounts } from '../agentAccounts'
   import { machinePlans, PLAN_REFRESH } from '../planLimits'
@@ -290,7 +290,7 @@
     if (!sending || busy) return
     const { record, piece } = sending
     busy = true; notice = ''; bad = false; dialogError = ''
-    try { await sendGafferPipelineBack(record, piece.key, stage, reason); signalAttentionChanged(); notice = `Sent “${piece.title}” back to ${stageLabel(stage).toLowerCase()}. The controller is starting that stage again.`; sending = null }
+    try { await sendGafferPipelineBack(record, piece.key, stage, reason); signalAttentionChanged(); notice = `Sent “${piece.title}” back to ${stageInSentence(stage)}. The controller is starting that stage again.`; sending = null }
     catch (e) { dialogError = e instanceof Error ? e.message : 'That pipeline was not sent back.' }
     busy = false
     await load()

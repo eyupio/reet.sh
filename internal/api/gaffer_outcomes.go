@@ -132,6 +132,9 @@ func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
+	if in.Pathway != "" {
+		s.recordStageSkills(s.uid(r), o.ID, o.Sessions)
+	}
 	s.eventRequest(r, "gaffer-outcome-approved", "", map[string]any{"outcome": o.ID, "sessions": len(o.Sessions), "machine": o.AgentID, "projectId": o.ProjectID, "tool": o.Tool, "yolo": o.Yolo})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 201, o)
@@ -502,6 +505,10 @@ func (s *server) gafferOutcomeAdd(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
+	}
+	if in.Pathway != "" && len(o.Sessions) >= len(in.Sessions) {
+		// What was added is appended, so it is the last of the outcome's pipelines.
+		s.recordStageSkills(s.uid(r), o.ID, o.Sessions[len(o.Sessions)-len(in.Sessions):])
 	}
 	s.eventRequest(r, "gaffer-pipelines-added", "", map[string]any{"outcome": o.ID, "sessions": len(in.Sessions)})
 	w.Header().Set("Cache-Control", "no-store")

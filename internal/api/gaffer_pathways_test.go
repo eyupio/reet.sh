@@ -16,8 +16,9 @@ import (
 )
 
 // pathwayStart is an account with a default provider, a project and a saved
-// pathway, behind a server that has remote sessions on.
-func pathwayStart(t *testing.T) (*httptest.Server, *http.Client, string, string) {
+// pathway whose custom stage has a skill, behind a server that has remote
+// sessions on.
+func pathwayStart(t *testing.T) (*store.Store, *httptest.Server, *http.Client, string, string) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -43,16 +44,16 @@ func pathwayStart(t *testing.T) (*httptest.Server, *http.Client, string, string)
 		t.Fatal(err)
 	}
 	p, err := h.s.gafferProviders.SavePathway(1, store.GafferPathway{Name: "Careful", Enabled: true, Stages: []store.GafferPathwayStage{
-		{Kind: "code"}, {Kind: "custom", Name: "Audit", Prompt: "Audit the logging."}, {Kind: "pr"},
+		{Kind: "code"}, {Kind: "custom", Name: "Audit", Prompt: "Audit the logging.", Skills: []string{"builtin:review"}}, {Kind: "pr"},
 	}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return srv, owner, project.ID, p.ID
+	return st, srv, owner, project.ID, p.ID
 }
 
 func TestStartOutcomeOnAPathway(t *testing.T) {
-	srv, owner, project, pathway := pathwayStart(t)
+	_, srv, owner, project, pathway := pathwayStart(t)
 	body := `{"objective":"Tidy the logs.","projectId":"` + project + `","tool":"opencode","maxReviews":8,"hours":24,"confirmed":true,"pathway":"` + pathway + `","sessions":[{"title":"Logs","prompt":"Tidy the logs. Do not merge."}]}`
 	code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", body)
 	if code != 201 {
@@ -81,7 +82,7 @@ func TestStartOutcomeOnAPathway(t *testing.T) {
 }
 
 func TestStartRefusesStagesWithAPathway(t *testing.T) {
-	srv, owner, project, pathway := pathwayStart(t)
+	_, srv, owner, project, pathway := pathwayStart(t)
 	body := `{"objective":"Tidy the logs.","projectId":"` + project + `","tool":"opencode","maxReviews":8,"hours":24,"confirmed":true,"pathway":"` + pathway + `","sessions":[{"title":"Logs","prompt":"Tidy the logs. Do not merge.","stages":[{"kind":"code"}]}]}`
 	if code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", body); code != 422 || !strings.Contains(got, "not both") {
 		t.Fatalf("stages and a pathway: %d %s", code, got)
@@ -93,7 +94,7 @@ func pathwayBody(name string, extra string) string {
 }
 
 func TestPathwayCreateListAndStalePut(t *testing.T) {
-	srv, owner, _, _ := pathwayStart(t)
+	_, srv, owner, _, _ := pathwayStart(t)
 	code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/pathways", `{"id":"ignored","createdAt":5,"updatedAt":9,"name":"Quick","description":"","enabled":false,"stages":[{"kind":"code"}]}`)
 	if code != 201 {
 		t.Fatalf("create: %d %s", code, got)
@@ -135,7 +136,7 @@ func TestPathwayCreateListAndStalePut(t *testing.T) {
 }
 
 func TestPathwayInvalidStagesAndProblems(t *testing.T) {
-	srv, owner, _, _ := pathwayStart(t)
+	_, srv, owner, _, _ := pathwayStart(t)
 	code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/pathways", `{"name":"Bad","enabled":true,"stages":[{"kind":"pr"},{"kind":"code"},{"kind":"pr"}]}`)
 	if code != 422 || !strings.Contains(got, `"stages"`) {
 		t.Fatalf("invalid stages: %d %s", code, got)
@@ -145,7 +146,9 @@ func TestPathwayInvalidStagesAndProblems(t *testing.T) {
 		t.Fatalf("skilled: %d %s", code, got)
 	}
 	var made struct{ Problems []string }
-	_ = json.Unmarshal([]byte(got), &made)
+	if err := json.Unmarshal([]byte(got), &made); err != nil {
+		t.Fatal(err)
+	}
 	if len(made.Problems) != 1 || !strings.Contains(made.Problems[0], "no-such-skill") {
 		t.Fatalf("problems: %s", got)
 	}
@@ -161,7 +164,9 @@ func TestPathwayRoutesAreTheOwningAccountsOnly(t *testing.T) {
 		ID        string
 		UpdatedAt int64
 	}
-	_ = json.Unmarshal([]byte(got), &made)
+	if err := json.Unmarshal([]byte(got), &made); err != nil {
+		t.Fatal(err)
+	}
 	stamp := `,"updatedAt":` + strconv.FormatInt(made.UpdatedAt, 10)
 	path := "/api/v2/gaffer/pathways/" + made.ID
 	password, _ := auth.HashPassword("long-enough-password")
@@ -201,5 +206,69 @@ func TestPathwayRoutesAreTheOwningAccountsOnly(t *testing.T) {
 	}
 	if code, _ := gafferClient(t, owner, srv, "GET", path, ""); code != 200 {
 		t.Fatalf("owner after: %d", code)
+	}
+}
+
+// stageSkillShown says whether the Skills panel of a pipeline's stage holds a
+// selected receipt for the skill.
+func stageSkillShown(t *testing.T, st *store.Store, outcome, key string, stage int, skill string) bool {
+	t.Helper()
+	rows, err := st.SkillBuddyRecordsFor(1, "factory:"+outcome+":"+key+":"+strconv.Itoa(stage))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Skill.ID == skill && r.Skill.State == "selected" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPathwaySkillsShowInTheStagesSkillsPanel(t *testing.T) {
+	st, srv, owner, project, pathway := pathwayStart(t)
+	body := `{"objective":"Tidy the logs.","projectId":"` + project + `","tool":"opencode","maxReviews":8,"hours":24,"confirmed":true,"pathway":"` + pathway + `","sessions":[{"title":"Logs","prompt":"Tidy the logs. Do not merge."}]}`
+	code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", body)
+	if code != 201 {
+		t.Fatalf("start: %d %s", code, got)
+	}
+	var o struct {
+		ID       string
+		Revision int64
+		Sessions []struct{ Key string }
+	}
+	if err := json.Unmarshal([]byte(got), &o); err != nil {
+		t.Fatal(err)
+	}
+	if !stageSkillShown(t, st, o.ID, o.Sessions[0].Key, 1, "builtin:review") {
+		t.Fatalf("start: the custom stage's skill is not in its Skills panel")
+	}
+	add := `{"revision":` + strconv.FormatInt(o.Revision, 10) + `,"confirmed":true,"pathway":"` + pathway + `","sessions":[{"title":"Metrics","prompt":"Tidy the metrics. Do not merge."}]}`
+	code, got = gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+o.ID+"/sessions", add)
+	if code != 200 {
+		t.Fatalf("add: %d %s", code, got)
+	}
+	if err := json.Unmarshal([]byte(got), &o); err != nil {
+		t.Fatal(err)
+	}
+	if len(o.Sessions) != 2 || !stageSkillShown(t, st, o.ID, o.Sessions[1].Key, 1, "builtin:review") {
+		t.Fatalf("add: the custom stage's skill is not in its Skills panel: %s", got)
+	}
+}
+
+func TestAFullSizePathwayIsAccepted(t *testing.T) {
+	_, srv, owner, _, _ := pathwayStart(t)
+	// Quotes and newlines take two bytes each once JSON escapes them.
+	prompt := strings.Repeat("\"q\"\n", 1000)
+	stages := make([]map[string]string, 12)
+	for i := range stages {
+		stages[i] = map[string]string{"kind": "custom", "name": "Stage " + strconv.Itoa(i), "prompt": prompt}
+	}
+	body, err := json.Marshal(map[string]any{"name": "Big", "enabled": true, "stages": stages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/pathways", string(body)); code != 201 {
+		t.Fatalf("full-size pathway: %d %s", code, got)
 	}
 }

@@ -3,7 +3,7 @@
   import { getGafferOutcome, listModelFavourites, recoverGafferPipeline, type GafferOutcome, type GafferOutcomeSession } from '../api'
   import { CATALOGUE } from '../catalogue'
   import GafferModelSelect from '../GafferModelSelect.svelte'
-  import { stageName } from '../gafferOutcome'
+  import { stageInSentence } from '../gafferOutcome'
   import type { MachineModels, ModelFavourite } from '../models'
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
@@ -58,7 +58,7 @@
 
 <WorkspaceDialog title="Continue with another model" onclose={() => { if (!busy) oncancel() }}>
   <form onsubmit={recover}>
-    <p>Gaffer will resume the {stageName(stage ?? { kind: '' }).toLowerCase()} stage in the same folder and branch.</p>
+    <p>Gaffer will resume the {stageInSentence(stage ?? { kind: '' })} stage in the same folder and branch.</p>
     {#if tools.length > 1}
       <label>Agent<select bind:value={tool} disabled={busy} onchange={() => { model = ''; error = '' }}>
         {#each tools as agent (agent.id)}<option value={agent.id}>{chatToolName(agent.id)}</option>{/each}

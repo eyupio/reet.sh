@@ -193,8 +193,12 @@ func (s *Store) SaveGafferGoal(uid int64, expected int64, g GafferGoal) (GafferG
 	err := s.withTx(func(tx *sql.Tx) error { return saveGafferGoal(tx, uid, expected, &g) })
 	return g, err
 }
+
+// MaxGafferGoalBytes is the most a goal's text may hold.
+const MaxGafferGoalBytes = 2000
+
 func saveGafferGoal(tx *sql.Tx, uid int64, expected int64, g *GafferGoal) error {
-	if !validGafferID(g.ID) || len(g.Text) > 2000 || strings.TrimSpace(g.Text) == "" || !utf8.ValidString(g.Text) || strings.ContainsRune(g.Text, 0) || g.MaxReviews < 1 || g.MaxReviews > 48 || g.ExpiresAt <= now() || g.ExpiresAt > now()+7*24*60*60*1000 {
+	if !validGafferID(g.ID) || len(g.Text) > MaxGafferGoalBytes || strings.TrimSpace(g.Text) == "" || !utf8.ValidString(g.Text) || strings.ContainsRune(g.Text, 0) || g.MaxReviews < 1 || g.MaxReviews > 48 || g.ExpiresAt <= now() || g.ExpiresAt > now()+7*24*60*60*1000 {
 		return ErrGafferConflict
 	}
 	if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, uid); err != nil {

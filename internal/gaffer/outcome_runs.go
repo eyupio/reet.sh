@@ -285,17 +285,19 @@ func stageIndex(kind string) int {
 // merge ends "Do not merge."
 func StageGoal(objective, title string, stage store.GafferOutcomeStage) string {
 	kind, work := stage.Kind, stageWork[stage.Kind]
-	if kind == CustomStage {
-		work = clipBytes(stage.Prompt, 1200)
-	}
-	text := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + stage.Label() + "\n" + work + " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
+	head := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + stage.Label() + "\n"
+	tail := " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
 	if kind != "merge" {
 		// Merging is the merge stage's work, decided by the pipeline's own
 		// merge setting when it gets there. Said this way so a review does not
 		// read the setting as a conflict with this stage.
-		text += " Nothing is merged in this stage."
+		tail += " Nothing is merged in this stage."
 	}
-	return text
+	if kind == CustomStage {
+		// The prompt takes what the goal has left, so the store never refuses it.
+		work = clipBytes(stage.Prompt, min(1200, store.MaxGafferGoalBytes-len(head)-len(tail)))
+	}
+	return head + work + tail
 }
 
 // stageDeliverable is what a stage must leave behind before it is done, said
@@ -624,7 +626,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			kinds := make([]string, len(item.Stages))
 			for n, stage := range item.Stages {
 				kinds[n] = stage.Kind
-				if stage.Kind == CustomStage && strings.TrimSpace(stage.Prompt) == "" || stage.Kind != CustomStage && stageIndex(stage.Kind) < 0 || stage.Part != "" || stage.Brief != "" {
+				if stage.Kind == CustomStage && (strings.TrimSpace(stage.Name) == "" || strings.TrimSpace(stage.Prompt) == "") || stage.Kind != CustomStage && stageIndex(stage.Kind) < 0 || stage.Part != "" || stage.Brief != "" {
 					return nil, invalid("sessions", "The stages of “"+title+"” are built-in stages or named custom stages with a prompt, and are not split into parts.")
 				}
 			}

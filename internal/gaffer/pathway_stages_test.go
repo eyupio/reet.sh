@@ -110,6 +110,21 @@ func TestLongCustomPromptKeepsTheBoundary(t *testing.T) {
 	}
 }
 
+func TestLongCustomStageGoalFitsTheGoalLimit(t *testing.T) {
+	stage := store.GafferOutcomeStage{Kind: "custom", Name: strings.Repeat("ß", MaxStageNameRunes), Prompt: strings.Repeat("é", MaxStagePromptBytes/2)}
+	got := StageGoal(strings.Repeat("o", 4000), strings.Repeat("t", 80), stage)
+	if len(got) > store.MaxGafferGoalBytes || !utf8.ValidString(got) || !strings.HasSuffix(got, " Nothing is merged in this stage.") {
+		t.Fatalf("len %d, valid %v:\n%s", len(got), utf8.ValidString(got), got)
+	}
+}
+
+func TestPathwayRefusesUnnamedCustomStage(t *testing.T) {
+	in := []OutcomeSession{{Title: "Logs", Prompt: "Tidy the logs.", Stages: []OutcomeStageInput{{Kind: "custom", Prompt: "Audit."}}, Pathway: &store.GafferPathwayRef{ID: "pw1", Name: "Careful"}}}
+	if _, err := outcomePieces(in, "opencode", "", "", store.GafferCrew{}, false, map[string]bool{}, 0); err == nil {
+		t.Fatal("an unnamed custom stage was accepted")
+	}
+}
+
 func TestCustomStageGoal(t *testing.T) {
 	prompt := strings.Repeat("a", 1200) + strings.Repeat("b", 800)
 	got := StageGoal("Ship it.", "Logs", store.GafferOutcomeStage{Kind: "custom", Name: "Audit", Prompt: prompt})

@@ -251,6 +251,9 @@ type Capabilities struct {
 	// SoftwareApply is sent only when software-apply-v1 was negotiated and
 	// terminal access is on; the machine may then run one reviewed artifact.
 	SoftwareApply bool `json:"softwareApply,omitempty"`
+	// SoftwareMirrorFirst is sent only when software-mirror-first-v1 was
+	// negotiated, beside SoftwareApply: an apply may then ask for the mirror first.
+	SoftwareMirrorFirst bool `json:"softwareMirrorFirst,omitempty"`
 	// Locked is sent only when machine-lock-v1 was negotiated: the machine is
 	// locked locally (reet agent lock) and refuses everything a controller
 	// starts. It is never sent beside Readiness ready.
@@ -342,6 +345,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.AgentAccounts {
 		features = append(features, AgentAccountsFeature)
+	}
+	if c.SoftwareMirrorFirst {
+		features = append(features, SoftwareMirrorFirstFeature)
 	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
@@ -493,6 +499,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.SoftwareApply && !c.TerminalControl {
+		return ErrInvalid
+	}
+	if c.SoftwareMirrorFirst && !(c.SoftwareApply && SupportsSoftwareMirrorFirst(features)) {
 		return ErrInvalid
 	}
 	validVersion := c.ProtocolVersion >= 1 && c.ProtocolVersion <= 65535

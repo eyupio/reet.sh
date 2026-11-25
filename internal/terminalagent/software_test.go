@@ -165,3 +165,43 @@ func TestSoftwareApplyOutlivesTheConnection(t *testing.T) {
 	close(release)
 	waitSoftwareIdle(t)
 }
+
+// preferMirror is refused on a generation that did not negotiate
+// software-mirror-first-v1, and reaches the apply on one that did.
+func TestSoftwareApplyPreferMirrorNeedsNegotiation(t *testing.T) {
+	original := applySoftware
+	called := make(chan terminalproto.SoftwareApply, 1)
+	applySoftware = func(_ context.Context, _ string, req terminalproto.SoftwareApply, _ func(string) (string, error), _ ...terminalhost.SoftwareSource) terminalproto.SoftwareApplyResult {
+		called <- req
+		return appliedSoftwareResult(t)
+	}
+	t.Cleanup(func() { applySoftware = original })
+	waitSoftwareIdle(t)
+	request := softwareApplyRequest()
+	request.PreferMirror = true
+
+	handle, got := modelsConnector(t, terminalproto.SoftwareApplyFeature, nil)
+	if err := handle(t.Context(), message("software-apply-00005", request)); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("error = %v", err)
+	}
+	nothingSent(t, got)
+
+	handle, got = modelsConnector(t, terminalproto.SoftwareApplyFeature+","+terminalproto.SoftwareMirrorFirstFeature, nil)
+	if err := handle(t.Context(), message("software-apply-00006", request)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-called:
+		if !req.PreferMirror {
+			t.Fatalf("the preference was lost: %+v", req)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("apply did not run")
+	}
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reply")
+	}
+	waitSoftwareIdle(t)
+}

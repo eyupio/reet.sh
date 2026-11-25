@@ -365,3 +365,111 @@ func TestApplySoftwareContinuesADownloadAcrossApplies(t *testing.T) {
 		t.Fatalf("a finished apply left files in its staging directory: %v", left)
 	}
 }
+
+// mirrorFirstFixture serves the same reviewed archive from a registry and a
+// mirror, each answered by its own handler, and records the order they were
+// asked in.
+func mirrorFirstFixture(t *testing.T, registry, mirror func(archive []byte, w http.ResponseWriter, r *http.Request)) (SoftwareSource, *[]string) {
+	t.Helper()
+	backing, artifact := fakeArtifact(t, []byte("reviewed binary"))
+	response, err := http.Get(artifact.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	backing.Close()
+	var mu sync.Mutex
+	order := []string{}
+	serve := func(name string, handle func([]byte, http.ResponseWriter, *http.Request)) *httptest.Server {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			order = append(order, name+":"+r.Header.Get("Range"))
+			mu.Unlock()
+			handle(archive, w, r)
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+	registryServer := serve("registry", registry)
+	mirrorServer := serve("mirror", mirror)
+	artifact.URL = registryServer.URL + "/opencode.tgz"
+	original := softwareArtifact
+	softwareArtifact = artifact
+	t.Cleanup(func() { softwareArtifact = original })
+	return SoftwareSource{Client: mirrorServer.Client(), BaseURL: mirrorServer.URL, Path: "/private/v1/software/artifact/" + artifact.ArchiveSHA256}, &order
+}
+
+func serveArchive(archive []byte, w http.ResponseWriter, r *http.Request) {
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(archive))
+}
+
+func refuseArchive(_ []byte, w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, "unavailable", http.StatusBadGateway)
+}
+
+func applyInstall(t *testing.T, preferMirror bool, source SoftwareSource) terminalproto.SoftwareApplyResult {
+	t.Helper()
+	return ApplySoftware(context.Background(), t.TempDir(), terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionInstall, ExpectedState: terminalproto.SoftwareMissing, PreferMirror: preferMirror,
+	}, missingLookPath, source)
+}
+
+func TestApplySoftwareTriesTheMirrorFirstWhenPreferred(t *testing.T) {
+	source, order := mirrorFirstFixture(t, serveArchive, serveArchive)
+	result := applyInstall(t, true, source)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Source != "mirror" {
+		t.Fatalf("preferred mirror: %+v", result)
+	}
+	if len(*order) != 1 || (*order)[0] != "mirror:" {
+		t.Fatalf("asked %v, want the mirror only", *order)
+	}
+}
+
+func TestApplySoftwareTriesTheRegistryFirstWithoutThePreference(t *testing.T) {
+	source, order := mirrorFirstFixture(t, serveArchive, serveArchive)
+	result := applyInstall(t, false, source)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Source != "registry" {
+		t.Fatalf("registry first: %+v", result)
+	}
+	if len(*order) != 1 || (*order)[0] != "registry:" {
+		t.Fatalf("asked %v, want the registry only", *order)
+	}
+}
+
+func TestApplySoftwareFallsBackToTheRegistryWhenThePreferredMirrorFails(t *testing.T) {
+	source, order := mirrorFirstFixture(t, serveArchive, refuseArchive)
+	result := applyInstall(t, true, source)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Source != "registry" {
+		t.Fatalf("fallback to the registry: %+v", result)
+	}
+	if len(*order) != 2 || (*order)[0] != "mirror:" || (*order)[1] != "registry:" {
+		t.Fatalf("asked %v, want the mirror then the registry", *order)
+	}
+}
+
+func TestApplySoftwareReportsBothSourcesInTheOrderTried(t *testing.T) {
+	source, _ := mirrorFirstFixture(t, refuseArchive, refuseArchive)
+	result := applyInstall(t, true, source)
+	if result.State != terminalproto.SoftwareApplyFailed || result.Reason != terminalproto.SoftwareApplyDownload || result.Source != "mirror+registry" {
+		t.Fatalf("both failed, mirror first: %+v", result)
+	}
+}
+
+// Half an archive from the mirror is continued by the registry, not fetched again.
+func TestApplySoftwareContinuesTheMirrorsHalfFromTheRegistry(t *testing.T) {
+	cut := func(archive []byte, w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	}
+	source, order := mirrorFirstFixture(t, serveArchive, cut)
+	result := applyInstall(t, true, source)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Source != "registry" {
+		t.Fatalf("continued from the registry: %+v", result)
+	}
+	if len(*order) != 2 || (*order)[0] != "mirror:" || (*order)[1] == "registry:" {
+		t.Fatalf("asked %v, want the registry to ask for the rest", *order)
+	}
+}

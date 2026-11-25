@@ -107,3 +107,31 @@ func TestSoftwareApplyCapabilityNeedsNegotiationAndTerminalAccess(t *testing.T) 
 		t.Fatal("apply capability without terminal control")
 	}
 }
+
+func TestSoftwareMirrorFirstIsNegotiatedBesideApply(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, TerminalEnabled: true, TerminalReadiness: terminalproto.Ready}
+	negotiateFeatures(&cfg, terminalproto.SoftwareApplyFeature)
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); caps.SoftwareMirrorFirst {
+		t.Fatal("mirror first claimed without software-mirror-first-v1")
+	}
+	negotiateFeatures(&cfg, terminalproto.SoftwareMirrorFirstFeature)
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); caps.SoftwareMirrorFirst {
+		t.Fatal("mirror first claimed without software-apply-v1")
+	}
+	negotiateFeatures(&cfg, terminalproto.SoftwareApplyFeature+","+terminalproto.SoftwareMirrorFirstFeature)
+	caps := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !caps.SoftwareApply || !caps.SoftwareMirrorFirst {
+		t.Fatalf("not claimed: %+v", caps)
+	}
+	features := terminalFeatures(cfg)
+	if err := caps.ValidateFor(features); err != nil {
+		t.Fatal(err)
+	}
+	// The terminal dispatcher serves an apply only for what was negotiated.
+	if !terminalproto.SupportsSoftwareApply(features) || !terminalproto.SupportsSoftwareMirrorFirst(features) {
+		t.Fatalf("terminal features %q", features)
+	}
+	if caps := capabilitiesFor(cfg, false, terminalproto.DisabledLocally); caps.SoftwareMirrorFirst {
+		t.Fatal("mirror first with terminal access off")
+	}
+}

@@ -86,6 +86,7 @@ type AgentConfig struct {
 	modelsAllowed      bool
 	software           bool
 	softwareApply      bool
+	mirrorFirst        bool
 	yoloAllowed        bool
 	acpAgents          bool
 	acp                bool
@@ -1106,6 +1107,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.modelsRefresh = terminalproto.SupportsModelsRefresh(advertised) && cfg.models
 	cfg.software = terminalproto.SupportsSoftware(advertised)
 	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
+	cfg.mirrorFirst = cfg.softwareApply && terminalproto.SupportsSoftwareMirrorFirst(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpAgents = terminalproto.SupportsACPAgents(advertised)
 	cfg.acpWorktree = terminalproto.SupportsACPWorktree(advertised)
@@ -1308,6 +1310,12 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.machineLock {
 		features = append(features, terminalproto.MachineLockFeature)
+	}
+	if cfg.softwareApply {
+		features = append(features, terminalproto.SoftwareApplyFeature)
+	}
+	if cfg.mirrorFirst {
+		features = append(features, terminalproto.SoftwareMirrorFirstFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -1566,19 +1574,21 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		RepoList: cfg.repoList && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
 		// Reading a sign-in follows terminal access: a machine with access
 		// off is not asked, and says so if it is.
-		AgentAccounts:   cfg.agentAccounts && control && enabled,
-		Software:        software,
-		SoftwareApply:   cfg.softwareApply && control && enabled,
-		Locked:          cfg.machineLock && cfg.locked,
-		LockedAt:        lockedAt(cfg),
-		TerminalControl: cfg.TerminalSession != nil,
-		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
-		ProtocolVersion: terminalproto.Version,
-		OS:              osName,
-		OSUser:          username,
-		TerminalEnabled: enabled,
-		HealthEnabled:   true,
-		Readiness:       readiness,
+		AgentAccounts: cfg.agentAccounts && control && enabled,
+		Software:      software,
+		SoftwareApply: cfg.softwareApply && control && enabled,
+		// Mirror first only refines an apply, so it follows SoftwareApply.
+		SoftwareMirrorFirst: cfg.mirrorFirst && control && enabled,
+		Locked:              cfg.machineLock && cfg.locked,
+		LockedAt:            lockedAt(cfg),
+		TerminalControl:     cfg.TerminalSession != nil,
+		CommandHistory:      cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
+		ProtocolVersion:     terminalproto.Version,
+		OS:                  osName,
+		OSUser:              username,
+		TerminalEnabled:     enabled,
+		HealthEnabled:       true,
+		Readiness:           readiness,
 	}
 }
 

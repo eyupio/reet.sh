@@ -220,6 +220,20 @@ func SupportsSoftwareApply(features string) bool {
 	return false
 }
 
+// SoftwareMirrorFirstFeature lets a connector take preferMirror on an apply:
+// try the controller's artifact mirror before the registry. A connector
+// without it never receives the field and keeps trying the registry first.
+const SoftwareMirrorFirstFeature = "software-mirror-first-v1"
+
+func SupportsSoftwareMirrorFirst(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == SoftwareMirrorFirstFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // SoftwareApply asks for one reviewed action. The controller supplies only the
 // tool, action and the evidence the person approved; the connector owns the
 // artifact URL, checksums and command.
@@ -230,6 +244,10 @@ type SoftwareApply struct {
 	ExpectedVersion  string         `json:"expectedVersion,omitempty"`
 	ExpectedPrevious string         `json:"expectedPrevious,omitempty"`
 	ExpectedManaged  bool           `json:"expectedManaged,omitempty"`
+	// PreferMirror asks the connector to try the controller's mirror before
+	// the registry. It is sent only where software-mirror-first-v1 was
+	// negotiated; the artifact and its checksums stay the connector's own.
+	PreferMirror bool `json:"preferMirror,omitempty"`
 }
 
 func (SoftwareApply) kind() string { return "software_apply" }
@@ -309,8 +327,9 @@ type SoftwareApplyResult struct {
 	Previous string              `json:"previous,omitempty"`
 	Reason   SoftwareApplyReason `json:"reason,omitempty"`
 	Entry    *SoftwareEntry      `json:"entry,omitempty"`
-	// Source is where the archive came from: "registry", "mirror", or
-	// "registry+mirror" when both were tried and neither worked.
+	// Source is where the archive came from: "registry", "mirror", or, when
+	// both were tried and neither worked, both in the order tried:
+	// "registry+mirror", or "mirror+registry" when the mirror was preferred.
 	Source string `json:"source,omitempty"`
 }
 

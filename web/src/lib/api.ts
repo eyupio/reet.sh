@@ -304,11 +304,13 @@ export type GafferOutcomePlanInput = {
 export type GafferPlanPhase = 'sending' | 'writing' | 'checking'
 export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal, onPhase?: (phase: GafferPlanPhase) => void): Promise<GafferOutcomePlan> {
   const path = `/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`
-  const started = await (await req(path, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+  // The start is not tied to the signal: a start abandoned on its way back would leave a job nobody can stop.
+  const started = await (await req(path, { method: 'POST', body: json({ revision: p.revision, ...input }) })).json()
   const job = String(started?.id ?? '')
   if (!job) throw new Error('Gaffer could not start planning this outcome. Try again.')
-  onPhase?.('sending')
   try {
+    signal?.throwIfAborted()
+    onPhase?.('sending')
     for (let attempt = 0; attempt < 120; attempt++) {
       const answer = await (await req(`${path}/${encodeURIComponent(job)}`, { signal, cache: 'no-store' })).json()
       if (answer?.state !== 'running') return answer as GafferOutcomePlan

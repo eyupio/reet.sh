@@ -250,7 +250,8 @@ func gafferError(w http.ResponseWriter, err error) {
 		}
 		writeErrCode(w, 422, code, invalid.Field, invalid.Message, "")
 	case errors.As(err, &probe):
-		writeErr(w, 502, probe.Message)
+		// Not 502: a proxy in front of reet replaces a 502's body with its own page, and the sentence is lost.
+		writeErr(w, 500, probe.Message)
 	case errors.Is(err, gaffer.ErrForbidden), errors.Is(err, gaffer.ErrContextForbidden):
 		writeErr(w, 403, err.Error())
 	case errors.Is(err, gaffer.ErrBusy), errors.Is(err, gaffer.ErrContextBusy):

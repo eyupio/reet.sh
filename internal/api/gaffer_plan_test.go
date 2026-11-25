@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -104,5 +105,14 @@ func TestGafferOutcomePlanNeedsTheOwningBrowserAndStartsNothing(t *testing.T) {
 	}
 	if list, err := st.GafferConversationsFor(1); err != nil || len(list) != 0 {
 		t.Fatalf("planning saved conversations: %v %v", list, err)
+	}
+}
+
+// A proxy in front of reet replaces the body of a 502 with its own page, which left the person with a bare "502".
+func TestAProviderFailureIsNotAnsweredAs502SoAProxyKeepsItsSentence(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gafferError(rec, &gaffer.ProbeError{Message: "This model did not return a plan."})
+	if rec.Code != 500 || !strings.Contains(rec.Body.String(), "This model did not return a plan.") {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
 	}
 }

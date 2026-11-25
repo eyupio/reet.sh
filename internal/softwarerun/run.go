@@ -328,7 +328,11 @@ func (o *Orchestrator) step(uid int64, batch store.SoftwareBatch, member store.S
 		// A plan can be refused because the machine already reached the target
 		// while the reply was lost, or another person applied it first.
 		if o.reconciled(uid, batch, member) {
-			o.record(uid, batch.ID, member.Position, store.SoftwareMemberApplied, "", targetVersion(member))
+			version := targetVersion(member)
+			if member.Action == string(agentsoftware.Remove) {
+				version = ""
+			}
+			o.record(uid, batch.ID, member.Position, store.SoftwareMemberApplied, "", version)
 			return
 		}
 		o.record(uid, batch.ID, member.Position, store.SoftwareMemberFailed, reasonCode(result.Reason), "")
@@ -345,20 +349,26 @@ func (o *Orchestrator) record(uid int64, batchID string, position int, state, co
 	}
 }
 
-// reconciled reports whether the machine now has the target version, which is
-// what a refused plan means when the earlier attempt actually succeeded.
+// reconciled reports whether the machine now has the target version, or for a
+// remove no reet-managed copy at all, which is what a refused plan means when
+// the earlier attempt actually succeeded.
 func (o *Orchestrator) reconciled(uid int64, batch store.SoftwareBatch, member store.SoftwareBatchMember) bool {
 	caps, err := o.cfg.Store.RemoteCapabilitiesFor(uid, member.AgentID)
 	if err != nil {
 		return false
 	}
+	remove := member.Action == string(agentsoftware.Remove)
 	target := targetVersion(member)
 	for _, entry := range caps.Capabilities.Software {
 		if entry.Tool != batch.Tool {
 			continue
 		}
-		matches := entry.State == terminalproto.SoftwareInstalled && entry.Managed
-		if matches && entry.Version == target {
+		managed := entry.State == terminalproto.SoftwareInstalled && entry.Managed
+		if remove {
+			// Only a clear reading counts: missing, or a copy reet did not install.
+			return entry.State == terminalproto.SoftwareMissing || entry.State == terminalproto.SoftwareInstalled && !entry.Managed
+		}
+		if managed && entry.Version == target {
 			return true
 		}
 	}

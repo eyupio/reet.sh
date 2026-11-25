@@ -468,3 +468,92 @@ func TestRunCarriesTheMirrorPreference(t *testing.T) {
 		t.Fatal("the batch request did not carry the preference")
 	}
 }
+
+func softwareRunActionBatch(t *testing.T, st *store.Store, uid int64, action, target string, agents ...store.SyncAgent) store.SoftwareBatch {
+	t.Helper()
+	members := make([]store.SoftwareBatchMemberInput, 0, len(agents))
+	for i, a := range agents {
+		members = append(members, store.SoftwareBatchMemberInput{
+			Position: i, AgentID: a.ID, Host: a.Host, Action: action, Target: target,
+			ExpectedState: "installed", ExpectedVersion: "1.18.0", ExpectedPrevious: "1.17.0", ExpectedManaged: true,
+		})
+	}
+	b, _, err := st.CreateSoftwareBatchFor(uid, "", "opencode", members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// Rollback and remove batches are driven exactly like an update batch: in
+// order, one machine at a time, stopping at the first failure.
+func TestRollbackAndRemoveBatchesApplyInOrderAndStopOnFailure(t *testing.T) {
+	for _, tc := range []struct{ action, target, version string }{{"rollback", "1.17.0", "1.17.0"}, {"remove", "", ""}} {
+		t.Run(tc.action, func(t *testing.T) {
+			st, uid, agents := softwareRunFixture(t, "alpha", "beta", "gamma")
+			batch := softwareRunActionBatch(t, st, uid, tc.action, tc.target, agents...)
+			if batch.Action != tc.action {
+				t.Fatalf("batch action: %q", batch.Action)
+			}
+			var mu sync.Mutex
+			var actions []string
+			broker := &fakeBroker{apply: func(agentID string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+				mu.Lock()
+				actions = append(actions, string(in.Action))
+				mu.Unlock()
+				if agentID == agents[1].ID {
+					return failed(in, terminalproto.SoftwareApplyRemoveFailed), nil
+				}
+				return terminalproto.SoftwareApplyResult{Tool: in.Tool, Action: in.Action, State: terminalproto.SoftwareApplyApplied, Version: tc.version}, nil
+			}}
+			o := New(Config{Store: st, Broker: broker, Logf: t.Logf})
+			defer o.Close()
+			o.Start(uid, batch.ID)
+			stopped := waitBatch(t, st, uid, batch.ID, store.SoftwareBatchStopped)
+			if stopped.Members[0].State != store.SoftwareMemberApplied || stopped.Members[1].State != store.SoftwareMemberFailed || stopped.Members[2].State != store.SoftwareMemberPending {
+				t.Fatalf("stopped: %+v", stopped.Members)
+			}
+			if calls := broker.called(); len(calls) != 2 || calls[0] != agents[0].ID || calls[1] != agents[1].ID {
+				t.Fatalf("calls: %v", calls)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if actions[0] != tc.action || actions[1] != tc.action {
+				t.Fatalf("actions sent: %v", actions)
+			}
+		})
+	}
+}
+
+// A refused remove is applied only when reet's copy is really gone. Before,
+// a remove had no target and fell back to the reviewed version, so a machine
+// still running reet's copy at that version read as removed.
+func TestRefusedRemoveIsAppliedOnlyWhenReetsCopyIsGone(t *testing.T) {
+	st, uid, agents := softwareRunFixture(t, "alpha", "beta")
+	if _, err := st.BeginRemoteConnectionFor(uid, agents[0].ID, terminalbroker.ID(), softwareRunCaps("1.19.5")); err != nil {
+		t.Fatal(err)
+	}
+	gone := softwareRunCaps("")
+	gone.Software[0] = terminalproto.SoftwareEntry{
+		Tool: "opencode", State: terminalproto.SoftwareMissing, Package: "opencode-ai", Source: "npm",
+		Platform: "linux", Arch: "amd64", Reason: terminalproto.SoftwareNotInstalled, CheckedAt: 1,
+		Operations: []terminalproto.SoftwareOperation{terminalproto.SoftwarePlanInstall},
+	}
+	if _, err := st.BeginRemoteConnectionFor(uid, agents[1].ID, terminalbroker.ID(), gone); err != nil {
+		t.Fatal(err)
+	}
+	batch := softwareRunActionBatch(t, st, uid, "remove", "", agents[1], agents[0])
+	broker := &fakeBroker{apply: func(_ string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+		return refused(in, terminalproto.SoftwareApplyChanged), nil
+	}}
+	o := New(Config{Store: st, Broker: broker, Logf: t.Logf})
+	defer o.Close()
+	o.Start(uid, batch.ID)
+	stopped := waitBatch(t, st, uid, batch.ID, store.SoftwareBatchStopped)
+	if stopped.Members[0].State != store.SoftwareMemberApplied {
+		t.Fatalf("a machine without reet's copy is removed already: %+v", stopped.Members[0])
+	}
+	if stopped.Members[1].State != store.SoftwareMemberFailed || stopped.Members[1].Code != "changed" {
+		t.Fatalf("a machine still holding reet's copy was not removed: %+v", stopped.Members[1])
+	}
+}

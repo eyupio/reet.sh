@@ -99,7 +99,8 @@ func (s *Server) ResumeSoftwareBatches(ctx context.Context) {
 const maxBatchMachines = 100
 
 // softwareBatchStart creates a batch from the ordered machines the person
-// chose. Each machine's plan is rebuilt from stored evidence and frozen into
+// chose, for one action: each machine's reviewed install or update by default,
+// or a rollback or remove of reet's own copy behind the typed word. Each machine's plan is rebuilt from stored evidence and frozen into
 // the batch; no machine is contacted by this handler.
 func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
@@ -107,6 +108,12 @@ func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 		RequestID string   `json:"requestId"`
 		Tool      string   `json:"tool"`
 		Agents    []string `json:"agents"`
+		// Action is empty (or "update") for each machine's reviewed install or
+		// update, or "rollback" or "remove" for the whole batch.
+		Action string `json:"action"`
+		// Confirm is the action word the person typed. A rollback or remove
+		// batch is refused without it, so a script cannot skip the question.
+		Confirm string `json:"confirm"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 16<<10))
 	decoder.DisallowUnknownFields()
@@ -124,6 +131,19 @@ func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if !terminalproto.ValidTool(tool) {
 		writeErrCode(w, http.StatusBadRequest, "software_tool_invalid", "", "reet doesn't know that agent.", "")
+		return
+	}
+	batchAction := agentsoftware.Action(strings.TrimSpace(in.Action))
+	switch batchAction {
+	case "", agentsoftware.Update:
+		batchAction = ""
+	case agentsoftware.Rollback, agentsoftware.Remove:
+		if in.Confirm != string(batchAction) {
+			writeErrCode(w, http.StatusUnprocessableEntity, "software_confirm_required", "confirm", "Type "+string(batchAction)+" to confirm this batch.", "")
+			return
+		}
+	default:
+		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose update, rollback or remove.", "")
 		return
 	}
 	if len(in.Agents) == 0 || len(in.Agents) > maxBatchMachines {
@@ -198,6 +218,9 @@ func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		action, why := reviewedSoftwareAction(*entry)
+		if batchAction != "" {
+			action, why = batchSoftwareAction(*entry, batchAction)
+		}
 		if action == "" {
 			member.Excluded, member.Reason = true, why
 			members = append(members, member)
@@ -205,7 +228,7 @@ func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 		}
 		if running[agentID] > 0 {
 			member.Excluded = true
-			member.Reason = runningSentence(running[agentID], "apply")
+			member.Reason = runningSentence(running[agentID], softwareVerb(batchAction))
 			members = append(members, member)
 			continue
 		}
@@ -230,7 +253,11 @@ func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusConflict, "software_batch_in_progress", "", "Another software batch is still waiting or running. Finish or abandon it first.", "")
 		return
 	case errors.Is(err, store.ErrSoftwareBatchNoMembers):
-		writeErrCode(w, http.StatusConflict, "software_batch_empty", "", "None of those machines can apply the reviewed plan right now.", "")
+		sentence := "None of those machines can apply the reviewed plan right now."
+		if batchAction != "" {
+			sentence = "None of those machines can " + softwareVerb(batchAction) + " right now."
+		}
+		writeErrCode(w, http.StatusConflict, "software_batch_empty", "", sentence, "")
 		return
 	case err != nil:
 		terminalError(w, err)
@@ -289,8 +316,7 @@ func (s *server) softwareBatchRetry(w http.ResponseWriter, r *http.Request) {
 		softwareBatchError(w, err)
 		return
 	}
-	s.event(uid, "ui", "software-batch-retry", "", map[string]any{"batchId": batchID, "position": position})
-	s.softwareBatchAnswer(w, uid, batchID)
+	s.softwareBatchAnswer(w, uid, batchID, "software-batch-retry", map[string]any{"batchId": batchID, "position": position})
 }
 
 func (s *server) softwareBatchSkip(w http.ResponseWriter, r *http.Request) {
@@ -304,8 +330,7 @@ func (s *server) softwareBatchSkip(w http.ResponseWriter, r *http.Request) {
 		softwareBatchError(w, err)
 		return
 	}
-	s.event(uid, "ui", "software-batch-skip", "", map[string]any{"batchId": batchID, "position": position})
-	s.softwareBatchAnswer(w, uid, batchID)
+	s.softwareBatchAnswer(w, uid, batchID, "software-batch-skip", map[string]any{"batchId": batchID, "position": position})
 }
 
 func (s *server) softwareBatchAbandon(w http.ResponseWriter, r *http.Request) {
@@ -315,16 +340,20 @@ func (s *server) softwareBatchAbandon(w http.ResponseWriter, r *http.Request) {
 		softwareBatchError(w, err)
 		return
 	}
-	s.event(uid, "ui", "software-batch-abandon", "", map[string]any{"batchId": batchID})
-	s.softwareBatchAnswer(w, uid, batchID)
+	s.softwareBatchAnswer(w, uid, batchID, "software-batch-abandon", map[string]any{"batchId": batchID})
 }
 
-func (s *server) softwareBatchAnswer(w http.ResponseWriter, uid int64, batchID string) {
+// softwareBatchAnswer audits the move (with the batch's action) and answers
+// the batch as it is now.
+func (s *server) softwareBatchAnswer(w http.ResponseWriter, uid int64, batchID, event string, detail map[string]any) {
 	batch, err := s.st.SoftwareBatchFor(uid, batchID)
 	if err != nil {
+		s.event(uid, "ui", event, "", detail)
 		terminalError(w, err)
 		return
 	}
+	detail["action"] = batch.Action
+	s.event(uid, "ui", event, "", detail)
 	// Retry, skip and abandon move a batch without the driver (skip can finish
 	// it outright), so a terminal state is audited here too. The driver audits
 	// the terminal states it produces itself.
@@ -370,7 +399,7 @@ func softwareBatchAudit(batch store.SoftwareBatch, phase string) map[string]any 
 	}
 	return map[string]any{
 		"batchId": batch.ID, "phase": phase, "state": batch.State,
-		"tool": batch.Tool, "hosts": hosts, "members": members,
+		"tool": batch.Tool, "action": batch.Action, "hosts": hosts, "members": members,
 	}
 }
 
@@ -388,6 +417,36 @@ func reviewedSoftwareAction(entry terminalproto.SoftwareEntry) (agentsoftware.Ac
 		return agentsoftware.Install, ""
 	default:
 		return "", "reet couldn't read how OpenCode is installed."
+	}
+}
+
+// batchSoftwareAction is the rollback or remove a machine's stored evidence
+// allows, or a sentence saying why it is left out. Only reet's own copy is
+// ever touched.
+func batchSoftwareAction(entry terminalproto.SoftwareEntry, action agentsoftware.Action) (agentsoftware.Action, string) {
+	switch {
+	case entry.State == terminalproto.SoftwareMissing:
+		return "", "OpenCode isn't installed on that machine."
+	case entry.State != terminalproto.SoftwareInstalled:
+		return "", "reet couldn't read how OpenCode is installed."
+	case !entry.Managed:
+		return "", "OpenCode on that machine was installed outside reet, so reet won't touch it."
+	case action == agentsoftware.Rollback && entry.Previous == "":
+		return "", "No earlier version is kept on that machine."
+	default:
+		return action, ""
+	}
+}
+
+// softwareVerb is the plain verb for a batch action in a sentence.
+func softwareVerb(action agentsoftware.Action) string {
+	switch action {
+	case agentsoftware.Rollback:
+		return "roll back"
+	case agentsoftware.Remove:
+		return "remove its copy"
+	default:
+		return "apply"
 	}
 }
 

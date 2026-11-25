@@ -27,13 +27,43 @@ var errOutcomeArchived = invalid("archived", "This outcome is archived. Bring it
 // back in the controller's hands. A stage that never started is asked for
 // under a new request; a session that did start is kept and followed.
 func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (store.GafferOutcome, error) {
-	return s.retryPipeline(uid, id, key, revision, nil)
+	return s.retryPipeline(uid, id, key, revision, nil, "")
+}
+
+// RestartPipelineStage is the person running the stage in hand again in a new
+// session while its session is still open: the agent there is stuck. It is
+// refused unless the stage is waiting for the person, so work that is under
+// way is never ended by it. The session left is ended, its history kept.
+func (s *Service) RestartPipelineStage(uid int64, id, key, session string, revision int64) (store.GafferOutcome, error) {
+	current, err := s.store.GafferOutcomeFor(uid, id)
+	if err != nil {
+		return current, err
+	}
+	for _, piece := range current.Sessions {
+		if piece.Key != key || piece.State != "following" || session == "" || piece.SessionID != session {
+			continue
+		}
+		g, err := s.store.GafferGoalFor(uid, piece.ConversationID)
+		if err != nil || g.State != "needs_user" || g.WaitingOnWorker || g.ActiveTurnID != "" {
+			break
+		}
+		o, err := s.retryPipeline(uid, id, key, revision, nil, session)
+		if err != nil {
+			return o, err
+		}
+		// The goal of the session left behind no longer waits for anyone.
+		_, _ = s.store.ControlGafferGoal(uid, piece.ConversationID, g.Revision, "stop", store.GafferGoal{SessionID: session})
+		s.endFinishedSession(context.Background(), current, key, session, "The person ran its stage again in a new session.")
+		return o, nil
+	}
+	return outcomeView(current), invalid("retry", "This stage is not waiting for you, so its session was left as it is.")
 }
 
 // retryPipeline is RetryPipeline. only, when set, is asked about the row
 // before it is tried again, may record more in the same write, and leaves the
-// row as it is by reporting false.
-func (s *Service) retryPipeline(uid int64, id, key string, revision int64, only func(*store.GafferOutcomeSession) bool) (store.GafferOutcome, error) {
+// row as it is by reporting false. restart names a session the person is
+// leaving while it still runs: it is treated as one that has ended.
+func (s *Service) retryPipeline(uid int64, id, key string, revision int64, only func(*store.GafferOutcomeSession) bool, restart string) (store.GafferOutcome, error) {
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return store.GafferOutcome{}, err
 	}
@@ -49,7 +79,7 @@ func (s *Service) retryPipeline(uid int64, id, key string, revision int64, only 
 	dead, orphan := "", ""
 	if current, err := s.store.GafferOutcomeFor(uid, id); err == nil {
 		for _, piece := range current.Sessions {
-			if piece.Key == key && piece.SessionID != "" && !s.sessionRunning(uid, piece.SessionID) {
+			if piece.Key == key && piece.SessionID != "" && (piece.SessionID == restart || !s.sessionRunning(uid, piece.SessionID)) {
 				dead, orphan = piece.SessionID, piece.ConversationID
 			}
 		}

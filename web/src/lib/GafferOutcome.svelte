@@ -209,6 +209,18 @@
   const unavailableCrew = $derived(savedSettings.filter(item => tools.length > 0 && !tools.includes(item.tool)))
   let chosenRoles = $state<Partial<Record<keyof Crew, boolean>>>({})
   const followsOutcome = (role: keyof Crew) => !chosenRoles[role]
+  // The tiers whose first choice the person changed here, so each can be put back as the dialog started it.
+  let editedRoles = $state<Partial<Record<keyof Crew, boolean>>>({})
+  const savedHere = (tier: keyof Crew) => { const member = savedCrew?.[tier]; return !!member?.tool && tools.includes(member.tool) }
+  // A tier's first choice as the dialog starts it: the saved crew's where this machine can run it, else the outcome's own agent.
+  function startTier(tier: keyof Crew) {
+    const member = savedCrew?.[tier], useSaved = savedHere(tier)
+    chosenRoles[tier] = useSaved; editedRoles[tier] = false; droppedEffort[tier] = ''
+    crew[tier] = useSaved
+      ? { tool: member!.tool!, model: member!.model ?? '', effort: member!.effort ?? '', source: member!.provider ?? '' }
+      : { tool, model, effort, source: chosenSource }
+    crewSourceExplicit[tier] = useSaved && !!member!.provider
+  }
   // The saved default for who decides is where this dialog starts; the person still chooses for this outcome.
   onMount(() => { void getGafferCrew(life.signal).then(answer => { if (life.signal.aborted) return; if (answer.saved) { savedCrew = answer.crew; crewRead = 'saved'; if (answer.crew.gafferDecides) automation = true } else crewRead = 'empty' }).catch(() => { if (!life.signal.aborted) crewRead = 'failed' }) })
   $effect(() => {
@@ -218,13 +230,7 @@
     untrack(() => {
       for (const { tier } of CREW_TIERS) {
         const member = saved?.[tier]
-        const useSaved = !!member?.tool && available.includes(member.tool)
-        chosenRoles[tier] = useSaved
-        droppedEffort[tier] = ''
-        crew[tier] = useSaved
-          ? { tool: member.tool!, model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
-          : { tool, model, effort, source: chosenSource }
-        crewSourceExplicit[tier] = useSaved && !!member.provider
+        startTier(tier)
         const spares = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && available.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
         backups[tier] = spares[0] ?? { tool: '', model: '', effort: '' }
         more[tier] = spares.slice(1, MAX_BACKUPS)
@@ -291,7 +297,7 @@
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   // The effort a crew role asked for (saved, or typed) and the machine does not report: it is cleared above, and kept here so the plan can say so.
   let droppedEffort = $state<Record<string, string>>({})
-  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; droppedEffort[tier] = '' }
+  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; editedRoles[tier] = true; droppedEffort[tier] = '' }
   // A chosen level the agent no longer reports (another project's machine, or a crew role's own agent) goes back to the
   // agent's default, so what is shown is what the outcome will start with.
   // Nothing is cleared while the machine's capabilities are not known: a guess would only lose the person's choice.
@@ -410,7 +416,7 @@
     }
   }
   function pickCrewSource(role: keyof Crew, next: string) {
-    chosenRoles[role] = true
+    chosenRoles[role] = true; editedRoles[role] = true
     crew[role] = { ...crew[role], source: next }
     crewSourceExplicit[role] = true
   }
@@ -659,7 +665,7 @@
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
               <LaunchReadiness ready={tierReady[rated.tier]} label={`${stageLabel(kind)} in pipeline ${index + 1}`}/>
               {#if stageTakesParts(kind)}<button class="link stage-splitter" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} in pipeline ${index + 1} into parts`} onclick={() => item.parts = withNewPart(item, kind)}>Split into parts</button>{/if}
-              {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
+              {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Move back to {tierLabel(rated.standard)} tier</button></p>{/if}
             </div>{/if}{/each}
           </div>{/if}
           {#if true}{@const count = (item.stages ?? []).reduce((sum, kind) => sum + Math.max(1, stageParts(item, kind).length), 0)}{@const splits = (item.stages ?? []).filter(kind => stageParts(item, kind).length > 1).length}<p class="hint">{item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}{splits ? `, ${splits} split into parts: ${count} agent sessions in all, one after another.` : ', each in an agent session of its own.'}</p>{/if}
@@ -828,7 +834,7 @@
             <p class="hint">Right tool for the job. Each stage has a tier: Heavy for careful judgement, Standard for ordinary building, Light for routine work. Say here which agent, model and effort each tier means. Gaffer’s plan puts a stage on another tier where the work calls for it, and you can change any stage below. Every stage runs in a session of its own.</p>
             <div class="crew-rows">
               {#each CREW_TIERS as item (item.tier)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
-                <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
+                <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span>{#if editedRoles[item.tier]}<button class="link crew-reset" type="button" disabled={planning || busy} aria-label={`Put the ${item.label} crew back to ${savedHere(item.tier) ? 'your saved crew' : 'the outcome’s agent'}`} onclick={() => startTier(item.tier)}>{savedHere(item.tier) ? 'Back to your saved crew' : 'Back to the outcome’s agent'}</button>{/if}</div>
                 <span class="crew-slot">First choice</span>
                 <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || busy || !tools.length} onchange={() => { edit(item.tier); const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{@render awayAgent(crew[item.tier].tool)}{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning || busy} onchange={() => edit(item.tier)}/>
@@ -878,7 +884,7 @@
   .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.875rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
   .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.crew-slot{align-self:start;line-height:44px;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-none{grid-column:3/-1;align-self:start;line-height:44px;font-size:0.875rem;color:var(--muted)}.crew-row select{width:100%;min-width:0}
   .balance{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.balance label{font-weight:600;line-height:1.3}.percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--ink)}.percent input{width:5.5rem;min-height:44px;text-align:right;font-variant-numeric:tabular-nums}.balance+.hint{margin-top:8px}@media(max-width:479px){.balance{grid-template-columns:1fr}}
-  .crew-more{grid-column:2/-1;justify-self:start;min-height:44px;font-size:0.875rem}
+  .crew-more{grid-column:2/-1;justify-self:start;min-height:44px;font-size:0.875rem}.crew-reset{margin-left:auto}
   .saved-crew{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
   .saved-crew h3{margin:0;font:600 14px var(--sans)}
   .saved-crew-list{margin:0;display:grid;gap:4px}

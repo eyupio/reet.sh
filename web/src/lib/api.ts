@@ -304,11 +304,13 @@ export type GafferOutcomePlanInput = {
 export type GafferPlanPhase = 'sending' | 'writing' | 'checking'
 export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal, onPhase?: (phase: GafferPlanPhase) => void): Promise<GafferOutcomePlan> {
   const path = `/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`
-  const started = await (await req(path, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+  // The start is not tied to the signal: a start abandoned on its way back would leave a job nobody can stop.
+  const started = await (await req(path, { method: 'POST', body: json({ revision: p.revision, ...input }) })).json()
   const job = String(started?.id ?? '')
   if (!job) throw new Error('Gaffer could not start planning this outcome. Try again.')
-  onPhase?.('sending')
   try {
+    signal?.throwIfAborted()
+    onPhase?.('sending')
     for (let attempt = 0; attempt < 120; attempt++) {
       const answer = await (await req(`${path}/${encodeURIComponent(job)}`, { signal, cache: 'no-store' })).json()
       if (answer?.state !== 'running') return answer as GafferOutcomePlan
@@ -371,6 +373,8 @@ export async function tellGafferPipelineAgent(o: Pick<GafferOutcome, 'id'>, key:
 /** Whether one pipeline merges by itself at its merge stage, or waits for the person's approval. */
 export async function setGafferPipelineAutoMerge(o: Pick<GafferOutcome, 'id'>, key: string, on: boolean, yoloConfirmed = false, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/automerge`, { method: 'POST', body: json(on && yoloConfirmed ? { on, yoloConfirmed } : { on }), signal })).json() }
 export async function retryGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+/** Runs the stage in hand again in a new session and ends `session`, the stuck one that is still open. */
+export async function restartGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, session: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision, endSession: session }), signal })).json() }
 export async function recoverGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, stoppedSession: string, worker?: { tool: string; model: string }, signal?: AbortSignal): Promise<GafferOutcome> {
   return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision, stoppedSession, worker }), signal })).json()
 }

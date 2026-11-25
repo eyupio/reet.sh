@@ -682,11 +682,13 @@ type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; review
  *  buttons, the most likely first. `last` is whether the stage in hand is the pipeline's last. */
 export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): Need {
   const move: NeedChoice = { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }
+  // The way out when the stage's agent is stuck in a session that is still open: asked for with a confirmation.
+  const restart: NeedChoice = { id: 'restart', label: 'Restart stage…' }
   if (goal.waitingOnWorker) return { why: 'The agent is waiting for your answer or approval. Gaffer carries on by itself once you have answered.', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
-  if (goal.reviewFailed) return recommend(goal.note, [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move])
+  if (goal.reviewFailed) return recommend(goal.note, [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart])
   if (goal.state === 'limit') return recommend(goal.note || 'This stage used its review budget or its time.', [{ id: 'budget', label: 'Give it a new budget', primary: true }, move])
-  if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }])
-  return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }], goal.advice)
+  if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }])
+  return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }], goal.advice)
 }
 /** The pipeline's own note when it came back to review after it had been accepted: the work changed under the acceptance. */
 export const CHANGED_AFTER_ACCEPT = 'Delivery review. The work changed after you accepted it'

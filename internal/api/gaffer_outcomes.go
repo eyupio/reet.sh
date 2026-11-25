@@ -430,6 +430,9 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 		Revision       int64                     `json:"revision"`
 		StoppedSession string                    `json:"stoppedSession,omitempty"`
 		Worker         *gaffer.WorkerReplacement `json:"worker,omitempty"`
+		// EndSession is the session in hand, still open, that the person is
+		// leaving to run its stage again in a new one.
+		EndSession string `json:"endSession,omitempty"`
 	}
 	if !decodeStrictJSON(w, r, 1024, &in, "That retry is invalid.") {
 		return
@@ -449,6 +452,8 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 	} else if in.Worker != nil {
 		writeErr(w, 400, "Name the stopped session before choosing a replacement model.")
 		return
+	} else if in.EndSession != "" {
+		o, err = s.gafferProviders.RestartPipelineStage(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.EndSession, in.Revision)
 	} else {
 		o, err = s.gafferProviders.RetryPipeline(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
 	}

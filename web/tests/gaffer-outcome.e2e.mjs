@@ -69,8 +69,9 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
     '/api/v2/gaffer/goals':()=>({goals:box.goals,readAt:now}),
     '/api/v2/gaffer/conversations':request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
     '/api/v2/terminal/sessions':request=>{expect(request.method()).toBe('GET');return {sessions:(box.record?.sessions??[]).filter(s=>s.sessionId).map(s=>({id:s.sessionId,agentId:'a1',title:s.title,state:'running',structured:true,tool:'claude',dir:'/work/billing',createdAt:now,updatedAt:now,exitCode:null}))}},
-    [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
+    [`/api/v2/gaffer/providers/${pid}/plan`]:async request=>{
       expect(request.method()).toBe('POST');const input=request.postDataJSON();box.plans.push(input)
+      await box.planHold
       if(input.reply)box.replies.push(input)
       if(box.planFails)return{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}
       planAnswer=input.reply?revised:proposed
@@ -151,6 +152,16 @@ try {
       const thinking=outcome.getByRole('combobox',{name:'Heavy model',exact:true})
       await expect(thinking.getByRole('option')).toHaveText(['Agent’s default model','starred-model (not in workshop’s list)','claude/on-the-machine','sonnet (not in workshop’s list)','opus (not in workshop’s list)','haiku (not in workshop’s list)','Other…'])
       await expect(outcome.getByRole('combobox',{name:'Model',exact:true}).getByRole('option',{name:'claude/on-the-machine',exact:true})).toBeAttached()
+      // A tier nobody has changed offers nothing to undo. Changed, it can be put back as the dialog started it: here,
+      // with no saved crew, on the outcome's own agent and model, which it then follows again.
+      const undo=outcome.getByRole('button',{name:'Put the Heavy crew back to the outcome’s agent',exact:true})
+      await expect(undo).toHaveCount(0)
+      await thinking.selectOption('sonnet');await expect(undo).toHaveText('Back to the outcome’s agent')
+      await expect(outcome.getByRole('button',{name:/^Put the (Standard|Light) crew back/})).toHaveCount(0)
+      await undo.click()
+      await expect(thinking).toHaveValue('');await expect(undo).toHaveCount(0)
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('haiku');await expect(thinking).toHaveValue('haiku')
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('');await expect(thinking).toHaveValue('')
       // A name none of them has can still be typed.
       await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Heavy model name',exact:true}).fill('private-model')
       await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Heavy model name',exact:true})).toHaveCount(0)
@@ -1059,6 +1070,10 @@ try {
       await stop.click()
       await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
       await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      // Stopped while the start is still on its way back: the job that start made is stopped all the same.
+      let release;f.box.planHold=new Promise(done=>{release=done});await ask.click();await stop.click();release();f.box.planHold=null
+      await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`,`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
       f.box.planBreaks=true;await ask.click()
       await expect(steps).toHaveText(['✕Sending to Workshop Gaffer, failed','·gaffer-model is writing the plan','·Checking the plan'])
       await expect(outcome.getByRole('alert')).toHaveText('The provider could not plan this outcome: 503 from the provider.')

@@ -249,6 +249,18 @@ item on a tablet or phone. Nothing happens until you choose.
 - **Try the review again** appears when Gaffer's own review failed.
 - **Give it a new budget** appears when the stage used its reviews or its time.
 - **Run this stage again in a new session** appears when the stage's session was ended.
+- **Restart stage…** is the way out when the stage's agent is stuck in a session that is still open. On the Factory
+  page it is a link in the **Waiting for you** card, in the sentence that says what it does; in the session it is one
+  of the decision's buttons. It asks first: the session is ended, its history kept, and the stage starts again in a
+  new one, in the same folder and branch. It is offered only while the stage waits for you, so a working agent is
+  never ended by it.
+
+An instruction from you or from Gaffer reaches the agent after a turn of its that failed too: it is the next attempt,
+and is not held in the session's queue for a Retry.
+
+The same decision is shown in the session doing the stage, above the conversation. **Minimise** folds it to one line
+and **Show decision** brings it back; a long instruction Gaffer would give starts at three lines with **Read all of
+it**. The decision never pushes the composer off the screen: it scrolls within its own share of the height.
 
 ### A worker reached its usage limit
 

@@ -349,10 +349,10 @@ test('a pipeline that needs the person says why and offers what they can do, the
   const waiting = o.needsYou({ state: 'needs_user', note: 'n', waitingOnWorker: true }, undefined, false)
   assert.deepEqual(ids(waiting), ['answer']); assert.match(waiting.why, /waiting for your answer/)
   const failed = o.needsYou({ state: 'needs_user', note: 'Gaffer’s review did not complete (failed): overloaded.', reviewFailed: true }, undefined, false)
-  assert.deepEqual(ids(failed), ['retry', 'tell', 'move']); assert.match(failed.why, /overloaded/)
+  assert.deepEqual(ids(failed), ['retry', 'tell', 'move', 'restart']); assert.match(failed.why, /overloaded/)
   assert.deepEqual(ids(o.needsYou({ state: 'limit', note: 'The review budget is used.' }, undefined, false)), ['budget', 'move'])
   const idle = o.needsYou({ state: 'needs_user', note: 'long note', noStep: true }, undefined, true)
-  assert.deepEqual(ids(idle), ['again', 'tell', 'move', 'open']); assert.equal(idle.choices[2].label, 'Finish this stage'); assert.match(idle.why, /chose no next step/)
+  assert.deepEqual(ids(idle), ['again', 'tell', 'move', 'restart', 'open']); assert.equal(idle.choices[2].label, 'Finish this stage'); assert.match(idle.why, /chose no next step/)
   const asked = o.needsYou({ state: 'needs_user', note: 'Gaffer needs your decision. Read its latest review.' }, 'Gaffer brought a question back to you.', false)
   assert.equal(asked.why, 'Gaffer brought a question back to you.'); assert.equal(asked.choices[0].primary, true); assert.equal(asked.choices[2].label, 'Move to next stage')
 })
@@ -423,13 +423,15 @@ test('token counts round up into millions instead of reading 1000k', () => {
 test('the first choice is the recommended one, and Gaffer says which and why when its review advised', () => {
   // With no advice the fixed default leads and is the recommendation.
   const plain = o.needsYou({ state: 'needs_user', note: 'Gaffer needs your decision.' }, undefined, false)
-  assert.deepEqual(plain.choices.map(c => [c.id, !!c.recommended, !!c.primary]), [['again', true, true], ['tell', false, false], ['move', false, false], ['open', false, false]])
+  assert.deepEqual(plain.choices.map(c => [c.id, !!c.recommended, !!c.primary]), [['again', true, true], ['tell', false, false], ['move', false, false], ['restart', false, false], ['open', false, false]])
+  // A stage whose agent is stuck can be run again in a new session; it is never the recommendation.
+  assert.equal(plain.choices[3].label, 'Restart stage…')
   assert.equal(plain.recommend.by, 'default')
   // Gaffer's advice moves its choice to the front, with its reason and the instruction it would give.
   const advised = o.needsYou({ state: 'needs_user', note: 'n', advice: { choice: 'tell', why: 'The endpoint is untested.', text: 'Add tests for the export endpoint.' } }, undefined, false)
-  assert.deepEqual(advised.choices.map(c => c.id), ['tell', 'again', 'move', 'open'])
-  assert.deepEqual(advised.choices.map(c => !!c.recommended), [true, false, false, false])
-  assert.deepEqual(advised.choices.map(c => !!c.primary), [true, false, false, false])
+  assert.deepEqual(advised.choices.map(c => c.id), ['tell', 'again', 'move', 'restart', 'open'])
+  assert.deepEqual(advised.choices.map(c => !!c.recommended), [true, false, false, false, false])
+  assert.deepEqual(advised.choices.map(c => !!c.primary), [true, false, false, false, false])
   assert.deepEqual(advised.recommend, { by: 'gaffer', label: 'Tell the agent…', why: 'The endpoint is untested.', text: 'Add tests for the export endpoint.' })
   // Advice for a choice the person does not have here is ignored.
   assert.equal(o.needsYou({ state: 'limit', note: 'n', advice: { choice: 'tell', why: 'x', text: 'y' } }, undefined, false).recommend.by, 'default')

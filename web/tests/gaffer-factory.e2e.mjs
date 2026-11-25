@@ -191,6 +191,13 @@ try {
       await expect(needy).toContainText('Gaffer recommends: Tell the agent. The design already names the empty state; the agent only needs telling which.')
       await expect(needy).toContainText('Which of the two do you want?')
       await expect(needy).toContainText('It would say: “Use the illustrated empty state from the design.”')
+      // A stage whose agent is stuck in a session that is still open can be run again in a new one, from the card that
+      // says why it waits rather than as a fifth button. It asks first, and Cancel sends nothing.
+      await expect(needy).toContainText('If its agent is stuck, Restart stage… ends its session and runs the stage again in a new one. It asks first.')
+      await needy.getByRole('button',{name:'Restart stage…',exact:true}).click()
+      const rerun=page.getByRole('dialog',{name:'Run “Export button” again in a new session?',exact:true})
+      await expect(rerun).toContainText('This ends the session doing this stage now and starts the stage again in a new one, in the same folder and branch.')
+      await rerun.getByRole('button',{name:'Cancel',exact:true}).click();await expect(rerun).toHaveCount(0);expect(box.retries).toEqual([])
       // The stage it waits in is the one whose facts are shown.
       await expect(button.getByRole('region',{name:/^(Code|Review|Test|PR) stage$/})).toBeVisible()
       // Taking Gaffer's recommendation starts from the words it would use; they are the person's to change, and nothing is sent yet.

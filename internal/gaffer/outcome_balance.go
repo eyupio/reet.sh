@@ -393,7 +393,7 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 				}
 				row.Stages[at].Rebalanced = true
 				return true
-			}); err != nil {
+			}, ""); err != nil {
 				continue
 			}
 			s.audit(o.OwnerID, "gaffer-stage-rebalanced", map[string]any{"outcome": o.ID, "pipeline": key, "stage": stage.Kind, "from": stage.Tool, "to": next.Tool, "reason": next.Balanced})

@@ -173,12 +173,9 @@ func (s *server) buddyRecommendations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recommendations := skillbuddy.Recommend(task, stage, catalogue)
-	for _, sk := range recommendations {
-		sk.State = "suggested"
-		if err = s.st.RecordSkillBuddyFor(uid, scope, in.SessionID, stage, sk); err != nil {
-			writeErr(w, 500, "Suggestions could not be saved.")
-			return
-		}
+	if err = s.st.RecordSkillBuddySuggestionsFor(uid, scope, in.SessionID, stage, recommendations); err != nil {
+		writeErr(w, 500, "Suggestions could not be saved.")
+		return
 	}
 	records, err := s.st.SkillBuddyRecordsFor(uid, scope)
 	if err != nil {

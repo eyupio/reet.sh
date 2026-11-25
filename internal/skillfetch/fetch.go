@@ -32,6 +32,14 @@ var (
 	ErrTooLarge = errors.New("skill is over 8 MiB or 256 files")
 	// ErrArchiveTooLarge is the repository, not the skill, being too big to read.
 	ErrArchiveTooLarge = errors.New("repository archive is too large to read")
+	// ErrUnreachable is any failure to connect. Its text is all a writer sees: the
+	// transport's own names the addresses it tried.
+	ErrUnreachable = errors.New("could not reach the source")
+)
+
+var (
+	errTooManyRedirects = errors.New("too many redirects")
+	errRedirectHost     = errors.New("redirect to a host this server may not fetch from")
 )
 
 const (
@@ -205,14 +213,14 @@ func (f Fetcher) get(ctx context.Context, rawURL string, github bool) (*http.Res
 	c.Jar = nil
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) > maxRedirects {
-			return errors.New("too many redirects")
+			return errTooManyRedirects
 		}
 		allowed := req.URL.Scheme == "https" && strings.EqualFold(req.URL.Host, via[0].URL.Host)
 		if github {
 			allowed = req.URL.Scheme == "https" && githubHost(req.URL.Hostname())
 		}
 		if !allowed {
-			return errors.New("redirect to a host this server may not fetch from")
+			return errRedirectHost
 		}
 		return nil
 	}
@@ -222,7 +230,14 @@ func (f Fetcher) get(ctx context.Context, rawURL string, github bool) (*http.Res
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch skill source: %w", err)
+		// The transport's text names the addresses it dialled, resolved or proxied
+		// through. What this server refused, a deadline and a cancelled request are said as such.
+		for _, known := range []error{errAddress, errRedirectHost, errTooManyRedirects, context.DeadlineExceeded, context.Canceled} {
+			if errors.Is(err, known) {
+				return nil, known
+			}
+		}
+		return nil, ErrUnreachable
 	}
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
@@ -303,6 +318,7 @@ func (f Fetcher) github(ctx context.Context, source string, slugs []string) ([][
 	tallies := map[string]*tally{}
 	all := map[string]held{}
 	skillDirs := map[string]bool{}
+	var links []string
 	var retained, streamed int64
 	tr := tar.NewReader(gz)
 	for entries := 0; ; entries++ {
@@ -330,6 +346,11 @@ func (f Fetcher) github(ctx context.Context, source string, slugs []string) ([][
 		}
 		streamed += h.Size
 		if h.Typeflag != tar.TypeReg {
+			// A link is never followed, but a skill saved without it would look
+			// complete, so where it was is remembered.
+			if _, rel, ok := strings.Cut(path.Clean(h.Name), "/"); ok && (h.Typeflag == tar.TypeSymlink || h.Typeflag == tar.TypeLink) {
+				links = append(links, rel)
+			}
 			continue // directories, links, pax headers
 		}
 		_, rel, ok := strings.Cut(path.Clean(h.Name), "/")
@@ -393,11 +414,20 @@ func (f Fetcher) github(ctx context.Context, source string, slugs []string) ([][
 			errs[i] = ErrTooLarge
 			continue
 		}
-		var files []skillbundle.ContentFile
 		prefix := best
 		if prefix != "" {
 			prefix += "/"
 		}
+		for _, l := range links {
+			if sub, ok := strings.CutPrefix(l, prefix); ok {
+				errs[i] = fmt.Errorf("the skill has a link (%s) that reet does not copy", sub)
+				break
+			}
+		}
+		if errs[i] != nil {
+			continue
+		}
+		var files []skillbundle.ContentFile
 		for rel, h := range all {
 			if sub, ok := strings.CutPrefix(rel, prefix); ok {
 				files = append(files, skillbundle.ContentFile{Path: sub, Data: h.data, Executable: h.exec})

@@ -131,13 +131,6 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 	if err != nil {
 		return page, err
 	}
-	for i := range all {
-		if all[i].Published {
-			if all[i].PublicProblem, err = s.SkillPublicProblemFor(uid, all[i].ID); err != nil {
-				return page, err
-			}
-		}
-	}
 	for _, r := range all {
 		switch r.Status {
 		case SkillActive:
@@ -147,6 +140,14 @@ func (s *Store) SkillsPageFor(uid int64, status string, now time.Time) (SkillsPa
 		}
 		if r.Status == status {
 			page.Skills = append(page.Skills, r)
+		}
+	}
+	// Reads and hashes each head revision, so only for the rows shown.
+	for i := range page.Skills {
+		if page.Skills[i].Published {
+			if page.Skills[i].PublicProblem, err = s.SkillPublicProblemFor(uid, page.Skills[i].ID); err != nil {
+				return page, err
+			}
 		}
 	}
 	if err = s.attachSkillPageShelf(uid, page.Skills); err != nil {

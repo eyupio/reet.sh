@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -179,7 +180,8 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 	}
 	uid := s.uid(r)
 	reply := map[string]any{"agent": a}
-	if !a.Paused && a.SkillsProtocol == store.CurrentSkillsProtocol {
+	onProtocol := !a.Paused && a.SkillsProtocol == store.CurrentSkillsProtocol
+	if onProtocol {
 		// Read before a job is claimed, so a failure here leaves no job
 		// claimed that the machine was never told about.
 		desired, err := s.st.DesiredSkillsFor(uid, time.Now())
@@ -189,16 +191,6 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 		}
 		if desired.Version != in.SkillsVersion {
 			reply["desired"] = desired
-		}
-		// Asked once: a retry handed over is gone, whatever the machine
-		// then does with it.
-		retry, err := s.st.TakeSkillRetriesFor(uid, a.ID)
-		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
-		if len(retry) > 0 {
-			reply["retry"] = retry
 		}
 		if s.skillPollKicks.due(uid) {
 			s.kickSkillCopies(uid)
@@ -211,6 +203,18 @@ func (s *server) pollSkillsAgent(w http.ResponseWriter, r *http.Request, a store
 		return
 	}
 	reply["job"] = job
+	if onProtocol {
+		// Asked once: a retry handed over is gone, whatever the machine
+		// then does with it. Taken last, so a poll that fails before this
+		// leaves them for the next one; if taking them fails, the job just
+		// claimed is still told, and they wait.
+		retry, err := s.st.TakeSkillRetriesFor(uid, a.ID)
+		if err != nil {
+			log.Printf("skill retries of %s: %v", a.ID, err)
+		} else if len(retry) > 0 {
+			reply["retry"] = retry
+		}
+	}
 	writeJSON(w, 200, reply)
 }
 

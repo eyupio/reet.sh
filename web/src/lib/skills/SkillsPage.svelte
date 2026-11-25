@@ -559,8 +559,7 @@
     void start()
     const poll = setInterval(() => {
       if (!page.loaded || page.writing || ask || reviewOpen || document.visibilityState !== 'visible') return
-      void read(page.tab, true)
-      void read(other(page.tab), true)
+      page.poll()
     }, POLL_MS)
     // Another part of the app changed the library. A change this page made itself is already on it.
     const changed = (e: Event) => { if (page.own(e)) return; void read(page.tab, true); void read(other(page.tab), true) }

@@ -1640,6 +1640,10 @@ func (s *Store) DeleteUser(id int64) error {
 			`DELETE FROM backup_settings WHERE owner_id=?`,
 			`DELETE FROM backup_runs WHERE owner_id=?`,
 			`DELETE FROM user_profiles WHERE user_id=?`,
+			// No foreign key to users, so nothing else clears them.
+			`DELETE FROM skill_activity WHERE user_id=?`,
+			`DELETE FROM terminal_chat_events WHERE user_id=?`,
+			`DELETE FROM worktree_cleanups WHERE user_id=?`,
 			`DELETE FROM users WHERE id=?`,
 		} {
 			if _, err := tx.Exec(stmt, id); err != nil {

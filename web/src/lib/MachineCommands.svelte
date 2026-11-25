@@ -32,11 +32,11 @@
     {
       id: 'live' as const,
       label: 'Live agent',
-      title: enrolled ? 'Restart this machine\'s live agent' : 'Enroll this machine for live status and remote jobs',
+      title: enrolled ? 'Restart this machine\'s live agent' : 'Enrol this machine for live status and remote jobs',
       commands: enrolled ? 'reet agent restart\nreet agent status' : enrollCommands(site, machine),
       note: enrolled
-        ? 'Restart the agent in the background, then check its connection. Your terminal prompt stays free. Enrollment, credentials and running terminal sessions are preserved. Use reet agent stop to stop the connection.'
-        : 'Enroll once, then start the background agent. You can close your terminal; it keeps reporting and processes changes you approve here. The CLI asks for a personal token the first time.',
+        ? 'Restart the agent in the background, then check its connection. Your terminal prompt stays free. Enrolment, credentials and running terminal sessions are preserved. Use reet agent stop to stop the connection.'
+        : 'Enrol once, then start the background agent. You can close your terminal; it keeps reporting and processes changes you approve here. The CLI asks for a personal token the first time.',
     },
     {
       id: 'upgrade' as const,
@@ -120,6 +120,7 @@
   .hint { color: var(--muted); font-size: 0.875rem; }
   footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
   footer .btn:last-child { margin-left: auto; }
+  @media (pointer: coarse) { .icon { min-width: 44px; min-height: 44px; } .tabs button { min-height: 44px; } }
   @media (max-width: 640px) {
     .layout { grid-template-columns: 1fr; }
     .tabs { display: flex; overflow-x: auto; gap: 4px; }

@@ -2,17 +2,16 @@
   import Skeleton from './Skeleton.svelte'
  import Icon from './Icon.svelte'
 import Sentence from './Sentence.svelte'
- import { onMount, untrack } from 'svelte'
+ import { onMount } from 'svelte'
  import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import CopyButton from './CopyButton.svelte'
- let { snapshot, source, initialRequestId = '', onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string; direct?: boolean }; initialRequestId?: string; onclose: () => void } = $props()
+ let { snapshot, source, onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string }; onclose: () => void } = $props()
  let dialog = $state<HTMLDialogElement>()
  let importState = $state<ImportState>({requests: [], capabilities: []}), bundles = $state<PrivateBundle[]>([])
  let selected = $state<ImportRequest | null>(null), selectedID = $state(''), error = $state(''), busy = $state(false), loading = $state(true)
  let environmentId = $state(''), name = $state(''), bundleId = $state(''), exclusions = $state<string[]>([])
  let historyID = $state(''), revisions = $state<PrivateRevision[]>([])
- let autoStarted = false, autoApproved = false
  let requestKey = crypto.randomUUID(), alive = true, generation = 0, syncing = false
  let refreshAbort: AbortController | undefined
  const environments = $derived(snapshot.environments.filter(e => ['agents','claude','cursor','codex','opencode'].includes(e.agent)))
@@ -28,17 +27,6 @@ import Sentence from './Sentence.svelte'
  const stateLabels: Record<string,string> = {queued:'Queued',previewing:'Reading files',reviewing:'Ready for review',approved:'Approved',uploading:'Saving private copy',completed:'Saved',cancelled:'Cancelled',expired:'Expired',failed:'Needs attention'}
  const messages: Record<string,string> = { reviewing: 'Ready for your review. No file contents have been uploaded.', queued: 'Waiting for the machine to prepare a preview.', previewing: 'Reading file metadata on the machine. No file contents have been uploaded.', approved: 'Approved. Waiting for the machine to recheck and transfer your selection.', uploading: 'Verifying and saving the approved files privately.', cancelled: 'Cancelled. No further transfer is authorised.', expired: 'This preview expired or the connector restarted. Request a fresh preview.', failed: 'The import could not complete. Review the reason and request a fresh preview.', completed: 'Saved privately in reet.' }
  const reasons: Record<string,string> = { capture_failed: 'The source contains unsafe, unavailable or changing files.', source_changed: 'Files changed after preview. Nothing from this attempt was saved.', scope_unavailable: 'The source is no longer enrolled locally.', transfer_failed: 'The transfer was rejected. Check the destination revision, content validation and private storage capacity.', preview_expired: 'The preview or connector generation expired.', machine_locked: 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.', invalid_skill_manifest: 'SKILL.md needs valid matching metadata and instructions.' }
- // A skill chosen from the connect step goes straight to the library: the preview and approval happen without a stop for review.
- // Anything that needs a person's decision (a file the server blocks, an invalid SKILL.md, a failure) falls back to the review below.
- $effect(() => {
-  if (!source?.direct || autoStarted || loading || selectedID || !environment || !name || !ready || pending || busy) return
-  autoStarted = true; untrack(() => void preview())
- })
- $effect(() => {
-  if (!source?.direct || autoApproved || selected?.state !== 'reviewing' || !selected.preview || busy) return
-  if (!selected.preview.skillValid || blocked) { autoApproved = true; return }
-  autoApproved = true; untrack(() => void approve())
- })
  async function refresh(force = false) {
   if (!alive || (!force && (syncing || busy))) return
   if (force) refreshAbort?.abort()
@@ -55,7 +43,7 @@ import Sentence from './Sentence.svelte'
   finally { if (refreshAbort === abort) { syncing = false; if (alive) loading = false } }
  }
  onMount(() => {
-  environmentId = source?.environmentId ?? ''; name = source?.name ?? ''; selectedID = initialRequestId; dialog?.showModal(); void refresh()
+  environmentId = source?.environmentId ?? ''; name = source?.name ?? ''; dialog?.showModal(); void refresh()
   const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh() },3000)
   return () => { alive = false; generation++; refreshAbort?.abort(); clearInterval(timer) }
  })
@@ -91,7 +79,7 @@ import Sentence from './Sentence.svelte'
 <dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); onclose() }} aria-labelledby="machine-import-title">
  <header data-shell-head><div><p class="eyebrow" data-shell-aside>Save a copy to your library</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close <Icon name="x" size={14} /></button></header>
  <div class="body" data-shell-body>
-  <p class="intro">{#if source?.direct && !error && (!selected || selected.state !== 'reviewing' || (selected.preview?.skillValid && !blocked))}Saving a private copy of {name} straight into your library. Your machine files, library choices and published skills stay separate.{:else}Review a skill’s files, choose what to keep, then save a private copy. Your machine files, library choices and published skills stay separate.{/if}</p>
+  <p class="intro">Review a skill’s files, choose what to keep, then save a private copy. Your machine files, library choices and published skills stay separate.</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if loading}<Skeleton label="Loading imports and private copies…" count={2} />{/if}
   {#if !selected && selectedID}<Skeleton label="Loading the selected import…" count={2} />
@@ -117,7 +105,7 @@ import Sentence from './Sentence.svelte'
      <div class="file-table"><table><caption>Files on the machine</caption><thead><tr><th>Keep</th><th>File</th><th>Size</th><th>Mode</th></tr></thead><tbody>{#each selected.preview.files as file (file.path)}<tr class:blocked={!!file.blocked && !exclusions.includes(file.path)}><td><input type="checkbox" aria-label={`Include ${file.path}`} checked={!exclusions.includes(file.path)} disabled={busy || file.path === 'SKILL.md'} onchange={() => toggle(file.path)} /></td><td><strong>{file.path}</strong>{#if file.blocked}<small class="file-issue" class:excluded={exclusions.includes(file.path)}>{file.blocked.replaceAll('_',' ')}{exclusions.includes(file.path) ? ' · excluded' : ' · must be excluded'}</small>{/if}<code>{file.digest.slice(0,16)}…</code></td><td>{file.bytes.toLocaleString()} B</td><td>{file.executable ? 'Executable' : 'Regular'}</td></tr>{/each}</tbody></table></div>
      <p>{selectedFiles.length} files · {selectedFiles.reduce((total,f) => total + f.bytes,0).toLocaleString()} bytes selected</p>
      <details><summary>Source fingerprint</summary><code class="digest">{selected.preview.sourceDigest}</code></details>
-     <p class="hint">The connector will recheck the complete source before upload. A changed file, expired preview or revoked enrollment stops the import.</p>
+     <p class="hint">The connector will recheck the complete source before upload. A changed file, expired preview or revoked enrolment stops the import.</p>
 
     {/if}
     {#if selected.receipt}
@@ -158,5 +146,6 @@ import Sentence from './Sentence.svelte'
  .file-table { overflow: auto; max-height: 340px; margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; } table { width: 100%; border-collapse: collapse; font-size: 0.875rem; } caption { text-align: left; padding: 10px; font-weight: 600; } th,td { text-align: left; padding: 10px; border-top: 1px solid var(--line); } td:nth-child(2) { overflow-wrap: anywhere; } td:nth-child(3) { white-space: nowrap; font-variant-numeric: tabular-nums; } td code { display: block; color: var(--muted); font-size: 0.875rem; } input[type=checkbox] { width: 16px; height: 16px; } .blocked { background: color-mix(in srgb,var(--bad) 7%,transparent); }
  .digest,code { overflow-wrap: anywhere; font-size: 0.875rem; } .digest { display: block; margin-top: 8px; } .receipt { padding: 16px; border: 1px solid var(--line); border-radius: 12px; margin: 16px 0; }
  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; } ul,ol { padding-left: 18px; } li { margin: 8px 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; } li code,li span { margin-left: 12px; } ol code { display: block; margin-left: 0; } footer { padding: 16px 22px; border-top: 1px solid var(--line); }
+ @media(pointer:coarse) { button { min-height: 44px; } }
  @media(max-width:500px) { header,.body { padding: 16px; } h2 { font-size: 1.35rem; } th,td { padding: 7px; } }
 </style>

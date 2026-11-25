@@ -1027,7 +1027,7 @@ func TestReconcileIgnoresOSFilesInACopy(t *testing.T) {
 		a, aFiles := skillBundle(t, "alpha", "first")
 		copyDir := filepath.Join(home, ".agents", "skills", "alpha")
 		placeFiles(t, copyDir, aFiles)
-		placeFiles(t, copyDir, []skillbundle.ContentFile{{Path: ".DS_Store", Data: []byte("finder")}, {Path: "scripts/._run.sh", Data: []byte("fork")}, {Path: "Thumbs.db", Data: []byte("thumbs")}})
+		placeFiles(t, copyDir, []skillbundle.ContentFile{{Path: ".DS_Store", Data: []byte("finder")}, {Path: "scripts/._run.sh", Data: []byte("fork")}, {Path: "Thumbs.db", Data: []byte("thumbs")}, {Path: "scripts/__pycache__/run.cpython-312.pyc", Data: []byte("bytecode")}})
 		symlink(t, filepath.Join("..", "..", ".agents", "skills", "alpha"), filepath.Join(home, ".cursor", "skills", "alpha"))
 		installed := map[string]string{}
 		if recorded {

@@ -29,6 +29,8 @@
   let now = $state(Date.now())
   let review = $state<{ agent: SyncAgent; releases?: ReleaseInfo } | null>(null)
   let destroyed = false
+  // Reads on their way. The poll skips its tick while one is, so a slow controller is never asked twice.
+  let reading = 0
   let softwareOpen = $state(false)
 
   const sections: SectionItem[] = [
@@ -50,6 +52,7 @@
   }
 
   async function read(quiet = false) {
+    reading++
     try {
       // A blocked machine is either not allowed to write skills or locked by its owner; only the agent list says which.
       const next = await loadSyncSkills()
@@ -62,6 +65,8 @@
     } catch (e) {
       if (e instanceof UnauthorizedError) return fail(e)
       if (!quiet || !data) loadError = describeError(e)
+    } finally {
+      reading--
     }
   }
 
@@ -114,7 +119,7 @@
   onMount(() => {
     void read()
     const poll = setInterval(() => {
-      if (document.visibilityState === 'visible' && !review) void read(true)
+      if (document.visibilityState === 'visible' && !review && !reading) void read(true)
     }, POLL_MS)
     return () => {
       destroyed = true

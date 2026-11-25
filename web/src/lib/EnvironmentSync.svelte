@@ -54,7 +54,7 @@
   let setupHost = $state('')
   // The Add a machine dialog, with what opened it, and the machine it just brought in (highlighted for a few seconds).
   let joining = $state<{ opener: HTMLElement | null; reenrol: string } | null>(null)
-  let importSource = $state<{ environmentId: string; name: string; direct?: boolean } | null>(null)
+  let importSource = $state<{ environmentId: string; name: string } | null>(null)
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
@@ -111,7 +111,7 @@
     noticeAction = undefined
     actionError = ''
     try {
-      syncState = change.to ? await mergeMachines(change.from, change.to) : await forgetMachine(change.from)
+      updateState(change.to ? await mergeMachines(change.from, change.to) : await forgetMachine(change.from))
       notice = change.to ? `Reet, reports now belong to ${change.to}. Old names remain aliases; future scans update this machine.` : `Forgot ${change.from}. Installed files and library entries are unchanged; a future scan can report it again.`
       maintenanceFrom = ''
       maintenanceTo = ''
@@ -133,6 +133,7 @@
       if (generation !== loadGeneration) return
       syncState = next
       skills = health
+      error = ''
       loaded = true
       loadFailure = undefined
       lastRefresh = Date.now()
@@ -252,7 +253,7 @@
         {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
       </section>
     {/if}
-    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} codes={accounts && canWrite} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
+    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} codes={accounts && canWrite} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load(true)} />
 
   {#if canWrite && machines.length}
     <details class="advanced-fleet">

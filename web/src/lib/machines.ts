@@ -5,12 +5,6 @@ export function groupLabel(env: Environment & { project?: string }): string {
   return `${names[env.agent] ?? env.agent}${env.project ? ` · ${env.project}` : ''}`
 }
 export function agentGroups(machine?: Machine): SyncEnvironment[] { return machine?.groups.filter(g => !g.agent.startsWith('reet')) ?? [] }
-// The same window the fleet uses to call an agent online. A job's fix cannot
-// run here while the machine is away, so the UI hides the command and retry.
-export const AGENT_ONLINE_WINDOW = 90_000
-export function agentOnline(agent: Pick<SyncAgent, 'lastSeen'> | undefined, now = Date.now()): boolean {
-  return !!agent && agent.lastSeen > now - AGENT_ONLINE_WINDOW
-}
 // Heartbeats identify running servers; only agent inventories belong in shelf filters.
 export function inventoryMachines(machines: Machine[]): Machine[] {
   return machines.filter(machine => agentGroups(machine).length > 0)
@@ -29,49 +23,6 @@ export function machineMatchesSearch(machine: Machine, query: string): boolean {
 export function inventory(groups: SyncEnvironment[]): SyncSkill[] {
   return [...new Map(groups.flatMap(g => g.skills ?? []).map(s => [s.id, s])).values()].sort((a, b) => a.name.localeCompare(b.name))
 }
-export function recentComplete(groups: SyncEnvironment[], now: number): boolean {
-  return groups.length > 0 && groups.every(g => g.complete && g.scannedAt > now - 14 * 86400000)
-}
-
-export type InstallationReport = { host: string; installed: Set<string>; complete: boolean; groupCount: number }
-export type InstallationStatus = 'installed' | 'missing' | 'unknown'
-
-// Index each scan once for the whole shelf, rather than searching every inventory for every card.
-export function installationReports(machines: Machine[], now: number): InstallationReport[] {
-  return machines.map(machine => {
-    const groups = agentGroups(machine)
-    const confirmedGroups = groups.filter(group => recentComplete([group], now))
-    return {
-      host: machine.host,
-      installed: new Set(confirmedGroups.flatMap(group => (group.skills ?? []).map(skill => skill.id))),
-      complete: recentComplete(groups, now),
-      groupCount: groups.length,
-    }
-  })
-}
-
-export function installationStatus(report: InstallationReport, skillId: string): InstallationStatus {
-  if (report.installed.has(skillId)) return 'installed'
-  return report.complete ? 'missing' : 'unknown'
-}
-
-/** A collapsed card's one-line fleet answer: "On 4 of 6 · 2 missing" (and unconfirmed scans when there are any). */
-export function installationSummary(reports: InstallationReport[], skillId: string): string {
-  let installed = 0
-  let missing = 0
-  let unknown = 0
-  for (const report of reports) {
-    const status = installationStatus(report, skillId)
-    if (status === 'installed') installed++
-    else if (status === 'missing') missing++
-    else unknown++
-  }
-  const parts = [`On ${installed} of ${reports.length}`]
-  if (missing) parts.push(`${missing} missing`)
-  if (unknown) parts.push(`${unknown} not confirmed`)
-  return parts.join(' · ')
-}
-
 
 export function shortCommit(commit?: string): string {
   const value = (commit ?? '').trim()

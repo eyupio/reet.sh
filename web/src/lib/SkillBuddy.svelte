@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { chooseSkill, recommendSkills, sourceName, receiptName, type BuddyAnswer, type BuddyContext, type BuddySkill } from './skillBuddy'
-  let { context, oninsert, disabled = false, sessionHref = '', compact = false }: { context: BuddyContext; oninsert?: (text: string) => boolean | Promise<boolean>; disabled?: boolean; sessionHref?: string; compact?: boolean } = $props()
+  let { context, oninsert, fits, disabled = false, sessionHref = '', compact = false }: { context: BuddyContext; oninsert?: (text: string) => boolean | Promise<boolean>; fits?: (text: string) => boolean; disabled?: boolean; sessionHref?: string; compact?: boolean } = $props()
   const uid = $props.id()
   let answer = $state<BuddyAnswer | null>(null), error = $state(''), note = $state(''), loading = $state(false), busy = $state(false)
   let expanded = $state(false), paused = $state(false), preview = $state<{ skill: BuddySkill; text: string } | null>(null)
@@ -31,14 +31,18 @@
     catch (e) { if (key === contextKey) error = e instanceof Error ? e.message : 'This skill could not be opened.' }
     finally { busy = false }
   }
+  const noRoom = 'There is not enough room in this message. Shorten it, then add the skill again.'
   async function choose(skill: BuddySkill, remove = false) {
     if (busy) return
+    // Refuse before the choice is saved: the server records "drafted" as soon as it is posted.
+    if (!remove && !context.outcomeId && preview && fits?.(preview.text) === false) { error = noRoom; note = ''; return }
     busy = true; error = ''; note = ''
     const key = contextKey, target = { ...context }
     try {
       const out = await chooseSkill(target, skill.id, remove ? 'dismissed' : target.outcomeId ? 'selected' : 'drafted', skill.revision)
       if (key !== contextKey) return
-      if (!remove && !target.outcomeId && !(await oninsert?.(out.text))) { error = 'There is not enough room in this message. Shorten it, then add the skill again.'; return }
+      // shortcut: a caller with no `fits` is only checked here, after the server holds "drafted"; give each such caller a `fits`.
+      if (!remove && !target.outcomeId && !(await oninsert?.(out.text))) { error = noRoom; return }
       preview = null
       note = remove ? 'Suggestion dismissed.' : target.outcomeId ? 'Selected. These instructions will travel with this stage when it starts.' : 'Added to your message. Read it, then send when ready.'
       await load(target)

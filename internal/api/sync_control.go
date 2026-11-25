@@ -162,10 +162,21 @@ func (s *server) controlSyncJob(w http.ResponseWriter, r *http.Request) {
 func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.SyncAgent, bool) {
 	a, err := s.st.AuthenticateSyncAgentBuild(s.uid(r), r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"), r.Header.Get("X-Reet-Commit"))
 	if err != nil {
-		writeErr(w, 403, err.Error())
+		refuseMachine(w, err)
 		return a, false
 	}
 	return a, true
+}
+
+// refuseMachine answers a failed check of a machine's secret. Only a refusal is final for the
+// machine (an agent drops its durable result on a 403), so a storage failure is a 500 that says
+// nothing about the database, and the machine tries again.
+func refuseMachine(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrUnknownMachine) {
+		writeErr(w, 403, "machine enrollment is missing or revoked")
+		return
+	}
+	writeErr(w, 500, "Could not check this machine's enrollment. It will try again.")
 }
 func (s *server) syncIdentity(w http.ResponseWriter, r *http.Request) {
 	a, ok := s.agentIdentity(w, r)
@@ -267,10 +278,18 @@ func (s *server) finishSyncJob(w http.ResponseWriter, r *http.Request) {
 // make. The id is not a secret (it is shown in the Machines page), the nonce is
 // signed under a fixed label so it cannot be turned into another kind of
 // signature, and the answer reveals neither the hash nor the secret.
+//
+// A machine of this release also says the address it dialled, and the proof is signed over this
+// controller's own configured public address, never over what the caller says or the Host header:
+// a server that only passes the request on to this one is then asked to sign for its own address,
+// and refused. A controller with no public address cannot say which it is, so it answers that
+// instead. A request that names no address, from an older machine, gets the unbound proof it
+// checks; that form can be relayed, which is the reason a current machine does not accept it.
 func (s *server) syncAgentProof(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		ID    string `json:"id"`
-		Nonce string `json:"nonce"`
+		ID     string `json:"id"`
+		Nonce  string `json:"nonce"`
+		Origin string `json:"origin"`
 	}
 	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<10))
 	dec.DisallowUnknownFields()
@@ -287,5 +306,18 @@ func (s *server) syncAgentProof(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusNotFound, "unknown_machine", "", "This controller has no record of that machine.", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"proof": syncproof.Compute(hash, in.ID, in.Nonce)})
+	if in.Origin == "" {
+		writeJSON(w, http.StatusOK, map[string]string{"proof": syncproof.Compute(hash, in.ID, in.Nonce)})
+		return
+	}
+	own := syncproof.Origin(s.publicOrigin())
+	if own == "" {
+		writeErrCode(w, http.StatusConflict, "no_public_url", "", "This controller has no public URL set, so it cannot say which address it answers on. Set REET_PUBLIC_URL, or the public address in the admin settings.", "")
+		return
+	}
+	if syncproof.Origin(in.Origin) != own {
+		writeErrCode(w, http.StatusConflict, "wrong_address", "", "This controller is not set up to answer on that address.", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"proof": syncproof.ComputeBound(hash, in.ID, in.Nonce, own)})
 }

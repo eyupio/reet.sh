@@ -1158,6 +1158,11 @@ func setTerminalFeatures(headers http.Header, cfg AgentConfig) {
 // may serve, comma-separated, or "" for none.
 func terminalFeatures(cfg AgentConfig) string {
 	var features []string
+	// The dispatcher serves a software apply only for a connection that lists this, and the machine had negotiated it without ever
+	// listing it, so every real apply was refused as invalid.
+	if cfg.softwareApply {
+		features = append(features, terminalproto.SoftwareApplyFeature)
+	}
 	if cfg.commandHistory {
 		features = append(features, terminalproto.CommandHistoryFeature)
 	}
@@ -1310,9 +1315,6 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.machineLock {
 		features = append(features, terminalproto.MachineLockFeature)
-	}
-	if cfg.softwareApply {
-		features = append(features, terminalproto.SoftwareApplyFeature)
 	}
 	if cfg.mirrorFirst {
 		features = append(features, terminalproto.SoftwareMirrorFirstFeature)

@@ -113,14 +113,20 @@ func runAgentSetServer(args []string, out io.Writer, version string) error {
 }
 
 // proveRecord asks the controller at server to prove it holds this machine's
-// record. It sends the machine id and a fresh nonce, no credential, and never
-// follows a redirect, so the answer comes from the address that was given.
+// record, and that it answers on the address that was given. It sends the machine
+// id, a fresh nonce and that address, no credential, and never follows a
+// redirect. Only a proof signed over the address is accepted, so a server that
+// merely passes the request on to the real controller cannot pass for it.
 func proveRecord(ctx context.Context, server string, c agentConfig) error {
+	origin := syncproof.Origin(server)
+	if origin == "" {
+		return fmt.Errorf("%q is not a controller address", server)
+	}
 	nonce, err := syncproof.NewNonce()
 	if err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string]string{"id": c.ID, "nonce": nonce})
+	body, _ := json.Marshal(map[string]string{"id": c.ID, "nonce": nonce, "origin": origin})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+syncproof.Path, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -140,6 +146,12 @@ func proveRecord(ctx context.Context, server string, c agentConfig) error {
 	switch {
 	case resp.StatusCode == http.StatusLocked:
 		return errors.New("that controller has itself moved and is not accepting changes; point this machine at the controller it moved to")
+	case resp.StatusCode == http.StatusConflict && answer.Code == "no_public_url":
+		return errors.New("that controller has no public URL set, so it cannot prove which address it answers on. Set its public URL (REET_PUBLIC_URL) first")
+	case resp.StatusCode == http.StatusConflict && answer.Code == "wrong_address":
+		return errors.New("that controller does not answer on this address: its public URL is a different one. Use the address it is set up for")
+	case resp.StatusCode == http.StatusBadRequest && answer.Code == "bad_proof_request":
+		return errors.New("that controller cannot prove which address it answers on: it is a release older than this one, or not a reet controller. Upgrade it first")
 	case resp.StatusCode == http.StatusNotFound && answer.Code == "unknown_machine":
 		return errors.New("that controller has no record of this machine. It is not the controller this machine was enrolled with, nor a copy of it")
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed:
@@ -147,7 +159,7 @@ func proveRecord(ctx context.Context, server string, c agentConfig) error {
 	case resp.StatusCode >= 300:
 		return fmt.Errorf("that controller answered %d", resp.StatusCode)
 	}
-	if !syncproof.Verify(c.Secret, c.ID, nonce, answer.Proof) {
+	if !syncproof.VerifyBound(c.Secret, c.ID, nonce, origin, answer.Proof) {
 		return errors.New("that controller answered, but its proof does not match this machine's record, so it does not hold it")
 	}
 	return nil

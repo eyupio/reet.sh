@@ -419,7 +419,7 @@
       <div class="row">
         <div class="copy">
           <strong>Forget this machine</strong>
-          <small>Remove its inventory reports and machine reports here. Enrollment stays, and a future scan can report it again.</small>
+          <small>Remove its inventory reports and machine reports here. Enrolment stays, and a future scan can report it again.</small>
         </div>
         <button class="btn danger" type="button" disabled={busy} onclick={onforget}>Forget machine…</button>
       </div>
@@ -532,7 +532,12 @@
   .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); }
   .switch[aria-checked='true'] .knob { transform: translateX(18px); }
-  @media (pointer: coarse) { .scope-actions .btn, .row .btn { min-height: 44px; } }
+  /* The switch's track stays 42 x 24; its hit area grows to 44 x 44 with a transparent layer, the row's own padding making room. */
+  @media (pointer: coarse) {
+    .scope-actions .btn, .row .btn, .icon { min-height: 44px; }
+    .icon { min-width: 44px; }
+    .switch::after { content: ''; position: absolute; inset: -11px -2px; }
+  }
   @media (max-width: 560px) {
     .row { flex-wrap: wrap; }
     .row .btn { flex: 1 1 auto; }

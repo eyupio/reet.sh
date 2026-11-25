@@ -58,7 +58,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 	}
 	uid, agent, err := s.st.AuthenticateRemoteAgent(r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"))
 	if err != nil {
-		writeErr(w, http.StatusForbidden, "machine enrollment is missing or revoked")
+		refuseMachine(w, err)
 		return
 	}
 	w.Header().Set(terminalproto.FeatureHeader, privateControlFeatures)

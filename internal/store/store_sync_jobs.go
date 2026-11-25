@@ -53,7 +53,12 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 		if pendingUpdate > 0 {
 			return errors.New("an update is already queued for this machine; wait for it or cancel it")
 		}
-		_, err := tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,stage,stages,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.Stage, encodeStages(j.Stages), j.CreatedAt, j.UpdatedAt)
+		if _, err := tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,stage,stages,created_at,updated_at) VALUES(?,?,?,'',?,?,?,?,?,?,?)`, j.ID, uid, agentID, j.Kind, j.Status, j.Revision, j.Stage, encodeStages(j.Stages), j.CreatedAt, j.UpdatedAt); err != nil {
+			return err
+		}
+		// A machine that cannot update is queued again every hour; keep its
+		// newest twenty finished updates so they do not crowd out the others'.
+		_, err := tx.Exec(`DELETE FROM sync_jobs WHERE rowid IN (SELECT rowid FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind='update' AND status IN ('succeeded','failed','rolled_back','cancelled') ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET 20)`, uid, agentID)
 		return err
 	})
 	return j, err

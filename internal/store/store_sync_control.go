@@ -239,10 +239,14 @@ func (s *Store) AuthenticateSyncAgent(uid int64, id, secret, version string) (Sy
 
 // AuthenticateSyncAgentBuild updates the reported build alongside last-seen.
 // An empty commit keeps the last known commit, so an older agent cannot erase it.
+// No such enrollment is ErrUnknownMachine; a storage failure is returned as it is.
 func (s *Store) AuthenticateSyncAgentBuild(uid int64, id, secret, version, commit string) (SyncAgent, error) {
 	a, err := scanAgent(s.read.QueryRow(`SELECT `+agentCols+` FROM sync_agents WHERE user_id=? AND id=? AND secret_hash=?`, uid, id, secretHash(secret)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrUnknownMachine
+	}
 	if err != nil {
-		return a, errors.New("machine enrollment is missing or revoked")
+		return a, err
 	}
 	version = cleanAgentBuild(version)
 	commit = cleanAgentBuild(commit)
@@ -257,17 +261,19 @@ func (s *Store) AuthenticateSyncAgentBuild(uid int64, id, secret, version, commi
 	// A changed build is written at once; an unchanged one only stamps
 	// last-seen now and then.
 	if s.stamps.due("agent:"+id, agentStampEvery) || changed {
-		_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=?,source_commit=? WHERE id=?`, now(), version, a.Commit, id)
+		// Only a stamp: a failed write must not refuse a machine that proved its secret.
+		_, _ = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=?,source_commit=? WHERE id=?`, now(), version, a.Commit, id)
 	}
 	a.Version, a.LastSeen = version, now()
-	return a, err
+	return a, nil
 }
 
 // AuthenticateRemoteAgent resolves the owning account from enrollment
 // credentials alone. It exists only for the private agent listener: browser and
 // public HTTP authorization must keep using a session or personal token. A
 // revoked enrollment, a disabled account, or an unknown secret all fail the
-// same way so callers cannot enumerate enrollments.
+// same way (ErrUnknownMachine) so callers cannot enumerate enrollments; a
+// storage failure is returned as it is.
 func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, SyncAgent, error) {
 	var a SyncAgent
 	var uid int64
@@ -276,19 +282,23 @@ func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, Sync
 	validVersion := len(version) <= 64 && !strings.ContainsAny(version, "\x00\r\n")
 	validCredentials := validID && validSecret
 	if !validCredentials || !validVersion {
-		return 0, a, errors.New("machine enrollment is missing or revoked")
+		return 0, a, ErrUnknownMachine
 	}
 	err := s.read.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced,a.enrolled_via FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced, &a.EnrolledVia)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, a, ErrUnknownMachine
+	}
 	if err != nil {
-		return 0, a, errors.New("machine enrollment is missing or revoked")
+		return 0, a, err
 	}
 	if version == "" {
 		version = a.Version
 	}
 	if s.stamps.due("agent:"+id, agentStampEvery) || version != a.Version {
-		_, err = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=? AND user_id=?`, now(), version, id, uid)
+		// Only a stamp, as in AuthenticateSyncAgentBuild.
+		_, _ = s.db.Exec(`UPDATE sync_agents SET last_seen=?,version=? WHERE id=? AND user_id=?`, now(), version, id, uid)
 	}
-	return uid, a, err
+	return uid, a, nil
 }
 
 func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
@@ -327,7 +337,8 @@ func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 // disabled has no usable record.
 func (s *Store) AgentSecretHash(id string) (string, bool, error) {
 	var h string
-	err := s.db.QueryRow(`SELECT a.secret_hash FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND u.disabled_at=0`, id).Scan(&h)
+	// The read pool: the proof route needs no credential, so it must not queue on the write connection.
+	err := s.read.QueryRow(`SELECT a.secret_hash FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND u.disabled_at=0`, id).Scan(&h)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}

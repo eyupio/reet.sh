@@ -8,7 +8,7 @@
     updateSyncAgent,
     type Machine, type SetupProfileSummary, type SyncJob, type SyncState,
   } from './api'
-  import { agentBuild, agentGroups, agentUpdateTarget, latestRelease, updateAvailable } from './machines'
+  import { agentBuild, agentGroups, agentUpdateTarget, latestRelease, updateAvailable, updateJobFor } from './machines'
   import {
     configureCommand, connectionStage, enrollCommands, installCommands, profileFetchCommand, profilePullCommand,
     profileRestoreCommand, profileVerifyCommand, retryDelay, scanCommand, syncLink, upgradeCommands,
@@ -111,12 +111,7 @@
   })
   const latest = $derived(enrolledAgent ? latestRelease(enrolledAgent, snapshot?.releases) : null)
   const updateReady = $derived(!!enrolledAgent && !!snapshot && updateAvailable(enrolledAgent, snapshot.releases))
-  const updateJob = $derived.by((): SyncJob | undefined => {
-    if (!enrolledAgent) return undefined
-    return (snapshot?.jobs ?? [])
-      .filter((job) => job.agentId === enrolledAgent.id && job.kind === 'update')
-      .sort((a, b) => b.createdAt - a.createdAt)[0]
-  })
+  const updateJob = $derived(enrolledAgent ? updateJobFor(snapshot?.updateJobs ?? snapshot?.jobs, enrolledAgent.id) : undefined)
   const steps = $derived(mode === 'connect'
     ? [[1, 'Install'], [2, 'Authenticate'], [3, 'Connect terminal'], [4, 'Inventory & sync']]
     : [[1, 'Install'], [2, 'Restore setup'], [3, 'Connect terminal'], [4, 'Inventory & sync']])
@@ -333,7 +328,7 @@
     <span>
       <span class="eyebrow">Machine setup</span>
       <strong>Advanced: step-by-step setup</strong>
-      <small>Install the CLI, authenticate and enroll by hand. Most people can use Add a machine instead.</small>
+      <small>Install the CLI, authenticate and enrol by hand. Most people can use Add a machine instead.</small>
     </span>
     <span class="summary-state">Optional</span>
     <span class="chevron" aria-hidden="true"></span>
@@ -368,7 +363,7 @@
         </header>
         <div class="fields">
           <label>Machine name<input bind:this={nameInput} bind:value={host} data-combo-list="known-machine-names" maxlength="200" placeholder="e.g. studio-laptop" autocomplete="off" aria-invalid={nameError ? 'true' : undefined} aria-describedby={nameError ? 'machine-name-error' : undefined} oninput={() => (nameError = '')} /></label>
-          <label>Release<select bind:value={channel} onchange={() => (channelTouched = true)}><option value="stable">Latest stable</option><option value="dev">Dev — latest main</option></select></label>
+          <label>Release<select bind:value={channel} onchange={() => (channelTouched = true)}><option value="stable">Latest stable</option><option value="dev">Dev: latest main</option></select></label>
         </div>
         <datalist id="known-machine-names">{#each machines as machine}<option value={machine.host}></option>{/each}</datalist>
         <div class="command">
@@ -428,7 +423,7 @@
         <header>
           <p class="eyebrow">Step 3 · Machine &amp; terminal connection</p>
           <h3 tabindex="-1" bind:this={panelHeading}>Bring this machine into your workspace.</h3>
-          <p>Enroll once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p>
+          <p>Enrol once. The CLI offers a terminal wizard for local shell consent, tmux 3.2+, independent services and connection checks.</p>
         </header>
         {#if terminalAccess}
           <div class="server-terminal" class:ready={serverTerminal?.available}>
@@ -443,7 +438,7 @@
         {/if}
         <label class="check"><input type="checkbox" bind:checked={allowApply} /> Keep my shared skill library synced on this machine</label>
         <div class="command">
-          <div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command" compact /></div>
+          <div class="command-copy"><span>Enrol and connect</span><CopyButton text={enroll} label="Copy enrolment command" compact /></div>
           <pre>{enroll}</pre>
         </div>
         {#if codes}<EnrolCode bind:issued bind:spent connected={!!terminalHost} />{:else if mode === 'scratch' && tokenSetup}{@render tokenSetup()}{/if}
@@ -460,7 +455,7 @@
             <span class="watch-badge">{terminalReady ? 'Ready' : stage === 'blocked' ? 'Blocked' : stage === 'needs-setup' ? 'Setup needed' : stage === 'reconnecting' ? 'Reconnecting' : 'Watching'}</span>
           </div>
           <dl class="watch-facts">
-            <div><dt>Enrollment</dt><dd>{terminalHost ? 'Detected' : 'Not yet'}</dd></div>
+            <div><dt>Enrolment</dt><dd>{terminalHost ? 'Detected' : 'Not yet'}</dd></div>
             <div><dt>Agent</dt><dd>{enrolledAgent ? `reet ${agentBuild(enrolledAgent)}` : 'Waiting'}</dd></div>
             <div><dt>Terminal</dt><dd>{terminalReady ? 'Ready' : stage === 'needs-setup' ? 'Needs local setup' : stage === 'blocked' ? 'Unavailable' : stage === 'reconnecting' ? 'Reconnecting' : 'Waiting'}</dd></div>
             <div><dt>Last check</dt><dd>{ago(lastCheckedAt)}{checkFailures ? ` · retry ${checkFailures}` : ''}</dd></div>
@@ -477,7 +472,7 @@
             <div class="agent-update-copy">
               <span class="eyebrow">Enrolled agent</span>
               <strong>reet {agentBuild(enrolledAgent)}</strong>
-              <p>{updateReady ? 'A newer build is available for this machine.' : latest?.error ? 'Release check failed — the machine is still connected.' : latest ? `Latest ${latest.label}. This machine is current.` : 'Release information is loading from the controller.'}</p>
+              <p>{updateReady ? 'A newer build is available for this machine.' : latest?.error ? 'Release check failed. The machine is still connected.' : latest ? `Latest ${latest.label}. This machine is current.` : 'Release information is loading from the controller.'}</p>
             </div>
             <button class="btn" class:primary={updateReady} type="button" onclick={updateAgent} disabled={updateBusy || enrolledAgent.paused}>{updateBusy ? 'Queueing update…' : updateReady ? `Update to ${agentUpdateTarget(enrolledAgent)}` : 'Update reet'}</button>
           </div>
@@ -486,7 +481,7 @@
           {#if updateError}<p class="inline-warning" role="alert">{updateError}</p>{/if}
         {/if}
 
-        <details class="advanced"><summary>Already enrolled, or setup was interrupted?</summary><div class="command"><div class="command-copy"><span>Resume terminal setup</span><CopyButton text="reet agent terminal setup" label="Copy terminal setup wizard" compact /></div><pre>reet agent terminal setup</pre></div><p class="hint">This reuses the enrollment. The wizard diagnoses missing tmux and offers service repair. Enable browser terminals on the controller with <code>reet terminal start</code> if needed.</p></details>
+        <details class="advanced"><summary>Already enrolled, or setup was interrupted?</summary><div class="command"><div class="command-copy"><span>Resume terminal setup</span><CopyButton text="reet agent terminal setup" label="Copy terminal setup wizard" compact /></div><pre>reet agent terminal setup</pre></div><p class="hint">This reuses the enrolment. The wizard diagnoses missing tmux and offers service repair. Enable browser terminals on the controller with <code>reet terminal start</code> if needed.</p></details>
         <div class="step-actions"><button class="btn" type="button" onclick={() => go(2)}>Back</button><button class="btn primary" type="button" onclick={() => go(4)}>Continue to optional inventory &amp; sync<Icon name="arrow-right" /></button></div>
       {:else}
         <header>
@@ -529,7 +524,7 @@
               <span class="watch-badge">Watching</span>
             </div>
             <dl class="watch-facts">
-              <div><dt>Enrollment</dt><dd>{terminalHost || enrolledAgent ? 'Detected' : 'Not yet'}</dd></div>
+              <div><dt>Enrolment</dt><dd>{terminalHost || enrolledAgent ? 'Detected' : 'Not yet'}</dd></div>
               <div><dt>Inventory</dt><dd>Waiting</dd></div>
               <div><dt>Last check</dt><dd>{ago(lastCheckedAt)}</dd></div>
               <div><dt>Agent</dt><dd>{enrolledAgent ? `reet ${agentBuild(enrolledAgent)}` : 'Waiting'}</dd></div>
@@ -642,6 +637,7 @@
   .update-state.good { color: var(--good); }
   .more { margin-top: 6px; }
 
+  @media (pointer: coarse) { .steps button { min-height: 44px; } }
   @media (max-width: 760px) {
     .watch-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }

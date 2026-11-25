@@ -387,3 +387,169 @@ func TestSoftwareBatchCarriesTheMirrorPreference(t *testing.T) {
 		t.Fatalf("the batch did not carry the preference: %+v", asked)
 	}
 }
+
+// setEntry replaces one machine's stored OpenCode evidence before it connects.
+func (f *softwareBatchAPI) setEntry(t *testing.T, index int, entry terminalproto.SoftwareEntry) {
+	t.Helper()
+	caps := softwareTestCapabilities(entry)
+	caps.SoftwareApply = true
+	record, err := f.st.BeginRemoteConnectionFor(f.uid, f.agents[index].ID, terminalbroker.ID(), caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.generations[index] = record.Generation
+}
+
+func (f *softwareBatchAPI) startBody(t *testing.T, body string) (int, store.SoftwareBatch, string) {
+	t.Helper()
+	w := f.request(t, http.MethodPost, "/api/v2/software/batches", body)
+	var batch store.SoftwareBatch
+	_ = json.Unmarshal(w.Body.Bytes(), &batch)
+	return w.Code, batch, w.Body.String()
+}
+
+// batchAuditAction is the action the start event of a batch recorded.
+func (f *softwareBatchAPI) batchAuditAction(t *testing.T, batchID string) string {
+	t.Helper()
+	events, err := f.st.ListEventsFor(f.uid, 50, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		var detail struct {
+			Phase, BatchID, Action string
+		}
+		if e.Action == "software-batch" && json.Unmarshal([]byte(e.Detail), &detail) == nil && detail.BatchID == batchID && detail.Phase == "start" {
+			return detail.Action
+		}
+	}
+	return ""
+}
+
+func TestSoftwareBatchRollbackIncludesOnlyMachinesWithAKeptVersion(t *testing.T) {
+	f := softwareBatchAPIFixture(t, 4)
+	kept := softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5")
+	kept.Previous = "1.18.0"
+	f.setEntry(t, 0, kept)
+	f.setEntry(t, 1, softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5"))
+	f.setEntry(t, 2, softwareTestSystemEntry("1.17.0"))
+	f.setEntry(t, 3, softwareTestEntry(terminalproto.SoftwareMissing, ""))
+	var mu sync.Mutex
+	var asked []terminalproto.SoftwareApply
+	f.connect(t, 0, func(in terminalproto.SoftwareApply) terminalproto.SoftwareApplyResult {
+		mu.Lock()
+		asked = append(asked, in)
+		mu.Unlock()
+		entry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0")
+		return terminalproto.SoftwareApplyResult{Tool: in.Tool, Action: in.Action, State: terminalproto.SoftwareApplyApplied, Version: "1.18.0", Entry: &entry}
+	})
+	agents := quoteList([]string{f.agents[0].ID, f.agents[1].ID, f.agents[2].ID, f.agents[3].ID})
+	code, batch, body := f.startBody(t, `{"requestId":"batch_rollback_0001","tool":"opencode","action":"rollback","confirm":"rollback","agents":`+agents+`}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	m := batch.Members
+	if m[0].Action != "rollback" || m[0].Target != "1.18.0" || m[0].ExpectedPrevious != "1.18.0" || m[0].ExpectedVersion != "1.19.5" || !m[0].ExpectedManaged {
+		t.Fatalf("the rollback member: %+v", m[0])
+	}
+	if batch.Action != "rollback" {
+		t.Fatalf("batch action: %q", batch.Action)
+	}
+	for i, want := range []string{"No earlier version is kept on that machine.", "outside reet", "isn't installed"} {
+		got := m[i+1]
+		if got.State != store.SoftwareMemberExcluded || got.Action != "" || !strings.Contains(got.Reason, want) {
+			t.Fatalf("member %d should be left out with %q: %+v", i+1, want, got)
+		}
+	}
+	done := f.wait(t, batch.ID, store.SoftwareBatchDone)
+	if done.Members[0].State != store.SoftwareMemberApplied || done.Members[0].Version != "1.18.0" {
+		t.Fatalf("rolled back: %+v", done.Members[0])
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) != 1 || asked[0].Action != "rollback" || asked[0].ExpectedPrevious != "1.18.0" {
+		t.Fatalf("the machine was asked: %+v", asked)
+	}
+	if got := f.batchAuditAction(t, batch.ID); got != "rollback" {
+		t.Fatalf("audit action: %q", got)
+	}
+}
+
+func TestSoftwareBatchRemoveTouchesOnlyReetsCopy(t *testing.T) {
+	f := softwareBatchAPIFixture(t, 3)
+	f.setEntry(t, 0, softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5"))
+	f.setEntry(t, 1, softwareTestSystemEntry("1.17.0"))
+	f.setEntry(t, 2, softwareTestEntry(terminalproto.SoftwareMissing, ""))
+	var mu sync.Mutex
+	var asked []terminalproto.SoftwareApply
+	f.connect(t, 0, func(in terminalproto.SoftwareApply) terminalproto.SoftwareApplyResult {
+		mu.Lock()
+		asked = append(asked, in)
+		mu.Unlock()
+		entry := softwareTestEntry(terminalproto.SoftwareMissing, "")
+		return terminalproto.SoftwareApplyResult{Tool: in.Tool, Action: in.Action, State: terminalproto.SoftwareApplyApplied, Entry: &entry}
+	})
+	agents := quoteList([]string{f.agents[0].ID, f.agents[1].ID, f.agents[2].ID})
+	code, batch, body := f.startBody(t, `{"requestId":"batch_remove_0001","tool":"opencode","action":"remove","confirm":"remove","agents":`+agents+`}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	if batch.Members[0].Action != "remove" || batch.Members[0].ExpectedVersion != "1.19.5" || batch.Action != "remove" {
+		t.Fatalf("the remove member: %+v", batch)
+	}
+	if m := batch.Members[1]; m.State != store.SoftwareMemberExcluded || !strings.Contains(m.Reason, "outside reet") {
+		t.Fatalf("a system copy must never be touched: %+v", m)
+	}
+	if m := batch.Members[2]; m.State != store.SoftwareMemberExcluded || !strings.Contains(m.Reason, "isn't installed") {
+		t.Fatalf("nothing to remove: %+v", m)
+	}
+	f.wait(t, batch.ID, store.SoftwareBatchDone)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) != 1 || asked[0].Action != "remove" || !asked[0].ExpectedManaged {
+		t.Fatalf("the machine was asked: %+v", asked)
+	}
+	if got := f.batchAuditAction(t, batch.ID); got != "remove" {
+		t.Fatalf("audit action: %q", got)
+	}
+}
+
+func TestSoftwareBatchDestructiveActionsNeedTheTypedWord(t *testing.T) {
+	f := softwareBatchAPIFixture(t, 1)
+	f.setEntry(t, 0, softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5"))
+	agents := quoteList([]string{f.agents[0].ID})
+	for i, extra := range []string{
+		`"action":"remove"`,
+		`"action":"remove","confirm":""`,
+		`"action":"remove","confirm":"rollback"`,
+		`"action":"remove","confirm":"Remove please"`,
+		`"action":"rollback","confirm":"remove"`,
+	} {
+		code, _, body := f.startBody(t, fmt.Sprintf(`{"requestId":"batch_confirm_%04d","tool":"opencode",%s,"agents":%s}`, i, extra, agents))
+		if code != http.StatusUnprocessableEntity || !strings.Contains(body, "software_confirm_required") {
+			t.Fatalf("%s: %d %s", extra, code, body)
+		}
+	}
+	code, _, body := f.startBody(t, `{"requestId":"batch_confirm_bad1","tool":"opencode","action":"reinstall","confirm":"reinstall","agents":`+agents+`}`)
+	if code != http.StatusBadRequest || !strings.Contains(body, "software_action_invalid") {
+		t.Fatalf("unknown action: %d %s", code, body)
+	}
+	if _, ok, err := f.st.ActiveSoftwareBatchFor(f.uid); err != nil || ok {
+		t.Fatalf("a refused start created a batch: %v %v", ok, err)
+	}
+}
+
+func TestSoftwareBatchDefaultIsTheReviewedUpdate(t *testing.T) {
+	f := softwareBatchAPIFixture(t, 1)
+	f.connect(t, 0, appliedSoftware)
+	agents := quoteList([]string{f.agents[0].ID})
+	// An empty action, with no confirmation, is today's reviewed install or update.
+	code, batch, body := f.startBody(t, `{"requestId":"batch_default_0001","tool":"opencode","action":"","agents":`+agents+`}`)
+	if code != http.StatusCreated || batch.Members[0].Action != "update" || batch.Action != "update" {
+		t.Fatalf("default: %d %s", code, body)
+	}
+	f.wait(t, batch.ID, store.SoftwareBatchDone)
+	if got := f.batchAuditAction(t, batch.ID); got != "update" {
+		t.Fatalf("audit action: %q", got)
+	}
+}

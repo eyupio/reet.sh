@@ -24,8 +24,9 @@ export type SoftwareApplyResult = { tool: string; action: 'install' | 'update' |
 export type FleetSoftwareRow = { agentId: string; host: string; state: 'update' | 'install' | 'none' | 'unknown'; action?: 'install' | 'update'; version?: string; previous?: string; managed?: boolean; target?: string; source?: string; sessionsRunning: number; canApply: boolean; sentence: string; reason?: 'agent_too_old' | 'no_opencode_evidence' | 'unreadable_install' | 'no_plan' | 'read_failed'; evidence?: { reason?: string; manager?: string; path?: string } }
 export type SoftwareBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'abandoned'
 export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'
-export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
-export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
+export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update' | 'rollback' | 'remove'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
+export type SoftwareBatchAction = 'update' | 'rollback' | 'remove'
+export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; action?: SoftwareBatchAction; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalQuestion = { question: string; truncated?: boolean; options: { index: number; label: string; selected?: boolean; truncated?: boolean }[]; fingerprint: string }
 export type TerminalAnswerResult = { kind: 'answered' | 'alreadyAnswered' | 'changed' | 'updateRequired' | 'busy' | 'readOnly' | 'offline' | 'noReply' | 'failed'; sentence?: string }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string;
@@ -186,9 +187,12 @@ export async function applyMachineSoftware(agentId: string, tool: string, action
 export async function fleetSoftwarePlans(signal?: AbortSignal): Promise<FleetSoftwareRow[]> {
   return (await (await terminalRequest('/api/v2/software/plans', { signal })).json()).machines
 }
-/** Create an ordered batch from the chosen machines. The controller rebuilds and freezes each plan. */
-export async function createSoftwareBatch(requestId: string, tool: string, agents: string[], signal?: AbortSignal): Promise<SoftwareBatch> {
-  return (await terminalRequest('/api/v2/software/batches', { method: 'POST', body: JSON.stringify({ requestId, tool, agents }), signal })).json()
+/**
+ * Create an ordered batch from the chosen machines. The controller rebuilds and freezes each plan. A rollback or remove
+ * carries the word the person typed; the default batch sends neither key, so its request is unchanged.
+ */
+export async function createSoftwareBatch(requestId: string, tool: string, agents: string[], destructive?: { action: 'rollback' | 'remove'; confirm: string }, signal?: AbortSignal): Promise<SoftwareBatch> {
+  return (await terminalRequest('/api/v2/software/batches', { method: 'POST', body: JSON.stringify({ requestId, tool, agents, ...destructive }), signal })).json()
 }
 /** The batch still holding this person's place, or null. */
 export async function activeSoftwareBatch(signal?: AbortSignal): Promise<SoftwareBatch | null> {

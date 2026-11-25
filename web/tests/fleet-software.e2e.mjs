@@ -102,6 +102,8 @@ try {
       await confirm.getByRole('button', { name: 'Update 2 machines', exact: true }).click()
       await expect.poll(() => starts.length).toBe(1)
       expect(starts[0]).toMatchObject({ tool: 'opencode', agents: ['a-laptop', 'a-build'] })
+      // The default batch is today's request: no action and no typed word.
+      expect(Object.keys(starts[0]).sort()).toEqual(['agents', 'requestId', 'tool'])
       await expect(dialog.getByRole('status').filter({ hasText: 'Updating Laptop…' })).toContainText('0 of 2 done.')
       await capture(page, `fleet-software-working-${width}-${theme}`)
       await expect(dialog.getByRole('status').filter({ hasText: 'Updated 2 machines.' })).toBeVisible({ timeout: 12000 })
@@ -177,7 +179,73 @@ try {
     await expect(dialog.getByRole('status').filter({ hasText: 'Updating Build server…' })).toBeVisible()
     expect(starts).toHaveLength(1)
     expect(starts[0]).toMatchObject({ tool: 'opencode', agents: ['a-build'] })
+    expect(starts[0]).not.toHaveProperty('action')
+    expect(starts[0]).not.toHaveProperty('confirm')
     await context.close()
+  }
+
+  // Under Machines the batch can roll back or remove reet's copy instead. Each row says whether it can and why not, and a
+  // remove asks for the word to be typed before the button works. The request carries the action and the typed word.
+  if (run('remove')) {
+    for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
+      const kept = plan('a-kept', 'Laptop', 'none', { version: '1.19.5', previous: '1.18.0', managed: true })
+      const managed = plan('a-build', 'Build server', 'update', { managed: true })
+      const system = plan('a-sys', 'Desktop', 'install', { action: 'install', version: '1.17.0', target: '1.19.5', source: 'verified tarball' })
+      const removeMember = (position, agentId, host, state, extra = {}) => member(position, agentId, host, state, { action: 'remove', target: undefined, ...extra })
+      const world = {
+        rows: [kept, managed, system],
+        started: { ...batch('running', removeMember(0, 'a-kept', 'Laptop', 'running'), removeMember(1, 'a-build', 'Build server', 'pending')), action: 'remove' },
+        poll: () => ({ ...batch('stopped', removeMember(0, 'a-kept', 'Laptop', 'applied'), removeMember(1, 'a-build', 'Build server', 'failed', { code: 'remove_failed' })), action: 'remove' }),
+      }
+      const { context, page, starts, errors } = await open({ width, height: width === 390 ? 812 : 900, touch: width === 390, theme, scale: 1 }, world)
+      const dialog = await openModal(page)
+      await dialog.getByText('Machines · 3').click()
+      const choice = dialog.getByRole('radiogroup', { name: 'What to do' })
+      await expect(choice.getByRole('radio', { name: 'Update (reviewed)' })).toBeChecked()
+
+      // Roll back: only the machine that kept an earlier version can; the others say why not.
+      await choice.getByRole('radio', { name: 'Roll back' }).check()
+      await expect(dialog.getByRole('checkbox', { name: 'Include Laptop in a batch' })).toBeVisible()
+      await expect(dialog.getByRole('checkbox', { name: 'Include Build server in a batch' })).toHaveCount(0)
+      await expect(dialog.locator('li[data-machine="Build server"]')).toContainText('No earlier version is kept.')
+      await expect(dialog.locator('li[data-machine="Desktop"]')).toContainText('installed outside reet')
+      await expect(dialog.locator('li[data-machine="Laptop"]')).toContainText('Roll back 1.19.5 to 1.18.0')
+
+      // Remove: both reet copies can; the copy reet did not install is never touched.
+      await choice.getByRole('radio', { name: "Remove reet's copy" }).check()
+      await dialog.getByRole('checkbox', { name: 'Include Laptop in a batch' }).check()
+      await dialog.getByRole('checkbox', { name: 'Include Build server in a batch' }).check()
+      await expect(dialog.getByRole('checkbox', { name: 'Include Desktop in a batch' })).toHaveCount(0)
+      await expect(dialog.locator('li[data-machine="Desktop"]')).toContainText('installed outside reet')
+      await capture(page, `batch-actions-choice-${width}-${theme}`)
+      await dialog.getByRole('button', { name: 'Review batch (2)' }).click()
+      const confirm = page.getByRole('dialog', { name: "Remove reet's copy from 2 machines?", exact: true })
+      await expect(confirm).toBeVisible()
+      await expect(confirm.locator('li').nth(0)).toContainText('Laptop')
+      await expect(confirm.locator('li').nth(1)).toContainText('Build server')
+      await expect(confirm).toContainText('settings stay')
+      const go = confirm.getByRole('button', { name: "Remove reet's copy from 2 machines", exact: true })
+      await expect(go).toBeDisabled()
+      const word = confirm.getByRole('textbox', { name: 'Type remove to confirm' })
+      await word.fill('remov')
+      await expect(go).toBeDisabled()
+      await word.fill('remove')
+      await expect(go).toBeEnabled()
+      await capture(page, `batch-actions-confirm-${width}-${theme}`)
+      expect(starts).toHaveLength(0)
+      await go.click()
+      await expect.poll(() => starts.length).toBe(1)
+      expect(starts[0]).toMatchObject({ tool: 'opencode', agents: ['a-kept', 'a-build'], action: 'remove', confirm: 'remove' })
+      await expect(dialog.getByRole('status').filter({ hasText: "Removing reet's copy from Laptop…" })).toBeVisible()
+      const stopped = dialog.getByRole('status').filter({ hasText: 'Stopped on Build server.' })
+      await expect(stopped).toContainText("couldn't remove", { timeout: 12000 })
+      await expect(dialog.getByRole('button', { name: 'Skip and continue' })).toBeVisible()
+      await expect(dialog.getByLabel('Batch progress').locator('li').first()).toContainText('Removed')
+      await capture(page, `batch-actions-stopped-${width}-${theme}`)
+      expect(await notOverflowing(page)).toBe(true)
+      expect(errors).toEqual([])
+      await context.close()
+    }
   }
 
   // A failure stops the rest and says where, with the choices right there.
@@ -230,4 +298,4 @@ try {
 } finally {
   await browser.close()
 }
-console.log('Fleet software: one sentence and one button that asks once; skipped, stopped and refused say so; choosing by hand still works.')
+console.log('Fleet software: one sentence and one button that asks once; skipped, stopped and refused say so; choosing by hand still works; rollback and remove batches say which machines can and remove needs the typed word.')

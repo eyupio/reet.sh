@@ -61,9 +61,13 @@ type SoftwareBatchMember struct {
 
 // SoftwareBatch is one reviewed maintenance batch for an account.
 type SoftwareBatch struct {
-	ID        string                `json:"id"`
-	Tool      string                `json:"tool"`
-	State     string                `json:"state"`
+	ID    string `json:"id"`
+	Tool  string `json:"tool"`
+	State string `json:"state"`
+	// Action is what the batch does: "update" for the reviewed install or
+	// update of each machine, or "rollback" or "remove". It is read from the
+	// members, which each carry their own frozen action.
+	Action    string                `json:"action"`
 	CreatedAt int64                 `json:"createdAt"`
 	UpdatedAt int64                 `json:"updatedAt"`
 	Members   []SoftwareBatchMember `json:"members"`
@@ -287,6 +291,12 @@ func loadSoftwareBatch(q softwareBatchQuerier, uid int64, batchID string) (Softw
 		}
 		m.ExpectedManaged = managed != 0
 		b.Members = append(b.Members, m)
+		if m.Action == "rollback" || m.Action == "remove" {
+			b.Action = m.Action
+		}
+	}
+	if b.Action == "" {
+		b.Action = "update"
 	}
 	return b, rows.Err()
 }

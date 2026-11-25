@@ -103,6 +103,15 @@ func TestGafferOutcomePlanNeedsTheOwningBrowserAndStartsNothing(t *testing.T) {
 	if asked != 1 {
 		t.Fatalf("provider requests: %d", asked)
 	}
+	if code, _ := gafferClient(t, &http.Client{}, srv, "DELETE", path+"/"+started.ID, ""); code != 401 {
+		t.Fatalf("signed-out stop: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "DELETE", path+"/"+started.ID, ""); code != 204 {
+		t.Fatalf("stop: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "GET", path+"/"+started.ID, ""); code != 404 {
+		t.Fatalf("read after stop: %d", code)
+	}
 	if list, err := st.GafferConversationsFor(1); err != nil || len(list) != 0 {
 		t.Fatalf("planning saved conversations: %v %v", list, err)
 	}

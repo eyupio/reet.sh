@@ -570,6 +570,7 @@
       <div class="top-actions">
         {#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}
         <button class="btn quiet" type="button" bind:this={templatesButton} onclick={() => { templateWanted = ''; templatesOpen = true }}>Templates</button>
+        <a class="btn quiet" href="/factory/pathways">Pathways</a>
         <a class="btn quiet" href="/account/gaffer">Your Gaffer settings</a>
         {#if loading || error || records.length || (scope && (listed.length || scope.kind !== 'project'))}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>New Factory outcome</button>{/if}
       </div>

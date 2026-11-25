@@ -14,6 +14,8 @@ const (
 	MaxGafferPromptBytes       = 8000
 	MaxGafferAnswerBytes       = 64 << 10
 	MaxGafferConversationBytes = 512 << 10
+	// gafferConversationIdleMillis is how long a conversation whose goal is over is left alone before a full account may reuse its place.
+	gafferConversationIdleMillis = 24 * 60 * 60 * 1000
 )
 
 var (
@@ -185,10 +187,20 @@ func (s *Store) CreateGafferConversationFor(uid int64, c GafferConversation) (Ga
 		if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_conversations WHERE user_id=?`, uid).Scan(&n); err != nil {
 			return err
 		}
-		if n >= MaxGafferConversations {
-			return ErrGafferChatFull
-		}
 		at := now()
+		if n >= MaxGafferConversations {
+			// Each pipeline stage takes a conversation and only Remove gives one back, so a busy account would
+			// fill up. Make room from the oldest conversation whose goal is over for good and that nothing has
+			// touched for a day; a chat with no goal, or one whose goal can still go on, is never removed.
+			freed, err := tx.Exec(`DELETE FROM gaffer_conversations WHERE id=(SELECT c.id FROM gaffer_conversations c JOIN gaffer_goals g ON g.conversation_id=c.id
+ WHERE c.user_id=? AND json_extract(g.data,'$.state') IN('stopped','completed') AND c.updated_at<? ORDER BY c.updated_at,c.id LIMIT 1)`, uid, at-gafferConversationIdleMillis)
+			if err != nil {
+				return err
+			}
+			if gone, err := freed.RowsAffected(); err != nil || gone == 0 {
+				return errors.Join(err, ErrGafferChatFull)
+			}
+		}
 		_, err = tx.Exec(`INSERT INTO gaffer_conversations(id,user_id,session_id,provider_id,model,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, c.ID, uid, c.SessionID, c.ProviderID, c.Model, at, at)
 		if err == nil {
 			result = GafferConversation{ID: c.ID, OwnerID: uid, SessionID: c.SessionID, ProviderID: c.ProviderID, Model: c.Model, Revision: 1, CreatedAt: at, UpdatedAt: at}

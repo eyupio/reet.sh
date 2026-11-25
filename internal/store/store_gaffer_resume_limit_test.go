@@ -53,7 +53,7 @@ func TestPausedGoalCannotResumePastTheActiveGoalLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ControlGafferGoal(uid, cid, 1, "resume", pins); !errors.Is(err, ErrGafferChatBusy) {
+	if _, err := st.ControlGafferGoal(uid, cid, 1, "resume", pins); !errors.Is(err, ErrGafferGoalLimit) {
 		t.Fatal("resume bypassed the active goal limit", err)
 	}
 	g, err := st.GafferGoalFor(uid, cid)

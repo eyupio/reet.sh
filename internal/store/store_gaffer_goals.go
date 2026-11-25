@@ -4,9 +4,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
+
+// MaxActiveGafferGoals is how many goals one account may have active at once.
+const MaxActiveGafferGoals = 10
+
+var ErrGafferGoalLimit = fmt.Errorf("Gaffer already follows %d sessions; pause or stop one first", MaxActiveGafferGoals)
 
 var ErrGafferGoalRepeat = errors.New("Gaffer repeated the same worker instruction twice. Review the working conversation before continuing.")
 
@@ -158,6 +164,26 @@ func checkGoal(q contextQuerier, uid int64, c, id string, rev int64, turn string
 func (s *Store) CheckGafferGoal(uid int64, c, id string, rev int64, turn string) error {
 	return checkGoal(s.db, uid, c, id, rev, turn)
 }
+
+// activeGoalRoom refuses when the account already has the most active goals it
+// may, not counting the goal of conversation except.
+func activeGoalRoom(q contextQuerier, uid int64, except string) error {
+	var active int
+	if err := q.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, uid, except).Scan(&active); err != nil {
+		return err
+	}
+	if active >= MaxActiveGafferGoals {
+		return ErrGafferGoalLimit
+	}
+	return nil
+}
+
+// ActiveGafferGoalsFor counts the goals the account follows now.
+func (s *Store) ActiveGafferGoalsFor(uid int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND json_extract(data,'$.state')='active'`, uid).Scan(&n)
+	return n, err
+}
 func removeGoalQueue(tx *sql.Tx, g GafferGoal) error {
 	_, err := tx.Exec(`UPDATE terminal_chat_queue SET state='removed',text='',images='[]',note='Gaffer follow-up stopped or changed.',revision=revision+1 WHERE user_id=? AND state='queued' AND origin='companion' AND id IN(SELECT r.queue_id FROM worker_message_receipts r JOIN gaffer_turns t ON t.conversation_id=r.subject AND t.id=r.turn_id WHERE r.user_id=? AND r.kind='gaffer' AND r.subject=? AND t.goal_id=?)`, g.OwnerID, g.OwnerID, g.ConversationID, g.ID)
 	return err
@@ -187,12 +213,8 @@ func saveGafferGoal(tx *sql.Tx, uid int64, expected int64, g *GafferGoal) error 
 	if old.Revision != expected {
 		return ErrGafferConflict
 	}
-	var count int
-	if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND json_extract(data,'$.state')='active' AND conversation_id!=?`, uid, c.ID).Scan(&count); err != nil {
+	if err = activeGoalRoom(tx, uid, c.ID); err != nil {
 		return err
-	}
-	if count >= 10 {
-		return ErrGafferChatBusy
 	}
 	if old.ID != "" {
 		if err = removeGoalQueue(tx, old); err != nil {
@@ -240,6 +262,10 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	g.ReviewFailed = false
 	g.NoStep = false
 	g.Advice = nil
+	// A closed goal stays closed: a stale tab's pause or complete must not turn it into one resume can revive.
+	if (action == "pause" || action == "complete") && (g.State == "stopped" || g.State == "completed") {
+		return ErrGafferConflict
+	}
 	switch action {
 	case "pause":
 		g.State = "paused"
@@ -254,12 +280,8 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 		if g.State == "stopped" || g.State == "completed" || g.ExpiresAt <= now() || g.UsedReviews >= g.MaxReviews {
 			return ErrGafferConflict
 		}
-		var active int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, uid, c).Scan(&active); err != nil {
+		if err := activeGoalRoom(tx, uid, c); err != nil {
 			return err
-		}
-		if active >= 10 {
-			return ErrGafferChatBusy
 		}
 		g.State = "active"
 		g.ProviderID = pins.ProviderID
@@ -311,6 +333,10 @@ func (s *Store) ObserveGafferGoal(g GafferGoal, state, note string, next int64) 
 		}
 		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "active" || cur.ActiveTurnID != "" {
 			return ErrGafferConflict
+		}
+		if cur.State == state && cur.Note == note && !cur.WaitingOnWorker {
+			// Nothing new to say: only the next look moves, so the goal does not look freshly updated.
+			return setGoalNextLook(tx, cur, next)
 		}
 		cur.State = state
 		cur.Note = note
@@ -382,12 +408,8 @@ func (s *Store) ReleaseGafferGoalHold(g GafferGoal, note string) error {
 		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || !cur.WaitingOnWorker {
 			return ErrGafferConflict
 		}
-		var active int
-		if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, g.OwnerID, g.ConversationID).Scan(&active); err != nil {
+		if err = activeGoalRoom(tx, g.OwnerID, g.ConversationID); err != nil {
 			return err
-		}
-		if active >= 10 {
-			return ErrGafferChatBusy
 		}
 		cur.State, cur.Note, cur.NextAt, cur.WaitingOnWorker = "active", note, now(), false
 		return saveGoal(tx, cur)
@@ -407,14 +429,19 @@ func (s *Store) DeferGafferGoal(g GafferGoal, next int64) error {
 		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || cur.ActiveTurnID != "" {
 			return ErrGafferConflict
 		}
-		cur.NextAt = next
-		raw, err := json.Marshal(cur)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(`UPDATE gaffer_goals SET data=? WHERE user_id=? AND conversation_id=?`, string(raw), g.OwnerID, g.ConversationID)
-		return err
+		return setGoalNextLook(tx, cur, next)
 	})
+}
+
+// setGoalNextLook changes when a goal is looked at next and nothing else, not even its updated time.
+func setGoalNextLook(tx *sql.Tx, cur GafferGoal, next int64) error {
+	cur.NextAt = next
+	raw, err := json.Marshal(cur)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE gaffer_goals SET data=? WHERE user_id=? AND conversation_id=?`, string(raw), cur.OwnerID, cur.ConversationID)
+	return err
 }
 
 // ReleaseGafferGoalWatch makes a goal that stopped for the person active again
@@ -433,12 +460,8 @@ func (s *Store) ReleaseGafferGoalWatch(g GafferGoal, note string) error {
 		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || cur.WaitingOnWorker || cur.ActiveTurnID != "" {
 			return ErrGafferConflict
 		}
-		var active int
-		if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, g.OwnerID, g.ConversationID).Scan(&active); err != nil {
+		if err = activeGoalRoom(tx, g.OwnerID, g.ConversationID); err != nil {
 			return err
-		}
-		if active >= 10 {
-			return ErrGafferChatBusy
 		}
 		cur.State, cur.Note, cur.NextAt, cur.WaitingOnWorker = "active", note, now(), false
 		// The stop this goal carried is over; a later one is its own.

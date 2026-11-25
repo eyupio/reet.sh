@@ -348,6 +348,18 @@ try {
       // machine reports for it travels with that stage.
       await add.getByText('Choose who does what',{exact:true}).click()
       await expect(add.getByRole('combobox',{name:'Standard agent for Changelog entry',exact:true})).toHaveValue('codex')
+      // The pipeline's own choice went to every tier. A tier that is no longer where it started can be put back: Light
+      // to the saved crew's Claude Code. A tier that is where it started offers nothing to undo.
+      const lightBack=add.getByRole('button',{name:'Put the Light crew for Changelog entry back to your saved crew',exact:true})
+      await expect(lightBack).toHaveText('Back to your saved crew')
+      await expect(add.getByRole('button',{name:/^Put the (Heavy|Standard) crew for Changelog entry back/})).toHaveCount(0)
+      await lightBack.click()
+      await expect(add.getByRole('combobox',{name:'Light agent for Changelog entry',exact:true})).toHaveValue('claude');await expect(lightBack).toHaveCount(0)
+      // A tier with nothing saved goes back to the pipeline's own agent, model and effort.
+      const standardEffort=add.getByRole('combobox',{name:'Standard effort for Changelog entry',exact:true}),standardBack=add.getByRole('button',{name:'Put the Standard crew for Changelog entry back to the pipeline’s agent',exact:true})
+      await standardEffort.selectOption('');await expect(standardBack).toHaveText('Back to the pipeline’s agent')
+      await standardBack.click()
+      await expect(standardEffort).toHaveValue('low');await expect(standardBack).toHaveCount(0)
       await add.getByRole('combobox',{name:'Light agent for Changelog entry',exact:true}).selectOption('claude')
       await add.getByRole('combobox',{name:'Light effort for Changelog entry',exact:true}).selectOption('low')
       await expect(add.getByText('2 stages, each in an agent session of its own.',{exact:false})).toBeVisible()

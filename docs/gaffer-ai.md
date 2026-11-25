@@ -659,7 +659,9 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    needs a name and a brief before the plan can be approved. The Add
    pipelines dialog offers the same split. Each tier there has a **Backup**
    choice: your saved crew's backups, none, or an agent, model and effort of
-   that pipeline's own. Every stage runs in an agent session of its
+   that pipeline's own. A tier there that is no longer where the dialog started
+   it has the same link back: **Back to your saved crew**, or **Back to the
+   pipeline's agent** when no crew is saved for it. Every stage runs in an agent session of its
    own, in the pipeline's folder and branch: it starts from that stage's
    instruction and the handover of the stage before, and the earlier stage's
    session is ended with its history kept.

@@ -102,7 +102,10 @@ func (s *server) gafferOutcomeHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
-	var in gaffer.OutcomeInput
+	var in struct {
+		gaffer.OutcomeInput
+		Pathway string `json:"pathway"`
+	}
 	if !decodeStrictJSON(w, r, 96<<10, &in, "That outcome is invalid or too large.") {
 		return
 	}
@@ -118,7 +121,13 @@ func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	o, err := s.gafferProviders.CreateOutcome(s.uid(r), in)
+	if in.Pathway != "" {
+		if err := s.gafferProviders.UsePathway(s.uid(r), in.Pathway, in.Sessions, s.templateSkills(s.uid(r))); err != nil {
+			gafferDeliveryError(w, err)
+			return
+		}
+	}
+	o, err := s.gafferProviders.CreateOutcome(s.uid(r), in.OutcomeInput)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
@@ -468,7 +477,10 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 
 // gafferOutcomeAdd adds pipelines the person approved to an outcome.
 func (s *server) gafferOutcomeAdd(w http.ResponseWriter, r *http.Request) {
-	var in gaffer.AddPipelinesInput
+	var in struct {
+		gaffer.AddPipelinesInput
+		Pathway string `json:"pathway"`
+	}
 	if !decodeStrictJSON(w, r, 96<<10, &in, "Those pipelines are invalid or too large.") {
 		return
 	}
@@ -480,7 +492,13 @@ func (s *server) gafferOutcomeAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return
 	}
-	o, err := s.gafferProviders.AddPipelines(s.uid(r), r.PathValue("id"), in)
+	if in.Pathway != "" {
+		if err := s.gafferProviders.UsePathway(s.uid(r), in.Pathway, in.Sessions, s.templateSkills(s.uid(r))); err != nil {
+			gafferDeliveryError(w, err)
+			return
+		}
+	}
+	o, err := s.gafferProviders.AddPipelines(s.uid(r), r.PathValue("id"), in.AddPipelinesInput)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return

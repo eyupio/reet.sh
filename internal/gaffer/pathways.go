@@ -1,10 +1,13 @@
 package gaffer
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/skillbuddy"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -106,10 +109,14 @@ func cleanPathway(p store.GafferPathway) (store.GafferPathway, error) {
 		if len(st.Skills) > MaxStageSkills {
 			return p, invalid("stages", "A stage can use up to 2 skills.")
 		}
+		skills := make([]string, len(st.Skills))
 		for j, id := range st.Skills {
-			if id == "" || slices.Contains(st.Skills[:j], id) {
+			if skills[j] = strings.TrimSpace(id); skills[j] == "" || slices.Contains(skills[:j], skills[j]) {
 				return p, invalid("stages", "A stage's skills must each be named once.")
 			}
+		}
+		if len(skills) > 0 {
+			st.Skills = skills
 		}
 		stages[i] = st
 	}
@@ -157,4 +164,81 @@ func (s *Service) DeletePathway(uid int64, id string) error {
 		return err
 	}
 	return s.store.DeleteGafferPathwayFor(uid, id)
+}
+
+// pathwayStages turns p into stage inputs with each stage's skills loaded as
+// they are approved now. Every reason it cannot is returned, one sentence each.
+func pathwayStages(p store.GafferPathway, load SkillLoader) ([]OutcomeStageInput, []string) {
+	var problems []string
+	out := make([]OutcomeStageInput, len(p.Stages))
+	for i, st := range p.Stages {
+		in := OutcomeStageInput{Kind: st.Kind, Name: st.Name, Prompt: st.Prompt}
+		if a := st.Agent; a != nil {
+			in.Tool, in.Model, in.Effort, in.Provider = a.Tool, a.Model, a.Effort, a.Provider
+		} else {
+			in.Tier = st.Tier
+		}
+		label := st.Kind
+		if st.Name != "" {
+			label = st.Name
+		}
+		size := 0
+		for _, id := range st.Skills {
+			sk, err := load(id)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("The %s pathway cannot use the skill %s in its %s stage: %s", p.Name, id, label, err.Error()))
+				continue
+			}
+			sk.State = "selected"
+			size += len(skillbuddy.Prompt(sk))
+			in.Skills = append(in.Skills, sk)
+			if size > MaxStageGuidanceBytes {
+				problems = append(problems, fmt.Sprintf("The %s pathway's %s stage has more guidance than fits in 2,000 bytes, with the skill %s. Use shorter skills.", p.Name, label, id))
+				break
+			}
+		}
+		out[i] = in
+	}
+	return out, problems
+}
+
+// PathwayProblems lists what would refuse a start on p, for the "!" mark in
+// the pathway list: one sentence each, none when it is sound.
+func (s *Service) PathwayProblems(p store.GafferPathway, load SkillLoader) []string {
+	_, problems := pathwayStages(p, load)
+	return problems
+}
+
+// UsePathway gives every session the pathway's stages as it is saved now,
+// with each stage's skills loaded. A session that already has stages, a
+// missing or disabled pathway and a stage whose skills cannot be had or do not
+// fit are refused, and nothing is changed.
+func (s *Service) UsePathway(uid int64, id string, sessions []OutcomeSession, load SkillLoader) error {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return err
+	}
+	for _, item := range sessions {
+		if len(item.Stages) > 0 {
+			return invalid("pathway", "A pipeline takes a pathway or its own stages, not both.")
+		}
+	}
+	p, err := s.store.GafferPathwayFor(uid, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return invalid("pathway", "That pathway is not available. Choose another.")
+	}
+	if err != nil {
+		return err
+	}
+	if !p.Enabled {
+		return invalid("pathway", "The "+p.Name+" pathway is switched off. Switch it on to use it.")
+	}
+	stages, problems := pathwayStages(p, load)
+	if len(problems) > 0 {
+		return invalid("pathway", problems[0])
+	}
+	for i := range sessions {
+		sessions[i].Stages = slices.Clone(stages)
+		sessions[i].Pathway = &store.GafferPathwayRef{ID: p.ID, Name: p.Name}
+	}
+	return nil
 }

@@ -27,7 +27,8 @@ says which supplied it; both failing reports `mirror+registry`, and the error ke
 Without the flag the order and strings are as they were.
 
 **UI.** Admin's mirror card has a second checkbox, "Download from this controller first", disabled while the mirror is off,
-with its one-line explanation as the description. Fleet software's mirror line adds ", tried first". Labels in the mirror card
+indented under the first, with a hint as its description ("Turn the mirror on to use this." while the mirror is off) and a "!" line
+when the preference is on and nothing is cached yet. Fleet software's mirror line adds ", machines try it before the registry". Labels in the mirror card
 are 44 px on a coarse pointer.
 
 **Checked.** Go: new tests in `internal/api` (setting, both builders, stripping for an older machine), `terminalproto`,

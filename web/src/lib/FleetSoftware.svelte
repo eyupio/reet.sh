@@ -263,7 +263,7 @@
         <p class="eyebrow" data-shell-aside>Software</p>
         <h2 id={`${id}-title`}>Fleet software</h2>
         <p class="lede" data-shell-aside>Keep OpenCode up to date on every machine. Rollback and remove stay in a machine's Settings.</p>
-        {#if mirror}<p class="hint mirror-line">Artifact mirror: {mirror.enabled ? `on${mirror.cached ? ', cached' : ', not cached yet'}${mirror.preferred ? ', tried first' : ''}` : 'off'}. Owners and admins change it in Admin.</p>{/if}
+        {#if mirror}<p class="hint mirror-line">Artifact mirror: {mirror.enabled ? `on${mirror.cached ? ', cached' : ', not cached yet'}${mirror.preferred ? ', machines try it before the registry' : ''}` : 'off'}. Owners and admins change it in Admin.</p>{/if}
       </div>
       <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close fleet software" data-shell-close><Icon name="x" size={18} /></button>
     </header>

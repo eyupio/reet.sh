@@ -219,7 +219,7 @@ try {
     const world = { rows: [laptop()], mirror: { enabled: true, cached: true, preferred: true } }
     const { context, page, errors } = await open({ width: 1280 }, world)
     const dialog = await openModal(page)
-    await expect(dialog.getByText('Artifact mirror: on, cached, tried first. Owners and admins change it in Admin.', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Artifact mirror: on, cached, machines try it before the registry. Owners and admins change it in Admin.', { exact: true })).toBeVisible()
     world.mirror = { enabled: true, cached: true, preferred: false }
     await dialog.getByRole('button', { name: 'Close fleet software' }).click()
     await openModal(page)

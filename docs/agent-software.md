@@ -163,8 +163,8 @@ Each source keeps its own time limit, and a half one source downloaded is
 continued by the other. The result reports `registry` or `mirror`; when both
 were tried and failed it reports both in the order tried (`registry+mirror` or
 `mirror+registry`) and the refusal says so. Activity records
-`software-mirror-first-on` and `-off`, and Fleet software says "tried first"
-beside the mirror when it is. Admins can **Cache the reviewed artifact now** to prepare the
+`software-mirror-first-on` and `-off`, and Fleet software says "machines try it
+before the registry" beside the mirror when it is. Admins can **Cache the reviewed artifact now** to prepare the
 mirror before a machine needs it. The cache keeps only the reviewed digest,
 garbage-collects anything else at controller start, and is excluded from
 backups because it can be fetched again.

@@ -1030,10 +1030,13 @@
     {#if (role === 'owner' || role === 'admin') && mirror}
     <section class="block mirror" aria-labelledby="admin-software-mirror">
       <h2 id="admin-software-mirror">Software artifact mirror</h2>
-      <p class="muted">Lets machines that cannot reach registry.npmjs.org download the one reviewed OpenCode artifact from this controller. Every machine still verifies the pinned checksum before it installs anything.</p>
+      <p class="muted">Lets machines download the one reviewed OpenCode archive from this controller instead of the registry. Every machine still checks the pinned checksum before it installs anything.</p>
       <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={e => saveMirror(e)} /> Serve the reviewed artifact to machines</label>
-      <label class="check dep" class:off={!mirror.enabled}><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
-      <p class="note" id="admin-mirror-first-hint">Best when machines reach this controller faster than the registry.</p>
+      <label class="check dep"><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
+      <p class="note" id="admin-mirror-first-hint">{mirror.enabled ? 'Best when machines reach this controller faster than the registry. If this controller is slow or has no copy, machines fall back to the registry.' : 'Turn the mirror on to use this.'}</p>
+      {#if mirror.enabled && mirror.preferred && !mirror.cached}
+        <p class="warnline"><span class="mark" aria-hidden="true">!</span><span>Not cached yet. The first download fills it, which can take a few minutes.</span></p>
+      {/if}
       <p class="muted" role="status">{mirrorNotice || (mirror.cached ? `Cached ${mirror.version ?? 'the reviewed version'} (${bytes(mirror.size ?? 0)}).` : 'Not cached yet.')}</p>
       {#if !mirror.cached}
         <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>
@@ -1099,8 +1102,9 @@
   .mirror .check { min-height: 32px; }
   .mirror .check input { margin: 0; }
   .mirror .dep { margin-left: 26px; }
-  .mirror .dep.off { opacity: 0.65; }
-  .mirror .note { margin-left: 52px; }
+  .mirror .note { margin-left: 52px; max-width: 60ch; }
+  .mirror .warnline { margin: 8px 0 0 26px; max-width: 60ch; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-size: 0.875rem; line-height: 1.45; }
+  .mirror .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 0.875rem; font-weight: 700; line-height: 1; }
   .instance-settings .field { max-width: 24rem; }
   .readonly-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; margin: 16px 0 0; }
   .readonly-settings dt { color: var(--muted); font-size: 0.875rem; font-weight: 600; }

@@ -131,7 +131,7 @@ try {
       const first = page.getByRole('checkbox', { name: 'Download from this controller first' })
       await expect(first).toBeDisabled()
       await expect(first).not.toBeChecked()
-      await expect(first).toHaveAccessibleDescription("Machines try this controller's copy before the registry. Turn it off if the controller is slower to reach than the registry.")
+      await expect(first).toHaveAccessibleDescription('Best when machines reach this controller faster than the registry.')
       await page.getByRole('checkbox', { name: 'Serve the reviewed artifact to machines' }).check()
       await expect(first).toBeEnabled()
       await first.check()

@@ -1033,7 +1033,7 @@
       <p class="muted">Lets machines that cannot reach registry.npmjs.org download the one reviewed OpenCode artifact from this controller. Every machine still verifies the pinned checksum before it installs anything.</p>
       <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={e => saveMirror(e)} /> Serve the reviewed artifact to machines</label>
       <label class="check"><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
-      <p class="muted" id="admin-mirror-first-hint">Machines try this controller's copy before the registry. Turn it off if the controller is slower to reach than the registry.</p>
+      <p class="muted" id="admin-mirror-first-hint">Best when machines reach this controller faster than the registry.</p>
       <p class="muted" role="status">{mirrorNotice || (mirror.cached ? `Cached ${mirror.version ?? 'the reviewed version'} (${bytes(mirror.size ?? 0)}).` : 'Not cached yet.')}</p>
       {#if !mirror.cached}
         <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>

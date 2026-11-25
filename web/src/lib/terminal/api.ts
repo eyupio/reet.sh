@@ -211,6 +211,32 @@ export async function skipSoftwareBatchMember(batchId: string, position: number,
 export async function abandonSoftwareBatch(batchId: string, signal?: AbortSignal): Promise<SoftwareBatch> {
   return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/abandon`, { method: 'POST', body: JSON.stringify({}), signal })).json()
 }
+/** Fleet setup copy: one machine's global agent instructions and portable settings, copied to others. See docs/fleet-setup.md. */
+export type FleetSetupItem = { agent: string; kind: string; name: string; format: string; label?: string; bytes: number }
+export type FleetSetupFile = { agent: string; kind: string; name: string; destination?: string; state: 'create' | 'merge' | 'unchanged' | 'blocked'; reason?: string; fields?: string[]; widens?: string[]; added?: string[]; removed?: string[]; truncated?: boolean }
+export type FleetSetupMachine = { agentId: string; host: string; state: 'ready' | 'unchanged' | 'excluded'; code?: string; reason?: string; widens: boolean; fingerprint?: string; files: FleetSetupFile[] }
+export type FleetSetupReview = { readId: string; expiresAt: number; source: { agentId: string; host: string; readAt: number }; items: FleetSetupItem[]; machines: FleetSetupMachine[] }
+export type FleetSetupBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'abandoned'
+export type FleetSetupMember = { position: number; agentId: string; host: string; fingerprint?: string; widens: boolean; files: Pick<FleetSetupFile, 'agent' | 'kind' | 'name' | 'state' | 'reason' | 'fields' | 'widens'>[]; state: 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'; code?: string; reason?: string; journal?: string; undoneAt?: number }
+export type FleetSetupBatch = { id: string; sourceAgentId: string; sourceHost: string; readAt: number; state: FleetSetupBatchState; widens: boolean; contentHeld: boolean; createdAt: number; updatedAt: number; members: FleetSetupMember[] }
+/** Read the source machine and review every other machine (or just `targets`). Nothing is written. */
+export async function readFleetSetup(agentId: string, targets?: string[], signal?: AbortSignal): Promise<FleetSetupReview> {
+  return (await terminalRequest('/api/v2/setup/fleet/source', { method: 'POST', body: JSON.stringify({ agentId, ...(targets ? { targets } : {}) }), signal })).json()
+}
+/** Start a batch from the review, machines in the order given. `confirm` is sent only when a machine would widen what agents may do. */
+export async function createFleetSetupBatch(requestId: string, readId: string, agents: string[], confirm?: string, signal?: AbortSignal): Promise<FleetSetupBatch> {
+  return (await terminalRequest('/api/v2/setup/fleet/batches', { method: 'POST', body: JSON.stringify({ requestId, readId, agents, ...(confirm ? { confirm } : {}) }), signal })).json()
+}
+export async function activeFleetSetupBatch(signal?: AbortSignal): Promise<FleetSetupBatch | null> {
+  return (await terminalRequest('/api/v2/setup/fleet/batches/active', { signal })).json()
+}
+export async function fleetSetupBatch(batchId: string, signal?: AbortSignal): Promise<FleetSetupBatch> {
+  return (await terminalRequest(`/api/v2/setup/fleet/batches/${encodeURIComponent(batchId)}`, { signal })).json()
+}
+/** Steer a batch: retry or skip a failed machine, abandon between machines, or undo one applied machine from its journal. */
+export async function steerFleetSetupBatch(batchId: string, step: 'abandon' | `members/${number}/${'retry' | 'skip' | 'undo'}`, signal?: AbortSignal): Promise<FleetSetupBatch> {
+  return (await terminalRequest(`/api/v2/setup/fleet/batches/${encodeURIComponent(batchId)}/${step}`, { method: 'POST', body: JSON.stringify({}), signal })).json()
+}
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}
 export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSession[]> { return (await (await terminalRequest('/api/v2/terminal/sessions', { signal })).json()).sessions }

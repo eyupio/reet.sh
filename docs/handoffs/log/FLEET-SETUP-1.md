@@ -1,7 +1,6 @@
 ## FLEET-SETUP-1: one machine's agent setup can be copied to other machines through the controller (25 November 2026)
 
-The back end of the roadmap's "Fleet-wide agent configuration" item. The web page is a separate change; the roadmap entry
-stays in "Later" until it lands, and that change removes it. [docs/fleet-setup.md](../../fleet-setup.md) has the API.
+The back end of the roadmap's "Fleet-wide agent configuration" item. The web page is described under "The web part" below; the roadmap entry is gone. [docs/fleet-setup.md](../../fleet-setup.md) has the API.
 
 **What it does.** The controller reads one machine's global instruction files and portable settings
 (`setup-read-v1`), asks each chosen machine for a dry-run plan (`setup-apply-v1`, op `plan`), and on a batch applies it
@@ -54,3 +53,43 @@ terminalhost, store, backup, setuprun (also `-race`) and the whole of `internal/
 
 **Not checked.** No real machines or agents: the API tests use fake connectors and the setup tests real files in temp
 homes. Not on macOS. A setup over about 60 KB is refused as `too_large`; a long `CLAUDE.md` can reach that. No web UI.
+
+### The web part (Setups page)
+
+**Where.** A **Copy to other machines** button in the Setups page header opens `web/src/lib/FleetSetup.svelte`, a dialog in
+the shape of Fleet software (`FleetSoftware.svelte`): the same sheet, order list, progress list, Retry / Skip and continue /
+Abandon, confirmation dialog and typed word. Pure helpers (plain names, sizes, file and machine lines, member notes, the
+batch sentence, one plain sentence for every API error code) are in `web/src/lib/fleetSetup.ts`, with
+`fleetSetup.test.mjs`. The API calls sit with the software ones in `web/src/lib/terminal/api.ts` (types and functions
+only; no import added). `SetupProfiles.svelte` also asks for the person's active copy on load and shows "A setup copy is in
+progress. Open it" when there is one; the dialog restores it, as Fleet software does.
+
+**Flow.** Copy from (a machine list, from `/api/v2/terminal/machines`) then Read setup, then a review: what would be copied
+(plain item names and sizes), then one row per other machine: ready (every file as Create / Merge / Unchanged / Blocked,
+fields changed, the bounded added and removed lines), already the same, or left out with a plain reason by code. Ready
+machines are ticked by default. Copy order, then one button, "Copy to N machines", then one question that names the
+source and when it was read and every machine in order with what happens to it. The typed word `copy` is asked for only
+when a chosen machine `widens`; the request carries `confirm: "copy"` then and no `confirm` key otherwise (the word is
+trimmed and lowercased first). Leaving a widening machine out takes the word away.
+
+**Decisions not in the brief.** (1) A finished copy's id is kept in this browser (`localStorage`, one key, wrapped in
+try/catch), because `/batches/active` stops answering once a batch is done and the Undo would otherwise be lost on reload;
+it is read back with `GET .../batches/{id}`, and "Start another copy" forgets it. (2) Undo asks its own question and says
+`setup_changed`, `setup_undo_done` and `setup_undo_unavailable` in words; on the last two it reloads the batch. (3) A
+`setup_read_expired` on start closes the question and returns to "Copy from" with the sentence. (4) `setup_credential`
+shows the controller's own sentence (it names the file and agent) when it has the expected shape, and a generic one
+otherwise; no setup text is ever shown beyond the plan's diff lines. (5) The source list shows every machine, marking
+those that are not ready; the controller refuses the rest in words.
+
+**Design passes (Impeccable, Operate mode).** Audit found: the widening note used a side stripe (the detector flagged it),
+the ✓ / ✕ marks ran into their label, an undone machine looked like a success, the progress rows broke the number from the
+name at 390 px, file chips had ragged widths, and the stopped reason was said twice. Distill removed: the tutorial
+paragraphs once a machine has been read (the "never copied" and retention notes move beside the items), the per-file
+widening line (one note per machine names the fields), the repeated stopped reason and hint, move buttons with only one
+machine, and "Read again" as a second primary. Polish: full border for the widening note, fixed chip width, a gap after the
+marks, Undone in the muted colour and without its file line, number beside name at 390 px, 44 px targets on coarse pointers
+(asserted in the browser test), and the typed-word border in `--line-deep`.
+
+**Checked (web).** `npm run check`, `node --test` for `fleetSetup.test.mjs` and `theme.test.mjs`, `npm run build`, and
+`web/tests/fleet-setup.e2e.mjs` (mocked API, 390 and 1280 px, light and dark) plus `fleet-software.e2e.mjs` and
+`setups.e2e.mjs` unchanged. **Not checked.** Against a real controller or machines; a real screen reader; Safari.

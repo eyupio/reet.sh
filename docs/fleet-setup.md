@@ -101,6 +101,24 @@ names, file names, field names and plan fingerprints, never text.
 A machine's read must fit in one control message: about 60 KB of instruction and settings
 text in all. A larger setup is refused as `too_large`.
 
+## Use it in the web
+
+Open **Setups** and press **Copy to other machines**. You need a signed-in account that is not a viewer.
+
+1. Choose the machine under **Copy from** and press **Read setup**. Nothing is written.
+2. Check what would be copied (each file by its plain name and size), then each other machine: **Ready** machines list every
+   file as Create, Merge, Unchanged or Blocked, the settings fields that change and the instruction lines added and
+   removed. **Already the same** and **Left out** machines say why. A machine where the copy would let agents do more
+   without asking carries a warning that names what widens.
+3. Tick the machines (ready ones start ticked) and put them in order with the arrows, or **Leave out** the ones you don't
+   want. Press **Copy to N machines**.
+4. The question names the source machine and when it was read, and each machine in order with what happens to it. It asks
+   you to type `copy` only when a chosen machine would widen what agents may do.
+5. Follow the copy. On a failure it stops: **Retry**, **Skip and continue** or **Abandon copy**. Each finished machine has
+   **Undo copy**, which puts back the files from the machine's rollback copy, or says that a file changed since and leaves
+   everything as it is. If you reload the page the copy in progress is offered again, and this browser remembers your last
+   finished copy so you can still undo it.
+
 ## HTTP API
 
 All routes need a signed-in browser session (any role but viewer) and, for `POST`, the

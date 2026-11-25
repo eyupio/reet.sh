@@ -56,10 +56,6 @@ of stage 3 should own anything about a lost connection or a launch that is retri
 item above should reuse the states they define. Its stage 5 (first useful run) should carry the phone setup step. Its stage 7
 (release verification) and the CI items above should be planned together so the test lanes are changed once.
 
-Later:
-
-- **Fleet-wide agent configuration.** Configure agents across the whole fleet from one place. Today skills and setups are synced and restored per machine, with a reviewed plan before anything changes.
-
 Copy and paste (text and images), structured OpenCode chats, the session workspace (Overview, Changes, Files and GitHub
 views), YOLO sessions, **Needs you** (`attention-v1`), inline
 approvals on Home, **agent software** (OpenCode install/update/rollback/remove and restart recovery, with a fleet review,

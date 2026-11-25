@@ -27,6 +27,12 @@ func limitChat(t *testing.T, s *Store, uid int64, n int, state string, idle int6
 	if _, err := s.db.Exec(`UPDATE gaffer_conversations SET updated_at=? WHERE id=?`, now()-idle, id); err != nil {
 		t.Fatal(err)
 	}
+	if state != "" {
+		// The goal was last touched when the conversation was.
+		if _, err := s.db.Exec(`UPDATE gaffer_goals SET data=json_set(data,'$.updatedAt',?) WHERE conversation_id=?`, now()-idle, id); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func limitUser(t *testing.T, s *Store, email string) int64 {
@@ -51,7 +57,12 @@ func TestAFullAccountReusesTheOldestConversationWhoseGoalIsOver(t *testing.T) {
 	limitChat(t, s, uid, 4, "active", 9*day)
 	limitChat(t, s, uid, 5, "completed", 5*day) // the oldest one that is over
 	limitChat(t, s, uid, 6, "stopped", 2*day)
-	for n := 7; n <= MaxGafferConversations; n++ {
+	// The conversation is the oldest of all, but its goal was stopped just now: the day starts from when it closed.
+	limitChat(t, s, uid, 7, "stopped", 9*day)
+	if _, err := s.db.Exec(`UPDATE gaffer_goals SET data=json_set(data,'$.updatedAt',?) WHERE conversation_id=?`, now(), limitID(7)); err != nil {
+		t.Fatal(err)
+	}
+	for n := 8; n <= MaxGafferConversations; n++ {
 		limitChat(t, s, uid, n, "", 0)
 	}
 	next := func(n int) error {
@@ -76,7 +87,7 @@ func TestAFullAccountReusesTheOldestConversationWhoseGoalIsOver(t *testing.T) {
 	if err := next(103); !errors.Is(err, ErrGafferChatFull) {
 		t.Fatal("nothing left to reuse must still say the account is full", err)
 	}
-	for _, n := range []int{1, 2, 3, 4} {
+	for _, n := range []int{1, 2, 3, 4, 7} {
 		if _, err := s.GafferConversationFor(uid, limitID(n)); err != nil {
 			t.Fatal("a conversation that must stay was removed", n, err)
 		}

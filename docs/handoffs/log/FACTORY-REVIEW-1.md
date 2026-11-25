@@ -11,7 +11,7 @@ Store (`internal/store`).
 
 - **A full account reuses a place** (`CreateGafferConversationFor`). Each pipeline stage takes a Gaffer conversation and
   only Remove gave one back, so a busy account hit 100 and its next stage started unfollowed. At 100, the oldest
-  conversation whose goal is stopped or completed and that nothing has touched for a day is deleted (its goal and
+  conversation whose goal is stopped or completed, and that neither it nor its goal has touched for a day, is deleted (its goal and
   grants go with it by the existing cascade and triggers), and only then does the account count as full. A chat with no
   goal, a goal that can still go on, and anything touched in the last day are never removed.
 - **The ten-goal limit has its own error and one check.** `ErrGafferGoalLimit` and `MaxActiveGafferGoals` replace four

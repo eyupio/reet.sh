@@ -190,10 +190,10 @@ func (s *Store) CreateGafferConversationFor(uid int64, c GafferConversation) (Ga
 		at := now()
 		if n >= MaxGafferConversations {
 			// Each pipeline stage takes a conversation and only Remove gives one back, so a busy account would
-			// fill up. Make room from the oldest conversation whose goal is over for good and that nothing has
-			// touched for a day; a chat with no goal, or one whose goal can still go on, is never removed.
+			// fill up. Make room from the oldest conversation whose goal is over for good and that neither it nor its
+			// goal has touched for a day; a chat with no goal, or one whose goal can still go on, is never removed.
 			freed, err := tx.Exec(`DELETE FROM gaffer_conversations WHERE id=(SELECT c.id FROM gaffer_conversations c JOIN gaffer_goals g ON g.conversation_id=c.id
- WHERE c.user_id=? AND json_extract(g.data,'$.state') IN('stopped','completed') AND c.updated_at<? ORDER BY c.updated_at,c.id LIMIT 1)`, uid, at-gafferConversationIdleMillis)
+ WHERE c.user_id=? AND json_extract(g.data,'$.state') IN('stopped','completed') AND c.updated_at<? AND COALESCE(json_extract(g.data,'$.updatedAt'),0)<? ORDER BY c.updated_at,c.id LIMIT 1)`, uid, at-gafferConversationIdleMillis, at-gafferConversationIdleMillis)
 			if err != nil {
 				return err
 			}

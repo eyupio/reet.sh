@@ -107,9 +107,14 @@ try {
       await expect(copied.getByText('812 bytes')).toBeVisible()
       await expect(copied.getByText('1.5 KB')).toBeVisible()
       await expect(copied.getByText('Codex settings (config.toml)')).toBeVisible()
+      // What is never copied is a line of its own, not part of a muted paragraph.
+      await expect(copied.locator('p.never')).toHaveText('Credentials, MCP servers, model defaults and project files are never copied.')
       // Every other machine has a row with its plan.
       const rows = dialog.getByRole('region', { name: 'Other machines' })
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Ready')
+      // Settings are merged field by field; an instruction file's text is replaced.
+      await expect(rows.locator('li[data-machine="Laptop"] .chip')).toHaveText(['Merge', 'Replace'])
+      await expect(rows.locator('li[data-machine="Build server"] .chip')).toHaveText(['Create', 'Unchanged', 'Blocked'])
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Changes outputStyle in Claude Code settings.json')
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Replaces the text of Claude Code CLAUDE.md.')
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Always run the tests before you finish.')
@@ -131,23 +136,29 @@ try {
         const small = await dialog.locator('button, select, input:not([type=checkbox]), summary, .row-head label').evaluateAll(nodes => nodes.filter(node => node.getClientRects().length).map(node => ({ name: (node.textContent || node.getAttribute('aria-label') || node.tagName).trim().slice(0, 30), height: Math.round(node.getBoundingClientRect().height), width: Math.round(node.getBoundingClientRect().width) })).filter(box => box.height < 44 || box.width < 44))
         expect(small).toEqual([])
       }
+      // The action bar is pinned: the button is on screen before anything is scrolled, and the checkbox says its state.
+      const copyTo = dialog.getByRole('button', { name: 'Copy to 2 machines', exact: true })
+      await expect(copyTo).toBeInViewport({ ratio: 1 })
+      await expect(rows.getByRole('checkbox', { name: 'Laptop' })).toHaveAccessibleDescription('Ready')
       await capture(page, `fleet-setup-review-${width}-${theme}`)
       await rows.evaluate(element => element.scrollIntoView({ block: 'start' }))
       await capture(page, `fleet-setup-machines-${width}-${theme}`)
 
       // The order can be changed and a machine left out; the one button names the count.
+      // The order list is there only while more than one machine is ticked.
       const order = dialog.getByRole('region', { name: 'Copy order' })
       await expect(order.locator('li').nth(0)).toContainText('Laptop')
       await order.getByRole('button', { name: 'Move Laptop later' }).click()
       await expect(order.locator('li').nth(0)).toContainText('Build server')
       await order.getByRole('button', { name: 'Leave out Build server' }).click()
-      await expect(order.locator('li')).toHaveCount(1)
+      await expect(order).toHaveCount(0)
+      await expect(dialog.getByRole('button', { name: 'Copy to 1 machine', exact: true })).toBeVisible()
       await rows.getByRole('checkbox', { name: 'Build server' }).check()
       await expect(order.locator('li').nth(1)).toContainText('Build server')
       await order.getByRole('button', { name: 'Move Build server earlier' }).click()
       await expect(order.locator('li').nth(0)).toContainText('Build server')
 
-      await order.getByRole('button', { name: 'Copy to 2 machines', exact: true }).click()
+      await dialog.getByRole('button', { name: 'Copy to 2 machines', exact: true }).click()
       const confirm = page.getByRole('dialog', { name: 'Copy to 2 machines?', exact: true })
       await expect(confirm).toBeVisible()
       await expect(confirm).toContainText('read from Studio')
@@ -155,6 +166,7 @@ try {
       await expect(confirm.locator('li').nth(0)).toContainText('Creates Claude Code CLAUDE.md.')
       await expect(confirm.locator('li').nth(1)).toContainText('Laptop')
       await expect(confirm).toContainText('A machine that isn\'t connected is skipped.')
+      await expect(confirm.locator('p.never')).toHaveText('Credentials, MCP servers, model defaults and project files are never copied.')
       // Nothing needs typing without a widening machine.
       await expect(confirm.getByRole('textbox')).toHaveCount(0)
       expect(requests.start).toHaveLength(0)
@@ -166,6 +178,28 @@ try {
       expect(requests.start[0].requestId).toMatch(/^[A-Za-z0-9_-]{16,128}$/)
       await expect(dialog.getByRole('status').filter({ hasText: 'Copying to Laptop…' })).toBeVisible()
       await expect(dialog.getByRole('status').filter({ hasText: 'Copied to 2 machines.' })).toBeVisible({ timeout: 12000 })
+      expect(await notOverflowing(page)).toBe(true)
+      expect(errors).toEqual([])
+      await context.close()
+    }
+  }
+
+  // Ten machines: the one button stays on screen however far the list is scrolled, with its order list above it.
+  if (run('ten machines')) {
+    for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
+      const many = Array.from({ length: 10 }, (_, index) => machine(`a-m${index}`, `Machine ${index + 1}`, 'ready', { widens: index === 3, files: [index === 3 ? settingsMerge : instructionsMerge] }))
+      const world = { review: review({ machines: many }) }
+      const { context, page, errors } = await open(shape(width, theme), world)
+      const dialog = await openDialog(page)
+      await readSource(dialog)
+      const copyTo = dialog.getByRole('button', { name: 'Copy to 10 machines', exact: true })
+      await expect(copyTo).toBeInViewport({ ratio: 1 })
+      await dialog.locator('li[data-machine="Machine 10"]').scrollIntoViewIfNeeded()
+      await expect(copyTo).toBeInViewport({ ratio: 1 })
+      await expect(dialog.getByRole('region', { name: 'Copy order' }).locator('li')).toHaveCount(10)
+      if (width === 390) expect((await copyTo.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      await dialog.getByRole('region', { name: 'Copy order' }).scrollIntoViewIfNeeded()
+      await capture(page, `fleet-setup-review-10-${width}-${theme}`)
       expect(await notOverflowing(page)).toBe(true)
       expect(errors).toEqual([])
       await context.close()
@@ -185,13 +219,24 @@ try {
       await readSource(dialog)
       const row = dialog.locator('li[data-machine="Laptop"]')
       await expect(row.getByRole('note')).toContainText('This copy lets agents do more without asking on Laptop: Claude Code permissions.')
+      // The checkbox says both its state and the warning.
+      await expect(row.getByRole('checkbox')).toHaveAccessibleDescription(/Ready\s+This copy lets agents do more without asking on Laptop/)
       await expect(dialog.locator('li[data-machine="Build server"]').getByRole('note')).toHaveCount(0)
 
       await dialog.getByRole('button', { name: 'Copy to 2 machines', exact: true }).click()
       const confirm = page.getByRole('dialog', { name: 'Copy to 2 machines?', exact: true })
-      await expect(confirm).toContainText('This copy lets agents do more without asking on Laptop: Claude Code permissions.')
+      // The warning is its own bordered block above the machines, naming what the plan says would widen.
+      const warning = confirm.locator('.widen.block')
+      await expect(warning).toContainText('This copy lets agents do more without asking.')
+      await expect(warning).toContainText('Laptop')
+      await expect(warning).toContainText('Claude Code settings.json: permissions')
+      expect(await warning.evaluate(node => getComputedStyle(node).borderLeftWidth === getComputedStyle(node).borderTopWidth)).toBe(true)
+      expect(await warning.evaluate(node => node.compareDocumentPosition(node.parentElement.querySelector('ol')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy()
+      await expect(confirm.locator('p.never')).toHaveText('Credentials, MCP servers, model defaults and project files are never copied.')
       const go = confirm.getByRole('button', { name: 'Copy to 2 machines', exact: true })
-      const word = confirm.getByRole('textbox', { name: 'Type copy to confirm' })
+      // The word is still exactly `copy`; its label says whose permissions widen and it points at the warning.
+      const word = confirm.getByRole('textbox', { name: 'Type copy to allow wider permissions on Laptop' })
+      expect(await word.getAttribute('aria-describedby')).toBe(await warning.getAttribute('id'))
       // The typed word is where focus starts. It is not given away as a placeholder, and its border can be seen.
       await expect(word).toBeFocused()
       expect(await word.getAttribute('placeholder')).toBeNull()
@@ -218,7 +263,8 @@ try {
       await word.press('Enter')
       await expect.poll(() => requests.start.length).toBe(1)
       expect(requests.start[0]).toMatchObject({ readId: 'read-1', agents: ['a-laptop', 'a-build'], confirm: 'copy' })
-      await expect(dialog.getByRole('status').filter({ hasText: 'Copying to Laptop…' })).toBeVisible()
+      // Focus goes to the sentence that says what happened, not to a button that is gone.
+      await expect(dialog.getByRole('status').filter({ hasText: 'Copying to Laptop…' })).toBeFocused()
       expect(await notOverflowing(page)).toBe(true)
       expect(errors).toEqual([])
       await context.close()
@@ -228,6 +274,7 @@ try {
     const dialog = await openDialog(left.page)
     await readSource(dialog)
     await dialog.getByRole('region', { name: 'Copy order' }).getByRole('button', { name: 'Leave out Laptop' }).click()
+    await expect(dialog.getByRole('region', { name: 'Copy order' })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Copy to 1 machine', exact: true }).click()
     const confirm = left.page.getByRole('dialog', { name: 'Copy to 1 machine?', exact: true })
     await expect(confirm.getByRole('textbox')).toHaveCount(0)
@@ -288,9 +335,11 @@ try {
       await page.getByRole('button', { name: 'Open it', exact: true }).click()
       const dialog = page.getByRole('dialog', { name: 'Copy a setup to other machines' })
       const status = dialog.getByRole('status').filter({ hasText: 'Stopped on Build server.' })
-      await expect(status).toContainText('Retry it, skip it and carry on, or abandon the copy.')
+      // The status is the headline alone; the rest of the block sits beside it.
+      await expect(status).toHaveText('Stopped on Build server.')
+      await expect(dialog.locator('.overview')).toContainText('Retry Build server, skip it and carry on, or abandon the copy.')
       await expect(dialog.locator('li[data-machine="Build server"]')).toContainText("That machine couldn't write a file. It put back what it had already changed.")
-      await expect(status).toContainText('From Studio, read')
+      await expect(dialog.locator('.overview')).toContainText('From Studio, read')
       // Nothing to read while a copy is waiting on a decision.
       await expect(dialog.getByRole('button', { name: 'Read setup' })).toHaveCount(0)
       await expect(dialog.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
@@ -300,16 +349,19 @@ try {
       expect(await notOverflowing(page)).toBe(true)
       if (width === 1280 && theme === 'light') {
         await dialog.getByRole('button', { name: 'Retry', exact: true }).click()
-        await expect(dialog.getByRole('status').filter({ hasText: 'Copying to Build server…' })).toBeVisible()
+        await expect(dialog.getByRole('status').filter({ hasText: 'Copying to Build server…' })).toBeFocused()
         expect(requests.steps).toEqual(['retry'])
       } else if (theme === 'light') {
         await dialog.getByRole('button', { name: 'Skip and continue', exact: true }).click()
-        await expect(dialog.getByRole('status').filter({ hasText: 'Copied to 2 machines.' })).toContainText('Build server was skipped.')
+        await expect(dialog.getByRole('status').filter({ hasText: 'Copied to 2 machines.' })).toBeFocused()
+        await expect(dialog.locator('.overview')).toContainText('Build server was skipped.')
         expect(requests.steps).toEqual(['skip'])
       } else {
         await dialog.getByRole('button', { name: 'Abandon copy', exact: true }).click()
-        await expect(dialog.getByRole('status').filter({ hasText: 'The copy was abandoned.' })).toBeVisible()
+        await expect(dialog.getByRole('status').filter({ hasText: 'The copy was abandoned.' })).toBeFocused()
         await expect(dialog.getByRole('button', { name: 'Start another copy' })).toBeVisible()
+        // The button is not part of the live region.
+        await expect(dialog.getByRole('status').filter({ hasText: 'Start another copy' })).toHaveCount(0)
         expect(requests.steps).toEqual(['abandon'])
       }
       expect(errors).toEqual([])
@@ -335,7 +387,7 @@ try {
       await readSource(dialog)
       await dialog.getByRole('button', { name: 'Copy to 2 machines', exact: true }).click()
       const confirm = page.getByRole('dialog', { name: 'Copy to 2 machines?', exact: true })
-      await confirm.getByRole('textbox', { name: 'Type copy to confirm' }).fill('copy')
+      await confirm.getByRole('textbox', { name: 'Type copy to allow wider permissions on Laptop' }).fill('copy')
       await confirm.getByRole('button', { name: 'Copy to 2 machines', exact: true }).click()
       await expect(dialog.getByRole('status').filter({ hasText: 'Copied to 2 machines.' })).toBeVisible({ timeout: 12000 })
       await expect(dialog.getByRole('button', { name: 'Undo copy on Laptop' })).toBeVisible()
@@ -354,10 +406,35 @@ try {
       await expect(dialog.locator('li[data-machine="Laptop"]')).toContainText('Undone')
       await expect(dialog.getByRole('button', { name: 'Undo copy on Laptop' })).toHaveCount(0)
       await expect(dialog.getByRole('button', { name: 'Undo copy on Build server' })).toBeVisible()
-      await expect(dialog.getByRole('status').filter({ hasText: 'Copied to 1 machine.' })).toContainText('1 undone.')
+      await expect(dialog.getByRole('status').filter({ hasText: 'Copied to 1 machine.' })).toBeFocused()
+      await expect(dialog.locator('.overview')).toContainText('1 undone.')
+      // An undone machine says so and no longer says what the copy changed.
+      await expect(dialog.locator('li[data-machine="Laptop"]')).toContainText('Put back as it was.')
+      await expect(dialog.locator('li[data-machine="Laptop"]')).not.toContainText('Replaces the text')
+      await expect(dialog.locator('li[data-machine="Build server"]')).toContainText('Replaces the text')
       await capture(page, `fleet-setup-undone-${width}-${theme}`)
       expect(await notOverflowing(page)).toBe(true)
 
+      expect(errors).toEqual([])
+      await context.close()
+    }
+  }
+
+  // Once every copied machine is put back, the headline stops reading as a success.
+  if (run('all undone')) {
+    for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
+      const undone = batch('done', applied(0, 'a-laptop', 'Laptop', { undoneAt: 5 }), applied(1, 'a-build', 'Build server', { undoneAt: 6 }))
+      const { context, page, errors } = await open(shape(width, theme), { active: null, poll: () => undone })
+      await page.addInitScript(() => localStorage.setItem('reet-fleet-setup-last', 'b1'))
+      const dialog = await openDialog(page)
+      const status = dialog.getByRole('status').filter({ hasText: 'Copy undone on 2 machines.' })
+      await expect(status).toBeVisible()
+      await expect(dialog.locator('.overview')).toHaveAttribute('data-state', 'undone')
+      await expect(dialog.getByText('Put back as it was.')).toHaveCount(2)
+      await expect(dialog.locator('li[data-machine="Laptop"]')).not.toContainText('Replaces the text')
+      await expect(dialog.getByRole('button', { name: /^Undo copy/ })).toHaveCount(0)
+      expect(await status.evaluate(node => getComputedStyle(node).color)).toBe(await page.evaluate(() => { const probe = document.createElement('div'); probe.style.color = 'var(--muted)'; document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color }))
+      await capture(page, `fleet-setup-undone-all-${width}-${theme}`)
       expect(errors).toEqual([])
       await context.close()
     }

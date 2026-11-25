@@ -103,18 +103,39 @@ test('members have a label, a note and an undo only when one can be undone', () 
   }
 })
 
+test('instruction files say Replace, settings say Merge, and the never-copied line is fixed', () => {
+  assert.equal(f.fileChip({ kind: 'instructions', state: 'merge' }), 'Replace')
+  assert.equal(f.fileChip({ kind: 'settings', state: 'merge' }), 'Merge')
+  assert.equal(f.fileChip({ kind: 'instructions', state: 'create' }), 'Create')
+  assert.equal(f.fileChip({ kind: 'settings', state: 'unchanged' }), 'Unchanged')
+  assert.equal(f.fileChip({ kind: 'settings', state: 'blocked' }), 'Blocked')
+  assert.equal(f.NEVER_COPIED, 'Credentials, MCP servers, model defaults and project files are never copied.')
+})
+
+test('the warning lists only what the plan says, and the typed word names who widens', () => {
+  const files = [{ agent: 'claude', name: 'settings.json', widens: ['permissions'], added: ['one line'] }, { agent: 'claude', name: 'CLAUDE.md', added: ['not a widening file'] }]
+  assert.deepEqual(f.widenEntries(files), [{ file: 'Claude Code settings.json', fields: ['permissions'], added: ['one line'] }])
+  assert.deepEqual(f.widenEntries([{ agent: 'pi', name: 'settings.json' }]), [])
+  assert.equal(f.confirmLabel([{ host: 'Laptop', widens: true }, { host: 'Build', widens: false }]), 'Type copy to allow wider permissions on Laptop')
+  assert.equal(f.confirmLabel([{ host: 'Laptop', widens: true }, { host: 'Build', widens: true }, { host: 'Mini', widens: true }]), 'Type copy to allow wider permissions on Laptop, Build and Mini')
+  assert.equal(f.confirmLabel([{ host: 'Build', widens: false }]), 'Type copy to allow wider permissions')
+})
+
 test('the batch reads as one sentence', () => {
   const m = (position, host, state, extra = {}) => ({ position, agentId: `a-${host}`, host, state, widens: false, files: [], ...extra })
   assert.deepEqual(f.setupBatchSummary({ state: 'running', members: [m(0, 'Laptop', 'applied'), m(1, 'Build', 'running'), m(2, 'Mini', 'pending'), m(3, 'Gone', 'excluded')] }),
     { state: 'working', headline: 'Copying to Build…', detail: '1 of 3 done.' })
   const stopped = f.setupBatchSummary({ state: 'stopped', members: [m(0, 'Build', 'failed', { code: 'write_failed' })] })
   assert.equal(stopped.headline, 'Stopped on Build.')
-  assert.equal(stopped.detail, 'Retry it, skip it and carry on, or abandon the copy.')
+  assert.equal(stopped.detail, 'Retry Build, skip it and carry on, or abandon the copy.')
+  assert.equal(f.setupBatchSummary({ state: 'stopped', members: [] }).detail, 'Retry it, skip it and carry on, or abandon the copy.')
   assert.deepEqual(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied'), m(1, 'B', 'applied'), m(2, 'C', 'skipped')] }),
     { state: 'finished', headline: 'Copied to 2 machines.', detail: 'C was skipped.' })
   assert.equal(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied', { undoneAt: 1 }), m(1, 'B', 'applied')] }).headline, 'Copied to 1 machine.')
   assert.equal(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied', { undoneAt: 1 }), m(1, 'B', 'applied')] }).detail, '1 undone.')
-  assert.equal(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied', { undoneAt: 1 })] }).headline, 'Every copy was undone.')
+  assert.deepEqual(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied', { undoneAt: 1 }), m(1, 'B', 'applied', { undoneAt: 1 })] }), { state: 'undone', headline: 'Copy undone on 2 machines.', detail: '' })
+  assert.equal(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied', { undoneAt: 1 })] }).headline, 'Copy undone on 1 machine.')
+  assert.equal(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'applied', { undoneAt: 1 }), m(1, 'B', 'applied')] }).state, 'finished')
   assert.equal(f.setupBatchSummary({ state: 'done', members: [m(0, 'A', 'skipped')] }).headline, 'Nothing was copied.')
   assert.equal(f.setupBatchSummary({ state: 'abandoned', members: [] }).headline, 'The copy was abandoned.')
   assert.equal(f.setupBatchCanAbandon({ state: 'stopped', members: [m(0, 'A', 'failed')] }), true)

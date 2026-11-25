@@ -238,7 +238,7 @@
 >
  {#snippet actions()}{#if canWrite}<button class="btn" type="button" onclick={() => copyOpen = true}>Copy to other machines</button><button class="btn primary" onclick={() => creating = !creating} aria-expanded={creating}>Create a setup</button>{/if}{/snippet}
 </PageHeader>
-{#if copyRunning && !copyOpen}<p class="notice" role="status">A setup copy is in progress. <button class="btn quiet" type="button" onclick={() => copyOpen = true}>Open it</button></p>{/if}
+{#if copyRunning && !copyOpen}<p class="notice"><span role="status">A setup copy is in progress.</span> <button class="btn quiet" type="button" onclick={() => copyOpen = true}>Open it</button></p>{/if}
 {#if copyOpen}<FleetSetup {timeZone} {dateFormat} onclose={() => { copyOpen = false; copyRunning = false; activeFleetSetupBatch().then((batch) => { copyRunning = !!batch }).catch(() => {}) }} />{/if}
 {#if creating}
  <section class="empty-state"><h2>Create a setup locally</h2><p>Run the wizard on the machine you want to capture. It creates an encrypted snapshot, saves a named profile and offers to sync its metadata here.</p><pre><code>reet setup profile</code></pre><CopyButton text="reet setup profile" label="Copy wizard command" /><p>The snapshot stays local unless you explicitly upload it to S3. Keep its passphrase somewhere you can recover independently.</p><a class="btn quiet" href="/machines#connect-machine">Install or connect the CLI →</a></section>

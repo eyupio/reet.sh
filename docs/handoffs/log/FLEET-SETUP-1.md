@@ -93,3 +93,13 @@ marks, Undone in the muted colour and without its file line, number beside name 
 **Checked (web).** `npm run check`, `node --test` for `fleetSetup.test.mjs` and `theme.test.mjs`, `npm run build`, and
 `web/tests/fleet-setup.e2e.mjs` (mocked API, 390 and 1280 px, light and dark) plus `fleet-software.e2e.mjs` and
 `setups.e2e.mjs` unchanged. **Not checked.** Against a real controller or machines; a real screen reader; Safari.
+
+**After critique.** The widening warning is its own bordered block above the machines in the question, naming each file and the
+fields the plan says widen (and any added lines it lists; the API gives lines for instruction files only today). The typed
+word is still exactly `copy`, but its label names the machines that widen and the input is described by the warning. "Never
+copied" is a plain line in the review and the question. Instruction files show a Replace chip (settings stay Merge). The
+progress headline alone is the live region, and focus moves to it after start, Undo, Retry, Skip and Abandon. An undone
+machine says "Put back as it was." and an all-undone copy reads "Copy undone on N machines." in the muted colour. The
+action bar is pinned to the bottom of the dialog (`data-shell-foot`; on a phone the whole sheet scrolls, so the bar sticks
+to it), and the order list shows only with more than one machine ticked. A stopped copy names the machine to retry.
+

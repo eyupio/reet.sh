@@ -39,6 +39,20 @@ export function blockedReason(reason?: string): string {
   }
 }
 
+/** Said on its own line in the review and again in the question, so it is never missed. */
+export const NEVER_COPIED = 'Credentials, MCP servers, model defaults and project files are never copied.'
+export const KEPT_ONLY_WHILE_COPYING = 'The controller holds the copied text only until the copy finishes, and for 24 hours at most.'
+
+/** The word on a file's chip: an instruction file's text is replaced, a settings file is merged field by field. */
+export function fileChip(file: Pick<FleetSetupFile, 'kind' | 'state'>): string {
+  switch (file.state) {
+    case 'create': return 'Create'
+    case 'merge': return file.kind === 'instructions' ? 'Replace' : 'Merge'
+    case 'unchanged': return 'Unchanged'
+    default: return 'Blocked'
+  }
+}
+
 /** One line for what a machine's plan does with one file. */
 export function fleetFileLine(file: Pick<FleetSetupFile, 'agent' | 'kind' | 'name' | 'state' | 'fields' | 'reason'>): string {
   const what = `${agentName(file.agent)} ${file.name}`
@@ -56,6 +70,17 @@ export function fleetFileLine(file: Pick<FleetSetupFile, 'agent' | 'kind' | 'nam
 /** The permission fields that would let agents do more without asking, named with their agent: "Claude Code permissions". */
 export function widenedFields(files: Pick<FleetSetupFile, 'agent' | 'widens'>[]): string[] {
   return [...new Set(files.flatMap(file => (file.widens ?? []).map(field => `${agentName(file.agent)} ${field}`)))]
+}
+
+/** What a widening machine would be given: each file that widens, the fields that widen and any added lines the plan lists. Only what the plan says. */
+export function widenEntries(files: Pick<FleetSetupFile, 'agent' | 'name' | 'widens' | 'added'>[]): { file: string; fields: string[]; added: string[] }[] {
+  return files.filter(file => file.widens?.length).map(file => ({ file: `${agentName(file.agent)} ${file.name}`, fields: file.widens ?? [], added: file.added ?? [] }))
+}
+
+/** The typed word's label, naming the machines whose permissions widen. */
+export function confirmLabel(machines: Pick<FleetSetupMachine, 'host' | 'widens'>[]): string {
+  const hosts = machines.filter(machine => machine.widens).map(machine => machine.host)
+  return `Type ${CONFIRM_WORD} to allow wider permissions${hosts.length ? ` on ${list(hosts)}` : ''}`
 }
 
 /** The warning for a machine whose copy widens what agents may do, naming what widens. */
@@ -188,7 +213,7 @@ export function setupMemberCanUndo(member: Pick<FleetSetupMember, 'state' | 'jou
 }
 
 /** The batch in one sentence, and one more line when something is worth saying. */
-export function setupBatchSummary(batch: Pick<FleetSetupBatch, 'state' | 'members'>): { state: 'working' | 'stopped' | 'finished'; headline: string; detail: string } {
+export function setupBatchSummary(batch: Pick<FleetSetupBatch, 'state' | 'members'>): { state: 'working' | 'stopped' | 'finished' | 'undone'; headline: string; detail: string } {
   const members = batch.members.filter(member => member.state !== 'excluded')
   const name = (member: FleetSetupMember) => member.host || member.agentId
   switch (batch.state) {
@@ -200,7 +225,7 @@ export function setupBatchSummary(batch: Pick<FleetSetupBatch, 'state' | 'member
     }
     case 'stopped': {
       const failed = setupFailedMember(batch)
-      return { state: 'stopped', headline: failed ? `Stopped on ${name(failed)}.` : 'Stopped on a failure.', detail: 'Retry it, skip it and carry on, or abandon the copy.' }
+      return { state: 'stopped', headline: failed ? `Stopped on ${name(failed)}.` : 'Stopped on a failure.', detail: failed ? `Retry ${name(failed)}, skip it and carry on, or abandon the copy.` : 'Retry it, skip it and carry on, or abandon the copy.' }
     }
     case 'done': {
       const applied = members.filter(member => member.state === 'applied')
@@ -208,8 +233,9 @@ export function setupBatchSummary(batch: Pick<FleetSetupBatch, 'state' | 'member
       const skipped = members.filter(member => member.state === 'skipped').map(name)
       const kept = applied.length - undone
       return {
-        state: 'finished',
-        headline: kept ? `Copied to ${machinesLabel(kept)}.` : applied.length ? 'Every copy was undone.' : 'Nothing was copied.',
+        // Once every copied machine is put back, the copy is not a success to show as one.
+        state: !kept && applied.length ? 'undone' : 'finished',
+        headline: kept ? `Copied to ${machinesLabel(kept)}.` : applied.length ? `Copy undone on ${machinesLabel(applied.length)}.` : 'Nothing was copied.',
         detail: [undone && kept ? `${undone} undone.` : '', skipped.length ? `${list(skipped)} ${skipped.length === 1 ? 'was' : 'were'} skipped.` : ''].filter(Boolean).join(' '),
       }
     }

@@ -1,4 +1,4 @@
-import type { FleetSoftwareRow, SoftwareBatch, SoftwareBatchMember, SoftwareEntry } from './terminal/api'
+import type { FleetSoftwareRow, SoftwareBatch, SoftwareBatchAction, SoftwareBatchMember, SoftwareEntry } from './terminal/api'
 export type SoftwarePlanAction = 'install' | 'update' | 'rollback' | 'remove'
 
 /** One line of installation evidence, including what is absent and why. */
@@ -50,17 +50,50 @@ export function fleetSoftwareCanApply(row: Pick<FleetSoftwareRow, 'state' | 'ses
   return (row.state === 'install' || row.state === 'update') && row.canApply && row.sessionsRunning === 0
 }
 
+/**
+ * Why this machine can't take part in a rollback or remove batch, or '' when it can. Only reet's own copy is ever
+ * touched, and a rollback needs the earlier version reet kept.
+ */
+export function fleetSoftwareCannot(row: Pick<FleetSoftwareRow, 'state' | 'managed' | 'previous' | 'version' | 'sessionsRunning' | 'canApply'>, action: 'rollback' | 'remove'): string {
+  if (row.state === 'unknown') return "reet couldn't read how OpenCode is installed."
+  if (!row.managed) return row.version ? "OpenCode here was installed outside reet, so reet won't touch it." : "OpenCode isn't installed."
+  if (action === 'rollback' && !row.previous) return 'No earlier version is kept.'
+  if (row.sessionsRunning > 0) {
+    const verb = action === 'rollback' ? 'roll back' : 'remove its copy'
+    return `${row.sessionsRunning} OpenCode ${row.sessionsRunning === 1 ? 'session is' : 'sessions are'} running; reet refuses to ${verb} until ${row.sessionsRunning === 1 ? 'it stops' : 'they stop'}.`
+  }
+  if (!row.canApply) return 'Update reet on this machine to apply.'
+  return ''
+}
+
+/** What the chosen batch action would do on this machine. */
+export function fleetSoftwareActionLabel(row: Pick<FleetSoftwareRow, 'state' | 'version' | 'target' | 'previous'>, action: SoftwareBatchAction): string {
+  if (action === 'rollback') return `Roll back to ${row.previous ?? 'the kept version'}`
+  if (action === 'remove') return `Remove reet's copy${row.version ? ` ${row.version}` : ''}`
+  return fleetSoftwareLabel(row)
+}
+
+/** The button, and the question it asks, for a rollback or remove batch of this many machines. */
+export function batchActionButton(action: 'rollback' | 'remove', count: number): string {
+  return action === 'rollback' ? `Roll back ${machinesLabel(count)}` : `Remove reet's copy from ${machinesLabel(count)}`
+}
+
 /** The action and target a batch member was frozen with. */
 export function batchMemberAction(member: Pick<SoftwareBatchMember, 'action' | 'target'>): string {
   if (member.action === 'install') return `Install ${member.target ?? 'the reviewed version'}`
   if (member.action === 'update') return `Update to ${member.target ?? 'the reviewed version'}`
+  if (member.action === 'rollback') return `Roll back to ${member.target ?? 'the kept version'}`
+  if (member.action === 'remove') return "Remove reet's copy"
   return ''
 }
 
 /** One line for a machine's place in a batch. */
-export function batchMemberLabel(member: Pick<SoftwareBatchMember, 'state' | 'version'>): string {
+export function batchMemberLabel(member: Pick<SoftwareBatchMember, 'state' | 'version'> & Partial<Pick<SoftwareBatchMember, 'action'>>): string {
   switch (member.state) {
-    case 'applied': return member.version ? `Applied ${member.version}` : 'Applied'
+    case 'applied':
+      if (member.action === 'remove') return 'Removed'
+      if (member.action === 'rollback') return member.version ? `Rolled back to ${member.version}` : 'Rolled back'
+      return member.version ? `Applied ${member.version}` : 'Applied'
     case 'running': return 'Applying'
     case 'failed': return 'Failed'
     case 'skipped': return 'Skipped'
@@ -83,6 +116,9 @@ export function batchMemberNote(member: Pick<SoftwareBatchMember, 'code' | 'reas
     case 'download_failed': return "The machine couldn't download the reviewed artifact. Nothing was changed."
     case 'checksum_failed': return "The downloaded artifact didn't match its recorded checksum. Nothing was installed."
     case 'install_failed': return "The machine couldn't install the reviewed artifact. The earlier version, if any, was kept."
+    case 'rollback_failed': return "The machine couldn't roll back to the kept version. Nothing was changed."
+    case 'remove_failed': return "The machine couldn't remove reet's copy. Nothing was changed."
+    case 'no_rollback': return 'No earlier version is kept on that machine.'
     case 'timed_out': return 'That machine took too long to apply the plan. Nothing was changed.'
     case 'busy': return 'That machine was already installing an agent.'
     case 'not_managed': return "reet didn't install that OpenCode, so it won't change it."
@@ -149,12 +185,14 @@ function batchSummary(batch: SoftwareBatch): FleetSoftwareSummary {
   const members = batch.members.filter(member => member.state !== 'excluded')
   const nameOf = (member: SoftwareBatchMember) => member.host || member.agentId
   const none = { button: '', ready: [] as string[] }
+  const action = batch.action ?? 'update'
+  const doing = action === 'rollback' ? 'Rolling back' : action === 'remove' ? "Removing reet's copy from" : 'Updating'
   switch (batch.state) {
     case 'pending':
     case 'running': {
       const done = members.filter(member => member.state === 'applied' || member.state === 'skipped').length
       const current = members.find(member => member.state === 'running')
-      return { ...none, state: 'working', headline: current ? `Updating ${nameOf(current)}…` : 'Updating your machines…', detail: `${done} of ${members.length} done.` }
+      return { ...none, state: 'working', headline: `${doing} ${current ? nameOf(current) : 'your machines'}…`, detail: `${done} of ${members.length} done.` }
     }
     case 'stopped': {
       const failed = batchFailedMember(batch)
@@ -165,7 +203,9 @@ function batchSummary(batch: SoftwareBatch): FleetSoftwareSummary {
       const skipped = members.filter(member => member.state === 'skipped').map(nameOf)
       return {
         ...none, state: 'finished',
-        headline: applied ? `Updated ${machinesLabel(applied)}.` : 'Nothing was updated.',
+        headline: applied
+          ? `${action === 'rollback' ? 'Rolled back' : action === 'remove' ? "Removed reet's copy from" : 'Updated'} ${machinesLabel(applied)}.`
+          : `Nothing was ${action === 'rollback' ? 'rolled back' : action === 'remove' ? 'removed' : 'updated'}.`,
         detail: skipped.length ? `${nameList(skipped)} ${skipped.length === 1 ? 'was' : 'were'} skipped.` : '',
       }
     }

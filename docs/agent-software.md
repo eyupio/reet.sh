@@ -107,8 +107,8 @@ row is built from stored evidence and names the machine's version, the plan it w
 run (install, update, none or needs attention), the target and source, and whether an
 OpenCode session would make reet refuse the apply. The review reads no machine.
 **Apply plan** runs the same per-machine request for that one machine after a
-confirmation; other machines are untouched. Rollback and remove stay in a
-machine's Settings.
+confirmation; other machines are untouched. A single machine's rollback and remove
+are in its Settings; several at once are a batch (below).
 
 ## Batch apply
 
@@ -119,6 +119,18 @@ order, and **Review batch** asks the same question as the one button, showing th
 machines, their actions, targets and sources before anything runs. The
 controller rebuilds each plan from stored evidence and freezes it, so a machine
 whose evidence no longer supports its plan is left out with the reason shown.
+
+Under **Machines**, **What to do** chooses the batch's one action: **Update (reviewed)**
+(each machine's reviewed install or update, the default), **Roll back** or **Remove
+reet's copy**. A choice is offered only when a machine can take it. A rollback batch
+includes only a machine whose reet-managed copy kept an earlier version, and goes
+back to that version. A remove batch includes only a reet-managed copy, and deletes
+it with the versions it kept; configuration, history and credentials stay, and
+OpenCode installed outside reet is never touched. Each other machine row says why it
+cannot, and the controller leaves such a machine out with the same kind of reason.
+Both ask for the action word to be typed (`rollback` or `remove`) before the final
+button works, and the controller refuses a rollback or remove batch whose `confirm`
+is not that word (422 `software_confirm_required`), so a script cannot skip it.
 
 A batch applies to one machine at a time, in that order, and stops at the first
 failure. A stopped batch names the failed machine and offers **Retry**, **Skip and
@@ -134,11 +146,15 @@ left running by a controller restart is tried again and reconciled the same way.
 At most one batch is active per signed-in person, and a machine can be in only one.
 
 The batch is a durable record: `POST /api/v2/software/batches` creates it from an
-idempotent `requestId` and an ordered `agents` list, `GET
+idempotent `requestId` and an ordered `agents` list (plus, for a rollback or remove,
+`"action": "rollback"` or `"remove"` and the matching `confirm`; no action, or
+`"update"`, is the reviewed install or update, and any other action is a 400
+`software_action_invalid`), `GET
 /api/v2/software/batches/{id}` reads it, and `…/members/{position}/retry`,
 `…/members/{position}/skip` and `…/abandon` move it on. Progress is read by
 polling. Activity records a `software-batch` event at the start and at each
-terminal state, plus `software-batch-retry`, `-skip` and `-abandon`.
+terminal state, plus `software-batch-retry`, `-skip` and `-abandon`; each records the
+batch's `action` (`update`, `rollback` or `remove`), which the batch also carries.
 
 ## Controller artifact mirror
 

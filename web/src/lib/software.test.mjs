@@ -268,3 +268,26 @@ test('the plain sentences stay plain: no internal words', () => {
   ]
   for (const summary of all) assert.ok(!/batch member|agentId|position|excluded|evidence|plan\b/i.test(`${summary.headline} ${summary.detail} ${summary.button}`), `${summary.headline} | ${summary.detail}`)
 })
+
+test('rollback and remove batches touch only reet copies and say why not', async () => {
+  const { fleetSoftwareCannot, fleetSoftwareActionLabel, batchActionButton } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+  const row = { agentId: 'a', host: 'Laptop', state: 'none', version: '1.19.5', previous: '1.18.0', managed: true, sessionsRunning: 0, canApply: true, sentence: '' }
+  assert.equal(fleetSoftwareCannot(row, 'rollback'), '')
+  assert.equal(fleetSoftwareCannot(row, 'remove'), '')
+  assert.equal(fleetSoftwareCannot({ ...row, previous: undefined }, 'rollback'), 'No earlier version is kept.')
+  assert.match(fleetSoftwareCannot({ ...row, managed: false }, 'remove'), /installed outside reet/)
+  assert.equal(fleetSoftwareCannot({ ...row, managed: false, version: undefined }, 'remove'), "OpenCode isn't installed.")
+  assert.match(fleetSoftwareCannot({ ...row, sessionsRunning: 1 }, 'rollback'), /refuses to roll back until it stops/)
+  assert.equal(fleetSoftwareActionLabel(row, 'rollback'), 'Roll back to 1.18.0')
+  assert.equal(batchActionButton('remove', 2), "Remove reet's copy from 2 machines")
+  const removing = { id: 'b', tool: 'opencode', state: 'running', action: 'remove', createdAt: 1, updatedAt: 1, members: [{ position: 0, agentId: 'a', host: 'Laptop', action: 'remove', state: 'running' }] }
+  assert.equal(fleetSoftwareSummary([], removing).headline, "Removing reet's copy from Laptop…")
+  assert.equal(fleetSoftwareSummary([], { ...removing, state: 'done', members: [{ ...removing.members[0], state: 'applied' }] }).headline, "Removed reet's copy from 1 machine.")
+  assert.equal(batchMemberNote({ code: 'remove_failed' }), "The machine couldn't remove reet's copy. Nothing was changed.")
+})
+
+test('an applied rollback or remove says what happened', () => {
+  assert.equal(batchMemberLabel({ state: 'applied', action: 'remove' }), 'Removed')
+  assert.equal(batchMemberLabel({ state: 'applied', action: 'rollback', version: '1.18.0' }), 'Rolled back to 1.18.0')
+  assert.equal(batchMemberLabel({ state: 'applied', action: 'update', version: '1.19.5' }), 'Applied 1.19.5')
+})

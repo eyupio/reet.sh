@@ -16,14 +16,18 @@
     softwareBatch,
     type FleetSoftwareRow,
     type SoftwareBatch,
+    type SoftwareBatchAction,
   } from './terminal/api'
   import {
+    batchActionButton,
     batchCanAbandon,
     batchMemberAction,
     batchMemberLabel,
     batchMemberNote,
     batchStateLabel,
+    fleetSoftwareActionLabel,
     fleetSoftwareCanApply,
+    fleetSoftwareCannot,
     fleetSoftwareLabel,
     fleetSoftwareGuide,
     fleetSoftwarePress,
@@ -63,7 +67,16 @@
       .map((agentId) => rows.find((row) => row.agentId === agentId))
       .filter((row): row is FleetSoftwareRow => !!row),
   )
+  // A batch does one thing. Update (reviewed) is today's install or update per machine; rollback and remove touch only reet's
+  // own copy and ask for the word to be typed, which the controller checks too.
+  let batchAction = $state<SoftwareBatchAction>('update')
+  let confirmingAction = $state<SoftwareBatchAction>('update')
+  let typedWord = $state('')
+  const canDo = (row: FleetSoftwareRow, action: SoftwareBatchAction) => action === 'update' ? fleetSoftwareCanApply(row) : !fleetSoftwareCannot(row, action)
+  const offered = $derived((['update', 'rollback', 'remove'] as const).filter(action => action === 'update' || rows.some(row => canDo(row, action))))
   const confirmPress = $derived(fleetSoftwarePress(confirmRows))
+  const confirmButton = $derived(confirmingAction === 'update' ? confirmPress.button : batchActionButton(confirmingAction, confirming.length))
+  const confirmReady = $derived(confirmingAction === 'update' || typedWord.trim().toLowerCase() === confirmingAction)
   const batchActive = $derived(!!batch && batch.state !== 'done' && batch.state !== 'abandoned')
   // The page leads with one sentence and one button. Choosing machines, their order and one-off updates sit under Machines.
   const summary = $derived(fleetSoftwareSummary(rows, batch))
@@ -75,7 +88,8 @@
     error = ''
     try {
       rows = await fleetSoftwarePlans()
-      selection = selection.filter((agentId) => rows.some((row) => row.agentId === agentId && fleetSoftwareCanApply(row)))
+      if (!offered.includes(batchAction)) batchAction = 'update'
+      selection = selection.filter((agentId) => rows.some((row) => row.agentId === agentId && canDo(row, batchAction)))
       try { mirror = await getSoftwareMirror() } catch { mirror = null }
       // The dialog unmounts when closed; a batch keeps running without it.
       if (!batch) {
@@ -109,22 +123,31 @@
     selection = next
   }
 
+  function chooseAction(action: SoftwareBatchAction) {
+    batchAction = action
+    selection = selection.filter((agentId) => rows.some((row) => row.agentId === agentId && canDo(row, action)))
+  }
+
   // Asks once before anything starts, naming the machines in order.
-  function askToStart(ids: string[]) {
+  function askToStart(ids: string[], action: SoftwareBatchAction = 'update') {
     if (!ids.length) return
     batchError = ''
+    typedWord = ''
+    confirmingAction = action
     confirming = [...ids]
     batchDialog?.showModal()
   }
 
   // Starts one batch for these machines, in this order, once the question has been answered.
   async function startBatch(ids: string[], created?: () => void) {
-    if (batchBusy || !ids.length) return
+    if (batchBusy || !ids.length || !confirmReady) return
     batchBusy = true
     batchError = ''
+    const action = confirmingAction
     try {
-      batch = await createSoftwareBatch(crypto.randomUUID(), 'opencode', ids)
+      batch = await createSoftwareBatch(crypto.randomUUID(), 'opencode', ids, action === 'update' ? undefined : { action, confirm: typedWord.trim().toLowerCase() })
       selection = []
+      batchAction = 'update'
       created?.()
       await load()
       queuePoll()
@@ -262,7 +285,7 @@
       <div>
         <p class="eyebrow" data-shell-aside>Software</p>
         <h2 id={`${id}-title`}>Fleet software</h2>
-        <p class="lede" data-shell-aside>Keep OpenCode up to date on every machine. Rollback and remove stay in a machine's Settings.</p>
+        <p class="lede" data-shell-aside>Keep OpenCode up to date on every machine. Under Machines you can also roll back or remove reet's copy on several at once.</p>
         {#if mirror}<p class="hint mirror-line">Artifact mirror: {mirror.enabled ? `on${mirror.cached ? ', cached' : ', not cached yet'}${mirror.preferred ? ', machines try it before the registry' : ''}` : 'off'}. Owners and admins change it in Admin.</p>{/if}
       </div>
       <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close fleet software" data-shell-close><Icon name="x" size={18} /></button>
@@ -328,6 +351,21 @@
 
       <details class="machines" bind:open={machinesOpen}>
       <summary>Machines · {rows.length}</summary>
+      {#if !batchActive && offered.length > 1}
+        <div class="what" role="radiogroup" aria-labelledby={`${id}-what`}>
+          <span class="what-title" id={`${id}-what`}>What to do</span>
+          <div class="what-options">
+            {#each offered as action (action)}
+              <label class="what-option">
+                <input type="radio" name={`${id}-action`} value={action} checked={batchAction === action} onchange={() => chooseAction(action)} />
+                <span>{action === 'update' ? 'Update (reviewed)' : action === 'rollback' ? 'Roll back' : "Remove reet's copy"}</span>
+              </label>
+            {/each}
+          </div>
+          {#if batchAction === 'rollback'}<small class="hint">Only machines where reet kept an earlier version can roll back. Each goes back to the version named.</small>{/if}
+          {#if batchAction === 'remove'}<small class="hint">Only reet's own copy is removed, with the versions it kept. Its settings stay, and OpenCode installed outside reet is never touched.</small>{/if}
+        </div>
+      {/if}
       {#if !batchActive && selection.length > 0}
         <section class="selection" aria-label="Batch order">
           <div class="batch-head">
@@ -340,19 +378,19 @@
                 <span class="pos">{index + 1}</span>
                 <div class="copy">
                   <strong>{row.host}</strong>
-                  <small>{fleetSoftwareLabel(row)}</small>
+                  <small>{fleetSoftwareActionLabel(row, batchAction)}</small>
                 </div>
                 <div class="order-actions">
                   <button class="icon small" type="button" aria-label={`Move ${row.host} earlier`} disabled={index === 0} onclick={() => moveSelection(index, -1)}>↑</button>
                   <button class="icon small" type="button" aria-label={`Move ${row.host} later`} disabled={index === selection.length - 1} onclick={() => moveSelection(index, 1)}>↓</button>
-                  <button class="btn quiet" type="button" onclick={() => toggleSelection(row.agentId)}>Remove</button>
+                  <button class="btn quiet" type="button" onclick={() => toggleSelection(row.agentId)} aria-label={`Leave ${row.host} out of the batch`}>Leave out</button>
                 </div>
               </li>
             {/each}
           </ol>
           <div class="batch-foot">
             <p class="hint">{selection.length} {selection.length === 1 ? 'machine' : 'machines'} reviewed. reet stops at the first failure.</p>
-            <button class="btn primary" type="button" onclick={() => askToStart(selection)}>Review batch ({selection.length})</button>
+            <button class="btn primary" type="button" onclick={() => askToStart(selection, batchAction)}>Review batch ({selection.length})</button>
           </div>
         </section>
       {/if}
@@ -365,8 +403,9 @@
             {@const warning = fleetSoftwareWarning(row)}
             {@const canApply = fleetSoftwareCanApply(row)}
             {@const guide = fleetSoftwareGuide(row)}
+            {@const cannot = batchAction === 'update' ? '' : fleetSoftwareCannot(row, batchAction)}
             <li data-machine={row.host} data-state={row.state}>
-              {#if !batchActive && canApply}
+              {#if !batchActive && canDo(row, batchAction)}
                 <label class="pick">
                   <input
                     type="checkbox"
@@ -378,6 +417,10 @@
               {/if}
               <div class="copy">
                 <strong>{row.host}{#if row.version}{' '}<code>{row.version}</code>{/if}</strong>
+                {#if batchAction !== 'update'}
+                  <small class="label">{cannot ? `Can't ${batchAction === 'rollback' ? 'roll back' : 'remove'}` : fleetSoftwareActionLabel(row, batchAction)}</small>
+                  {#if cannot}<small class="warn">{cannot}</small>{/if}
+                {:else}
                 <small class="label">{fleetSoftwareLabel(row)}</small>
                 {#if guide}
                   <div class="guide" role="group" aria-label={`What to do for ${row.host}`}>
@@ -396,8 +439,9 @@
                 {#if notice[row.agentId]}<small class="notice-line">{notice[row.agentId]}</small>{/if}
                 {#if applyError[row.agentId]}<small class="error">{applyError[row.agentId]}</small>{/if}
                 {#if row.source}<small class="source">{row.source}</small>{/if}
+                {/if}
               </div>
-              {#if row.action && (row.state === 'install' || row.state === 'update')}
+              {#if batchAction === 'update' && row.action && (row.state === 'install' || row.state === 'update')}
                 <button
                   class="btn apply"
                   type="button"
@@ -415,7 +459,7 @@
       </details>
 
       <footer>
-        <p class="hint">{batchActive ? 'An update is in progress. Finish or abandon it before starting another.' : "Under Machines you can choose which to update, in what order, or update one on its own. Rollback and remove live in a machine's Settings."}</p>
+        <p class="hint">{batchActive ? 'A batch is in progress. Finish or abandon it before starting another.' : "Under Machines you can choose what to do, which machines, in what order, or update one on its own."}</p>
         <button class="btn" type="button" onclick={() => void load()} disabled={loading}>Refresh</button>
       </footer>
     {/if}
@@ -443,23 +487,35 @@
   </div>
 </dialog>
 
-<dialog bind:this={batchDialog} class="confirm" aria-labelledby={`${id}-batch`} onclose={() => { batchError = ''; confirming = [] }}>
+<dialog bind:this={batchDialog} class="confirm" aria-labelledby={`${id}-batch`} onclose={() => { batchError = ''; confirming = []; typedWord = '' }}>
   <div class="confirm-body">
-    <h2 id={`${id}-batch`}>{confirmPress.button}?</h2>
+    <h2 id={`${id}-batch`}>{confirmButton}?</h2>
     <p>{confirming.length} {confirming.length === 1 ? 'machine' : 'machines'} will be applied in this order, one at a time. A machine that isn't connected is skipped. reet stops at the first failure.</p>
     <ol class="ordered compact">
       {#each confirmRows as row, index (row.agentId)}
         <li>
           <span class="pos">{index + 1}</span>
-          <span class="copy"><strong>{row.host}</strong><small>{fleetSoftwareLabel(row)}</small>{#if row.source}<code>{row.source}</code>{/if}</span>
+          <span class="copy"><strong>{row.host}</strong><small>{fleetSoftwareActionLabel(row, confirmingAction)}</small>{#if confirmingAction === 'update' && row.source}<code>{row.source}</code>{/if}</span>
         </li>
       {/each}
     </ol>
-    <p class="hint">Each machine re-checks its own installation before it downloads anything. A machine whose installation changed since this review refuses and stops the batch.</p>
+    {#if confirmingAction === 'update'}
+      <p class="hint">Each machine re-checks its own installation before it downloads anything. A machine whose installation changed since this review refuses and stops the batch.</p>
+    {:else}
+      {#if confirmingAction === 'remove'}
+        <p class="warn">This deletes reet's own copy of OpenCode and the versions it kept on each machine. Its settings stay: configuration, history and credentials are not touched, and OpenCode installed outside reet is left alone.</p>
+      {:else}
+        <p class="warn">Each machine goes back to the version named above. reet verifies that kept version before it becomes current, and keeps the one it replaces so an update brings it back.</p>
+      {/if}
+      <p class="hint">Each machine re-checks its own installation first. A machine whose installation changed since this review refuses and stops the batch.</p>
+      <label class="typed-confirm"><span>Type <code>{confirmingAction}</code> to confirm</span>
+        <input bind:value={typedWord} autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={confirmingAction} />
+      </label>
+    {/if}
     {#if batchError}<p class="error" role="alert">{batchError}</p>{/if}
     <div class="confirm-actions">
       <button class="btn" type="button" onclick={() => batchDialog?.close()} disabled={batchBusy}>Cancel</button>
-      <button class="btn primary" type="button" onclick={() => void startBatch(confirming, () => batchDialog?.close())} disabled={batchBusy || confirming.length === 0}>{batchBusy ? 'Starting…' : confirmPress.button}</button>
+      <button class="btn primary" class:danger={confirmingAction !== 'update'} type="button" onclick={() => void startBatch(confirming, () => batchDialog?.close())} disabled={batchBusy || confirming.length === 0 || !confirmReady}>{batchBusy ? 'Starting…' : confirmButton}</button>
     </div>
   </div>
 </dialog>
@@ -540,6 +596,16 @@
   .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
   .confirm-actions .btn { min-height: 38px; padding: 8px 14px; }
   .confirm-actions .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+  .confirm-actions .primary.danger { border-color: var(--bad); background: var(--bad); color: var(--bg); }
+  .confirm-actions .primary:disabled { opacity: 0.55; cursor: not-allowed; }
+  .typed-confirm { display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
+  .typed-confirm input { height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--mono, monospace); }
+  .what { display: grid; gap: 8px; margin-bottom: 12px; }
+  .what-title { font-size: 0.875rem; font-weight: 600; }
+  .what-options { display: flex; flex-wrap: wrap; gap: 8px; }
+  .what-option { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 0.875rem; cursor: pointer; }
+  .what-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+  .what-option input { margin: 0; accent-color: var(--accent); }
   @media (max-width: 560px) {
     .overview { flex-wrap: wrap; padding: 14px; gap: 12px; }
     .overview-text { flex-basis: calc(100% - 28px); }
@@ -551,6 +617,6 @@
     .order-actions, .batch-actions { width: 100%; }
   }
   @media (pointer: coarse) {
-    footer .btn, .apply, .batch-actions .btn { min-height: 44px; }
+    footer .btn, .apply, .batch-actions .btn, .what-option, .typed-confirm input, .confirm-actions .btn { min-height: 44px; }
   }
 </style>

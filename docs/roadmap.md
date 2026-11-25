@@ -59,7 +59,6 @@ item above should reuse the states they define. Its stage 5 (first useful run) s
 Later:
 
 - **Fleet-wide agent configuration.** Configure agents across the whole fleet from one place. Today skills and setups are synced and restored per machine, with a reviewed plan before anything changes.
-- **Batch maintenance for every action.** Extend the reviewed batch beyond install and update to rollback and remove, keeping the destructive actions behind typed confirmation.
 
 Copy and paste (text and images), structured OpenCode chats, the session workspace (Overview, Changes, Files and GitHub
 views), YOLO sessions, **Needs you** (`attention-v1`), inline

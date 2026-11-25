@@ -128,18 +128,28 @@ func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, o)
 }
 
-func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
+// outcomeRevision reads the {"revision"} body that stop, stop following, archive
+// and report share. It has already answered when it returns false.
+func outcomeRevision(w http.ResponseWriter, r *http.Request, invalid, reload string) (int64, bool) {
 	var in struct {
 		Revision int64 `json:"revision"`
 	}
-	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
-		return
+	if !decodeStrictJSON(w, r, 1024, &in, invalid) {
+		return 0, false
 	}
 	if in.Revision < 1 {
-		writeErr(w, 400, "Reload this outcome before stopping it.")
+		writeErr(w, 400, reload)
+		return 0, false
+	}
+	return in.Revision, true
+}
+
+func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
+	revision, ok := outcomeRevision(w, r, "That outcome request is invalid.", "Reload this outcome before stopping it.")
+	if !ok {
 		return
 	}
-	o, err := s.gafferProviders.StopOutcome(s.uid(r), r.PathValue("id"), in.Revision)
+	o, err := s.gafferProviders.StopOutcome(s.uid(r), r.PathValue("id"), revision)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
@@ -158,17 +168,11 @@ func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
 // no longer wanted: no pipeline is followed any more, so it can be archived or
 // deleted. Sessions that still exist keep running.
 func (s *server) gafferOutcomeStopFollowing(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Revision int64 `json:"revision"`
-	}
-	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+	revision, ok := outcomeRevision(w, r, "That outcome request is invalid.", "Reload this outcome before stopping it.")
+	if !ok {
 		return
 	}
-	if in.Revision < 1 {
-		writeErr(w, 400, "Reload this outcome before stopping it.")
-		return
-	}
-	o, err := s.gafferProviders.StopFollowingOutcome(s.uid(r), r.PathValue("id"), in.Revision)
+	o, err := s.gafferProviders.StopFollowingOutcome(s.uid(r), r.PathValue("id"), revision)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
@@ -178,7 +182,6 @@ func (s *server) gafferOutcomeStopFollowing(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, 200, o)
 }
 
-// gafferOutcomeArchive puts a finished outcome away, or brings it back.
 // gafferOutcomeAutomation is the person giving Gaffer an outcome's decisions,
 // or taking them back. It never covers a merge or an agent's approval.
 func (s *server) gafferOutcomeAutomation(w http.ResponseWriter, r *http.Request) {
@@ -243,19 +246,14 @@ func (s *server) gafferOutcomeYolo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"outcome": o, "notSwitched": left})
 }
 
+// gafferOutcomeArchive puts a finished outcome away, or brings it back.
 func (s *server) gafferOutcomeArchive(archive bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Revision int64 `json:"revision"`
-		}
-		if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+		revision, ok := outcomeRevision(w, r, "That outcome request is invalid.", "Reload this outcome before changing it.")
+		if !ok {
 			return
 		}
-		if in.Revision < 1 {
-			writeErr(w, 400, "Reload this outcome before changing it.")
-			return
-		}
-		o, err := s.gafferProviders.ArchiveOutcome(s.uid(r), r.PathValue("id"), in.Revision, archive)
+		o, err := s.gafferProviders.ArchiveOutcome(s.uid(r), r.PathValue("id"), revision, archive)
 		if err != nil {
 			gafferOutcomeError(w, err)
 			return
@@ -318,7 +316,6 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, o)
 }
 
-// gafferOutcomeRetry tries a stopped pipeline again, at the person's request.
 // gafferOutcomeAdvance is the person moving a pipeline on from the stage in
 // hand. It is their decision, so it does not wait for Gaffer's review.
 func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
@@ -422,6 +419,7 @@ func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, o)
 }
 
+// gafferOutcomeRetry tries a stopped pipeline again, at the person's request.
 func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Revision       int64                     `json:"revision"`
@@ -486,17 +484,11 @@ func (s *server) gafferOutcomeAdd(w http.ResponseWriter, r *http.Request) {
 // outcome's pipelines. It starts nothing; any pipelines it proposes wait for
 // the person.
 func (s *server) gafferOutcomeReview(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Revision int64 `json:"revision"`
-	}
-	if !decodeStrictJSON(w, r, 1024, &in, "That report request is invalid.") {
+	revision, ok := outcomeRevision(w, r, "That report request is invalid.", "Reload this outcome before asking for a report.")
+	if !ok {
 		return
 	}
-	if in.Revision < 1 {
-		writeErr(w, 400, "Reload this outcome before asking for a report.")
-		return
-	}
-	o, err := s.gafferProviders.ReviewOutcome(r.Context(), s.gafferPrincipal(r), r.PathValue("id"), in.Revision)
+	o, err := s.gafferProviders.ReviewOutcome(r.Context(), s.gafferPrincipal(r), r.PathValue("id"), revision)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
@@ -627,10 +619,8 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 		var reply struct {
 			Error string `json:"error"`
 		}
-		message := reply.Error
-		if json.Unmarshal(capture.body.Bytes(), &reply) != nil || reply.Error == "" {
-			message = "That machine could not start the session."
-		} else {
+		message := "That machine could not start the session."
+		if json.Unmarshal(capture.body.Bytes(), &reply) == nil && reply.Error != "" {
 			message = reply.Error
 		}
 		// A locked machine refused before anything was sent: nothing started,

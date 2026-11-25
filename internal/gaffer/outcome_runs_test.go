@@ -1306,6 +1306,38 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 	}
 }
 
+// A message sent again after its answer was lost is answered with the turn
+// already saved, in a pipeline's own chat too, where the turn carries the
+// messaging grant although the request asked for no relay.
+func TestAMessageSentAgainInAPipelineChatGetsTheSavedTurnBack(t *testing.T) {
+	r := outcomeFixture(t)
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Still on the plan.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	c, err := r.st.GafferConversationFor(r.p.UserID, code.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := TurnInput{ID: strings.Repeat("8", 32), Revision: c.Revision, Text: "How is it going?"}
+	if _, err = r.s.StartTurn(r.p.UserID, c.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	first := waitTurn(t, r.s, r.p.UserID, c.ID, in.ID)
+	if first.State != "completed" || first.WorkerGrantRevision == 0 {
+		t.Fatalf("first turn: %+v", first)
+	}
+	again, err := r.s.StartTurn(r.p.UserID, c.ID, in)
+	if err != nil || again.ID != first.ID || again.Answer != first.Answer {
+		t.Fatalf("the same message sent again: %+v, %v", again, err)
+	}
+}
+
 func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 	r := outcomeFixture(t)
 	log := recordAudit(r.s)
@@ -1661,4 +1693,101 @@ func TestGafferDoesNotMoveOnAStageWhoseWorkStillRuns(t *testing.T) {
 	if piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.Key == code.Key }); piece.Stage != 0 || piece.Stages[0].State == "done" {
 		t.Fatalf("moved on: %+v", piece)
 	}
+}
+
+// follow starts n single-session pipelines, five to an outcome, and waits until
+// Gaffer follows each of them. It returns the conversation of each goal.
+func (r *outcomeRig) follow(t *testing.T, n int) []string {
+	t.Helper()
+	var cids []string
+	for len(cids) < n {
+		in := r.in
+		in.Sessions = nil
+		for i := 0; i < min(5, n-len(cids)); i++ {
+			in.Sessions = append(in.Sessions, OutcomeSession{Title: fmt.Sprintf("Piece %d", len(cids)+i), Prompt: "Do this piece of the work. Do not merge."})
+		}
+		o, err := r.s.CreateOutcome(r.p.UserID, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, piece := range r.settle(t, o.ID).Sessions {
+			if piece.State != "following" {
+				t.Fatalf("pipeline not followed: %+v", piece)
+			}
+			cids = append(cids, piece.ConversationID)
+		}
+	}
+	return cids
+}
+
+// control pauses or resumes the goal of a conversation, as its owner does.
+func (r *outcomeRig) control(t *testing.T, cid, action string) {
+	t.Helper()
+	v, err := r.s.Goal(r.p.UserID, cid)
+	if err != nil || v.Goal == nil {
+		t.Fatal(v, err)
+	}
+	if _, err = r.s.ControlGoal(r.p.UserID, cid, v.Goal.Revision, action, v.Pins, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Gaffer follows at most ten sessions at once. A plan with more pipelines than
+// the account has room for is refused when it is approved, not after its
+// agents have started with nobody looking after them.
+func TestAPlanWithMorePipelinesThanRoomIsRefusedAndOneThatFitsIsNot(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.follow(t, store.MaxActiveGafferGoals-1)
+	_, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	var bad *Invalid
+	if !errors.As(err, &bad) || bad.Field != "sessions" || !strings.Contains(bad.Message, "no room for 2 more") {
+		t.Fatalf("two pipelines with room for one: %v", err)
+	}
+	if rows, err := r.st.GafferOutcomesFor(r.p.UserID); err != nil || len(rows) != 2 {
+		t.Fatalf("a refused plan left an outcome behind: %d, %v", len(rows), err)
+	}
+	r.in.Sessions = r.in.Sessions[:1]
+	o, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatalf("one pipeline with room for one: %v", err)
+	}
+	o = r.settle(t, o.ID)
+	// Every place is taken now: a pipeline added to the outcome has none.
+	_, err = r.s.AddPipelines(r.p.UserID, o.ID, AddPipelinesInput{Revision: o.Revision, Sessions: []OutcomeSession{{Title: "One more", Prompt: "Do one more piece."}}, Confirmed: true})
+	if !errors.As(err, &bad) || bad.Field != "sessions" || !strings.Contains(bad.Message, "no room for 1 more") {
+		t.Fatalf("a pipeline added with no room left: %v", err)
+	}
+}
+
+// A pipeline that finds Gaffer full does not start an agent nobody would
+// follow: it says why and waits, and starts when a goal is paused.
+func TestAPipelineWithNoRoomWaitsInsteadOfStartingAnAgentNobodyFollows(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	goals := r.follow(t, store.MaxActiveGafferGoals)
+	r.control(t, goals[0], "pause")
+	// The controller starts nothing while fenced, so the plan is approved with
+	// room and finds it taken by the time it is carried on.
+	if _, err := r.st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	r.in.Sessions = r.in.Sessions[:1]
+	o, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.control(t, goals[0], "resume")
+	asked := len(r.starter.asked())
+	if _, err := r.st.LiftFence(); err != nil {
+		t.Fatal(err)
+	}
+	r.s.wakeOutcomes()
+	waiting := r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool { return strings.HasPrefix(p.Note, "Waiting for room") })
+	time.Sleep(100 * time.Millisecond)
+	if waiting.State != "waiting" || len(r.starter.asked()) != asked {
+		t.Fatalf("a pipeline with no room: %+v, %d launches, was %d", waiting, len(r.starter.asked()), asked)
+	}
+	r.control(t, goals[0], "pause")
+	r.piece(t, o.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
 }

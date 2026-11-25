@@ -69,6 +69,11 @@ try {
   expect(Object.keys(f.box.saves[2].modes).length).toBe(4)
   await every.selectOption('off')
   await expect(tools).toContainText('0 allowed · 0 ask first · 4 off');expect(f.box.saves[3]).toEqual({modes:{}})
+  // Allow is chosen tool by tool, never in bulk: a group with every tool allowed reads Custom, not a blank.
+  await expect(readAll.locator('option')).toHaveText(['Custom','Ask me','Off']);await expect(every.locator('option')).toHaveText(['Custom','Ask me','Off'])
+  await pick('List Factory outcomes','Allow').click();await expect(tools).toContainText('1 allowed')
+  await pick('Read one outcome','Allow').click();await expect(tools).toContainText('2 allowed · 0 ask first · 2 off')
+  await expect(readAll.locator('option:checked')).toHaveText('Custom')
   // A tool's description is behind its name, and a group can be folded away.
   await expect(tools.getByText('Read one outcome and its pipelines.')).toBeHidden()
   await tools.getByText('Read one outcome',{exact:true}).click()

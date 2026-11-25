@@ -75,10 +75,10 @@ try{
    await expect(note.getByRole('textbox',{name:'Instruction',exact:true})).toHaveValue('')
    await note.getByRole('textbox',{name:'Instruction',exact:true}).fill('Add the missing error case.')
    await note.getByRole('button',{name:'Send to the agent',exact:true}).click()
-   await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent for its next turn.');expect(f.box.told).toEqual(['Add the missing error case.'])
+   await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent of “Export API” for its next turn.');expect(f.box.told).toEqual(['Add the missing error case.'])
    // Moving on asks first, then names the stage the person was shown. The decision then leaves this session with the stage.
    await decision.getByRole('button',{name:'Move to next stage Recommended',exact:true}).click()
-   await page.getByRole('dialog',{name:'Move “Export API” on?',exact:true}).getByRole('button',{name:'Move on',exact:true}).click()
+   await page.getByRole('dialog',{name:'Move “Export API” on to review?',exact:true}).getByRole('button',{name:'Move on',exact:true}).click()
    await expect.poll(()=>f.box.moved).toEqual([{confirmed:true,stage:'code'}])
    await expect(decision).toHaveCount(0)
    expect(w.state.unexpected).toEqual([])
@@ -92,7 +92,7 @@ try{
   const decision=w.page.getByRole('region',{name:'Decision for Export API',exact:true})
   await decision.getByRole('button',{name:'Have Gaffer look again',exact:true}).click()
   await expect.poll(()=>f.box.controls).toEqual([{revision:3,action:'resume',pins:{providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},confirmed:true}])
-  await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing this stage again.')
+  await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing “Export API” again.')
   await expect(decision).toHaveCount(0)
  }finally{await w.context.close()}
  // The working model fails after the review. Its usage limit replaces stale advice on both surfaces.
@@ -207,7 +207,7 @@ try{
   await expect(last).toBeInViewport()
   await lw.page.screenshot({path:`${shots}/factory-decision-long-390.png`})
   await last.click()
-  await expect(lw.page.getByRole('dialog',{name:'Move “Export API” on?',exact:true})).toBeVisible()
+  await expect(lw.page.getByRole('dialog',{name:'Move “Export API” on to review?',exact:true})).toBeVisible()
  }finally{await lw.context.close()}
  console.log('factory yolo switch: ok')
  console.log('factory decision in a session: ok')

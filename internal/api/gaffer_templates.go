@@ -168,14 +168,13 @@ func (s *server) gafferTemplateLaunch(w http.ResponseWriter, r *http.Request) {
 	// The skill receipts a choice on the page would have left, so the stage's
 	// launch marks them prepared. A receipt that is not saved changes nothing.
 	// A repeated request leaves the receipts of the outcome it already made.
-	for _, p := range o.Sessions {
-		if !created {
-			break
-		}
-		for i, st := range p.Stages {
-			for _, sk := range st.SkillGuidance {
-				sk.State = "selected"
-				_ = s.st.RecordSkillBuddyFor(uid, "factory:"+o.ID+":"+p.Key+":"+strconv.Itoa(i), "", st.Kind, sk)
+	if created {
+		for _, p := range o.Sessions {
+			for i, st := range p.Stages {
+				for _, sk := range st.SkillGuidance {
+					sk.State = "selected"
+					_ = s.st.RecordSkillBuddyFor(uid, "factory:"+o.ID+":"+p.Key+":"+strconv.Itoa(i), "", st.Kind, sk)
+				}
 			}
 		}
 	}

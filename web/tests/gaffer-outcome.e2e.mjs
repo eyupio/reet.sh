@@ -296,7 +296,7 @@ try {
       // Each stage is sent with its tier and the agent, model and effort that tier means; Gaffer's reason goes with its own.
       const cheap=kind=>({kind,tool:'claude',model:'',tier:'standard'}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high',tier:'heavy',backup:{tool:'claude',model:'sonnet'}}),ship=kind=>({kind,tool:'claude',model:'',effort:'low',tier:'light'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,automation:false,balanceBelow:35,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,automation:false,balanceBelow:35,autoMerge:false,maxReviews:8,hours:24,confirmed:true,requestId:expect.stringMatching(/^[0-9a-f]{32}$/),sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:[(({backup,...rest})=>({...rest,tierWhy:'The export reads the billing ledger while it is being written.',backup}))(strong('code')),...usual.slice(1)]},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),{...ship('code'),tierWhy:'Wiring only.',part:'Button',brief:'Add the button and wire it to the endpoint.'},{...cheap('code'),part:'Empty state',brief:'Draw the empty state, with the illustration.'},...usual.slice(1).filter(stage=>stage.kind!=='merge').map(stage=>stage.kind==='test'?ship('test'):stage)]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
@@ -709,6 +709,37 @@ try {
       await expect(outcome.getByRole('list',{name:'Images attached to the outcome',exact:true}).getByRole('listitem')).toHaveCount(7)
       await expect(outcome.getByRole('alert')).toContainText('could not be uploaded; the other 7 images were attached.')
       expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // Approving a plan the person wrote is sent with a request ID. A lost reply followed by another click carries the same
+  // ID, so the controller starts one outcome; a refusal was answered, so the next attempt gets a new ID.
+  {
+    const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    const sent=[],answers=[{status:502,json:{error:'Reet could not be reached.'}},{status:400,json:{error:'That plan was refused.'}}],start=f.routes['/api/v2/gaffer/outcomes']
+    f.routes['/api/v2/gaffer/outcomes']=request=>{
+      if(request.method()!=='POST')return start(request)
+      sent.push(request.postDataJSON().requestId)
+      return answers.shift()??start(request)
+    }
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()
+      await outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true}).fill('Whole export')
+      await outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true}).fill('Build the CSV export end to end. Raise a pull request. Do not merge.')
+      const approve=outcome.getByRole('button',{name:'Approve and start 1 pipeline',exact:true})
+      await approve.click()
+      await expect(outcome.getByRole('alert')).toHaveText('Reet could not be reached. It may not have arrived. Trying again is safe: it starts once.')
+      await approve.click()
+      await expect(outcome.getByRole('alert')).toHaveText('That plan was refused.')
+      await approve.click()
+      await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible({timeout:20000})
+      expect(sent).toHaveLength(3)
+      for(const id of sent)expect(id).toMatch(/^[0-9a-f]{32}$/)
+      expect(sent[1]).toBe(sent[0]);expect(sent[2]).not.toBe(sent[1])
+      expect(f.box.approved).toHaveLength(1);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
   // Launch readiness: before Approve each stage says the machine, agent, model, effort, where the choice came from and

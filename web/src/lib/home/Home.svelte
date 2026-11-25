@@ -32,6 +32,7 @@
   import { getDesk, listDesks } from '../desks/api'
   import { keepFocusIn } from '../shell/keepFocus'
   import { deliveryHref, short } from '../gafferOutcome'
+  import { floorRoom } from '../gafferFloor'
   import type { GafferOutcome as Outcome, GafferOutcomeSession } from '../api'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
@@ -685,7 +686,7 @@
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
-      {#if factoryStart && accounts}<GafferOutcome room={Math.max(0, 10 - (followups?.goals ?? []).filter(row => row.goal.state === 'active').length)} {userId} {timeZone} {dateFormat} onstarted={() => load(true)} onclose={() => void closeFactoryStart()} />{/if}
+      {#if factoryStart && accounts}<GafferOutcome room={floorRoom((followups?.goals ?? []).map(row => row.goal))} {userId} {timeZone} {dateFormat} onstarted={() => load(true)} onclose={() => void closeFactoryStart()} />{/if}
       <ListSection name="Your machines" region={false} count={`${connected.length} of ${cards.length} connected`} summary={connected.map(card => card.name).join(', ')} open={!!opened.machines} ontoggle={() => toggleSection('machines')}>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={(card, opener) => void startTerminalOn(card.agentId, opener)} />

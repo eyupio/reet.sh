@@ -325,8 +325,10 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	if err != nil {
 		return store.GafferTurn{}, err
 	}
+	pipelineChat := goal == nil && c.SessionID != "" && s.pipelineStage(uid, id)
 	if old, err := s.store.GafferTurnFor(uid, id, in.ID); err == nil {
-		if old.Prompt != in.Text || old.RequestRevision != in.Revision || (old.WorkerGrantRevision > 0) != in.Relay || (goal == nil && old.GoalID != "") || (goal != nil && (old.GoalID != goal.ID || old.GoalRevision != goal.Revision)) {
+		// A pipeline's own chat is given its messaging grant without a relay, so its turns keep the grant's revision either way.
+		if old.Prompt != in.Text || old.RequestRevision != in.Revision || (old.WorkerGrantRevision > 0) != in.Relay && (in.Relay || !pipelineChat) || (goal == nil && old.GoalID != "") || (goal != nil && (old.GoalID != goal.ID || old.GoalRevision != goal.Revision)) {
 			return old, store.ErrGafferConflict
 		}
 		return old, nil
@@ -381,7 +383,6 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	// when they say so. The messaging grant was given when they approved the
 	// outcome, so it is used here without the per-request switch; without it
 	// the chat can still move the pipeline on.
-	pipelineChat := goal == nil && c.SessionID != "" && s.pipelineStage(uid, id)
 	if pipelineChat && workerRevision == 0 {
 		if messaging, err := s.WorkerSettings(uid, "gaffer", c.ID, c.SessionID); err == nil && messaging.Grant.Enabled && messaging.Allowed && !messaging.NeedsReview {
 			workerRevision = messaging.Grant.Revision

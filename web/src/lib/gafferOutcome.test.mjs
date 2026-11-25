@@ -6,34 +6,24 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./gafferOutcome.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const o = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const bytes = text => new TextEncoder().encode(text).length
+// A goal as the controller writes it: the outcome line, this session's part, then its standing instruction.
+const outcomeGoal = (objective, title) => `Outcome: ${objective.replace(/\s+/g, ' ').trim()}\nThis session’s part: ${title}\nKeep this session moving. Do not merge.`
 const row = (text, state = 'active', attention = false) => ({ goal: { text, state }, attention })
 const plan = (...titles) => titles.map((title, n) => ({ key: `k${n}`, title, prompt: `Do ${title}. Do not merge.` }))
-
-test('a session goal names its outcome, fits the goal limit and keeps merging with the person', () => {
-  const goal = o.outcomeGoal('Ship CSV export\n  for billing', 'Export API')
-  assert.equal(goal.split('\n')[0], 'Outcome: Ship CSV export for billing')
-  assert.match(goal, /This session’s part: Export API\n/)
-  assert.match(goal, /Do not merge\.$/)
-  const huge = o.outcomeGoal('é'.repeat(4000), 'T'.repeat(500))
-  assert.ok(bytes(huge) <= 2000, `goal is ${bytes(huge)} bytes`)
-  assert.match(huge, /Do not merge\.$/)
-  assert.equal(o.outcomeOf(huge), o.outcomeLine('é'.repeat(4000)))
-})
 
 test('only a goal that starts with the outcome line belongs to an outcome', () => {
   assert.equal(o.outcomeOf('Outcome: Ship it\nThis session’s part: A'), 'Ship it')
   assert.equal(o.outcomeOf('Raise the PR. Outcome: no'), '')
   assert.equal(o.outcomeOf('  Outcome: indented'), '')
   assert.equal(o.outcomeOf(''), '')
-  assert.equal(o.outcomePart(o.outcomeGoal('Ship it', 'Export API')), 'Export API')
+  assert.equal(o.outcomePart(outcomeGoal('Ship it', 'Export API')), 'Export API')
   assert.equal(o.outcomePart('Outcome: Ship it'), '')
   assert.equal(o.outcomePart('Ordinary goal\nThis session’s part: no'), '')
 })
 
 test('followed sessions group by outcome with honest counts', () => {
-  const a = o.outcomeGoal('Ship export', 'API'), b = o.outcomeGoal('Ship export', 'UI'), c = o.outcomeGoal('Fix login', 'Tokens')
-  const groups = o.outcomeGroups([row(a), row('Ordinary goal. Do not merge.'), row(b, 'needs_user', true), row(c, 'completed'), row(o.outcomeGoal('Ship export', 'Docs'), 'paused')])
+  const a = outcomeGoal('Ship export', 'API'), b = outcomeGoal('Ship export', 'UI'), c = outcomeGoal('Fix login', 'Tokens')
+  const groups = o.outcomeGroups([row(a), row('Ordinary goal. Do not merge.'), row(b, 'needs_user', true), row(c, 'completed'), row(outcomeGoal('Ship export', 'Docs'), 'paused')])
   assert.deepEqual(groups.map(g => [g.objective, g.rows.length, g.needsReview, g.following, g.finished]), [['Ship export', 3, 1, 1, 0], ['Fix login', 1, 0, 0, 1]])
   assert.equal(o.outcomeProgress(groups[0]), '3 sessions · 1 needs review · 1 following · 1 paused')
   assert.equal(o.outcomeProgress(groups[1]), '1 session · 1 finished')
@@ -93,7 +83,7 @@ test('the floor groups by the controller record first, then by goals that only n
     { key: 'b', title: 'UI', state: 'unfollowed', note: '', sessionId: 's2' },
     { key: 'c', title: 'Docs', state: 'waiting', note: '' },
   ] }
-  const rows = [g('s1', o.outcomeGoal('Ship export', 'API')), g('s9', o.outcomeGoal('Old outcome', 'Part'), 'needs_user', true), g('s8', 'Ordinary goal')]
+  const rows = [g('s1', outcomeGoal('Ship export', 'API')), g('s9', outcomeGoal('Old outcome', 'Part'), 'needs_user', true), g('s8', 'Ordinary goal')]
   const groups = o.floorOutcomes([record], rows)
   assert.deepEqual(groups.map(x => [x.id, x.objective, x.rows.length]), [['o1', 'Ship export', 1], ['text:Old outcome', 'Old outcome', 1]])
   assert.equal(o.floorOutcomeLine(groups[0]), '3 sessions planned · starting · 1 following · 1 not followed')
@@ -174,14 +164,12 @@ test('a pipeline track shows what is done, in hand, waiting on the person or fai
   assert.deepEqual(o.track({ state: 'following' }), [])
 })
 
-test('a pipeline badge and the page tally say who has to act', () => {
+test('a pipeline badge says who has to act', () => {
   assert.deepEqual(o.pipelineStatus({ state: 'ready_to_merge' }, false), { label: 'Ready to merge', tone: 'you' })
   assert.deepEqual(o.pipelineStatus({ state: 'following' }, true), { label: 'Needs you', tone: 'you' })
   assert.deepEqual(o.pipelineStatus({ state: 'following' }, false), { label: 'Running', tone: 'busy' })
   assert.deepEqual(o.pipelineStatus({ state: 'done' }, true), { label: 'Done', tone: 'good' })
   assert.equal(o.pipelineStatus({ state: 'failed' }, false).tone, 'bad')
-  const records = [{ sessions: [{ state: 'following', conversationId: 'a' }, { state: 'following', conversationId: 'b' }, { state: 'ready_to_merge' }, { state: 'done' }, { state: 'failed' }, { state: 'waiting' }] }]
-  assert.deepEqual(o.factoryTally(records, new Set(['b'])), { running: 2, needYou: 1, ready: 1, done: 1 })
 })
 
 test('usage counts what Gaffer used, stage by stage, and says when a count is missing', () => {
@@ -398,7 +386,6 @@ test('a pipeline whose session was ended needs the person, with choices that do 
   assert.equal(o.sessionLost({ ...ended, sessionState: undefined }), false, 'a controller that does not say is not read as ended')
   assert.equal(o.sessionLost({ ...ended, state: 'done' }), false)
   assert.deepEqual(o.pipelineStatus(ended, false), { label: 'Needs you', tone: 'you' })
-  assert.deepEqual(o.factoryTally([{ sessions: [ended] }], new Set()), { running: 0, needYou: 1, ready: 0, done: 0 })
   const choices = o.sessionEndedChoices(false, false)
   assert.deepEqual(choices.choices.map(item => item.id), ['restart', 'move', 'stop', 'open']); assert.equal(choices.choices[0].primary, true)
   assert.deepEqual(o.sessionEndedChoices(true, true).choices.map(item => item.id), ['restart', 'move', 'stop'], 'a removed session cannot be read')
@@ -621,7 +608,6 @@ test('a pipeline in delivery review waits for the person, with its own word, ton
   const piece = { key: 'a', title: 'A', state: 'delivery_review', stage: 1, stages: [{ kind: 'code', tool: 'claude', state: 'done' }, { kind: 'review', tool: 'claude', state: 'running' }] }
   assert.deepEqual(o.track(piece).map(node => node.state), ['done', 'waiting'])
   assert.equal(o.outcomeFinished({ state: 'settled', sessions: [piece] }), false)
-  assert.deepEqual(o.factoryTally([{ sessions: [piece, { state: 'ready_to_merge' }, { state: 'done' }] }], new Set()), { running: 0, needYou: 1, ready: 1, done: 1 })
   assert.equal(o.outcomeSummary([{ state: 'delivery_review' }, { state: 'following' }]), 'Reet. Gaffer owns this outcome: 2 started and followed.')
   const members = o.factoryMembers([{ id: 'o', objective: 'x', sessions: [{ key: 'a', state: 'delivery_review', title: 'A', sessionId: 's', stage: 0, stages: [{ kind: 'code', sessionId: 's' }] }] }])
   assert.equal(members.get('s').working, true)

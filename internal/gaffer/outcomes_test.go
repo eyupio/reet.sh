@@ -252,3 +252,47 @@ func TestPlanOutcomeRejectsAnythingThatIsNotOneCompletePlan(t *testing.T) {
 		}
 	}
 }
+
+// The job says which step it is on, and stopping it ends the provider request instead of leaving it to run out.
+func TestAPlanJobReportsItsStepAndStoppingItEndsTheProviderRequest(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	answering, gone := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-answering
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		close(gone)
+	}))
+	t.Cleanup(server.Close)
+	row := planProvider(t, s, p, server.URL, true)
+	job, err := s.StartPlan(p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export.", Project: "billing", Sessions: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.PlanPhase(p, row.ID, job); got != PlanSending {
+		t.Fatalf("step before the provider answered: %q", got)
+	}
+	if got := s.PlanPhase(Principal{UserID: p.UserID + 1}, row.ID, job); got != "" {
+		t.Fatalf("another account read the step: %q", got)
+	}
+	close(answering)
+	for deadline := time.Now().Add(2 * time.Second); s.PlanPhase(p, row.ID, job) != PlanWriting; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("step while the provider answers: %q", s.PlanPhase(p, row.ID, job))
+		}
+	}
+	if err := s.StopPlan(Principal{UserID: p.UserID + 1}, row.ID, job); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("another account stopped the job: %v", err)
+	}
+	if err := s.StopPlan(p, row.ID, job); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-gone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the provider request went on after the plan was stopped")
+	}
+	if _, _, err := s.PlanResult(p, row.ID, job); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a stopped job can still be read: %v", err)
+	}
+}

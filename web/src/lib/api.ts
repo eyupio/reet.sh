@@ -300,15 +300,25 @@ export type GafferOutcomePlanInput = {
   previous?: { summary: string; sessions: { title: string; stages?: string[] }[] }
 }
 /** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
-export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal): Promise<GafferOutcomePlan> {
+/** The steps of a plan, in order, as the controller reports them. */
+export type GafferPlanPhase = 'sending' | 'writing' | 'checking'
+export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal, onPhase?: (phase: GafferPlanPhase) => void): Promise<GafferOutcomePlan> {
   const path = `/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`
   const started = await (await req(path, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
   const job = String(started?.id ?? '')
   if (!job) throw new Error('Gaffer could not start planning this outcome. Try again.')
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const answer = await (await req(`${path}/${encodeURIComponent(job)}`, { signal, cache: 'no-store' })).json()
-    if (answer?.state !== 'running') return answer as GafferOutcomePlan
-    await pause(1000, signal)
+  onPhase?.('sending')
+  try {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const answer = await (await req(`${path}/${encodeURIComponent(job)}`, { signal, cache: 'no-store' })).json()
+      if (answer?.state !== 'running') return answer as GafferOutcomePlan
+      if (answer.phase) onPhase?.(answer.phase)
+      await pause(1000, signal)
+    }
+  } catch (e) {
+    // Stopped or closed: tell the controller, so the provider request ends and its place is free for the next ask.
+    if (signal?.aborted) void req(`${path}/${encodeURIComponent(job)}`, { method: 'DELETE' }).catch(() => {})
+    throw e
   }
   throw new Error('Gaffer is taking too long to plan this outcome. Try again, or write the plan yourself.')
 }

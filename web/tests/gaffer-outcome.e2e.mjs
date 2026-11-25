@@ -77,7 +77,8 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
       // A plan is asked for in the background so a proxy in front of reet never holds the request open.
       return {status:202,json:{id:planId,state:'running'}}
     },
-    [`/api/v2/gaffer/providers/${pid}/plan/${planId}`]:()=>planAnswer,
+    // box.planStep holds the plan at a step, as a slow provider would; box.planBreaks fails it there.
+    [`/api/v2/gaffer/providers/${pid}/plan/${planId}`]:request=>{if(request.method()==='DELETE')return{status:204,json:{}};if(box.planBreaks)return{status:500,json:{error:'The provider could not plan this outcome: 503 from the provider.'}};return box.planStep?{state:'running',phase:box.planStep}:planAnswer},
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()!=='POST')return {outcomes:box.record?[box.record]:[]}
       const input=request.postDataJSON();box.approved.push(input)
@@ -1004,6 +1005,36 @@ try {
         }finally{await w.context.close()}
       }
     }
+  }
+  // While Gaffer plans, the dialog shows the step the controller reports and how long it has been. Stop ends the plan
+  // on the controller; a plan that fails keeps its step and says why.
+  for(const [width,theme] of [[1440,'light'],[390,'dark']]){
+    const f=fixture(),w=await openWorkspace(browser,{width,height:1000,theme,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box);f.box.planStep='sending'
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill('Ship CSV export for billing.')
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      const ask=outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}),progress=outcome.getByRole('status',{name:'Gaffer’s progress on the plan',exact:true}),steps=progress.getByRole('listitem')
+      await ask.click()
+      await expect(steps).toHaveText(['…Sending to Workshop Gaffer','·gaffer-model is writing the plan','·Checking the plan'])
+      f.box.planStep='writing'
+      await expect(steps).toHaveText(['✓Sent to Workshop Gaffer, done','…gaffer-model is writing the plan','·Checking the plan'])
+      await expect(steps.nth(1)).toHaveAttribute('aria-current','step')
+      await expect(outcome.getByText(/^0:0\d · at most 1:30$/)).toBeVisible()
+      const stop=outcome.getByRole('button',{name:'Stop',exact:true});expect((await stop.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await outcome.screenshot({path:`${shots}/gaffer-outcome-planning-${width}-${theme}.png`})
+      await stop.click()
+      await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
+      await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      f.box.planBreaks=true;await ask.click()
+      await expect(steps).toHaveText(['✕Sending to Workshop Gaffer, failed','·gaffer-model is writing the plan','·Checking the plan'])
+      await expect(outcome.getByRole('alert')).toHaveText('The provider could not plan this outcome: 503 from the provider.')
+      await expect(stop).toHaveCount(0);await expect(ask).toBeEnabled()
+      await outcome.screenshot({path:`${shots}/gaffer-outcome-plan-failed-${width}-${theme}.png`})
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
   }
   console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, several images at once, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, launch readiness before approval (ready, saved agent missing, no sign-in, unreadable sign-ins, old backup figures kept quiet, a backup gone, agent or machine gone with its button to the crew), passed on desktop and phone.')
 } finally { await browser.close() }

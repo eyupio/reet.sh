@@ -213,6 +213,17 @@ func downloadArchive(ctx context.Context, client *http.Client, dir string, artif
 	return fail(fmt.Errorf("%w: the server would not continue the download", ErrArtifactDownload))
 }
 
+// PrunePartials deletes the half-downloaded archives in dir that are older than a download may be continued, so one that is never
+// tried again does not sit on disk for ever.
+func PrunePartials(dir string) {
+	found, _ := filepath.Glob(filepath.Join(dir, ".opencode-*.part"))
+	for _, path := range found {
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > partialMaxAge {
+			os.Remove(path)
+		}
+	}
+}
+
 type fetchStatus int
 
 const (

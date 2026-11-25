@@ -11,12 +11,17 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -301,5 +306,62 @@ func TestApplySoftwareSendsEnrollmentToTheMirror(t *testing.T) {
 	header := http.Header{"X-Reet-Agent": {"agent"}, "X-Reet-Agent-Key": {"secret"}}
 	if result := apply(header); result.State != terminalproto.SoftwareApplyApplied || result.Source != "mirror" {
 		t.Fatalf("enrolled request: %+v", result)
+	}
+}
+
+// A download that stops part-way in one apply is continued by the next apply: the half it got is not thrown away with the
+// staging directory.
+func TestApplySoftwareContinuesADownloadAcrossApplies(t *testing.T) {
+	server, artifact := fakeArtifact(t, []byte("reviewed binary"))
+	response, err := http.Get(artifact.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	var requests atomic.Int32
+	var ranges []string
+	var mu sync.Mutex
+	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		ranges = append(ranges, r.Header.Get("Range"))
+		mu.Unlock()
+		if requests.Add(1) == 1 {
+			w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+			_, _ = w.Write(archive[:len(archive)/2])
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler)
+		}
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(archive))
+	}))
+	t.Cleanup(flaky.Close)
+	server.Close()
+	artifact.URL = flaky.URL + "/opencode.tgz"
+	original := softwareArtifact
+	softwareArtifact = artifact
+	t.Cleanup(func() { softwareArtifact = original })
+
+	home := t.TempDir()
+	request := terminalproto.SoftwareApply{Tool: "opencode", Action: terminalproto.SoftwareActionInstall, ExpectedState: terminalproto.SoftwareMissing}
+	first := ApplySoftware(context.Background(), home, request, missingLookPath)
+	if first.State != terminalproto.SoftwareApplyFailed || first.Reason != terminalproto.SoftwareApplyDownload {
+		t.Fatalf("the cut-off apply: %+v", first)
+	}
+	kept, _ := filepath.Glob(filepath.Join(home, ".reet", "software", "opencode", "tmp", ".opencode-*.part"))
+	if len(kept) != 1 {
+		t.Fatalf("the half that arrived was thrown away with the staging directory: %v", kept)
+	}
+	second := ApplySoftware(context.Background(), home, request, missingLookPath)
+	if second.State != terminalproto.SoftwareApplyApplied {
+		t.Fatalf("the second apply: %+v", second)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ranges) != 2 || ranges[0] != "" || ranges[1] == "" {
+		t.Fatalf("the second apply did not ask for the rest: %q", ranges)
+	}
+	left, _ := os.ReadDir(filepath.Join(home, ".reet", "software", "opencode", "tmp"))
+	if len(left) != 0 {
+		t.Fatalf("a finished apply left files in its staging directory: %v", left)
 	}
 }

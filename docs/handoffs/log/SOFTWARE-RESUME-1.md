@@ -16,6 +16,13 @@ than the archive or the 300 MiB cap, or older than a day (`partialMaxAge`), is s
 leaves no `.part` file. The controller's mirror already served through `http.ServeContent`, which answers ranges, so it needed no
 change.
 
+**Across applies (found in review).** The first version kept the half only within one apply: `ApplySoftware` deleted its whole staging
+directory on the way out, so the next apply began again from zero. It now removes every temporary file except a `.opencode-*.part`
+(`clearStaging`), and `PrunePartials` deletes halves older than a day at the start of an apply so one that is never tried again
+does not sit on disk. `TestApplySoftwareContinuesADownloadAcrossApplies` drives it through `ApplySoftware`: the first apply fails
+as a download, leaves the half, and the second continues it with a Range request and leaves nothing behind; it fails with the old
+`RemoveAll`.
+
 **Tests** (`artifact_resume_test.go`, `-race -count=5`): an interrupted download continued with a Range request, the rest taken
 from a different server, a server that ignores ranges, a wrong `Content-Range` and a refused range, a bad file deleted, a stale
 file not trusted. The first two fail on the old code (it kept nothing).

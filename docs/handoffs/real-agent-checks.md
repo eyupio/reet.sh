@@ -2,7 +2,7 @@
 
 Everything below is built and has passed its tests, but only against fixtures: nothing has run against a real agent, a real
 machine, a real push service or a real reverse proxy. This is the list of what to try, in the order that finds the most for the
-least effort, what a pass looks like, and what to send back when it does not pass. About two hours in all; each part stands alone.
+least effort, what a pass looks like, and what to send back when it does not pass. About three hours in all; each part stands alone.
 
 You need: a reet controller on `https` with accounts on; one machine enrolled with the agent running as a service, terminal
 access on (`reet agent terminal enable`); a phone; and whichever of Claude Code, Codex, OpenCode, Cline, Antigravity and Copilot you
@@ -89,6 +89,44 @@ is charged to the proxy's address, send the proxy's `X-Forwarded-For` header as 
 Only if you can look at the relay or network path. Open a terminal session and watch traffic to the relay: it should be encrypted
 WireGuard packets only, with no terminal text or credentials. This is the one statement in SECURITY.md that follows from how
 the connection is built rather than from anything checked.
+
+## 8. Software batches: update, roll back, remove (30 minutes)
+
+Needs two enrolled machines with OpenCode installed by reet (one with an earlier version kept after an update), one machine
+where OpenCode was installed some other way, and `reet agent apply` allowed on each.
+
+| Try | A pass looks like | If it fails, send |
+| --- | --- | --- |
+| **Fleet software**, leave "What to do" on its default, tick both reet-managed machines, start | Each machine updates in the order shown, one at a time; nothing about it asks for a typed word | The page and the machine's `reet agent` log |
+| Choose **Roll back** | Only the machine that kept an earlier version is offered; the others say why not (no earlier version, installed outside reet) | The page |
+| Start the roll back, type `rollback` | Button stays off until the word matches; the machine returns to the named version and `opencode --version` says so | The version before and after |
+| Choose **Remove reet's copy**, start a batch with the outside-reet machine ticked if you can | That machine is left out with a plain reason and its OpenCode is untouched | The page and `which opencode` on it |
+| Remove on a reet-managed machine, type `remove` | reet's copy is gone; OpenCode's settings, history and credentials are still there; the page says "Removed" | The folder listing of the OpenCode config before and after |
+| Start a session on one machine, then a remove batch that includes it | That machine refuses until the session stops, and the batch stops there with Retry, Skip and Abandon | The page |
+| Unplug a machine mid-batch | The stop says the connection was lost (not that it never started); Retry works after it is back | The page |
+| Restart the controller mid-batch | The batch is still there afterwards and carries on | The batch page before and after |
+
+## 9. Copy a setup to other machines (40 minutes)
+
+Needs three enrolled machines with terminal access on and `reet agent` local consent to apply changes on two of them (the third
+does not have it, on purpose). Put a short instruction file (CLAUDE.md or AGENTS.md) and a settings file on the source machine.
+Back up the target machines' own copies first.
+
+| Try | A pass looks like | If it fails, send |
+| --- | --- | --- |
+| **Setups → Copy to other machines**, choose the source, read it | You see the files that would be copied, sizes, and each other machine as ready, unchanged or left out; the machine without consent is left out and says why | The page |
+| Look at the plan for a machine that already has its own settings file | The settings show as a merge with the field names that change; its other fields are not listed as removed | The plan and that file |
+| Put a made-up API key line in the source's instruction file, then read it | The read is refused and names the file without showing the key | The page |
+| Put the same line in a target's own instruction file, copy a clean source to it | The plan says the file looks like it holds a credential and shows none of its lines; the copy can still go ahead | The page |
+| Make the source settings allow more than a target's (a looser permission or approval policy), review | The target is marked as widening; starting needs the typed word `copy`; a copy that does not widen needs none | The page |
+| Start the copy to two machines | One at a time, in the order shown; the files on each machine are the source's text, and the settings keep the target's own fields | `diff` of each file against the source |
+| Undo a finished machine | The files are back exactly as before; undoing again says it is already undone | The file and the page |
+| Change a copied file by hand, then Undo | Refused, saying the file changed since; nothing is overwritten | The page |
+| Read the source, close the dialog, wait 25 minutes, ask the controller for it | The read is gone (the review expires after 15 minutes and is cleared within 10 more) | The controller's response |
+| Source with a settings file in JSONC or TOML that has comments | Comments are lost in the merged file on the target (known); the rollback copy keeps the original | Both files |
+| A very long instruction file (over about 60 KB in total) | The read is refused as too large, in plain words | The sizes |
+
+Also check that a backup taken while a batch is waiting does not contain the copied text (restore it elsewhere and search).
 
 ## Reporting
 

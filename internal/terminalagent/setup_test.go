@@ -6,6 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -139,5 +142,55 @@ func TestSetupFleetRefusesWritesWithoutAllowApply(t *testing.T) {
 	undo := call(message("setup-fleet-000022", &terminalproto.SetupFleet{Op: terminalproto.SetupOpRollback, Journal: "restore-fleet-x"}))
 	if undo.Reason != terminalproto.SetupReasonNotAllowed {
 		t.Fatalf("undo: %+v", undo)
+	}
+}
+
+// An apply or undo cannot be stopped once it writes, so one that outlasts its
+// answer keeps the setup slot until it really ends: no retry, read or other
+// write runs beside it.
+func TestSetupFleetApplyAndUndoKeepTheSlotUntilTheyEnd(t *testing.T) {
+	item := terminalproto.SetupItem{Agent: "claude", Scope: "global", Kind: "instructions", Name: "CLAUDE.md", Format: "text", Content: "x\n"}
+	item.SHA256 = terminalproto.SetupItemSHA256(item.Content)
+	for _, op := range []*terminalproto.SetupFleet{
+		{Op: terminalproto.SetupOpApply, Items: []terminalproto.SetupItem{item}, Fingerprint: strings.Repeat("0", 64), Label: "fleet-b1"},
+		{Op: terminalproto.SetupOpRollback, Journal: "restore-fleet-x"},
+	} {
+		call, _, _ := setupConnector(t, allSetupFeatures, true)
+		originalAfter := setupAnswerAfter
+		setupAnswerAfter = 50 * time.Millisecond
+		t.Cleanup(func() { setupAnswerAfter = originalAfter })
+		journals := t.TempDir()
+		release := make(chan struct{})
+		var once sync.Once
+		// The operation's first step blocks, as a slow disk would.
+		setupJournalDir = func() (string, error) {
+			first := false
+			once.Do(func() { first = true })
+			if first {
+				<-release
+			}
+			return journals, nil
+		}
+		if late := call(message("setup-fleet-000030", op)); late.State != terminalproto.SetupFailed || late.Reason != terminalproto.SetupReasonTimedOut {
+			t.Fatalf("%s that outlasted its answer: %+v", op.Op, late)
+		}
+		if again := call(message("setup-fleet-000031", op)); again.Reason != terminalproto.SetupReasonBusy {
+			t.Fatalf("%s retried beside the running one: %+v", op.Op, again)
+		}
+		if read := call(message("setup-fleet-000032", &terminalproto.SetupFleet{Op: terminalproto.SetupOpRead})); read.Reason != terminalproto.SetupReasonBusy {
+			t.Fatalf("a read beside a running %s: %+v", op.Op, read)
+		}
+		close(release)
+		deadline := time.Now().Add(5 * time.Second)
+		for id := 33; ; id++ {
+			read := call(message("setup-fleet-0000"+strconv.Itoa(id), &terminalproto.SetupFleet{Op: terminalproto.SetupOpRead}))
+			if read.State == terminalproto.SetupOK {
+				break
+			}
+			if read.Reason != terminalproto.SetupReasonBusy || time.Now().After(deadline) {
+				t.Fatalf("the slot was never freed after %s: %+v", op.Op, read)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 }

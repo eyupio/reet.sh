@@ -16,7 +16,7 @@ const machine = (agentId, host, state, extra = {}) => ({ agentId, host, state, w
 const settingsMerge = file('claude', 'settings', 'settings.json', 'merge', { fields: ['permissions', 'outputStyle'], widens: ['permissions'] })
 const instructionsMerge = file('claude', 'instructions', 'CLAUDE.md', 'merge', { added: ['Always run the tests before you finish.', 'Keep commits small.'], removed: ['Never run the tests.'] })
 const laptop = (widens = true) => machine('a-laptop', 'Laptop', 'ready', { widens, files: [widens ? settingsMerge : file('claude', 'settings', 'settings.json', 'merge', { fields: ['outputStyle'] }), instructionsMerge] })
-const build = () => machine('a-build', 'Build server', 'ready', { files: [file('claude', 'instructions', 'CLAUDE.md', 'create'), file('codex', 'settings', 'config.toml', 'unchanged'), file('opencode', 'settings', 'opencode.json', 'blocked', { reason: 'destination_symlink' })] })
+const build = () => machine('a-build', 'Build server', 'ready', { files: [file('claude', 'instructions', 'CLAUDE.md', 'create'), file('codex', 'settings', 'config.toml', 'unchanged'), file('opencode', 'settings', 'opencode.json', 'blocked', { reason: 'destination_symlink' }), file('pi', 'instructions', 'AGENTS.md', 'merge', { holdsCredential: true, added: ['Be brief.'] })] })
 const desktop = () => machine('a-desk', 'Desktop', 'unchanged', { code: 'unchanged', reason: 'Nothing to change on that machine.', files: [file('claude', 'instructions', 'CLAUDE.md', 'unchanged')] })
 const mini = () => machine('a-mini', 'Mac mini', 'excluded', { code: 'not_allowed', reason: 'Setup changes are not allowed.' })
 const pi = () => machine('a-pi', 'Pi box', 'excluded', { code: 'offline', reason: "That machine isn't connected." })
@@ -114,7 +114,7 @@ try {
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Ready')
       // Settings are merged field by field; an instruction file's text is replaced.
       await expect(rows.locator('li[data-machine="Laptop"] .chip')).toHaveText(['Merge', 'Replace'])
-      await expect(rows.locator('li[data-machine="Build server"] .chip')).toHaveText(['Create', 'Unchanged', 'Blocked'])
+      await expect(rows.locator('li[data-machine="Build server"] .chip')).toHaveText(['Create', 'Unchanged', 'Blocked', 'Replace'])
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Changes outputStyle in Claude Code settings.json')
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Replaces the text of Claude Code CLAUDE.md.')
       await expect(rows.locator('li[data-machine="Laptop"]')).toContainText('Always run the tests before you finish.')
@@ -123,6 +123,8 @@ try {
       await expect(rows.locator('li[data-machine="Build server"]')).toContainText('Creates Claude Code CLAUDE.md.')
       await expect(rows.locator('li[data-machine="Build server"]')).toContainText('Codex config.toml is already the same.')
       await expect(rows.locator('li[data-machine="Build server"]')).toContainText('OpenCode opencode.json is left alone: the file there is a symbolic link.')
+      // A file there that looks like it holds a credential is never quoted, and the review says so.
+      await expect(rows.locator('li[data-machine="Build server"]')).toContainText('This file on that machine looks like it holds a credential, so its lines are not shown.')
       await expect(rows.locator('li[data-machine="Desktop"]')).toContainText('Already the same')
       await expect(rows.locator('li[data-machine="Desktop"]')).toContainText('Nothing to change: it already has this setup.')
       await expect(rows.locator('li[data-machine="Mac mini"]')).toContainText('Left out')

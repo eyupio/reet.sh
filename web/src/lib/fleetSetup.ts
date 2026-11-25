@@ -100,6 +100,11 @@ export function diffCounts(file: Pick<FleetSetupFile, 'added' | 'removed'>): str
   return [added ? `${added} added` : '', removed ? `${removed} removed` : ''].filter(Boolean).join(', ')
 }
 
+/** Why a file's lines are not shown: the machine's own file looks like it holds a credential, so the plan carries none of its text. */
+export function credentialNote(file: Pick<FleetSetupFile, 'holdsCredential'>): string {
+  return file.holdsCredential ? 'This file on that machine looks like it holds a credential, so its lines are not shown.' : ''
+}
+
 /** Why a machine is left out of the review, from its closed code; the controller's own sentence when the code is new. */
 export function machineExcluded(machine: Pick<FleetSetupMachine, 'code' | 'reason'>): string {
   switch (machine.code) {

@@ -40,6 +40,8 @@ test('widening names the fields, and counts of changed lines read plainly', () =
   assert.equal(f.diffCounts({ added: ['a', 'b'], removed: ['c'] }), '2 added, 1 removed')
   assert.equal(f.diffCounts({ added: ['a'] }), '1 added')
   assert.equal(f.diffCounts({}), '')
+  assert.equal(f.credentialNote({ holdsCredential: true }), 'This file on that machine looks like it holds a credential, so its lines are not shown.')
+  assert.equal(f.credentialNote({}), '')
   assert.deepEqual(f.changingFiles([{ state: 'create' }, { state: 'merge' }, { state: 'unchanged' }, { state: 'blocked' }]).length, 2)
 })
 

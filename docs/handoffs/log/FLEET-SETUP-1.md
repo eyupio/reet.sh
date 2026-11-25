@@ -103,3 +103,12 @@ machine says "Put back as it was." and an all-undone copy reads "Copy undone on 
 action bar is pinned to the bottom of the dialog (`data-shell-foot`; on a phone the whole sheet scrolls, so the bar sticks
 to it), and the order list shows only with more than one machine ticked. A stopped copy names the machine to retry.
 
+
+**Review findings on PR #937.** All three were real, each shown first by a failing test. (1) A plan sent a target's own
+instruction lines as `removed`, credential included. The plan now checks the target's file with `LooksLikeCredential`
+first; when it matches, `holdsCredential` is set, `removed` is empty and `added` lists every source line (so not even which
+lines it shares is told), and the review says the lines are not shown. Settings were already described by field name only;
+the same test proves no target value is echoed. (2) An apply or undo past its 50-second answer freed the setup slot while
+its worker kept writing; they now use `asideHolding`, so the machine answers `busy` until the worker returns. Reads and
+plans keep the plain `aside`. (3) Held source reads past 15 minutes were only dropped on a later request; the setup batch
+orchestrator's purge loop (every 10 minutes, stopped with the server) now also purges them through `Config.PurgeAlso`.

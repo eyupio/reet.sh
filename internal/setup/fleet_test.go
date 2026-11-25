@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -412,5 +413,35 @@ func TestApplyFleetRefusesAChangedTargetAndTheMergeChecksItsBase(t *testing.T) {
 	}
 	if string(mustRead(t, path)) != `{"theme":"a","permission":"allow"}` {
 		t.Fatal("a refused merge wrote the file")
+	}
+}
+
+// A target file that holds what looks like a credential is never quoted in
+// its plan: no removed lines, no field values, and the file is marked so the
+// review can say why its lines are not shown.
+func TestPlanFleetNeverQuotesATargetFileThatHoldsACredential(t *testing.T) {
+	token := "ghp_" + strings.Repeat("A1b2", 9)
+	e, _ := fleetTarget(t)
+	writeConfig(t, filepath.Join(e.home, ".claude", "CLAUDE.md"), "Old line.\ntoken "+token+"\n")
+	writeConfig(t, filepath.Join(e.home, ".claude", "settings.json"), `{"outputStyle":"`+token+`","theme":"dark"}`)
+	md := terminalproto.SetupItem{Agent: "claude", Scope: "global", Kind: "instructions", Name: "CLAUDE.md", Format: "text", Content: "New line.\n"}
+	md.SHA256 = terminalproto.SetupItemSHA256(md.Content)
+	items := []terminalproto.SetupItem{md, settingsItem(t, "claude", "settings.json", "json", `{"outputStyle":"plain"}`)}
+	plan, err := planFleet(rediscover(t, e), items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(plan.Files)
+	if strings.Contains(string(data), token) || strings.Contains(string(data), "Old line.") {
+		t.Fatalf("the plan quotes the target: %s", data)
+	}
+	for _, f := range plan.Files {
+		if f.State != "merge" || !f.HoldsCredential || len(f.Removed) != 0 {
+			t.Fatalf("file not marked: %+v", f)
+		}
+	}
+	// Applying still works: the reviewed plan says the file is replaced.
+	if _, err := applyFleet(rediscover(t, e), t.TempDir(), "fleet-cred", plan.Fingerprint, items); err != nil {
+		t.Fatal(err)
 	}
 }

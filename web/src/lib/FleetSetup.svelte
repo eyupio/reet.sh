@@ -23,6 +23,7 @@
     confirmToSend,
     confirmed,
     copyButton,
+    credentialNote,
     diffCounts,
     fleetFileLine,
     machineExcluded,
@@ -277,6 +278,7 @@
         <span class="chip">{fileChip(file)}</span>
         <div class="copy">
           <span>{fleetFileLine(file)}</span>
+          {#if file.holdsCredential}<p class="hint">{credentialNote(file)}</p>{/if}
           {#if lines}
             <details class="diff" open={lines <= 6}>
               <summary>Changed lines · {diffCounts(file)}</summary>

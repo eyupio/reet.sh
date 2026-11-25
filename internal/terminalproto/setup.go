@@ -146,6 +146,9 @@ type SetupFilePlan struct {
 	Added     []string `json:"added,omitempty"`
 	Removed   []string `json:"removed,omitempty"`
 	Truncated bool     `json:"truncated,omitempty"`
+	// HoldsCredential says the target's own file looks like it holds a
+	// credential, so none of its text (no removed lines) is in the plan.
+	HoldsCredential bool `json:"holdsCredential,omitempty"`
 }
 
 func (f SetupFilePlan) valid() bool {

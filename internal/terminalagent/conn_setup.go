@@ -45,7 +45,10 @@ func (r *agentReq) handleSetupFleet(op *terminalproto.SetupFleet) error {
 		return refuse(terminalproto.SetupReasonNotAllowed)
 	}
 	req, home := *op, r.opts.Home
-	return r.aside(r.callCtx, r.reply, setupSlot, &setupRunning, setupAnswerAfter,
+	// An apply or undo cannot be stopped once it writes: it keeps the slot
+	// until it returns, so nothing runs beside it after a late answer.
+	hold := req.Op == terminalproto.SetupOpApply || req.Op == terminalproto.SetupOpRollback
+	return r.asideHolding(r.callCtx, r.reply, setupSlot, &setupRunning, setupAnswerAfter, hold,
 		terminalproto.SetupFleetResult{Op: req.Op, State: terminalproto.SetupRefused, Reason: terminalproto.SetupReasonBusy},
 		terminalproto.SetupFleetResult{Op: req.Op, State: terminalproto.SetupFailed, Reason: terminalproto.SetupReasonTimedOut},
 		func(context.Context) terminalproto.Body { return setupFleet(home, req) })

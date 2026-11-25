@@ -60,6 +60,8 @@ allow-apply. Every other machine is left out with a plain reason (see below).
    `merge` keeps the machine's own file and overwrites only the listed fields the source
    has; fields the source does not have are left as they are. For an instruction file,
    `merge` means its text is replaced, and the plan shows the lines added and removed.
+   When a machine's own file looks like it holds a credential, the plan shows none of
+   its lines: only the source's lines, as added, and the review says so.
 2. **Permissions.** Permission settings are copied. The plan flags any machine where the
    copy would let agents do more without asking: a new Claude Code allow rule or extra
    directory, a dropped deny or ask rule, a more permissive `defaultMode`; a Codex
@@ -90,7 +92,8 @@ Settings files are written back as plain JSON or TOML, so comments in a merged
 
 This is the one place the controller ever holds setup text. Between the read and the
 batch it is in the controller's memory only, for at most 15 minutes and one review per
-person. A batch then keeps it in its own table (`setup_batch_content`), and it is deleted
+person. A review nobody comes back to is deleted from memory within 10 minutes after
+that, without any further request. A batch then keeps it in its own table (`setup_batch_content`), and it is deleted
 when the batch is done or abandoned, and in any case 24 hours after the batch was made (a
 batch still waiting then is abandoned with code `expired`). It is never in a controller
 backup: every backup copy is taken with SQLite's `VACUUM INTO`, and reet empties that
@@ -164,7 +167,10 @@ Response `200`:
 `plan_failed`, `unchanged`. A file's `reason` for `blocked` is `no_location`,
 `unreadable` or `destination_symlink` / `destination_error` / `destination_unsupported`.
 `added` and `removed` hold at most 40 lines each of up to 200 characters; `truncated`
-says some were left out. The review returns no setup text other than those diff lines.
+says some were left out. `holdsCredential: true` means the machine's own file looks like
+it holds a credential: `removed` is empty and `added` lists every line of the source's
+file, so none of that machine's text leaves it. Settings files are only ever described by
+field name, never by value. The review returns no setup text other than those diff lines.
 
 Errors: `404 machine_not_found`; `409 setup_unsupported`, `setup_offline`,
 `setup_terminal_off`, `setup_locked`, `setup_busy`, `setup_nothing`;
@@ -200,7 +206,9 @@ abandon), `done`, `abandoned`. Member `state`: `pending`, `running`, `applied` (
 `reason`, as in the review, or `not_reviewed`). Failure codes: the machine's own `changed`,
 `not_allowed`, `locked`, `off`, `busy`, `nothing`, `invalid`, `write_failed`,
 `timed_out`, or `connection_lost`, `apply_unsupported`, `bad_answer`, `apply_failed`,
-`content_expired`.
+`content_expired`. An apply or undo that answers `timed_out` or loses its connection may
+still be writing on that machine; until it ends, that machine answers every setup request
+`busy`, so a retry never runs beside it.
 
 Errors: `400 setup_request_invalid`, `setup_batch_empty`, `setup_batch_duplicate`;
 `409 setup_batch_source_only`, `setup_batch_in_progress`, `setup_batch_empty`;

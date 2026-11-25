@@ -312,13 +312,20 @@ func planFleet(report Report, items []terminalproto.SetupItem) (FleetPlan, error
 				break
 			}
 			file.baseDigest = sha256Bytes(current)
+			// The target's text never leaves it when it looks like a credential.
+			f.HoldsCredential = skillimport.LooksLikeCredential(current)
 			if source == nil {
 				if string(current) == item.Content {
 					f.State = "unchanged"
 					break
 				}
 				f.State = "merge"
-				f.Added, f.Removed, f.Truncated = lineDiff(string(current), item.Content)
+				if f.HoldsCredential {
+					// Every new line, so not even which lines it shares are told.
+					f.Added, _, f.Truncated = lineDiff("", item.Content)
+				} else {
+					f.Added, f.Removed, f.Truncated = lineDiff(string(current), item.Content)
+				}
 				break
 			}
 			target, err := parseSource(current, item.Format)

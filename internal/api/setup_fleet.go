@@ -26,6 +26,10 @@ import (
 
 const setupReadTTL = 15 * time.Minute
 
+// setupPurgeEvery is how often setup text past its time is deleted, held reads
+// and batch text alike; tests shorten it.
+var setupPurgeEvery = 10 * time.Minute
+
 func (s *server) registerSetupFleetRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/setup/fleet/source", s.terminal(s.setupFleetSource))
 	mux.HandleFunc("POST /api/v2/setup/fleet/batches", s.terminal(s.setupBatchStart))
@@ -39,9 +43,11 @@ func (s *server) registerSetupFleetRoutes(mux *http.ServeMux) {
 
 func (s *server) newSetupRuns() *setuprun.Orchestrator {
 	return setuprun.New(setuprun.Config{
-		Store:  s.st,
-		Broker: s.terminals,
-		Paused: s.st.Fenced,
+		Store:      s.st,
+		Broker:     s.terminals,
+		Paused:     s.st.Fenced,
+		PurgeEvery: setupPurgeEvery,
+		PurgeAlso:  s.setupReads.purge,
 		Settled: func(uid int64, batch store.SetupBatch) {
 			s.event(uid, "ui", "setup-batch", "", setupBatchAudit(batch, "finish"))
 		},
@@ -91,6 +97,18 @@ func (r *setupReads) put(id string, read setupRead) {
 		}
 	}
 	r.reads[id] = read
+}
+
+// purge deletes every read past its time, so an abandoned review's text goes
+// without a later request.
+func (r *setupReads) purge(now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, read := range r.reads {
+		if now.After(read.expires) {
+			delete(r.reads, key)
+		}
+	}
 }
 
 func (r *setupReads) get(uid int64, id string) (setupRead, bool) {

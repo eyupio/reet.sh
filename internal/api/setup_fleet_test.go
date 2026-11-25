@@ -432,3 +432,32 @@ func TestSetupFleetStopsOnAChangedMachineAndUndoRefusesAChangedFile(t *testing.T
 		}
 	}
 }
+
+// A review nobody comes back to is deleted on schedule: its copied text does
+// not wait in memory for a later request.
+func TestSetupFleetDeletesAnAbandonedReadWithoutAnotherRequest(t *testing.T) {
+	original := setupPurgeEvery
+	setupPurgeEvery = 10 * time.Millisecond
+	t.Cleanup(func() { setupPurgeEvery = original })
+	f := setupFleetFixture(t, 1)
+	reads := &f.srv.s.setupReads
+	reads.put("kept", setupRead{uid: f.uid + 1, items: sourceItems(), expires: time.Now().Add(time.Hour)})
+	reads.put("abandoned", setupRead{uid: f.uid, items: sourceItems(), expires: time.Now().Add(-time.Second)})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		reads.mu.Lock()
+		_, abandoned := reads.reads["abandoned"]
+		_, kept := reads.reads["kept"]
+		reads.mu.Unlock()
+		if !kept {
+			t.Fatal("a read still in its time was deleted")
+		}
+		if !abandoned {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the abandoned read is still held")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

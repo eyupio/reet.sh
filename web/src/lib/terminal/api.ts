@@ -213,7 +213,7 @@ export async function abandonSoftwareBatch(batchId: string, signal?: AbortSignal
 }
 /** Fleet setup copy: one machine's global agent instructions and portable settings, copied to others. See docs/fleet-setup.md. */
 export type FleetSetupItem = { agent: string; kind: string; name: string; format: string; label?: string; bytes: number }
-export type FleetSetupFile = { agent: string; kind: string; name: string; destination?: string; state: 'create' | 'merge' | 'unchanged' | 'blocked'; reason?: string; fields?: string[]; widens?: string[]; added?: string[]; removed?: string[]; truncated?: boolean }
+export type FleetSetupFile = { agent: string; kind: string; name: string; destination?: string; state: 'create' | 'merge' | 'unchanged' | 'blocked'; reason?: string; fields?: string[]; widens?: string[]; added?: string[]; removed?: string[]; truncated?: boolean; holdsCredential?: boolean }
 export type FleetSetupMachine = { agentId: string; host: string; state: 'ready' | 'unchanged' | 'excluded'; code?: string; reason?: string; widens: boolean; fingerprint?: string; files: FleetSetupFile[] }
 export type FleetSetupReview = { readId: string; expiresAt: number; source: { agentId: string; host: string; readAt: number }; items: FleetSetupItem[]; machines: FleetSetupMachine[] }
 export type FleetSetupBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'abandoned'

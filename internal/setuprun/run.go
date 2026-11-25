@@ -69,6 +69,8 @@ type Config struct {
 	// PurgeEvery is how often held setup text past its time is deleted; zero
 	// means ten minutes.
 	PurgeEvery time.Duration
+	// PurgeAlso deletes other held setup text past its time on each purge.
+	PurgeAlso func(now time.Time)
 	// Now is the clock for purging; nil means time.Now.
 	Now func() time.Time
 }
@@ -123,7 +125,11 @@ func New(cfg Config) *Orchestrator {
 
 // Purge deletes held setup text that is past its time.
 func (o *Orchestrator) Purge() {
-	if _, err := o.cfg.Store.PurgeSetupBatchContent(o.cfg.Now().UnixMilli()); err != nil {
+	now := o.cfg.Now()
+	if o.cfg.PurgeAlso != nil {
+		o.cfg.PurgeAlso(now)
+	}
+	if _, err := o.cfg.Store.PurgeSetupBatchContent(now.UnixMilli()); err != nil {
 		o.cfg.Logf("setup batches: purge: %v", err)
 	}
 }

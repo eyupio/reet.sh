@@ -1032,8 +1032,8 @@
       <h2 id="admin-software-mirror">Software artifact mirror</h2>
       <p class="muted">Lets machines that cannot reach registry.npmjs.org download the one reviewed OpenCode artifact from this controller. Every machine still verifies the pinned checksum before it installs anything.</p>
       <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={e => saveMirror(e)} /> Serve the reviewed artifact to machines</label>
-      <label class="check"><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
-      <p class="muted" id="admin-mirror-first-hint">Best when machines reach this controller faster than the registry.</p>
+      <label class="check dep" class:off={!mirror.enabled}><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
+      <p class="note" id="admin-mirror-first-hint">Best when machines reach this controller faster than the registry.</p>
       <p class="muted" role="status">{mirrorNotice || (mirror.cached ? `Cached ${mirror.version ?? 'the reviewed version'} (${bytes(mirror.size ?? 0)}).` : 'Not cached yet.')}</p>
       {#if !mirror.cached}
         <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>
@@ -1096,6 +1096,11 @@
   .instance-settings fieldset { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   .instance-settings legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .instance-settings .check { min-height: 32px; }
+  .mirror .check { min-height: 32px; }
+  .mirror .check input { margin: 0; }
+  .mirror .dep { margin-left: 26px; }
+  .mirror .dep.off { opacity: 0.65; }
+  .mirror .note { margin-left: 52px; }
   .instance-settings .field { max-width: 24rem; }
   .readonly-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; margin: 16px 0 0; }
   .readonly-settings dt { color: var(--muted); font-size: 0.875rem; font-weight: 600; }

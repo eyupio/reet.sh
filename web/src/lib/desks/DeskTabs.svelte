@@ -90,7 +90,7 @@
   let preview = $state<string[] | null>(null), dragging = $state('')
   const order = $derived((preview ?? tabs.map(t => t.id)).map(id => tabs.find(t => t.id === id)).filter((t): t is Tab => !!t))
   function down(event: PointerEvent, id: string) {
-    if (event.button !== 0 || renaming) return
+    if (event.button !== 0 || renaming || event.pointerType !== 'mouse') return
     drag = { id, x: event.clientX, pointer: event.pointerId, moved: false }
   }
   function move(event: PointerEvent) {
@@ -168,7 +168,7 @@
   .tab.on { border-bottom-color: var(--tc); }
   .tab.on:not([data-colour]) { border-bottom-color: var(--accent); }
   .tab.dragging { opacity: 0.7; }
-  .tab [role='tab'] { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 4px 6px 12px; border: 0; background: none; color: var(--muted); font-size: 14px; white-space: nowrap; cursor: pointer; touch-action: pan-y; user-select: none; }
+  .tab [role='tab'] { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 4px 6px 12px; border: 0; background: none; color: var(--muted); font-size: 14px; white-space: nowrap; cursor: pointer; touch-action: pan-x pan-y; user-select: none; }
   .tab.on [role='tab'] { color: var(--ink); font-weight: 600; }
   .tab [role='tab']:hover { color: var(--ink); }
   .tab [role='tab']:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 6px; }

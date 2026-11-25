@@ -126,6 +126,20 @@ try {
     // The tab bar scrolls sideways; the page itself never does.
     const bar = page.locator('.bar .tabs')
     expect(await bar.evaluate(el => el.scrollWidth > el.clientWidth && getComputedStyle(el).overflowX === 'auto')).toBe(true)
+    // A sideways touch drag pans the strip and leaves the tab and the order alone; a tap still selects.
+    const activeId = () => bar.locator('[role="tab"][aria-selected="true"]').getAttribute('id')
+    const order = () => bar.getByRole('tab').evaluateAll(els => els.map(el => el.querySelector('.name')?.textContent))
+    const shown = await activeId(), before = await order()
+    expect(await bar.getByRole('tab').first().evaluate(el => getComputedStyle(el).touchAction)).toBe('pan-x pan-y')
+    const from = await bar.getByRole('tab', { name: 'after reboot', exact: true }).boundingBox()
+    const touch = await context.newCDPSession(page)
+    const x = from.x + from.width / 2, y = from.y + from.height / 2
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] })
+    for (let step = 1; step <= 8; step++) await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - step * 20, y, id: 1 }] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(() => bar.evaluate(el => el.scrollLeft)).toBeGreaterThan(0)
+    expect(await activeId()).toBe(shown)
+    expect(await order()).toEqual(before)
     await bar.getByRole('tab', { name: 'mail', exact: true }).tap()
     await expect(bar.getByRole('tab', { name: 'mail', exact: true })).toHaveAttribute('aria-selected', 'true')
     // A tab of one pane has no chips.

@@ -51,3 +51,58 @@ func TestNoncesAreBoundedAndFresh(t *testing.T) {
 		t.Fatal("two nonces were the same")
 	}
 }
+
+func TestABoundProofIsForOneAddress(t *testing.T) {
+	secret := "a-machine-secret"
+	hash := HashSecret(secret)
+	nonce, _ := NewNonce()
+	proof := ComputeBound(hash, "machine-1", nonce, "https://reet.example")
+	if !VerifyBound(secret, "machine-1", nonce, "https://reet.example", proof) {
+		t.Fatal("a proper bound proof was refused")
+	}
+	for name, ok := range map[string]bool{
+		"another address":      VerifyBound(secret, "machine-1", nonce, "https://evil.example", proof),
+		"no address":           VerifyBound(secret, "machine-1", nonce, "", proof),
+		"another machine":      VerifyBound(secret, "machine-2", nonce, "https://reet.example", proof),
+		"another secret":       VerifyBound("not-the-secret", "machine-1", nonce, "https://reet.example", proof),
+		"the unbound proof":    VerifyBound(secret, "machine-1", nonce, "https://reet.example", Compute(hash, "machine-1", nonce)),
+		"empty":                VerifyBound(secret, "machine-1", nonce, "https://reet.example", ""),
+		"unbound with address": Verify(secret, "machine-1", nonce, proof),
+	} {
+		if ok {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	// With no address to sign over, even a proof made over no address is not accepted.
+	if VerifyBound(secret, "machine-1", nonce, "", ComputeBound(hash, "machine-1", nonce, "")) {
+		t.Error("a proof over no address was accepted")
+	}
+}
+
+func TestOriginIsTheSameForTheSameAddressWrittenDifferently(t *testing.T) {
+	same := []string{"https://reet.example", "https://REET.example/", "  https://reet.example:443/some/path?x=1 ", "HTTPS://Reet.Example"}
+	for _, in := range same {
+		if got := Origin(in); got != "https://reet.example" {
+			t.Errorf("Origin(%q) = %q", in, got)
+		}
+	}
+	for in, want := range map[string]string{
+		"http://reet.example:80":       "http://reet.example",
+		"https://reet.example:8443":    "https://reet.example:8443",
+		"http://127.0.0.1:8080/":       "http://127.0.0.1:8080",
+		"https://[2001:db8::1]":        "https://[2001:db8::1]",
+		"https://[2001:db8::1]:8443/x": "https://[2001:db8::1]:8443",
+	} {
+		if got := Origin(in); got != want {
+			t.Errorf("Origin(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for _, bad := range []string{"", "reet.example", "ftp://reet.example", "https://", "//reet.example", "https://%zz", "javascript:alert(1)"} {
+		if got := Origin(bad); got != "" {
+			t.Errorf("Origin(%q) = %q, want none", bad, got)
+		}
+	}
+	if Origin("https://reet.example") == Origin("https://reet.example.evil.com") || Origin("https://a.example") == Origin("http://a.example") {
+		t.Error("two different addresses gave one origin")
+	}
+}

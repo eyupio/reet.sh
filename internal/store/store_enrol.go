@@ -48,6 +48,16 @@ func (s *Store) EnrolWithCode(hash, host, version, commit string) (uid int64, a 
 	if !validMachineName(host) {
 		return 0, a, "", false, ErrMachineName
 	}
+	// A code that cannot be claimed is turned away on the read pool: this route needs no
+	// credential, so a guess must not take the write connection from every agent poll.
+	var live int
+	if err = s.read.QueryRow(`SELECT COUNT(*) FROM enrol_codes WHERE hash=? AND used_at=0 AND expires_at>?
+		AND user_id IN (SELECT id FROM users WHERE disabled_at=0)`, hash, now()).Scan(&live); err != nil {
+		return 0, a, "", false, err
+	}
+	if live == 0 {
+		return 0, a, "", false, ErrEnrolCodeInvalid
+	}
 	secret = syncID()
 	err = s.withTx(func(tx *sql.Tx) error {
 		at := now()

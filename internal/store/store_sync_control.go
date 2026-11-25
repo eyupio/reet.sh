@@ -337,7 +337,8 @@ func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 // disabled has no usable record.
 func (s *Store) AgentSecretHash(id string) (string, bool, error) {
 	var h string
-	err := s.db.QueryRow(`SELECT a.secret_hash FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND u.disabled_at=0`, id).Scan(&h)
+	// The read pool: the proof route needs no credential, so it must not queue on the write connection.
+	err := s.read.QueryRow(`SELECT a.secret_hash FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND u.disabled_at=0`, id).Scan(&h)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}

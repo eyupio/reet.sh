@@ -140,7 +140,7 @@ func (s *server) privateSoftwareArtifact(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if _, _, err := s.st.AuthenticateRemoteAgent(r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version")); err != nil {
-		writeErr(w, http.StatusForbidden, "machine enrollment is missing or revoked")
+		refuseMachine(w, err)
 		return
 	}
 	select {

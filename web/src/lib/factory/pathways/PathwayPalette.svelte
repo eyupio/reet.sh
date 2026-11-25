@@ -71,7 +71,7 @@
   <input class="search" type="search" aria-label={`Search ${TABS.find(t => t.id === tab)?.label.toLowerCase()}`} placeholder="Search" bind:value={query} />
   <div class="panel" id={`${uid}-panel`} role="tabpanel" aria-labelledby={`${uid}-${tab}`}>
     {#if tab !== 'stages'}
-      <p class="aim" class:none={!stage}>{stage ? `Press to apply to ${target}.` : 'Select a stage first.'}</p>
+      <p class="aim" class:none={!stage} id={`${uid}-aim`}>{stage ? `Press to apply to ${target}.` : 'Select a stage first.'}</p>
     {/if}
 
     {#if tab === 'stages'}
@@ -98,7 +98,7 @@
       {#if tiers.length}<p class="group">Crew tiers</p>{/if}
       {#each tiers as t (t.tier)}
         {@const on = !!stage && !stage.agent && (stage.tier ?? defaultTier(stage.kind)) === t.tier}
-        <button type="button" class="item two" data-palette-item={`tier:${t.tier}`} aria-disabled={!stage} onclick={unless(!stage, () => onmodel({ tier: t.tier }))}
+        <button type="button" class="item two" data-palette-item={`tier:${t.tier}`} aria-disabled={!stage} aria-describedby={!stage ? `${uid}-aim` : undefined} onclick={unless(!stage, () => onmodel({ tier: t.tier }))}
           use:draggable={grab(() => ({ type: 'model', choice: { tier: t.tier } }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{t.label} · crew</span>{#if on}<span class="aside tick">✓</span>{/if}
           <span class="sub">{crew ? who(crew[t.tier]?.tool, crew[t.tier]?.model) : 'Your crew'}</span>
@@ -107,13 +107,13 @@
       {#if favs.length}<p class="group">Favourites</p>{/if}
       {#each favs as f (`${f.tool}/${f.model}`)}
         {@const on = !!stage?.agent && stage.agent.tool === f.tool && (stage.agent.model ?? '') === f.model}
-        <button type="button" class="item two" data-palette-item={`model:${f.tool}/${f.model}`} aria-disabled={!stage}
+        <button type="button" class="item two" data-palette-item={`model:${f.tool}/${f.model}`} aria-disabled={!stage} aria-describedby={!stage ? `${uid}-aim` : undefined}
           onclick={unless(!stage, () => onmodel(agentOf(f)))} use:draggable={grab(() => ({ type: 'model', choice: agentOf(f) }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name mono">{f.model || 'Agent’s default model'}</span>{#if on}<span class="aside tick">✓</span>{/if}
           <span class="sub">{chatToolName(f.tool)}</span>
         </button>
       {/each}
-      <button type="button" class="item" data-palette-item="model:other" aria-disabled={!stage} onclick={unless(!stage, () => onmodel('other'))} use:draggable={grab(() => ({ type: 'model', choice: 'other' }))}><span class="grip" aria-hidden="true">⠿</span><span class="name">Other…</span></button>
+      <button type="button" class="item" data-palette-item="model:other" aria-disabled={!stage} aria-describedby={!stage ? `${uid}-aim` : undefined} onclick={unless(!stage, () => onmodel('other'))} use:draggable={grab(() => ({ type: 'model', choice: 'other' }))}><span class="grip" aria-hidden="true">⠿</span><span class="name">Other…</span></button>
       {#if drag}<p class="hint">{Drag} a model on to a stage, or select a stage and press the model.</p>{/if}
 
     {:else if tab === 'skills'}
@@ -123,7 +123,7 @@
       {:else if !skills.length}<p class="quiet">No skill matches “{query.trim()}”.</p>{/if}
       {#each skills as s (s.id)}
         {@const why = stage ? canskill(s.id) : ''}
-        <button type="button" class="item two" data-palette-item={`skill:${s.id}`} aria-disabled={!stage || !!why} onclick={unless(!stage || !!why, () => onskill(s.id))}
+        <button type="button" class="item two" data-palette-item={`skill:${s.id}`} aria-disabled={!stage || !!why} aria-describedby={!stage ? `${uid}-aim` : undefined} onclick={unless(!stage || !!why, () => onskill(s.id))}
           use:draggable={grab(() => ({ type: 'skill', id: s.id }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{s.name}</span>{#if stage?.skills?.includes(s.id)}<span class="aside tick">✓</span>{/if}
           <span class="sub">{s.description}</span>
@@ -137,13 +137,13 @@
       {:else if !prompts.length}<p class="quiet">No saved prompts yet. Save one on the Prompts page.</p>
       {:else if !library.length}<p class="quiet">No prompt matches “{query.trim()}”.</p>{/if}
       {#each library as p (p.id)}
-        <button type="button" class="item two" data-palette-item={`prompt:${p.id}`} aria-disabled={!stage} onclick={unless(!stage, () => onprompt(p.body))}
+        <button type="button" class="item two" data-palette-item={`prompt:${p.id}`} aria-disabled={!stage} aria-describedby={!stage ? `${uid}-aim` : undefined} onclick={unless(!stage, () => onprompt(p.body))}
           use:draggable={grab(() => ({ type: 'prompt', text: p.body }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{p.title}</span>
           <span class="sub">{firstLine(p.body)}</span>
         </button>
       {/each}
-      <p class="hint">{drag ? `${Drag} a prompt on to a stage, or select a stage and press the prompt.` : 'A prompt is copied into the stage, after anything already there.'}</p>
+      <p class="hint">{drag ? `${Drag} a prompt on to a stage, or select a stage and press the prompt. It goes after anything already there.` : 'A prompt is copied into the stage, after anything already there.'}</p>
     {/if}
   </div>
 </section>

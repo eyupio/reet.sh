@@ -379,7 +379,7 @@
       selected = target.at
       if (item.type === 'model') void applyModel(item.choice)
       else if (item.type === 'skill') applySkill(item.id)
-      else patch({ prompt: item.text })
+      else applyPrompt(item.text)
     }
   }
 
@@ -395,7 +395,7 @@
         return { take: false, note: have.includes(item.id) ? `has ${skillName(item.id)}` : have.length >= MAX_STAGE_SKILLS ? `${have.length} skills · full` : 'too much guidance' }
       }
       if (at !== on) return null
-      const note = item.type === 'skill' ? `+ ${skillName(item.id)}` : item.type === 'model' ? `→ ${modelName(item.choice)}` : s.prompt?.trim() ? 'new prompt' : '+ prompt'
+      const note = item.type === 'skill' ? `+ ${skillName(item.id)}` : item.type === 'model' ? `→ ${modelName(item.choice)}` : '+ prompt'
       return { take: true, note }
     })
   })
@@ -415,8 +415,7 @@
     if (item.type === 'skill') first = on >= 0 ? `Drop to give ${name} the skill ${what}.` : `Drop on a stage to give it the skill ${what}.`
     else if (item.type === 'model') first = item.choice === 'other' ? `Drop on a stage to choose another model for it.` : on >= 0 ? `Drop to put ${name} on ${what}.` : `Drop on a stage to put it on ${what}.`
     else {
-      const s = on >= 0 ? draft.stages[on] : null
-      first = !s ? 'Drop on a stage to give it this prompt.' : s.prompt?.trim() ? `Drop to replace ${name}’s ${s.kind === 'custom' ? 'prompt' : 'extra instructions'}.` : `Drop to give ${name} this prompt.`
+      first = on >= 0 ? `Drop to add this prompt to ${name}.` : 'Drop on a stage to add this prompt to it.'
     }
     if (item.type !== 'skill') return first
     const others = draft.stages.flatMap((s, at) => at === on || !refusal(item, at) ? [] : [

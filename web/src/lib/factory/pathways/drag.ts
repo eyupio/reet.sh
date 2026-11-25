@@ -46,12 +46,16 @@ export function draggable(node: HTMLElement, opts: (DragHooks & { item: () => Dr
     o.onstart({ item, x, y, target: null, why: '' }, node)
     node.dataset.dragging = ''
     addEventListener('keydown', key, true)
+    addEventListener('blur', away)
+    document.addEventListener('visibilitychange', away)
   }
   function finish(drop: boolean) {
     phase = 'done'
     node.style.touchAction = touchAction
     delete node.dataset.dragging
     removeEventListener('keydown', key, true)
+    removeEventListener('blur', away)
+    document.removeEventListener('visibilitychange', away)
     swallow = true
     o.onend(drop)
   }
@@ -101,6 +105,8 @@ export function draggable(node: HTMLElement, opts: (DragHooks & { item: () => Dr
     finish(false)
   }
   // A pointer lost mid-drag (the node taken away, capture released) is a cancel.
+  // The window losing focus (alt-tab with the button held) may send no pointerup or cancel: cancel the drag now.
+  function away(event: Event) { if (phase === 'live' && (event.type === 'blur' || document.visibilityState === 'hidden')) { finish(false); reset(); swallow = false } }
   const lost = () => { if (phase === 'live') { finish(false); reset(); swallow = false } }
   const click = (event: MouseEvent) => { if (swallow) { event.preventDefault(); event.stopImmediatePropagation() } }
   // Once a touch drag has started, the finger moving must not scroll the page or the line.

@@ -776,15 +776,16 @@ async function editorDrag(width,theme){
   await page.mouse.up()
   await expect(card(page,'Security audit')).toContainText('2 skills · prompt ✓')
   await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
-  // A model; then a prompt, which replaces the one a stage has and says so first.
+  // A model; then a prompt, added after what the stage already has, as pressing it does.
   await tab(page,'Models').click()
   await drag(page,item(page,'tier:heavy'),await over(page,'Code'))
   await expect(card(page,'Code')).toContainText('heavy · crew')
   await tab(page,'Prompts').click()
   await drag(page,item(page,'prompt:pr1'),await over(page,'Security audit'),{hold:true})
-  await expect(hint(page)).toHaveText('Drop to replace Security audit’s prompt.')
+  await expect(hint(page)).toHaveText('Drop to add this prompt to Security audit.')
+  await expect(card(page,'Security audit')).toContainText('+ prompt')
   await page.mouse.up()
-  await expect(inspector(page).getByRole('textbox',{name:'Prompt'})).toHaveValue('Check every new endpoint for auth.\nList what you find.')
+  await expect(inspector(page).getByRole('textbox',{name:'Prompt'})).toHaveValue('Check every new endpoint for auth.\n\nCheck every new endpoint for auth.\nList what you find.')
   // Escape mid-drag: nothing moves, the press does not select, and the page can be selected again.
   await drag(page,card(page,'Design'),await between(page,'Plan','Security audit'),{hold:true})
   await expect(bar(page)).toBeVisible()
@@ -795,6 +796,16 @@ async function editorDrag(width,theme){
   await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
   await expect(card(page,'Security audit')).toHaveAttribute('aria-pressed','true')
   expect(await page.evaluate(()=>document.documentElement.style.userSelect)).toBe('')
+  // The window losing focus mid-drag cancels it: the ghost goes, the page is itself again, and nothing moves.
+  await drag(page,card(page,'Design'),await between(page,'Plan','Security audit'),{hold:true})
+  await expect(page.locator('.ghost')).toHaveCount(1)
+  await page.evaluate(()=>window.dispatchEvent(new Event('blur')))
+  await expect(page.locator('.ghost')).toHaveCount(0)
+  await expect(bar(page)).toHaveCount(0)
+  expect(await page.evaluate(()=>document.documentElement.hasAttribute('data-pathway-drag'))).toBe(false)
+  expect(await page.evaluate(()=>document.documentElement.style.userSelect)).toBe('')
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
   // A press that does not move is still a press.
   await card(page,'Code').click()
   await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
@@ -805,7 +816,8 @@ async function editorDrag(width,theme){
  }finally{await w.context.close()}
 }
 
-// An order rule is never offered: Merge is offered only after PR, and the Merge card cannot be dragged earlier.
+// An order rule is never offered: Merge is offered only after PR, the Merge card cannot be dragged earlier, no card can go
+// past Merge, and PR cannot go after Babysit.
 async function editorDragRules(width,theme){
  const {w,page}=await open(width,theme)
  try{
@@ -828,6 +840,17 @@ async function editorDragRules(width,theme){
   await expect(bar(page)).toHaveCount(0)
   await page.mouse.up()
   await expect.poll(()=>titles(page)).toEqual(['Write docs','PR','Merge'])
+  await item(page,'stage:babysit').click()
+  await expect.poll(()=>titles(page)).toEqual(['Write docs','PR','Babysit','Merge'])
+  await drag(page,card(page,'Write docs'),await between(page,'Merge',null),{hold:true})
+  await expect(hint(page)).toHaveText('Merge is always the last stage.')
+  await expect(bar(page)).toHaveCount(0)
+  await page.mouse.up()
+  await drag(page,card(page,'PR'),await between(page,'Babysit','Merge'),{hold:true})
+  await expect(hint(page)).toHaveText('Babysit needs a PR stage before it.')
+  await expect(bar(page)).toHaveCount(0)
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Write docs','PR','Babysit','Merge'])
   expect(w.errors).toEqual([])
  }finally{await w.context.close()}
 }

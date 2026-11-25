@@ -57,6 +57,8 @@
   .grip { grid-area: grip; color: var(--faint); font-size: 14px; line-height: 22px; cursor: grab; }
   /* Picked up: a dashed outline where it was. Under a dragged model, skill or prompt: a ring when it takes the drop, dimmed when it cannot. */
   .card:global([data-dragging]) { opacity: 0.45; border-style: dashed; box-shadow: none; }
+  /* While something is dragged only the drop target is ringed; the selected card rests like the others. */
+  :global(html[data-pathway-drag]) .card[aria-pressed='true']:not([data-drop='take']) { border-color: var(--line); box-shadow: var(--shadow); }
   .card.card[data-drop='take'] { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-wash), var(--shadow); }
   .card[data-drop='refuse'] { opacity: 0.5; }
   .preview { color: var(--accent-text); font-weight: 600; }

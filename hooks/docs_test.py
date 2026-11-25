@@ -3,6 +3,7 @@
 Run with: python -m unittest discover -s hooks -p '*_test.py'
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -122,6 +123,33 @@ class Sitemap(unittest.TestCase):
         xml = self.written([{"url": "https://reet.sh/a/", "lastmod": ""}])
         self.assertIn("<loc>https://reet.sh/a/</loc>", xml)
         self.assertNotIn("lastmod", xml)
+
+
+
+class BuiltinSkills(unittest.TestCase):
+    def test_a_skill_is_published_where_the_skills_cli_looks_for_it(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        source = repo / "internal/api/builtin_skills/reet-demo/SKILL.md"
+        source.parent.mkdir(parents=True)
+        content = "---\nname: reet-demo\ndescription: Shows: a thing.\n---\n\n# Body\n"
+        source.write_text(content, encoding="utf-8")
+        skills = docs.builtin_skills({"config_file_path": str(repo / "mkdocs.yml")})
+        self.assertEqual(skills, [("reet-demo", "Shows: a thing.", content)])
+
+        site = repo / "site"
+        docs.write_skills(str(site), skills)
+        home = site / "eyupio/reet-demo"
+        self.assertEqual((home / "SKILL.md").read_text(encoding="utf-8"), content)
+        self.assertEqual((home / ".well-known/agent-skills/reet-demo/SKILL.md").read_text(encoding="utf-8"), content)
+        self.assertEqual(
+            json.loads((home / ".well-known/agent-skills/index.json").read_text(encoding="utf-8")),
+            {"skills": [{"name": "reet-demo", "description": "Shows: a thing.", "files": ["SKILL.md"]}]},
+        )
+        page = docs.skill_page("https://reet.sh/", *skills[0])
+        self.assertIn("add https://reet.sh/eyupio/reet-demo\n", page)
+        # The skill's own headings stay inside the fence, so the page keeps one h1.
+        self.assertIn("~~~~~~~~text\n" + content.rstrip("\n") + "\n~~~~~~~~\n", page)
 
 
 if __name__ == "__main__":

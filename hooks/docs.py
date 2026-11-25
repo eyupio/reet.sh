@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import gzip
+import json
 import logging
 import math
 import os
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
 from markdown.extensions.toc import slugify
+from mkdocs.structure.files import File
 
 TITLE = re.compile(r"<title>(.*?)</title>", re.I | re.S)
 DESCRIPTION = re.compile(r'<meta\s+name="description"\s+content="([^"]*)"', re.I | re.S)
@@ -27,6 +29,12 @@ MARKDOWN = re.compile(r"[#*_`>\[\]()]")
 SPACES = re.compile(r"\s+")
 
 log = logging.getLogger("mkdocs.hooks.docs")
+
+# The skills the binary serves at /eyupio/<slug> (internal/api/builtin_skills.go).
+# skills.sh links to them on the docs origin, which the binary does not serve, so
+# the docs build publishes the same files at the same paths.
+SKILLS_OWNER = "eyupio"
+SKILLS_CLI = "skills@1.7.4"  # ref.SkillsCLI in internal/ref/cli.go
 
 # Each page's last-edited date, keyed by the file MkDocs writes for it
 # (`documentation/index.html`), filled once per build by on_files.
@@ -69,6 +77,65 @@ def _git_dates(docs_dir):
     return dates
 
 
+def builtin_skills(config):
+    """Each built-in skill as (slug, description, content), read from the binary's own copies."""
+    if not config.get("config_file_path"):
+        return []
+    root = os.path.join(os.path.dirname(config["config_file_path"]), "internal", "api", "builtin_skills")
+    skills = []
+    for slug in sorted(os.listdir(root)):
+        with open(os.path.join(root, slug, "SKILL.md"), encoding="utf-8") as fh:
+            content = fh.read()
+        front = content.removeprefix("---\n").partition("\n---")[0]
+        found = re.search(r"^description:(.*)$", front, re.M)
+        skills.append((slug, found.group(1).strip() if found else "", content))
+    return skills
+
+
+def skill_page(base, slug, description, content):
+    """The Markdown for a skill's public page; the skill itself is shown, not rendered."""
+    url = base + SKILLS_OWNER + "/" + slug
+    title = slug + " skill"
+    return "\n".join([
+        "---",
+        "title: " + json.dumps(title),
+        "description: " + json.dumps(description or title),
+        "---",
+        "",
+        "# " + slug,
+        "",
+        description,
+        "",
+        "## Install this skill",
+        "",
+        "```",
+        "npx " + SKILLS_CLI + " add " + url,
+        "```",
+        "",
+        "[Download SKILL.md](" + url + "/SKILL.md)",
+        "",
+        "## Skill contents",
+        "",
+        # Longer than any fence a skill uses, so the skill's own code blocks stay text.
+        "~~~~~~~~text",
+        content.rstrip("\n"),
+        "~~~~~~~~",
+        "",
+    ])
+
+
+def write_skills(site_dir, skills):
+    """The files the skills CLI fetches, at the paths the binary serves them."""
+    for slug, description, content in skills:
+        home = os.path.join(site_dir, SKILLS_OWNER, slug)
+        known = os.path.join(home, ".well-known", "agent-skills")
+        os.makedirs(os.path.join(known, slug), exist_ok=True)
+        index = {"skills": [{"name": slug, "description": description, "files": ["SKILL.md"]}]}
+        _write(home, "SKILL.md", content)
+        _write(known, "index.json", json.dumps(index))
+        _write(os.path.join(known, slug), "SKILL.md", content)
+
+
 def on_files(files, config):
     """Read the history once, before any page is rendered.
 
@@ -87,6 +154,11 @@ def on_files(files, config):
         for file in files.documentation_pages()
         if dates.get(file.src_uri)
     }
+    base = (config.get("site_url") or "").rstrip("/") + "/"
+    for slug, description, content in builtin_skills(config):
+        files.append(File.generated(
+            config, SKILLS_OWNER + "/" + slug + ".md", content=skill_page(base, slug, description, content)
+        ))
     return files
 
 
@@ -200,6 +272,7 @@ def on_post_build(config, **kwargs):
     write_robots(site_dir, base, config["extra"].get("noindex", False))
     write_llms(site_dir, pages)
     _write(site_dir, ".nojekyll", "")
+    write_skills(site_dir, builtin_skills(config))
 
 
 def write_sitemap(site_dir, pages):

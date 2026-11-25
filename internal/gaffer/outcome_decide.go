@@ -157,10 +157,10 @@ func (s *Service) autoDecisions(ctx context.Context) {
 						// (the controller stopped between the claim and the decision). Then it is asked again
 						// without spending another of the stage's decisions.
 						if stage.DecidingSince == 0 {
-							if decisionAnswersStop(*o, row.Key, stage.Kind, 0) {
+							if decisionAnswersStop(*o, row.Key, stage.Label(), 0) {
 								return false
 							}
-						} else if now-stage.DecidingSince < decisionClaimTTL.Milliseconds() || decisionAnswersStop(*o, row.Key, stage.Kind, stage.DecidingSince) {
+						} else if now-stage.DecidingSince < decisionClaimTTL.Milliseconds() || decisionAnswersStop(*o, row.Key, stage.Label(), stage.DecidingSince) {
 							return false
 						}
 					} else {
@@ -188,7 +188,7 @@ func (s *Service) autoDecisions(ctx context.Context) {
 // decided and why. A decision that could not be made or carried out is
 // recorded as such and leaves the stop with the person.
 func (s *Service) decidePipeline(parent context.Context, p Principal, id string, piece store.GafferOutcomeSession, stop pipelineStop) {
-	d := store.GafferOutcomeDecision{Key: piece.Key, Title: piece.Title, Stage: piece.Stages[piece.Stage].Kind, About: stop.about}
+	d := store.GafferOutcomeDecision{Key: piece.Key, Title: piece.Title, Stage: piece.Stages[piece.Stage].Label(), About: stop.about}
 	answers, err := s.askDecision(parent, p, id, piece, stop, &d)
 	if errors.Is(err, ErrBusy) {
 		// The provider's gate refused before any request was made: nothing was
@@ -309,7 +309,7 @@ func (s *Service) askDecision(parent context.Context, p Principal, id string, pi
 	defer client.CloseIdleConnections()
 	var b strings.Builder
 	b.WriteString(s.outcomeEvidence(o))
-	b.WriteString("\nThe stage that stopped: the " + piece.Stages[piece.Stage].Kind + " stage of pipeline “" + piece.Title + "”.\nWhy it stopped: " + clipBytes(stop.why, 600) + "\n")
+	b.WriteString("\nThe stage that stopped: the " + piece.Stages[piece.Stage].Label() + " stage of pipeline “" + piece.Title + "”.\nWhy it stopped: " + clipBytes(stop.why, 600) + "\n")
 	if stop.goal.Summary != "" {
 		b.WriteString("Your latest review of it: " + clipBytes(stop.goal.Summary, 1500) + "\n")
 	}

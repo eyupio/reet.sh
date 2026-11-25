@@ -126,7 +126,7 @@ func (s *Service) checkStageChoice(ctx context.Context, o store.GafferOutcome, k
 		return
 	}
 	s.audit(o.OwnerID, "gaffer-stage-choice-not-applied", map[string]any{
-		"outcome": o.ID, "pipeline": key, "stage": stage.Kind, "session": sessionID,
+		"outcome": o.ID, "pipeline": key, "stage": stage.Label(), "session": sessionID,
 		"chosen":  map[string]any{"agent": stage.Tool, "model": stage.Model, "effort": stage.Effort},
 		"applied": map[string]any{"agent": got.Tool, "model": got.Model, "effort": got.Effort},
 		"reason":  note,

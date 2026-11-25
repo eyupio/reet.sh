@@ -1185,7 +1185,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 			}
 			key, kind := piece.Key, ""
 			if piece.Stage < len(piece.Stages) {
-				kind = piece.Stages[piece.Stage].Kind
+				kind = piece.Stages[piece.Stage].Label()
 			}
 			used, _ := s.store.GafferGoalFor(uid, conversation)
 			// What the stage's agent reported using is kept with the stage, like Gaffer's own figures.
@@ -1210,7 +1210,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						settleStoppedOutcome(o)
 						o.State = "starting"
 					}
-					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Kind+" stage is done. Starting the next.", time.Now().UnixMilli()
+					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Label()+" stage is done. Starting the next.", time.Now().UnixMilli()
 					handed = true
 					return true
 				}
@@ -1318,13 +1318,13 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		return set("ready_to_merge", mergeWaitNote(item), func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
 	if _, err := s.chatPrincipal(uid); err != nil {
-		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)
+		return set("unfollowed", "Stopped before the "+stage.Label()+" stage: this account can no longer start sessions.", nil)
 	}
 	// Every stage is a session of its own, whatever agent and model do it: it
 	// starts with that stage's instruction and the handover and nothing else,
 	// in the pipeline's folder. The session of the stage before is finished
 	// with and is ended once this one is followed.
-	if !set("starting", "Starting the "+stage.Kind+" stage…", func(row *store.GafferOutcomeSession) {
+	if !set("starting", "Starting the "+stage.Label()+" stage…", func(row *store.GafferOutcomeSession) {
 		row.Stage = next
 		row.SessionID, row.ConversationID = row.Stages[next].SessionID, ""
 	}) {
@@ -1348,9 +1348,9 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 			if after, err := s.store.GafferOutcomeFor(uid, o.ID); ok && err == nil {
 				for _, now := range after.Sessions {
 					if now.Key == item.Key && now.SessionID != item.SessionID {
-						reason := "The " + stage.Kind + " stage started in a session of its own."
+						reason := "The " + stage.Label() + " stage started in a session of its own."
 						if now.SessionID == "" {
-							reason = "Its stage is done, and the " + stage.Kind + " stage starts in a session of its own when it is tried again."
+							reason = "Its stage is done, and the " + stage.Label() + " stage starts in a session of its own when it is tried again."
 						}
 						s.endFinishedSession(ctx, o, item.Key, item.SessionID, reason)
 					}
@@ -1495,12 +1495,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				launch.Tool, launch.Model, launch.Provider, launch.Effort = stage.Tool, stage.Model, stage.Provider, stage.Effort
 				launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 				if stage.Balanced != "" {
-					s.audit(uid, "gaffer-stage-balanced", map[string]any{"outcome": o.ID, "pipeline": item.Key, "stage": stage.Kind, "tool": stage.Tool, "reason": stage.Balanced})
+					s.audit(uid, "gaffer-stage-balanced", map[string]any{"outcome": o.ID, "pipeline": item.Key, "stage": stage.Label(), "tool": stage.Tool, "reason": stage.Balanced})
 				}
 			}
 			// An effort the machine's last report says the agent does not offer
 			// is not asked for: the stage starts on the agent's default effort.
-			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Kind, launch, "", "reported") {
+			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Label(), launch, "", "reported") {
 				launch.Effort, stage.EffortNotOffered = "", launch.Effort
 			}
 			droppedEffort = launch.Effort == "" && stage.EffortNotOffered != ""
@@ -1626,7 +1626,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// effort was dropped already: the refusal is then the one recorded
 			// for its old request, answered again.
 			if err != nil && !unknown && staged && (launch.Effort != "" || droppedEffort) && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
-				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Kind, launch, fresh, "refused") {
+				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Label(), launch, fresh, "refused") {
 					launch.RequestID, launch.Effort = fresh, ""
 					started, workDir, err, unknown = ask(launch.RequestID)
 				}
@@ -1643,11 +1643,11 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if err != nil {
 			state, note := "failed", "Not started: "+clipBytes(err.Error(), 400)
 			if staged && item.Stage > 0 {
-				state, note = "unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400)
+				state, note = "unfollowed", "The "+item.Stages[item.Stage].Label()+" stage was not started: "+clipBytes(err.Error(), 400)
 			}
 			asked := "The session"
 			if staged && item.Stage > 0 {
-				asked = "The " + item.Stages[item.Stage].Kind + " stage"
+				asked = "The " + item.Stages[item.Stage].Label() + " stage"
 			}
 			switch {
 			case unsure == launch.RequestID:
@@ -1758,7 +1758,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	followed := func() bool {
 		note := "Started and followed. Gaffer waits for its first progress."
 		if staged {
-			note = "The " + item.Stages[item.Stage].Kind + " stage is under way."
+			note = "The " + item.Stages[item.Stage].Label() + " stage is under way."
 		}
 		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, &wrote, func(row *store.GafferOutcomeSession) {
 			row.ConversationID = cid
@@ -1776,7 +1776,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				// the stage was moved on, so a controller that restarted in
 				// between does not leave it running.
 				if before := item.Stages[item.Stage-1].SessionID; before != "" && before != sessionID {
-					s.endFinishedSession(ctx, o, item.Key, before, "The "+item.Stages[item.Stage].Kind+" stage started in a session of its own.")
+					s.endFinishedSession(ctx, o, item.Key, before, "The "+item.Stages[item.Stage].Label()+" stage started in a session of its own.")
 				}
 			}
 		}

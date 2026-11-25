@@ -402,7 +402,7 @@ func (s *Service) outcomeEvidence(o store.GafferOutcome) string {
 	for i, row := range o.Sessions {
 		b.WriteString("\nPipeline " + strconv.Itoa(i+1) + ": " + row.Title + "\nState: " + row.State + ". " + row.Note + "\nBrief: " + evidenceBrief(row.Prompt) + "\n")
 		for j, stage := range row.Stages {
-			line := "- " + stage.Kind
+			line := "- " + stage.Label()
 			if stage.Part != "" {
 				line += ", part " + strconv.Quote(stage.Part)
 			}
@@ -527,8 +527,8 @@ func (s *Service) MovePipelineOn(uid int64, id, key, stage string) (store.Gaffer
 		if piece.State != "following" || len(piece.Stages) == 0 || piece.Stage >= len(piece.Stages) || piece.ConversationID == "" {
 			return outcomeView(o), invalid("advance", "That pipeline has no stage in hand to move on from.")
 		}
-		if stage != "" && piece.Stages[piece.Stage].Kind != stage {
-			return outcomeView(o), invalid("advance", "That pipeline has already left the "+stage+" stage and is now at "+piece.Stages[piece.Stage].Kind+". Look at it again before moving it on.")
+		if stage != "" && piece.Stages[piece.Stage].Label() != stage {
+			return outcomeView(o), invalid("advance", "That pipeline has already left the "+stage+" stage and is now at "+piece.Stages[piece.Stage].Label()+". Look at it again before moving it on.")
 		}
 		if err := s.movePipelineOn(uid, piece.ConversationID, "", "person"); err != nil {
 			return outcomeView(o), err
@@ -699,7 +699,7 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 	target := -1
 	// A stage that was split goes back to its first part: the whole stage is done again.
 	for i := 0; i <= at; i++ {
-		if piece.Stages[i].Kind == kind {
+		if piece.Stages[i].Label() == kind {
 			target = i
 			break
 		}
@@ -723,7 +723,7 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 			}
 		}
 	}
-	from, left := piece.Stages[at].Kind, piece.SessionID
+	from, left := piece.Stages[at].Label(), piece.SessionID
 	fresh := make([]string, len(piece.Stages))
 	for i := target; i < len(piece.Stages); i++ {
 		if fresh[i], err = newChatID(); err != nil {
@@ -757,7 +757,7 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: askedEffort(row.Stages[j]), Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, SkillGuidance: row.Stages[j].SkillGuidance, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Name: row.Stages[j].Name, Prompt: row.Stages[j].Prompt, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: askedEffort(row.Stages[j]), Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, SkillGuidance: row.Stages[j].SkillGuidance, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = why(from)
 			// Work that is done again is delivered again: an earlier acceptance

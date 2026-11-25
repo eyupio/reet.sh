@@ -127,7 +127,7 @@ func mcpOutcomeRow(o store.GafferOutcome) map[string]any {
 	for _, piece := range o.Sessions {
 		row := map[string]any{"key": piece.Key, "title": piece.Title, "state": piece.State, "updated_at": piece.UpdatedAt}
 		if piece.Stage < len(piece.Stages) && piece.Stages[piece.Stage].State != "done" {
-			row["stage_in_hand"] = piece.Stages[piece.Stage].Kind
+			row["stage_in_hand"] = piece.Stages[piece.Stage].Label()
 		}
 		pipelines = append(pipelines, row)
 	}
@@ -219,7 +219,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			}
 			if i == piece.Stage && stage.State != "done" {
 				item["in_hand"] = true
-				row["stage_in_hand"] = stage.Kind
+				row["stage_in_hand"] = stage.Label()
 			}
 			if stage.StartedAt > 0 {
 				item["started_at"] = stage.StartedAt

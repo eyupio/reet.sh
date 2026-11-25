@@ -91,3 +91,45 @@ func TestCompanionQueueChecksPermissionAtDeliveryAndInterruptsOnlyExplicitly(t *
 		})
 	}
 }
+
+// An instruction from Gaffer, a connected tool or "Tell the agent" is itself
+// the retry after a failed turn. Nobody can press Retry on it in the chat's
+// queue, so pausing it there left the stage's agent unreachable for good.
+func TestCompanionInstructionIsDeliveredAfterAFailedTurn(t *testing.T) {
+	var prompts atomic.Int32
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts.Add(1)
+		}
+		return nil, true
+	})
+	b.SetWorkerMessagingPolicy(func() bool { return true })
+	session := chatSession(t, b, uid, agent)
+	client, err := b.st.CreateMCPConnection(uid, "Companion test", "write", "companion-test-hash", time.Now().Add(time.Hour).UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = b.st.SetMCPEnabled(uid, true); err != nil {
+		t.Fatal(err)
+	}
+	subject := strconv.FormatInt(client.ID, 10)
+	grant, err := b.st.SetWorkerGrantFor(uid, "mcp", subject, 0, store.WorkerGrant{Enabled: true, SessionID: session.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.publishChat(uid, session.ID, terminalproto.ACPEvent{Kind: "status", State: "error", Detail: "provider quota"})
+	message, _, err := b.st.AdmitWorkerMessageFor(uid, "mcp", subject, store.WorkerMessage{ID: strings.Repeat("a", 32), SessionID: session.ID, Text: "Please start the plan stage now.", GrantRevision: grant.Revision}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = b.EnqueueChat(uid, session.ID, message.QueueID, message.Text, nil); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := b.st.WorkerMessageFor(uid, "mcp", subject, session.ID, message.ID)
+	if err != nil || prompts.Load() != 1 || receipt.State != "sent" {
+		t.Fatal("the instruction did not reach the agent after its failed turn", prompts.Load(), receipt, err)
+	}
+}

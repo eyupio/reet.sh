@@ -259,7 +259,9 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	failed := log.lastState == "failed"
 	log.mu.Unlock()
 	retry := failed && !c.Working
-	if retry && q.Intent == "wait" {
+	// A companion's instruction is the retry: nobody can press Retry on it
+	// here, so pausing it would leave the agent unreachable after one failure.
+	if retry && q.Intent == "wait" && q.Origin != "companion" {
 		_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "The previous turn failed. Check the agent or its settings, then retry this message.", b.queueOwner)
 		return
 	}

@@ -298,6 +298,10 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{}`); code != 400 {
 		t.Fatalf("stop without a revision: %d", code)
 	}
+	// Moving on names the stage the person was shown: without it a pipeline that has moved on since would be moved again.
+	if code, _ := gafferClient(t, owner, srv, "POST", base+"/sessions/a/advance", `{"confirmed":true}`); code != 400 {
+		t.Fatalf("move on without a stage: %d", code)
+	}
 	// Moving on, sending back, the merge setting, telling the agent and stopping following are the owning browser's too.
 	for path, body := range map[string]string{
 		base + "/sessions/a/advance":   `{"confirmed":true,"stage":"code"}`,

@@ -298,3 +298,32 @@ func TestGafferChatSendsTheConversationAsPromptCacheKey(t *testing.T) {
 		t.Fatalf("request %s", req)
 	}
 }
+
+// Goal reviews leave room for the person's own chat: with two reviews running
+// for an account a message is still taken, and a third review is not.
+func TestGoalReviewsDoNotCrowdOutTheChat(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Fine.\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer func() { s.Close(); fake.Close() }()
+	v := conversationFixture(t, s, p, fake.URL)
+	s.mu.Lock()
+	for _, id := range []string{"review-1", "review-2"} {
+		s.chatJobs[id] = &chatJob{uid: p.UserID, goalID: id, cancel: func(error) {}}
+	}
+	s.mu.Unlock()
+	review := TurnInput{ID: strings.Repeat("a", 32), Revision: v.Conversation.Revision, Text: "Review the goal"}
+	if _, err := s.startTurn(p.UserID, v.Conversation.ID, review, &store.GafferGoal{ID: "goal", Revision: 1}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a third goal review: %v", err)
+	}
+	chat := TurnInput{ID: strings.Repeat("b", 32), Revision: v.Conversation.Revision, Text: "How are things?"}
+	if _, err := s.StartTurn(p.UserID, v.Conversation.ID, chat); err != nil {
+		t.Fatalf("a message with two reviews running: %v", err)
+	}
+	waitTurn(t, s, p.UserID, v.Conversation.ID, chat.ID)
+	s.mu.Lock()
+	delete(s.chatJobs, "review-1")
+	delete(s.chatJobs, "review-2")
+	s.mu.Unlock()
+}

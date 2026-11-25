@@ -1170,6 +1170,15 @@ func TestGafferChatIsToldWhereItsSessionSitsInThePipeline(t *testing.T) {
 	if r.s.contextPipeline(r.p.UserID, "not-a-pipeline-session", store.ContextFlags{Status: true, Text: true}) != nil {
 		t.Fatal("a session outside any pipeline was given one")
 	}
+	// The pipeline's stages and states are status: sharing history or text without status leaves them out.
+	for _, flags := range []store.ContextFlags{{History: true}, {Text: true}} {
+		if x, err := r.s.contextSnapshot(r.p.UserID, review.SessionID, flags); err != nil || x.Pipeline != nil {
+			t.Fatalf("pipeline shared without status: %+v, %v", x.Pipeline, err)
+		}
+	}
+	if x, err := r.s.contextSnapshot(r.p.UserID, review.SessionID, store.ContextFlags{Status: true}); err != nil || x.Pipeline == nil {
+		t.Fatalf("pipeline not shared with status: %v", err)
+	}
 }
 
 func TestAnAddedPipelineCanRunOnItsOwnAgentModelAndEffort(t *testing.T) {
@@ -1247,6 +1256,70 @@ func TestGafferReportsByItselfOncePerPipelineEventWhenAsked(t *testing.T) {
 	}
 	if len(r.starter.asked()) != 4 {
 		t.Fatalf("a report started something: %d launches", len(r.starter.asked()))
+	}
+}
+
+// An approval asked for again under the same request ID, after its answer was
+// lost, is answered with the outcome the first one started.
+func TestAnOutcomeAskedForAgainUnderTheSameRequestIDStartsOnlyOne(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.RequestID = strings.Repeat("c", 32)
+	first, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.settle(t, first.ID)
+	again, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil || again.ID != first.ID || first.ID != r.in.RequestID {
+		t.Fatalf("asked again: %+v, %v", again, err)
+	}
+	if rows, err := r.st.GafferOutcomesFor(r.p.UserID); err != nil || len(rows) != 1 {
+		t.Fatalf("outcomes: %d, %v", len(rows), err)
+	}
+	var in OutcomeInput
+	if err := json.Unmarshal([]byte(`{"requestId":"`+r.in.RequestID+`"}`), &in); err != nil || in.RequestID != r.in.RequestID {
+		t.Fatalf("a browser's request ID is not read: %+v, %v", in, err)
+	}
+}
+
+// A report the provider's gate refused was never made, so its event is not
+// marked as reported: it is asked for again once the gate is free.
+func TestABusyProviderDoesNotUseUpAnAutomaticReport(t *testing.T) {
+	r := outcomeFixture(t)
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		args := `{"summary":"One pipeline did not start.","proposals":[]}`
+		call, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "r1", "type": "function", "function": map[string]any{"name": "report_outcome", "arguments": args}}}}, "finish_reason": "tool_calls"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", call)
+	}
+	r.starter.refuse["Export API"] = "That agent isn't installed on that machine."
+	r.s.StartGoalSupervisor()
+	in := r.in
+	in.AutoReport = true
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.settle(t, created.ID)
+	release := r.busyGate()
+	defer release()
+	for i := 0; i < 3; i++ {
+		r.s.autoReports(context.Background())
+		time.Sleep(50 * time.Millisecond)
+	}
+	if o := mustOutcome(t, r, created.ID); o.Report != nil || o.AutoReports > 1 {
+		t.Fatalf("a refused report was counted or made: %+v", o)
+	}
+	release()
+	deadline := time.Now().Add(10 * time.Second)
+	var got store.GafferOutcome
+	for time.Now().Before(deadline) && got.Report == nil {
+		r.s.autoReports(context.Background())
+		got = mustOutcome(t, r, created.ID)
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got.Report == nil || got.AutoReports != 1 || got.AutoReportedFor != "a:failed" {
+		t.Fatalf("the report was not asked for again: %+v", got)
 	}
 }
 

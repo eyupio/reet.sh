@@ -331,6 +331,11 @@ func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "Confirm moving this pipeline on before it leaves its stage.")
 		return
 	}
+	// Without the stage the person was shown, a pipeline that has moved on since would be moved again.
+	if in.Stage == "" {
+		writeErr(w, 400, "Reload this pipeline before moving it on.")
+		return
+	}
 	if !s.terminalEnabled() {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return

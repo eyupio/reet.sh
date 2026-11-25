@@ -338,6 +338,34 @@ func TestGafferContextMasksRecognisedCredentialsAndKeepsUTF8(t *testing.T) {
 	}
 }
 
+// The usual forms a credential turns up in are hidden, and words that only
+// contain a credential's name are left alone.
+func TestGafferContextMasksTheCommonCredentialForms(t *testing.T) {
+	for _, c := range []struct{ text, secret string }{
+		{"DB_PASSWORD=hunter2", "hunter2"},
+		{"NPM_TOKEN=npmValue123", "npmValue123"},
+		{"OPENAI_API_KEY=openaiValue123", "openaiValue123"},
+		{"AWS_SECRET_ACCESS_KEY=awsValue123", "awsValue123"},
+		{`{"client_secret":"clientValue123","refresh_token":"refreshValue123"}`, "clientValue123"},
+		{`{"client_secret":"clientValue123","refresh_token":"refreshValue123"}`, "refreshValue123"},
+		{"DATABASE_URL=postgres://app:dbValue123@db.test/app", "dbValue123"},
+		{"STRIPE=sk_live_stripeValue123 and rk_test_restrictedValue123", "stripeValue123"},
+		{"STRIPE=sk_live_stripeValue123 and rk_test_restrictedValue123", "restrictedValue123"},
+		{"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.bearerValue123", "bearerValue123"},
+	} {
+		if masked, _ := contextText(c.text, 4096); strings.Contains(masked, c.secret) {
+			t.Errorf("%q was not hidden in %q", c.secret, masked)
+		}
+	}
+	prose := "The tokenizer and the secretary keep tokens and passwords private at https://example.test/docs:8080/path."
+	if masked, _ := contextText(prose, 4096); masked != prose {
+		t.Errorf("ordinary text was changed: %q", masked)
+	}
+	if masked, _ := contextText("DATABASE_URL=postgres://app:dbValue123@db.test/app", 4096); masked != "DATABASE_URL=postgres://[credential omitted]@db.test/app" {
+		t.Errorf("the scheme and host are kept: %q", masked)
+	}
+}
+
 // A plan or design is longer than one short history event. The snapshot
 // carries the working model's latest reply at length, so the stage review can
 // read the deliverable; it needs text sharing, is scrubbed and bounded, and

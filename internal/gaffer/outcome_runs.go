@@ -157,8 +157,9 @@ type OutcomeInput struct {
 	BalanceBelow int `json:"balanceBelow"`
 	// RequestID, when given, names this request: asking again under the same
 	// one answers the outcome it already started instead of starting another.
-	// It is for a client that may not hear back; the browser sends none.
-	RequestID string `json:"-"`
+	// It is for a client that may not hear back: the browser keeps one per
+	// approval, so a second click after a lost answer is the same request.
+	RequestID string `json:"requestId"`
 	// Template is the template version this plan was built from, set only by
 	// a template launch and recorded on the outcome.
 	Template *store.GafferTemplateRef `json:"-"`

@@ -98,7 +98,7 @@ func TestGafferToolsAreOffUntilChosenAndRunAsTheAccount(t *testing.T) {
 		t.Fatalf("switched on: %v", on)
 	}
 	out, err := host.CallGafferTool(ctx, user.ID, "reet_list_factory", json.RawMessage(`{}`))
-	if err != nil || !strings.Contains(out, `"outcomes":[]`) || !strings.Contains(out, `"controller"`) {
+	if err != nil || !strings.Contains(out, `"items":[]`) || !strings.Contains(out, `"controller"`) {
 		t.Fatalf("allowed tool: %s %v", out, err)
 	}
 	// A shelf tool goes through the API as the account, and its change is attributed to Gaffer.

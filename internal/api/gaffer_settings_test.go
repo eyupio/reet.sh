@@ -190,3 +190,14 @@ func TestGafferCrewRoutesSaveAndReadTheAccountsTiers(t *testing.T) {
 		}
 	}
 }
+
+// The limit on the sessions Gaffer follows is a conflict with its own words,
+// not a server fault, so the browser can show it.
+func TestGafferErrorSaysTheGoalLimitIsAConflict(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	gafferError(w, fmt.Errorf("resume: %w", store.ErrGafferGoalLimit))
+	if w.Code != 409 || !strings.Contains(w.Body.String(), store.ErrGafferGoalLimit.Error()) {
+		t.Fatalf("goal limit: %d %s", w.Code, w.Body)
+	}
+}

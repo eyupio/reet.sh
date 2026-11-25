@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -110,6 +111,32 @@ func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
 }
 
 func mcpFactoryTool(name string) bool { return mcpFactoryReads[name] || mcpFactoryWrites[name] }
+
+// mcpHandoverBytes is the most of a stage's handover note a read carries: the
+// notes can be 4,000 bytes each, and a reply is capped at 25,000 characters.
+const mcpHandoverBytes = 600
+
+// mcpOutcomeMore is said with every outcome in short, so a client knows where the rest is.
+const mcpOutcomeMore = "This is the outcome in short. reet_get_factory_outcome has every stage."
+
+// mcpOutcomeRow is an outcome in short, as a list row and as the answer to a
+// control: where it stands and which stage each pipeline is at, in a few
+// hundred bytes however long the pipelines are. It carries no session text.
+func mcpOutcomeRow(o store.GafferOutcome) map[string]any {
+	pipelines := []map[string]any{}
+	for _, piece := range o.Sessions {
+		row := map[string]any{"key": piece.Key, "title": piece.Title, "state": piece.State, "updated_at": piece.UpdatedAt}
+		if piece.Stage < len(piece.Stages) && piece.Stages[piece.Stage].State != "done" {
+			row["stage_in_hand"] = piece.Stages[piece.Stage].Kind
+		}
+		pipelines = append(pipelines, row)
+	}
+	row := map[string]any{"id": o.ID, "state": o.State, "objective": truncate(o.Objective, 200), "project": o.ProjectName, "updated_at": o.UpdatedAt, "pipelines": pipelines}
+	if o.ArchivedAt > 0 {
+		row["archived_at"] = o.ArchivedAt
+	}
+	return row
+}
 
 // mcpOutcome is an outcome as an MCP client reads it. Words taken from
 // sessions (stage handovers and Gaffer's report) go only to a connection that
@@ -219,7 +246,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 				item["context_used"], item["context_size"] = stage.ContextUsed, stage.ContextSize
 			}
 			if full && stage.Summary != "" {
-				item["handover"] = stage.Summary
+				item["handover"] = truncate(stage.Summary, mcpHandoverBytes)
 			}
 			if stage.Kind == "merge" {
 				row["merge"] = "waits_for_approval"
@@ -320,9 +347,11 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		if err != nil {
 			return nil, err
 		}
-		out := []map[string]any{}
+		out := []any{}
 		for _, o := range rows {
-			out = append(out, s.mcpOutcome(uid, o, false))
+			if o.ArchivedAt == 0 || args["include_archived"] == true {
+				out = append(out, mcpOutcomeRow(o))
+			}
 		}
 		// The builds answer "is this controller, or that machine, new enough
 		// for a feature": a client otherwise has to guess from side effects.
@@ -332,7 +361,7 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 				machines = append(machines, map[string]any{"id": a.ID, "name": a.Host, "version": a.Version, "commit": a.Commit, "last_seen": a.LastSeen})
 			}
 		}
-		return map[string]any{"outcomes": out, "controller": map[string]any{"version": s.version, "commit": s.commit}, "machines": machines}, nil
+		return mcpPage(out, args, map[string]any{"controller": map[string]any{"version": s.version, "commit": s.commit}, "machines": machines})
 	}
 	if name == "reet_list_factory_projects" {
 		rows, err := s.st.ListFolderProjectsFor(uid)
@@ -350,6 +379,13 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		o, err := s.gafferProviders.Outcome(uid, id)
 		if err != nil {
 			return nil, err
+		}
+		// An outcome of many pipelines can be too long to read whole, so one can be read alone.
+		if key != "" {
+			o.Sessions = slices.DeleteFunc(o.Sessions, func(piece store.GafferOutcomeSession) bool { return piece.Key != key })
+			if len(o.Sessions) == 0 {
+				return nil, errors.New("That outcome has no pipeline \"" + key + "\". reet_list_factory has the keys of its pipelines.")
+			}
 		}
 		return map[string]any{"outcome": s.mcpOutcome(uid, o, full)}, nil
 	}
@@ -442,7 +478,7 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		// and is answered with the outcome that request already started.
 		if rid := str("request_id"); rid != "" {
 			if existing, eerr := s.gafferProviders.Outcome(uid, rid); eerr == nil {
-				return map[string]any{"outcome": s.mcpOutcome(uid, existing, full), "applied": false, "note": "This request_id already started this outcome. Nothing more was started."}, nil
+				return map[string]any{"outcome": mcpOutcomeRow(existing), "applied": false, "note": "This request_id already started this outcome. Nothing more was started. " + mcpOutcomeMore}, nil
 			}
 		}
 		// The person's usual limits; no YOLO, no folder trust and no merge by itself can be asked for here.
@@ -465,6 +501,10 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	case "reet_send_pipeline_back":
 		o, err = s.gafferProviders.SendPipelineBack(uid, id, key, str("stage"), str("reason"))
 	case "reet_move_pipeline_on":
+		// The stage is what makes this the move the caller read: without it a pipeline that has moved on since would be moved again.
+		if str("stage") == "" {
+			return nil, errors.New("Pass stage, the stage you read as in hand, so a pipeline that has moved on since is not moved again. Nothing was changed.")
+		}
 		o, err = s.gafferProviders.MovePipelineOn(uid, id, key, str("stage"))
 	case "reet_retry_pipeline":
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
@@ -516,8 +556,8 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		return nil, err
 	}
 	if !applied {
-		return map[string]any{"outcome": s.mcpOutcome(uid, o, full), "applied": false, "note": "Nothing was changed: this outcome had already finished."}, nil
+		return map[string]any{"outcome": mcpOutcomeRow(o), "applied": false, "note": "Nothing was changed: this outcome had already finished. " + mcpOutcomeMore}, nil
 	}
 	s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key})
-	return map[string]any{"outcome": s.mcpOutcome(uid, o, full), "applied": true}, nil
+	return map[string]any{"outcome": mcpOutcomeRow(o), "applied": true, "note": mcpOutcomeMore}, nil
 }

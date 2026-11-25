@@ -49,6 +49,14 @@ type ConversationView struct {
 	Messages     []store.WorkerMessage    `json:"messages,omitempty"`
 	Context      *ContextState            `json:"context,omitempty"`
 }
+
+// How many chat jobs may run at once, in all and for one account: a person's own
+// message may take more of them than a goal review, so reviews cannot crowd out the chat.
+const (
+	chatJobsPerAccount, chatJobsControllerWide     = 3, 16
+	reviewJobsPerAccount, reviewJobsControllerWide = 2, 12
+)
+
 type chatJob struct {
 	goalID string
 	// stage marks a review of a pipeline stage's goal; handover is the
@@ -348,7 +356,12 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 			count++
 		}
 	}
-	if count >= 2 || len(s.chatJobs) >= 4 || !s.chatLimiter.Allow(key) {
+	perAccount, controllerWide := chatJobsPerAccount, chatJobsControllerWide
+	if goal != nil {
+		// A goal review leaves room for the person's own chat: one with many goals due can still talk to Gaffer.
+		perAccount, controllerWide = reviewJobsPerAccount, reviewJobsControllerWide
+	}
+	if count >= perAccount || len(s.chatJobs) >= controllerWide || !s.chatLimiter.Allow(key) {
 		return store.GafferTurn{}, ErrBusy
 	}
 	s.chatLimiter.Hit(key)

@@ -366,10 +366,28 @@
   {
     "name": "reet_list_factory",
     "title": "List Factory outcomes",
-    "description": "List the Factory’s outcomes with their pipelines: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Each stage also says when it started, who closed it (closed_by: gaffer, person or chat) and, for the stage in hand, what its agent last reported doing and when. The answer includes the controller’s build and each machine’s build, to tell whether one is new enough for a feature. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything. Returns {data: object} as structured content and text.",
+    "description": "List the Factory’s outcomes, newest first, as short rows: each outcome’s id, state and objective (clipped) and, for each pipeline, its key, title, state, updated_at and the stage in hand. Archived outcomes are left out unless include_archived is true. The answer includes the controller’s build and each machine’s build, to tell whether one is new enough for a feature. Read one outcome with reet_get_factory_outcome for each stage’s agent and state, how its merge is decided and the goal Gaffer follows it with. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
+        "limit": {
+          "default": 20,
+          "description": "Maximum items per page (1–100).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "offset": {
+          "default": 0,
+          "description": "Page offset; follow next_offset until has_more is false.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "include_archived": {
+          "description": "Also list archived outcomes. Default false.",
+          "type": "boolean"
+        },
         "response_format": {
           "default": "json",
           "description": "JSON or a Markdown JSON code block.",
@@ -408,7 +426,7 @@
   {
     "name": "reet_get_factory_outcome",
     "title": "Read one Factory outcome",
-    "description": "Read one outcome and its pipelines. A connection with management scope also receives each finished stage’s handover note and Gaffer’s latest report, which are derived from session text; other connections receive states only. Does not change anything. Returns {data: object} as structured content and text.",
+    "description": "Read one outcome and its pipelines in full: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Each stage also says when it started, who closed it (closed_by: gaffer, person or chat) and, for the stage in hand, what its agent last reported doing and when. A connection with management scope also receives each finished stage’s handover note, clipped to 600 characters, and Gaffer’s latest report, which are derived from session text; other connections receive states only. An outcome with many pipelines can be too long to read whole: pass pipeline to read one. Does not change anything. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -416,6 +434,12 @@
           "type": "string",
           "pattern": "^[a-f0-9]{32}$",
           "description": "Exact outcome id from reet_list_factory."
+        },
+        "pipeline": {
+          "description": "Read only this pipeline: its key from reet_list_factory, such as \"a\". For an outcome too long to read whole.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4
         },
         "response_format": {
           "default": "json",
@@ -458,7 +482,7 @@
   {
     "name": "reet_move_pipeline_on",
     "title": "Move a pipeline to its next stage",
-    "description": "Requires management scope and a writer account. On the user’s word, close the stage in hand of one pipeline as it stands and have the controller start its next stage, without waiting for Gaffer’s review to find it done. Refused while Gaffer is reviewing that stage or when the pipeline has no stage in hand. It does not merge, approve or run anything. Pass stage, the stage you read as in hand, so a pipeline that has moved since is not moved again. Use only when the user asked to continue, skip or accept that stage. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. On the user’s word, close the stage in hand of one pipeline as it stands and have the controller start its next stage, without waiting for Gaffer’s review to find it done. Refused while Gaffer is reviewing that stage or when the pipeline has no stage in hand. It does not merge, approve or run anything. Pass stage, the stage you read as in hand. It is required, so a pipeline that has moved since is not moved again. Use only when the user asked to continue, skip or accept that stage. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -474,7 +498,6 @@
           "description": "The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as \"a\"."
         },
         "stage": {
-          "description": "The stage in hand that the user asked to move on from. Refused if the pipeline is at another stage.",
           "type": "string",
           "enum": [
             "plan",
@@ -485,7 +508,8 @@
             "pr",
             "babysit",
             "merge"
-          ]
+          ],
+          "description": "The stage in hand that the user asked to move on from. Refused if the pipeline is at another stage."
         },
         "confirm": {
           "type": "boolean",
@@ -504,6 +528,7 @@
       "required": [
         "outcome_id",
         "pipeline",
+        "stage",
         "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",

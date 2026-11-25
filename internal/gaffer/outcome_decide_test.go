@@ -320,3 +320,54 @@ func TestAStageQuestionCarriesGaffersRecommendation(t *testing.T) {
 		}
 	}
 }
+
+// busyGate takes the account's two places for provider requests, as two slow
+// requests would, until the returned function is called.
+func (r *outcomeRig) busyGate() (release func()) {
+	r.s.mu.Lock()
+	r.s.active[1<<40], r.s.active[1<<41] = activeProbe{user: r.p.UserID, cancel: func() {}}, activeProbe{user: r.p.UserID, cancel: func() {}}
+	r.s.mu.Unlock()
+	return func() {
+		r.s.mu.Lock()
+		delete(r.s.active, 1<<40)
+		delete(r.s.active, 1<<41)
+		r.s.mu.Unlock()
+	}
+}
+
+// A provider gate that is full refuses the request before it is made. That
+// is not a decision: Gaffer does not record that it could not take the stop,
+// the stage keeps its decision, and the stop is put again once the gate is free.
+func TestABusyProviderLeavesAStopUndecidedAndItsDecisionUnspent(t *testing.T) {
+	r := outcomeFixture(t)
+	var calls atomic.Int32
+	decideWith(r, &calls, "decide", `{"choice":"move","why":"The endpoint and its tests are in the handover."}`)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	stopStage(t, r, code)
+	release := r.busyGate()
+	defer release()
+	setAutomation(t, r, created.ID, true)
+	// The supervisor and these looks all find the gate full.
+	for i := 0; i < 3; i++ {
+		r.s.autoDecisions(context.Background())
+		time.Sleep(50 * time.Millisecond)
+	}
+	o := mustOutcome(t, r, created.ID)
+	if stage := o.Sessions[0].Stages[0]; calls.Load() != 0 || len(o.Decisions) != 0 || stage.Decided > 1 || o.Sessions[0].Stage != 0 {
+		t.Fatalf("a busy provider decided or spent decisions: calls %d, %+v, %+v", calls.Load(), o.Decisions, stage)
+	}
+	release()
+	r.s.autoDecisions(context.Background())
+	got := decisions(t, r, created.ID, 1)[0]
+	if got.Choice != "move" || got.Failed || calls.Load() != 1 {
+		t.Fatalf("the stop was not put again once the gate was free: calls %d, %+v", calls.Load(), got)
+	}
+	if used := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.Stage == 1 }).Stages[0].Decided; used != 1 {
+		t.Fatalf("the refusals spent decisions: %d", used)
+	}
+}

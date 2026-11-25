@@ -621,3 +621,17 @@ func scrubSetupContent(ctx context.Context, path string) error {
 	}
 	return nil
 }
+
+// SetupBatchForRequest finds the batch a create request id already made.
+func (s *Store) SetupBatchForRequest(uid int64, requestID string) (SetupBatch, bool, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM setup_batches WHERE user_id=? AND request_id=? AND request_id<>''`, uid, requestID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SetupBatch{}, false, nil
+	}
+	if err != nil {
+		return SetupBatch{}, false, err
+	}
+	batch, err := loadSetupBatch(s.db, uid, id)
+	return batch, err == nil, err
+}

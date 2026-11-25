@@ -485,6 +485,7 @@ treated as verified.
 ```sh
 reet setup rollback --journal FILE --password-file FILE SNAPSHOT
 reet setup rollback --last --password-file FILE SNAPSHOT
+reet setup rollback --journal FILE
 reet setup journals --json
 ```
 
@@ -503,6 +504,9 @@ its passphrase so the journal can be checked against the snapshot content. Befor
 changing anything it verifies the snapshot ID, each recorded applied digest and every
 current destination; it refuses if a destination changed after the apply. Rollback
 copies must be regular files in the journal's directory with the expected digest.
+`--journal FILE` on its own, with no snapshot, checks the journal's own applied and
+rollback-copy digests instead; it reverses a [fleet setup copy](fleet-setup.md), which
+has no snapshot on the machine, the same way.
 
 Created files are removed and replaced files are restored from their rollback copies.
 Skipped conflicts are left alone. The journal becomes `rolled_back`; running the same
@@ -588,7 +592,9 @@ existing profile. `profile list` and `profile show` are local and need no passph
 keeps revision history; `profile remove --yes` deletes only the profile file and keeps
 snapshots. `profile push`/`pull` store the profile on a reet server using `REET_URL`,
 `REET_TOKEN`, saved defaults/token, `.env`/`REET_ENV_FILE`, `--env-file` or
-`--server`/`--token`; the payload contains no selected values. Pull writes
+`--server`/`--token`; the payload contains no selected values. (The one place a
+controller ever holds setup text is a [fleet setup copy](fleet-setup.md) while it runs,
+deleted when it ends and after 24 hours at most.) Pull writes
 a mode-0600 local profile and does not download the snapshot. The web **Profiles** page
 shows each agent's stored components for revisions with a recorded preview: settings
 field names, MCP server names, instruction sources, installed skill folders with file

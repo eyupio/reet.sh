@@ -147,6 +147,7 @@ nav:
   - Machines and agents:
     - Reet as the central control unit: control-centre.md
     - Agent software: agent-software.md
+    - Fleet setup copy: fleet-setup.md
     - Agent models: agent-models.md
     - Agent sign-ins and plan limits: agent-accounts.md
     - Usage: usage.md

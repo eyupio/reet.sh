@@ -388,6 +388,8 @@ func serve() error {
 	h.ResumeProjectRuns(ctx)
 	// Software batches interrupted by the last stop continue their pending machines.
 	h.ResumeSoftwareBatches(ctx)
+	// Setup copies too; text past its 24 hours is deleted first.
+	h.ResumeSetupBatches(ctx)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

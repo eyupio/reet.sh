@@ -29,6 +29,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
+	"github.com/eyupio/reet.sh/internal/setuprun"
 	"github.com/eyupio/reet.sh/internal/softwaremirror"
 	"github.com/eyupio/reet.sh/internal/softwarerun"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -110,6 +111,8 @@ type server struct {
 	terminals         *terminalbroker.Broker
 	runs              *projectrun.Orchestrator
 	softwareRuns      *softwarerun.Orchestrator
+	setupRuns         *setuprun.Orchestrator
+	setupReads        setupReads
 	mirror            *softwaremirror.Mirror
 	mirrorServes      chan struct{}
 	resumeDone        chan struct{} // closed when ResumeProjectRuns' watcher ends
@@ -216,6 +219,9 @@ func (s *Server) Close() error {
 	if s.s.softwareRuns != nil {
 		s.s.softwareRuns.Close()
 	}
+	if s.s.setupRuns != nil {
+		s.s.setupRuns.Close()
+	}
 	if s.s.terminals != nil {
 		s.s.terminals.Close()
 	}
@@ -313,6 +319,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.terminals.OnSessionBase(s.recordSessionBase)
 	s.runs = s.newProjectRuns()
 	s.softwareRuns = s.newSoftwareRuns()
+	s.setupRuns = s.newSetupRuns()
 	if dir := st.Dir(); dir != "" {
 		s.mirror = softwaremirror.New(filepath.Join(dir, "software", "artifacts"), agentsoftware.OpenCodeLinuxX64)
 		_ = s.mirror.GC()
@@ -440,6 +447,7 @@ func (s *server) routes() http.Handler {
 	s.registerUsageRoutes(mux)
 	s.registerSkillBuddy(mux)
 	s.registerSoftwareRoutes(mux)
+	s.registerSetupFleetRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)
 	s.registerDeskRoutes(mux)
